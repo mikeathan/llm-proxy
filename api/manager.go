@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+var ErrModelStarting = errors.New("model is starting")
+
 type ModelConfig struct {
 	Name string
 	Path string
@@ -49,7 +51,6 @@ func New(modelConfigs []ModelConfig, idleTimeout time.Duration) *LLMManager {
 
 	return m
 }
-
 func (m *LLMManager) EnsureModel(name string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -59,46 +60,40 @@ func (m *LLMManager) EnsureModel(name string) (int, error) {
 		return 0, ErrUnknownModel
 	}
 
-	// If same model already running
+	// Model already running
 	if m.activeModel != nil && m.activeModel.cfg.Name == name {
 		m.activeModel.lastUsed = time.Now()
 		return cfg.Port, nil
 	}
 
-	// Stop previous model
+	// If model is starting but not yet ready
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && !utils.PortReady(cfg.Port) {
+		return 0, ErrModelStarting
+	}
+
+	// Stop old model
 	if m.activeModel != nil {
 		_ = m.stopLocked()
 	}
 
-	// Start new model
+	// Start new model process
 	cmd := exec.Command(
 		"llama-server",
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
-
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
 	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("start model error: %w", err)
+		return 0, fmt.Errorf("model start failed: %w", err)
 	}
 
-	rm := &runningModel{
+	m.activeModel = &runningModel{
 		cfg:      cfg,
 		cmd:      cmd,
 		started:  time.Now(),
 		lastUsed: time.Now(),
 	}
-	m.activeModel = rm
 
-	// Wait until port responds
-	if err := utils.WaitForPort(cfg.Port, 30*time.Second); err != nil {
-		_ = m.stopLocked()
-		return 0, fmt.Errorf("model did not become ready: %w", err)
-	}
-
-	log.Printf("Model %s started on port %d", name, cfg.Port)
-	return cfg.Port, nil
+	// Immediately return "starting"
+	return 0, ErrModelStarting
 }
 
 func (m *LLMManager) RecordActivity(model string) {
