@@ -1,4 +1,4 @@
-package api
+package proxy
 
 
 import (
@@ -16,7 +16,6 @@ func NewReverseProxy(target string) *httputil.ReverseProxy {
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.Host = u.Host
-		// Keep path the same ( /v1/chat/completions )
 	}
 
 	return proxy

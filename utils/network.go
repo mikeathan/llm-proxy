@@ -28,4 +28,3 @@ func PortReady(port int) bool {
 	}
 	return false
 }
-

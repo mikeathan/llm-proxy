@@ -1,0 +1,29 @@
+{
+  "server": {
+    "bind": "127.0.0.1:8080",
+    "idle_timeout_seconds": 600,
+    "llama_server_binary": "/usr/local/bin/llama-server",
+    "default_args": [
+      "--gpu-layers=40",
+      "--threads=8"
+    ]
+  },
+  "models": [
+    {
+      "name": "qwen2.5-7b",
+      "path": "/models/qwen2.5-7b/Q4_K_M.gguf",
+      "args": [
+        "--ctx-size=4096"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "functionary",
+      "path": "/models/functionary-small-v2.6.Q4_K_M.gguf",
+      "args": [
+        "--ctx-size=8192"
+      ],
+      "port": 8082
+    }
+  ]
+}

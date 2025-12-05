@@ -1,9 +1,9 @@
-package api
+package proxy
 
 import (
 	"errors"
 	"fmt"
-	"llm-proxy/utils"
+	"llm-proxy/models"
 	"log"
 	"os/exec"
 	"sync"
@@ -20,6 +20,11 @@ type ModelConfig struct {
 	Port int
 }
 
+type LLMProxyManager interface {
+	EnsureModel(name string) (int, error)
+	RecordActivity(name string)
+}
+
 type LLMManager struct {
 	mu          sync.Mutex
 	activeModel *runningModel
@@ -34,9 +39,41 @@ type runningModel struct {
 	lastUsed time.Time
 }
 
+func (rm *runningModel) LastUsed() time.Time {
+	return rm.lastUsed
+}
+
+func (rm *runningModel) Started() time.Time {
+	return rm.started
+}
+
+func (rm *runningModel) Cfg() ModelConfig {
+	return rm.cfg
+}
+
 var ErrUnknownModel = errors.New("unknown model")
 
 func New(modelConfigs []ModelConfig, idleTimeout time.Duration) *LLMManager {
+	return NewWithReapInterval(modelConfigs, idleTimeout, 10*time.Second)
+}
+
+func NewManagerFromConfig(cfg *models.Config) *LLMManager {
+	models := make([]ModelConfig, len(cfg.Models))
+
+	for i, m := range cfg.Models {
+		args := append(cfg.Server.DefaultArgs, m.Args...)
+
+		models[i] = ModelConfig{
+			Name: m.Name,
+			Path: m.Path,
+			Args: args,
+			Port: m.Port,
+		}
+	}
+
+	return New(models, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
+}
+func NewWithReapInterval(modelConfigs []ModelConfig, idleTimeout, reapInterval time.Duration) *LLMManager {
 	m := &LLMManager{
 		models:      make(map[string]ModelConfig),
 		idleTimeout: idleTimeout,
@@ -46,11 +83,11 @@ func New(modelConfigs []ModelConfig, idleTimeout time.Duration) *LLMManager {
 		m.models[mc.Name] = mc
 	}
 
-	// Start reaper goroutine
-	go m.reapIdleModels()
+	go m.reapIdleModels(reapInterval)
 
 	return m
 }
+
 func (m *LLMManager) EnsureModel(name string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -67,7 +104,7 @@ func (m *LLMManager) EnsureModel(name string) (int, error) {
 	}
 
 	// If model is starting but not yet ready
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && !utils.PortReady(cfg.Port) {
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && !portReadyFunc(cfg.Port) {
 		return 0, ErrModelStarting
 	}
 
@@ -77,7 +114,7 @@ func (m *LLMManager) EnsureModel(name string) (int, error) {
 	}
 
 	// Start new model process
-	cmd := exec.Command(
+	cmd := execCommand(
 		"llama-server",
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
@@ -131,8 +168,14 @@ func (m *LLMManager) stopLocked() error {
 	return nil
 }
 
-func (m *LLMManager) reapIdleModels() {
-	t := time.NewTicker(10 * time.Second)
+func (m *LLMManager) ActiveModel() *runningModel {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeModel
+}
+
+func (m *LLMManager) reapIdleModels(reapInterval time.Duration) {
+	t := time.NewTicker(reapInterval)
 	defer t.Stop()
 
 	for range t.C {

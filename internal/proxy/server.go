@@ -1,4 +1,4 @@
-package api
+package proxy
 
 import (
 	"fmt"
@@ -6,7 +6,11 @@ import (
 )
 
 type Server struct {
-	Mgr *LLMManager
+	Mgr LLMProxyManager
+}
+
+var reverseProxyFactory = func(target string) http.Handler {
+	return NewReverseProxy(target)
 }
 
 func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +38,15 @@ func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
 	s.Mgr.RecordActivity(model)
 
 	target := fmt.Sprintf("http://127.0.0.1:%d", port)
-	rp := NewReverseProxy(target)
+	rp := reverseProxyFactory(target)
 
 	rp.ServeHTTP(w, r)
+}
+
+func SetReverseProxyFactory(f func(string) http.Handler) func() {
+	orig := reverseProxyFactory
+	reverseProxyFactory = f
+	return func() {
+		reverseProxyFactory = orig
+	}
 }

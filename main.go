@@ -1,97 +1,48 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"llm-proxy/api"
+	"llm-proxy/internal/api"
 	"llm-proxy/models"
+	"os"
 )
 
-// Example usage in IoT backend
-func exampleIoTBackendUsage() {
+func main() {
 	// Initialize client
 	client := api.NewLLMProxyClient(
-		"http://localhost:9000", // Management API
-		"http://localhost:9001", // Proxy API
+		"http://localhost:9000",
 	)
 
-	// Example 1: Direct approach (for frequent queries)
+	cfg, err := LoadConfig("config/config.json")
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		return
+	}
+
 	messages := []models.Message{
 		{Role: "user", Content: "What was the lowest temperature this week?"},
 	}
 
-	response, err := client.QueryLLMDirect("small-tooling", messages)
+	response, err := client.Query("small-tooling", messages)
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
 		return
 	}
 
 	fmt.Printf("Response: %s\n", response.Choices[0].Message.Content)
-
-	// Example 2: Proxy approach (for occasional queries)
-	response2, err := client.QueryLLMProxy("small-tooling", messages)
-	if err != nil {
-		fmt.Printf("Query failed: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Response: %s\n", response2.Choices[0].Message.Content)
-
-	// Example 3: Check status of all models
-	status, err := client.GetModelStatus()
-	if err == nil {
-		fmt.Printf("Running models: %+v\n", status)
-	}
-
-	// Example 4: Switch to larger model for complex query
-	complexMessages := []models.Message{
-		{Role: "user", Content: "Analyze temperature patterns and explain why there were fluctuations"},
-	}
-
-	response3, err := client.QueryLLMDirect("large-reasoning", complexMessages)
-	if err != nil {
-		fmt.Printf("Query failed: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Complex analysis: %s\n", response3.Choices[0].Message.Content)
 }
 
-// Example integration with IoT automation
-type IoTBackend struct {
-	llmClient *api.LLMProxyClient
-}
-
-func (iot *IoTBackend) HandleUserQuery(query string) (string, error) {
-	// Use small model for tooling queries
-	messages := []models.Message{
-		{
-			Role:    "system",
-			Content: "You are a helpful assistant for home automation queries.",
-		},
-		{
-			Role:    "user",
-			Content: query,
-		},
-	}
-
-	response, err := iot.llmClient.QueryLLMDirect("small-tooling", messages)
+func LoadConfig(path string) (*models.Config, error) {
+	f, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return response.Choices[0].Message.Content, nil
-}
-
-func (iot *IoTBackend) HandleComplexAnalysis(query string) (string, error) {
-	// Use large model for complex reasoning
-	messages := []models.Message{
-		{Role: "user", Content: query},
+	var cfg models.Config
+	if err := json.Unmarshal(f, &cfg); err != nil {
+		return nil, err
 	}
 
-	response, err := iot.llmClient.QueryLLMDirect("large-reasoning", messages)
-	if err != nil {
-		return "", err
-	}
-
-	return response.Choices[0].Message.Content, nil
+	return &cfg, nil
 }
