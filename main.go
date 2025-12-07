@@ -23,6 +23,11 @@ func main() {
 	mgr := proxy.NewManagerFromConfig(cfg)
 	server := proxy.NewServer(mgr)
 
+	http.HandleFunc("/admin/api/state", server.AdminStateHandler)
+	http.HandleFunc("/admin/api/start", server.AdminStartHandler)
+	http.HandleFunc("/admin/api/stop", server.AdminStopHandler)
+	http.HandleFunc("/admin", server.AdminPageHandler)
+	http.HandleFunc("/admin/", server.AdminPageHandler)
 	http.HandleFunc("/v1/chat/completions", server.ChatHandler)
 
 	log.Printf("LLM proxy listening on %s", cfg.Server.Bind)
