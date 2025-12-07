@@ -7,6 +7,7 @@ type Config struct {
 
 type ServerConfig struct {
 	Bind              string   `json:"bind"`
+	ModelHost         string   `json:"model_host"`
 	IdleTimeoutSecs   int      `json:"idle_timeout_seconds"`
 	LlamaServerBinary string   `json:"llama_server_binary"`
 	DefaultArgs       []string `json:"default_args"`

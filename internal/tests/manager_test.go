@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"llm-proxy/internal/proxy"
+	"llm-proxy/models"
 )
 
-// Fake exec.Command that doesn't spawn real processes.
+// Fake exec.Command that doesn't spawn a real process.
 func fakeCmd() func(name string, arg ...string) *exec.Cmd {
 	return func(name string, arg ...string) *exec.Cmd {
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperFakeProcess")
@@ -19,7 +20,7 @@ func fakeCmd() func(name string, arg ...string) *exec.Cmd {
 	}
 }
 
-// The fake process simply exits immediately.
+// Helper process stub
 func TestHelperFakeProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -34,7 +35,7 @@ func TestHelperFakeProcess(t *testing.T) {
 //
 
 func TestLLMManager_EnsureModel_Unknown(t *testing.T) {
-	m := proxy.New([]proxy.ModelConfig{}, time.Minute)
+	m := proxy.New(nil, "127.0.0.1", time.Minute)
 
 	_, err := m.EnsureModel("nope")
 	if !errors.Is(err, proxy.ErrUnknownModel) {
@@ -46,57 +47,58 @@ func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
 	restoreExec := proxy.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePortReady := proxy.SetPortReady(func(port int) bool { return false })
-	defer restorePortReady()
+	restorePort := proxy.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
 
-	m := proxy.New([]proxy.ModelConfig{
-		{
-			Name: "test",
-			Path: "/tmp/model",
-			Args: []string{"--x"},
-			Port: 9999,
-		},
-	}, time.Minute)
+	m := proxy.New([]models.ModelConfig{
+		{Name: "test", Path: "/tmp/model.gguf", Args: []string{"--x"}, Port: 9999},
+	}, "127.0.0.1", time.Minute)
 
-	port, err := m.EnsureModel("test")
+	mi, err := m.EnsureModel("test")
 
-	if port != 0 {
-		t.Fatalf("expected port=0 while starting, got %d", port)
+	if mi.Port != 0 {
+		t.Fatalf("expected empty ModelInstance (Port=0) while starting, got: %+v", mi)
 	}
 	if !errors.Is(err, proxy.ErrModelStarting) {
-		t.Fatalf("expected ErrModelStarting, got %v", err)
+		t.Fatalf("expected ErrModelStarting, got: %v", err)
 	}
 
 	if m.ActiveModel() == nil || m.ActiveModel().Cfg().Name != "test" {
-		t.Fatalf("model not marked active")
+		t.Fatalf("model should be active")
 	}
 }
 
-func TestLLMManager_EnsureModel_ReturnsPortWhenRunning(t *testing.T) {
+func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	restoreExec := proxy.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePortReady := proxy.SetPortReady(func(port int) bool { return false }) // model NOT ready yet
-	defer restorePortReady()
+	restorePort := proxy.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
 
-	m := proxy.New([]proxy.ModelConfig{
-		{Name: "test", Path: "x", Port: 7777},
-	}, time.Minute)
+	m := proxy.New([]models.ModelConfig{
+		{Name: "test", Path: "model.gguf", Port: 7777},
+	}, "127.0.0.1", time.Minute)
 
-	// First call → starts model (still "starting")
+	// First call: starting
 	_, _ = m.EnsureModel("test")
 
-	// NOW mark port as ready
-	restorePortReady2 := proxy.SetPortReady(func(port int) bool { return true })
-	defer restorePortReady2()
+	// Now simulate ready
+	restorePort2 := proxy.SetPortReady(func(port int) bool { return true })
+	defer restorePort2()
 
-	// Second call should now return the actual port
-	port, err := m.EnsureModel("test")
+	mi, err := m.EnsureModel("test")
+
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if port != 7777 {
-		t.Fatalf("expected port=7777, got %d", port)
+	if mi.Port != 7777 {
+		t.Fatalf("expected port=7777, got %d", mi.Port)
+	}
+	if mi.Host != "127.0.0.1" {
+		t.Fatalf("expected host=127.0.0.1, got %s", mi.Host)
+	}
+	if mi.Name != "test" {
+		t.Fatalf("expected Name=test, got %s", mi.Name)
 	}
 }
 
@@ -104,12 +106,12 @@ func TestLLMManager_RecordActivity(t *testing.T) {
 	restoreExec := proxy.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePortReady := proxy.SetPortReady(func(port int) bool { return false })
-	defer restorePortReady()
+	restorePort := proxy.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
 
-	m := proxy.New([]proxy.ModelConfig{
+	m := proxy.New([]models.ModelConfig{
 		{Name: "test", Path: "x", Port: 4444},
-	}, time.Millisecond*200)
+	}, "127.0.0.1", time.Millisecond*200)
 
 	_, _ = m.EnsureModel("test")
 
@@ -119,7 +121,7 @@ func TestLLMManager_RecordActivity(t *testing.T) {
 	m.RecordActivity("test")
 
 	if !m.ActiveModel().LastUsed().After(old) {
-		t.Fatalf("RecordActivity did not update timestamp")
+		t.Fatalf("RecordActivity should update lastUsed")
 	}
 }
 
@@ -127,22 +129,23 @@ func TestLLMManager_IdleReaperStopsModel(t *testing.T) {
 	restoreExec := proxy.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePortReady := proxy.SetPortReady(func(port int) bool { return true })
-	defer restorePortReady()
+	restorePort := proxy.SetPortReady(func(port int) bool { return true })
+	defer restorePort()
 
 	m := proxy.NewWithReapInterval(
-		[]proxy.ModelConfig{
+		[]models.ModelConfig{
 			{Name: "test", Path: "x", Port: 3333},
 		},
+		"127.0.0.1",
 		time.Millisecond*50, // idle timeout
 		time.Millisecond*20, // reaper tick
 	)
-	// start model
+
 	_, _ = m.EnsureModel("test")
 
-	time.Sleep(time.Millisecond * 120) // wait past idle timeout
+	time.Sleep(time.Millisecond * 120)
 
 	if m.ActiveModel() != nil {
-		t.Fatalf("model should be reaped due to idle timeout")
+		t.Fatalf("model should be reaped after idle timeout")
 	}
 }

@@ -13,27 +13,29 @@ import (
 
 var ErrModelStarting = errors.New("model is starting")
 
-type ModelConfig struct {
+type ModelInstance struct {
 	Name string
+	Host string
+	Port int
 	Path string
 	Args []string
-	Port int
 }
 
 type LLMProxyManager interface {
-	EnsureModel(name string) (int, error)
+	EnsureModel(name string) (ModelInstance, error)
 	RecordActivity(name string)
 }
 
 type LLMManager struct {
 	mu          sync.Mutex
 	activeModel *runningModel
-	models      map[string]ModelConfig
+	models      map[string]models.ModelConfig
 	idleTimeout time.Duration
+	modelHost   string
 }
 
 type runningModel struct {
-	cfg      ModelConfig
+	cfg      models.ModelConfig
 	cmd      *exec.Cmd
 	started  time.Time
 	lastUsed time.Time
@@ -47,36 +49,39 @@ func (rm *runningModel) Started() time.Time {
 	return rm.started
 }
 
-func (rm *runningModel) Cfg() ModelConfig {
+func (rm *runningModel) Cfg() models.ModelConfig {
 	return rm.cfg
 }
 
 var ErrUnknownModel = errors.New("unknown model")
 
-func New(modelConfigs []ModelConfig, idleTimeout time.Duration) *LLMManager {
-	return NewWithReapInterval(modelConfigs, idleTimeout, 10*time.Second)
+func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMManager {
+	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, 10*time.Second)
 }
 
 func NewManagerFromConfig(cfg *models.Config) *LLMManager {
-	models := make([]ModelConfig, len(cfg.Models))
+	mc := make([]models.ModelConfig, len(cfg.Models))
 
 	for i, m := range cfg.Models {
 		args := append(cfg.Server.DefaultArgs, m.Args...)
 
-		models[i] = ModelConfig{
+		mc[i] = models.ModelConfig{
 			Name: m.Name,
 			Path: m.Path,
 			Args: args,
 			Port: m.Port,
 		}
+
 	}
 
-	return New(models, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
+	return New(mc, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
 }
-func NewWithReapInterval(modelConfigs []ModelConfig, idleTimeout, reapInterval time.Duration) *LLMManager {
+
+func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, idleTimeout, reapInterval time.Duration) *LLMManager {
 	m := &LLMManager{
-		models:      make(map[string]ModelConfig),
+		models:      make(map[string]models.ModelConfig),
 		idleTimeout: idleTimeout,
+		modelHost:   modelHost,
 	}
 
 	for _, mc := range modelConfigs {
@@ -87,28 +92,33 @@ func NewWithReapInterval(modelConfigs []ModelConfig, idleTimeout, reapInterval t
 
 	return m
 }
-
-func (m *LLMManager) EnsureModel(name string) (int, error) {
+func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	cfg, ok := m.models[name]
 	if !ok {
-		return 0, ErrUnknownModel
+		return ModelInstance{}, ErrUnknownModel
 	}
 
-	// Model already running
-	if m.activeModel != nil && m.activeModel.cfg.Name == name {
+	// Already running AND ready
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && portReadyFunc(cfg.Port) {
 		m.activeModel.lastUsed = time.Now()
-		return cfg.Port, nil
+		return ModelInstance{
+			Name: cfg.Name,
+			Host: m.modelHost,
+			Port: cfg.Port,
+			Path: cfg.Path,
+			Args: cfg.Args,
+		}, nil
 	}
 
-	// If model is starting but not yet ready
+	// Already running BUT still starting
 	if m.activeModel != nil && m.activeModel.cfg.Name == name && !portReadyFunc(cfg.Port) {
-		return 0, ErrModelStarting
+		return ModelInstance{}, ErrModelStarting
 	}
 
-	// Stop old model
+	// Stop previously running model
 	if m.activeModel != nil {
 		_ = m.stopLocked()
 	}
@@ -118,8 +128,9 @@ func (m *LLMManager) EnsureModel(name string) (int, error) {
 		"llama-server",
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
+
 	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("model start failed: %w", err)
+		return ModelInstance{}, fmt.Errorf("model start failed: %w", err)
 	}
 
 	m.activeModel = &runningModel{
@@ -129,8 +140,8 @@ func (m *LLMManager) EnsureModel(name string) (int, error) {
 		lastUsed: time.Now(),
 	}
 
-	// Immediately return "starting"
-	return 0, ErrModelStarting
+	// Model is starting, not ready
+	return ModelInstance{}, ErrModelStarting
 }
 
 func (m *LLMManager) RecordActivity(model string) {
