@@ -6,11 +6,15 @@ import (
 )
 
 type Server struct {
-	Mgr LLMProxyManager
+	manager LLMProxyManager
 }
 
 var reverseProxyFactory = func(target string) http.Handler {
 	return NewReverseProxy(target)
+}
+
+func NewServer(mgr LLMProxyManager) *Server {
+	return &Server{manager: mgr}
 }
 
 func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
@@ -20,12 +24,12 @@ func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	port, err := s.Mgr.EnsureModel(model)
+	mi, err := s.manager.EnsureModel(model)
 	if err == ErrModelStarting {
 		w.Header().Set("Retry-After", "1")
 		w.Header().Set("X-LLM-Status", "starting")
 		w.WriteHeader(http.StatusAccepted)
-		fmt.Fprint(w, `{"status":"starting"}`)
+		w.Write([]byte(`{"status":"starting"}`))
 		return
 	}
 
@@ -34,12 +38,10 @@ func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ready → Reverse proxy to llama.cpp
-	s.Mgr.RecordActivity(model)
+	s.manager.RecordActivity(model)
 
-	target := fmt.Sprintf("http://127.0.0.1:%d", port)
+	target := fmt.Sprintf("http://%s:%d", mi.Host, mi.Port)
 	rp := reverseProxyFactory(target)
-
 	rp.ServeHTTP(w, r)
 }
 

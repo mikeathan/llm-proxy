@@ -22,7 +22,7 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestChatHandler_MissingHeader(t *testing.T) {
-	srv := &proxy.Server{Mgr: nil} // Mgr not used for this case
+	srv := proxy.NewServer(nil) // Mgr not used for this case
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
@@ -39,12 +39,12 @@ func TestChatHandler_MissingHeader(t *testing.T) {
 
 func TestChatHandler_ModelStarting(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (int, error) {
-			return 0, proxy.ErrModelStarting
+		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
+			return proxy.ModelInstance{}, proxy.ErrModelStarting
 		},
 	}
 
-	srv := &proxy.Server{Mgr: mgr}
+	srv := proxy.NewServer(mgr)
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -69,12 +69,12 @@ func TestChatHandler_ModelStarting(t *testing.T) {
 
 func TestChatHandler_ModelError(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (int, error) {
-			return 0, errors.New("boom")
+		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
+			return proxy.ModelInstance{}, errors.New("boom")
 		},
 	}
 
-	srv := &proxy.Server{Mgr: mgr}
+	srv := proxy.NewServer(mgr)
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -101,13 +101,13 @@ func TestChatHandler_ProxyCalled(t *testing.T) {
 	defer restore()
 
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (int, error) {
-			return 9999, nil
+		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
+			return proxy.ModelInstance{Port: 9999}, nil
 		},
 		RecordActivityFunc: func(name string) {},
 	}
 
-	srv := &proxy.Server{Mgr: mgr}
+	srv := proxy.NewServer(mgr)
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")

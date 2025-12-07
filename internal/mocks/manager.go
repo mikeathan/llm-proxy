@@ -1,12 +1,13 @@
 package mocks
 
+import "llm-proxy/internal/proxy"
 
 type MockManager struct {
-	EnsureModelFunc    func(name string) (int, error)
+	EnsureModelFunc    func(name string) (proxy.ModelInstance, error)
 	RecordActivityFunc func(name string)
 }
 
-func (m *MockManager) EnsureModel(name string) (int, error) {
+func (m *MockManager) EnsureModel(name string) (proxy.ModelInstance, error) {
 	return m.EnsureModelFunc(name)
 }
 
