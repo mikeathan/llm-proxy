@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>LLM Proxy Console</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0f1729;
+      --panel: #152038;
+      --muted: #9fb3c8;
+      --accent: #4ad0ae;
+      --accent-2: #33a9ff;
+      --danger: #ff7369;
+      --border: rgba(255, 255, 255, 0.08);
+      --shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 20%, rgba(74, 208, 174, 0.08), transparent 35%), radial-gradient(circle at 80% 10%, rgba(51, 169, 255, 0.12), transparent 32%), var(--bg);
+      color: #f4f7fb;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.5;
+      padding: 28px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .card {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)), var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #d9e5f6;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    @media (min-width: 800px) {
+      .grid.two {
+        grid-template-columns: 1.2fr 0.8fr;
+      }
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .pill.ready { background: rgba(74, 208, 174, 0.14); color: #8ef0d6; }
+    .pill.starting { background: rgba(255, 196, 86, 0.14); color: #ffd184; }
+    .pill.idle { background: rgba(255, 255, 255, 0.08); color: #d8e2f0; }
+    .pill.error { background: rgba(255, 115, 105, 0.14); color: #ffb0aa; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      text-align: left;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #0d1526;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 8px 20px rgba(51, 169, 255, 0.35);
+      transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+    }
+    button.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #e6eef8;
+      box-shadow: none;
+    }
+    button.danger {
+      background: linear-gradient(135deg, var(--danger), #ff9a89);
+      color: #0f1729;
+      box-shadow: 0 8px 20px rgba(255, 115, 105, 0.35);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    .muted { color: var(--muted); }
+    .status-line { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .kbd {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 2px 6px;
+      border-radius: 6px;
+      color: #e4ecf7;
+    }
+    .message {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: #e6eef8;
+      min-height: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>LLM Proxy Console</h1>
+      <p>Start or stop models, watch readiness, and inspect configured endpoints from a simple panel.</p>
+    </header>
+
+    <div class="grid two">
+      <div class="card" id="active-card">
+        <h2>Active model</h2>
+        <div id="active-status" class="muted">No model running</div>
+      </div>
+      <div class="card">
+        <h2>Actions</h2>
+        <div class="toolbar">
+          <button id="refresh">Refresh</button>
+          <button id="stop" class="danger">Stop active</button>
+        </div>
+        <div id="message" class="message" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Configured models</h2>
+      <div class="status-line">Click start to boot a model. The table refreshes automatically.</div>
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Port</th>
+              <th>Endpoint</th>
+              <th>Args</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="models-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const messageEl = document.getElementById("message");
+    const activeStatusEl = document.getElementById("active-status");
+    const modelsBody = document.getElementById("models-body");
+    const refreshBtn = document.getElementById("refresh");
+    const stopBtn = document.getElementById("stop");
+    let refreshTimer = null;
+
+    function setMessage(text, tone = "info") {
+      messageEl.textContent = text || "";
+      messageEl.style.borderColor = tone === "error" ? "rgba(255, 115, 105, 0.4)" : "var(--border)";
+    }
+
+    function badge(label, className) {
+      const span = document.createElement("span");
+      span.className = `pill ${className}`;
+      span.textContent = label;
+      return span;
+    }
+
+    function renderActive(active) {
+      if (!active) {
+        activeStatusEl.innerHTML = '<div class="pill idle">Idle</div><div class="status-line">No model is running.</div>';
+        stopBtn.disabled = true;
+        return;
+      }
+
+      const container = document.createElement("div");
+      const state = active.ready ? badge("Ready", "ready") : badge("Starting", "starting");
+      const title = document.createElement("div");
+      title.style.display = "flex";
+      title.style.alignItems = "center";
+      title.style.gap = "10px";
+      title.style.fontSize = "18px";
+      title.innerHTML = `<strong>${active.name}</strong>`;
+      title.appendChild(state);
+
+      const detail = document.createElement("div");
+      detail.className = "status-line";
+      detail.innerHTML = [
+        `Port <span class="kbd">${active.port}</span>`,
+        active.endpoint ? `<span class="kbd">${active.endpoint}</span>` : "",
+        `Started ${new Date(active.started_at).toLocaleTimeString()}`
+      ].filter(Boolean).join(" · ");
+
+      container.appendChild(title);
+      container.appendChild(detail);
+      activeStatusEl.innerHTML = "";
+      activeStatusEl.appendChild(container);
+      stopBtn.disabled = false;
+    }
+
+    function renderModels(models) {
+      modelsBody.innerHTML = "";
+      models.forEach(model => {
+        const row = document.createElement("tr");
+        const statusCell = document.createElement("td");
+        const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
+        statusCell.appendChild(status);
+
+        const startBtn = document.createElement("button");
+        startBtn.textContent = model.active ? "Restart" : "Start";
+        startBtn.onclick = () => startModel(model.name);
+        startBtn.disabled = model.ready === false && model.active; // in startup, avoid spamming
+
+        row.innerHTML = `
+          <td><strong>${model.name}</strong></td>
+        `;
+        row.appendChild(statusCell);
+        row.innerHTML += `
+          <td>${model.port}</td>
+          <td><span class="kbd">${model.endpoint}</span></td>
+          <td class="muted">${model.args && model.args.length ? model.args.join(" ") : "—"}</td>
+        `;
+        const actionCell = document.createElement("td");
+        actionCell.appendChild(startBtn);
+        row.appendChild(actionCell);
+        modelsBody.appendChild(row);
+      });
+    }
+
+    async function fetchState() {
+      try {
+        const res = await fetch("/admin/api/state");
+        if (!res.ok) {
+          throw new Error(`State error: ${res.status}`);
+        }
+        const data = await res.json();
+        renderActive(data.active);
+        renderModels(data.models || []);
+        setMessage("Updated just now");
+      } catch (err) {
+        setMessage(err.message, "error");
+      }
+    }
+
+    async function startModel(name) {
+      setMessage(`Starting ${name}...`);
+      try {
+        const res = await fetch("/admin/api/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name })
+        });
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
+        if (!res.ok) {
+          throw new Error(data.error || text || `Unable to start ${name}`);
+        }
+        setMessage(`${name} ${data.status || "started"}`);
+      } catch (err) {
+        setMessage(err.message, "error");
+      } finally {
+        fetchState();
+      }
+    }
+
+    async function stopActive() {
+      setMessage("Stopping active model...");
+      try {
+        const res = await fetch("/admin/api/stop", { method: "POST" });
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
+        if (!res.ok) {
+          throw new Error(data.error || text || "Unable to stop");
+        }
+        setMessage(data.stopped ? `Stopped ${data.stopped}` : "No model was running");
+      } catch (err) {
+        setMessage(err.message, "error");
+      } finally {
+        fetchState();
+      }
+    }
+
+    refreshBtn.onclick = fetchState;
+    stopBtn.onclick = stopActive;
+
+    function startAutoRefresh() {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = setInterval(fetchState, 4000);
+    }
+
+    fetchState();
+    startAutoRefresh();
+  </script>
+</body>
+</html>

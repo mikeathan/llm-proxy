@@ -6,6 +6,7 @@ import (
 	"llm-proxy/models"
 	"log"
 	"os/exec"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -21,9 +22,22 @@ type ModelInstance struct {
 	Args []string
 }
 
+type ActiveModelInfo struct {
+	Name     string
+	Host     string
+	Port     int
+	Started  time.Time
+	LastUsed time.Time
+	Ready    bool
+}
+
 type LLMProxyManager interface {
 	EnsureModel(name string) (ModelInstance, error)
 	RecordActivity(name string)
+	ListModels() []models.ModelConfig
+	ActiveInfo() *ActiveModelInfo
+	StopActive() error
+	ModelHost() string
 }
 
 type LLMManager struct {
@@ -153,6 +167,57 @@ func (m *LLMManager) RecordActivity(model string) {
 	}
 }
 
+func (m *LLMManager) StopActive() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stopLocked()
+}
+
+func (m *LLMManager) ListModels() []models.ModelConfig {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	names := make([]string, 0, len(m.models))
+	for name := range m.models {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	modelsOut := make([]models.ModelConfig, 0, len(names))
+	for _, name := range names {
+		cfg := m.models[name]
+		argsCopy := append([]string(nil), cfg.Args...)
+		modelsOut = append(modelsOut, models.ModelConfig{
+			Name: cfg.Name,
+			Path: cfg.Path,
+			Args: argsCopy,
+			Port: cfg.Port,
+		})
+	}
+
+	return modelsOut
+}
+
+func (m *LLMManager) ActiveInfo() *ActiveModelInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.activeModel == nil {
+		return nil
+	}
+
+	cfg := m.activeModel.cfg
+
+	return &ActiveModelInfo{
+		Name:     cfg.Name,
+		Host:     m.modelHost,
+		Port:     cfg.Port,
+		Started:  m.activeModel.started,
+		LastUsed: m.activeModel.lastUsed,
+		Ready:    portReadyFunc(cfg.Port),
+	}
+}
+
 func (m *LLMManager) stopLocked() error {
 	if m.activeModel == nil {
 		return nil
@@ -183,6 +248,12 @@ func (m *LLMManager) ActiveModel() *runningModel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.activeModel
+}
+
+func (m *LLMManager) ModelHost() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.modelHost
 }
 
 func (m *LLMManager) reapIdleModels(reapInterval time.Duration) {
