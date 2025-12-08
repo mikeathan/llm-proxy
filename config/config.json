@@ -4,14 +4,24 @@
     "model_host": "127.0.0.1",
     "idle_timeout_seconds": 1800,
     "llama_server_binary": "/dev/llama.cpp",
-    "default_args": ["--gpu-layers=40", "--threads=8"]
+    "default_args": [
+      "--gpu-layers=40",
+      "--threads=8"
+    ]
   },
   "models": [
     {
       "name": "qwen2.5-7b",
       "path": "/models/qwen2.5-7b/Q4_K_M.gguf",
-      "args": ["--ctx-size=4096"],
+      "args": [
+        "--gpu-layers=40",
+        "--threads=8",
+        "--ctx-size=4096"
+      ],
       "port": 8081
     }
+  ],
+  "model_dirs": [
+    "/models"
   ]
 }

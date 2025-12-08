@@ -3,8 +3,10 @@ package proxy_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +27,7 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestChatHandler_MissingHeader(t *testing.T) {
-	srv := proxy.NewServer(nil) // Mgr not used for this case
+	srv := proxy.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
@@ -47,7 +49,7 @@ func TestChatHandler_ModelStarting(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(mgr)
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -77,7 +79,7 @@ func TestChatHandler_ModelError(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(mgr)
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -110,7 +112,7 @@ func TestChatHandler_ProxyCalled(t *testing.T) {
 		RecordActivityFunc: func(name string) {},
 	}
 
-	srv := proxy.NewServer(mgr)
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -150,7 +152,7 @@ func TestAdminStateHandler(t *testing.T) {
 		ModelHostFunc: func() string { return "127.0.0.1" },
 	}
 
-	srv := proxy.NewServer(mgr)
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
 
@@ -204,7 +206,7 @@ func TestAdminStartHandler(t *testing.T) {
 		ModelHostFunc:      func() string { return "127.0.0.1" },
 	}
 
-	srv := proxy.NewServer(mgr)
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	w := httptest.NewRecorder()
 
@@ -228,7 +230,7 @@ func TestAdminStopHandler(t *testing.T) {
 		},
 	}
 
-	srv := proxy.NewServer(mgr)
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -242,5 +244,63 @@ func TestAdminStopHandler(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "delta") {
 		t.Fatalf("expected response to include stopped model, got %s", w.Body.String())
+	}
+}
+
+func TestAdminStopHandler_Error(t *testing.T) {
+	mgr := &mocks.MockManager{
+		ActiveInfoFunc: func() *proxy.ActiveModelInfo { return &proxy.ActiveModelInfo{Name: "delta"} },
+		StopActiveFunc: func() error { return errors.New("boom") },
+	}
+
+	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
+	w := httptest.NewRecorder()
+
+	srv.AdminStopHandler(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "boom") {
+		t.Fatalf("expected error message in body, got %s", w.Body.String())
+	}
+}
+
+func TestAdminAddModelHandler(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "model-*.gguf")
+	if err != nil {
+		t.Fatalf("failed to create temp model: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	var added models.ModelConfig
+	mgr := &mocks.MockManager{
+		AddModelFunc: func(cfg models.ModelConfig) error {
+			added = cfg
+			return nil
+		},
+		ListModelsFunc: func() []models.ModelConfig { return nil },
+	}
+
+	cfg := &models.Config{
+		Server: models.ServerConfig{DefaultArgs: []string{"--gpu-layers=2"}},
+	}
+
+	srv := proxy.NewServer(mgr, cfg, "")
+	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","path":"%s","port":9999,"args":["--ctx-size=2048"]}`, tmpFile.Name()))
+	req := httptest.NewRequest("POST", "/admin/api/models", body)
+	w := httptest.NewRecorder()
+
+	srv.AdminAddModelHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if added.Name != "theta" || added.Port != 9999 {
+		t.Fatalf("unexpected model added: %+v", added)
+	}
+	if len(added.Args) != 2 || added.Args[0] != "--gpu-layers=2" || added.Args[1] != "--ctx-size=2048" {
+		t.Fatalf("expected default args merged, got %v", added.Args)
 	}
 }

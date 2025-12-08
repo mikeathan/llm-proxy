@@ -23,16 +23,24 @@ func LoadConfig(path string) (*models.Config, error) {
 	return &cfg, nil
 }
 
-func LoadEnvOverrides(cfg *models.Config) {
-    godotenv.Load()
+func SaveConfig(path string, cfg *models.Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
 
-    if v := os.Getenv("BIND"); v != "" {
-        cfg.Server.Bind = v
-    }
-    if v := os.Getenv("IDLE_TIMEOUT_SECS"); v != "" {
-        cfg.Server.IdleTimeoutSecs, _ = strconv.Atoi(v)
-    }
-    if v := os.Getenv("LLAMA_BINARY"); v != "" {
-        cfg.Server.LlamaServerBinary = v
-    }
+func LoadEnvOverrides(cfg *models.Config) {
+	godotenv.Load()
+
+	if v := os.Getenv("BIND"); v != "" {
+		cfg.Server.Bind = v
+	}
+	if v := os.Getenv("IDLE_TIMEOUT_SECS"); v != "" {
+		cfg.Server.IdleTimeoutSecs, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("LLAMA_BINARY"); v != "" {
+		cfg.Server.LlamaServerBinary = v
+	}
 }
