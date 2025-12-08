@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+//go:embed admin_ui.html
 var adminPage []byte
 
 func (s *Server) AdminPageHandler(w http.ResponseWriter, r *http.Request) {

@@ -35,9 +35,13 @@ type LLMProxyManager interface {
 	EnsureModel(name string) (ModelInstance, error)
 	RecordActivity(name string)
 	ListModels() []models.ModelConfig
+	AddModel(models.ModelConfig) error
+	UpdateModel(models.ModelConfig) error
+	RemoveModel(name string) error
 	ActiveInfo() *ActiveModelInfo
 	StopActive() error
 	ModelHost() string
+	SetBinary(path string)
 }
 
 type LLMManager struct {
@@ -46,6 +50,7 @@ type LLMManager struct {
 	models      map[string]models.ModelConfig
 	idleTimeout time.Duration
 	modelHost   string
+	llamaBinary string
 }
 
 type runningModel struct {
@@ -68,6 +73,7 @@ func (rm *runningModel) Cfg() models.ModelConfig {
 }
 
 var ErrUnknownModel = errors.New("unknown model")
+var ErrModelExists = errors.New("model already exists")
 
 func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMManager {
 	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, 10*time.Second)
@@ -88,7 +94,11 @@ func NewManagerFromConfig(cfg *models.Config) *LLMManager {
 
 	}
 
-	return New(mc, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
+	m := New(mc, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
+	if cfg.Server.LlamaServerBinary != "" {
+		m.llamaBinary = cfg.Server.LlamaServerBinary
+	}
+	return m
 }
 
 func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, idleTimeout, reapInterval time.Duration) *LLMManager {
@@ -96,6 +106,7 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 		models:      make(map[string]models.ModelConfig),
 		idleTimeout: idleTimeout,
 		modelHost:   modelHost,
+		llamaBinary: "llama-server",
 	}
 
 	for _, mc := range modelConfigs {
@@ -116,6 +127,10 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	}
 
 	// Already running AND ready
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && cfg.Port == 0 {
+		cfg.Port = m.activeModel.cfg.Port
+		m.models[name] = cfg
+	}
 	if m.activeModel != nil && m.activeModel.cfg.Name == name && portReadyFunc(cfg.Port) {
 		m.activeModel.lastUsed = time.Now()
 		return ModelInstance{
@@ -133,13 +148,21 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	}
 
 	// Stop previously running model
+	activePort := 0
+	if m.activeModel != nil {
+		activePort = m.activeModel.cfg.Port
+	}
 	if m.activeModel != nil {
 		_ = m.stopLocked()
 	}
 
+	port := m.defaultPortLocked(cfg, activePort)
+	cfg.Port = port
+	m.models[name] = cfg
+
 	// Start new model process
 	cmd := execCommand(
-		"llama-server",
+		m.llamaBinary,
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
 
@@ -171,6 +194,52 @@ func (m *LLMManager) StopActive() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.stopLocked()
+}
+
+func (m *LLMManager) AddModel(cfg models.ModelConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.models[cfg.Name]; ok {
+		return ErrModelExists
+	}
+
+	m.models[cfg.Name] = cfg
+	return nil
+}
+
+func (m *LLMManager) UpdateModel(cfg models.ModelConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.models[cfg.Name]; !ok {
+		return ErrUnknownModel
+	}
+
+	m.models[cfg.Name] = cfg
+
+	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
+		_ = m.stopLocked()
+	}
+
+	return nil
+}
+
+func (m *LLMManager) RemoveModel(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cfg, ok := m.models[name]
+	if !ok {
+		return ErrUnknownModel
+	}
+
+	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
+		_ = m.stopLocked()
+	}
+
+	delete(m.models, name)
+	return nil
 }
 
 func (m *LLMManager) ListModels() []models.ModelConfig {
@@ -254,6 +323,30 @@ func (m *LLMManager) ModelHost() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.modelHost
+}
+
+func (m *LLMManager) SetBinary(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if path != "" {
+		m.llamaBinary = path
+	}
+}
+
+func (m *LLMManager) defaultPortLocked(cfg models.ModelConfig, activePort int) int {
+	if cfg.Port != 0 {
+		return cfg.Port
+	}
+	if activePort != 0 {
+		return activePort
+	}
+	port := 8081
+	for _, mc := range m.models {
+		if mc.Port >= port {
+			port = mc.Port + 1
+		}
+	}
+	return port
 }
 
 func (m *LLMManager) reapIdleModels(reapInterval time.Duration) {

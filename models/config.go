@@ -1,8 +1,9 @@
 package models
 
 type Config struct {
-	Server ServerConfig  `json:"server"`
-	Models []ModelConfig `json:"models"`
+	Server    ServerConfig  `json:"server"`
+	Models    []ModelConfig `json:"models"`
+	ModelDirs []string      `json:"model_dirs"`
 }
 
 type ServerConfig struct {

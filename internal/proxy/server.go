@@ -2,19 +2,35 @@ package proxy
 
 import (
 	"fmt"
+	"llm-proxy/models"
 	"net/http"
+	"sync"
 )
 
 type Server struct {
-	manager LLMProxyManager
+	manager    LLMProxyManager
+	config     *models.Config
+	configPath string
+	modelDirs  []string
+	configMu   sync.Mutex
 }
 
 var reverseProxyFactory = func(target string) http.Handler {
 	return NewReverseProxy(target)
 }
 
-func NewServer(mgr LLMProxyManager) *Server {
-	return &Server{manager: mgr}
+func NewServer(mgr LLMProxyManager, cfg *models.Config, configPath string) *Server {
+	dirs := []string(nil)
+	if cfg != nil && len(cfg.ModelDirs) > 0 {
+		dirs = append(dirs, cfg.ModelDirs...)
+	}
+
+	return &Server{
+		manager:    mgr,
+		config:     cfg,
+		configPath: configPath,
+		modelDirs:  dirs,
+	}
 }
 
 func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
