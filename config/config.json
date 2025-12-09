@@ -4,13 +4,13 @@
     "model_host": "127.0.0.1",
     "idle_timeout_seconds": 1800,
     "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
-    "default_args": ["--ctx-size=4096", "--threads=6"]
+    "default_args": ["--ctx-size", "4096", "--threads", "6"]
   },
   "models": [
     {
       "name": "qwen2.5-7b",
       "path": "qwen2.5-3b-instruct-q4_k_m.gguf",
-      "args": ["--gpu-layers=8"],
+      "args": ["--gpu-layers", "8"],
       "port": 5001
     }
   ],

@@ -350,7 +350,7 @@
         portInput.value = model.port;
 
         const argsInput = document.createElement("input");
-        argsInput.placeholder = "--ctx-size=4096";
+        argsInput.placeholder = "--ctx-size 4096";
         argsInput.value = model.args && model.args.length ? model.args.join(" ") : "";
 
         row.innerHTML = `
@@ -423,7 +423,7 @@
 
         const argsCell = document.createElement("td");
         const argsInput = document.createElement("input");
-        argsInput.placeholder = "--ctx-size=4096";
+        argsInput.placeholder = "--ctx-size 4096";
         argsCell.appendChild(argsInput);
         row.appendChild(argsCell);
 

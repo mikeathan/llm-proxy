@@ -284,11 +284,11 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	cfg := &models.Config{
-		Server: models.ServerConfig{DefaultArgs: []string{"--gpu-layers=2"}},
+		Server: models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
 	}
 
 	srv := proxy.NewServer(mgr, cfg, "")
-	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","path":"%s","port":9999,"args":["--ctx-size=2048"]}`, tmpFile.Name()))
+	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","path":"%s","port":9999,"args":["--ctx-size","2048"]}`, tmpFile.Name()))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	w := httptest.NewRecorder()
 
@@ -300,7 +300,7 @@ func TestAdminAddModelHandler(t *testing.T) {
 	if added.Name != "theta" || added.Port != 9999 {
 		t.Fatalf("unexpected model added: %+v", added)
 	}
-	if len(added.Args) != 2 || added.Args[0] != "--gpu-layers=2" || added.Args[1] != "--ctx-size=2048" {
+	if len(added.Args) != 4 || added.Args[0] != "--gpu-layers" || added.Args[1] != "2" || added.Args[2] != "--ctx-size" || added.Args[3] != "2048" {
 		t.Fatalf("expected default args merged, got %v", added.Args)
 	}
 }
