@@ -85,6 +85,7 @@ type hostMetrics struct {
 	Load5          float64   `json:"load5"`
 	Load15         float64   `json:"load15"`
 	LoadPct        float64   `json:"load_percent"`
+	Cores          int       `json:"cores"`
 	MemTotalMB     float64   `json:"mem_total_mb"`
 	MemFreeMB      float64   `json:"mem_free_mb"`
 	MemAvailableMB float64   `json:"mem_available_mb"`
@@ -345,9 +346,10 @@ func (s *Server) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
 
 	load1, load5, load15, _ := readLoadAvg()
 	mem := readMemInfo()
+	cores := runtime.NumCPU()
 	pct := 0.0
-	if cores := float64(runtime.NumCPU()); cores > 0 {
-		pct = (load1 / cores) * 100
+	if c := float64(cores); c > 0 {
+		pct = (load1 / c) * 100
 	}
 
 	resp := hostMetrics{
@@ -355,6 +357,7 @@ func (s *Server) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
 		Load5:          load5,
 		Load15:         load15,
 		LoadPct:        pct,
+		Cores:          cores,
 		MemTotalMB:     mem.totalMB,
 		MemFreeMB:      mem.freeMB,
 		MemAvailableMB: mem.availMB,
