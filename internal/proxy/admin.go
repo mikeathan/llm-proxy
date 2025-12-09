@@ -67,6 +67,14 @@ type adminStopResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type adminLogsResponse struct {
+	Running   bool      `json:"running"`
+	Name      string    `json:"name,omitempty"`
+	Ready     bool      `json:"ready,omitempty"`
+	StartedAt time.Time `json:"started_at,omitempty"`
+	Logs      string    `json:"logs"`
+}
+
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -276,6 +284,28 @@ func (s *Server) AdminStopHandler(w http.ResponseWriter, r *http.Request) {
 	} else if active != nil {
 		resp.Status = "stopped"
 		resp.Stopped = active.Name
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) AdminLogsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	active := s.manager.ActiveInfo()
+	resp := adminLogsResponse{
+		Running: active != nil,
+		Logs:    s.manager.ActiveLogs(),
+	}
+
+	if active != nil {
+		resp.Name = active.Name
+		resp.Ready = active.Ready
+		resp.StartedAt = active.Started
 	}
 
 	w.Header().Set("Content-Type", "application/json")

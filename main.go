@@ -28,6 +28,7 @@ func main() {
 	http.HandleFunc("/admin/api/stop", server.AdminStopHandler)
 	http.HandleFunc("/admin/api/models", server.AdminAddModelHandler)
 	http.HandleFunc("/admin/api/config", server.AdminConfigHandler)
+	http.HandleFunc("/admin/api/logs", server.AdminLogsHandler)
 	http.HandleFunc("/admin", server.AdminPageHandler)
 	http.HandleFunc("/v1/chat/completions", server.ChatHandler)
 
