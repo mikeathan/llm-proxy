@@ -46,6 +46,7 @@ type LLMProxyManager interface {
 	StopActive() error
 	ModelHost() string
 	SetBinary(path string)
+	SetModelHost(host string)
 }
 
 type LLMManager struct {
@@ -378,6 +379,14 @@ func (m *LLMManager) SetBinary(path string) {
 	defer m.mu.Unlock()
 	if path != "" {
 		m.llamaBinary = path
+	}
+}
+
+func (m *LLMManager) SetModelHost(host string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if host != "" {
+		m.modelHost = host
 	}
 }
 

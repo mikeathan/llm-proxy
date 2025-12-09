@@ -200,10 +200,14 @@
     <div class="card">
       <h2>Paths & binaries</h2>
       <div class="status-line">Set the models folder used to resolve filenames, and the llama-server executable path.</div>
-      <div class="grid" style="grid-template-columns: 1.2fr 0.8fr; gap:12px; margin-top:12px;">
+      <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-top:12px;">
         <div>
           <label for="model-dir" class="muted" style="display:block; margin-bottom:6px;">Models folder</label>
           <input id="model-dir" placeholder="/models" />
+        </div>
+        <div>
+          <label for="model-host" class="muted" style="display:block; margin-bottom:6px;">Model host</label>
+          <input id="model-host" placeholder="127.0.0.1" />
         </div>
         <div>
           <label for="binary-path" class="muted" style="display:block; margin-bottom:6px;">llama-server binary</label>
@@ -224,7 +228,8 @@
             <tr>
               <th>Name</th>
               <th>Status</th>
-              <th>Filename / resolved path</th>
+              <th>Filename</th>
+              <th>Resolved path</th>
               <th>Port</th>
               <th>Endpoint</th>
               <th>Args</th>
@@ -275,6 +280,7 @@
     const scanBtn = document.getElementById("scan");
     const stopBtn = document.getElementById("stop");
     const modelDirInput = document.getElementById("model-dir");
+    const modelHostInput = document.getElementById("model-host");
     const binaryPathInput = document.getElementById("binary-path");
     const saveConfigBtn = document.getElementById("save-config");
     const loadLogsBtn = document.getElementById("load-logs");
@@ -332,6 +338,7 @@
       modelsBody.innerHTML = "";
       models.forEach(model => {
         const row = document.createElement("tr");
+        row.dataset.name = model.name;
         const statusCell = document.createElement("td");
         const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
         statusCell.appendChild(status);
@@ -343,11 +350,6 @@
 
         const filenameInput = document.createElement("input");
         filenameInput.value = model.filename || "";
-
-        const pathHint = document.createElement("div");
-        pathHint.className = "muted";
-        pathHint.style.fontSize = "12px";
-        pathHint.textContent = model.resolved_path || "Path will resolve from models folder.";
 
         const portInput = document.createElement("input");
         portInput.type = "number";
@@ -365,15 +367,21 @@
 
         const filenameCell = document.createElement("td");
         filenameCell.appendChild(filenameInput);
-        filenameCell.appendChild(pathHint);
         row.appendChild(filenameCell);
+
+        const resolvedCell = document.createElement("td");
+        resolvedCell.className = "muted";
+        resolvedCell.style.fontSize = "12px";
+        resolvedCell.textContent = model.resolved_path || "Will resolve from models folder";
+        resolvedCell.dataset.kind = "resolved-path";
+        row.appendChild(resolvedCell);
 
         const portCell = document.createElement("td");
         portCell.appendChild(portInput);
         row.appendChild(portCell);
 
         row.innerHTML += `
-          <td><span class="kbd">${model.endpoint}</span></td>
+          <td data-kind="endpoint"><span class="kbd">${model.endpoint}</span></td>
         `;
 
         const argsCell = document.createElement("td");
@@ -447,11 +455,32 @@
     function renderConfig(cfg) {
       if (!cfg) return;
       modelDirInput.value = cfg.model_dir || "";
+      modelHostInput.value = cfg.model_host || "";
       binaryPathInput.value = cfg.llama_binary || "";
+    }
+
+    function updateRowStatus(model) {
+      const row = modelsBody.querySelector(`tr[data-name="${model.name}"]`);
+      if (!row) return;
+      const statusCell = row.querySelector("td:nth-child(2)");
+      if (statusCell) {
+        statusCell.innerHTML = "";
+        const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
+        statusCell.appendChild(status);
+      }
+      const endpointCell = row.querySelector('td[data-kind="endpoint"] span');
+      if (endpointCell) {
+        endpointCell.textContent = model.endpoint;
+      }
+      const resolvedCell = row.querySelector('td[data-kind="resolved-path"]');
+      if (resolvedCell) {
+        resolvedCell.textContent = model.resolved_path || "Will resolve from models folder";
+      }
     }
 
     async function fetchState(options = {}) {
       const preserveMessage = options.preserveMessage || false;
+      const statusOnly = options.statusOnly || false;
       try {
         const res = await fetch("/admin/api/state");
         if (!res.ok) {
@@ -459,12 +488,16 @@
         }
         const data = await res.json();
         renderActive(data.active);
-        renderModels(data.models || []);
-        if (Object.prototype.hasOwnProperty.call(data, "available")) {
-          renderAvailable(data.available || [], data.next_port);
-        }
-        if (data.config) {
-          renderConfig(data.config);
+        if (statusOnly) {
+          (data.models || []).forEach(updateRowStatus);
+        } else {
+          renderModels(data.models || []);
+          if (Object.prototype.hasOwnProperty.call(data, "available")) {
+            renderAvailable(data.available || [], data.next_port);
+          }
+          if (data.config) {
+            renderConfig(data.config);
+          }
         }
         if (!preserveMessage || lastTone !== "error") {
           setMessage("Updated just now");
@@ -524,13 +557,14 @@
 
     async function saveConfig() {
       const dir = (modelDirInput.value || "").trim();
+      const modelHost = (modelHostInput.value || "").trim();
       const binary = (binaryPathInput.value || "").trim();
       setMessage("Saving config...");
       try {
         const res = await fetch("/admin/api/config", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model_dir: dir, llama_binary: binary })
+          body: JSON.stringify({ model_dir: dir, model_host: modelHost, llama_binary: binary })
         });
         if (!res.ok) {
           const text = await res.text();
@@ -662,7 +696,11 @@
     loadLogsBtn.onclick = fetchLogs;
     clearLogsBtn.onclick = clearLogs;
 
-    fetchState();
+    function startStatusRefresh() {
+      setInterval(() => fetchState({ preserveMessage: true, statusOnly: true }), 4000);
+    }
+
+    fetchState().then(() => startStatusRefresh());
     renderAvailable([], null);
   </script>
 </body>

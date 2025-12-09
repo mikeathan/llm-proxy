@@ -17,6 +17,7 @@ type MockManager struct {
 	StopActiveFunc     func() error
 	ModelHostFunc      func() string
 	SetBinaryFunc      func(string)
+	SetModelHostFunc   func(string)
 }
 
 func (m *MockManager) EnsureModel(name string) (proxy.ModelInstance, error) {
@@ -88,5 +89,11 @@ func (m *MockManager) ModelHost() string {
 func (m *MockManager) SetBinary(path string) {
 	if m.SetBinaryFunc != nil {
 		m.SetBinaryFunc(path)
+	}
+}
+
+func (m *MockManager) SetModelHost(host string) {
+	if m.SetModelHostFunc != nil {
+		m.SetModelHostFunc(host)
 	}
 }
