@@ -676,10 +676,13 @@
       }
 
       const gpu = data.gpu;
-      const util = Number.isFinite(gpu.utilization_percent) ? `${gpu.utilization_percent.toFixed(1)}% core` : null;
-      const memPct = Number.isFinite(gpu.memory_utilization_percent) ? `${gpu.memory_utilization_percent.toFixed(1)}% mem` : null;
-      const memUsedVal = Number.isFinite(gpu.memory_used_mb) ? gpu.memory_used_mb : null;
-      const memTotalVal = Number.isFinite(gpu.memory_total_mb) ? gpu.memory_total_mb : null;
+      const corePct = Number.isFinite(data.gpu_core_percent) ? data.gpu_core_percent : gpu.utilization_percent;
+      const memPctVal = Number.isFinite(data.gpu_memory_percent) ? data.gpu_memory_percent : gpu.memory_utilization_percent;
+      const memUsedVal = Number.isFinite(data.gpu_memory_used_mb) ? data.gpu_memory_used_mb : gpu.memory_used_mb;
+      const memTotalVal = Number.isFinite(data.gpu_memory_total_mb) ? data.gpu_memory_total_mb : gpu.memory_total_mb;
+
+      const util = Number.isFinite(corePct) ? `${corePct.toFixed(1)}% core` : null;
+      const memPct = Number.isFinite(memPctVal) ? `${memPctVal.toFixed(1)}% mem` : null;
       let mem = null;
       if (memUsedVal !== null && memTotalVal !== null && (memUsedVal > 0 || memTotalVal > 0)) {
         const memMB = `${memUsedVal.toFixed(0)}/${memTotalVal.toFixed(0)} MB`;
