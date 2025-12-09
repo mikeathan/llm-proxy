@@ -11,7 +11,7 @@ type Server struct {
 	manager    LLMProxyManager
 	config     *models.Config
 	configPath string
-	modelDirs  []string
+	modelDir   string
 	configMu   sync.Mutex
 }
 
@@ -20,16 +20,16 @@ var reverseProxyFactory = func(target string) http.Handler {
 }
 
 func NewServer(mgr LLMProxyManager, cfg *models.Config, configPath string) *Server {
-	dirs := []string(nil)
-	if cfg != nil && len(cfg.ModelDirs) > 0 {
-		dirs = append(dirs, cfg.ModelDirs...)
+	dir := ""
+	if cfg != nil {
+		dir = cfg.ModelDir
 	}
 
 	return &Server{
 		manager:    mgr,
 		config:     cfg,
 		configPath: configPath,
-		modelDirs:  dirs,
+		modelDir:   dir,
 	}
 }
 
