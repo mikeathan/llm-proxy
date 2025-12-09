@@ -28,7 +28,8 @@ type MetricsConfig struct {
 }
 
 type GPUConfig struct {
-	Provider string `json:"provider,omitempty"` // auto, nvidia-smi, rocm-smi, none
-	Binary   string `json:"binary,omitempty"`   // optional override path
-	Index    int    `json:"index,omitempty"`    // GPU index to query (0-based)
+	Provider  string `json:"provider,omitempty"`   // auto, nvidia-smi, rocm-smi, amdgpu_top, sysfs, none
+	Binary    string `json:"binary,omitempty"`     // optional override path
+	Index     int    `json:"index,omitempty"`      // GPU index to query (0-based)
+	SysfsPath string `json:"sysfs_path,omitempty"` // optional override for sysfs device folder
 }

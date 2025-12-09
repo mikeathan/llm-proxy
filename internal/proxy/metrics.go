@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"llm-proxy/models"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -176,6 +178,7 @@ func buildGPUProvider(cfg *models.Config) (gpuProvider, string, string) {
 	provider := strings.ToLower(strings.TrimSpace(gpuCfg.Provider))
 	binary := strings.TrimSpace(gpuCfg.Binary)
 	index := gpuCfg.Index
+	sysfsPath := strings.TrimSpace(gpuCfg.SysfsPath)
 
 	if provider == "none" || provider == "off" || provider == "disabled" {
 		return nil, "disabled", ""
@@ -191,7 +194,10 @@ func buildGPUProvider(cfg *models.Config) (gpuProvider, string, string) {
 		if p, name := tryAmdGpuTop(binary, index); p != nil {
 			return p, name, ""
 		}
-		return nil, "auto", "no GPU metrics binary found (tried nvidia-smi, rocm-smi, amd-smi, amdgpu_top)"
+		if p, name := trySysfs(sysfsPath, index); p != nil {
+			return p, name, ""
+		}
+		return nil, "auto", "no GPU metrics source found (tried nvidia-smi, rocm-smi, amd-smi, amdgpu_top, sysfs)"
 	}
 
 	switch provider {
@@ -226,6 +232,15 @@ func buildGPUProvider(cfg *models.Config) (gpuProvider, string, string) {
 			return nil, bin, fmt.Sprintf("%s not found on PATH", bin)
 		}
 		return newAmdGpuTopProvider(bin, index, nil), bin, ""
+	case "sysfs":
+		path := sysfsPath
+		if path == "" {
+			path = defaultSysfsPath(index)
+		}
+		if ok := sysfsAvailable(path); !ok {
+			return nil, path, fmt.Sprintf("sysfs path %s not readable", path)
+		}
+		return newSysfsProvider(path), "sysfs", ""
 	default:
 		if binary == "" {
 			binary = provider
@@ -271,6 +286,16 @@ func tryAmdGpuTop(binary string, index int) (gpuProvider, string) {
 	}
 	if commandExists(bin) {
 		return newAmdGpuTopProvider(bin, index, nil), bin
+	}
+	return nil, ""
+}
+
+func trySysfs(path string, index int) (gpuProvider, string) {
+	if path == "" {
+		path = defaultSysfsPath(index)
+	}
+	if sysfsAvailable(path) {
+		return newSysfsProvider(path), "sysfs"
 	}
 	return nil, ""
 }
@@ -504,6 +529,71 @@ func bytesToMB(v float64) float64 {
 		return 0
 	}
 	return v / (1024.0 * 1024.0)
+}
+
+type sysfsProvider struct {
+	basePath string
+}
+
+func newSysfsProvider(basePath string) *sysfsProvider {
+	return &sysfsProvider{basePath: basePath}
+}
+
+func (p *sysfsProvider) Name() string {
+	return "sysfs"
+}
+
+func (p *sysfsProvider) Sample() (*gpuMetrics, error) {
+	util, err := readSysfsFloat(p.basePath, "gpu_busy_percent")
+	if err != nil {
+		return nil, err
+	}
+	memUsedBytes, err := readSysfsFloat(p.basePath, "mem_info_vram_used")
+	if err != nil {
+		return nil, err
+	}
+	memTotalBytes, err := readSysfsFloat(p.basePath, "mem_info_vram_total")
+	if err != nil {
+		return nil, err
+	}
+
+	memUsedMB := bytesToMB(memUsedBytes)
+	memTotalMB := bytesToMB(memTotalBytes)
+	memPct := 0.0
+	if memTotalMB > 0 {
+		memPct = (memUsedMB / memTotalMB) * 100
+	}
+
+	return &gpuMetrics{
+		Vendor:               "amd",
+		Name:                 filepath.Base(p.basePath),
+		UtilizationPct:       util,
+		MemoryUsedMB:         memUsedMB,
+		MemoryTotalMB:        memTotalMB,
+		MemoryUtilizationPct: memPct,
+	}, nil
+}
+
+func readSysfsFloat(basePath, file string) (float64, error) {
+	b, err := os.ReadFile(filepath.Join(basePath, file))
+	if err != nil {
+		return 0, fmt.Errorf("sysfs: %w", err)
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
+	if err != nil {
+		return 0, fmt.Errorf("sysfs parse: %w", err)
+	}
+	return v, nil
+}
+
+func defaultSysfsPath(index int) string {
+	card := fmt.Sprintf("card%d", index)
+	return filepath.Join("/sys/class/drm", card, "device")
+}
+
+func sysfsAvailable(basePath string) bool {
+	_, err := os.Stat(filepath.Join(basePath, "gpu_busy_percent"))
+	return err == nil
 }
 
 type amdGpuTopProvider struct {
