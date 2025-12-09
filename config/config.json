@@ -1,10 +1,17 @@
 {
   "server": {
     "bind": "0.0.0.0:4001",
-    "model_host": "0.0.0.0",
+    "model_host": "127.0.0.1",
     "idle_timeout_seconds": 1800,
     "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
-    "default_args": ["--ctx-size", "4096", "--threads", "6"]
+    "default_args": [
+      "--ctx-size",
+      "4096",
+      "--threads",
+      "6",
+      "--host",
+      "0.0.0.0"
+    ]
   },
   "models": [
     {
