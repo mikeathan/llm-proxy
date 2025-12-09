@@ -212,15 +212,16 @@
 
     <div class="card">
       <h2>Host metrics</h2>
-      <div class="status-line" id="metrics-status">Load and memory usage of this host. GPU usage is not available without vendor tooling.</div>
+      <div class="status-line" id="metrics-status">Load = runnable processes over 1/5/15 minutes (≈1.0 means one fully used core). GPU usage is not available without vendor tooling.</div>
       <div class="toolbar" style="margin-top:8px;">
         <button id="refresh-metrics" class="secondary">Refresh metrics</button>
       </div>
       <div class="stat-grid">
-        <div class="stat"><strong>CPU load (1/5/15)</strong><span id="load-avg">--</span></div>
+        <div class="stat"><strong>CPU load avg (run queue 1/5/15m)</strong><span id="load-avg">--</span></div>
         <div class="stat"><strong>CPU (1m vs cores)</strong><span id="load-pct">--</span></div>
         <div class="stat"><strong>Mem total</strong><span id="mem-total">--</span></div>
         <div class="stat"><strong>Mem used</strong><span id="mem-used">--</span></div>
+        <div class="stat"><strong>Mem free</strong><span id="mem-free">--</span></div>
         <div class="stat"><strong>GPU usage</strong><span id="gpu-usage">N/A (Vulkan/AMD not reported)</span></div>
       </div>
     </div>
@@ -316,6 +317,7 @@
     const loadPctEl = document.getElementById("load-pct");
     const memTotalEl = document.getElementById("mem-total");
     const memUsedEl = document.getElementById("mem-used");
+    const memFreeEl = document.getElementById("mem-free");
     const gpuUsageEl = document.getElementById("gpu-usage");
     const loadLogsBtn = document.getElementById("load-logs");
     const clearLogsBtn = document.getElementById("clear-logs");
@@ -675,6 +677,7 @@
         const fmtGB = v => (v != null ? `${(v / 1024).toFixed(2)} GB` : "--");
         memTotalEl.textContent = fmtGB(data.mem_total_mb);
         memUsedEl.textContent = fmtGB(data.mem_used_mb);
+        memFreeEl.textContent = fmtGB(data.mem_free_mb);
         gpuUsageEl.textContent = "N/A (needs AMD/Vulkan metrics tooling)";
         metricsStatus.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()}`;
       } catch (err) {
