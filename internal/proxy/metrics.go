@@ -33,8 +33,8 @@ type hostMetrics struct {
 type gpuMetrics struct {
 	Vendor               string  `json:"vendor"`
 	Name                 string  `json:"name,omitempty"`
-	UtilizationPct       float64 `json:"utilization_percent,omitempty"`
-	MemoryUtilizationPct float64 `json:"memory_utilization_percent,omitempty"`
+	UtilizationPct       float64 `json:"utilization_percent"`
+	MemoryUtilizationPct float64 `json:"memory_utilization_percent"`
 	MemoryTotalMB        float64 `json:"memory_total_mb,omitempty"`
 	MemoryUsedMB         float64 `json:"memory_used_mb,omitempty"`
 	TemperatureC         float64 `json:"temperature_c,omitempty"`
@@ -42,9 +42,13 @@ type gpuMetrics struct {
 
 type metricsSnapshot struct {
 	hostMetrics
-	GPU         *gpuMetrics `json:"gpu,omitempty"`
-	GPUProvider string      `json:"gpu_provider,omitempty"`
-	GPUError    string      `json:"gpu_error,omitempty"`
+	GPU              *gpuMetrics `json:"gpu,omitempty"`
+	GPUProvider      string      `json:"gpu_provider,omitempty"`
+	GPUError         string      `json:"gpu_error,omitempty"`
+	GPUCorePercent   float64     `json:"gpu_core_percent"`
+	GPUMemoryPercent float64     `json:"gpu_memory_percent"`
+	GPUMemoryUsedMB  float64     `json:"gpu_memory_used_mb"`
+	GPUMemoryTotalMB float64     `json:"gpu_memory_total_mb"`
 }
 
 type gpuProvider interface {
@@ -92,6 +96,10 @@ func (s *MetricsService) Snapshot() metricsSnapshot {
 	}
 
 	resp.GPU = gpu
+	resp.GPUCorePercent = gpu.UtilizationPct
+	resp.GPUMemoryPercent = gpu.MemoryUtilizationPct
+	resp.GPUMemoryUsedMB = gpu.MemoryUsedMB
+	resp.GPUMemoryTotalMB = gpu.MemoryTotalMB
 	return resp
 }
 
