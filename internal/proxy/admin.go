@@ -16,13 +16,14 @@ import (
 )
 
 type adminModelView struct {
-	Name     string   `json:"name"`
-	Path     string   `json:"path"`
-	Args     []string `json:"args"`
-	Port     int      `json:"port"`
-	Endpoint string   `json:"endpoint"`
-	Active   bool     `json:"active"`
-	Ready    bool     `json:"ready"`
+	Name         string   `json:"name"`
+	Filename     string   `json:"filename"`
+	ResolvedPath string   `json:"resolved_path"`
+	Args         []string `json:"args"`
+	Port         int      `json:"port"`
+	Endpoint     string   `json:"endpoint"`
+	Active       bool     `json:"active"`
+	Ready        bool     `json:"ready"`
 }
 
 type adminActiveModel struct {
@@ -35,8 +36,9 @@ type adminActiveModel struct {
 }
 
 type adminAvailableModel struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name         string `json:"name"`
+	Filename     string `json:"filename"`
+	ResolvedPath string `json:"resolved_path"`
 }
 
 type adminStateResponse struct {
@@ -48,10 +50,10 @@ type adminStateResponse struct {
 }
 
 type adminConfigView struct {
-	ModelDirs    []string `json:"model_dirs"`
-	LlamaBinary  string   `json:"llama_binary"`
-	ModelHost    string   `json:"model_host"`
-	IdleTimeoutS int      `json:"idle_timeout_seconds"`
+	ModelDir     string `json:"model_dir"`
+	LlamaBinary  string `json:"llama_binary"`
+	ModelHost    string `json:"model_host"`
+	IdleTimeoutS int    `json:"idle_timeout_seconds"`
 }
 
 type adminStartResponse struct {
@@ -138,7 +140,7 @@ func (s *Server) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			ModelDirs:    append([]string{}, s.modelDirs...),
+			ModelDir:     s.modelDir,
 			LlamaBinary:  s.currentBinary(),
 			ModelHost:    host,
 			IdleTimeoutS: s.currentIdleTimeout(),
@@ -147,13 +149,14 @@ func (s *Server) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, mc := range models {
 		state.Models = append(state.Models, adminModelView{
-			Name:     mc.Name,
-			Path:     mc.Path,
-			Args:     mc.Args,
-			Port:     mc.Port,
-			Endpoint: fmt.Sprintf("http://%s:%d", host, mc.Port),
-			Active:   mc.Name == activeName,
-			Ready:    mc.Name == activeName && activeDetails != nil && activeDetails.Ready,
+			Name:         mc.Name,
+			Filename:     mc.Filename,
+			ResolvedPath: mc.Path,
+			Args:         mc.Args,
+			Port:         mc.Port,
+			Endpoint:     fmt.Sprintf("http://%s:%d", host, mc.Port),
+			Active:       mc.Name == activeName,
+			Ready:        mc.Name == activeName && activeDetails != nil && activeDetails.Ready,
 		})
 	}
 
@@ -225,7 +228,7 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg := adminConfigView{
-			ModelDirs:    append([]string{}, s.modelDirs...),
+			ModelDir:     s.modelDir,
 			LlamaBinary:  s.currentBinary(),
 			ModelHost:    s.manager.ModelHost(),
 			IdleTimeoutS: s.currentIdleTimeout(),
@@ -234,16 +237,16 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(cfg)
 	case http.MethodPut:
 		var req struct {
-			ModelDirs   []string `json:"model_dirs"`
-			LlamaBinary string   `json:"llama_binary"`
+			ModelDir    string `json:"model_dir"`
+			LlamaBinary string `json:"llama_binary"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
 			return
 		}
 
-		if len(req.ModelDirs) > 0 {
-			s.modelDirs = req.ModelDirs
+		if req.ModelDir != "" {
+			s.modelDir = req.ModelDir
 		}
 		if req.LlamaBinary != "" {
 			s.manager.SetBinary(req.LlamaBinary)
@@ -251,8 +254,8 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 		if s.config != nil {
 			s.configMu.Lock()
-			if len(req.ModelDirs) > 0 {
-				s.config.ModelDirs = req.ModelDirs
+			if req.ModelDir != "" {
+				s.config.ModelDir = req.ModelDir
 			}
 			if req.LlamaBinary != "" {
 				s.config.Server.LlamaServerBinary = req.LlamaBinary
@@ -314,24 +317,30 @@ func (s *Server) AdminLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string   `json:"name"`
-		Path string   `json:"path"`
-		Args []string `json:"args"`
-		Port int      `json:"port"`
+		Name     string   `json:"name"`
+		Filename string   `json:"filename"`
+		Path     string   `json:"path"` // legacy support
+		Args     []string `json:"args"`
+		Port     int      `json:"port"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	if req.Path == "" {
-		writeJSONError(w, http.StatusBadRequest, "missing model path")
+	filename := strings.TrimSpace(req.Filename)
+	if filename == "" && req.Path != "" {
+		filename = filepath.Base(req.Path)
+	}
+	if filename == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing model filename")
 		return
 	}
 
 	if req.Name == "" {
-		ext := filepath.Ext(req.Path)
-		req.Name = strings.TrimSuffix(filepath.Base(req.Path), ext)
+		ext := filepath.Ext(filename)
+		req.Name = strings.TrimSuffix(filename, ext)
 	}
 
-	if _, err := os.Stat(req.Path); err != nil {
+	fullPath := s.resolveModelPath(filename, req.Path)
+	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
 		return
 	}
@@ -351,10 +360,11 @@ func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runtimeCfg := models.ModelConfig{
-		Name: req.Name,
-		Path: req.Path,
-		Args: args,
-		Port: req.Port,
+		Name:     req.Name,
+		Filename: filename,
+		Path:     fullPath,
+		Args:     args,
+		Port:     req.Port,
 	}
 
 	if err := s.manager.AddModel(runtimeCfg); err != nil {
@@ -367,10 +377,10 @@ func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	persistCfg := models.ModelConfig{
-		Name: req.Name,
-		Path: req.Path,
-		Args: append([]string{}, req.Args...),
-		Port: req.Port,
+		Name:     req.Name,
+		Filename: filename,
+		Args:     append([]string{}, req.Args...),
+		Port:     req.Port,
 	}
 
 	if err := s.persistModel(persistCfg); err != nil {
@@ -384,10 +394,11 @@ func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string   `json:"name"`
-		Path string   `json:"path"`
-		Args []string `json:"args"`
-		Port int      `json:"port"`
+		Name     string   `json:"name"`
+		Filename string   `json:"filename"`
+		Path     string   `json:"path"` // legacy support
+		Args     []string `json:"args"`
+		Port     int      `json:"port"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -410,8 +421,11 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Path == "" {
-		req.Path = existing.Path
+	if req.Filename == "" && req.Path != "" {
+		req.Filename = filepath.Base(req.Path)
+	}
+	if req.Filename == "" {
+		req.Filename = existing.Filename
 	}
 	if req.Port == 0 {
 		req.Port = existing.Port
@@ -421,11 +435,18 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	args := req.Args
+	fullPath := s.resolveModelPath(req.Filename, req.Path)
+	if _, err := os.Stat(fullPath); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
+		return
+	}
+
 	runtimeCfg := models.ModelConfig{
-		Name: req.Name,
-		Path: req.Path,
-		Args: args,
-		Port: req.Port,
+		Name:     req.Name,
+		Filename: req.Filename,
+		Path:     fullPath,
+		Args:     args,
+		Port:     req.Port,
 	}
 
 	if err := s.manager.UpdateModel(runtimeCfg); err != nil {
@@ -438,10 +459,10 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	persistCfg := models.ModelConfig{
-		Name: req.Name,
-		Path: req.Path,
-		Args: append([]string{}, req.Args...),
-		Port: req.Port,
+		Name:     req.Name,
+		Filename: req.Filename,
+		Args:     append([]string{}, req.Args...),
+		Port:     req.Port,
 	}
 
 	if err := s.persistReplaceModel(persistCfg); err != nil {
@@ -545,8 +566,31 @@ func (s *Server) persistDeleteModel(name string) error {
 	return utils.SaveConfig(s.configPath, s.config)
 }
 
+func (s *Server) resolveModelPath(filename, explicitPath string) string {
+	if explicitPath != "" && filepath.IsAbs(explicitPath) {
+		return explicitPath
+	}
+	if filename == "" && explicitPath != "" {
+		return explicitPath
+	}
+	if filepath.IsAbs(filename) {
+		return filename
+	}
+	if s.modelDir != "" {
+		return filepath.Join(s.modelDir, filename)
+	}
+	if explicitPath != "" {
+		return explicitPath
+	}
+	return filename
+}
+
 func (s *Server) discoverModelFiles(current []models.ModelConfig) []adminAvailableModel {
-	if len(s.modelDirs) == 0 {
+	if s.modelDir == "" {
+		return nil
+	}
+
+	if info, err := os.Stat(s.modelDir); err != nil || !info.IsDir() {
 		return nil
 	}
 
@@ -554,38 +598,38 @@ func (s *Server) discoverModelFiles(current []models.ModelConfig) []adminAvailab
 	seenPaths := make(map[string]struct{}, len(current))
 	for _, m := range current {
 		seenNames[m.Name] = struct{}{}
-		seenPaths[m.Path] = struct{}{}
+		if m.Path != "" {
+			seenPaths[m.Path] = struct{}{}
+		}
 	}
 
 	var found []adminAvailableModel
-	for _, dir := range s.modelDirs {
-		dir := dir
-		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				return nil
-			}
-			ext := strings.ToLower(filepath.Ext(d.Name()))
-			if ext != ".gguf" {
-				return nil
-			}
-			fullPath := path
-			if _, ok := seenPaths[fullPath]; ok {
-				return nil
-			}
-			name := strings.TrimSuffix(d.Name(), ext)
-			if _, ok := seenNames[name]; ok {
-				return nil
-			}
-			found = append(found, adminAvailableModel{
-				Name: name,
-				Path: fullPath,
-			})
+	_ = filepath.WalkDir(s.modelDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
 			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if ext != ".gguf" {
+			return nil
+		}
+		fullPath := path
+		if _, ok := seenPaths[fullPath]; ok {
+			return nil
+		}
+		name := strings.TrimSuffix(d.Name(), ext)
+		if _, ok := seenNames[name]; ok {
+			return nil
+		}
+		found = append(found, adminAvailableModel{
+			Name:         name,
+			Filename:     d.Name(),
+			ResolvedPath: fullPath,
 		})
-	}
+		return nil
+	})
 
 	sort.Slice(found, func(i, j int) bool {
 		return found[i].Name < found[j].Name

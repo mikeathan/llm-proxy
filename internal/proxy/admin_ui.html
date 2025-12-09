@@ -199,11 +199,11 @@
 
     <div class="card">
       <h2>Paths & binaries</h2>
-      <div class="status-line">Update model folders and the llama-server executable path.</div>
+      <div class="status-line">Set the models folder used to resolve filenames, and the llama-server executable path.</div>
       <div class="grid" style="grid-template-columns: 1.2fr 0.8fr; gap:12px; margin-top:12px;">
         <div>
-          <label for="model-dirs" class="muted" style="display:block; margin-bottom:6px;">Model folders (comma separated)</label>
-          <input id="model-dirs" placeholder="/models,/mnt/models" />
+          <label for="model-dir" class="muted" style="display:block; margin-bottom:6px;">Models folder</label>
+          <input id="model-dir" placeholder="/models" />
         </div>
         <div>
           <label for="binary-path" class="muted" style="display:block; margin-bottom:6px;">llama-server binary</label>
@@ -224,7 +224,7 @@
             <tr>
               <th>Name</th>
               <th>Status</th>
-              <th>Path</th>
+              <th>Filename / resolved path</th>
               <th>Port</th>
               <th>Endpoint</th>
               <th>Args</th>
@@ -238,13 +238,13 @@
 
     <div class="card">
       <h2>Discovered models</h2>
-      <div class="status-line">Model files found in configured folders. Fill a port and add them to your config remotely.</div>
+      <div class="status-line">Model files found in the configured folder. Fill a port and add them to your config remotely.</div>
       <div style="overflow-x:auto; margin-top:10px;">
         <table>
           <thead>
             <tr>
               <th>Name</th>
-              <th>Path</th>
+              <th>Resolved path</th>
               <th style="width:110px;">Port</th>
               <th style="width:200px;">Args</th>
               <th></th>
@@ -274,7 +274,7 @@
     const refreshBtn = document.getElementById("refresh");
     const scanBtn = document.getElementById("scan");
     const stopBtn = document.getElementById("stop");
-    const modelDirsInput = document.getElementById("model-dirs");
+    const modelDirInput = document.getElementById("model-dir");
     const binaryPathInput = document.getElementById("binary-path");
     const saveConfigBtn = document.getElementById("save-config");
     const loadLogsBtn = document.getElementById("load-logs");
@@ -341,8 +341,13 @@
         startBtn.onclick = () => startModel(model.name);
         startBtn.disabled = model.ready === false && model.active; // in startup, avoid spamming
 
-        const pathInput = document.createElement("input");
-        pathInput.value = model.path;
+        const filenameInput = document.createElement("input");
+        filenameInput.value = model.filename || "";
+
+        const pathHint = document.createElement("div");
+        pathHint.className = "muted";
+        pathHint.style.fontSize = "12px";
+        pathHint.textContent = model.resolved_path || "Path will resolve from models folder.";
 
         const portInput = document.createElement("input");
         portInput.type = "number";
@@ -358,9 +363,10 @@
         `;
         row.appendChild(statusCell);
 
-        const pathCell = document.createElement("td");
-        pathCell.appendChild(pathInput);
-        row.appendChild(pathCell);
+        const filenameCell = document.createElement("td");
+        filenameCell.appendChild(filenameInput);
+        filenameCell.appendChild(pathHint);
+        row.appendChild(filenameCell);
 
         const portCell = document.createElement("td");
         portCell.appendChild(portInput);
@@ -378,7 +384,7 @@
         const saveBtn = document.createElement("button");
         saveBtn.className = "secondary";
         saveBtn.textContent = "Save";
-        saveBtn.onclick = () => updateModel(model.name, pathInput, portInput, argsInput);
+        saveBtn.onclick = () => updateModel(model.name, filenameInput, portInput, argsInput);
 
         const removeBtn = document.createElement("button");
         removeBtn.className = "danger";
@@ -410,7 +416,7 @@
         const row = document.createElement("tr");
         row.innerHTML = `
           <td><strong>${model.name}</strong></td>
-          <td class="muted" style="font-size:12px; word-break:break-all;">${model.path}</td>
+          <td class="muted" style="font-size:12px; word-break:break-all;">${model.resolved_path || model.filename}</td>
         `;
 
         const portCell = document.createElement("td");
@@ -430,7 +436,7 @@
         const actionCell = document.createElement("td");
         const addBtn = document.createElement("button");
         addBtn.textContent = "Add to config";
-        addBtn.onclick = () => addModel(model.name, model.path, portInput, argsInput);
+        addBtn.onclick = () => addModel(model.name, model.filename, portInput, argsInput);
         actionCell.appendChild(addBtn);
         row.appendChild(actionCell);
 
@@ -440,7 +446,7 @@
 
     function renderConfig(cfg) {
       if (!cfg) return;
-      modelDirsInput.value = (cfg.model_dirs || []).join(", ");
+      modelDirInput.value = cfg.model_dir || "";
       binaryPathInput.value = cfg.llama_binary || "";
     }
 
@@ -490,16 +496,17 @@
       }
     }
 
-    async function addModel(name, path, portInput, argsInput) {
+    async function addModel(name, filename, portInput, argsInput) {
       const port = parseInt(portInput?.value, 10) || 0;
       const argsRaw = (argsInput?.value || "").trim();
       const args = argsRaw ? argsRaw.split(/\s+/) : [];
+      const fname = filename || name;
       setMessage(`Adding ${name}...`);
       try {
         const res = await fetch("/admin/api/models", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, path, port, args })
+          body: JSON.stringify({ name, filename: fname, port, args })
         });
         const text = await res.text();
         let data = {};
@@ -516,17 +523,14 @@
     }
 
     async function saveConfig() {
-      const dirs = (modelDirsInput.value || "")
-        .split(",")
-        .map(s => s.trim())
-        .filter(Boolean);
+      const dir = (modelDirInput.value || "").trim();
       const binary = (binaryPathInput.value || "").trim();
       setMessage("Saving config...");
       try {
         const res = await fetch("/admin/api/config", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model_dirs: dirs, llama_binary: binary })
+          body: JSON.stringify({ model_dir: dir, llama_binary: binary })
         });
         if (!res.ok) {
           const text = await res.text();
@@ -563,17 +567,17 @@
       }
     }
 
-    async function updateModel(name, pathInput, portInput, argsInput) {
+    async function updateModel(name, filenameInput, portInput, argsInput) {
       const port = parseInt(portInput?.value, 10) || 0;
       const argsRaw = (argsInput?.value || "").trim();
       const args = argsRaw ? argsRaw.split(/\s+/) : [];
-      const path = pathInput?.value || "";
+      const filename = filenameInput?.value || "";
       setMessage(`Updating ${name}...`);
       try {
         const res = await fetch("/admin/api/models", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, path, port, args })
+          body: JSON.stringify({ name, filename, port, args })
         });
         const text = await res.text();
         let data = {};
@@ -609,7 +613,7 @@
     }
 
     async function fetchAvailable() {
-      setMessage("Scanning model folders...");
+      setMessage("Scanning models folder...");
       try {
         const res = await fetch("/admin/api/state?available=1");
         if (!res.ok) {

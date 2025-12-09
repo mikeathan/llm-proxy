@@ -1,9 +1,9 @@
 package models
 
 type Config struct {
-	Server    ServerConfig  `json:"server"`
-	Models    []ModelConfig `json:"models"`
-	ModelDirs []string      `json:"model_dirs"`
+	Server   ServerConfig  `json:"server"`
+	Models   []ModelConfig `json:"models"`
+	ModelDir string        `json:"model_dir"`
 }
 
 type ServerConfig struct {
@@ -15,8 +15,9 @@ type ServerConfig struct {
 }
 
 type ModelConfig struct {
-	Name string   `json:"name"`
-	Path string   `json:"path"`
-	Args []string `json:"args"`
-	Port int      `json:"port"`
+	Name     string   `json:"name"`
+	Filename string   `json:"filename"`
+	Args     []string `json:"args"`
+	Port     int      `json:"port"`
+	Path     string   `json:"-"` // resolved absolute path, not persisted
 }

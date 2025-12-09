@@ -9,10 +9,10 @@
   "models": [
     {
       "name": "qwen2.5-7b",
-      "path": "qwen2.5-3b-instruct-q4_k_m.gguf",
+      "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "args": ["--gpu-layers", "8"],
       "port": 5001
     }
   ],
-  "model_dirs": ["/home/mikeathan/dev/models"]
+  "model_dir": "/home/mikeathan/dev/models"
 }

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
@@ -79,6 +80,26 @@ func (rm *runningModel) Cfg() models.ModelConfig {
 var ErrUnknownModel = errors.New("unknown model")
 var ErrModelExists = errors.New("model already exists")
 
+func resolveModelFile(baseDir string, m models.ModelConfig) string {
+	if m.Path != "" && filepath.IsAbs(m.Path) {
+		return m.Path
+	}
+	fname := m.Filename
+	if fname == "" && m.Path != "" {
+		fname = filepath.Base(m.Path)
+	}
+	if fname == "" {
+		return ""
+	}
+	if filepath.IsAbs(fname) {
+		return fname
+	}
+	if baseDir != "" {
+		return filepath.Join(baseDir, fname)
+	}
+	return fname
+}
+
 func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMManager {
 	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, 10*time.Second)
 }
@@ -88,12 +109,14 @@ func NewManagerFromConfig(cfg *models.Config) *LLMManager {
 
 	for i, m := range cfg.Models {
 		args := append(cfg.Server.DefaultArgs, m.Args...)
+		fullPath := resolveModelFile(cfg.ModelDir, m)
 
 		mc[i] = models.ModelConfig{
-			Name: m.Name,
-			Path: m.Path,
-			Args: args,
-			Port: m.Port,
+			Name:     m.Name,
+			Filename: m.Filename,
+			Path:     fullPath,
+			Args:     args,
+			Port:     m.Port,
 		}
 
 	}
@@ -114,6 +137,12 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 	}
 
 	for _, mc := range modelConfigs {
+		if mc.Path == "" {
+			mc.Path = resolveModelFile("", mc)
+		}
+		if mc.Filename == "" && mc.Path != "" {
+			mc.Filename = filepath.Base(mc.Path)
+		}
 		m.models[mc.Name] = mc
 	}
 
@@ -265,10 +294,11 @@ func (m *LLMManager) ListModels() []models.ModelConfig {
 		cfg := m.models[name]
 		argsCopy := append([]string(nil), cfg.Args...)
 		modelsOut = append(modelsOut, models.ModelConfig{
-			Name: cfg.Name,
-			Path: cfg.Path,
-			Args: argsCopy,
-			Port: cfg.Port,
+			Name:     cfg.Name,
+			Filename: cfg.Filename,
+			Path:     cfg.Path,
+			Args:     argsCopy,
+			Port:     cfg.Port,
 		})
 	}
 

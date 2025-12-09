@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -135,8 +136,8 @@ func TestAdminStateHandler(t *testing.T) {
 	mgr := &mocks.MockManager{
 		ListModelsFunc: func() []models.ModelConfig {
 			return []models.ModelConfig{
-				{Name: "alpha", Path: "/models/alpha.gguf", Port: 8081},
-				{Name: "beta", Path: "/models/beta.gguf", Port: 8082},
+				{Name: "alpha", Filename: "alpha.gguf", Path: "/models/alpha.gguf", Port: 8081},
+				{Name: "beta", Filename: "beta.gguf", Path: "/models/beta.gguf", Port: 8082},
 			}
 		},
 		ActiveInfoFunc: func() *proxy.ActiveModelInfo {
@@ -284,11 +285,12 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	cfg := &models.Config{
-		Server: models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
+		Server:   models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
+		ModelDir: filepath.Dir(tmpFile.Name()),
 	}
 
 	srv := proxy.NewServer(mgr, cfg, "")
-	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","path":"%s","port":9999,"args":["--ctx-size","2048"]}`, tmpFile.Name()))
+	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	w := httptest.NewRecorder()
 
@@ -299,6 +301,9 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 	if added.Name != "theta" || added.Port != 9999 {
 		t.Fatalf("unexpected model added: %+v", added)
+	}
+	if added.Filename != filepath.Base(tmpFile.Name()) || added.Path != tmpFile.Name() {
+		t.Fatalf("expected resolved path to match temp file, got %+v", added)
 	}
 	if len(added.Args) != 4 || added.Args[0] != "--gpu-layers" || added.Args[1] != "2" || added.Args[2] != "--ctx-size" || added.Args[3] != "2048" {
 		t.Fatalf("expected default args merged, got %v", added.Args)
