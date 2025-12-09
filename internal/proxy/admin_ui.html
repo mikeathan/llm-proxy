@@ -682,13 +682,16 @@
       const memTotalVal = Number.isFinite(gpu.memory_total_mb) ? gpu.memory_total_mb : null;
       let mem = null;
       if (memUsedVal !== null && memTotalVal !== null && (memUsedVal > 0 || memTotalVal > 0)) {
-        mem = `${memUsedVal.toFixed(0)}/${memTotalVal.toFixed(0)} MB`;
+        const memMB = `${memUsedVal.toFixed(0)}/${memTotalVal.toFixed(0)} MB`;
+        mem = memPct ? `${memPct} (${memMB})` : memMB;
+      } else if (memPct) {
+        mem = memPct;
       } else if (memUsedVal !== null && memUsedVal > 0) {
         mem = `${memUsedVal.toFixed(0)} MB used`;
       }
       const temp = Number.isFinite(gpu.temperature_c) && gpu.temperature_c !== 0 ? `${gpu.temperature_c.toFixed(0)}°C` : null;
       const vendor = gpu.vendor ? gpu.vendor.toUpperCase() : null;
-      return [vendor, util, memPct || mem, temp].filter(Boolean).join(" · ") || "GPU data available";
+      return [vendor, util, mem, temp].filter(Boolean).join(" · ") || "GPU data available";
     }
 
     async function fetchMetrics() {
