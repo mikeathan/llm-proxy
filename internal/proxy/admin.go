@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -57,6 +54,9 @@ type adminConfigView struct {
 	LlamaBinary  string `json:"llama_binary"`
 	ModelHost    string `json:"model_host"`
 	IdleTimeoutS int    `json:"idle_timeout_seconds"`
+	GPUProvider  string `json:"gpu_provider,omitempty"`
+	GPUBinary    string `json:"gpu_binary,omitempty"`
+	GPUIndex     int    `json:"gpu_index,omitempty"`
 }
 
 type adminStartResponse struct {
@@ -78,19 +78,6 @@ type adminLogsResponse struct {
 	Ready     bool      `json:"ready,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
 	Logs      string    `json:"logs"`
-}
-
-type hostMetrics struct {
-	Load1          float64   `json:"load1"`
-	Load5          float64   `json:"load5"`
-	Load15         float64   `json:"load15"`
-	LoadPct        float64   `json:"load_percent"`
-	Cores          int       `json:"cores"`
-	MemTotalMB     float64   `json:"mem_total_mb"`
-	MemFreeMB      float64   `json:"mem_free_mb"`
-	MemAvailableMB float64   `json:"mem_available_mb"`
-	MemUsedMB      float64   `json:"mem_used_mb"`
-	Timestamp      time.Time `json:"timestamp"`
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
@@ -160,6 +147,9 @@ func (s *Server) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
 			LlamaBinary:  s.currentBinary(),
 			ModelHost:    host,
 			IdleTimeoutS: s.currentIdleTimeout(),
+			GPUProvider:  s.gpuConfig.Provider,
+			GPUBinary:    s.gpuConfig.Binary,
+			GPUIndex:     s.gpuConfig.Index,
 		},
 	}
 
@@ -252,6 +242,9 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 			LlamaBinary:  s.currentBinary(),
 			ModelHost:    s.manager.ModelHost(),
 			IdleTimeoutS: s.currentIdleTimeout(),
+			GPUProvider:  s.gpuConfig.Provider,
+			GPUBinary:    s.gpuConfig.Binary,
+			GPUIndex:     s.gpuConfig.Index,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(cfg)
@@ -260,6 +253,9 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 			ModelDir    string `json:"model_dir"`
 			LlamaBinary string `json:"llama_binary"`
 			ModelHost   string `json:"model_host"`
+			GPUProvider string `json:"gpu_provider"`
+			GPUBinary   string `json:"gpu_binary"`
+			GPUIndex    *int   `json:"gpu_index"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
@@ -275,6 +271,15 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 		if req.ModelHost != "" {
 			s.manager.SetModelHost(req.ModelHost)
 		}
+		if req.GPUProvider != "" {
+			s.gpuConfig.Provider = req.GPUProvider
+		}
+		if req.GPUBinary != "" {
+			s.gpuConfig.Binary = req.GPUBinary
+		}
+		if req.GPUIndex != nil {
+			s.gpuConfig.Index = *req.GPUIndex
+		}
 
 		if s.config != nil {
 			s.configMu.Lock()
@@ -287,9 +292,18 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 			if req.ModelHost != "" {
 				s.config.Server.ModelHost = req.ModelHost
 			}
+			if req.GPUProvider != "" || req.GPUBinary != "" || req.GPUIndex != nil {
+				s.config.Metrics.GPU.Provider = s.gpuConfig.Provider
+				s.config.Metrics.GPU.Binary = s.gpuConfig.Binary
+				if req.GPUIndex != nil {
+					s.config.Metrics.GPU.Index = s.gpuConfig.Index
+				}
+			}
 			_ = utils.SaveConfig(s.configPath, s.config)
 			s.configMu.Unlock()
 		}
+
+		s.refreshMetricsService()
 
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -348,27 +362,11 @@ func (s *Server) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	load1, load5, load15, _ := readLoadAvg()
-	mem := readMemInfo()
-	cores := runtime.NumCPU()
-	pct := 0.0
-	if c := float64(cores); c > 0 {
-		pct = (load1 / c) * 100
+	if s.metrics == nil {
+		s.refreshMetricsService()
 	}
 
-	resp := hostMetrics{
-		Load1:          load1,
-		Load5:          load5,
-		Load15:         load15,
-		LoadPct:        pct,
-		Cores:          cores,
-		MemTotalMB:     mem.totalMB,
-		MemFreeMB:      mem.freeMB,
-		MemAvailableMB: mem.availMB,
-		MemUsedMB:      mem.usedMB,
-		Timestamp:      time.Now(),
-	}
-
+	resp := s.metrics.Snapshot()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -622,57 +620,6 @@ func (s *Server) persistDeleteModel(name string) error {
 	s.config.Models = out
 
 	return utils.SaveConfig(s.configPath, s.config)
-}
-
-type memSnapshot struct {
-	totalMB float64
-	freeMB  float64
-	availMB float64
-	usedMB  float64
-}
-
-func readLoadAvg() (float64, float64, float64, error) {
-	data, err := ioutil.ReadFile("/proc/loadavg")
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return 0, 0, 0, fmt.Errorf("unexpected loadavg format")
-	}
-	parse := func(s string) float64 {
-		v, _ := strconv.ParseFloat(s, 64)
-		return v
-	}
-	return parse(fields[0]), parse(fields[1]), parse(fields[2]), nil
-}
-
-func readMemInfo() memSnapshot {
-	data, err := ioutil.ReadFile("/proc/meminfo")
-	if err != nil {
-		return memSnapshot{}
-	}
-	lines := strings.Split(string(data), "\n")
-	toMB := func(kb float64) float64 { return kb / 1024.0 }
-	info := make(map[string]float64)
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		v, _ := strconv.ParseFloat(fields[1], 64)
-		info[fields[0]] = v
-	}
-	total := toMB(info["MemTotal:"])
-	free := toMB(info["MemFree:"])
-	avail := toMB(info["MemAvailable:"])
-	used := total - avail
-	return memSnapshot{
-		totalMB: total,
-		freeMB:  free,
-		availMB: avail,
-		usedMB:  used,
-	}
 }
 
 func (s *Server) resolveModelPath(filename, explicitPath string) string {
