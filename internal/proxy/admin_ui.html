@@ -212,17 +212,16 @@
 
     <div class="card">
       <h2>Host metrics</h2>
-      <div class="status-line" id="metrics-status">Load and memory usage of this host.</div>
+      <div class="status-line" id="metrics-status">Load and memory usage of this host. GPU usage is not available without vendor tooling.</div>
       <div class="toolbar" style="margin-top:8px;">
         <button id="refresh-metrics" class="secondary">Refresh metrics</button>
       </div>
       <div class="stat-grid">
-        <div class="stat"><strong>CPU load</strong><span id="load-avg">--</span></div>
-        <div class="stat"><strong>CPU approx %</strong><span id="load-pct">--</span></div>
+        <div class="stat"><strong>CPU load (1/5/15)</strong><span id="load-avg">--</span></div>
+        <div class="stat"><strong>CPU (1m vs cores)</strong><span id="load-pct">--</span></div>
         <div class="stat"><strong>Mem total</strong><span id="mem-total">--</span></div>
         <div class="stat"><strong>Mem used</strong><span id="mem-used">--</span></div>
-        <div class="stat"><strong>Mem free</strong><span id="mem-free">--</span></div>
-        <div class="stat"><strong>Mem available</strong><span id="mem-avail">--</span></div>
+        <div class="stat"><strong>GPU usage</strong><span id="gpu-usage">N/A (Vulkan/AMD not reported)</span></div>
       </div>
     </div>
 
@@ -317,8 +316,7 @@
     const loadPctEl = document.getElementById("load-pct");
     const memTotalEl = document.getElementById("mem-total");
     const memUsedEl = document.getElementById("mem-used");
-    const memFreeEl = document.getElementById("mem-free");
-    const memAvailEl = document.getElementById("mem-avail");
+    const gpuUsageEl = document.getElementById("gpu-usage");
     const loadLogsBtn = document.getElementById("load-logs");
     const clearLogsBtn = document.getElementById("clear-logs");
     const logsBox = document.getElementById("logs-box");
@@ -384,8 +382,9 @@
         startBtn.onclick = () => startModel(model.name);
         startBtn.disabled = model.ready === false && model.active; // in startup, avoid spamming
 
+        const filenameValue = model.filename || (model.resolved_path ? model.resolved_path.split("/").pop() : "");
         const filenameInput = document.createElement("input");
-        filenameInput.value = model.filename || "";
+        filenameInput.value = filenameValue;
 
         const pathHint = document.createElement("div");
         pathHint.className = "muted";
@@ -672,12 +671,11 @@
         }
         const data = await res.json();
         loadAvgEl.textContent = `${data.load1?.toFixed(2) || "--"} / ${data.load5?.toFixed(2) || "--"} / ${data.load15?.toFixed(2) || "--"}`;
-        loadPctEl.textContent = data.load_percent != null ? `${data.load_percent.toFixed(1)}%` : "--";
-        const fmt = v => (v != null ? `${v.toFixed(1)} MB` : "--");
-        memTotalEl.textContent = fmt(data.mem_total_mb);
-        memUsedEl.textContent = fmt(data.mem_used_mb);
-        memFreeEl.textContent = fmt(data.mem_free_mb);
-        memAvailEl.textContent = fmt(data.mem_available_mb);
+        loadPctEl.textContent = data.load_percent != null ? `${data.load_percent.toFixed(1)}% of ${data.cores || "cores"}` : "--";
+        const fmtGB = v => (v != null ? `${(v / 1024).toFixed(2)} GB` : "--");
+        memTotalEl.textContent = fmtGB(data.mem_total_mb);
+        memUsedEl.textContent = fmtGB(data.mem_used_mb);
+        gpuUsageEl.textContent = "N/A (needs AMD/Vulkan metrics tooling)";
         metricsStatus.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()}`;
       } catch (err) {
         metricsStatus.textContent = "Unable to load metrics.";
