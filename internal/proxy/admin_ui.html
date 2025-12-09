@@ -160,6 +160,18 @@
       color: #e6eef8;
       min-height: 24px;
     }
+    .log-box {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      max-height: 280px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -242,6 +254,16 @@
         </table>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Process logs</h2>
+      <div class="status-line" id="logs-meta">Load logs to view recent llama-server output.</div>
+      <div class="toolbar" style="margin-top:8px;">
+        <button id="load-logs" class="secondary">Load latest output</button>
+        <button id="clear-logs" class="secondary">Clear view</button>
+      </div>
+      <pre id="logs-box" class="log-box" aria-live="polite">No logs yet.</pre>
+    </div>
   </div>
 
   <script>
@@ -255,7 +277,10 @@
     const modelDirsInput = document.getElementById("model-dirs");
     const binaryPathInput = document.getElementById("binary-path");
     const saveConfigBtn = document.getElementById("save-config");
-    let refreshTimer = null;
+    const loadLogsBtn = document.getElementById("load-logs");
+    const clearLogsBtn = document.getElementById("clear-logs");
+    const logsBox = document.getElementById("logs-box");
+    const logsMeta = document.getElementById("logs-meta");
 
     let lastTone = "info";
     function setMessage(text, tone = "info") {
@@ -598,18 +623,42 @@
       }
     }
 
+    async function fetchLogs() {
+      logsMeta.textContent = "Loading logs...";
+      try {
+        const res = await fetch("/admin/api/logs");
+        if (!res.ok) {
+          throw new Error(`Logs error: ${res.status}`);
+        }
+        const data = await res.json();
+        logsBox.textContent = data.logs || "No output yet.";
+        if (!data.running) {
+          logsMeta.textContent = "No active model. Start one to stream output here.";
+          return;
+        }
+
+        const started = data.started_at ? new Date(data.started_at).toLocaleTimeString() : "recently";
+        const readiness = data.ready ? "ready" : "starting";
+        logsMeta.textContent = `${data.name || "Active model"} (${readiness}) – started ${started}.`;
+      } catch (err) {
+        logsMeta.textContent = "Unable to load logs.";
+        setMessage(err.message, "error");
+      }
+    }
+
+    function clearLogs() {
+      logsBox.textContent = "Cleared.";
+      logsMeta.textContent = "Logs cleared locally. Load again to refresh from server.";
+    }
+
     refreshBtn.onclick = fetchState;
     scanBtn.onclick = fetchAvailable;
     stopBtn.onclick = stopActive;
     saveConfigBtn.onclick = saveConfig;
-
-    function startAutoRefresh() {
-      if (refreshTimer) clearInterval(refreshTimer);
-      refreshTimer = setInterval(() => fetchState({ preserveMessage: true }), 4000);
-    }
+    loadLogsBtn.onclick = fetchLogs;
+    clearLogsBtn.onclick = clearLogs;
 
     fetchState();
-    startAutoRefresh();
     renderAvailable([], null);
   </script>
 </body>

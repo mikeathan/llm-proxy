@@ -13,6 +13,7 @@ type MockManager struct {
 	UpdateModelFunc    func(models.ModelConfig) error
 	RemoveModelFunc    func(string) error
 	ActiveInfoFunc     func() *proxy.ActiveModelInfo
+	ActiveLogsFunc     func() string
 	StopActiveFunc     func() error
 	ModelHostFunc      func() string
 	SetBinaryFunc      func(string)
@@ -61,6 +62,13 @@ func (m *MockManager) ActiveInfo() *proxy.ActiveModelInfo {
 		return m.ActiveInfoFunc()
 	}
 	return nil
+}
+
+func (m *MockManager) ActiveLogs() string {
+	if m.ActiveLogsFunc != nil {
+		return m.ActiveLogsFunc()
+	}
+	return ""
 }
 
 func (m *MockManager) StopActive() error {

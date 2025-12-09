@@ -3,8 +3,10 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"io"
 	"llm-proxy/models"
 	"log"
+	"os"
 	"os/exec"
 	"sort"
 	"sync"
@@ -39,6 +41,7 @@ type LLMProxyManager interface {
 	UpdateModel(models.ModelConfig) error
 	RemoveModel(name string) error
 	ActiveInfo() *ActiveModelInfo
+	ActiveLogs() string
 	StopActive() error
 	ModelHost() string
 	SetBinary(path string)
@@ -58,6 +61,7 @@ type runningModel struct {
 	cmd      *exec.Cmd
 	started  time.Time
 	lastUsed time.Time
+	logs     *logBuffer
 }
 
 func (rm *runningModel) LastUsed() time.Time {
@@ -161,10 +165,13 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	m.models[name] = cfg
 
 	// Start new model process
+	logBuf := newLogBuffer(64 * 1024)
 	cmd := execCommand(
 		m.llamaBinary,
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
+	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout)
+	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout)
 
 	if err := cmd.Start(); err != nil {
 		return ModelInstance{}, fmt.Errorf("model start failed: %w", err)
@@ -175,6 +182,7 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 		cmd:      cmd,
 		started:  time.Now(),
 		lastUsed: time.Now(),
+		logs:     logBuf,
 	}
 
 	// Model is starting, not ready
@@ -285,6 +293,16 @@ func (m *LLMManager) ActiveInfo() *ActiveModelInfo {
 		LastUsed: m.activeModel.lastUsed,
 		Ready:    portReadyFunc(cfg.Port),
 	}
+}
+
+// ActiveLogs returns the buffered stdout/stderr for the active model.
+func (m *LLMManager) ActiveLogs() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeModel == nil || m.activeModel.logs == nil {
+		return ""
+	}
+	return m.activeModel.logs.String()
 }
 
 func (m *LLMManager) stopLocked() error {
