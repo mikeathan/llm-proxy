@@ -21,5 +21,12 @@
       "port": 5001
     }
   ],
-  "model_dir": "/home/mikeathan/dev/models"
+  "model_dir": "/home/mikeathan/dev/models",
+  "metrics": {
+    "gpu": {
+      "provider": "sysfs",
+      "sysfs_path": "/sys/class/drm/card0/device",
+      "index": 0
+    }
+  }
 }
