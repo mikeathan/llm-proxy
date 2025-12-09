@@ -164,9 +164,13 @@ func (s *Server) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, mc := range models {
+		filename := mc.Filename
+		if filename == "" && mc.Path != "" {
+			filename = filepath.Base(mc.Path)
+		}
 		state.Models = append(state.Models, adminModelView{
 			Name:         mc.Name,
-			Filename:     mc.Filename,
+			Filename:     filename,
 			ResolvedPath: mc.Path,
 			Args:         mc.Args,
 			Port:         mc.Port,
