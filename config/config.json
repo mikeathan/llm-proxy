@@ -14,5 +14,5 @@
       "port": 5001
     }
   ],
-  "model_dirs": ["/home/mikeathan/dev"]
+  "model_dirs": ["/home/mikeathan/dev/models"]
 }
