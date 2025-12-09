@@ -239,6 +239,7 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ModelDir    string `json:"model_dir"`
 			LlamaBinary string `json:"llama_binary"`
+			ModelHost   string `json:"model_host"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
@@ -251,6 +252,9 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 		if req.LlamaBinary != "" {
 			s.manager.SetBinary(req.LlamaBinary)
 		}
+		if req.ModelHost != "" {
+			s.manager.SetModelHost(req.ModelHost)
+		}
 
 		if s.config != nil {
 			s.configMu.Lock()
@@ -259,6 +263,9 @@ func (s *Server) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.LlamaBinary != "" {
 				s.config.Server.LlamaServerBinary = req.LlamaBinary
+			}
+			if req.ModelHost != "" {
+				s.config.Server.ModelHost = req.ModelHost
 			}
 			_ = utils.SaveConfig(s.configPath, s.config)
 			s.configMu.Unlock()
