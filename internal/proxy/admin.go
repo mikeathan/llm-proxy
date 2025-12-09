@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"io/ioutil"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -75,6 +78,18 @@ type adminLogsResponse struct {
 	Ready     bool      `json:"ready,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
 	Logs      string    `json:"logs"`
+}
+
+type hostMetrics struct {
+	Load1          float64   `json:"load1"`
+	Load5          float64   `json:"load5"`
+	Load15         float64   `json:"load15"`
+	LoadPct        float64   `json:"load_percent"`
+	MemTotalMB     float64   `json:"mem_total_mb"`
+	MemFreeMB      float64   `json:"mem_free_mb"`
+	MemAvailableMB float64   `json:"mem_available_mb"`
+	MemUsedMB      float64   `json:"mem_used_mb"`
+	Timestamp      time.Time `json:"timestamp"`
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
@@ -316,6 +331,35 @@ func (s *Server) AdminLogsHandler(w http.ResponseWriter, r *http.Request) {
 		resp.Name = active.Name
 		resp.Ready = active.Ready
 		resp.StartedAt = active.Started
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	load1, load5, load15, _ := readLoadAvg()
+	mem := readMemInfo()
+	pct := 0.0
+	if cores := float64(runtime.NumCPU()); cores > 0 {
+		pct = (load1 / cores) * 100
+	}
+
+	resp := hostMetrics{
+		Load1:          load1,
+		Load5:          load5,
+		Load15:         load15,
+		LoadPct:        pct,
+		MemTotalMB:     mem.totalMB,
+		MemFreeMB:      mem.freeMB,
+		MemAvailableMB: mem.availMB,
+		MemUsedMB:      mem.usedMB,
+		Timestamp:      time.Now(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -571,6 +615,57 @@ func (s *Server) persistDeleteModel(name string) error {
 	s.config.Models = out
 
 	return utils.SaveConfig(s.configPath, s.config)
+}
+
+type memSnapshot struct {
+	totalMB float64
+	freeMB  float64
+	availMB float64
+	usedMB  float64
+}
+
+func readLoadAvg() (float64, float64, float64, error) {
+	data, err := ioutil.ReadFile("/proc/loadavg")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 3 {
+		return 0, 0, 0, fmt.Errorf("unexpected loadavg format")
+	}
+	parse := func(s string) float64 {
+		v, _ := strconv.ParseFloat(s, 64)
+		return v
+	}
+	return parse(fields[0]), parse(fields[1]), parse(fields[2]), nil
+}
+
+func readMemInfo() memSnapshot {
+	data, err := ioutil.ReadFile("/proc/meminfo")
+	if err != nil {
+		return memSnapshot{}
+	}
+	lines := strings.Split(string(data), "\n")
+	toMB := func(kb float64) float64 { return kb / 1024.0 }
+	info := make(map[string]float64)
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		v, _ := strconv.ParseFloat(fields[1], 64)
+		info[fields[0]] = v
+	}
+	total := toMB(info["MemTotal:"])
+	free := toMB(info["MemFree:"])
+	avail := toMB(info["MemAvailable:"])
+	used := total - avail
+	return memSnapshot{
+		totalMB: total,
+		freeMB:  free,
+		availMB: avail,
+		usedMB:  used,
+	}
 }
 
 func (s *Server) resolveModelPath(filename, explicitPath string) string {
