@@ -12,6 +12,8 @@ type Server struct {
 	config     *models.Config
 	configPath string
 	modelDir   string
+	gpuConfig  models.GPUConfig
+	metrics    *MetricsService
 	configMu   sync.Mutex
 }
 
@@ -21,16 +23,21 @@ var reverseProxyFactory = func(target string) http.Handler {
 
 func NewServer(mgr LLMProxyManager, cfg *models.Config, configPath string) *Server {
 	dir := ""
+	var gpuCfg models.GPUConfig
 	if cfg != nil {
 		dir = cfg.ModelDir
+		gpuCfg = cfg.Metrics.GPU
 	}
 
-	return &Server{
+	s := &Server{
 		manager:    mgr,
 		config:     cfg,
 		configPath: configPath,
 		modelDir:   dir,
+		gpuConfig:  gpuCfg,
 	}
+	s.metrics = NewMetricsService(&models.Config{Metrics: models.MetricsConfig{GPU: gpuCfg}})
+	return s
 }
 
 func (s *Server) ChatHandler(w http.ResponseWriter, r *http.Request) {
@@ -67,4 +74,12 @@ func SetReverseProxyFactory(f func(string) http.Handler) func() {
 	return func() {
 		reverseProxyFactory = orig
 	}
+}
+
+func (s *Server) refreshMetricsService() {
+	s.metrics = NewMetricsService(&models.Config{
+		Metrics: models.MetricsConfig{
+			GPU: s.gpuConfig,
+		},
+	})
 }

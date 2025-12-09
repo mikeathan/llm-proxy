@@ -4,6 +4,7 @@ type Config struct {
 	Server   ServerConfig  `json:"server"`
 	Models   []ModelConfig `json:"models"`
 	ModelDir string        `json:"model_dir"`
+	Metrics  MetricsConfig `json:"metrics,omitempty"`
 }
 
 type ServerConfig struct {
@@ -20,4 +21,14 @@ type ModelConfig struct {
 	Args     []string `json:"args"`
 	Port     int      `json:"port"`
 	Path     string   `json:"-"` // resolved absolute path, not persisted
+}
+
+type MetricsConfig struct {
+	GPU GPUConfig `json:"gpu"`
+}
+
+type GPUConfig struct {
+	Provider string `json:"provider,omitempty"` // auto, nvidia-smi, rocm-smi, none
+	Binary   string `json:"binary,omitempty"`   // optional override path
+	Index    int    `json:"index,omitempty"`    // GPU index to query (0-based)
 }
