@@ -172,6 +172,19 @@
       font-size: 13px;
       line-height: 1.5;
     }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .stat {
+      padding: 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+    }
+    .stat strong { display: block; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -194,6 +207,22 @@
           <button id="stop" class="danger">Stop active</button>
         </div>
         <div id="message" class="message" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Host metrics</h2>
+      <div class="status-line" id="metrics-status">Load and memory usage of this host.</div>
+      <div class="toolbar" style="margin-top:8px;">
+        <button id="refresh-metrics" class="secondary">Refresh metrics</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><strong>CPU load</strong><span id="load-avg">--</span></div>
+        <div class="stat"><strong>CPU approx %</strong><span id="load-pct">--</span></div>
+        <div class="stat"><strong>Mem total</strong><span id="mem-total">--</span></div>
+        <div class="stat"><strong>Mem used</strong><span id="mem-used">--</span></div>
+        <div class="stat"><strong>Mem free</strong><span id="mem-free">--</span></div>
+        <div class="stat"><strong>Mem available</strong><span id="mem-avail">--</span></div>
       </div>
     </div>
 
@@ -228,7 +257,7 @@
             <tr>
               <th>Name</th>
               <th>Status</th>
-              <th>Path</th>
+              <th>Filename</th>
               <th>Port</th>
               <th>Endpoint</th>
               <th>Args</th>
@@ -282,6 +311,14 @@
     const modelHostInput = document.getElementById("model-host");
     const binaryPathInput = document.getElementById("binary-path");
     const saveConfigBtn = document.getElementById("save-config");
+    const refreshMetricsBtn = document.getElementById("refresh-metrics");
+    const metricsStatus = document.getElementById("metrics-status");
+    const loadAvgEl = document.getElementById("load-avg");
+    const loadPctEl = document.getElementById("load-pct");
+    const memTotalEl = document.getElementById("mem-total");
+    const memUsedEl = document.getElementById("mem-used");
+    const memFreeEl = document.getElementById("mem-free");
+    const memAvailEl = document.getElementById("mem-avail");
     const loadLogsBtn = document.getElementById("load-logs");
     const clearLogsBtn = document.getElementById("clear-logs");
     const logsBox = document.getElementById("logs-box");
@@ -348,13 +385,13 @@
         startBtn.disabled = model.ready === false && model.active; // in startup, avoid spamming
 
         const filenameInput = document.createElement("input");
-        filenameInput.type = "hidden";
         filenameInput.value = model.filename || "";
 
-        const pathDisplay = document.createElement("input");
-        pathDisplay.value = model.resolved_path || model.filename || "";
-        pathDisplay.disabled = true;
-        pathDisplay.dataset.kind = "path-display";
+        const pathHint = document.createElement("div");
+        pathHint.className = "muted";
+        pathHint.style.fontSize = "12px";
+        pathHint.textContent = model.resolved_path || "Will resolve from models folder";
+        pathHint.dataset.kind = "path-hint";
 
         const portInput = document.createElement("input");
         portInput.type = "number";
@@ -372,7 +409,7 @@
 
         const pathCell = document.createElement("td");
         pathCell.appendChild(filenameInput);
-        pathCell.appendChild(pathDisplay);
+        pathCell.appendChild(pathHint);
         row.appendChild(pathCell);
 
         const portCell = document.createElement("td");
@@ -471,9 +508,9 @@
       if (endpointCell) {
         endpointCell.textContent = model.endpoint;
       }
-      const pathDisplay = row.querySelector('input[data-kind="path-display"]');
-      if (pathDisplay) {
-        pathDisplay.value = model.resolved_path || model.filename || "";
+      const pathHint = row.querySelector('div[data-kind="path-hint"]');
+      if (pathHint) {
+        pathHint.textContent = model.resolved_path || "Will resolve from models folder";
       }
     }
 
@@ -626,6 +663,28 @@
       }
     }
 
+    async function fetchMetrics() {
+      metricsStatus.textContent = "Refreshing metrics...";
+      try {
+        const res = await fetch("/admin/api/metrics");
+        if (!res.ok) {
+          throw new Error(`Metrics error: ${res.status}`);
+        }
+        const data = await res.json();
+        loadAvgEl.textContent = `${data.load1?.toFixed(2) || "--"} / ${data.load5?.toFixed(2) || "--"} / ${data.load15?.toFixed(2) || "--"}`;
+        loadPctEl.textContent = data.load_percent != null ? `${data.load_percent.toFixed(1)}%` : "--";
+        const fmt = v => (v != null ? `${v.toFixed(1)} MB` : "--");
+        memTotalEl.textContent = fmt(data.mem_total_mb);
+        memUsedEl.textContent = fmt(data.mem_used_mb);
+        memFreeEl.textContent = fmt(data.mem_free_mb);
+        memAvailEl.textContent = fmt(data.mem_available_mb);
+        metricsStatus.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()}`;
+      } catch (err) {
+        metricsStatus.textContent = "Unable to load metrics.";
+        setMessage(err.message, "error");
+      }
+    }
+
     async function removeModel(name) {
       if (!confirm(`Remove ${name} from config?`)) return;
       setMessage(`Removing ${name}...`);
@@ -694,9 +753,11 @@
     saveConfigBtn.onclick = saveConfig;
     loadLogsBtn.onclick = fetchLogs;
     clearLogsBtn.onclick = clearLogs;
+    refreshMetricsBtn.onclick = fetchMetrics;
 
     function startStatusRefresh() {
       setInterval(() => fetchState({ preserveMessage: true, statusOnly: true }), 4000);
+      setInterval(fetchMetrics, 5000);
     }
 
     fetchState().then(() => startStatusRefresh());
