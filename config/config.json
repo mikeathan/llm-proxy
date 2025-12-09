@@ -1,27 +1,18 @@
 {
   "server": {
-    "bind": "0.0.0.0:8080",
+    "bind": "0.0.0.0:4001",
     "model_host": "127.0.0.1",
     "idle_timeout_seconds": 1800,
-    "llama_server_binary": "/dev/llama.cpp",
-    "default_args": [
-      "--gpu-layers=40",
-      "--threads=8"
-    ]
+    "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
+    "default_args": ["--ctx-size=4096", "--threads=6"]
   },
   "models": [
     {
       "name": "qwen2.5-7b",
-      "path": "/models/qwen2.5-7b/Q4_K_M.gguf",
-      "args": [
-        "--gpu-layers=40",
-        "--threads=8",
-        "--ctx-size=4096"
-      ],
-      "port": 8081
+      "path": "qwen2.5-3b-instruct-q4_k_m.gguf",
+      "args": ["--gpu-layers=8"],
+      "port": 5001
     }
   ],
-  "model_dirs": [
-    "/models"
-  ]
+  "model_dirs": ["/home/mikeathan/dev"]
 }
