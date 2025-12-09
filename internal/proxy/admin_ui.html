@@ -228,8 +228,7 @@
             <tr>
               <th>Name</th>
               <th>Status</th>
-              <th>Filename</th>
-              <th>Resolved path</th>
+              <th>Path</th>
               <th>Port</th>
               <th>Endpoint</th>
               <th>Args</th>
@@ -349,7 +348,13 @@
         startBtn.disabled = model.ready === false && model.active; // in startup, avoid spamming
 
         const filenameInput = document.createElement("input");
+        filenameInput.type = "hidden";
         filenameInput.value = model.filename || "";
+
+        const pathDisplay = document.createElement("input");
+        pathDisplay.value = model.resolved_path || model.filename || "";
+        pathDisplay.disabled = true;
+        pathDisplay.dataset.kind = "path-display";
 
         const portInput = document.createElement("input");
         portInput.type = "number";
@@ -365,16 +370,10 @@
         `;
         row.appendChild(statusCell);
 
-        const filenameCell = document.createElement("td");
-        filenameCell.appendChild(filenameInput);
-        row.appendChild(filenameCell);
-
-        const resolvedCell = document.createElement("td");
-        resolvedCell.className = "muted";
-        resolvedCell.style.fontSize = "12px";
-        resolvedCell.textContent = model.resolved_path || "Will resolve from models folder";
-        resolvedCell.dataset.kind = "resolved-path";
-        row.appendChild(resolvedCell);
+        const pathCell = document.createElement("td");
+        pathCell.appendChild(filenameInput);
+        pathCell.appendChild(pathDisplay);
+        row.appendChild(pathCell);
 
         const portCell = document.createElement("td");
         portCell.appendChild(portInput);
@@ -472,9 +471,9 @@
       if (endpointCell) {
         endpointCell.textContent = model.endpoint;
       }
-      const resolvedCell = row.querySelector('td[data-kind="resolved-path"]');
-      if (resolvedCell) {
-        resolvedCell.textContent = model.resolved_path || "Will resolve from models folder";
+      const pathDisplay = row.querySelector('input[data-kind="path-display"]');
+      if (pathDisplay) {
+        pathDisplay.value = model.resolved_path || model.filename || "";
       }
     }
 
