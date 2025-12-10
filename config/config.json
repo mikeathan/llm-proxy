@@ -9,6 +9,8 @@
       "4096",
       "--threads",
       "6",
+      "--gpu-layers",
+      "999",
       "--host",
       "0.0.0.0"
     ]
@@ -17,7 +19,7 @@
     {
       "name": "qwen2.5-7b",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
-      "args": ["--gpu-layers", "8"],
+      "args": [],
       "port": 5001
     }
   ],
