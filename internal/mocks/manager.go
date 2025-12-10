@@ -3,21 +3,23 @@ package mocks
 import (
 	"llm-proxy/internal/proxy"
 	"llm-proxy/models"
+	"time"
 )
 
 type MockManager struct {
-	EnsureModelFunc    func(name string) (proxy.ModelInstance, error)
-	RecordActivityFunc func(name string)
-	ListModelsFunc     func() []models.ModelConfig
-	AddModelFunc       func(models.ModelConfig) error
-	UpdateModelFunc    func(models.ModelConfig) error
-	RemoveModelFunc    func(string) error
-	ActiveInfoFunc     func() *proxy.ActiveModelInfo
-	ActiveLogsFunc     func() string
-	StopActiveFunc     func() error
-	ModelHostFunc      func() string
-	SetBinaryFunc      func(string)
-	SetModelHostFunc   func(string)
+	EnsureModelFunc         func(name string) (proxy.ModelInstance, error)
+	RecordActivityFunc      func(name string)
+	ListModelsFunc          func() []models.ModelConfig
+	AddModelFunc            func(models.ModelConfig) error
+	UpdateModelFunc         func(models.ModelConfig) error
+	RemoveModelFunc         func(string) error
+	ActiveInfoFunc          func() *proxy.ActiveModelInfo
+	ActiveLogsFunc          func() string
+	LastTokensPerSecondFunc func() (float64, time.Time)
+	StopActiveFunc          func() error
+	ModelHostFunc           func() string
+	SetBinaryFunc           func(string)
+	SetModelHostFunc        func(string)
 }
 
 func (m *MockManager) EnsureModel(name string) (proxy.ModelInstance, error) {
@@ -70,6 +72,13 @@ func (m *MockManager) ActiveLogs() string {
 		return m.ActiveLogsFunc()
 	}
 	return ""
+}
+
+func (m *MockManager) LastTokensPerSecond() (float64, time.Time) {
+	if m.LastTokensPerSecondFunc != nil {
+		return m.LastTokensPerSecondFunc()
+	}
+	return 0, time.Time{}
 }
 
 func (m *MockManager) StopActive() error {
