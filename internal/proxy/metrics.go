@@ -42,13 +42,15 @@ type gpuMetrics struct {
 
 type metricsSnapshot struct {
 	hostMetrics
-	GPU              *gpuMetrics `json:"gpu,omitempty"`
-	GPUProvider      string      `json:"gpu_provider,omitempty"`
-	GPUError         string      `json:"gpu_error,omitempty"`
-	GPUCorePercent   float64     `json:"gpu_core_percent"`
-	GPUMemoryPercent float64     `json:"gpu_memory_percent"`
-	GPUMemoryUsedMB  float64     `json:"gpu_memory_used_mb"`
-	GPUMemoryTotalMB float64     `json:"gpu_memory_total_mb"`
+	GPU               *gpuMetrics `json:"gpu,omitempty"`
+	GPUProvider       string      `json:"gpu_provider,omitempty"`
+	GPUError          string      `json:"gpu_error,omitempty"`
+	GPUCorePercent    float64     `json:"gpu_core_percent"`
+	GPUMemoryPercent  float64     `json:"gpu_memory_percent"`
+	GPUMemoryUsedMB   float64     `json:"gpu_memory_used_mb"`
+	GPUMemoryTotalMB  float64     `json:"gpu_memory_total_mb"`
+	LLMTokensPerSec   float64     `json:"llm_tokens_per_sec,omitempty"`
+	LLMTokensPerSecTS time.Time   `json:"llm_tokens_per_sec_ts,omitempty"`
 }
 
 type gpuProvider interface {
@@ -56,10 +58,15 @@ type gpuProvider interface {
 	Sample() (*gpuMetrics, error)
 }
 
+type throughputSource interface {
+	LastTokensPerSecond() (float64, time.Time)
+}
+
 type MetricsService struct {
 	gpu             gpuProvider
 	gpuProviderName string
 	gpuInitErr      string
+	throughput      throughputSource
 	nowFn           func() time.Time
 }
 
@@ -71,6 +78,10 @@ func NewMetricsService(cfg *models.Config) *MetricsService {
 		gpuInitErr:      initErr,
 		nowFn:           time.Now,
 	}
+}
+
+func (s *MetricsService) SetThroughputSource(src throughputSource) {
+	s.throughput = src
 }
 
 func (s *MetricsService) Snapshot() metricsSnapshot {
@@ -100,6 +111,13 @@ func (s *MetricsService) Snapshot() metricsSnapshot {
 	resp.GPUMemoryPercent = gpu.MemoryUtilizationPct
 	resp.GPUMemoryUsedMB = gpu.MemoryUsedMB
 	resp.GPUMemoryTotalMB = gpu.MemoryTotalMB
+
+	if s.throughput != nil {
+		if tps, ts := s.throughput.LastTokensPerSecond(); tps > 0 {
+			resp.LLMTokensPerSec = tps
+			resp.LLMTokensPerSecTS = ts
+		}
+	}
 	return resp
 }
 

@@ -247,6 +247,11 @@
           <div class="stat-value" id="gpu-temp">--</div>
           <div class="stat-note" id="gpu-provider">--</div>
         </div>
+        <div class="stat">
+          <div class="stat-title">LLM throughput <span class="pill mini idle">tokens/s</span></div>
+          <div class="stat-value" id="llm-tps">--</div>
+          <div class="stat-note" id="llm-tps-note">Waiting for first completion</div>
+        </div>
       </div>
     </div>
 
@@ -348,6 +353,8 @@
     const gpuMemNoteEl = document.getElementById("gpu-mem-note");
     const gpuTempEl = document.getElementById("gpu-temp");
     const gpuProviderEl = document.getElementById("gpu-provider");
+    const llmTpsEl = document.getElementById("llm-tps");
+    const llmTpsNoteEl = document.getElementById("llm-tps-note");
     const loadLogsBtn = document.getElementById("load-logs");
     const clearLogsBtn = document.getElementById("clear-logs");
     const logsBox = document.getElementById("logs-box");
@@ -746,6 +753,22 @@
           gpuTempEl.textContent = "Err";
         } else {
           gpuTempEl.textContent = "—";
+        }
+
+        const tps = Number(data.llm_tokens_per_sec);
+        const tpsTsRaw = data.llm_tokens_per_sec_ts;
+        if (Number.isFinite(tps) && tps > 0) {
+          llmTpsEl.textContent = `${tps.toFixed(1)} tok/s`;
+          if (tpsTsRaw) {
+            const ts = new Date(tpsTsRaw);
+            const ageSec = Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000));
+            llmTpsNoteEl.textContent = `last sample ${ageSec}s ago`;
+          } else {
+            llmTpsNoteEl.textContent = "latest sample";
+          }
+        } else {
+          llmTpsEl.textContent = "—";
+          llmTpsNoteEl.textContent = "Waiting for first completion";
         }
 
         const providerLabel = data.gpu_provider ? `GPU via ${data.gpu_provider}` : "GPU auto-detect";

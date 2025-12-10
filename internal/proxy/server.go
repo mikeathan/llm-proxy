@@ -36,7 +36,7 @@ func NewServer(mgr LLMProxyManager, cfg *models.Config, configPath string) *Serv
 		modelDir:   dir,
 		gpuConfig:  gpuCfg,
 	}
-	s.metrics = NewMetricsService(&models.Config{Metrics: models.MetricsConfig{GPU: gpuCfg}})
+	s.refreshMetricsService()
 	return s
 }
 
@@ -82,4 +82,5 @@ func (s *Server) refreshMetricsService() {
 			GPU: s.gpuConfig,
 		},
 	})
+	s.metrics.SetThroughputSource(s.manager)
 }

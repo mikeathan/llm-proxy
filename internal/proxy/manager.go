@@ -43,6 +43,7 @@ type LLMProxyManager interface {
 	RemoveModel(name string) error
 	ActiveInfo() *ActiveModelInfo
 	ActiveLogs() string
+	LastTokensPerSecond() (float64, time.Time)
 	StopActive() error
 	ModelHost() string
 	SetBinary(path string)
@@ -59,11 +60,12 @@ type LLMManager struct {
 }
 
 type runningModel struct {
-	cfg      models.ModelConfig
-	cmd      *exec.Cmd
-	started  time.Time
-	lastUsed time.Time
-	logs     *logBuffer
+	cfg        models.ModelConfig
+	cmd        *exec.Cmd
+	started    time.Time
+	lastUsed   time.Time
+	logs       *logBuffer
+	throughput *tokenTracker
 }
 
 func (rm *runningModel) LastUsed() time.Time {
@@ -196,23 +198,25 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 
 	// Start new model process
 	logBuf := newLogBuffer(64 * 1024)
+	tokens := newTokenTracker()
 	cmd := execCommand(
 		m.llamaBinary,
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
-	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout)
-	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout)
+	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
+	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
 
 	if err := cmd.Start(); err != nil {
 		return ModelInstance{}, fmt.Errorf("model start failed: %w", err)
 	}
 
 	m.activeModel = &runningModel{
-		cfg:      cfg,
-		cmd:      cmd,
-		started:  time.Now(),
-		lastUsed: time.Now(),
-		logs:     logBuf,
+		cfg:        cfg,
+		cmd:        cmd,
+		started:    time.Now(),
+		lastUsed:   time.Now(),
+		logs:       logBuf,
+		throughput: tokens,
 	}
 
 	// Model is starting, not ready
@@ -334,6 +338,16 @@ func (m *LLMManager) ActiveLogs() string {
 		return ""
 	}
 	return m.activeModel.logs.String()
+}
+
+// LastTokensPerSecond returns the most recent throughput reported by llama-server output.
+func (m *LLMManager) LastTokensPerSecond() (float64, time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeModel != nil && m.activeModel.throughput != nil {
+		return m.activeModel.throughput.LastTokensPerSecond()
+	}
+	return 0, time.Time{}
 }
 
 func (m *LLMManager) stopLocked() error {
