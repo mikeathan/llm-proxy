@@ -1,0 +1,80 @@
+lama.cpp + Vulkan (AMD 780M) – Working Setup Guide
+1. Install required Vulkan tools
+
+You need the system Vulkan SDK tools (for glslc):
+
+sudo apt install -y libvulkan-dev mesa-vulkan-drivers mesa-vulkan-drivers:i386 shaderc-tools
+
+
+Confirm glslc exists:
+
+which glslc
+
+2. Clone llama.cpp and create a clean build folder
+cd ~/dev
+git clone https://github.com/ggerganov/llama.cpp.git
+cd llama.cpp
+rm -rf build
+mkdir build && cd build
+
+
+A clean build is required any time Vulkan wasn't detected earlier.
+
+3. Configure CMake with Vulkan enabled
+cmake .. -DGGML_VULKAN=ON
+
+
+You must see:
+
+-- Including Vulkan backend
+-- Vulkan found
+
+
+If it doesn't show that → stop and fix before building.
+
+4. Build llama.cpp with Vulkan backend
+cmake --build . -j$(nproc)
+
+5. Fix permissions for GPU access
+
+Your user must belong to these groups:
+
+sudo usermod -aG render $USER
+sudo usermod -aG video $USER
+
+
+Log out completely or reboot.
+
+Confirm:
+
+groups
+
+
+Should show:
+
+video render
+
+6. Test Vulkan visibility (normal user)
+vulkaninfo | grep -i radeon
+
+
+You should NOT run this with sudo.
+
+Expected:
+
+deviceName = AMD Radeon Graphics (RADV PHOENIX)
+
+7. Run llama.cpp with GPU offloading
+
+Example:
+
+/home/mikeathan/dev/llama.cpp/build/bin/llama-cli \
+  --model ~/dev/models/qwen2.5-3b-instruct-q4_k_m.gguf \
+  --gpu-layers 50 \
+  --prompt "hi"
+
+
+Expected message:
+
+ggml_vulkan: Found 1 Vulkan devices:
+ggml_vulkan: using AMD Radeon Graphics (RADV PHOENIX)
