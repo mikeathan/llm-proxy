@@ -572,6 +572,11 @@ func (p *sysfsProvider) Sample() (*gpuMetrics, error) {
 		memPct = (memUsedMB / memTotalMB) * 100
 	}
 
+	tempC := 0.0
+	if t, err := readSysfsTempC(p.basePath); err == nil {
+		tempC = t
+	}
+
 	return &gpuMetrics{
 		Vendor:               "amd",
 		Name:                 filepath.Base(p.basePath),
@@ -579,6 +584,7 @@ func (p *sysfsProvider) Sample() (*gpuMetrics, error) {
 		MemoryUsedMB:         memUsedMB,
 		MemoryTotalMB:        memTotalMB,
 		MemoryUtilizationPct: memPct,
+		TemperatureC:         tempC,
 	}, nil
 }
 
@@ -590,6 +596,27 @@ func readSysfsFloat(basePath, file string) (float64, error) {
 	v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
 	if err != nil {
 		return 0, fmt.Errorf("sysfs parse: %w", err)
+	}
+	return v, nil
+}
+
+// readSysfsTempC tries common hwmon temp paths under the device for AMD GPUs.
+func readSysfsTempC(basePath string) (float64, error) {
+	matches, err := filepath.Glob(filepath.Join(basePath, "hwmon", "hwmon*", "temp1_input"))
+	if err != nil || len(matches) == 0 {
+		return 0, fmt.Errorf("sysfs temp: no hwmon temp1_input found")
+	}
+	b, err := os.ReadFile(matches[0])
+	if err != nil {
+		return 0, fmt.Errorf("sysfs temp: %w", err)
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
+	if err != nil {
+		return 0, fmt.Errorf("sysfs temp parse: %w", err)
+	}
+	// Most drivers expose millidegrees; normalize to Celsius if so.
+	if v > 200 { // avoid dividing actual Celsius values (rarely >200C)
+		v = v / 1000.0
 	}
 	return v, nil
 }
