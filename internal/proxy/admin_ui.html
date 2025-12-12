@@ -329,547 +329,538 @@
   </div>
 
   <script>
-    const messageEl = document.getElementById("message");
-    const activeStatusEl = document.getElementById("active-status");
-    const modelsBody = document.getElementById("models-body");
-    const availableBody = document.getElementById("available-body");
-    const refreshBtn = document.getElementById("refresh");
-    const scanBtn = document.getElementById("scan");
-    const stopBtn = document.getElementById("stop");
-    const modelDirInput = document.getElementById("model-dir");
-    const modelHostInput = document.getElementById("model-host");
-    const binaryPathInput = document.getElementById("binary-path");
-    const saveConfigBtn = document.getElementById("save-config");
-    const refreshMetricsBtn = document.getElementById("refresh-metrics");
-    const metricsStatus = document.getElementById("metrics-status");
-    const metricsProviderEl = document.getElementById("metrics-provider");
-    const loadAvgEl = document.getElementById("load-avg");
-    const loadPctEl = document.getElementById("load-pct");
-    const memUsedEl = document.getElementById("mem-used");
-    const memFreeEl = document.getElementById("mem-free");
-    const gpuNameEl = document.getElementById("gpu-name");
-    const gpuCoreEl = document.getElementById("gpu-core");
-    const gpuMemEl = document.getElementById("gpu-mem");
-    const gpuMemNoteEl = document.getElementById("gpu-mem-note");
-    const gpuTempEl = document.getElementById("gpu-temp");
-    const gpuProviderEl = document.getElementById("gpu-provider");
-    const llmTpsEl = document.getElementById("llm-tps");
-    const llmTpsNoteEl = document.getElementById("llm-tps-note");
-    const loadLogsBtn = document.getElementById("load-logs");
-    const clearLogsBtn = document.getElementById("clear-logs");
-    const logsBox = document.getElementById("logs-box");
-    const logsMeta = document.getElementById("logs-meta");
-
-    let lastTone = "info";
-    function setMessage(text, tone = "info") {
-      lastTone = tone;
-      messageEl.textContent = text || "";
-      messageEl.style.borderColor = tone === "error" ? "rgba(255, 115, 105, 0.4)" : "var(--border)";
-    }
-
-    function badge(label, className) {
-      const span = document.createElement("span");
-      span.className = `pill ${className}`;
-      span.textContent = label;
-      return span;
-    }
-
-    function renderActive(active) {
-      if (!active) {
-        activeStatusEl.innerHTML = '<div class="pill idle">Idle</div><div class="status-line">No model is running.</div>';
-        stopBtn.disabled = true;
-        return;
-      }
-
-      const container = document.createElement("div");
-      const state = active.ready ? badge("Ready", "ready") : badge("Starting", "starting");
-      const title = document.createElement("div");
-      title.style.display = "flex";
-      title.style.alignItems = "center";
-      title.style.gap = "10px";
-      title.style.fontSize = "18px";
-      title.innerHTML = `<strong>${active.name}</strong>`;
-      title.appendChild(state);
-
-      const detail = document.createElement("div");
-      detail.className = "status-line";
-      detail.innerHTML = [
-        `Port <span class="kbd">${active.port}</span>`,
-        active.endpoint ? `<span class="kbd">${active.endpoint}</span>` : "",
-        `Started ${new Date(active.started_at).toLocaleTimeString()}`
-      ].filter(Boolean).join(" · ");
-
-      container.appendChild(title);
-      container.appendChild(detail);
-      activeStatusEl.innerHTML = "";
-      activeStatusEl.appendChild(container);
-      stopBtn.disabled = false;
-    }
-
-    function renderModels(models) {
-      modelsBody.innerHTML = "";
-      models.forEach(model => {
-        const row = document.createElement("tr");
-        row.dataset.name = model.name;
-
-        const nameCell = document.createElement("td");
-        nameCell.innerHTML = `<strong>${model.name}</strong>`;
-
-        const statusCell = document.createElement("td");
-        const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
-        statusCell.appendChild(status);
-
-        const startBtn = document.createElement("button");
-        startBtn.textContent = model.active ? "Restart" : "Start";
-        startBtn.onclick = () => startModel(model.name);
-        startBtn.disabled = model.ready === false && model.active; // in startup, avoid spamming
-
-        const filenameValue = model.filename || (model.resolved_path ? model.resolved_path.split("/").pop() : "");
-        const filenameInput = document.createElement("input");
-        filenameInput.value = filenameValue;
-
-        const pathHint = document.createElement("div");
-        pathHint.className = "muted";
-        pathHint.style.fontSize = "12px";
-        pathHint.textContent = model.resolved_path || "Will resolve from models folder";
-        pathHint.dataset.kind = "path-hint";
-
-        const portInput = document.createElement("input");
-        portInput.type = "number";
-        portInput.min = "1";
-        portInput.value = model.port;
-
-        const argsInput = document.createElement("input");
-        argsInput.placeholder = "--ctx-size 4096";
-        argsInput.value = model.args && model.args.length ? model.args.join(" ") : "";
-
-        const pathCell = document.createElement("td");
-        pathCell.appendChild(filenameInput);
-        pathCell.appendChild(pathHint);
-
-        const portCell = document.createElement("td");
-        portCell.appendChild(portInput);
-
-        const endpointCell = document.createElement("td");
-        endpointCell.dataset.kind = "endpoint";
-        const endpointSpan = document.createElement("span");
-        endpointSpan.className = "kbd";
-        endpointSpan.textContent = model.endpoint;
-        endpointCell.appendChild(endpointSpan);
-
-        const argsCell = document.createElement("td");
-        argsCell.appendChild(argsInput);
-
-        const actionCell = document.createElement("td");
-        const saveBtn = document.createElement("button");
-        saveBtn.className = "secondary";
-        saveBtn.textContent = "Save";
-        saveBtn.onclick = () => updateModel(model.name, filenameInput, portInput, argsInput);
-
-        const removeBtn = document.createElement("button");
-        removeBtn.className = "danger";
-        removeBtn.textContent = "Remove";
-        removeBtn.onclick = () => removeModel(model.name);
-
-        actionCell.style.display = "flex";
-        actionCell.style.flexDirection = "column";
-        actionCell.style.gap = "8px";
-        actionCell.appendChild(saveBtn);
-        actionCell.appendChild(startBtn);
-        actionCell.appendChild(removeBtn);
-
-        row.appendChild(nameCell);
-        row.appendChild(statusCell);
-        row.appendChild(pathCell);
-        row.appendChild(portCell);
-        row.appendChild(endpointCell);
-        row.appendChild(argsCell);
-        row.appendChild(actionCell);
-
-        modelsBody.appendChild(row);
-      });
-    }
-
-    function renderAvailable(available, nextPort) {
-      availableBody.innerHTML = "";
-      if (!available || !available.length) {
-        const row = document.createElement("tr");
-        row.innerHTML = `<td colspan="5" class="muted">No new model files found. Click Scan folders to refresh.</td>`;
-        availableBody.appendChild(row);
-        return;
-      }
-
-      available.forEach(model => {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-          <td><strong>${model.name}</strong></td>
-          <td class="muted" style="font-size:12px; word-break:break-all;">${model.resolved_path || model.filename}</td>
-        `;
-
-        const portCell = document.createElement("td");
-        const portInput = document.createElement("input");
-        portInput.type = "number";
-        portInput.min = "1";
-        portInput.value = nextPort || "";
-        portCell.appendChild(portInput);
-        row.appendChild(portCell);
-
-        const argsCell = document.createElement("td");
-        const argsInput = document.createElement("input");
-        argsInput.placeholder = "--ctx-size 4096";
-        argsCell.appendChild(argsInput);
-        row.appendChild(argsCell);
-
-        const actionCell = document.createElement("td");
-        const addBtn = document.createElement("button");
-        addBtn.textContent = "Add to config";
-        addBtn.onclick = () => addModel(model.name, model.filename, portInput, argsInput);
-        actionCell.appendChild(addBtn);
-        row.appendChild(actionCell);
-
-        availableBody.appendChild(row);
-      });
-    }
-
-    function renderConfig(cfg) {
-      if (!cfg) return;
-      modelDirInput.value = cfg.model_dir || "";
-      modelHostInput.value = cfg.model_host || "";
-      binaryPathInput.value = cfg.llama_binary || "";
-    }
-
-    function updateRowStatus(model) {
-      const row = modelsBody.querySelector(`tr[data-name="${model.name}"]`);
-      if (!row) return;
-      const statusCell = row.querySelector("td:nth-child(2)");
-      if (statusCell) {
-        statusCell.innerHTML = "";
-        const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
-        statusCell.appendChild(status);
-      }
-      const endpointCell = row.querySelector('td[data-kind="endpoint"] span');
-      if (endpointCell) {
-        endpointCell.textContent = model.endpoint;
-      }
-      const pathHint = row.querySelector('div[data-kind="path-hint"]');
-      if (pathHint) {
-        pathHint.textContent = model.resolved_path || "Will resolve from models folder";
-      }
-    }
-
-    async function fetchState(options = {}) {
-      const preserveMessage = options.preserveMessage || false;
-      const statusOnly = options.statusOnly || false;
-      try {
-        const res = await fetch("/admin/api/state");
-        if (!res.ok) {
-          throw new Error(`State error: ${res.status}`);
+    (() => {
+      const dom = {
+        message: document.getElementById("message"),
+        activeStatus: document.getElementById("active-status"),
+        tables: {
+          models: document.getElementById("models-body"),
+          available: document.getElementById("available-body")
+        },
+        inputs: {
+          modelDir: document.getElementById("model-dir"),
+          modelHost: document.getElementById("model-host"),
+          binaryPath: document.getElementById("binary-path")
+        },
+        buttons: {
+          refresh: document.getElementById("refresh"),
+          scan: document.getElementById("scan"),
+          stop: document.getElementById("stop"),
+          saveConfig: document.getElementById("save-config"),
+          refreshMetrics: document.getElementById("refresh-metrics"),
+          loadLogs: document.getElementById("load-logs"),
+          clearLogs: document.getElementById("clear-logs")
+        },
+        metrics: {
+          status: document.getElementById("metrics-status"),
+          provider: document.getElementById("metrics-provider"),
+          loadAvg: document.getElementById("load-avg"),
+          loadPct: document.getElementById("load-pct"),
+          memUsed: document.getElementById("mem-used"),
+          memFree: document.getElementById("mem-free"),
+          gpuName: document.getElementById("gpu-name"),
+          gpuCore: document.getElementById("gpu-core"),
+          gpuMem: document.getElementById("gpu-mem"),
+          gpuMemNote: document.getElementById("gpu-mem-note"),
+          gpuTemp: document.getElementById("gpu-temp"),
+          gpuProvider: document.getElementById("gpu-provider"),
+          llmTps: document.getElementById("llm-tps"),
+          llmTpsNote: document.getElementById("llm-tps-note")
+        },
+        logs: {
+          box: document.getElementById("logs-box"),
+          meta: document.getElementById("logs-meta")
         }
-        const data = await res.json();
-        renderActive(data.active);
-        if (statusOnly) {
-          (data.models || []).forEach(updateRowStatus);
-        } else {
-          renderModels(data.models || []);
-          if (Object.prototype.hasOwnProperty.call(data, "available")) {
-            renderAvailable(data.available || [], data.next_port);
-          }
-          if (data.config) {
-            renderConfig(data.config);
+      };
+
+      const state = { lastTone: "info" };
+
+      function setMessage(text, tone = "info") {
+        state.lastTone = tone;
+        dom.message.textContent = text || "";
+        dom.message.style.borderColor = tone === "error" ? "rgba(255, 115, 105, 0.4)" : "var(--border)";
+      }
+
+      function badge(label, tone) {
+        const span = document.createElement("span");
+        span.className = `pill ${tone}`;
+        span.textContent = label;
+        return span;
+      }
+
+      function createInput({ type = "text", value = "", placeholder = "", min } = {}) {
+        const input = document.createElement("input");
+        input.type = type;
+        if (placeholder) input.placeholder = placeholder;
+        if (min != null) input.min = String(min);
+        if (value != null) input.value = value;
+        return input;
+      }
+
+      function createButton(label, { className = "", disabled = false, onClick } = {}) {
+        const button = document.createElement("button");
+        if (className) button.className = className;
+        button.textContent = label;
+        button.disabled = !!disabled;
+        if (onClick) button.addEventListener("click", onClick);
+        return button;
+      }
+
+      async function requestJSON(url, options = {}) {
+        const res = await fetch(url, options);
+        const text = await res.text();
+        let data = {};
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch (_) {
+            data = { raw: text };
           }
         }
-        if (!preserveMessage || lastTone !== "error") {
-          setMessage("Updated just now");
-        }
-      } catch (err) {
-        setMessage(err.message, "error");
-      }
-    }
-
-    async function startModel(name) {
-      setMessage(`Starting ${name}...`);
-      try {
-        const res = await fetch("/admin/api/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name })
-        });
-        const text = await res.text();
-        let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
         if (!res.ok) {
-          throw new Error(data.error || text || `Unable to start ${name}`);
+          const msg = data.error || data.message || data.raw || text || `Request failed (${res.status})`;
+          throw new Error(msg);
         }
-        setMessage(`${name} ${data.status || "started"}`);
-      } catch (err) {
-        setMessage(err.message, "error");
-      } finally {
-        fetchState({ preserveMessage: true });
+        return data;
       }
-    }
 
-    async function addModel(name, filename, portInput, argsInput) {
-      const port = parseInt(portInput?.value, 10) || 0;
-      const argsRaw = (argsInput?.value || "").trim();
-      const args = argsRaw ? argsRaw.split(/\s+/) : [];
-      const fname = filename || name;
-      setMessage(`Adding ${name}...`);
-      try {
-        const res = await fetch("/admin/api/models", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, filename: fname, port, args })
-        });
-        const text = await res.text();
-        let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
-        if (!res.ok) {
-          throw new Error(data.error || text || `Unable to add ${name}`);
-        }
-        setMessage(`${name} added at port ${data.port || port}`);
-      } catch (err) {
-        setMessage(err.message, "error");
-      } finally {
-        fetchState({ preserveMessage: true });
-      }
-    }
-
-    async function saveConfig() {
-      const dir = (modelDirInput.value || "").trim();
-      const modelHost = (modelHostInput.value || "").trim();
-      const binary = (binaryPathInput.value || "").trim();
-      setMessage("Saving config...");
-      try {
-        const res = await fetch("/admin/api/config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model_dir: dir, model_host: modelHost, llama_binary: binary })
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          let data = {};
-          try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
-          throw new Error(data.error || text || "Unable to save config");
-        }
-        setMessage("Config saved");
-      } catch (err) {
-        setMessage(err.message, "error");
-      } finally {
-        fetchState({ preserveMessage: true });
-      }
-    }
-
-    async function stopActive() {
-      setMessage("Stopping active model...");
-      try {
-        const res = await fetch("/admin/api/stop", { method: "POST" });
-        const text = await res.text();
-        let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
-        if (!res.ok) {
-          throw new Error(data.error || text || "Unable to stop");
-        }
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        setMessage(data.stopped ? `Stopped ${data.stopped}` : "No model was running");
-      } catch (err) {
-        setMessage(err.message, "error");
-      } finally {
-        fetchState({ preserveMessage: true });
-      }
-    }
-
-    async function updateModel(name, filenameInput, portInput, argsInput) {
-      const port = parseInt(portInput?.value, 10) || 0;
-      const argsRaw = (argsInput?.value || "").trim();
-      const args = argsRaw ? argsRaw.split(/\s+/) : [];
-      const filename = filenameInput?.value || "";
-      setMessage(`Updating ${name}...`);
-      try {
-        const res = await fetch("/admin/api/models", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, filename, port, args })
-        });
-        const text = await res.text();
-        let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
-        if (!res.ok) {
-          throw new Error(data.error || text || `Unable to update ${name}`);
-        }
-        setMessage(`${name} updated`);
-      } catch (err) {
-        setMessage(err.message, "error");
-      } finally {
-        fetchState({ preserveMessage: true });
-      }
-    }
-
-    const fmtNum = (val, digits = 1) => (Number.isFinite(val) ? val.toFixed(digits) : null);
-    const mbToGB = (mb) => (Number.isFinite(mb) ? mb / 1024 : null);
-
-    async function fetchMetrics() {
-      metricsStatus.textContent = "Refreshing metrics...";
-      try {
-        const res = await fetch("/admin/api/metrics");
-        if (!res.ok) {
-          throw new Error(`Metrics error: ${res.status}`);
-        }
-        const data = await res.json();
-        loadAvgEl.textContent = `${fmtNum(data.load1, 2) || "--"} / ${fmtNum(data.load5, 2) || "--"} / ${fmtNum(data.load15, 2) || "--"}`;
-        const loadPct = data.load_percent != null ? data.load_percent.toFixed(1) : null;
-        loadPctEl.textContent = loadPct ? `${loadPct}% of ${data.cores || "cores"} (1m avg)` : "--";
-
-        const usedGB = mbToGB(data.mem_used_mb);
-        const totalGB = mbToGB(data.mem_total_mb);
-        const freeGB = mbToGB(data.mem_free_mb);
-        const availGB = mbToGB(data.mem_available_mb);
-        memUsedEl.textContent = usedGB != null && totalGB != null ? `${usedGB.toFixed(2)} / ${totalGB.toFixed(2)} GB used` : "--";
-        const availText = availGB != null ? `${availGB.toFixed(2)} GB available` : null;
-        const freeText = freeGB != null ? `${freeGB.toFixed(2)} GB free` : null;
-        memFreeEl.textContent = [availText, freeText].filter(Boolean).join(" · ") || "--";
-
-        const gpu = data.gpu;
-        const corePct = Number.isFinite(data.gpu_core_percent) ? data.gpu_core_percent : gpu?.utilization_percent;
-        const memPctVal = Number.isFinite(data.gpu_memory_percent) ? data.gpu_memory_percent : gpu?.memory_utilization_percent;
-        const memUsedVal = Number.isFinite(data.gpu_memory_used_mb) ? data.gpu_memory_used_mb : gpu?.memory_used_mb;
-        const memTotalVal = Number.isFinite(data.gpu_memory_total_mb) ? data.gpu_memory_total_mb : gpu?.memory_total_mb;
-        const tempVal = Number.isFinite(gpu?.temperature_c) ? gpu.temperature_c : null;
-        const gpuLabel = gpu?.name || (gpu?.vendor ? gpu.vendor.toUpperCase() : data.gpu_provider || "GPU");
-        gpuNameEl.textContent = gpuLabel || "GPU";
-
-        gpuCoreEl.textContent = corePct != null ? `${corePct.toFixed(1)}%` : (data.gpu_error ? "Err" : "—");
-
-        if (memPctVal != null || (memUsedVal != null && memTotalVal != null)) {
-          const memPctText = memPctVal != null ? `${memPctVal.toFixed(1)}%` : null;
-          const memGBUsed = mbToGB(memUsedVal);
-          const memGBTotal = mbToGB(memTotalVal);
-          const memCap = memGBUsed != null && memGBTotal != null ? `${memGBUsed.toFixed(2)} / ${memGBTotal.toFixed(2)} GB` : null;
-          gpuMemEl.textContent = memPctText || memCap || "—";
-          gpuMemNoteEl.textContent = memPctText && memCap ? memCap : (memCap || "--");
-        } else {
-          gpuMemEl.textContent = data.gpu_error ? "Err" : "—";
-          gpuMemNoteEl.textContent = data.gpu_error ? data.gpu_error : "No memory reading";
-        }
-
-        if (tempVal != null && tempVal !== 0) {
-          gpuTempEl.textContent = `${tempVal.toFixed(0)}°C`;
-        } else if (data.gpu_error) {
-          gpuTempEl.textContent = "Err";
-        } else {
-          gpuTempEl.textContent = "—";
-        }
-
-        const tps = Number(data.llm_tokens_per_sec);
-        const tpsTsRaw = data.llm_tokens_per_sec_ts;
-        if (Number.isFinite(tps) && tps > 0) {
-          llmTpsEl.textContent = `${tps.toFixed(1)} tok/s`;
-          if (tpsTsRaw) {
-            const ts = new Date(tpsTsRaw);
-            const ageSec = Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000));
-            llmTpsNoteEl.textContent = `last sample ${ageSec}s ago`;
-          } else {
-            llmTpsNoteEl.textContent = "latest sample";
-          }
-        } else {
-          llmTpsEl.textContent = "—";
-          llmTpsNoteEl.textContent = "Waiting for first completion";
-        }
-
-        const providerLabel = data.gpu_provider ? `GPU via ${data.gpu_provider}` : "GPU auto-detect";
-        gpuProviderEl.textContent = data.gpu_error ? data.gpu_error : providerLabel;
-        metricsProviderEl.textContent = providerLabel;
-
-        if (data.gpu_error) {
-          metricsStatus.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()} · ${providerLabel} (${data.gpu_error})`;
-        } else {
-          const suffix = data.gpu ? `${providerLabel}${gpuLabel ? " · " + gpuLabel : ""}` : `${providerLabel} (no reading)`;
-          metricsStatus.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()} · ${suffix}`;
-        }
-      } catch (err) {
-        metricsStatus.textContent = "Unable to load metrics.";
-        setMessage(err.message, "error");
-      }
-    }
-
-    async function removeModel(name) {
-      if (!confirm(`Remove ${name} from config?`)) return;
-      setMessage(`Removing ${name}...`);
-      try {
-        const res = await fetch(`/admin/api/models?name=${encodeURIComponent(name)}`, {
-          method: "DELETE"
-        });
-        if (!res.ok && res.status !== 204) {
-          const text = await res.text();
-          throw new Error(text || `Unable to remove ${name}`);
-        }
-        setMessage(`${name} removed`);
-      } catch (err) {
-        setMessage(err.message, "error");
-      } finally {
-        fetchState({ preserveMessage: true });
-      }
-    }
-
-    async function fetchAvailable() {
-      setMessage("Scanning models folder...");
-      try {
-        const res = await fetch("/admin/api/state?available=1");
-        if (!res.ok) {
-          throw new Error(`State error: ${res.status}`);
-        }
-        const data = await res.json();
-        renderAvailable(data.available || [], data.next_port);
-        setMessage("Scan complete");
-      } catch (err) {
-        setMessage(err.message, "error");
-      }
-    }
-
-    async function fetchLogs() {
-      logsMeta.textContent = "Loading logs...";
-      try {
-        const res = await fetch("/admin/api/logs");
-        if (!res.ok) {
-          throw new Error(`Logs error: ${res.status}`);
-        }
-        const data = await res.json();
-        logsBox.textContent = data.logs || "No output yet.";
-        if (!data.running) {
-          logsMeta.textContent = "No active model. Start one to stream output here.";
+      function renderActive(active) {
+        if (!active) {
+          dom.activeStatus.innerHTML = '<div class="pill idle">Idle</div><div class="status-line">No model is running.</div>';
+          dom.buttons.stop.disabled = true;
           return;
         }
+        const container = document.createElement("div");
+        const title = document.createElement("div");
+        title.style.display = "flex";
+        title.style.alignItems = "center";
+        title.style.gap = "10px";
+        title.style.fontSize = "18px";
+        title.innerHTML = `<strong>${active.name}</strong>`;
+        title.appendChild(badge(active.ready ? "Ready" : "Starting", active.ready ? "ready" : "starting"));
 
-        const started = data.started_at ? new Date(data.started_at).toLocaleTimeString() : "recently";
-        const readiness = data.ready ? "ready" : "starting";
-        logsMeta.textContent = `${data.name || "Active model"} (${readiness}) – started ${started}.`;
-      } catch (err) {
-        logsMeta.textContent = "Unable to load logs.";
-        setMessage(err.message, "error");
+        const detail = document.createElement("div");
+        detail.className = "status-line";
+        detail.innerHTML = [
+          `Port <span class="kbd">${active.port}</span>`,
+          active.endpoint ? `<span class="kbd">${active.endpoint}</span>` : "",
+          `Started ${new Date(active.started_at).toLocaleTimeString()}`
+        ].filter(Boolean).join(" · ");
+
+        container.appendChild(title);
+        container.appendChild(detail);
+        dom.activeStatus.innerHTML = "";
+        dom.activeStatus.appendChild(container);
+        dom.buttons.stop.disabled = false;
       }
-    }
 
-    function clearLogs() {
-      logsBox.textContent = "Cleared.";
-      logsMeta.textContent = "Logs cleared locally. Load again to refresh from server.";
-    }
+      function renderModels(models = []) {
+        dom.tables.models.innerHTML = "";
+        models.forEach(model => {
+          const row = document.createElement("tr");
+          row.dataset.name = model.name;
 
-    refreshBtn.onclick = fetchState;
-    scanBtn.onclick = fetchAvailable;
-    stopBtn.onclick = stopActive;
-    saveConfigBtn.onclick = saveConfig;
-    loadLogsBtn.onclick = fetchLogs;
-    clearLogsBtn.onclick = clearLogs;
-    refreshMetricsBtn.onclick = fetchMetrics;
+          const nameCell = document.createElement("td");
+          nameCell.innerHTML = `<strong>${model.name}</strong>`;
 
-    function startStatusRefresh() {
-      setInterval(() => fetchState({ preserveMessage: true, statusOnly: true }), 4000);
-      setInterval(fetchMetrics, 5000);
-    }
+          const statusCell = document.createElement("td");
+          const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
+          statusCell.appendChild(status);
 
-    fetchState().then(() => startStatusRefresh());
-    renderAvailable([], null);
+          const filenameValue = model.filename || (model.resolved_path ? model.resolved_path.split("/").pop() : "");
+          const filenameInput = createInput({ value: filenameValue });
+
+          const pathHint = document.createElement("div");
+          pathHint.className = "muted";
+          pathHint.style.fontSize = "12px";
+          pathHint.dataset.kind = "path-hint";
+          pathHint.textContent = model.resolved_path || "Will resolve from models folder";
+
+          const portInput = createInput({ type: "number", min: 1, value: model.port });
+
+          const argsInput = createInput({
+            placeholder: "--ctx-size 4096",
+            value: model.args && model.args.length ? model.args.join(" ") : ""
+          });
+
+          const pathCell = document.createElement("td");
+          pathCell.appendChild(filenameInput);
+          pathCell.appendChild(pathHint);
+
+          const portCell = document.createElement("td");
+          portCell.appendChild(portInput);
+
+          const endpointCell = document.createElement("td");
+          endpointCell.dataset.kind = "endpoint";
+          const endpointSpan = document.createElement("span");
+          endpointSpan.className = "kbd";
+          endpointSpan.textContent = model.endpoint;
+          endpointCell.appendChild(endpointSpan);
+
+          const argsCell = document.createElement("td");
+          argsCell.appendChild(argsInput);
+
+          const startBtn = createButton(model.active ? "Restart" : "Start", {
+            disabled: model.ready === false && model.active,
+            onClick: () => startModel(model.name)
+          });
+
+          const actionCell = document.createElement("td");
+          actionCell.style.display = "flex";
+          actionCell.style.flexDirection = "column";
+          actionCell.style.gap = "8px";
+          actionCell.appendChild(createButton("Save", {
+            className: "secondary",
+            onClick: () => updateModel(model.name, filenameInput, portInput, argsInput)
+          }));
+          actionCell.appendChild(startBtn);
+          actionCell.appendChild(createButton("Remove", {
+            className: "danger",
+            onClick: () => removeModel(model.name)
+          }));
+
+          row.appendChild(nameCell);
+          row.appendChild(statusCell);
+          row.appendChild(pathCell);
+          row.appendChild(portCell);
+          row.appendChild(endpointCell);
+          row.appendChild(argsCell);
+          row.appendChild(actionCell);
+
+          dom.tables.models.appendChild(row);
+        });
+      }
+
+      function renderAvailable(models = [], nextPort) {
+        dom.tables.available.innerHTML = "";
+        if (!models.length) {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td colspan="5" class="muted">No new model files found. Click Scan folders to refresh.</td>`;
+          dom.tables.available.appendChild(row);
+          return;
+        }
+        models.forEach(model => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td><strong>${model.name}</strong></td>
+            <td class="muted" style="font-size:12px; word-break:break-all;">${model.resolved_path || model.filename}</td>
+          `;
+
+          const portCell = document.createElement("td");
+          const portInput = createInput({ type: "number", min: 1, value: nextPort || "" });
+          portCell.appendChild(portInput);
+          row.appendChild(portCell);
+
+          const argsCell = document.createElement("td");
+          const argsInput = createInput({ placeholder: "--ctx-size 4096" });
+          argsCell.appendChild(argsInput);
+          row.appendChild(argsCell);
+
+          const actionCell = document.createElement("td");
+          actionCell.appendChild(createButton("Add to config", {
+            onClick: () => addModel(model.name, model.filename, portInput, argsInput)
+          }));
+          row.appendChild(actionCell);
+
+          dom.tables.available.appendChild(row);
+        });
+      }
+
+      function renderConfig(cfg) {
+        if (!cfg) return;
+        dom.inputs.modelDir.value = cfg.model_dir || "";
+        dom.inputs.modelHost.value = cfg.model_host || "";
+        dom.inputs.binaryPath.value = cfg.llama_binary || "";
+      }
+
+      function updateRowStatus(model) {
+        const row = dom.tables.models.querySelector(`tr[data-name="${model.name}"]`);
+        if (!row) return;
+        const statusCell = row.querySelector("td:nth-child(2)");
+        if (statusCell) {
+          statusCell.innerHTML = "";
+          const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
+          statusCell.appendChild(status);
+        }
+        const endpointCell = row.querySelector('td[data-kind="endpoint"] span');
+        if (endpointCell) {
+          endpointCell.textContent = model.endpoint;
+        }
+        const pathHint = row.querySelector('div[data-kind="path-hint"]');
+        if (pathHint) {
+          pathHint.textContent = model.resolved_path || "Will resolve from models folder";
+        }
+      }
+
+      async function fetchState({ preserveMessage = false, statusOnly = false } = {}) {
+        try {
+          const data = await requestJSON("/admin/api/state");
+          renderActive(data.active);
+          if (statusOnly) {
+            (data.models || []).forEach(updateRowStatus);
+          } else {
+            renderModels(data.models || []);
+            if (Object.prototype.hasOwnProperty.call(data, "available")) {
+              renderAvailable(data.available || [], data.next_port);
+            }
+            renderConfig(data.config);
+          }
+          if (!preserveMessage || state.lastTone !== "error") {
+            setMessage("Updated just now");
+          }
+        } catch (err) {
+          setMessage(err.message, "error");
+        }
+      }
+
+      async function startModel(name) {
+        setMessage(`Starting ${name}...`);
+        try {
+          const data = await requestJSON("/admin/api/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name })
+          });
+          setMessage(`${name} ${data.status || "started"}`);
+        } catch (err) {
+          setMessage(err.message, "error");
+        } finally {
+          fetchState({ preserveMessage: true });
+        }
+      }
+
+      async function addModel(name, filename, portInput, argsInput) {
+        const port = parseInt(portInput?.value, 10) || 0;
+        const argsRaw = (argsInput?.value || "").trim();
+        const args = argsRaw ? argsRaw.split(/\s+/) : [];
+        const fname = filename || name;
+        setMessage(`Adding ${name}...`);
+        try {
+          const data = await requestJSON("/admin/api/models", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, filename: fname, port, args })
+          });
+          setMessage(`${name} added at port ${data.port || port}`);
+        } catch (err) {
+          setMessage(err.message, "error");
+        } finally {
+          fetchState({ preserveMessage: true });
+        }
+      }
+
+      async function updateModel(name, filenameInput, portInput, argsInput) {
+        const port = parseInt(portInput?.value, 10) || 0;
+        const argsRaw = (argsInput?.value || "").trim();
+        const args = argsRaw ? argsRaw.split(/\s+/) : [];
+        const filename = filenameInput?.value || "";
+        setMessage(`Updating ${name}...`);
+        try {
+          await requestJSON("/admin/api/models", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, filename, port, args })
+          });
+          setMessage(`${name} updated`);
+        } catch (err) {
+          setMessage(err.message, "error");
+        } finally {
+          fetchState({ preserveMessage: true });
+        }
+      }
+
+      async function saveConfig() {
+        const payload = {
+          model_dir: (dom.inputs.modelDir.value || "").trim(),
+          model_host: (dom.inputs.modelHost.value || "").trim(),
+          llama_binary: (dom.inputs.binaryPath.value || "").trim()
+        };
+        setMessage("Saving config...");
+        try {
+          await requestJSON("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          setMessage("Config saved");
+        } catch (err) {
+          setMessage(err.message, "error");
+        } finally {
+          fetchState({ preserveMessage: true });
+        }
+      }
+
+      async function stopActive() {
+        setMessage("Stopping active model...");
+        try {
+          const data = await requestJSON("/admin/api/stop", { method: "POST" });
+          setMessage(data.stopped ? `Stopped ${data.stopped}` : "No model was running");
+        } catch (err) {
+          setMessage(err.message, "error");
+        } finally {
+          fetchState({ preserveMessage: true });
+        }
+      }
+
+      async function removeModel(name) {
+        if (!window.confirm(`Remove ${name} from config?`)) {
+          return;
+        }
+        setMessage(`Removing ${name}...`);
+        try {
+          const res = await fetch(`/admin/api/models?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+          if (!res.ok && res.status !== 204) {
+            const text = await res.text();
+            throw new Error(text || `Unable to remove ${name}`);
+          }
+          setMessage(`${name} removed`);
+        } catch (err) {
+          setMessage(err.message, "error");
+        } finally {
+          fetchState({ preserveMessage: true });
+        }
+      }
+
+      async function fetchAvailable() {
+        setMessage("Scanning models folder...");
+        try {
+          const data = await requestJSON("/admin/api/state?available=1");
+          renderAvailable(data.available || [], data.next_port);
+          setMessage("Scan complete");
+        } catch (err) {
+          setMessage(err.message, "error");
+        }
+      }
+
+      const fmtNum = (val, digits = 1) => (Number.isFinite(val) ? val.toFixed(digits) : null);
+      const mbToGB = (mb) => (Number.isFinite(mb) ? mb / 1024 : null);
+
+      async function fetchMetrics() {
+        dom.metrics.status.textContent = "Refreshing metrics...";
+        try {
+          const data = await requestJSON("/admin/api/metrics");
+          dom.metrics.loadAvg.textContent = `${fmtNum(data.load1, 2) || "--"} / ${fmtNum(data.load5, 2) || "--"} / ${fmtNum(data.load15, 2) || "--"}`;
+          const loadPct = data.load_percent != null ? data.load_percent.toFixed(1) : null;
+          dom.metrics.loadPct.textContent = loadPct ? `${loadPct}% of ${data.cores || "cores"} (1m avg)` : "--";
+          const usedGB = mbToGB(data.mem_used_mb);
+          const totalGB = mbToGB(data.mem_total_mb);
+          const freeGB = mbToGB(data.mem_free_mb);
+          const availGB = mbToGB(data.mem_available_mb);
+          dom.metrics.memUsed.textContent = usedGB != null && totalGB != null ? `${usedGB.toFixed(2)} / ${totalGB.toFixed(2)} GB used` : "--";
+          const availText = availGB != null ? `${availGB.toFixed(2)} GB available` : null;
+          const freeText = freeGB != null ? `${freeGB.toFixed(2)} GB free` : null;
+          dom.metrics.memFree.textContent = [availText, freeText].filter(Boolean).join(" · ") || "--";
+
+          const gpu = data.gpu;
+          const corePct = Number.isFinite(data.gpu_core_percent) ? data.gpu_core_percent : gpu?.utilization_percent;
+          const memPctVal = Number.isFinite(data.gpu_memory_percent) ? data.gpu_memory_percent : gpu?.memory_utilization_percent;
+          const memUsedVal = Number.isFinite(data.gpu_memory_used_mb) ? data.gpu_memory_used_mb : gpu?.memory_used_mb;
+          const memTotalVal = Number.isFinite(data.gpu_memory_total_mb) ? data.gpu_memory_total_mb : gpu?.memory_total_mb;
+          const tempVal = Number.isFinite(gpu?.temperature_c) ? gpu.temperature_c : null;
+          const gpuLabel = gpu?.name || (gpu?.vendor ? gpu.vendor.toUpperCase() : data.gpu_provider || "GPU");
+          dom.metrics.gpuName.textContent = gpuLabel || "GPU";
+
+          dom.metrics.gpuCore.textContent = corePct != null ? `${corePct.toFixed(1)}%` : (data.gpu_error ? "Err" : "—");
+
+          if (memPctVal != null || (memUsedVal != null && memTotalVal != null)) {
+            const memPctText = memPctVal != null ? `${memPctVal.toFixed(1)}%` : null;
+            const memGBUsed = mbToGB(memUsedVal);
+            const memGBTotal = mbToGB(memTotalVal);
+            const memCap = memGBUsed != null && memGBTotal != null ? `${memGBUsed.toFixed(2)} / ${memGBTotal.toFixed(2)} GB` : null;
+            dom.metrics.gpuMem.textContent = memPctText || memCap || "—";
+            dom.metrics.gpuMemNote.textContent = memPctText && memCap ? memCap : (memCap || "--");
+          } else {
+            dom.metrics.gpuMem.textContent = data.gpu_error ? "Err" : "—";
+            dom.metrics.gpuMemNote.textContent = data.gpu_error ? data.gpu_error : "No memory reading";
+          }
+
+          if (tempVal != null && tempVal !== 0) {
+            dom.metrics.gpuTemp.textContent = `${tempVal.toFixed(0)}°C`;
+          } else if (data.gpu_error) {
+            dom.metrics.gpuTemp.textContent = "Err";
+          } else {
+            dom.metrics.gpuTemp.textContent = "—";
+          }
+
+          const tps = Number(data.llm_tokens_per_sec);
+          const tpsTsRaw = data.llm_tokens_per_sec_ts;
+          if (Number.isFinite(tps) && tps > 0) {
+            dom.metrics.llmTps.textContent = `${tps.toFixed(1)} tok/s`;
+            if (tpsTsRaw) {
+              const ts = new Date(tpsTsRaw);
+              const ageSec = Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000));
+              dom.metrics.llmTpsNote.textContent = `last sample ${ageSec}s ago`;
+            } else {
+              dom.metrics.llmTpsNote.textContent = "latest sample";
+            }
+          } else {
+            dom.metrics.llmTps.textContent = "—";
+            dom.metrics.llmTpsNote.textContent = "Waiting for first completion";
+          }
+
+          const providerLabel = data.gpu_provider ? `GPU via ${data.gpu_provider}` : "GPU auto-detect";
+          dom.metrics.gpuProvider.textContent = data.gpu_error ? data.gpu_error : providerLabel;
+          dom.metrics.provider.textContent = providerLabel;
+
+          if (data.gpu_error) {
+            dom.metrics.status.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()} · ${providerLabel} (${data.gpu_error})`;
+          } else {
+            const suffix = data.gpu ? `${providerLabel}${gpuLabel ? " · " + gpuLabel : ""}` : `${providerLabel} (no reading)`;
+            dom.metrics.status.textContent = `Updated ${new Date(data.timestamp).toLocaleTimeString()} · ${suffix}`;
+          }
+        } catch (err) {
+          dom.metrics.status.textContent = "Unable to load metrics.";
+          setMessage(err.message, "error");
+        }
+      }
+
+      async function fetchLogs() {
+        dom.logs.meta.textContent = "Loading logs...";
+        try {
+          const data = await requestJSON("/admin/api/logs");
+          dom.logs.box.textContent = data.logs || "No output yet.";
+          if (!data.running) {
+            dom.logs.meta.textContent = "No active model. Start one to stream output here.";
+            return;
+          }
+          const started = data.started_at ? new Date(data.started_at).toLocaleTimeString() : "recently";
+          const readiness = data.ready ? "ready" : "starting";
+          dom.logs.meta.textContent = `${data.name || "Active model"} (${readiness}) – started ${started}.`;
+        } catch (err) {
+          dom.logs.meta.textContent = "Unable to load logs.";
+          setMessage(err.message, "error");
+        }
+      }
+
+      function clearLogs() {
+        dom.logs.box.textContent = "Cleared.";
+        dom.logs.meta.textContent = "Logs cleared locally. Load again to refresh from server.";
+      }
+
+      function bindEvents() {
+        dom.buttons.refresh.addEventListener("click", () => fetchState());
+        dom.buttons.scan.addEventListener("click", fetchAvailable);
+        dom.buttons.stop.addEventListener("click", stopActive);
+        dom.buttons.saveConfig.addEventListener("click", saveConfig);
+        dom.buttons.refreshMetrics.addEventListener("click", fetchMetrics);
+        dom.buttons.loadLogs.addEventListener("click", fetchLogs);
+        dom.buttons.clearLogs.addEventListener("click", clearLogs);
+      }
+
+      function startStatusRefresh() {
+        setInterval(() => fetchState({ preserveMessage: true, statusOnly: true }), 4000);
+        setInterval(fetchMetrics, 5000);
+      }
+
+      async function init() {
+        renderAvailable([], null);
+        bindEvents();
+        await Promise.all([fetchState(), fetchMetrics()]);
+        startStatusRefresh();
+      }
+
+      init();
+    })();
   </script>
 </body>
 </html>
