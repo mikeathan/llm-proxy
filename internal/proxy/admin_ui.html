@@ -470,12 +470,6 @@
           const filenameValue = model.filename || (model.resolved_path ? model.resolved_path.split("/").pop() : "");
           const filenameInput = createInput({ value: filenameValue });
 
-          const pathHint = document.createElement("div");
-          pathHint.className = "muted";
-          pathHint.style.fontSize = "12px";
-          pathHint.dataset.kind = "path-hint";
-          pathHint.textContent = model.resolved_path || "Will resolve from models folder";
-
           const portInput = createInput({ type: "number", min: 1, value: model.port });
 
           const argsInput = createInput({
@@ -485,7 +479,6 @@
 
           const pathCell = document.createElement("td");
           pathCell.appendChild(filenameInput);
-          pathCell.appendChild(pathHint);
 
           const portCell = document.createElement("td");
           portCell.appendChild(portInput);
@@ -585,10 +578,6 @@
         const endpointCell = row.querySelector('td[data-kind="endpoint"] span');
         if (endpointCell) {
           endpointCell.textContent = model.endpoint;
-        }
-        const pathHint = row.querySelector('div[data-kind="path-hint"]');
-        if (pathHint) {
-          pathHint.textContent = model.resolved_path || "Will resolve from models folder";
         }
       }
 
