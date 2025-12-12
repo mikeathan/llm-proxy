@@ -411,6 +411,10 @@
       models.forEach(model => {
         const row = document.createElement("tr");
         row.dataset.name = model.name;
+
+        const nameCell = document.createElement("td");
+        nameCell.innerHTML = `<strong>${model.name}</strong>`;
+
         const statusCell = document.createElement("td");
         const status = model.active ? (model.ready ? badge("Ready", "ready") : badge("Starting", "starting")) : badge("Idle", "idle");
         statusCell.appendChild(status);
@@ -439,27 +443,22 @@
         argsInput.placeholder = "--ctx-size 4096";
         argsInput.value = model.args && model.args.length ? model.args.join(" ") : "";
 
-        row.innerHTML = `
-          <td><strong>${model.name}</strong></td>
-        `;
-        row.appendChild(statusCell);
-
         const pathCell = document.createElement("td");
         pathCell.appendChild(filenameInput);
         pathCell.appendChild(pathHint);
-        row.appendChild(pathCell);
 
         const portCell = document.createElement("td");
         portCell.appendChild(portInput);
-        row.appendChild(portCell);
 
-        row.innerHTML += `
-          <td data-kind="endpoint"><span class="kbd">${model.endpoint}</span></td>
-        `;
+        const endpointCell = document.createElement("td");
+        endpointCell.dataset.kind = "endpoint";
+        const endpointSpan = document.createElement("span");
+        endpointSpan.className = "kbd";
+        endpointSpan.textContent = model.endpoint;
+        endpointCell.appendChild(endpointSpan);
 
         const argsCell = document.createElement("td");
         argsCell.appendChild(argsInput);
-        row.appendChild(argsCell);
 
         const actionCell = document.createElement("td");
         const saveBtn = document.createElement("button");
@@ -479,7 +478,14 @@
         actionCell.appendChild(startBtn);
         actionCell.appendChild(removeBtn);
 
+        row.appendChild(nameCell);
+        row.appendChild(statusCell);
+        row.appendChild(pathCell);
+        row.appendChild(portCell);
+        row.appendChild(endpointCell);
+        row.appendChild(argsCell);
         row.appendChild(actionCell);
+
         modelsBody.appendChild(row);
       });
     }
