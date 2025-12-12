@@ -469,6 +469,7 @@
 
           const filenameValue = model.filename || (model.resolved_path ? model.resolved_path.split("/").pop() : "");
           const filenameInput = createInput({ value: filenameValue });
+          filenameInput.disabled = true;
 
           const portInput = createInput({ type: "number", min: 1, value: model.port });
 
