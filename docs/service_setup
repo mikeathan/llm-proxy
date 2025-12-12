@@ -1,0 +1,13 @@
+/etc/systemd/system/
+
+sudo cp llm-proxy.service /etc/systemd/system/llm-proxy.service
+
+sudo systemctl daemon-reload
+
+
+sudo systemctl enable llm-proxy.service
+
+sudo systemctl start llm-proxy.service
+
+
+journalctl -u llm-proxy.service -f
