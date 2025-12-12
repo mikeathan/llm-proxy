@@ -1,0 +1,29 @@
+[Unit]
+Description=LLM Proxy Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=llmproxy
+Group=llmproxy
+WorkingDirectory=/home/mikeathan/dev/llm-proxy
+#EnvironmentFile=/opt/llm-proxy/.env
+
+ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy
+Restart=always
+RestartSec=3
+
+# Make sure it doesn't get killed when SSH ends
+KillMode=process
+
+# Hardening options
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# Increase open files limit if model loading needs it
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
