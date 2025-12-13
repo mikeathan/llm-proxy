@@ -4,10 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=llmproxy
-Group=llmproxy
+User=mikeathan
+Group=mikeathan
 WorkingDirectory=/home/mikeathan/dev/llm-proxy
-#EnvironmentFile=/opt/llm-proxy/.env
 
 ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy
 Restart=always
@@ -19,7 +18,7 @@ KillMode=process
 # Hardening options
 NoNewPrivileges=true
 ProtectSystem=full
-ProtectHome=true
+ProtectHome=read-only
 PrivateTmp=true
 
 # Increase open files limit if model loading needs it
