@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/api"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/models"
@@ -29,11 +30,12 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestChatHandler_MissingHeader(t *testing.T) {
 	srv := proxy.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
+	handlers := api.NewProxyHandlers(srv)
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
 
-	srv.ChatHandler(w, req)
+	handlers.ChatHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -51,13 +53,14 @@ func TestChatHandler_ModelStarting(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	handlers := api.NewProxyHandlers(srv)
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
 
 	w := httptest.NewRecorder()
 
-	srv.ChatHandler(w, req)
+	handlers.ChatHandler(w, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", w.Code)
@@ -81,13 +84,14 @@ func TestChatHandler_ModelError(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	handlers := api.NewProxyHandlers(srv)
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
 
 	w := httptest.NewRecorder()
 
-	srv.ChatHandler(w, req)
+	handlers.ChatHandler(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
@@ -101,7 +105,7 @@ func TestChatHandler_ProxyCalled(t *testing.T) {
 	// mock reverse proxy
 	mp := &mockProxy{}
 
-	restore := proxy.SetReverseProxyFactory(func(target string) http.Handler {
+	restore := api.SetReverseProxyFactory(func(target string) http.Handler {
 		return mp
 	})
 	defer restore()
@@ -114,13 +118,14 @@ func TestChatHandler_ProxyCalled(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	handlers := api.NewProxyHandlers(srv)
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
 
 	w := httptest.NewRecorder()
 
-	srv.ChatHandler(w, req)
+	handlers.ChatHandler(w, req)
 
 	if !mp.called {
 		t.Fatalf("expected reverse proxy ServeHTTP to be called")
@@ -154,10 +159,11 @@ func TestAdminStateHandler(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv)
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
 
-	srv.AdminStateHandler(w, req)
+	admin.AdminStateHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -208,10 +214,11 @@ func TestAdminStartHandler(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv)
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	w := httptest.NewRecorder()
 
-	srv.AdminStartHandler(w, req)
+	admin.AdminStartHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -232,10 +239,11 @@ func TestAdminStopHandler(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv)
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
-	srv.AdminStopHandler(w, req)
+	admin.AdminStopHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -255,10 +263,11 @@ func TestAdminStopHandler_Error(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv)
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
-	srv.AdminStopHandler(w, req)
+	admin.AdminStopHandler(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
@@ -290,11 +299,12 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	srv := proxy.NewServer(mgr, cfg, "")
+	admin := api.NewAdminHandlers(srv)
 	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	w := httptest.NewRecorder()
 
-	srv.AdminAddModelHandler(w, req)
+	admin.AdminAddModelHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())

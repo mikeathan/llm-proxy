@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"llm-proxy/internal/logbuffer"
+	"llm-proxy/internal/metrics"
+	"llm-proxy/internal/testhooks"
 	"llm-proxy/models"
 	"log"
 	"os"
@@ -64,8 +67,8 @@ type runningModel struct {
 	cmd        *exec.Cmd
 	started    time.Time
 	lastUsed   time.Time
-	logs       *logBuffer
-	throughput *tokenTracker
+	logs       *logbuffer.Buffer
+	throughput *metrics.TokenTracker
 }
 
 func (rm *runningModel) LastUsed() time.Time {
@@ -167,7 +170,7 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 		cfg.Port = m.activeModel.cfg.Port
 		m.models[name] = cfg
 	}
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && portReadyFunc(cfg.Port) {
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && testhooks.PortReady(cfg.Port) {
 		m.activeModel.lastUsed = time.Now()
 		return ModelInstance{
 			Name: cfg.Name,
@@ -179,7 +182,7 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	}
 
 	// Already running BUT still starting
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && !portReadyFunc(cfg.Port) {
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && !testhooks.PortReady(cfg.Port) {
 		return ModelInstance{}, ErrModelStarting
 	}
 
@@ -197,9 +200,9 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	m.models[name] = cfg
 
 	// Start new model process
-	logBuf := newLogBuffer(64 * 1024)
-	tokens := newTokenTracker()
-	cmd := execCommand(
+	logBuf := logbuffer.New(64 * 1024)
+	tokens := metrics.NewTokenTracker()
+	cmd := testhooks.ExecCommand(
 		m.llamaBinary,
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
 	)
@@ -326,7 +329,7 @@ func (m *LLMManager) ActiveInfo() *ActiveModelInfo {
 		Port:     cfg.Port,
 		Started:  m.activeModel.started,
 		LastUsed: m.activeModel.lastUsed,
-		Ready:    portReadyFunc(cfg.Port),
+		Ready:    testhooks.PortReady(cfg.Port),
 	}
 }
 

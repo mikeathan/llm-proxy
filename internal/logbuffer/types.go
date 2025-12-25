@@ -1,20 +1,20 @@
-package proxy
+package logbuffer
 
 import "sync"
 
-// logBuffer keeps the last N bytes written to it so we can expose recent
-// llama-server output without unbounded memory growth.
-type logBuffer struct {
+// Buffer keeps the last N bytes written to it so we can expose recent output
+// without unbounded memory growth.
+type Buffer struct {
 	mu    sync.Mutex
 	limit int
 	buf   []byte
 }
 
-func newLogBuffer(limit int) *logBuffer {
-	return &logBuffer{limit: limit}
+func New(limit int) *Buffer {
+	return &Buffer{limit: limit}
 }
 
-func (b *logBuffer) Write(p []byte) (int, error) {
+func (b *Buffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -33,7 +33,7 @@ func (b *logBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (b *logBuffer) String() string {
+func (b *Buffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return string(b.buf)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/proxy"
+	"llm-proxy/internal/testhooks"
 	"llm-proxy/models"
 )
 
@@ -44,10 +45,10 @@ func TestLLMManager_EnsureModel_Unknown(t *testing.T) {
 }
 
 func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
-	restoreExec := proxy.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePort := proxy.SetPortReady(func(port int) bool { return false })
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
 	m := proxy.New([]models.ModelConfig{
@@ -69,10 +70,10 @@ func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
 }
 
 func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
-	restoreExec := proxy.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePort := proxy.SetPortReady(func(port int) bool { return false })
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
 	m := proxy.New([]models.ModelConfig{
@@ -83,7 +84,7 @@ func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	_, _ = m.EnsureModel("test")
 
 	// Now simulate ready
-	restorePort2 := proxy.SetPortReady(func(port int) bool { return true })
+	restorePort2 := testhooks.SetPortReady(func(port int) bool { return true })
 	defer restorePort2()
 
 	mi, err := m.EnsureModel("test")
@@ -103,10 +104,10 @@ func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 }
 
 func TestLLMManager_RecordActivity(t *testing.T) {
-	restoreExec := proxy.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePort := proxy.SetPortReady(func(port int) bool { return false })
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
 	m := proxy.New([]models.ModelConfig{
@@ -126,10 +127,10 @@ func TestLLMManager_RecordActivity(t *testing.T) {
 }
 
 func TestLLMManager_IdleReaperStopsModel(t *testing.T) {
-	restoreExec := proxy.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
-	restorePort := proxy.SetPortReady(func(port int) bool { return true })
+	restorePort := testhooks.SetPortReady(func(port int) bool { return true })
 	defer restorePort()
 
 	m := proxy.NewWithReapInterval(

@@ -1,201 +1,21 @@
-package proxy
+package metrics
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"llm-proxy/models"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type hostMetrics struct {
-	Load1          float64   `json:"load1"`
-	Load5          float64   `json:"load5"`
-	Load15         float64   `json:"load15"`
-	LoadPct        float64   `json:"load_percent"`
-	Cores          int       `json:"cores"`
-	MemTotalMB     float64   `json:"mem_total_mb"`
-	MemFreeMB      float64   `json:"mem_free_mb"`
-	MemAvailableMB float64   `json:"mem_available_mb"`
-	MemUsedMB      float64   `json:"mem_used_mb"`
-	Timestamp      time.Time `json:"timestamp"`
-}
-
-type gpuMetrics struct {
-	Vendor               string  `json:"vendor"`
-	Name                 string  `json:"name,omitempty"`
-	UtilizationPct       float64 `json:"utilization_percent"`
-	MemoryUtilizationPct float64 `json:"memory_utilization_percent"`
-	MemoryTotalMB        float64 `json:"memory_total_mb,omitempty"`
-	MemoryUsedMB         float64 `json:"memory_used_mb,omitempty"`
-	TemperatureC         float64 `json:"temperature_c,omitempty"`
-}
-
-type metricsSnapshot struct {
-	hostMetrics
-	GPU               *gpuMetrics `json:"gpu,omitempty"`
-	GPUProvider       string      `json:"gpu_provider,omitempty"`
-	GPUError          string      `json:"gpu_error,omitempty"`
-	GPUCorePercent    float64     `json:"gpu_core_percent"`
-	GPUMemoryPercent  float64     `json:"gpu_memory_percent"`
-	GPUMemoryUsedMB   float64     `json:"gpu_memory_used_mb"`
-	GPUMemoryTotalMB  float64     `json:"gpu_memory_total_mb"`
-	LLMTokensPerSec   float64     `json:"llm_tokens_per_sec,omitempty"`
-	LLMTokensPerSecTS time.Time   `json:"llm_tokens_per_sec_ts,omitempty"`
-}
-
-type gpuProvider interface {
-	Name() string
-	Sample() (*gpuMetrics, error)
-}
-
-type throughputSource interface {
-	LastTokensPerSecond() (float64, time.Time)
-}
-
-type MetricsService struct {
-	gpu             gpuProvider
-	gpuProviderName string
-	gpuInitErr      string
-	throughput      throughputSource
-	nowFn           func() time.Time
-}
-
-func NewMetricsService(cfg *models.Config) *MetricsService {
-	provider, name, initErr := buildGPUProvider(cfg)
-	return &MetricsService{
-		gpu:             provider,
-		gpuProviderName: name,
-		gpuInitErr:      initErr,
-		nowFn:           time.Now,
-	}
-}
-
-func (s *MetricsService) SetThroughputSource(src throughputSource) {
-	s.throughput = src
-}
-
-func (s *MetricsService) Snapshot() metricsSnapshot {
-	host := readHostMetrics(s.nowFn)
-	resp := metricsSnapshot{
-		hostMetrics: host,
-		GPUProvider: s.gpuProviderName,
-	}
-
-	if s.gpuInitErr != "" {
-		resp.GPUError = s.gpuInitErr
-		return resp
-	}
-
-	if s.gpu == nil {
-		return resp
-	}
-
-	gpu, err := s.gpu.Sample()
-	if err != nil {
-		resp.GPUError = err.Error()
-		return resp
-	}
-
-	resp.GPU = gpu
-	resp.GPUCorePercent = gpu.UtilizationPct
-	resp.GPUMemoryPercent = gpu.MemoryUtilizationPct
-	resp.GPUMemoryUsedMB = gpu.MemoryUsedMB
-	resp.GPUMemoryTotalMB = gpu.MemoryTotalMB
-
-	if s.throughput != nil {
-		if tps, ts := s.throughput.LastTokensPerSecond(); tps > 0 {
-			resp.LLMTokensPerSec = tps
-			resp.LLMTokensPerSecTS = ts
-		}
-	}
-	return resp
-}
-
-func readHostMetrics(now func() time.Time) hostMetrics {
-	load1, load5, load15, _ := readLoadAvg()
-	mem := readMemInfo()
-	cores := runtime.NumCPU()
-	pct := 0.0
-	if c := float64(cores); c > 0 {
-		pct = (load1 / c) * 100
-	}
-
-	return hostMetrics{
-		Load1:          load1,
-		Load5:          load5,
-		Load15:         load15,
-		LoadPct:        pct,
-		Cores:          cores,
-		MemTotalMB:     mem.totalMB,
-		MemFreeMB:      mem.freeMB,
-		MemAvailableMB: mem.availMB,
-		MemUsedMB:      mem.usedMB,
-		Timestamp:      now(),
-	}
-}
-
-type memSnapshot struct {
-	totalMB float64
-	freeMB  float64
-	availMB float64
-	usedMB  float64
-}
-
-func readLoadAvg() (float64, float64, float64, error) {
-	data, err := ioutil.ReadFile("/proc/loadavg")
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return 0, 0, 0, fmt.Errorf("unexpected loadavg format")
-	}
-	parse := func(s string) float64 {
-		v, _ := strconv.ParseFloat(s, 64)
-		return v
-	}
-	return parse(fields[0]), parse(fields[1]), parse(fields[2]), nil
-}
-
-func readMemInfo() memSnapshot {
-	data, err := ioutil.ReadFile("/proc/meminfo")
-	if err != nil {
-		return memSnapshot{}
-	}
-	lines := strings.Split(string(data), "\n")
-	toMB := func(kb float64) float64 { return kb / 1024.0 }
-	info := make(map[string]float64)
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		v, _ := strconv.ParseFloat(fields[1], 64)
-		info[fields[0]] = v
-	}
-	total := toMB(info["MemTotal:"])
-	free := toMB(info["MemFree:"])
-	avail := toMB(info["MemAvailable:"])
-	used := total - avail
-	return memSnapshot{
-		totalMB: total,
-		freeMB:  free,
-		availMB: avail,
-		usedMB:  used,
-	}
-}
-
-func buildGPUProvider(cfg *models.Config) (gpuProvider, string, string) {
+func buildGPUProvider(cfg *models.Config) (GPUProvider, string, string) {
 	var gpuCfg models.GPUConfig
 	if cfg != nil {
 		gpuCfg = cfg.Metrics.GPU
@@ -278,7 +98,7 @@ func buildGPUProvider(cfg *models.Config) (gpuProvider, string, string) {
 	}
 }
 
-func tryNvidia(binary string, index int) (gpuProvider, string) {
+func tryNvidia(binary string, index int) (GPUProvider, string) {
 	bin := binary
 	if bin == "" {
 		bin = "nvidia-smi"
@@ -289,7 +109,7 @@ func tryNvidia(binary string, index int) (gpuProvider, string) {
 	return newNvidiaSMIProvider(bin, index, nil), bin
 }
 
-func tryRocm(binary string, index int) (gpuProvider, string) {
+func tryRocm(binary string, index int) (GPUProvider, string) {
 	candidates := []string{}
 	if binary != "" {
 		candidates = append(candidates, binary)
@@ -305,7 +125,7 @@ func tryRocm(binary string, index int) (gpuProvider, string) {
 	return nil, ""
 }
 
-func tryAmdGpuTop(binary string, index int) (gpuProvider, string) {
+func tryAmdGpuTop(binary string, index int) (GPUProvider, string) {
 	bin := binary
 	if bin == "" {
 		bin = "amdgpu_top"
@@ -316,7 +136,7 @@ func tryAmdGpuTop(binary string, index int) (gpuProvider, string) {
 	return nil, ""
 }
 
-func trySysfs(path string, index int) (gpuProvider, string) {
+func trySysfs(path string, index int) (GPUProvider, string) {
 	if path == "" {
 		path = defaultSysfsPath(index)
 	}
@@ -326,8 +146,6 @@ func trySysfs(path string, index int) (gpuProvider, string) {
 	return nil, ""
 }
 
-type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
-
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
@@ -336,12 +154,6 @@ func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]b
 func commandExists(binary string) bool {
 	_, err := exec.LookPath(binary)
 	return err == nil
-}
-
-type nvidiaSMIProvider struct {
-	binary string
-	index  int
-	run    commandRunner
 }
 
 func newNvidiaSMIProvider(binary string, index int, runner commandRunner) *nvidiaSMIProvider {
@@ -359,7 +171,7 @@ func (p *nvidiaSMIProvider) Name() string {
 	return p.binary
 }
 
-func (p *nvidiaSMIProvider) Sample() (*gpuMetrics, error) {
+func (p *nvidiaSMIProvider) Sample() (*GPUMetrics, error) {
 	args := []string{"--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits"}
 	if p.index > 0 {
 		args = append(args, "-i", strconv.Itoa(p.index))
@@ -397,7 +209,7 @@ func (p *nvidiaSMIProvider) Sample() (*gpuMetrics, error) {
 		memPct = (memUsed / memTotal) * 100
 	}
 
-	return &gpuMetrics{
+	return &GPUMetrics{
 		Vendor:               "nvidia",
 		UtilizationPct:       util,
 		MemoryUsedMB:         memUsed,
@@ -405,12 +217,6 @@ func (p *nvidiaSMIProvider) Sample() (*gpuMetrics, error) {
 		MemoryUtilizationPct: memPct,
 		TemperatureC:         temp,
 	}, nil
-}
-
-type rocmSMIProvider struct {
-	binary string
-	index  int
-	run    commandRunner
 }
 
 func newRocmSMIProvider(binary string, index int, runner commandRunner) *rocmSMIProvider {
@@ -428,7 +234,7 @@ func (p *rocmSMIProvider) Name() string {
 	return p.binary
 }
 
-func (p *rocmSMIProvider) Sample() (*gpuMetrics, error) {
+func (p *rocmSMIProvider) Sample() (*GPUMetrics, error) {
 	args := []string{"--json", "--showuse", "--showmeminfo", "vram", "--showtemp"}
 	if p.index > 0 {
 		args = append(args, "--device", strconv.Itoa(p.index))
@@ -449,7 +255,7 @@ func (p *rocmSMIProvider) Sample() (*gpuMetrics, error) {
 	return snap, nil
 }
 
-func parseRocmSMIOutput(raw []byte) (*gpuMetrics, error) {
+func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
 	var payload map[string]map[string]interface{}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("parse rocm-smi output: %w", err)
@@ -472,7 +278,7 @@ func parseRocmSMIOutput(raw []byte) (*gpuMetrics, error) {
 
 		temp := extractTemperature(data)
 
-		return &gpuMetrics{
+		return &GPUMetrics{
 			Vendor:               "amd",
 			Name:                 key,
 			UtilizationPct:       util,
@@ -557,10 +363,6 @@ func bytesToMB(v float64) float64 {
 	return v / (1024.0 * 1024.0)
 }
 
-type sysfsProvider struct {
-	basePath string
-}
-
 func newSysfsProvider(basePath string) *sysfsProvider {
 	return &sysfsProvider{basePath: basePath}
 }
@@ -569,7 +371,7 @@ func (p *sysfsProvider) Name() string {
 	return "sysfs"
 }
 
-func (p *sysfsProvider) Sample() (*gpuMetrics, error) {
+func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
 	util, err := readSysfsFloat(p.basePath, "gpu_busy_percent")
 	if err != nil {
 		return nil, err
@@ -595,7 +397,7 @@ func (p *sysfsProvider) Sample() (*gpuMetrics, error) {
 		tempC = t
 	}
 
-	return &gpuMetrics{
+	return &GPUMetrics{
 		Vendor:               "amd",
 		Name:                 filepath.Base(p.basePath),
 		UtilizationPct:       util,
@@ -633,7 +435,7 @@ func readSysfsTempC(basePath string) (float64, error) {
 		return 0, fmt.Errorf("sysfs temp parse: %w", err)
 	}
 	// Most drivers expose millidegrees; normalize to Celsius if so.
-	if v > 200 { // avoid dividing actual Celsius values (rarely >200C)
+	if v > 200 {
 		v = v / 1000.0
 	}
 	return v, nil
@@ -647,12 +449,6 @@ func defaultSysfsPath(index int) string {
 func sysfsAvailable(basePath string) bool {
 	_, err := os.Stat(filepath.Join(basePath, "gpu_busy_percent"))
 	return err == nil
-}
-
-type amdGpuTopProvider struct {
-	binary string
-	index  int
-	run    commandRunner
 }
 
 func newAmdGpuTopProvider(binary string, index int, runner commandRunner) *amdGpuTopProvider {
@@ -670,7 +466,7 @@ func (p *amdGpuTopProvider) Name() string {
 	return p.binary
 }
 
-func (p *amdGpuTopProvider) Sample() (*gpuMetrics, error) {
+func (p *amdGpuTopProvider) Sample() (*GPUMetrics, error) {
 	args := []string{"--json"}
 	if p.index > 0 {
 		args = append(args, "--device", strconv.Itoa(p.index))
@@ -700,7 +496,7 @@ func (p *amdGpuTopProvider) Sample() (*gpuMetrics, error) {
 	return snap, nil
 }
 
-func parseAmdGpuTopJSON(raw []byte) (*gpuMetrics, error) {
+func parseAmdGpuTopJSON(raw []byte) (*GPUMetrics, error) {
 	// amdgpu_top JSON can be an object with a "devices" array or a flat object.
 	var any interface{}
 	if err := json.Unmarshal(raw, &any); err != nil {
@@ -735,7 +531,7 @@ func parseAmdGpuTopJSON(raw []byte) (*gpuMetrics, error) {
 	}
 
 	device := entries[0]
-	util := findNestedPercent(device, []string{"gfx activity", "gpu activity", "gpu use", "gfx %"}) // tolerant
+	util := findNestedPercent(device, []string{"gfx activity", "gpu activity", "gpu use", "gfx %"})
 	if util == 0 {
 		util = extractPercent(device, "activity")
 	}
@@ -756,7 +552,7 @@ func parseAmdGpuTopJSON(raw []byte) (*gpuMetrics, error) {
 		name = asic
 	}
 
-	return &gpuMetrics{
+	return &GPUMetrics{
 		Vendor:               "amd",
 		Name:                 name,
 		UtilizationPct:       util,

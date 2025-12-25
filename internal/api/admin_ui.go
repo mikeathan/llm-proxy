@@ -1,4 +1,4 @@
-package proxy
+package api
 
 import (
 	_ "embed"
@@ -8,7 +8,7 @@ import (
 //go:embed admin_ui.html
 var adminPage []byte
 
-func (s *Server) AdminPageHandler(w http.ResponseWriter, r *http.Request) {
+func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
