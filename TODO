@@ -1,0 +1,8 @@
+HTTP request
+  → validate
+  → load device context
+  → reduce context
+  → heuristic relevance check
+  → normalize question
+  → assemble LLM prompt
+  → THEN call LLM

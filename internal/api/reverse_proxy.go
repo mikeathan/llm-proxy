@@ -1,5 +1,4 @@
-package proxy
-
+package api
 
 import (
 	"net/http"
