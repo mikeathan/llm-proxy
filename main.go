@@ -10,10 +10,6 @@ import (
 )
 
 func main() {
-	// Initialize client
-	// client := api.NewLLMProxyClient(
-	// 	"http://localhost:9000",
-	// )
 
 	cfg, err := utils.LoadConfig("config/config.json")
 	if err != nil {
@@ -38,17 +34,4 @@ func main() {
 
 	log.Printf("LLM proxy listening on %s", cfg.Server.Bind)
 	log.Fatal(http.ListenAndServe(cfg.Server.Bind, nil))
-
-	// messages := []models.Message{
-	// 	{Role: "user", Content: "What was the lowest temperature this week?"},
-	// }
-
-	// response, err := client.Query("small-tooling", messages)
-	// if err != nil {
-	// 	fmt.Printf("Query failed: %v\n", err)
-	// 	return
-	// }
-
-	// fmt.Printf("Response: %s\n", response.Choices[0].Message.Content)
-
 }
