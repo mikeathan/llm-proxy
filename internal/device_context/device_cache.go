@@ -1,4 +1,4 @@
-package context
+package device_context
 
 import (
 	"llm-proxy/utils"
