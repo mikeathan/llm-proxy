@@ -1,7 +1,7 @@
-package context_test
+package device_context_test
 
 import (
-	"llm-proxy/internal/context"
+	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/mocks"
 	"testing"
 	"time"
@@ -9,7 +9,7 @@ import (
 
 func TestDeviceContextCache_Empty(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now())
-	cache := context.NewDeviceContextCache(10*time.Minute, clock)
+	cache := device_context.NewDeviceContextCache(10*time.Minute, clock)
 
 	ctx, ok := cache.Get()
 	if ok {
@@ -19,9 +19,9 @@ func TestDeviceContextCache_Empty(t *testing.T) {
 
 func TestDeviceContextCache_SetAndGet(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now())
-	cache := context.NewDeviceContextCache(10*time.Minute, clock)
+	cache := device_context.NewDeviceContextCache(10*time.Minute, clock)
 
-	expected := &context.DeviceContextResponse{
+	expected := &device_context.DeviceContextResponse{
 		Version: "1",
 	}
 
@@ -40,9 +40,9 @@ func TestDeviceContextCache_SetAndGet(t *testing.T) {
 func TestDeviceContextCache_Expires(t *testing.T) {
 	start := time.Now()
 	clock := mocks.NewFakeClock(start)
-	cache := context.NewDeviceContextCache(5*time.Minute, clock)
+	cache := device_context.NewDeviceContextCache(5*time.Minute, clock)
 
-	cache.Set(&context.DeviceContextResponse{Version: "1"})
+	cache.Set(&device_context.DeviceContextResponse{Version: "1"})
 
 	clock.Advance(6 * time.Minute)
 
@@ -54,9 +54,9 @@ func TestDeviceContextCache_Expires(t *testing.T) {
 
 func TestDeviceContextCache_Invalidate(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now())
-	cache := context.NewDeviceContextCache(10*time.Minute, clock)
+	cache := device_context.NewDeviceContextCache(10*time.Minute, clock)
 
-	cache.Set(&context.DeviceContextResponse{Version: "1"})
+	cache.Set(&device_context.DeviceContextResponse{Version: "1"})
 	cache.Invalidate()
 
 	ctx, ok := cache.Get()

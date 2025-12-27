@@ -1,4 +1,4 @@
-package context
+package device_context
 
 import "time"
 
@@ -28,9 +28,3 @@ type ExposeInfo struct {
 	Aggregations []AggregationType `json:"aggregations"`
 }
 
-type AssistantMessage struct {
-	ConversationID string        `json:"conversation_id"`
-	ContextVersion string        `json:"context_version,omitempty"`
-	Message        string        `json:"message"`
-	Timezone       time.Location `json:"timezone,omitempty"`
-}

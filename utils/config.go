@@ -3,11 +3,33 @@ package utils
 import (
 	"encoding/json"
 	"llm-proxy/models"
+	"log"
 	"os"
 	"strconv"
 
 	"github.com/joho/godotenv"
 )
+
+func LoadEnv() {
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "development"
+	}
+
+	envFile := ".env." + env
+
+	if err := godotenv.Load(envFile); err != nil {
+		log.Fatalf("failed to load %s: %v", envFile, err)
+	}
+}
+
+func Require(key string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		log.Fatalf("%s not set", key)
+	}
+	return val
+}
 
 func LoadConfig(path string) (*models.Config, error) {
 	f, err := os.ReadFile(path)
