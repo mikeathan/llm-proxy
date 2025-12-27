@@ -95,11 +95,6 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 }
 
 func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	mgr := h.server.Manager()
 	modelsList := mgr.ListModels()
 	host := mgr.ModelHost()
@@ -171,11 +166,6 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -216,104 +206,25 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		h.handleAddModel(w, r)
-	case http.MethodPut:
-		h.handleUpdateModel(w, r)
-	case http.MethodDelete:
-		h.handleDeleteModel(w, r)
-	default:
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
+	h.handleAddModel(w, r)
 }
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		gpuCfg := h.server.GPUConfig()
-		cfg := adminConfigView{
-			ModelDir:     h.server.ModelDir(),
-			LlamaBinary:  h.server.CurrentBinary(),
-			ModelHost:    h.server.Manager().ModelHost(),
-			IdleTimeoutS: h.server.CurrentIdleTimeout(),
-			GPUProvider:  gpuCfg.Provider,
-			GPUBinary:    gpuCfg.Binary,
-			GPUIndex:     gpuCfg.Index,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(cfg)
-	case http.MethodPut:
-		var req struct {
-			ModelDir    string `json:"model_dir"`
-			LlamaBinary string `json:"llama_binary"`
-			ModelHost   string `json:"model_host"`
-			GPUProvider string `json:"gpu_provider"`
-			GPUBinary   string `json:"gpu_binary"`
-			GPUIndex    *int   `json:"gpu_index"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
-			return
-		}
-
-		if req.ModelDir != "" {
-			h.server.SetModelDir(req.ModelDir)
-		}
-		if req.LlamaBinary != "" {
-			h.server.Manager().SetBinary(req.LlamaBinary)
-		}
-		if req.ModelHost != "" {
-			h.server.Manager().SetModelHost(req.ModelHost)
-		}
-		gpuCfg := h.server.GPUConfig()
-		if req.GPUProvider != "" {
-			gpuCfg.Provider = req.GPUProvider
-		}
-		if req.GPUBinary != "" {
-			gpuCfg.Binary = req.GPUBinary
-		}
-		if req.GPUIndex != nil {
-			gpuCfg.Index = *req.GPUIndex
-		}
-		h.server.SetGPUConfig(gpuCfg)
-
-		if err := h.server.UpdateConfig(func(cfg *models.Config) {
-			if req.ModelDir != "" {
-				cfg.ModelDir = req.ModelDir
-			}
-			if req.LlamaBinary != "" {
-				cfg.Server.LlamaServerBinary = req.LlamaBinary
-			}
-			if req.ModelHost != "" {
-				cfg.Server.ModelHost = req.ModelHost
-			}
-			if req.GPUProvider != "" || req.GPUBinary != "" || req.GPUIndex != nil {
-				cfg.Metrics.GPU.Provider = gpuCfg.Provider
-				cfg.Metrics.GPU.Binary = gpuCfg.Binary
-				if req.GPUIndex != nil {
-					cfg.Metrics.GPU.Index = gpuCfg.Index
-				}
-			}
-		}); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
-			return
-		}
-
-		h.server.RefreshMetricsService()
-
-		w.WriteHeader(http.StatusNoContent)
-	default:
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	gpuCfg := h.server.GPUConfig()
+	cfg := adminConfigView{
+		ModelDir:     h.server.ModelDir(),
+		LlamaBinary:  h.server.CurrentBinary(),
+		ModelHost:    h.server.Manager().ModelHost(),
+		IdleTimeoutS: h.server.CurrentIdleTimeout(),
+		GPUProvider:  gpuCfg.Provider,
+		GPUBinary:    gpuCfg.Binary,
+		GPUIndex:     gpuCfg.Index,
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cfg)
 }
 
 func (h *AdminHandlers) AdminStopHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	mgr := h.server.Manager()
 	active := mgr.ActiveInfo()
 
@@ -333,11 +244,6 @@ func (h *AdminHandlers) AdminStopHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	mgr := h.server.Manager()
 	active := mgr.ActiveInfo()
 	resp := adminLogsResponse{
@@ -356,14 +262,79 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	resp := h.server.MetricsSnapshot()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *AdminHandlers) AdminUpdateModelHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleUpdateModel(w, r)
+}
+
+func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleDeleteModel(w, r)
+}
+
+func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelDir    string `json:"model_dir"`
+		LlamaBinary string `json:"llama_binary"`
+		ModelHost   string `json:"model_host"`
+		GPUProvider string `json:"gpu_provider"`
+		GPUBinary   string `json:"gpu_binary"`
+		GPUIndex    *int   `json:"gpu_index"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+
+	if req.ModelDir != "" {
+		h.server.SetModelDir(req.ModelDir)
+	}
+	if req.LlamaBinary != "" {
+		h.server.Manager().SetBinary(req.LlamaBinary)
+	}
+	if req.ModelHost != "" {
+		h.server.Manager().SetModelHost(req.ModelHost)
+	}
+	gpuCfg := h.server.GPUConfig()
+	if req.GPUProvider != "" {
+		gpuCfg.Provider = req.GPUProvider
+	}
+	if req.GPUBinary != "" {
+		gpuCfg.Binary = req.GPUBinary
+	}
+	if req.GPUIndex != nil {
+		gpuCfg.Index = *req.GPUIndex
+	}
+	h.server.SetGPUConfig(gpuCfg)
+
+	if err := h.server.UpdateConfig(func(cfg *models.Config) {
+		if req.ModelDir != "" {
+			cfg.ModelDir = req.ModelDir
+		}
+		if req.LlamaBinary != "" {
+			cfg.Server.LlamaServerBinary = req.LlamaBinary
+		}
+		if req.ModelHost != "" {
+			cfg.Server.ModelHost = req.ModelHost
+		}
+		if req.GPUProvider != "" || req.GPUBinary != "" || req.GPUIndex != nil {
+			cfg.Metrics.GPU.Provider = gpuCfg.Provider
+			cfg.Metrics.GPU.Binary = gpuCfg.Binary
+			if req.GPUIndex != nil {
+				cfg.Metrics.GPU.Index = gpuCfg.Index
+			}
+		}
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
+		return
+	}
+
+	h.server.RefreshMetricsService()
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
