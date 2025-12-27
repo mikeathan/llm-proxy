@@ -2,14 +2,12 @@ package app
 
 import (
 	"llm-proxy/internal/api"
-	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 	"net/http"
-	"time"
 )
 
 type App struct {
@@ -26,16 +24,7 @@ func New(cfg *models.Config) (*App, error) {
 	}
 
 	clock := utils.NewRealClock()
-
-	// Device context stack
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-	fetcher := device_context.NewHttpDeviceContextFetcher(
-		utils.Require("DEVICE_CONTEXT_BASE_URL"),
-		httpClient,
-	)
-
-	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
-	provider := device_context.NewDeviceContextProvider(fetcher, cache)
+	provider := buildDeviceContextProvider(clock)
 
 	// Proxy stack
 	manager := proxy.NewManagerFromConfig(cfg)
