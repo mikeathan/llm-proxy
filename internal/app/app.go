@@ -51,28 +51,33 @@ func New(cfg *models.Config) (*App, error) {
 	admin := api.NewAdminHandlers(server)
 	proxyHandlers := api.NewProxyHandlers(server)
 
-	mux := http.NewServeMux()
+	router := api.NewRouter()
+	jsonMethodNotAllowed := api.WithMethodNotAllowed(http.HandlerFunc(api.MethodNotAllowedJSON))
+	textMethodNotAllowed := api.WithMethodNotAllowed(http.HandlerFunc(api.MethodNotAllowedText))
 
 	// Admin
-	mux.HandleFunc("/admin/api/state", admin.AdminStateHandler)
-	mux.HandleFunc("/admin/api/start", admin.AdminStartHandler)
-	mux.HandleFunc("/admin/api/stop", admin.AdminStopHandler)
-	mux.HandleFunc("/admin/api/models", admin.AdminAddModelHandler)
-	mux.HandleFunc("/admin/api/config", admin.AdminConfigHandler)
-	mux.HandleFunc("/admin/api/logs", admin.AdminLogsHandler)
-	mux.HandleFunc("/admin/api/metrics", admin.AdminMetricsHandler)
-	mux.HandleFunc("/admin", admin.AdminPageHandler)
+	router.Get("/admin/api/state", admin.AdminStateHandler, textMethodNotAllowed)
+	router.Post("/admin/api/start", admin.AdminStartHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/stop", admin.AdminStopHandler, textMethodNotAllowed)
+	router.Post("/admin/api/models", admin.AdminAddModelHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/models", admin.AdminUpdateModelHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/models", admin.AdminDeleteModelHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
+	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)
 
 	// Proxy
-	mux.HandleFunc("/v1/chat/completions", proxyHandlers.ChatHandler)
+	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.ChatHandler))
 
 	// Conversation API
-	mux.Handle("/api/conversation/message", assistant)
+	router.Any("/api/conversation/message", assistant)
 
 	return &App{
 		Server: &http.Server{
 			Addr:    cfg.Server.Bind,
-			Handler: mux,
+			Handler: router,
 		},
 	}, nil
 }
