@@ -1,19 +1,19 @@
 package mocks
 
 import (
-	"llm-proxy/internal/proxy"
+	"llm-proxy/internal/llm"
 	"llm-proxy/models"
 	"time"
 )
 
 type MockManager struct {
-	EnsureModelFunc         func(name string) (proxy.ModelInstance, error)
+	EnsureModelFunc         func(name string) (llm.ModelInstance, error)
 	RecordActivityFunc      func(name string)
 	ListModelsFunc          func() []models.ModelConfig
 	AddModelFunc            func(models.ModelConfig) error
 	UpdateModelFunc         func(models.ModelConfig) error
 	RemoveModelFunc         func(string) error
-	ActiveInfoFunc          func() *proxy.ActiveModelInfo
+	ActiveInfoFunc          func() *llm.ActiveModelInfo
 	ActiveLogsFunc          func() string
 	LastTokensPerSecondFunc func() (float64, time.Time)
 	StopActiveFunc          func() error
@@ -22,7 +22,7 @@ type MockManager struct {
 	SetModelHostFunc        func(string)
 }
 
-func (m *MockManager) EnsureModel(name string) (proxy.ModelInstance, error) {
+func (m *MockManager) EnsureModel(name string) (llm.ModelInstance, error) {
 	return m.EnsureModelFunc(name)
 }
 
@@ -60,7 +60,7 @@ func (m *MockManager) RemoveModel(name string) error {
 	return nil
 }
 
-func (m *MockManager) ActiveInfo() *proxy.ActiveModelInfo {
+func (m *MockManager) ActiveInfo() *llm.ActiveModelInfo {
 	if m.ActiveInfoFunc != nil {
 		return m.ActiveInfoFunc()
 	}

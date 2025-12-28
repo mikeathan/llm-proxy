@@ -21,7 +21,7 @@ func TestDeviceContextCache_SetAndGet(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now())
 	cache := device_context.NewDeviceContextCache(10*time.Minute, clock)
 
-	expected := &device_context.DeviceContextResponse{
+	expected := &device_context.LLMDeviceContext{
 		Version: "1",
 	}
 
@@ -42,7 +42,7 @@ func TestDeviceContextCache_Expires(t *testing.T) {
 	clock := mocks.NewFakeClock(start)
 	cache := device_context.NewDeviceContextCache(5*time.Minute, clock)
 
-	cache.Set(&device_context.DeviceContextResponse{Version: "1"})
+	cache.Set(&device_context.LLMDeviceContext{Version: "1"})
 
 	clock.Advance(6 * time.Minute)
 
@@ -56,7 +56,7 @@ func TestDeviceContextCache_Invalidate(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now())
 	cache := device_context.NewDeviceContextCache(10*time.Minute, clock)
 
-	cache.Set(&device_context.DeviceContextResponse{Version: "1"})
+	cache.Set(&device_context.LLMDeviceContext{Version: "1"})
 	cache.Invalidate()
 
 	ctx, ok := cache.Get()

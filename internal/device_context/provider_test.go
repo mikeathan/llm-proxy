@@ -16,10 +16,10 @@ func TestDeviceContextProvider_ReturnsFromCache(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
 
-	expected := &device_context.DeviceContextResponse{Version: "1"}
+	expected := &device_context.LLMDeviceContext{Version: "1"}
 	cache.Set(expected)
 
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(expected, nil)
+	mockClient := mocks.NewMockHttpDeviceContextFetcher(nil, nil)
 
 	provider := device_context.NewDeviceContextProvider(mockClient, cache)
 
@@ -29,7 +29,7 @@ func TestDeviceContextProvider_ReturnsFromCache(t *testing.T) {
 	}
 
 	if ctx != expected {
-		t.Fatalf("expected cached context")
+		t.Fatalf("expected cached LLM context")
 	}
 
 	if mockClient.CallCount() != 0 {
@@ -39,21 +39,20 @@ func TestDeviceContextProvider_ReturnsFromCache(t *testing.T) {
 
 func TestDeviceContextProvider_FetchesAndCaches(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
-
 	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
 
-	expected := &device_context.DeviceContextResponse{Version: "1"}
-
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(expected, nil)
+	raw := &device_context.DeviceContextResponse{Version: "1"}
+	mockClient := mocks.NewMockHttpDeviceContextFetcher(raw, nil)
 
 	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+
 	ctx, err := provider.GetDeviceContext()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if ctx != expected {
-		t.Fatalf("unexpected context returned")
+	if ctx.Version != "1" {
+		t.Fatalf("unexpected context version")
 	}
 
 	if mockClient.CallCount() != 1 {
@@ -65,7 +64,7 @@ func TestDeviceContextProvider_FetchesAndCaches(t *testing.T) {
 	if mockClient.CallCount() != 1 {
 		t.Fatalf("expected cached result on second call")
 	}
-	if ctx2 != expected {
+	if ctx2 != ctx {
 		t.Fatalf("expected same cached context")
 	}
 }
@@ -75,7 +74,6 @@ func TestDeviceContextProvider_PropagatesFetchError(t *testing.T) {
 	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
 
 	mockClient := mocks.NewMockHttpDeviceContextFetcher(nil, errors.New("backend down"))
-
 	provider := device_context.NewDeviceContextProvider(mockClient, cache)
 
 	ctx, err := provider.GetDeviceContext()
@@ -91,7 +89,6 @@ func TestDeviceContextProvider_PropagatesFetchError(t *testing.T) {
 		t.Fatalf("expected 1 HTTP call")
 	}
 
-	// ensure cache still empty
 	if _, ok := cache.Get(); ok {
 		t.Fatalf("context should not be cached on error")
 	}
@@ -103,8 +100,8 @@ func TestDeviceContextProvider_RefreshesAfterTTL(t *testing.T) {
 
 	first := &device_context.DeviceContextResponse{Version: "1"}
 	second := &device_context.DeviceContextResponse{Version: "2"}
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(first, nil)
 
+	mockClient := mocks.NewMockHttpDeviceContextFetcher(first, nil)
 	provider := device_context.NewDeviceContextProvider(mockClient, cache)
 
 	ctx1, _ := provider.GetDeviceContext()
@@ -122,6 +119,74 @@ func TestDeviceContextProvider_RefreshesAfterTTL(t *testing.T) {
 
 	if mockClient.CallCount() != 2 {
 		t.Fatalf("expected 2 HTTP calls, got %d", mockClient.CallCount())
+	}
+}
+
+func TestDeviceContextProvider_TransformsResponse(t *testing.T) {
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
+
+	raw := &device_context.DeviceContextResponse{
+		Version: "1",
+		Devices: []device_context.DeviceContext{
+			{
+				ID:   "dev1",
+				Name: "Kitchen Sensor",
+				Exposes: []device_context.ExposeInfo{
+					{
+						Name:         "temperature",
+						Type:         "numeric",
+						Unit:         "°C",
+						Aggregations: []device_context.AggregationType{"last", "avg"},
+					},
+					{
+						Name:    "state",
+						Type:    "binary",
+						Values:  []string{"OFF", "ON"},
+						ValueOn: "ON",
+						ValueOff: "OFF",
+						Aggregations: []device_context.AggregationType{"last"},
+					},
+				},
+			},
+		},
+	}
+
+	mockClient := mocks.NewMockHttpDeviceContextFetcher(raw, nil)
+	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+
+	llmCtx, err := provider.GetDeviceContext()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if llmCtx.Version != "1" {
+		t.Fatalf("expected version 1")
+	}
+
+	if len(llmCtx.Devices) != 1 {
+		t.Fatalf("expected 1 device")
+	}
+
+	dev := llmCtx.Devices[0]
+	if dev.ID != "dev1" || dev.Name != "Kitchen Sensor" {
+		t.Fatalf("unexpected device mapping")
+	}
+
+	temp := dev.Exposes["temperature"]
+	if temp.Type != "numeric" || temp.Unit != "°C" {
+		t.Fatalf("numeric expose not transformed correctly")
+	}
+
+	state := dev.Exposes["state"]
+	if state.Type != "binary" {
+		t.Fatalf("binary expose type incorrect")
+	}
+	if state.On != "ON" || state.Off != "OFF" {
+		t.Fatalf("binary expose ON/OFF incorrect")
+	}
+	if len(state.States) != 2 || state.States[0] != "OFF" || state.States[1] != "ON" {
+		t.Fatalf("binary expose states incorrect")
 	}
 }
 

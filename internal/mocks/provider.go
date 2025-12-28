@@ -30,18 +30,18 @@ func (m *MockHttpDeviceContextFetcher) FetchDeviceContext() (*device_context.Dev
 
 // Mock DeviceContextProvider
 type MockDeviceContextProvider struct {
-	ctx       *device_context.DeviceContextResponse
+	ctx       *device_context.LLMDeviceContext
 	err       error
 	callCount int
 }
 
-func NewMockDeviceContextProvider(ctx *device_context.DeviceContextResponse, err error) *MockDeviceContextProvider {
+func NewMockDeviceContextProvider(ctx *device_context.LLMDeviceContext, err error) *MockDeviceContextProvider {
 	return &MockDeviceContextProvider{
 		ctx: ctx,
 		err: err,
 	}
 }
-func (m *MockDeviceContextProvider) GetDeviceContext() (*device_context.DeviceContextResponse, error) {
+func (m *MockDeviceContextProvider) GetDeviceContext() (*device_context.LLMDeviceContext, error) {
 	m.callCount++
 	return m.ctx, m.err
 }

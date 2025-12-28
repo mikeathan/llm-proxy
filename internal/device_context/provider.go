@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"llm-proxy/utils"
 	"net/http"
-	"strings"
 )
 
 // Device Context Provider
 type DeviceContextProvider interface {
-	GetDeviceContext() (*DeviceContextResponse, error)
+	GetDeviceContext() (*LLMDeviceContext, error)
 }
 
 type deviceContextProvider struct {
@@ -18,23 +18,24 @@ type deviceContextProvider struct {
 	cache   *DeviceContextCache
 }
 
-func NewDeviceContextProvider(fetcher DeviceContextFetcher, cache *DeviceContextCache) *deviceContextProvider {
+func NewDeviceContextProvider(fetcher DeviceContextFetcher, cache *DeviceContextCache) DeviceContextProvider {
 	return &deviceContextProvider{fetcher: fetcher, cache: cache}
 }
 
-func (p *deviceContextProvider) GetDeviceContext() (*DeviceContextResponse, error) {
+func (p *deviceContextProvider) GetDeviceContext() (*LLMDeviceContext, error) {
 
 	if ctx, ok := p.cache.Get(); ok {
 		return ctx, nil
 	}
 
-	ctx, err := p.fetcher.FetchDeviceContext()
+	response, err := p.fetcher.FetchDeviceContext()
 	if err != nil {
 		return nil, err
 	}
 
-	p.cache.Set(ctx)
-	return ctx, nil
+	llmCtx := transformToLLMDeviceContext(response)
+	p.cache.Set(llmCtx)
+	return llmCtx, nil
 }
 
 // Http Device Context Fetcher
@@ -48,9 +49,9 @@ type HttpDeviceContextFetcher struct {
 	client *http.Client
 }
 
-func NewHttpDeviceContextFetcher(baseUrl string, client *http.Client) *HttpDeviceContextFetcher {
+func NewHttpDeviceContextFetcher(baseUrl string, client *http.Client) DeviceContextFetcher {
 
-	deviceContextURL := sanitiseUrl(baseUrl) + "/api/context/devices"
+	deviceContextURL := utils.SanitiseUrl(baseUrl) + "/api/context/devices"
 	return &HttpDeviceContextFetcher{
 		deviceContextURL: deviceContextURL,
 		client:           client,
@@ -67,7 +68,7 @@ func (c *HttpDeviceContextFetcher) FetchDeviceContext() (*DeviceContextResponse,
 
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("nodeherder returned %d: %s", res.StatusCode, string(body))
+		return nil, fmt.Errorf("fetch device context returned %d: %s", res.StatusCode, string(body))
 	}
 
 	resBody, err := io.ReadAll(res.Body)
@@ -82,11 +83,4 @@ func (c *HttpDeviceContextFetcher) FetchDeviceContext() (*DeviceContextResponse,
 	}
 
 	return &response, nil
-}
-
-func sanitiseUrl(url string) string {
-	if after, ok := strings.CutPrefix(url, "/"); ok {
-		return after
-	}
-	return url
 }

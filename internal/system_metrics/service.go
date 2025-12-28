@@ -1,4 +1,4 @@
-package metrics
+package system_metrics
 
 import (
 	"fmt"

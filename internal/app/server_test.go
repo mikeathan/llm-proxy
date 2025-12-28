@@ -1,4 +1,4 @@
-package proxy_test
+package app_test
 
 import (
 	"encoding/json"
@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"llm-proxy/internal/api"
+	"llm-proxy/internal/app"
+	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
-	"llm-proxy/internal/proxy"
 	"llm-proxy/models"
 )
 
@@ -29,8 +30,8 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestChatHandler_MissingHeader(t *testing.T) {
-	srv := proxy.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
-	handlers := api.NewProxyHandlers(srv)
+	srv := app.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
+	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
@@ -47,13 +48,13 @@ func TestChatHandler_MissingHeader(t *testing.T) {
 
 func TestChatHandler_ModelStarting(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
-			return proxy.ModelInstance{}, proxy.ErrModelStarting
+		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+			return llm.ModelInstance{}, llm.ErrModelStarting
 		},
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	handlers := api.NewProxyHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -78,13 +79,13 @@ func TestChatHandler_ModelStarting(t *testing.T) {
 
 func TestChatHandler_ModelError(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
-			return proxy.ModelInstance{}, errors.New("boom")
+		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+			return llm.ModelInstance{}, errors.New("boom")
 		},
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	handlers := api.NewProxyHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -111,14 +112,14 @@ func TestChatHandler_ProxyCalled(t *testing.T) {
 	defer restore()
 
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
-			return proxy.ModelInstance{Port: 9999}, nil
+		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+			return llm.ModelInstance{Port: 9999}, nil
 		},
 		RecordActivityFunc: func(name string) {},
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	handlers := api.NewProxyHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -145,8 +146,8 @@ func TestAdminStateHandler(t *testing.T) {
 				{Name: "beta", Filename: "beta.gguf", Path: "/models/beta.gguf", Port: 8082},
 			}
 		},
-		ActiveInfoFunc: func() *proxy.ActiveModelInfo {
-			return &proxy.ActiveModelInfo{
+		ActiveInfoFunc: func() *llm.ActiveModelInfo {
+			return &llm.ActiveModelInfo{
 				Name:     "alpha",
 				Port:     8081,
 				Host:     "127.0.0.1",
@@ -158,8 +159,8 @@ func TestAdminStateHandler(t *testing.T) {
 		ModelHostFunc: func() string { return "127.0.0.1" },
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv.Runtime(), srv)
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
 
@@ -206,15 +207,15 @@ func TestAdminStateHandler(t *testing.T) {
 
 func TestAdminStartHandler(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (proxy.ModelInstance, error) {
-			return proxy.ModelInstance{Name: name, Port: 9090}, nil
+		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+			return llm.ModelInstance{Name: name, Port: 9090}, nil
 		},
 		RecordActivityFunc: func(name string) {},
 		ModelHostFunc:      func() string { return "127.0.0.1" },
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv.Runtime(), srv)
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	w := httptest.NewRecorder()
 
@@ -231,15 +232,15 @@ func TestAdminStartHandler(t *testing.T) {
 func TestAdminStopHandler(t *testing.T) {
 	stopped := false
 	mgr := &mocks.MockManager{
-		ActiveInfoFunc: func() *proxy.ActiveModelInfo { return &proxy.ActiveModelInfo{Name: "delta"} },
+		ActiveInfoFunc: func() *llm.ActiveModelInfo { return &llm.ActiveModelInfo{Name: "delta"} },
 		StopActiveFunc: func() error {
 			stopped = true
 			return nil
 		},
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv.Runtime(), srv)
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -258,12 +259,12 @@ func TestAdminStopHandler(t *testing.T) {
 
 func TestAdminStopHandler_Error(t *testing.T) {
 	mgr := &mocks.MockManager{
-		ActiveInfoFunc: func() *proxy.ActiveModelInfo { return &proxy.ActiveModelInfo{Name: "delta"} },
+		ActiveInfoFunc: func() *llm.ActiveModelInfo { return &llm.ActiveModelInfo{Name: "delta"} },
 		StopActiveFunc: func() error { return errors.New("boom") },
 	}
 
-	srv := proxy.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv)
+	srv := app.NewServer(mgr, &models.Config{}, "")
+	admin := api.NewAdminHandlers(srv.Runtime(), srv)
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -298,8 +299,8 @@ func TestAdminAddModelHandler(t *testing.T) {
 		ModelDir: filepath.Dir(tmpFile.Name()),
 	}
 
-	srv := proxy.NewServer(mgr, cfg, "")
-	admin := api.NewAdminHandlers(srv)
+	srv := app.NewServer(mgr, cfg, "")
+	admin := api.NewAdminHandlers(srv.Runtime(), srv)
 	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	w := httptest.NewRecorder()

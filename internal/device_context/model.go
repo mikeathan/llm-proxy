@@ -2,6 +2,7 @@ package device_context
 
 import "time"
 
+// Device context response structure
 type AggregationType string
 
 type DeviceContextResponse struct {
@@ -27,4 +28,3 @@ type ExposeInfo struct {
 	ValueToggle  any               `json:"valueToggle,omitempty"`
 	Aggregations []AggregationType `json:"aggregations"`
 }
-

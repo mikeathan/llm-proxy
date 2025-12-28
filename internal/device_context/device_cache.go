@@ -13,7 +13,7 @@ type DeviceContextCache struct {
 }
 
 type cacheEntry struct {
-	ctx       *DeviceContextResponse
+	ctx       *LLMDeviceContext
 	expiresAt time.Time
 }
 
@@ -21,7 +21,7 @@ func NewDeviceContextCache(ttl time.Duration, clock utils.Clock) *DeviceContextC
 	return &DeviceContextCache{ttl: ttl, clock: clock, value: atomic.Value{}}
 }
 
-func (c *DeviceContextCache) Get() (*DeviceContextResponse, bool) {
+func (c *DeviceContextCache) Get() (*LLMDeviceContext, bool) {
 	v := c.value.Load()
 	if v == nil {
 		return nil, false
@@ -33,7 +33,7 @@ func (c *DeviceContextCache) Get() (*DeviceContextResponse, bool) {
 	return entry.ctx, true
 }
 
-func (c *DeviceContextCache) Set(ctx *DeviceContextResponse) {
+func (c *DeviceContextCache) Set(ctx *LLMDeviceContext) {
 	entry := &cacheEntry{
 		ctx:       ctx,
 		expiresAt: c.clock.NowUtc().Add(c.ttl),
