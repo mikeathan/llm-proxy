@@ -1,11 +1,12 @@
 package api
 
 import (
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"llm-proxy/internal/proxy"
+	"llm-proxy/internal/llm"
 	"llm-proxy/models"
 	"net/http"
 	"os"
@@ -15,12 +16,16 @@ import (
 	"time"
 )
 
+//go:embed admin_ui.html
+var adminPage []byte
+
 type AdminHandlers struct {
-	server *proxy.Server
+	runtime RuntimeService
+	admin   AdminService
 }
 
-func NewAdminHandlers(server *proxy.Server) *AdminHandlers {
-	return &AdminHandlers{server: server}
+func NewAdminHandlers(runtime RuntimeService, admin AdminService) *AdminHandlers {
+	return &AdminHandlers{runtime: runtime, admin: admin}
 }
 
 type adminModelView struct {
@@ -95,12 +100,11 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 }
 
 func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
-	mgr := h.server.Manager()
-	modelsList := mgr.ListModels()
-	host := mgr.ModelHost()
+	modelsList := h.runtime.ListModels()
+	host := h.runtime.ModelHost()
 	var available []adminAvailableModel
 	if v := strings.ToLower(r.URL.Query().Get("available")); v == "1" || v == "true" {
-		available = discoverModelFiles(h.server.ModelDir(), modelsList)
+		available = discoverModelFiles(h.admin.ModelDir(), modelsList)
 	}
 
 	sort.Slice(modelsList, func(i, j int) bool {
@@ -109,7 +113,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 
 	var activeName string
 	var activeDetails *adminActiveModel
-	if ai := mgr.ActiveInfo(); ai != nil {
+	if ai := h.runtime.ActiveInfo(); ai != nil {
 		activeName = ai.Name
 		activeDetails = &adminActiveModel{
 			Name:      ai.Name,
@@ -126,7 +130,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		activePort = activeDetails.Port
 	}
 	nextPort := nextAvailablePort(modelsList, activePort)
-	gpuCfg := h.server.GPUConfig()
+	gpuCfg := h.admin.GPUConfig()
 
 	state := adminStateResponse{
 		Models:    make([]adminModelView, 0, len(modelsList)),
@@ -134,10 +138,10 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			ModelDir:     h.server.ModelDir(),
-			LlamaBinary:  h.server.CurrentBinary(),
+			ModelDir:     h.admin.ModelDir(),
+			LlamaBinary:  h.admin.CurrentBinary(),
 			ModelHost:    host,
-			IdleTimeoutS: h.server.CurrentIdleTimeout(),
+			IdleTimeoutS: h.admin.CurrentIdleTimeout(),
 			GPUProvider:  gpuCfg.Provider,
 			GPUBinary:    gpuCfg.Binary,
 			GPUIndex:     gpuCfg.Index,
@@ -180,9 +184,8 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mgr := h.server.Manager()
-	mi, err := mgr.EnsureModel(req.Name)
-	if err == proxy.ErrModelStarting {
+	mi, err := h.runtime.EnsureModel(req.Name)
+	if err == llm.ErrModelStarting {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(adminStartResponse{Status: "starting", Model: req.Name})
@@ -210,12 +213,12 @@ func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
-	gpuCfg := h.server.GPUConfig()
+	gpuCfg := h.admin.GPUConfig()
 	cfg := adminConfigView{
-		ModelDir:     h.server.ModelDir(),
-		LlamaBinary:  h.server.CurrentBinary(),
-		ModelHost:    h.server.Manager().ModelHost(),
-		IdleTimeoutS: h.server.CurrentIdleTimeout(),
+		ModelDir:     h.admin.ModelDir(),
+		LlamaBinary:  h.admin.CurrentBinary(),
+		ModelHost:    h.runtime.ModelHost(),
+		IdleTimeoutS: h.admin.CurrentIdleTimeout(),
 		GPUProvider:  gpuCfg.Provider,
 		GPUBinary:    gpuCfg.Binary,
 		GPUIndex:     gpuCfg.Index,
@@ -225,10 +228,9 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *AdminHandlers) AdminStopHandler(w http.ResponseWriter, r *http.Request) {
-	mgr := h.server.Manager()
-	active := mgr.ActiveInfo()
+	active := h.runtime.ActiveInfo()
 
-	err := mgr.StopActive()
+	err := h.runtime.StopActive()
 
 	resp := adminStopResponse{Status: "idle"}
 	if err != nil {
@@ -244,11 +246,10 @@ func (h *AdminHandlers) AdminStopHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request) {
-	mgr := h.server.Manager()
-	active := mgr.ActiveInfo()
+	active := h.runtime.ActiveInfo()
 	resp := adminLogsResponse{
 		Running: active != nil,
-		Logs:    mgr.ActiveLogs(),
+		Logs:    h.runtime.ActiveLogs(),
 	}
 
 	if active != nil {
@@ -262,7 +263,7 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	resp := h.server.MetricsSnapshot()
+	resp := h.admin.MetricsSnapshot()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -290,15 +291,15 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 	}
 
 	if req.ModelDir != "" {
-		h.server.SetModelDir(req.ModelDir)
+		h.admin.SetModelDir(req.ModelDir)
 	}
 	if req.LlamaBinary != "" {
-		h.server.Manager().SetBinary(req.LlamaBinary)
+		h.runtime.SetBinary(req.LlamaBinary)
 	}
 	if req.ModelHost != "" {
-		h.server.Manager().SetModelHost(req.ModelHost)
+		h.runtime.SetModelHost(req.ModelHost)
 	}
-	gpuCfg := h.server.GPUConfig()
+	gpuCfg := h.admin.GPUConfig()
 	if req.GPUProvider != "" {
 		gpuCfg.Provider = req.GPUProvider
 	}
@@ -308,9 +309,9 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 	if req.GPUIndex != nil {
 		gpuCfg.Index = *req.GPUIndex
 	}
-	h.server.SetGPUConfig(gpuCfg)
+	h.admin.SetGPUConfig(gpuCfg)
 
-	if err := h.server.UpdateConfig(func(cfg *models.Config) {
+	if err := h.admin.UpdateConfig(func(cfg *models.Config) {
 		if req.ModelDir != "" {
 			cfg.ModelDir = req.ModelDir
 		}
@@ -332,7 +333,7 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.server.RefreshMetricsService()
+	h.admin.RefreshMetricsService()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -361,24 +362,23 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		req.Name = strings.TrimSuffix(filename, ext)
 	}
 
-	fullPath := h.server.ResolveModelPath(filename, req.Path)
+	fullPath := h.admin.ResolveModelPath(filename, req.Path)
 	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
 		return
 	}
 
-	mgr := h.server.Manager()
 	if req.Port == 0 {
-		active := mgr.ActiveInfo()
+		active := h.runtime.ActiveInfo()
 		activePort := 0
 		if active != nil {
 			activePort = active.Port
 		}
-		req.Port = nextAvailablePort(mgr.ListModels(), activePort)
+		req.Port = nextAvailablePort(h.runtime.ListModels(), activePort)
 	}
 
 	args := req.Args
-	if defaults := h.server.DefaultArgs(); len(defaults) > 0 {
+	if defaults := h.admin.DefaultArgs(); len(defaults) > 0 {
 		args = append(append([]string{}, defaults...), req.Args...)
 	}
 
@@ -390,9 +390,9 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Port:     req.Port,
 	}
 
-	if err := mgr.AddModel(runtimeCfg); err != nil {
+	if err := h.runtime.AddModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, proxy.ErrModelExists) {
+		if errors.Is(err, llm.ErrModelExists) {
 			status = http.StatusConflict
 		}
 		writeJSONError(w, status, "unable to add model: "+err.Error())
@@ -406,7 +406,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Port:     req.Port,
 	}
 
-	if err := h.server.PersistModel(persistCfg); err != nil {
+	if err := h.admin.PersistModel(persistCfg); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "saved model but failed to persist config: "+err.Error())
 		return
 	}
@@ -430,10 +430,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mgr := h.server.Manager()
 	var existing models.ModelConfig
 	found := false
-	for _, m := range mgr.ListModels() {
+	for _, m := range h.runtime.ListModels() {
 		if m.Name == req.Name {
 			existing = m
 			found = true
@@ -459,7 +458,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	args := req.Args
-	fullPath := h.server.ResolveModelPath(req.Filename, req.Path)
+	fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
 	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
 		return
@@ -473,9 +472,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Port:     req.Port,
 	}
 
-	if err := mgr.UpdateModel(runtimeCfg); err != nil {
+	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, proxy.ErrUnknownModel) {
+		if errors.Is(err, llm.ErrUnknownModel) {
 			status = http.StatusNotFound
 		}
 		writeJSONError(w, status, "unable to update model: "+err.Error())
@@ -489,7 +488,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Port:     req.Port,
 	}
 
-	if err := h.server.PersistReplaceModel(persistCfg); err != nil {
+	if err := h.admin.PersistReplaceModel(persistCfg); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "updated model but failed to persist config: "+err.Error())
 		return
 	}
@@ -513,16 +512,16 @@ func (h *AdminHandlers) handleDeleteModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.server.Manager().RemoveModel(name); err != nil {
+	if err := h.runtime.RemoveModel(name); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, proxy.ErrUnknownModel) {
+		if errors.Is(err, llm.ErrUnknownModel) {
 			status = http.StatusNotFound
 		}
 		writeJSONError(w, status, "unable to delete model: "+err.Error())
 		return
 	}
 
-	if err := h.server.PersistDeleteModel(name); err != nil {
+	if err := h.admin.PersistDeleteModel(name); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "deleted model but failed to persist config: "+err.Error())
 		return
 	}
@@ -594,4 +593,10 @@ func nextAvailablePort(modelsList []models.ModelConfig, activePort int) int {
 		}
 	}
 	return port
+}
+
+func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(adminPage)
 }

@@ -1,4 +1,4 @@
-package proxy_test
+package llm_test
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/proxy"
+	"llm-proxy/internal/llm"
 	"llm-proxy/internal/testhooks"
 	"llm-proxy/models"
 )
@@ -36,10 +36,10 @@ func TestHelperFakeProcess(t *testing.T) {
 //
 
 func TestLLMManager_EnsureModel_Unknown(t *testing.T) {
-	m := proxy.New(nil, "127.0.0.1", time.Minute)
+	m := llm.New(nil, "127.0.0.1", time.Minute)
 
 	_, err := m.EnsureModel("nope")
-	if !errors.Is(err, proxy.ErrUnknownModel) {
+	if !errors.Is(err, llm.ErrUnknownModel) {
 		t.Fatalf("expected ErrUnknownModel, got: %v", err)
 	}
 }
@@ -51,7 +51,7 @@ func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
-	m := proxy.New([]models.ModelConfig{
+	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "/tmp/model.gguf", Args: []string{"--x"}, Port: 9999},
 	}, "127.0.0.1", time.Minute)
 
@@ -60,7 +60,7 @@ func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
 	if mi.Port != 0 {
 		t.Fatalf("expected empty ModelInstance (Port=0) while starting, got: %+v", mi)
 	}
-	if !errors.Is(err, proxy.ErrModelStarting) {
+	if !errors.Is(err, llm.ErrModelStarting) {
 		t.Fatalf("expected ErrModelStarting, got: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
-	m := proxy.New([]models.ModelConfig{
+	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "model.gguf", Port: 7777},
 	}, "127.0.0.1", time.Minute)
 
@@ -110,7 +110,7 @@ func TestLLMManager_RecordActivity(t *testing.T) {
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
-	m := proxy.New([]models.ModelConfig{
+	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "x", Port: 4444},
 	}, "127.0.0.1", time.Millisecond*200)
 
@@ -133,7 +133,7 @@ func TestLLMManager_IdleReaperStopsModel(t *testing.T) {
 	restorePort := testhooks.SetPortReady(func(port int) bool { return true })
 	defer restorePort()
 
-	m := proxy.NewWithReapInterval(
+	m := llm.NewWithReapInterval(
 		[]models.ModelConfig{
 			{Name: "test", Path: "x", Port: 3333},
 		},

@@ -2,16 +2,19 @@ package api
 
 import (
 	"fmt"
-	"llm-proxy/internal/proxy"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+
+	"llm-proxy/internal/llm"
 )
 
 type ProxyHandlers struct {
-	server *proxy.Server
+	runtime RuntimeService
 }
 
-func NewProxyHandlers(server *proxy.Server) *ProxyHandlers {
-	return &ProxyHandlers{server: server}
+func NewProxyHandlers(runtime RuntimeService) *ProxyHandlers {
+	return &ProxyHandlers{runtime: runtime}
 }
 
 var reverseProxyFactory = func(target string) http.Handler {
@@ -33,9 +36,8 @@ func (h *ProxyHandlers) ChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mgr := h.server.Manager()
-	mi, err := mgr.EnsureModel(model)
-	if err == proxy.ErrModelStarting {
+	mi, err := h.runtime.EnsureModel(model)
+	if err == llm.ErrModelStarting {
 		w.Header().Set("Retry-After", "1")
 		w.Header().Set("X-LLM-Status", "starting")
 		w.WriteHeader(http.StatusAccepted)
@@ -48,9 +50,23 @@ func (h *ProxyHandlers) ChatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mgr.RecordActivity(model)
+	h.runtime.RecordActivity(model)
 
 	target := fmt.Sprintf("http://%s:%d", mi.Host, mi.Port)
 	rp := reverseProxyFactory(target)
 	rp.ServeHTTP(w, r)
+}
+
+func NewReverseProxy(target string) *httputil.ReverseProxy {
+	u, _ := url.Parse(target)
+
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = u.Host
+	}
+
+	return proxy
 }

@@ -2,11 +2,20 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
+	"time"
+
 	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/ratelimiter"
-	"net/http"
 )
+
+type AssistantMessage struct {
+	ConversationID string        `json:"conversation_id"`
+	ContextVersion string        `json:"context_version,omitempty"`
+	Message        string        `json:"message"`
+	Timezone       time.Location `json:"timezone,omitempty"`
+}
 
 type AssistantMessageHandler struct {
 	provider device_context.DeviceContextProvider
@@ -31,13 +40,15 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	ctx, err := h.provider.GetDeviceContext()
-	if err != nil {
-		h.logger.Error("failed to get device context", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to get device context")
-		return
-	}
+	// ctx, err := h.provider.GetDeviceContext()
+	// if err != nil {
+	// 	h.logger.Error("failed to get device context", "error", err)
+	// 	writeJSONError(w, http.StatusInternalServerError, "failed to get device context")
+	// 	return
+	// }
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ctx)
+	// TODO
+
+	// w.Header().Set("Content-Type", "application/json")
+	// json.NewEncoder(w).Encode(ctx)
 }

@@ -1,13 +1,9 @@
-package proxy
+package llm
 
 import (
 	"errors"
 	"fmt"
 	"io"
-	"llm-proxy/internal/logbuffer"
-	"llm-proxy/internal/metrics"
-	"llm-proxy/internal/testhooks"
-	"llm-proxy/models"
 	"log"
 	"os"
 	"os/exec"
@@ -16,6 +12,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"llm-proxy/internal/logging"
+	"llm-proxy/internal/system_metrics"
+	"llm-proxy/internal/testhooks"
+	"llm-proxy/models"
 )
 
 var ErrModelStarting = errors.New("model is starting")
@@ -37,7 +38,7 @@ type ActiveModelInfo struct {
 	Ready    bool
 }
 
-type LLMProxyManager interface {
+type RuntimeManager interface {
 	EnsureModel(name string) (ModelInstance, error)
 	RecordActivity(name string)
 	ListModels() []models.ModelConfig
@@ -53,7 +54,7 @@ type LLMProxyManager interface {
 	SetModelHost(host string)
 }
 
-type LLMManager struct {
+type LLMRuntimeManager struct {
 	mu          sync.Mutex
 	activeModel *runningModel
 	models      map[string]models.ModelConfig
@@ -67,8 +68,8 @@ type runningModel struct {
 	cmd        *exec.Cmd
 	started    time.Time
 	lastUsed   time.Time
-	logs       *logbuffer.Buffer
-	throughput *metrics.TokenTracker
+	logs       *logging.BufferLogger
+	throughput *system_metrics.TokenTracker
 }
 
 func (rm *runningModel) LastUsed() time.Time {
@@ -106,11 +107,11 @@ func resolveModelFile(baseDir string, m models.ModelConfig) string {
 	return fname
 }
 
-func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMManager {
+func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMRuntimeManager {
 	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, 10*time.Second)
 }
 
-func NewManagerFromConfig(cfg *models.Config) *LLMManager {
+func NewManagerFromConfig(cfg *models.Config) *LLMRuntimeManager {
 	mc := make([]models.ModelConfig, len(cfg.Models))
 
 	for i, m := range cfg.Models {
@@ -134,8 +135,8 @@ func NewManagerFromConfig(cfg *models.Config) *LLMManager {
 	return m
 }
 
-func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, idleTimeout, reapInterval time.Duration) *LLMManager {
-	m := &LLMManager{
+func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, idleTimeout, reapInterval time.Duration) *LLMRuntimeManager {
+	m := &LLMRuntimeManager{
 		models:      make(map[string]models.ModelConfig),
 		idleTimeout: idleTimeout,
 		modelHost:   modelHost,
@@ -156,7 +157,7 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 
 	return m
 }
-func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
+func (m *LLMRuntimeManager) EnsureModel(name string) (ModelInstance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -200,8 +201,8 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	m.models[name] = cfg
 
 	// Start new model process
-	logBuf := logbuffer.New(64 * 1024)
-	tokens := metrics.NewTokenTracker()
+	logBuf := logging.NewBufferLogger(64 * 1024)
+	tokens := system_metrics.NewTokenTracker()
 	cmd := testhooks.ExecCommand(
 		m.llamaBinary,
 		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
@@ -226,7 +227,7 @@ func (m *LLMManager) EnsureModel(name string) (ModelInstance, error) {
 	return ModelInstance{}, ErrModelStarting
 }
 
-func (m *LLMManager) RecordActivity(model string) {
+func (m *LLMRuntimeManager) RecordActivity(model string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -235,13 +236,13 @@ func (m *LLMManager) RecordActivity(model string) {
 	}
 }
 
-func (m *LLMManager) StopActive() error {
+func (m *LLMRuntimeManager) StopActive() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.stopLocked()
 }
 
-func (m *LLMManager) AddModel(cfg models.ModelConfig) error {
+func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -253,7 +254,7 @@ func (m *LLMManager) AddModel(cfg models.ModelConfig) error {
 	return nil
 }
 
-func (m *LLMManager) UpdateModel(cfg models.ModelConfig) error {
+func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -270,7 +271,7 @@ func (m *LLMManager) UpdateModel(cfg models.ModelConfig) error {
 	return nil
 }
 
-func (m *LLMManager) RemoveModel(name string) error {
+func (m *LLMRuntimeManager) RemoveModel(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -287,7 +288,7 @@ func (m *LLMManager) RemoveModel(name string) error {
 	return nil
 }
 
-func (m *LLMManager) ListModels() []models.ModelConfig {
+func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -313,7 +314,7 @@ func (m *LLMManager) ListModels() []models.ModelConfig {
 	return modelsOut
 }
 
-func (m *LLMManager) ActiveInfo() *ActiveModelInfo {
+func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -334,7 +335,7 @@ func (m *LLMManager) ActiveInfo() *ActiveModelInfo {
 }
 
 // ActiveLogs returns the buffered stdout/stderr for the active model.
-func (m *LLMManager) ActiveLogs() string {
+func (m *LLMRuntimeManager) ActiveLogs() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.activeModel == nil || m.activeModel.logs == nil {
@@ -344,7 +345,7 @@ func (m *LLMManager) ActiveLogs() string {
 }
 
 // LastTokensPerSecond returns the most recent throughput reported by llama-server output.
-func (m *LLMManager) LastTokensPerSecond() (float64, time.Time) {
+func (m *LLMRuntimeManager) LastTokensPerSecond() (float64, time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.activeModel != nil && m.activeModel.throughput != nil {
@@ -353,7 +354,7 @@ func (m *LLMManager) LastTokensPerSecond() (float64, time.Time) {
 	return 0, time.Time{}
 }
 
-func (m *LLMManager) stopLocked() error {
+func (m *LLMRuntimeManager) stopLocked() error {
 	if m.activeModel == nil {
 		return nil
 	}
@@ -379,19 +380,19 @@ func (m *LLMManager) stopLocked() error {
 	return nil
 }
 
-func (m *LLMManager) ActiveModel() *runningModel {
+func (m *LLMRuntimeManager) ActiveModel() *runningModel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.activeModel
 }
 
-func (m *LLMManager) ModelHost() string {
+func (m *LLMRuntimeManager) ModelHost() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.modelHost
 }
 
-func (m *LLMManager) SetBinary(path string) {
+func (m *LLMRuntimeManager) SetBinary(path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if path != "" {
@@ -399,7 +400,7 @@ func (m *LLMManager) SetBinary(path string) {
 	}
 }
 
-func (m *LLMManager) SetModelHost(host string) {
+func (m *LLMRuntimeManager) SetModelHost(host string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if host != "" {
@@ -407,7 +408,7 @@ func (m *LLMManager) SetModelHost(host string) {
 	}
 }
 
-func (m *LLMManager) defaultPortLocked(cfg models.ModelConfig, activePort int) int {
+func (m *LLMRuntimeManager) defaultPortLocked(cfg models.ModelConfig, activePort int) int {
 	if cfg.Port != 0 {
 		return cfg.Port
 	}
@@ -423,7 +424,7 @@ func (m *LLMManager) defaultPortLocked(cfg models.ModelConfig, activePort int) i
 	return port
 }
 
-func (m *LLMManager) reapIdleModels(reapInterval time.Duration) {
+func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 	t := time.NewTicker(reapInterval)
 	defer t.Stop()
 

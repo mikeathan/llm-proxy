@@ -1,13 +1,61 @@
-package proxy
+package app
 
 import (
-	"llm-proxy/internal/metrics"
+	"net/http"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"llm-proxy/internal/device_context"
+	"llm-proxy/internal/llm"
+	"llm-proxy/internal/system_metrics"
 	"llm-proxy/models"
 	"llm-proxy/utils"
-	"path/filepath"
 )
 
-func (s *Server) Manager() LLMProxyManager {
+type Server struct {
+	manager    llm.RuntimeManager
+	config     *models.Config
+	configPath string
+	modelDir   string
+	gpuConfig  models.GPUConfig
+	metrics    *system_metrics.MetricsService
+	configMu   sync.Mutex
+}
+
+func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *Server {
+	dir := ""
+	var gpuCfg models.GPUConfig
+	if cfg != nil {
+		dir = cfg.ModelDir
+		gpuCfg = cfg.Metrics.GPU
+	}
+
+	s := &Server{
+		manager:    mgr,
+		config:     cfg,
+		configPath: configPath,
+		modelDir:   dir,
+		gpuConfig:  gpuCfg,
+	}
+	s.refreshMetricsService()
+	return s
+}
+
+func (s *Server) Runtime() llm.RuntimeManager {
+	return s.manager
+}
+
+func (s *Server) refreshMetricsService() {
+	s.metrics = system_metrics.NewMetricsService(&models.Config{
+		Metrics: models.MetricsConfig{
+			GPU: s.gpuConfig,
+		},
+	})
+	s.metrics.SetThroughputSource(s.manager)
+}
+
+func (s *Server) Manager() llm.RuntimeManager {
 	return s.manager
 }
 
@@ -143,9 +191,23 @@ func (s *Server) RefreshMetricsService() {
 	s.refreshMetricsService()
 }
 
-func (s *Server) MetricsSnapshot() metrics.MetricsSnapshot {
+func (s *Server) MetricsSnapshot() system_metrics.MetricsSnapshot {
 	if s.metrics == nil {
 		s.refreshMetricsService()
 	}
 	return s.metrics.Snapshot()
+}
+
+func BuildDeviceContextProvider(clock utils.Clock) device_context.DeviceContextProvider {
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	fetcher := device_context.NewHttpDeviceContextFetcher(
+		utils.Require("DEVICE_CONTEXT_BASE_URL"),
+		httpClient,
+	)
+
+	cache := device_context.NewDeviceContextCache(1*time.Hour, clock)
+	return device_context.NewDeviceContextProvider(fetcher, cache)
 }
