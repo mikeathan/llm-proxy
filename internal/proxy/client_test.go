@@ -1,7 +1,9 @@
-package proxy
+package proxy_test
 
 import (
+	"context"
 	"encoding/json"
+	"llm-proxy/internal/proxy"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,15 +20,15 @@ func TestClientChatSuccess(t *testing.T) {
 		gotMethod = r.Method
 		gotContentType = r.Header.Get("Content-Type")
 
-		var req ChatRequest
+		var req proxy.ChatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 
-		resp := ChatResponse{
-			Choices: []Choice{
+		resp := proxy.ChatResponse{
+			Choices: []proxy.Choice{
 				{
-					Message: Message{
+					Message: proxy.Message{
 						Role:    "assistant",
 						Content: "hello",
 					},
@@ -40,10 +42,10 @@ func TestClientChatSuccess(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client := NewClient(server.URL+"/", server.Client())
-	out, err := client.Chat(ChatRequest{
+	client := proxy.NewLLMClient(server.URL+"/", server.Client())
+	out, err := client.Chat(context.Background(), proxy.ChatRequest{
 		Model: "test",
-		Messages: []Message{
+		Messages: []proxy.Message{
 			{Role: "user", Content: "ping"},
 		},
 	})
@@ -70,8 +72,8 @@ func TestClientChatHTTPErrorIncludesBody(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client := NewClient(server.URL, server.Client())
-	_, err := client.Chat(ChatRequest{Model: "test"})
+	client := proxy.NewLLMClient(server.URL, server.Client())
+	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -88,8 +90,8 @@ func TestClientChatInvalidJSONResponse(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client := NewClient(server.URL, server.Client())
-	_, err := client.Chat(ChatRequest{Model: "test"})
+	client := proxy.NewLLMClient(server.URL, server.Client())
+	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

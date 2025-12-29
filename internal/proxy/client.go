@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,20 +11,24 @@ import (
 	"time"
 )
 
-type Client struct {
+type Client interface {
+	Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+}
+
+type LLMClient struct {
 	httpClient         *http.Client
 	chatCompletionsURL string
 }
 
-func NewClient(baseURL string, httpClient *http.Client) *Client {
+func NewLLMClient(baseURL string, httpClient *http.Client) Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 	chatCompletionsURL := utils.SanitiseUrl(baseURL) + "/v1/chat/completions"
-	return &Client{chatCompletionsURL: chatCompletionsURL, httpClient: httpClient}
+	return &LLMClient{chatCompletionsURL: chatCompletionsURL, httpClient: httpClient}
 }
 
-func (c *Client) Chat(req ChatRequest) (*ChatResponse, error) {
+func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("LLM chat serialisation error: %s", err.Error())

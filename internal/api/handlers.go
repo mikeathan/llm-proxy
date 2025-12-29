@@ -2,11 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"llm-proxy/internal/device_context"
+	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 )
 
@@ -18,13 +22,22 @@ type AssistantMessage struct {
 }
 
 type AssistantMessageHandler struct {
-	provider device_context.DeviceContextProvider
-	limiter  *ratelimiter.Limiter
-	logger   logging.Logger
+	provider  device_context.DeviceContextProvider
+	client    proxy.LLMClientProvider
+	limiter   ratelimiter.Limiter
+	logger    logging.Logger
+	assistant AssistantService
 }
 
-func NewAssistantMessageHandler(provider device_context.DeviceContextProvider, limiter *ratelimiter.Limiter, logger logging.Logger) *AssistantMessageHandler {
-	return &AssistantMessageHandler{provider: provider, limiter: limiter, logger: logger}
+func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
+
+	return &AssistantMessageHandler{
+		provider:  service.DeviceContextProvider(),
+		client:    service.ClientProvider(),
+		limiter:   service.Limiter(),
+		logger:    service.Logger(),
+		assistant: service,
+	}
 }
 
 func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,15 +53,73 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	// ctx, err := h.provider.GetDeviceContext()
-	// if err != nil {
-	// 	h.logger.Error("failed to get device context", "error", err)
-	// 	writeJSONError(w, http.StatusInternalServerError, "failed to get device context")
-	// 	return
-	// }
+	ctx, err := h.provider.GetDeviceContext()
+	if err != nil {
+		h.logger.Error("failed to get device context", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get device context")
+		return
+	}
 
-	// TODO
+	client, err := h.client.GetClient(r.Context())
+	if err != nil {
+		if errors.Is(err, llm.ErrModelStarting) {
+			writeJSONError(w, http.StatusServiceUnavailable, "model is starting try again in a few seconds")
+			return
+		}
 
-	// w.Header().Set("Content-Type", "application/json")
-	// json.NewEncoder(w).Encode(ctx)
+		h.logger.Error("failed to get LLM client", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get LLM client")
+		return
+	}
+
+	req := buildChatRequest(payload, ctx)
+	resp, err := client.Chat(r.Context(), req)
+
+	if err != nil {
+		h.logger.Error("LLM request failed", "error", err)
+		writeJSONError(w, http.StatusBadGateway, "LLM request failed")
+		return
+	}
+
+	if len(resp.Choices) == 0 {
+		writeJSONError(w, http.StatusBadGateway, "empty response from model")
+		return
+	}
+
+	// handle tool call from LLM
+	choice := resp.Choices[0]
+	if len(choice.ToolCalls) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// handle LLM reply
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"reply": choice.Message.Content,
+	})
+}
+
+func buildChatRequest(payload *AssistantMessage, ctx *device_context.LLMDeviceContext) proxy.ChatRequest {
+	systemMsg := fmt.Sprintf(
+		"Conversation ID: %s\nContext Version: %s\nTimezone: %s\n\nDevice Context:\n%s",
+		payload.ConversationID,
+		payload.ContextVersion,
+		payload.Timezone.String(),
+		ctx.String(),
+	)
+
+	return proxy.ChatRequest{
+		Messages: []proxy.Message{
+			{
+				Role:    proxy.SystemRole,
+				Content: systemMsg,
+			},
+			{
+				Role:    proxy.UserRole,
+				Content: payload.Message,
+			},
+		},
+	}
 }
