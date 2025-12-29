@@ -6,17 +6,22 @@ import (
 	"time"
 )
 
-type Limiter struct {
+type Limiter interface {
+	Allow(key string, interval time.Duration) bool
+	Clear()
+}
+
+type rateLimiter struct {
 	mu    *sync.Mutex
 	calls map[string]time.Time
 	clock utils.Clock
 }
 
-func NewLimiter(clock utils.Clock) *Limiter {
-	return &Limiter{mu: &sync.Mutex{}, calls: make(map[string]time.Time), clock: clock}
+func NewLimiter(clock utils.Clock) Limiter {
+	return &rateLimiter{mu: &sync.Mutex{}, calls: make(map[string]time.Time), clock: clock}
 }
 
-func (l *Limiter) Allow(key string, interval time.Duration) bool {
+func (l *rateLimiter) Allow(key string, interval time.Duration) bool {
 
 	now := l.clock.NowUtc()
 	l.mu.Lock()
@@ -31,7 +36,7 @@ func (l *Limiter) Allow(key string, interval time.Duration) bool {
 	return true
 }
 
-func (l *Limiter) Clear() {
+func (l *rateLimiter) Clear() {
 	l.mu.Lock()
 	l.calls = make(map[string]time.Time)
 	l.mu.Unlock()

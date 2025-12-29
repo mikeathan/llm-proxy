@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -13,7 +14,7 @@ import (
 	"llm-proxy/utils"
 )
 
-type Server struct {
+type AppContext struct {
 	manager    llm.RuntimeManager
 	config     *models.Config
 	configPath string
@@ -23,7 +24,7 @@ type Server struct {
 	configMu   sync.Mutex
 }
 
-func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *Server {
+func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *AppContext {
 	dir := ""
 	var gpuCfg models.GPUConfig
 	if cfg != nil {
@@ -31,7 +32,7 @@ func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *S
 		gpuCfg = cfg.Metrics.GPU
 	}
 
-	s := &Server{
+	s := &AppContext{
 		manager:    mgr,
 		config:     cfg,
 		configPath: configPath,
@@ -42,11 +43,19 @@ func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *S
 	return s
 }
 
-func (s *Server) Runtime() llm.RuntimeManager {
+func (a *AppContext) DefaultModel() (string, error) {
+	models := a.Runtime().ListModels()
+	if len(models) == 0 {
+		return "", errors.New("no models configured")
+	}
+	return models[0].Name, nil
+}
+
+func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
 }
 
-func (s *Server) refreshMetricsService() {
+func (s *AppContext) refreshMetricsService() {
 	s.metrics = system_metrics.NewMetricsService(&models.Config{
 		Metrics: models.MetricsConfig{
 			GPU: s.gpuConfig,
@@ -55,48 +64,48 @@ func (s *Server) refreshMetricsService() {
 	s.metrics.SetThroughputSource(s.manager)
 }
 
-func (s *Server) Manager() llm.RuntimeManager {
+func (s *AppContext) Manager() llm.RuntimeManager {
 	return s.manager
 }
 
-func (s *Server) ModelDir() string {
+func (s *AppContext) ModelDir() string {
 	return s.modelDir
 }
 
-func (s *Server) SetModelDir(dir string) {
+func (s *AppContext) SetModelDir(dir string) {
 	s.modelDir = dir
 }
 
-func (s *Server) GPUConfig() models.GPUConfig {
+func (s *AppContext) GPUConfig() models.GPUConfig {
 	return s.gpuConfig
 }
 
-func (s *Server) SetGPUConfig(cfg models.GPUConfig) {
+func (s *AppContext) SetGPUConfig(cfg models.GPUConfig) {
 	s.gpuConfig = cfg
 }
 
-func (s *Server) CurrentBinary() string {
+func (s *AppContext) CurrentBinary() string {
 	if s.config != nil && s.config.Server.LlamaServerBinary != "" {
 		return s.config.Server.LlamaServerBinary
 	}
 	return "llama-server"
 }
 
-func (s *Server) CurrentIdleTimeout() int {
+func (s *AppContext) CurrentIdleTimeout() int {
 	if s.config != nil {
 		return s.config.Server.IdleTimeoutSecs
 	}
 	return 0
 }
 
-func (s *Server) DefaultArgs() []string {
+func (s *AppContext) DefaultArgs() []string {
 	if s.config == nil || len(s.config.Server.DefaultArgs) == 0 {
 		return nil
 	}
 	return append([]string{}, s.config.Server.DefaultArgs...)
 }
 
-func (s *Server) UpdateConfig(update func(cfg *models.Config)) error {
+func (s *AppContext) UpdateConfig(update func(cfg *models.Config)) error {
 	if s.config == nil || s.configPath == "" {
 		return nil
 	}
@@ -108,7 +117,7 @@ func (s *Server) UpdateConfig(update func(cfg *models.Config)) error {
 	return utils.SaveConfig(s.configPath, s.config)
 }
 
-func (s *Server) PersistModel(cfg models.ModelConfig) error {
+func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 	if s.config == nil || s.configPath == "" {
 		return nil
 	}
@@ -126,7 +135,7 @@ func (s *Server) PersistModel(cfg models.ModelConfig) error {
 	return utils.SaveConfig(s.configPath, s.config)
 }
 
-func (s *Server) PersistReplaceModel(cfg models.ModelConfig) error {
+func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 	if s.config == nil || s.configPath == "" {
 		return nil
 	}
@@ -149,7 +158,7 @@ func (s *Server) PersistReplaceModel(cfg models.ModelConfig) error {
 	return utils.SaveConfig(s.configPath, s.config)
 }
 
-func (s *Server) PersistDeleteModel(name string) error {
+func (s *AppContext) PersistDeleteModel(name string) error {
 	if s.config == nil || s.configPath == "" {
 		return nil
 	}
@@ -168,7 +177,7 @@ func (s *Server) PersistDeleteModel(name string) error {
 	return utils.SaveConfig(s.configPath, s.config)
 }
 
-func (s *Server) ResolveModelPath(filename, explicitPath string) string {
+func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {
 	if explicitPath != "" && filepath.IsAbs(explicitPath) {
 		return explicitPath
 	}
@@ -187,11 +196,11 @@ func (s *Server) ResolveModelPath(filename, explicitPath string) string {
 	return filename
 }
 
-func (s *Server) RefreshMetricsService() {
+func (s *AppContext) RefreshMetricsService() {
 	s.refreshMetricsService()
 }
 
-func (s *Server) MetricsSnapshot() system_metrics.MetricsSnapshot {
+func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
 	if s.metrics == nil {
 		s.refreshMetricsService()
 	}

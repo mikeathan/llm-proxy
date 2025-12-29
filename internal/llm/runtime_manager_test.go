@@ -21,7 +21,6 @@ func fakeCmd() func(name string, arg ...string) *exec.Cmd {
 	}
 }
 
-// Helper process stub
 func TestHelperFakeProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -29,13 +28,8 @@ func TestHelperFakeProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-//
-// ────────────────────────────────────────────────
-// TESTS
-// ────────────────────────────────────────────────
-//
 
-func TestLLMManager_EnsureModel_Unknown(t *testing.T) {
+func TestRuntimeManager_EnsureModel_Unknown(t *testing.T) {
 	m := llm.New(nil, "127.0.0.1", time.Minute)
 
 	_, err := m.EnsureModel("nope")
@@ -44,7 +38,7 @@ func TestLLMManager_EnsureModel_Unknown(t *testing.T) {
 	}
 }
 
-func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
+func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
@@ -69,7 +63,7 @@ func TestLLMManager_EnsureModel_StartsModel(t *testing.T) {
 	}
 }
 
-func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
+func TestRuntimeManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
@@ -103,7 +97,7 @@ func TestLLMManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	}
 }
 
-func TestLLMManager_RecordActivity(t *testing.T) {
+func TestRuntimeManager_RecordActivity(t *testing.T) {
 	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 
@@ -126,7 +120,7 @@ func TestLLMManager_RecordActivity(t *testing.T) {
 	}
 }
 
-func TestLLMManager_IdleReaperStopsModel(t *testing.T) {
+func TestRuntimeManager_IdleReaperStopsModel(t *testing.T) {
 	restoreExec := testhooks.SetExecCommand(fakeCmd())
 	defer restoreExec()
 

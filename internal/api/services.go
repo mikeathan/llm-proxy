@@ -1,7 +1,11 @@
 package api
 
 import (
+	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/llm"
+	"llm-proxy/internal/logging"
+	"llm-proxy/internal/proxy"
+	"llm-proxy/internal/ratelimiter"
 	"llm-proxy/internal/system_metrics"
 	"llm-proxy/models"
 	"time"
@@ -38,4 +42,12 @@ type AdminService interface {
 	ResolveModelPath(string, string) string
 	RefreshMetricsService()
 	MetricsSnapshot() system_metrics.MetricsSnapshot
+}
+
+type AssistantService interface {
+	DeviceContextProvider() device_context.DeviceContextProvider
+	ClientProvider() proxy.LLMClientProvider
+	Limiter() ratelimiter.Limiter
+	Logger() logging.Logger
+	DefaultModel() (string, error)
 }
