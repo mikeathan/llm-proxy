@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/llm"
@@ -15,10 +14,10 @@ import (
 )
 
 type AssistantMessage struct {
-	ConversationID string        `json:"conversation_id"`
-	ContextVersion string        `json:"context_version,omitempty"`
-	Message        string        `json:"message"`
-	Timezone       time.Location `json:"timezone,omitempty"`
+	ConversationID string `json:"conversation_id"`
+	ContextVersion string `json:"context_version,omitempty"`
+	Message        string `json:"message"`
+	Timezone       string `json:"timezone,omitempty"`
 }
 
 type AssistantMessageHandler struct {
@@ -91,6 +90,8 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	if len(choice.ToolCalls) > 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+
+		// TODO - handle tool calling
 		return
 	}
 
@@ -99,6 +100,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]any{
 		"reply": choice.Message.Content,
 	})
+
 }
 
 func buildChatRequest(payload *AssistantMessage, ctx *device_context.LLMDeviceContext) proxy.ChatRequest {
@@ -106,7 +108,7 @@ func buildChatRequest(payload *AssistantMessage, ctx *device_context.LLMDeviceCo
 		"Conversation ID: %s\nContext Version: %s\nTimezone: %s\n\nDevice Context:\n%s",
 		payload.ConversationID,
 		payload.ContextVersion,
-		payload.Timezone.String(),
+		payload.Timezone,
 		ctx.String(),
 	)
 
