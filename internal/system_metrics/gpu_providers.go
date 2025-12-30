@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+var numberRe = regexp.MustCompile(`-?\d+(\.\d+)?`)
+
 func buildGPUProvider(cfg *models.Config) (GPUProvider, string, string) {
 	var gpuCfg models.GPUConfig
 	if cfg != nil {
@@ -347,8 +349,7 @@ func parseNumber(v interface{}) float64 {
 		f, _ := t.Float64()
 		return f
 	case string:
-		re := regexp.MustCompile(`-?\d+(\.\d+)?`)
-		if m := re.FindString(t); m != "" {
+		if m := numberRe.FindString(t); m != "" {
 			f, _ := strconv.ParseFloat(m, 64)
 			return f
 		}

@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/models"
+	"llm-proxy/utils"
 )
 
 type mockProxy struct {
@@ -29,14 +30,14 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("proxied"))
 }
 
-func TestChatHandler_MissingHeader(t *testing.T) {
+func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
 	srv := app.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
 
-	handlers.ChatHandler(w, req)
+	handlers.EnsureModelProxyHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -46,7 +47,7 @@ func TestChatHandler_MissingHeader(t *testing.T) {
 	}
 }
 
-func TestChatHandler_ModelStarting(t *testing.T) {
+func TestEnsureModelProxyHandler_ModelStarting(t *testing.T) {
 	mgr := &mocks.MockManager{
 		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, llm.ErrModelStarting
@@ -61,7 +62,7 @@ func TestChatHandler_ModelStarting(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	handlers.ChatHandler(w, req)
+	handlers.EnsureModelProxyHandler(w, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", w.Code)
@@ -77,7 +78,7 @@ func TestChatHandler_ModelStarting(t *testing.T) {
 	}
 }
 
-func TestChatHandler_ModelError(t *testing.T) {
+func TestEnsureModelProxyHandler_ModelError(t *testing.T) {
 	mgr := &mocks.MockManager{
 		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, errors.New("boom")
@@ -92,7 +93,7 @@ func TestChatHandler_ModelError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	handlers.ChatHandler(w, req)
+	handlers.EnsureModelProxyHandler(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
@@ -102,7 +103,7 @@ func TestChatHandler_ModelError(t *testing.T) {
 	}
 }
 
-func TestChatHandler_ProxyCalled(t *testing.T) {
+func TestEnsureModelProxyHandler_ProxyCalled(t *testing.T) {
 	// mock reverse proxy
 	mp := &mockProxy{}
 
@@ -126,7 +127,7 @@ func TestChatHandler_ProxyCalled(t *testing.T) {
 
 	w := httptest.NewRecorder()
 
-	handlers.ChatHandler(w, req)
+	handlers.EnsureModelProxyHandler(w, req)
 
 	if !mp.called {
 		t.Fatalf("expected reverse proxy ServeHTTP to be called")
@@ -319,4 +320,185 @@ func TestAdminAddModelHandler(t *testing.T) {
 	if len(added.Args) != 4 || added.Args[0] != "--gpu-layers" || added.Args[1] != "2" || added.Args[2] != "--ctx-size" || added.Args[3] != "2048" {
 		t.Fatalf("expected default args merged, got %v", added.Args)
 	}
+}
+
+// --- AppContext behavior tests ---
+
+func TestAppContextDefaultModel_NoModels(t *testing.T) {
+	mgr := &mocks.MockManager{
+		ListModelsFunc: func() []models.ModelConfig { return nil },
+	}
+	ctx := app.NewServer(mgr, &models.Config{}, "")
+
+	if _, err := ctx.DefaultModel(); err == nil {
+		t.Fatalf("expected error when no models configured")
+	}
+}
+
+func TestAppContextDefaultModel_FirstModel(t *testing.T) {
+	mgr := &mocks.MockManager{
+		ListModelsFunc: func() []models.ModelConfig {
+			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
+		},
+	}
+	ctx := app.NewServer(mgr, &models.Config{}, "")
+
+	name, err := ctx.DefaultModel()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "alpha" {
+		t.Fatalf("expected alpha, got %s", name)
+	}
+}
+
+func TestAppContextResolveModelPath(t *testing.T) {
+	ctx := app.NewServer(&mocks.MockManager{}, &models.Config{ModelDir: "/models"}, "")
+
+	cases := []struct {
+		name     string
+		filename string
+		explicit string
+		modelDir string
+		want     string
+	}{
+		{name: "explicit absolute wins", filename: "ignored.gguf", explicit: "/abs/model.gguf", modelDir: "/models", want: "/abs/model.gguf"},
+		{name: "filename absolute wins", filename: "/abs/other.gguf", explicit: "", modelDir: "/models", want: "/abs/other.gguf"},
+		{name: "joins model dir", filename: "foo.gguf", explicit: "", modelDir: "/models", want: "/models/foo.gguf"},
+		{name: "explicit non-abs with empty filename", filename: "", explicit: "rel.gguf", modelDir: "/models", want: "rel.gguf"},
+		{name: "no model dir falls back to filename", filename: "bar.gguf", explicit: "", modelDir: "", want: "bar.gguf"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx.SetModelDir(tc.modelDir)
+			got := ctx.ResolveModelPath(tc.filename, tc.explicit)
+			if got != tc.want {
+				t.Fatalf("expected %s, got %s", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestAppContextUpdateConfig_Persists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	cfg := &models.Config{
+		Server: models.ServerConfig{Bind: ":0", IdleTimeoutSecs: 1},
+		Models: []models.ModelConfig{},
+	}
+	if err := utils.SaveConfig(path, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	if err := ctx.UpdateConfig(func(c *models.Config) {
+		c.Server.Bind = ":9999"
+		c.Server.IdleTimeoutSecs = 42
+	}); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+
+	loaded, err := utils.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.Server.Bind != ":9999" || loaded.Server.IdleTimeoutSecs != 42 {
+		t.Fatalf("unexpected config: %+v", loaded.Server)
+	}
+}
+
+func TestAppContextPersistModel_AddsOnce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	cfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha"}},
+	}
+	if err := utils.SaveConfig(path, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	if err := ctx.PersistModel(models.ModelConfig{Name: "beta"}); err != nil {
+		t.Fatalf("persist model: %v", err)
+	}
+	if err := ctx.PersistModel(models.ModelConfig{Name: "alpha"}); err != nil {
+		t.Fatalf("persist model (duplicate): %v", err)
+	}
+
+	loaded, err := utils.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(loaded.Models) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(loaded.Models))
+	}
+}
+
+func TestAppContextPersistReplaceModel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	cfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha", Port: 1}},
+	}
+	if err := utils.SaveConfig(path, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Port: 9}); err != nil {
+		t.Fatalf("persist replace: %v", err)
+	}
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "beta", Port: 2}); err != nil {
+		t.Fatalf("persist replace new: %v", err)
+	}
+
+	loaded, err := utils.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	alpha, ok := findModel(loaded.Models, "alpha")
+	if !ok || alpha.Port != 9 {
+		t.Fatalf("expected alpha port 9, got %+v", alpha)
+	}
+	if _, ok := findModel(loaded.Models, "beta"); !ok {
+		t.Fatalf("expected beta to be added")
+	}
+}
+
+func TestAppContextPersistDeleteModel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	cfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
+	}
+	if err := utils.SaveConfig(path, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	if err := ctx.PersistDeleteModel("alpha"); err != nil {
+		t.Fatalf("persist delete: %v", err)
+	}
+
+	loaded, err := utils.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if _, ok := findModel(loaded.Models, "alpha"); ok {
+		t.Fatalf("expected alpha to be removed")
+	}
+	if _, ok := findModel(loaded.Models, "beta"); !ok {
+		t.Fatalf("expected beta to remain")
+	}
+}
+
+func findModel(config []models.ModelConfig, name string) (models.ModelConfig, bool) {
+	for _, m := range config {
+		if m.Name == name {
+			return m, true
+		}
+	}
+
+	return models.ModelConfig{}, false
 }

@@ -2,21 +2,21 @@ package llm
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
 	"time"
 
-	"llm-proxy/internal/logging"
-	"llm-proxy/internal/system_metrics"
 	"llm-proxy/internal/testhooks"
 	"llm-proxy/models"
+)
+
+const (
+	defaultLlamaBinary = "llama-server"
+	defaultPortStart   = 8081
+	defaultReapPeriod  = 10 * time.Second
+	shutdownTimeout    = 10 * time.Second
 )
 
 var ErrModelStarting = errors.New("model is starting")
@@ -63,76 +63,24 @@ type LLMRuntimeManager struct {
 	llamaBinary string
 }
 
-type runningModel struct {
-	cfg        models.ModelConfig
-	cmd        *exec.Cmd
-	started    time.Time
-	lastUsed   time.Time
-	logs       *logging.BufferLogger
-	throughput *system_metrics.TokenTracker
-}
-
-func (rm *runningModel) LastUsed() time.Time {
-	return rm.lastUsed
-}
-
-func (rm *runningModel) Started() time.Time {
-	return rm.started
-}
-
-func (rm *runningModel) Cfg() models.ModelConfig {
-	return rm.cfg
-}
-
 var ErrUnknownModel = errors.New("unknown model")
 var ErrModelExists = errors.New("model already exists")
 
-func resolveModelFile(baseDir string, m models.ModelConfig) string {
-	if m.Path != "" && filepath.IsAbs(m.Path) {
-		return m.Path
-	}
-	fname := m.Filename
-	if fname == "" && m.Path != "" {
-		fname = filepath.Base(m.Path)
-	}
-	if fname == "" {
-		return ""
-	}
-	if filepath.IsAbs(fname) {
-		return fname
-	}
-	if baseDir != "" {
-		return filepath.Join(baseDir, fname)
-	}
-	return fname
-}
-
 func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMRuntimeManager {
-	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, 10*time.Second)
+	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, defaultReapPeriod)
 }
 
 func NewManagerFromConfig(cfg *models.Config) *LLMRuntimeManager {
-	mc := make([]models.ModelConfig, len(cfg.Models))
-
-	for i, m := range cfg.Models {
-		args := append(cfg.Server.DefaultArgs, m.Args...)
-		fullPath := resolveModelFile(cfg.ModelDir, m)
-
-		mc[i] = models.ModelConfig{
-			Name:     m.Name,
-			Filename: m.Filename,
-			Path:     fullPath,
-			Args:     args,
-			Port:     m.Port,
-		}
-
+	modelsOut := make([]models.ModelConfig, 0, len(cfg.Models))
+	for _, m := range cfg.Models {
+		modelsOut = append(modelsOut, configModelFromConfig(cfg, m))
 	}
 
-	m := New(mc, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
+	manager := New(modelsOut, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
 	if cfg.Server.LlamaServerBinary != "" {
-		m.llamaBinary = cfg.Server.LlamaServerBinary
+		manager.llamaBinary = cfg.Server.LlamaServerBinary
 	}
-	return m
+	return manager
 }
 
 func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, idleTimeout, reapInterval time.Duration) *LLMRuntimeManager {
@@ -140,17 +88,12 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 		models:      make(map[string]models.ModelConfig),
 		idleTimeout: idleTimeout,
 		modelHost:   modelHost,
-		llamaBinary: "llama-server",
+		llamaBinary: defaultLlamaBinary,
 	}
 
 	for _, mc := range modelConfigs {
-		if mc.Path == "" {
-			mc.Path = resolveModelFile("", mc)
-		}
-		if mc.Filename == "" && mc.Path != "" {
-			mc.Filename = filepath.Base(mc.Path)
-		}
-		m.models[mc.Name] = mc
+		normalized := normalizeModelConfig("", mc)
+		m.models[normalized.Name] = normalized
 	}
 
 	go m.reapIdleModels(reapInterval)
@@ -166,64 +109,28 @@ func (m *LLMRuntimeManager) EnsureModel(name string) (ModelInstance, error) {
 		return ModelInstance{}, ErrUnknownModel
 	}
 
-	// Already running AND ready
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && cfg.Port == 0 {
-		cfg.Port = m.activeModel.cfg.Port
-		m.models[name] = cfg
-	}
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && testhooks.PortReady(cfg.Port) {
-		m.activeModel.lastUsed = time.Now()
-		return ModelInstance{
-			Name: cfg.Name,
-			Host: m.modelHost,
-			Port: cfg.Port,
-			Path: cfg.Path,
-			Args: cfg.Args,
-		}, nil
+	cfg = m.syncPortWithActiveLocked(cfg)
+
+	if inst, ok := m.readyInstanceLocked(name, cfg); ok {
+		return inst, nil
 	}
 
-	// Already running BUT still starting
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && !testhooks.PortReady(cfg.Port) {
+	if m.activeModel != nil && m.activeModel.cfg.Name == name {
 		return ModelInstance{}, ErrModelStarting
 	}
 
-	// Stop previously running model
-	activePort := 0
-	if m.activeModel != nil {
-		activePort = m.activeModel.cfg.Port
-	}
-	if m.activeModel != nil {
-		_ = m.stopLocked()
+	activePort := m.activePortLocked()
+	if err := m.stopLocked(); err != nil {
+		return ModelInstance{}, err
 	}
 
-	port := m.defaultPortLocked(cfg, activePort)
-	cfg.Port = port
+	cfg.Port = m.defaultPortLocked(cfg, activePort)
 	m.models[name] = cfg
 
-	// Start new model process
-	logBuf := logging.NewBufferLogger(64 * 1024)
-	tokens := system_metrics.NewTokenTracker()
-	cmd := testhooks.ExecCommand(
-		m.llamaBinary,
-		append([]string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}, cfg.Args...)...,
-	)
-	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
-	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
-
-	if err := cmd.Start(); err != nil {
-		return ModelInstance{}, fmt.Errorf("model start failed: %w", err)
+	if err := m.startModelLocked(cfg); err != nil {
+		return ModelInstance{}, err
 	}
 
-	m.activeModel = &runningModel{
-		cfg:        cfg,
-		cmd:        cmd,
-		started:    time.Now(),
-		lastUsed:   time.Now(),
-		logs:       logBuf,
-		throughput: tokens,
-	}
-
-	// Model is starting, not ready
 	return ModelInstance{}, ErrModelStarting
 }
 
@@ -372,7 +279,7 @@ func (m *LLMRuntimeManager) stopLocked() error {
 
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(shutdownTimeout):
 		_ = cmd.Process.Kill()
 	}
 
@@ -415,7 +322,7 @@ func (m *LLMRuntimeManager) defaultPortLocked(cfg models.ModelConfig, activePort
 	if activePort != 0 {
 		return activePort
 	}
-	port := 8081
+	port := defaultPortStart
 	for _, mc := range m.models {
 		if mc.Port >= port {
 			port = mc.Port + 1
