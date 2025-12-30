@@ -1,0 +1,10 @@
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Mock LLM response from llm-proxy."
+      }
+    }
+  ]
+}

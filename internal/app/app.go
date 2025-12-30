@@ -20,7 +20,7 @@ func (a *App) ListenAndServe() error {
 func New(cfg *models.Config) *App {
 
 	container := bootstrap(cfg)
-	router := buildHTTP(container.AppServices())
+	router := buildHTTP(container.BuildAppServices())
 
 	return &App{
 		server: &http.Server{

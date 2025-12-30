@@ -11,6 +11,7 @@ import (
 	"llm-proxy/utils"
 	"log"
 	"net/http"
+	"os"
 )
 
 type Core struct {
@@ -37,16 +38,6 @@ type AssistantService interface {
 	DefaultModel() (string, error)
 }
 
-func (c *Container) AppServices() AppServices {
-	return AppServices{
-		Runtime:   c.Core.Runtime,
-		AppCtx:    c.Core.AppCtx,
-		deviceCtx: c.Infra.DeviceCtx,
-		logger:    c.Infra.Logger,
-		Clock:     c.Infra.Clock,
-	}
-}
-
 func (c *Container) BuildAppServices() AppServices {
 	s := AppServices{
 		Runtime:   c.Core.Runtime,
@@ -60,11 +51,12 @@ func (c *Container) BuildAppServices() AppServices {
 		return proxy.NewLLMClient(baseURL, nil)
 	}
 
-	s.clientProvider = proxy.NewRuntimeClientProvider(
-		s,
-		c.Core.Runtime,
-		factory,
-	)
+	if baseURL := os.Getenv("LLM_PROXY_DEV_BASE_URL"); baseURL != "" {
+		s.clientProvider = proxy.NewStaticClientProvider(factory(baseURL))
+		return s
+	}
+
+	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
 
 	return s
 }
