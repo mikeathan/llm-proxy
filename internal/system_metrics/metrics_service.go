@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	procLoadAvgPath = "/proc/loadavg"
+	procMemInfoPath = "/proc/meminfo"
+)
+
 func NewMetricsService(cfg *models.Config) *MetricsService {
 	provider, name, initErr := buildGPUProvider(cfg)
 	return &MetricsService{
@@ -65,10 +70,7 @@ func readHostMetrics(now func() time.Time) HostMetrics {
 	load1, load5, load15, _ := readLoadAvg()
 	mem := readMemInfo()
 	cores := runtime.NumCPU()
-	pct := 0.0
-	if c := float64(cores); c > 0 {
-		pct = (load1 / c) * 100
-	}
+	pct := loadPct(load1, cores)
 
 	return HostMetrics{
 		Load1:          load1,
@@ -84,8 +86,15 @@ func readHostMetrics(now func() time.Time) HostMetrics {
 	}
 }
 
+func loadPct(load1 float64, cores int) float64 {
+	if cores <= 0 {
+		return 0
+	}
+	return (load1 / float64(cores)) * 100
+}
+
 func readLoadAvg() (float64, float64, float64, error) {
-	data, err := os.ReadFile("/proc/loadavg")
+	data, err := os.ReadFile(procLoadAvgPath)
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -93,15 +102,16 @@ func readLoadAvg() (float64, float64, float64, error) {
 	if len(fields) < 3 {
 		return 0, 0, 0, fmt.Errorf("unexpected loadavg format")
 	}
-	parse := func(s string) float64 {
-		v, _ := strconv.ParseFloat(s, 64)
-		return v
-	}
-	return parse(fields[0]), parse(fields[1]), parse(fields[2]), nil
+	return parseFloat(fields[0]), parseFloat(fields[1]), parseFloat(fields[2]), nil
+}
+
+func parseFloat(s string) float64 {
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
 }
 
 func readMemInfo() memSnapshot {
-	data, err := os.ReadFile("/proc/meminfo")
+	data, err := os.ReadFile(procMemInfoPath)
 	if err != nil {
 		return memSnapshot{}
 	}
@@ -113,8 +123,7 @@ func readMemInfo() memSnapshot {
 		if len(fields) < 2 {
 			continue
 		}
-		v, _ := strconv.ParseFloat(fields[1], 64)
-		info[fields[0]] = v
+		info[fields[0]] = parseFloat(fields[1])
 	}
 	total := toMB(info["MemTotal:"])
 	free := toMB(info["MemFree:"])

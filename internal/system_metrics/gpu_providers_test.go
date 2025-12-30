@@ -1,6 +1,7 @@
 package system_metrics
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,37 @@ func TestBuildGPUProvider_SysfsPath(t *testing.T) {
 	}
 }
 
+func TestParseRocmSMIOutput(t *testing.T) {
+	raw := `{"card0":{"GPU use (%)":"45%","VRAM Usage (B)":52428800,"VRAM Total (B)":104857600,"Temperature (C)":55}}`
+
+	snap, err := parseRocmSMIOutput([]byte(raw))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.Name != "card0" {
+		t.Fatalf("unexpected name: %s", snap.Name)
+	}
+	if snap.UtilizationPct != 45 {
+		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
+	}
+	if !floatEquals(snap.MemoryUsedMB, 50) || !floatEquals(snap.MemoryTotalMB, 100) {
+		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
+	}
+	if !floatEquals(snap.MemoryUtilizationPct, 50) {
+		t.Fatalf("unexpected memory percent: %v", snap.MemoryUtilizationPct)
+	}
+	if snap.TemperatureC != 55 {
+		t.Fatalf("unexpected temperature: %v", snap.TemperatureC)
+	}
+}
+
+func TestParseRocmSMIOutput_Empty(t *testing.T) {
+	_, err := parseRocmSMIOutput([]byte(`{}`))
+	if err == nil {
+		t.Fatalf("expected error for empty payload")
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -103,4 +135,8 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
+}
+
+func floatEquals(got, want float64) bool {
+	return math.Abs(got-want) < 0.0001
 }

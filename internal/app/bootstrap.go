@@ -167,7 +167,7 @@ func buildRouter(
 	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)
 
 	// Proxy
-	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.ChatHandler))
+	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.EnsureModelProxyHandler))
 
 	// Conversation API
 	router.Any("/api/conversation/message", assistant)

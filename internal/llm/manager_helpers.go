@@ -1,0 +1,145 @@
+package llm
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+
+	"llm-proxy/internal/logging"
+	"llm-proxy/internal/system_metrics"
+	"llm-proxy/internal/testhooks"
+	"llm-proxy/models"
+)
+
+const logBufferSize = 64 * 1024
+
+type runningModel struct {
+	cfg        models.ModelConfig
+	cmd        *exec.Cmd
+	started    time.Time
+	lastUsed   time.Time
+	logs       *logging.BufferLogger
+	throughput *system_metrics.TokenTracker
+}
+
+func (rm *runningModel) LastUsed() time.Time {
+	return rm.lastUsed
+}
+
+func (rm *runningModel) Started() time.Time {
+	return rm.started
+}
+
+func (rm *runningModel) Cfg() models.ModelConfig {
+	return rm.cfg
+}
+
+func resolveModelFile(baseDir string, m models.ModelConfig) string {
+	if m.Path != "" && filepath.IsAbs(m.Path) {
+		return m.Path
+	}
+	fname := m.Filename
+	if fname == "" && m.Path != "" {
+		fname = filepath.Base(m.Path)
+	}
+	if fname == "" {
+		return ""
+	}
+	if filepath.IsAbs(fname) {
+		return fname
+	}
+	if baseDir != "" {
+		return filepath.Join(baseDir, fname)
+	}
+	return fname
+}
+
+func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
+	args := append(cfg.Server.DefaultArgs, model.Args...)
+	return models.ModelConfig{
+		Name:     model.Name,
+		Filename: model.Filename,
+		Path:     resolveModelFile(cfg.ModelDir, model),
+		Args:     args,
+		Port:     model.Port,
+	}
+}
+
+func normalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelConfig {
+	out := cfg
+	if out.Path == "" {
+		out.Path = resolveModelFile(baseDir, out)
+	}
+	if out.Filename == "" && out.Path != "" {
+		out.Filename = filepath.Base(out.Path)
+	}
+	return out
+}
+
+func (m *LLMRuntimeManager) syncPortWithActiveLocked(cfg models.ModelConfig) models.ModelConfig {
+	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name && cfg.Port == 0 {
+		cfg.Port = m.activeModel.cfg.Port
+		m.models[cfg.Name] = cfg
+	}
+	return cfg
+}
+
+func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelConfig) (ModelInstance, bool) {
+	if m.activeModel == nil || m.activeModel.cfg.Name != name {
+		return ModelInstance{}, false
+	}
+	if !testhooks.PortReady(cfg.Port) {
+		return ModelInstance{}, false
+	}
+
+	m.activeModel.lastUsed = time.Now()
+	return modelInstance(cfg, m.modelHost), true
+}
+
+func (m *LLMRuntimeManager) activePortLocked() int {
+	if m.activeModel == nil {
+		return 0
+	}
+	return m.activeModel.cfg.Port
+}
+
+func modelInstance(cfg models.ModelConfig, host string) ModelInstance {
+	return ModelInstance{
+		Name: cfg.Name,
+		Host: host,
+		Port: cfg.Port,
+		Path: cfg.Path,
+		Args: cfg.Args,
+	}
+}
+
+func (m *LLMRuntimeManager) startModelLocked(cfg models.ModelConfig) error {
+	logBuf := logging.NewBufferLogger(logBufferSize)
+	tokens := system_metrics.NewTokenTracker()
+	cmd := testhooks.ExecCommand(m.llamaBinary, buildLaunchArgs(cfg)...)
+	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
+	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("model start failed: %w", err)
+	}
+
+	m.activeModel = &runningModel{
+		cfg:        cfg,
+		cmd:        cmd,
+		started:    time.Now(),
+		lastUsed:   time.Now(),
+		logs:       logBuf,
+		throughput: tokens,
+	}
+
+	return nil
+}
+
+func buildLaunchArgs(cfg models.ModelConfig) []string {
+	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
+	return append(args, cfg.Args...)
+}

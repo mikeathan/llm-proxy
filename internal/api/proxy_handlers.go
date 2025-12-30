@@ -29,7 +29,7 @@ func SetReverseProxyFactory(f func(string) http.Handler) func() {
 	}
 }
 
-func (h *ProxyHandlers) ChatHandler(w http.ResponseWriter, r *http.Request) {
+func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.Request) {
 	model := r.Header.Get("X-Model-Name")
 	if model == "" {
 		http.Error(w, "missing X-Model-Name", http.StatusBadRequest)

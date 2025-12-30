@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,6 +28,151 @@ func TestHelperFakeProcess(t *testing.T) {
 	}
 	os.Exit(0)
 }
+
+// --- Config and lifecycle behavior tests ---
+
+func TestNewManagerFromConfig_NormalizesModels(t *testing.T) {
+	cfg := &models.Config{
+		Server: models.ServerConfig{
+			ModelHost:   "127.0.0.1",
+			DefaultArgs: []string{"--alpha", "1"},
+		},
+		ModelDir: "/models",
+		Models: []models.ModelConfig{
+			{Name: "m1", Filename: "model.gguf", Args: []string{"--beta", "2"}, Port: 9000},
+		},
+	}
+
+	manager := llm.NewManagerFromConfig(cfg)
+	modelsOut := manager.ListModels()
+	if len(modelsOut) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(modelsOut))
+	}
+	m := modelsOut[0]
+	if m.Path != filepath.Join(cfg.ModelDir, "model.gguf") {
+		t.Fatalf("unexpected path: %s", m.Path)
+	}
+	expectedArgs := []string{"--alpha", "1", "--beta", "2"}
+	if !equalStrings(m.Args, expectedArgs) {
+		t.Fatalf("unexpected args: %#v", m.Args)
+	}
+}
+
+func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	defer restoreExec()
+
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
+
+	_, err := manager.EnsureModel("test")
+	if !errors.Is(err, llm.ErrModelStarting) {
+		t.Fatalf("expected ErrModelStarting, got %v", err)
+	}
+
+	modelsOut := manager.ListModels()
+	if len(modelsOut) != 1 || modelsOut[0].Port == 0 {
+		t.Fatalf("expected model port to be assigned")
+	}
+	assignedPort := modelsOut[0].Port
+
+	restorePort()
+	restorePort = testhooks.SetPortReady(func(port int) bool { return true })
+
+	inst, err := manager.EnsureModel("test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inst.Port != assignedPort {
+		t.Fatalf("expected port %d, got %d", assignedPort, inst.Port)
+	}
+}
+
+func TestUpdateModel_StopsActiveModel(t *testing.T) {
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	defer restoreExec()
+
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
+	_, _ = manager.EnsureModel("test")
+
+	if manager.ActiveModel() == nil {
+		t.Fatalf("expected active model")
+	}
+
+	if err := manager.UpdateModel(models.ModelConfig{Name: "test", Path: "/tmp/model.gguf", Port: 9002}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if manager.ActiveModel() != nil {
+		t.Fatalf("expected active model to be stopped")
+	}
+}
+
+func TestRemoveModel_StopsActiveModel(t *testing.T) {
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	defer restoreExec()
+
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
+	_, _ = manager.EnsureModel("test")
+
+	if manager.ActiveModel() == nil {
+		t.Fatalf("expected active model")
+	}
+
+	if err := manager.RemoveModel("test"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if manager.ActiveModel() != nil {
+		t.Fatalf("expected active model to be stopped")
+	}
+}
+
+func TestActiveInfo_ReadyReflectsPortState(t *testing.T) {
+	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	defer restoreExec()
+
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
+	_, _ = manager.EnsureModel("test")
+
+	info := manager.ActiveInfo()
+	if info == nil || info.Ready {
+		t.Fatalf("expected Ready=false when port not ready")
+	}
+
+	restorePort()
+	restorePort = testhooks.SetPortReady(func(port int) bool { return true })
+
+	info = manager.ActiveInfo()
+	if info == nil || !info.Ready {
+		t.Fatalf("expected Ready=true when port ready")
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// --- Existing runtime manager tests ---
 
 
 func TestRuntimeManager_EnsureModel_Unknown(t *testing.T) {
