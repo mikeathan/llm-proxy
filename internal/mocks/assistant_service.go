@@ -1,22 +1,22 @@
 package mocks
 
 import (
-	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 )
 
 type MockAssistantService struct {
-	DeviceCtx   device_context.DeviceContextProvider
+	Herder      nodeherder.NodeHerderService
 	Client      proxy.LLMClientProvider
 	RateLimiter ratelimiter.Limiter
 	LoggerRef   logging.Logger
 	Model       string
 }
 
-func (m *MockAssistantService) DeviceContextProvider() device_context.DeviceContextProvider {
-	return m.DeviceCtx
+func (m *MockAssistantService) NodeHerder() nodeherder.NodeHerderService {
+	return m.Herder
 }
 
 func (m *MockAssistantService) ClientProvider() proxy.LLMClientProvider {

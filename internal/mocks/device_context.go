@@ -1,5 +1,5 @@
 package mocks
 
-import "llm-proxy/internal/device_context"
+import "llm-proxy/internal/nodeherder"
 
-type TestDeviceContext = device_context.LLMDeviceContext
+type TestDeviceContext = nodeherder.LLMDeviceContext

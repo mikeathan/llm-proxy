@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/llm"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/system_metrics"
 	"llm-proxy/models"
 	"llm-proxy/utils"
@@ -207,16 +207,16 @@ func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
 	return s.metrics.Snapshot()
 }
 
-func BuildDeviceContextProvider(clock utils.Clock) device_context.DeviceContextProvider {
+func BuildNodeHerder(clock utils.Clock) nodeherder.NodeHerderService {
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	fetcher := device_context.NewHttpDeviceContextFetcher(
+	fetcher := nodeherder.NewHttpNodeHerderFetcher(
 		utils.Require("DEVICE_CONTEXT_BASE_URL"),
 		httpClient,
 	)
 
-	cache := device_context.NewDeviceContextCache(1*time.Hour, clock)
-	return device_context.NewDeviceContextProvider(fetcher, cache)
+	cache := nodeherder.NewDeviceContextCache(1*time.Hour, clock)
+	return nodeherder.NewNodeHerder(fetcher, cache)
 }

@@ -1,27 +1,28 @@
-package device_context_test
+package nodeherder_test
 
 import (
 	"errors"
-	"llm-proxy/internal/device_context"
-	"llm-proxy/internal/mocks"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/mocks"
+	"llm-proxy/internal/nodeherder"
 )
 
-// DeviceContextProvider Tests
-func TestDeviceContextProvider_ReturnsFromCache(t *testing.T) {
+// NodeHerder Tests
+func TestNodeHerder_ReturnsFromCache(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
-	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
-	expected := &device_context.LLMDeviceContext{Version: "1"}
+	expected := &nodeherder.LLMDeviceContext{Version: "1"}
 	cache.Set(expected)
 
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(nil, nil)
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, nil)
 
-	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
 
 	ctx, err := provider.GetDeviceContext()
 	if err != nil {
@@ -37,14 +38,14 @@ func TestDeviceContextProvider_ReturnsFromCache(t *testing.T) {
 	}
 }
 
-func TestDeviceContextProvider_FetchesAndCaches(t *testing.T) {
+func TestNodeHerder_FetchesAndCaches(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
-	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
-	raw := &device_context.DeviceContextResponse{Version: "1"}
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(raw, nil)
+	raw := &nodeherder.DeviceContextResponse{Version: "1"}
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(raw, nil)
 
-	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
 
 	ctx, err := provider.GetDeviceContext()
 	if err != nil {
@@ -69,12 +70,12 @@ func TestDeviceContextProvider_FetchesAndCaches(t *testing.T) {
 	}
 }
 
-func TestDeviceContextProvider_PropagatesFetchError(t *testing.T) {
+func TestNodeHerder_PropagatesFetchError(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
-	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(nil, errors.New("backend down"))
-	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, errors.New("backend down"))
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
 
 	ctx, err := provider.GetDeviceContext()
 	if err == nil {
@@ -94,15 +95,15 @@ func TestDeviceContextProvider_PropagatesFetchError(t *testing.T) {
 	}
 }
 
-func TestDeviceContextProvider_RefreshesAfterTTL(t *testing.T) {
+func TestNodeHerder_RefreshesAfterTTL(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
-	cache := device_context.NewDeviceContextCache(1*time.Second, clock)
+	cache := nodeherder.NewDeviceContextCache(1*time.Second, clock)
 
-	first := &device_context.DeviceContextResponse{Version: "1"}
-	second := &device_context.DeviceContextResponse{Version: "2"}
+	first := &nodeherder.DeviceContextResponse{Version: "1"}
+	second := &nodeherder.DeviceContextResponse{Version: "2"}
 
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(first, nil)
-	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(first, nil)
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
 
 	ctx1, _ := provider.GetDeviceContext()
 	if ctx1.Version != "1" {
@@ -122,22 +123,22 @@ func TestDeviceContextProvider_RefreshesAfterTTL(t *testing.T) {
 	}
 }
 
-func TestDeviceContextProvider_TransformsResponse(t *testing.T) {
+func TestNodeHerder_TransformsResponse(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
-	cache := device_context.NewDeviceContextCache(1*time.Minute, clock)
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
-	raw := &device_context.DeviceContextResponse{
+	raw := &nodeherder.DeviceContextResponse{
 		Version: "1",
-		Devices: []device_context.DeviceContext{
+		Devices: []nodeherder.DeviceContext{
 			{
 				ID:   "dev1",
 				Name: "Kitchen Sensor",
-				Exposes: []device_context.ExposeInfo{
+				Exposes: []nodeherder.ExposeInfo{
 					{
 						Name:         "temperature",
 						Type:         "numeric",
 						Unit:         "°C",
-						Aggregations: []device_context.AggregationType{"last", "avg"},
+						Aggregations: []nodeherder.AggregationType{"last", "avg"},
 					},
 					{
 						Name:    "state",
@@ -145,15 +146,15 @@ func TestDeviceContextProvider_TransformsResponse(t *testing.T) {
 						Values:  []string{"OFF", "ON"},
 						ValueOn: "ON",
 						ValueOff: "OFF",
-						Aggregations: []device_context.AggregationType{"last"},
+						Aggregations: []nodeherder.AggregationType{"last"},
 					},
 				},
 			},
 		},
 	}
 
-	mockClient := mocks.NewMockHttpDeviceContextFetcher(raw, nil)
-	provider := device_context.NewDeviceContextProvider(mockClient, cache)
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(raw, nil)
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
 
 	llmCtx, err := provider.GetDeviceContext()
 	if err != nil {
@@ -190,8 +191,8 @@ func TestDeviceContextProvider_TransformsResponse(t *testing.T) {
 	}
 }
 
-// HttpDeviceContextFetcher Tests
-func TestDeviceContextFetcher_Success(t *testing.T) {
+// HttpNodeHerderFetcher Tests
+func TestNodeHerderFetcher_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/context/devices" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -212,7 +213,7 @@ func TestDeviceContextFetcher_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := device_context.NewHttpDeviceContextFetcher(server.URL, &http.Client{})
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
 
 	resp, err := client.FetchDeviceContext()
 	if err != nil {
@@ -236,14 +237,14 @@ func TestDeviceContextFetcher_Success(t *testing.T) {
 	}
 }
 
-func TestDeviceContextFetcher_Non200Response(t *testing.T) {
+func TestNodeHerderFetcher_Non200Response(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("boom"))
 	}))
 	defer server.Close()
 
-	client := device_context.NewHttpDeviceContextFetcher(server.URL, &http.Client{})
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
 
 	_, err := client.FetchDeviceContext()
 	if err == nil {
@@ -255,14 +256,14 @@ func TestDeviceContextFetcher_Non200Response(t *testing.T) {
 	}
 }
 
-func TestDeviceContextFetcher_InvalidJSON(t *testing.T) {
+func TestNodeHerderFetcher_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{invalid-json`))
 	}))
 	defer server.Close()
 
-	client := device_context.NewHttpDeviceContextFetcher(server.URL, &http.Client{})
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
 
 	_, err := client.FetchDeviceContext()
 	if err == nil {
@@ -287,14 +288,14 @@ func TestSanitiseUrl(t *testing.T) {
 	}
 }
 
-func TestDeviceContextFetcher_Timeout(t *testing.T) {
+func TestNodeHerderFetcher_Timeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(50 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	client := device_context.NewHttpDeviceContextFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
 
 	_, err := client.FetchDeviceContext()
 	if err == nil {

@@ -15,7 +15,7 @@ import (
 // AssistantMessageHandler Tests
 func TestAssistantMessageHandler_InvalidContentType(t *testing.T) {
 	handler := newTestAssistantHandler(
-		&mocks.MockDeviceContextProvider{},
+		&mocks.MockNodeHerder{},
 		&mocks.MockLogger{},
 	)
 
@@ -34,7 +34,7 @@ func TestAssistantMessageHandler_InvalidJSON(t *testing.T) {
 	logger := &mocks.MockLogger{}
 
 	handler := newTestAssistantHandler(
-		&mocks.MockDeviceContextProvider{},
+		&mocks.MockNodeHerder{},
 		logger,
 	)
 
@@ -59,7 +59,7 @@ func TestAssistantMessageHandler_InvalidJSON(t *testing.T) {
 
 func TestAssistantMessageHandler_DeviceContextError(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockDeviceContextProvider(nil, errors.New("boom"))
+	provider := mocks.NewMockNodeHerder(nil, errors.New("boom"))
 
 	handler := newTestAssistantHandler(provider, logger)
 
@@ -85,14 +85,14 @@ func TestAssistantMessageHandler_DeviceContextError(t *testing.T) {
 
 func TestAssistantMessageHandler_ModelStarting(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockDeviceContextProvider(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
 
 	clientProvider := &mocks.MockLLMClientProvider{
 		GetClientErr: llm.ErrModelStarting,
 	}
 
 	service := &mocks.MockAssistantService{
-		DeviceCtx:   provider,
+		Herder:      provider,
 		LoggerRef:   logger,
 		Client:      clientProvider,
 		RateLimiter: &mocks.MockRateLimiter{},
@@ -115,7 +115,7 @@ func TestAssistantMessageHandler_ModelStarting(t *testing.T) {
 
 func TestAssistantMessageHandler_SuccessReply(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockDeviceContextProvider(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{
@@ -128,7 +128,7 @@ func TestAssistantMessageHandler_SuccessReply(t *testing.T) {
 	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
 
 	service := &mocks.MockAssistantService{
-		DeviceCtx:   provider,
+		Herder:      provider,
 		LoggerRef:   logger,
 		Client:      clientProvider,
 		RateLimiter: &mocks.MockRateLimiter{},
@@ -155,7 +155,7 @@ func TestAssistantMessageHandler_SuccessReply(t *testing.T) {
 
 func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockDeviceContextProvider(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{
@@ -170,7 +170,7 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
 
 	service := &mocks.MockAssistantService{
-		DeviceCtx:   provider,
+		Herder:      provider,
 		LoggerRef:   logger,
 		Client:      clientProvider,
 		RateLimiter: &mocks.MockRateLimiter{},
@@ -197,7 +197,7 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 
 func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockDeviceContextProvider(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{},
@@ -206,7 +206,7 @@ func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
 
 	service := &mocks.MockAssistantService{
-		DeviceCtx:   provider,
+		Herder:      provider,
 		LoggerRef:   logger,
 		Client:      clientProvider,
 		RateLimiter: &mocks.MockRateLimiter{},
@@ -228,12 +228,12 @@ func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 }
 
 func newTestAssistantHandler(
-	deviceCtx *mocks.MockDeviceContextProvider,
+	deviceCtx *mocks.MockNodeHerder,
 	logger *mocks.MockLogger,
 ) http.Handler {
 
 	service := &mocks.MockAssistantService{
-		DeviceCtx:   deviceCtx,
+		Herder:      deviceCtx,
 		LoggerRef:   logger,
 		Client:      &mocks.MockLLMClientProvider{},
 		RateLimiter: &mocks.MockRateLimiter{},

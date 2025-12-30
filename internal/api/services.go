@@ -1,9 +1,9 @@
 package api
 
 import (
-	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 	"llm-proxy/internal/system_metrics"
@@ -45,7 +45,7 @@ type AdminService interface {
 }
 
 type AssistantService interface {
-	DeviceContextProvider() device_context.DeviceContextProvider
+	NodeHerder() nodeherder.NodeHerderService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger

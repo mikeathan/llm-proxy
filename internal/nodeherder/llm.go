@@ -1,4 +1,4 @@
-package device_context
+package nodeherder
 
 import "encoding/json"
 

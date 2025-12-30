@@ -1,6 +1,7 @@
-package device_context
+package nodeherder
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,21 +9,22 @@ import (
 	"net/http"
 )
 
-// Device Context Provider
-type DeviceContextProvider interface {
+// Node Herder
+type NodeHerderService interface {
 	GetDeviceContext() (*LLMDeviceContext, error)
+	QueryMetrics(ctx context.Context, request *QueryRequest) (*QueryResponse, error)
 }
 
-type deviceContextProvider struct {
-	fetcher DeviceContextFetcher
+type nodeHerder struct {
+	fetcher NodeHerderFetcher
 	cache   *DeviceContextCache
 }
 
-func NewDeviceContextProvider(fetcher DeviceContextFetcher, cache *DeviceContextCache) DeviceContextProvider {
-	return &deviceContextProvider{fetcher: fetcher, cache: cache}
+func NewNodeHerder(fetcher NodeHerderFetcher, cache *DeviceContextCache) NodeHerderService {
+	return &nodeHerder{fetcher: fetcher, cache: cache}
 }
 
-func (p *deviceContextProvider) GetDeviceContext() (*LLMDeviceContext, error) {
+func (p *nodeHerder) GetDeviceContext() (*LLMDeviceContext, error) {
 
 	if ctx, ok := p.cache.Get(); ok {
 		return ctx, nil
@@ -38,27 +40,31 @@ func (p *deviceContextProvider) GetDeviceContext() (*LLMDeviceContext, error) {
 	return llmCtx, nil
 }
 
-// Http Device Context Fetcher
-type DeviceContextFetcher interface {
+func (p *nodeHerder) QueryMetrics(ctx context.Context, request *QueryRequest) (*QueryResponse, error) {
+	return nil, nil
+}
+
+// Http Node Herder Fetcher
+type NodeHerderFetcher interface {
 	FetchDeviceContext() (*DeviceContextResponse, error)
 }
 
-type HttpDeviceContextFetcher struct {
+type HttpNodeHerderFetcher struct {
 	deviceContextURL string
 
 	client *http.Client
 }
 
-func NewHttpDeviceContextFetcher(baseUrl string, client *http.Client) DeviceContextFetcher {
+func NewHttpNodeHerderFetcher(baseUrl string, client *http.Client) NodeHerderFetcher {
 
 	deviceContextURL := utils.SanitiseUrl(baseUrl) + "/api/context/devices"
-	return &HttpDeviceContextFetcher{
+	return &HttpNodeHerderFetcher{
 		deviceContextURL: deviceContextURL,
 		client:           client,
 	}
 }
 
-func (c *HttpDeviceContextFetcher) FetchDeviceContext() (*DeviceContextResponse, error) {
+func (c *HttpNodeHerderFetcher) FetchDeviceContext() (*DeviceContextResponse, error) {
 
 	res, err := c.client.Get(c.deviceContextURL)
 	if err != nil {

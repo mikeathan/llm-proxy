@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 )
@@ -21,7 +21,7 @@ type AssistantMessage struct {
 }
 
 type AssistantMessageHandler struct {
-	provider  device_context.DeviceContextProvider
+	provider  nodeherder.NodeHerderService
 	client    proxy.LLMClientProvider
 	limiter   ratelimiter.Limiter
 	logger    logging.Logger
@@ -31,7 +31,7 @@ type AssistantMessageHandler struct {
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
 
 	return &AssistantMessageHandler{
-		provider:  service.DeviceContextProvider(),
+		provider:  service.NodeHerder(),
 		client:    service.ClientProvider(),
 		limiter:   service.Limiter(),
 		logger:    service.Logger(),
@@ -103,7 +103,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 }
 
-func buildChatRequest(payload *AssistantMessage, ctx *device_context.LLMDeviceContext) proxy.ChatRequest {
+func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {
 	systemMsg := fmt.Sprintf(
 		"Conversation ID: %s\nContext Version: %s\nTimezone: %s\n\nDevice Context:\n%s",
 		payload.ConversationID,

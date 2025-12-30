@@ -1,4 +1,4 @@
-package automation
+package assistant
 
 import "llm-proxy/internal/proxy"
 
