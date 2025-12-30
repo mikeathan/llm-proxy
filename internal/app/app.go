@@ -13,6 +13,10 @@ func (a *App) Handler() http.Handler {
 	return a.server.Handler
 }
 
+func (a *App) ListenAndServe() error {
+	return a.server.ListenAndServe()
+}
+
 func New(cfg *models.Config) *App {
 
 	container := bootstrap(cfg)
