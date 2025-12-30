@@ -1,4 +1,4 @@
-package device_context
+package nodeherder
 
 import "time"
 
@@ -27,4 +27,14 @@ type ExposeInfo struct {
 	ValueOff     any               `json:"valueOff,omitempty"`
 	ValueToggle  any               `json:"valueToggle,omitempty"`
 	Aggregations []AggregationType `json:"aggregations"`
+}
+
+// Query Request
+type QueryRequest struct {
+	DeviceID   string
+	Metric     string
+	From       int64
+	To         int64
+	Aggregate  string
+	Resolution string
 }

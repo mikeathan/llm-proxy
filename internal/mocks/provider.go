@@ -3,57 +3,58 @@ package mocks
 import (
 	"context"
 	"errors"
-	"llm-proxy/internal/device_context"
-	"llm-proxy/internal/proxy"
 	"time"
+
+	"llm-proxy/internal/nodeherder"
+	"llm-proxy/internal/proxy"
 )
 
-// Mock HttpDeviceContextFetcher
-type MockHttpDeviceContextFetcher struct {
+// Mock HttpNodeHerderFetcher
+type MockHttpNodeHerderFetcher struct {
 	callCount int
-	result    *device_context.DeviceContextResponse
+	result    *nodeherder.DeviceContextResponse
 	err       error
 }
 
-func NewMockHttpDeviceContextFetcher(result *device_context.DeviceContextResponse, err error) *MockHttpDeviceContextFetcher {
-	return &MockHttpDeviceContextFetcher{
+func NewMockHttpNodeHerderFetcher(result *nodeherder.DeviceContextResponse, err error) *MockHttpNodeHerderFetcher {
+	return &MockHttpNodeHerderFetcher{
 		result: result,
 		err:    err,
 	}
 }
-func (m *MockHttpDeviceContextFetcher) CallCount() int {
+func (m *MockHttpNodeHerderFetcher) CallCount() int {
 	return m.callCount
 }
 
-func (m *MockHttpDeviceContextFetcher) SetResult(result *device_context.DeviceContextResponse) {
+func (m *MockHttpNodeHerderFetcher) SetResult(result *nodeherder.DeviceContextResponse) {
 	m.result = result
 }
 
-func (m *MockHttpDeviceContextFetcher) FetchDeviceContext() (*device_context.DeviceContextResponse, error) {
+func (m *MockHttpNodeHerderFetcher) FetchDeviceContext() (*nodeherder.DeviceContextResponse, error) {
 	m.callCount++
 	return m.result, m.err
 }
 
-// Mock DeviceContextProvider
-type MockDeviceContextProvider struct {
-	ctx       *device_context.LLMDeviceContext
+// Mock NodeHerder
+type MockNodeHerder struct {
+	ctx       *nodeherder.LLMDeviceContext
 	err       error
 	callCount int
 }
 
-func NewMockDeviceContextProvider(ctx *device_context.LLMDeviceContext, err error) *MockDeviceContextProvider {
-	return &MockDeviceContextProvider{
+func NewMockNodeHerder(ctx *nodeherder.LLMDeviceContext, err error) *MockNodeHerder {
+	return &MockNodeHerder{
 		ctx: ctx,
 		err: err,
 	}
 }
-func (m *MockDeviceContextProvider) GetDeviceContext() (*device_context.LLMDeviceContext, error) {
+func (m *MockNodeHerder) GetDeviceContext() (*nodeherder.LLMDeviceContext, error) {
 	m.callCount++
 	return m.ctx, m.err
 }
 
-func (l *MockDeviceContextProvider) CallCount() int {
-	return l.callCount
+func (m *MockNodeHerder) CallCount() int {
+	return m.callCount
 }
 
 // Mock LLMClientProvider

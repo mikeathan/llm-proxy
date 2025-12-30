@@ -2,9 +2,9 @@ package app
 
 import (
 	"llm-proxy/internal/api"
-	"llm-proxy/internal/device_context"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 	"llm-proxy/models"
@@ -20,9 +20,9 @@ type Core struct {
 }
 
 type Infra struct {
-	Logger    logging.Logger
-	Clock     utils.Clock
-	DeviceCtx device_context.DeviceContextProvider
+	Logger     logging.Logger
+	Clock      utils.Clock
+	NodeHerder nodeherder.NodeHerderService
 }
 
 type Container struct {
@@ -31,7 +31,7 @@ type Container struct {
 }
 
 type AssistantService interface {
-	DeviceContextProvider() device_context.DeviceContextProvider
+	NodeHerder() nodeherder.NodeHerderService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
@@ -40,11 +40,11 @@ type AssistantService interface {
 
 func (c *Container) BuildAppServices() AppServices {
 	s := AppServices{
-		Runtime:   c.Core.Runtime,
-		AppCtx:    c.Core.AppCtx,
-		deviceCtx: c.Infra.DeviceCtx,
-		logger:    c.Infra.Logger,
-		Clock:     c.Infra.Clock,
+		Runtime:    c.Core.Runtime,
+		AppCtx:     c.Core.AppCtx,
+		nodeHerder: c.Infra.NodeHerder,
+		logger:     c.Infra.Logger,
+		Clock:      c.Infra.Clock,
 	}
 
 	factory := func(baseURL string) proxy.Client {
@@ -64,14 +64,14 @@ func (c *Container) BuildAppServices() AppServices {
 type AppServices struct {
 	Runtime        llm.RuntimeManager
 	AppCtx         *AppContext
-	deviceCtx      device_context.DeviceContextProvider
+	nodeHerder     nodeherder.NodeHerderService
 	clientProvider proxy.LLMClientProvider
 	logger         logging.Logger
 	Clock          utils.Clock
 }
 
-func (s AppServices) DeviceContextProvider() device_context.DeviceContextProvider {
-	return s.deviceCtx
+func (s AppServices) NodeHerder() nodeherder.NodeHerderService {
+	return s.nodeHerder
 }
 
 func (s AppServices) ClientProvider() proxy.LLMClientProvider {
@@ -94,7 +94,7 @@ func bootstrap(cfg *models.Config) *Container {
 	logger := initLogger()
 	clock := utils.NewRealClock()
 
-	deviceProvider := BuildDeviceContextProvider(clock)
+	nodeHerder := BuildNodeHerder(clock)
 
 	manager := llm.NewManagerFromConfig(cfg)
 	appCtx := NewServer(manager, cfg, "config/config.json")
@@ -107,9 +107,9 @@ func bootstrap(cfg *models.Config) *Container {
 			Runtime: runtime,
 		},
 		Infra: Infra{
-			Logger:    logger,
-			Clock:     clock,
-			DeviceCtx: deviceProvider,
+			Logger:     logger,
+			Clock:      clock,
+			NodeHerder: nodeHerder,
 		},
 	}
 }
