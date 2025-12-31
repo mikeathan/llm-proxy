@@ -11,50 +11,74 @@ import (
 
 // Mock HttpNodeHerderFetcher
 type MockHttpNodeHerderFetcher struct {
-	callCount int
-	result    *nodeherder.DeviceContextResponse
-	err       error
+	callCount     int
+	deviceResult  *nodeherder.DeviceContextResponse
+	metricsResult *nodeherder.MetricsQueryResponse
+	err           error
 }
 
 func NewMockHttpNodeHerderFetcher(result *nodeherder.DeviceContextResponse, err error) *MockHttpNodeHerderFetcher {
 	return &MockHttpNodeHerderFetcher{
-		result: result,
-		err:    err,
+		deviceResult: result,
+		err:          err,
 	}
 }
 func (m *MockHttpNodeHerderFetcher) CallCount() int {
 	return m.callCount
 }
 
-func (m *MockHttpNodeHerderFetcher) SetResult(result *nodeherder.DeviceContextResponse) {
-	m.result = result
+func (m *MockHttpNodeHerderFetcher) SetDeviceResult(result *nodeherder.DeviceContextResponse) {
+	m.deviceResult = result
+}
+
+func (m *MockHttpNodeHerderFetcher) SetMetricsResult(result *nodeherder.MetricsQueryResponse) {
+	m.metricsResult = result
 }
 
 func (m *MockHttpNodeHerderFetcher) FetchDeviceContext() (*nodeherder.DeviceContextResponse, error) {
 	m.callCount++
-	return m.result, m.err
+	return m.deviceResult, m.err
+}
+
+func (m *MockHttpNodeHerderFetcher) QueryMetrics(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
+	m.callCount++
+	return m.metricsResult, m.err
 }
 
 // Mock NodeHerder
 type MockNodeHerder struct {
-	ctx       *nodeherder.LLMDeviceContext
+	deviceCtx     *nodeherder.LLMDeviceContext
+	metricsResult *nodeherder.MetricsQueryResponse
+
 	err       error
 	callCount int
 }
 
-func NewMockNodeHerder(ctx *nodeherder.LLMDeviceContext, err error) *MockNodeHerder {
+func NewMockNodeHerder(err error) *MockNodeHerder {
 	return &MockNodeHerder{
-		ctx: ctx,
 		err: err,
 	}
 }
+
+func (m *MockNodeHerder) SetDeviceContextResult(result *nodeherder.LLMDeviceContext) {
+	m.deviceCtx = result
+}
+
+func (m *MockNodeHerder) SetMetricsResult(result *nodeherder.MetricsQueryResponse) {
+	m.metricsResult = result
+}
 func (m *MockNodeHerder) GetDeviceContext() (*nodeherder.LLMDeviceContext, error) {
 	m.callCount++
-	return m.ctx, m.err
+	return m.deviceCtx, m.err
 }
 
 func (m *MockNodeHerder) CallCount() int {
 	return m.callCount
+}
+
+func (m *MockNodeHerder) QueryMetrics(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
+	m.callCount++
+	return m.metricsResult, m.err
 }
 
 // Mock LLMClientProvider

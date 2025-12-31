@@ -30,11 +30,25 @@ type ExposeInfo struct {
 }
 
 // Query Request
-type QueryRequest struct {
+type MetricsQueryRequest struct {
 	DeviceID   string
 	Metric     string
-	From       int64
-	To         int64
+	From       any
+	To         any
 	Aggregate  string
 	Resolution string
+}
+
+// Query Response
+type MetricsQueryResponse struct {
+	Expose string
+	From   int64
+	To     int64
+	Values []MetricsQueryDeviceResponse
+}
+
+type MetricsQueryDeviceResponse struct {
+	DeviceId  string `json:"deviceId"`
+	Value     any    `json:"value"`
+	Timestamp int64  `json:"timestamp,omitempty"`
 }
