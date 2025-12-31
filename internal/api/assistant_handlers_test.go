@@ -59,7 +59,7 @@ func TestAssistantMessageHandler_InvalidJSON(t *testing.T) {
 
 func TestAssistantMessageHandler_DeviceContextError(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockNodeHerder(nil, errors.New("boom"))
+	provider := mocks.NewMockNodeHerder(errors.New("boom"))
 
 	handler := newTestAssistantHandler(provider, logger)
 
@@ -85,8 +85,8 @@ func TestAssistantMessageHandler_DeviceContextError(t *testing.T) {
 
 func TestAssistantMessageHandler_ModelStarting(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
-
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
 	clientProvider := &mocks.MockLLMClientProvider{
 		GetClientErr: llm.ErrModelStarting,
 	}
@@ -115,7 +115,8 @@ func TestAssistantMessageHandler_ModelStarting(t *testing.T) {
 
 func TestAssistantMessageHandler_SuccessReply(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{
@@ -155,7 +156,8 @@ func TestAssistantMessageHandler_SuccessReply(t *testing.T) {
 
 func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{
@@ -197,7 +199,8 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 
 func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 	logger := &mocks.MockLogger{}
-	provider := mocks.NewMockNodeHerder(&mocks.TestDeviceContext{}, nil)
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{},

@@ -1,6 +1,7 @@
 package nodeherder
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 // Node Herder
 type NodeHerderService interface {
 	GetDeviceContext() (*LLMDeviceContext, error)
-	QueryMetrics(ctx context.Context, request *QueryRequest) (*QueryResponse, error)
+	QueryMetrics(ctx context.Context, request *MetricsQueryRequest) (*MetricsQueryResponse, error)
 }
 
 type nodeHerder struct {
@@ -40,26 +41,30 @@ func (p *nodeHerder) GetDeviceContext() (*LLMDeviceContext, error) {
 	return llmCtx, nil
 }
 
-func (p *nodeHerder) QueryMetrics(ctx context.Context, request *QueryRequest) (*QueryResponse, error) {
-	return nil, nil
+func (p *nodeHerder) QueryMetrics(ctx context.Context, request *MetricsQueryRequest) (*MetricsQueryResponse, error) {
+	return p.fetcher.QueryMetrics(ctx, request)
 }
 
 // Http Node Herder Fetcher
 type NodeHerderFetcher interface {
 	FetchDeviceContext() (*DeviceContextResponse, error)
+	QueryMetrics(ctx context.Context, request *MetricsQueryRequest) (*MetricsQueryResponse, error)
 }
 
 type HttpNodeHerderFetcher struct {
 	deviceContextURL string
-
-	client *http.Client
+	queryMetricsURL  string
+	client           *http.Client
 }
 
 func NewHttpNodeHerderFetcher(baseUrl string, client *http.Client) NodeHerderFetcher {
 
+	queryMetricsURL := utils.SanitiseUrl(baseUrl) + "/api/metrics/query"
 	deviceContextURL := utils.SanitiseUrl(baseUrl) + "/api/context/devices"
+
 	return &HttpNodeHerderFetcher{
 		deviceContextURL: deviceContextURL,
+		queryMetricsURL:  queryMetricsURL,
 		client:           client,
 	}
 }
@@ -89,6 +94,33 @@ func (c *HttpNodeHerderFetcher) FetchDeviceContext() (*DeviceContextResponse, er
 	}
 
 	return &response, nil
+}
+
+func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *MetricsQueryRequest) (*MetricsQueryResponse, error) {
+
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.queryMetricsURL, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	res, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("query metrics returned %d: %s", res.StatusCode, string(b))
+	}
+
+	var out MetricsQueryResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Transform DeviceContextResponse to LLMDeviceContext

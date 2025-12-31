@@ -1,6 +1,7 @@
 package nodeherder_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,7 @@ import (
 	"llm-proxy/internal/nodeherder"
 )
 
-// NodeHerder Tests
+// NodeHerder GetDeviceContext Tests
 func TestNodeHerder_ReturnsFromCache(t *testing.T) {
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
@@ -111,7 +112,7 @@ func TestNodeHerder_RefreshesAfterTTL(t *testing.T) {
 	}
 
 	clock.Advance(2 * time.Second)
-	mockClient.SetResult(second)
+	mockClient.SetDeviceResult(second)
 
 	ctx2, _ := provider.GetDeviceContext()
 	if ctx2.Version != "2" {
@@ -141,11 +142,11 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 						Aggregations: []nodeherder.AggregationType{"last", "avg"},
 					},
 					{
-						Name:    "state",
-						Type:    "binary",
-						Values:  []string{"OFF", "ON"},
-						ValueOn: "ON",
-						ValueOff: "OFF",
+						Name:         "state",
+						Type:         "binary",
+						Values:       []string{"OFF", "ON"},
+						ValueOn:      "ON",
+						ValueOff:     "OFF",
 						Aggregations: []nodeherder.AggregationType{"last"},
 					},
 				},
@@ -191,7 +192,71 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 	}
 }
 
-// HttpNodeHerderFetcher Tests
+// NodeHerder Query Metrics Tests
+func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
+
+	expected := &nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     10,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{DeviceId: "dev1", Value: 22.5, Timestamp: 5},
+		},
+	}
+
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, nil)
+	mockClient.SetMetricsResult(expected)
+
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
+
+	req := &nodeherder.MetricsQueryRequest{
+		DeviceID: "dev1",
+		Metric:   "temperature",
+	}
+
+	res, err := provider.QueryMetrics(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if res != expected {
+		t.Fatalf("expected same response from fetcher")
+	}
+
+	if mockClient.CallCount() != 1 {
+		t.Fatalf("expected 1 HTTP call, got %d", mockClient.CallCount())
+	}
+}
+
+func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
+
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, errors.New("query failed"))
+	provider := nodeherder.NewNodeHerder(mockClient, cache)
+
+	req := &nodeherder.MetricsQueryRequest{
+		DeviceID: "dev1",
+		Metric:   "temperature",
+	}
+
+	res, err := provider.QueryMetrics(context.Background(), req)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+
+	if res != nil {
+		t.Fatalf("expected nil response on error")
+	}
+
+	if mockClient.CallCount() != 1 {
+		t.Fatalf("expected 1 HTTP call")
+	}
+}
+
+// HttpNodeHerderFetcher FetchDeviceContext Tests
 func TestNodeHerderFetcher_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/context/devices" {
@@ -271,6 +336,123 @@ func TestNodeHerderFetcher_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestNodeHerderFetcher_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+
+	_, err := client.FetchDeviceContext()
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+// HttpNodeHerderFetcher Query Metrics Tests
+func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/metrics/query" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"expose": "temperature",
+			"from": 1,
+			"to": 10,
+			"values": [
+				{
+					"deviceId": "dev1",
+					"value": 25.5,
+					"timestamp": 5
+				}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+
+	req := &nodeherder.MetricsQueryRequest{
+		DeviceID: "dev1",
+		Metric:   "temperature",
+	}
+
+	resp, err := client.QueryMetrics(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Expose != "temperature" {
+		t.Fatalf("expected expose temperature, got %s", resp.Expose)
+	}
+
+	if len(resp.Values) != 1 {
+		t.Fatalf("expected 1 value, got %d", len(resp.Values))
+	}
+
+	if resp.Values[0].DeviceId != "dev1" {
+		t.Fatalf("unexpected device id: %s", resp.Values[0].DeviceId)
+	}
+
+	if resp.Values[0].Value != 25.5 {
+		t.Fatalf("unexpected value: %v", resp.Values[0].Value)
+	}
+}
+
+func TestNodeHerderFetcher_QueryMetrics_Non200Response(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("boom"))
+	}))
+	defer server.Close()
+
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+
+	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "500") {
+		t.Fatalf("expected status code in error, got: %v", err)
+	}
+}
+
+func TestNodeHerderFetcher_QueryMetrics_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{invalid-json`))
+	}))
+	defer server.Close()
+
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+
+	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	if err == nil {
+		t.Fatal("expected JSON error, got nil")
+	}
+}
+
+func TestNodeHerderFetcher_QueryMetrics_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+
+	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+// SanitiseUrl Test
 func TestSanitiseUrl(t *testing.T) {
 	tests := []struct {
 		in   string
@@ -285,21 +467,6 @@ func TestSanitiseUrl(t *testing.T) {
 		if got != tt.want {
 			t.Fatalf("sanitiseUrl(%q) = %q, want %q", tt.in, got, tt.want)
 		}
-	}
-}
-
-func TestNodeHerderFetcher_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
-
-	_, err := client.FetchDeviceContext()
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
 	}
 }
 
