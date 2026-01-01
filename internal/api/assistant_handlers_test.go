@@ -159,12 +159,29 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
 	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     10,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{DeviceId: "dev1", Value: 22.5, Timestamp: 5},
+		},
+	})
 
 	mockClient := &mocks.MockLLMClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
 				{
-					ToolCalls: []proxy.ToolCall{{ID: "1"}},
+					ToolCalls: []proxy.ToolCall{
+						{
+							ID:   "1",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      "query_metrics",
+								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregation":"avg"}`,
+							},
+						},
+					},
 				},
 			},
 		},
@@ -193,8 +210,8 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	if !strings.Contains(rr.Body.String(), `"tool_calls"`) {
-		t.Fatalf("expected tool call in response: %s", rr.Body.String())
+	if !strings.Contains(rr.Body.String(), `"deviceId":"dev1"`) {
+		t.Fatalf("expected metrics response: %s", rr.Body.String())
 	}
 }
 

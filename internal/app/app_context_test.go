@@ -161,7 +161,7 @@ func TestAdminStateHandler(t *testing.T) {
 	}
 
 	srv := app.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv.Runtime(), srv)
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, "", "", "")
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
 
@@ -216,7 +216,7 @@ func TestAdminStartHandler(t *testing.T) {
 	}
 
 	srv := app.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv.Runtime(), srv)
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, "", "", "")
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	w := httptest.NewRecorder()
 
@@ -241,7 +241,7 @@ func TestAdminStopHandler(t *testing.T) {
 	}
 
 	srv := app.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv.Runtime(), srv)
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, "", "", "")
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -265,7 +265,7 @@ func TestAdminStopHandler_Error(t *testing.T) {
 	}
 
 	srv := app.NewServer(mgr, &models.Config{}, "")
-	admin := api.NewAdminHandlers(srv.Runtime(), srv)
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, "", "", "")
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -301,7 +301,7 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	srv := app.NewServer(mgr, cfg, "")
-	admin := api.NewAdminHandlers(srv.Runtime(), srv)
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, "", "", "")
 	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	w := httptest.NewRecorder()
