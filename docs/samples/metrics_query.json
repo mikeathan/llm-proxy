@@ -1,0 +1,17 @@
+{
+  "expose": "temperature",
+  "from": 1735689600000,
+  "to": 1735776000000,
+  "values": [
+    {
+      "deviceId": "dev1",
+      "value": 22.5,
+      "timestamp": 1735693200000
+    },
+    {
+      "deviceId": "dev1",
+      "value": 23.1,
+      "timestamp": 1735700400000
+    }
+  ]
+}
