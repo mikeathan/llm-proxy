@@ -14,4 +14,5 @@ if git rev-parse "${VERSION}" >/dev/null 2>&1; then
 fi
 
 git tag -a "${VERSION}" -m "Release ${VERSION}"
-echo "Created tag ${VERSION}"
+git push origin "${VERSION}"
+echo "Created and pushed tag ${VERSION}"
