@@ -28,12 +28,12 @@ func MetricsToolSchema() proxy.Tool {
 						"description": "Expose name of the device",
 					},
 					"from": map[string]any{
-						"type":        "string",
-						"description": "Start time (ISO8601 or relative: e.g. '24h')",
+						"type":        "integer",
+						"description": "Start time as unix milliseconds",
 					},
 					"to": map[string]any{
-						"type":        "string",
-						"description": "End time (ISO8601 or 'now')",
+						"type":        "integer",
+						"description": "End time as unix milliseconds",
 					},
 					"aggregation": map[string]any{
 						"type": "string",

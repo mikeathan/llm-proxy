@@ -2,13 +2,13 @@ package assistant_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 
-	"strings"
 	"testing"
 )
 
@@ -17,6 +17,15 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 
 	expected := &nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
+		From:   1735689600000,
+		To:     1735776000000,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId:  "dev1",
+				Value:     21.5,
+				Timestamp: 1735689600000,
+			},
+		},
 	}
 
 	mockNode.SetMetricsResult(expected)
@@ -32,8 +41,8 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 			Arguments: `{
 				"device_id": "dev1",
 				"expose": "temperature",
-				"from": "2025-01-01T00:00:00Z",
-				"to": "now",
+				"from": 1735689600000,
+				"to":   1735776000000,
 				"aggregation": "avg"
 			}`,
 		},
@@ -44,8 +53,19 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(out, `"expose":"temperature"`) {
-		t.Fatalf("unexpected output: %s", out)
+	var got nodeherder.MetricsQueryResponse
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("invalid JSON output: %v; raw: %s", err, out)
+	}
+
+	if got.Expose != expected.Expose ||
+		got.From != expected.From ||
+		got.To != expected.To {
+		t.Fatalf("unexpected output: %+v", got)
+	}
+
+	if len(got.Values) != len(expected.Values) {
+		t.Fatalf("unexpected values: %+v", got.Values)
 	}
 
 	if mockNode.CallCount() != 1 {
@@ -92,8 +112,8 @@ func TestAssistant_ExecuteTool_QueryMetrics_BackendError(t *testing.T) {
 			Arguments: `{
 				"device_id": "dev1",
 				"expose": "temperature",
-				"from": "2025-01-01T00:00:00Z",
-				"to": "now"
+				"from": 1735689600000,
+    			"to": 1735776000000
 			}`,
 		},
 	}
