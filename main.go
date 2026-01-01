@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"llm-proxy/internal/app"
 	"llm-proxy/utils"
@@ -68,11 +69,22 @@ func printVersion(info BuildInfo) {
 }
 
 func logStartup(info BuildInfo, bind string) {
+
+	// print loaded env file
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "development"
+	}
+	log.Printf("Loaded env file .env.%s", env)
+
+	//print version info
 	log.Printf(
 		"LLM proxy version %s (commit %s, built %s)",
 		info.Version,
 		info.Commit,
 		info.BuildDate,
 	)
+
+	// print bind address
 	log.Printf("LLM proxy listening on %s", bind)
 }
