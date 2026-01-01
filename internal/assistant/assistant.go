@@ -12,8 +12,8 @@ import (
 type QueryMetricsArgs struct {
 	DeviceID   string `json:"device_id"`
 	Metric     string `json:"metric"`
-	From       any    `json:"from,omitempty"`
-	To         any    `json:"to,omitempty"`
+	From       int64  `json:"from,omitempty"`
+	To         int64  `json:"to,omitempty"`
 	Aggregate  string `json:"aggregate,omitempty"`
 	Resolution string `json:"resolution,omitempty"`
 }
