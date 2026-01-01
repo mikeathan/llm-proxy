@@ -1,10 +1,11 @@
 package api
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"llm-proxy/internal/llm"
 	"llm-proxy/models"
@@ -17,15 +18,40 @@ import (
 )
 
 //go:embed admin_ui.html
-var adminPage []byte
+var adminFS embed.FS
 
-type AdminHandlers struct {
-	runtime RuntimeService
-	admin   AdminService
+var adminTmpl = template.Must(
+	template.ParseFS(adminFS, "admin_ui.html"),
+)
+
+type AdminView struct {
+	Version   string
+	Commit    string
+	BuildDate string
 }
 
-func NewAdminHandlers(runtime RuntimeService, admin AdminService) *AdminHandlers {
-	return &AdminHandlers{runtime: runtime, admin: admin}
+type AdminHandlers struct {
+	runtime   RuntimeService
+	admin     AdminService
+	version   string
+	commit    string
+	buildDate string
+}
+
+func NewAdminHandlers(
+	runtime RuntimeService,
+	admin AdminService,
+	version string,
+	commit string,
+	buildDate string,
+) *AdminHandlers {
+	return &AdminHandlers{
+		runtime:   runtime,
+		admin:     admin,
+		version:   version,
+		commit:    commit,
+		buildDate: buildDate,
+	}
 }
 
 type adminModelView struct {
@@ -597,6 +623,14 @@ func nextAvailablePort(modelsList []models.ModelConfig, activePort int) int {
 
 func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(adminPage)
+
+	// Render the admin UI template with version info
+	err := adminTmpl.Execute(w, AdminView{
+		Version:   h.version,
+		Commit:    h.commit,
+		BuildDate: h.buildDate,
+	})
+	if err != nil {
+		http.Error(w, "template render failed", http.StatusInternalServerError)
+	}
 }

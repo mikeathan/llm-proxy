@@ -13,7 +13,7 @@ func TestAppBoots(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
 
 	cfg := minimalTestConfig()
-	a := app.New(cfg)
+	a := app.New(cfg, "", "", "")
 
 	if a == nil {
 		t.Fatal("app not initialized")
@@ -24,7 +24,7 @@ func TestRoutesExist(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
 
 	cfg := minimalTestConfig()
-	a := app.New(cfg)
+	a := app.New(cfg, "", "", "")
 
 	tests := []string{
 		"/admin",
@@ -49,7 +49,7 @@ func TestMethodEnforcement(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
 
 	cfg := minimalTestConfig()
-	a := app.New(cfg)
+	a := app.New(cfg, "", "", "")
 
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
 	rec := httptest.NewRecorder()

@@ -125,10 +125,10 @@ func initLogger() logging.Logger {
 	return logger
 }
 
-func buildHTTP(s AppServices) http.Handler {
+func buildHTTP(s AppServices, version string, commit string, buildDate string) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
-	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx)
+	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, version, commit, buildDate)
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
 	return buildRouter(adminHandlers, proxyHandlers, assistant)

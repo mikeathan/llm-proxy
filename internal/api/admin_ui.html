@@ -189,6 +189,18 @@
     .stat-value { font-size: 22px; font-weight: 700; margin: 6px 0 2px; }
     .stat-note { color: var(--muted); font-size: 13px; }
     .pill.mini { padding: 2px 8px; font-size: 11px; font-weight: 600; }
+    footer {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      color: #9aa6b7;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      margin: 4px auto 0;
+      max-width: 1100px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -852,5 +864,10 @@
       init();
     })();
   </script>
+  <footer>
+    <span>Version {{ .Version }}</span>
+    <span>Commit {{ .Commit }}</span>
+    <span>Built {{ .BuildDate }}</span>
+  </footer>
 </body>
 </html>

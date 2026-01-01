@@ -9,34 +9,70 @@ import (
 	"llm-proxy/utils"
 )
 
+type BuildInfo struct {
+	Version   string
+	Commit    string
+	BuildDate string
+}
+
 var (
 	Version   = "dev"
 	Commit    = "none"
 	BuildDate = "unknown"
 )
 
+const configPath = "config/config.json"
+
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
+	buildInfo := buildInfo()
+
 	if *versionFlag {
-		fmt.Printf("llm-proxy %s (commit %s, built %s)\n", Version, Commit, BuildDate)
+		printVersion(buildInfo)
 		return
 	}
 
 	// Load configuration
-	cfg, err := utils.LoadConfig("config/config.json")
+	cfg, err := utils.LoadConfig(configPath)
 	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
+		log.Printf("Failed to load config: %v", err)
 		return
 	}
 	// Load environment variables
 	utils.LoadEnv()
 
-	proxyApp := app.New(cfg)
+	proxyApp := app.New(cfg, buildInfo.Version, buildInfo.Commit, buildInfo.BuildDate)
 
-	log.Printf("LLM proxy version %s (commit %s, built %s)", Version, Commit, BuildDate)
-	log.Printf("LLM proxy listening on %s", cfg.Server.Bind)
+	logStartup(buildInfo, cfg.Server.Bind)
 
 	log.Fatal(proxyApp.ListenAndServe())
+}
+
+func buildInfo() BuildInfo {
+	return BuildInfo{
+		Version:   Version,
+		Commit:    Commit,
+		BuildDate: BuildDate,
+	}
+}
+
+func printVersion(info BuildInfo) {
+	fmt.Printf(
+		"llm-proxy %s (commit %s, built %s)\n",
+		info.Version,
+		info.Commit,
+		info.BuildDate,
+	)
+}
+
+func logStartup(info BuildInfo, bind string) {
+	log.Printf(
+		"LLM proxy version %s (commit %s, built %s)",
+		info.Version,
+		info.Commit,
+		info.BuildDate,
+	)
+	log.Printf("LLM proxy listening on %s", bind)
 }
