@@ -99,6 +99,6 @@ curl -sS -X POST "http://localhost:4001/api/conversation/message" \
   -d '{
     "conversation_id": "local-dev-1",
     "context_version": "v1",
-    "message": "Turn on the kitchen light"
+    "message": "Get the average temperature for device dev1 from 2025-01-01 to 2025-01-02."
   }'
 ```

@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-test",
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": ""
+      },
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function",
+          "function": {
+            "name": "query_metrics",
+            "arguments": "{\"device_id\":\"dev1\",\"expose\":\"temperature\",\"from\":1735689600000,\"to\":1735776000000,\"aggregation\":\"avg\"}"
+          }
+        }
+      ]
+    }
+  ]
+}

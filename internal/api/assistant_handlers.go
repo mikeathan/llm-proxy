@@ -28,6 +28,15 @@ type AssistantMessageHandler struct {
 	assistant AssistantService
 }
 
+type metricsArgs struct {
+	DeviceID   string `json:"device_id"`
+	Metric     string `json:"expose"`
+	From       int64  `json:"from"`
+	To         int64  `json:"to"`
+	Aggregate  string `json:"aggregation,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
+}
+
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
 
 	return &AssistantMessageHandler{
@@ -88,10 +97,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	// handle tool call from LLM
 	choice := resp.Choices[0]
 	if len(choice.ToolCalls) > 0 {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-
-		// TODO - handle tool calling
+		h.handleToolCall(w, r, choice.ToolCalls[0])
 		return
 	}
 
@@ -100,7 +106,39 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]any{
 		"reply": choice.Message.Content,
 	})
+}
 
+func (h *AssistantMessageHandler) handleToolCall(w http.ResponseWriter, r *http.Request, tc proxy.ToolCall) {
+	if tc.Function.Name != "query_metrics" {
+		writeJSONError(w, http.StatusBadRequest, "unknown tool")
+		return
+	}
+
+	var args metricsArgs
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		h.logger.Error("failed to parse tool arguments", "error", err)
+		writeJSONError(w, http.StatusBadRequest, "invalid tool arguments")
+		return
+	}
+
+	queryReq := &nodeherder.MetricsQueryRequest{
+		DeviceID:   args.DeviceID,
+		Metric:     args.Metric,
+		From:       args.From,
+		To:         args.To,
+		Aggregate:  args.Aggregate,
+		Resolution: args.Resolution,
+	}
+
+	result, err := h.assistant.NodeHerder().QueryMetrics(r.Context(), queryReq)
+	if err != nil {
+		h.logger.Error("query metrics failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {

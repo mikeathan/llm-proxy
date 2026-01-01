@@ -5,6 +5,7 @@ import (
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"net/http"
 	"net/http/httptest"
@@ -227,6 +228,61 @@ func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 
 	if rr.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+}
+
+func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     2,
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					ToolCalls: []proxy.ToolCall{
+						{
+							Function: proxy.FunctionCall{
+								Name:      "query_metrics",
+								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":2}`,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if !strings.Contains(rr.Body.String(), `"Expose":"temperature"`) {
+		t.Fatalf("unexpected response: %s", rr.Body.String())
 	}
 }
 
