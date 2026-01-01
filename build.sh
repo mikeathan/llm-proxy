@@ -5,12 +5,21 @@ cd "$(dirname "$0")"
 
 echo "Building llm-proxy..."
 
-VERSION="${VERSION:-dev}"
+VERSION="${VERSION:-}"
 if command -v git >/dev/null 2>&1; then
   COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo "none")"
+  if [[ -z "${VERSION}" ]]; then
+    VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")"
+  fi
+  echo "Git commit: ${COMMIT}"
 else
   COMMIT="none"
+  if [[ -z "${VERSION}" ]]; then
+    VERSION="dev"
+  fi
+  echo "Git not available; using commit: ${COMMIT}"
 fi
+echo "Version: ${VERSION}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 go mod tidy
