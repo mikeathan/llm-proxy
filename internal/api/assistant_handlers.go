@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -187,8 +186,7 @@ func (h *AssistantMessageHandler) handleChoice(ctx context.Context, choice proxy
 }
 
 func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {
-	systemMsg := fmt.Sprintf(
-		"Conversation ID: %s\nContext Version: %s\nTimezone: %s\n\nDevice Context:\n%s",
+	systemMsg := assistant.BuildSystemMessage(
 		payload.ConversationID,
 		payload.ContextVersion,
 		payload.Timezone,
