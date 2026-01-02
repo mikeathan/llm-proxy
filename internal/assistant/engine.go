@@ -10,12 +10,12 @@ import (
 )
 
 type QueryMetricsArgs struct {
-	DeviceID   string `json:"device_id"`
-	Expose     string `json:"expose"`
-	From       int64  `json:"from,omitempty"`
-	To         int64  `json:"to,omitempty"`
-	Aggregate  string `json:"aggregate,omitempty"`
-	Resolution string `json:"resolution,omitempty"`
+	DeviceID    string `json:"device_id"`
+	Expose      string `json:"expose"`
+	From        int64  `json:"from,omitempty"`
+	To          int64  `json:"to,omitempty"`
+	Aggregation string `json:"aggregation,omitempty"`
+	Resolution  string `json:"resolution,omitempty"`
 }
 
 type Engine interface {
@@ -65,10 +65,10 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 
 func (q QueryMetricsArgs) Validate() error {
 	if q.DeviceID == "" || q.Expose == "" {
-		return fmt.Errorf("device_id and metric are required")
+		return fmt.Errorf("device_id and expose are required")
 	}
 
-	if q.Aggregate == "" && (q.From == 0 || q.To == 0) {
+	if q.Aggregation == "" && (q.From == 0 || q.To == 0) {
 		return fmt.Errorf("either aggregate or from+to must be provided")
 	}
 
@@ -90,7 +90,7 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 		Expose:     args.Expose,
 		From:       args.From,
 		To:         args.To,
-		Aggregate:  args.Aggregate,
+		Aggregate:  args.Aggregation,
 		Resolution: args.Resolution,
 	}, nil
 }

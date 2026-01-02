@@ -163,9 +163,9 @@ func TestQueryMetricsArgsValidate_MissingRangeAndAggregate(t *testing.T) {
 
 func TestQueryMetricsArgsValidate_OK(t *testing.T) {
 	args := assistant.QueryMetricsArgs{
-		DeviceID:  "dev1",
-		Expose:    "temperature",
-		Aggregate: "avg",
+		DeviceID:    "dev1",
+		Expose:      "temperature",
+		Aggregation: "avg",
 	}
 	if err := args.Validate(); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)

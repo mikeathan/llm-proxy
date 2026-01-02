@@ -189,6 +189,70 @@ func TestAssistantMessageHandler_SuccessReply(t *testing.T) {
 	}
 }
 
+func TestAssistantMessageHandler_ChatRequestHasToolsAndSystemPrompt(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+
+	mockClient := &mocks.MockLLMClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{Content: "ok"}},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"hello","conversation_id":"conv-1","context_version":"v1"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if mockClient.LastReq == nil {
+		t.Fatal("expected chat request to be recorded")
+	}
+
+	if len(mockClient.LastReq.Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(mockClient.LastReq.Tools))
+	}
+
+	if mockClient.LastReq.ToolChoice != proxy.ToolChoiceAuto {
+		t.Fatalf("expected tool_choice auto, got %s", mockClient.LastReq.ToolChoice)
+	}
+
+	if len(mockClient.LastReq.Messages) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(mockClient.LastReq.Messages))
+	}
+
+	systemMsg := mockClient.LastReq.Messages[0]
+	if systemMsg.Role != proxy.SystemRole {
+		t.Fatalf("expected system role, got %s", systemMsg.Role)
+	}
+	if !strings.Contains(systemMsg.Content, "STRICT RULES:") {
+		t.Fatalf("expected system policy in system message")
+	}
+	if !strings.Contains(systemMsg.Content, "Device Context:") {
+		t.Fatalf("expected device context in system message")
+	}
+}
+
 func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)

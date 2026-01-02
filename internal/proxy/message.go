@@ -1,10 +1,15 @@
 package proxy
 
 type ChatRole string
+type ToolChoice string
 
 const (
 	SystemRole ChatRole = "system"
 	UserRole   ChatRole = "user"
+
+	ToolChoiceAuto     ToolChoice = "auto"
+	ToolChoiceRequired ToolChoice = "required"
+	ToolChoiceNone     ToolChoice = "none"
 )
 
 // Message
@@ -15,9 +20,10 @@ type Message struct {
 
 // Chat Request
 type ChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Tools    []Tool    `json:"tools,omitempty"`
+	Model      string     `json:"model"`
+	Messages   []Message  `json:"messages"`
+	Tools      []Tool     `json:"tools,omitempty"`
+	ToolChoice ToolChoice `json:"tool_choice,omitempty"`
 }
 
 type ToolCall struct {
