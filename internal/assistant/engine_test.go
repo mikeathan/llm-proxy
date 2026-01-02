@@ -2,14 +2,13 @@ package assistant_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"testing"
+
 	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
-
-	"testing"
 )
 
 func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
@@ -32,7 +31,7 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 
 	logger := &mocks.MockLogger{}
 
-	a := assistant.NewAssistant(mockNode, logger)
+	a := assistant.NewEngine(mockNode, logger)
 
 	call := proxy.ToolCall{
 		ID: "conv1",
@@ -53,19 +52,14 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var got nodeherder.MetricsQueryResponse
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("invalid JSON output: %v; raw: %s", err, out)
+	if out.Expose != expected.Expose ||
+		out.From != expected.From ||
+		out.To != expected.To {
+		t.Fatalf("unexpected output: %+v", out)
 	}
 
-	if got.Expose != expected.Expose ||
-		got.From != expected.From ||
-		got.To != expected.To {
-		t.Fatalf("unexpected output: %+v", got)
-	}
-
-	if len(got.Values) != len(expected.Values) {
-		t.Fatalf("unexpected values: %+v", got.Values)
+	if len(out.Values) != len(expected.Values) {
+		t.Fatalf("unexpected values: %+v", out.Values)
 	}
 
 	if mockNode.CallCount() != 1 {
@@ -81,7 +75,7 @@ func TestAssistant_ExecuteTool_QueryMetrics_InvalidJSON(t *testing.T) {
 	mockNode := mocks.NewMockNodeHerder(nil)
 	logger := &mocks.MockLogger{}
 
-	a := assistant.NewAssistant(mockNode, logger)
+	a := assistant.NewEngine(mockNode, logger)
 
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
@@ -104,7 +98,7 @@ func TestAssistant_ExecuteTool_QueryMetrics_BackendError(t *testing.T) {
 	mockNode := mocks.NewMockNodeHerder(errors.New("backend failed"))
 	logger := &mocks.MockLogger{}
 
-	a := assistant.NewAssistant(mockNode, logger)
+	a := assistant.NewEngine(mockNode, logger)
 
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
@@ -136,7 +130,7 @@ func TestAssistant_ExecuteTool_UnknownTool(t *testing.T) {
 	mockNode := mocks.NewMockNodeHerder(nil)
 	logger := &mocks.MockLogger{}
 
-	a := assistant.NewAssistant(mockNode, logger)
+	a := assistant.NewEngine(mockNode, logger)
 
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{

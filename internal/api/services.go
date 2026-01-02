@@ -1,6 +1,7 @@
 package api
 
 import (
+	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -50,4 +51,6 @@ type AssistantService interface {
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
 	DefaultModel() (string, error)
+
+	Engine() assistant.Engine
 }

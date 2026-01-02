@@ -2,6 +2,7 @@ package app
 
 import (
 	"llm-proxy/internal/api"
+	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -63,6 +64,7 @@ func (c *Container) BuildAppServices() AppServices {
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
+	s.engine = assistant.NewEngine(s.nodeHerder, s.logger)
 
 	return s
 }
@@ -72,6 +74,7 @@ type AppServices struct {
 	AppCtx         *AppContext
 	nodeHerder     nodeherder.NodeHerderService
 	clientProvider proxy.LLMClientProvider
+	engine         assistant.Engine
 	logger         logging.Logger
 	Clock          utils.Clock
 }
@@ -94,6 +97,10 @@ func (s AppServices) Limiter() ratelimiter.Limiter {
 
 func (s AppServices) DefaultModel() (string, error) {
 	return s.AppCtx.DefaultModel()
+}
+
+func (s AppServices) Engine() assistant.Engine {
+	return s.engine
 }
 
 func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
