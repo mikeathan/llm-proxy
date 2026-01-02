@@ -101,9 +101,12 @@ func (m *MockLLMClientProvider) GetClient(ctx context.Context) (proxy.Client, er
 type MockLLMClient struct {
 	Response proxy.ChatResponse
 	Err      error
+	LastReq  *proxy.ChatRequest
 }
 
 func (m *MockLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+	copyReq := req
+	m.LastReq = &copyReq
 	if m.Err != nil {
 		return nil, m.Err
 	}

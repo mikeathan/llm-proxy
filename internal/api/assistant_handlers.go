@@ -195,5 +195,7 @@ func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContex
 				Content: payload.Message,
 			},
 		},
+		Tools:      []proxy.Tool{assistant.MetricsToolSchema()},
+		ToolChoice: proxy.ToolChoiceRequired,
 	}
 }
