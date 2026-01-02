@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/api"
+	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/models"
@@ -366,9 +368,69 @@ func TestAdminDeleteModelHandler_PersistError(t *testing.T) {
 	}
 }
 
+func TestAdminLogLevelHandler(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	handler := newAdminHandlersWithLogger(&mocks.MockManager{}, &mocks.MockAdminService{}, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/log-level", nil)
+	rr := httptest.NewRecorder()
+
+	handler.AdminLogLevelHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+
+	if resp["level"] == "" {
+		t.Fatalf("expected level in response")
+	}
+}
+
+func TestAdminLogLevelUpdateHandler_InvalidLevel(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	handler := newAdminHandlersWithLogger(&mocks.MockManager{}, &mocks.MockAdminService{}, logger)
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/log-level", strings.NewReader(`{"level":"nope"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.AdminLogLevelUpdateHandler(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAdminLogLevelUpdateHandler_SetsLevel(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	handler := newAdminHandlersWithLogger(&mocks.MockManager{}, &mocks.MockAdminService{}, logger)
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/log-level", strings.NewReader(`{"level":"DEBUG"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.AdminLogLevelUpdateHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
 func newAdminHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService) *api.AdminHandlers {
 	if runtime.ModelHostFunc == nil {
 		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
 	}
-	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, "v1", "c1", "d1")
+	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
+}
+
+func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger *mocks.MockLogger) *api.AdminHandlers {
+	if runtime.ModelHostFunc == nil {
+		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
+	}
+	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
 }

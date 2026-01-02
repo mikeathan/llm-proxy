@@ -1,7 +1,7 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -51,95 +51,139 @@ func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandl
 }
 
 func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != "application/json" {
-		writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+	payload, log, ok := h.prepareRequest(w, r)
+	if !ok {
 		return
 	}
 
-	payload := &AssistantMessage{}
-	err := json.NewDecoder(r.Body).Decode(&payload)
+	result, err := h.handleAssistant(r.Context(), payload, log)
 	if err != nil {
-		h.logger.Error("failed to decode request body", "error", err)
-		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		writeJSONError(w, err.Status, err.Message)
 		return
 	}
 
-	if !h.limiter.Allow(rateLimitKey(payload.ConversationID, r.RemoteAddr), time.Second) {
-		h.logger.Warn("assistant rate limit", "conversation", payload.ConversationID)
+	respondJSON(w, result)
+}
+
+func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.Request) (*AssistantMessage, logging.Logger, bool) {
+
+	var payload AssistantMessage
+	if err := decodeJSON(r, &payload); err != nil {
+		if errors.Is(err, ErrUnsupportedContentType) {
+			writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		} else {
+			h.logger.Error("failed to decode request body", "error", err)
+			writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		}
+		return nil, nil, false
+	}
+
+	traceID := getTraceID(payload.ConversationID, r.RemoteAddr)
+	log := h.logger.With("trace", traceID)
+
+	if !h.limiter.Allow(traceID, time.Second) {
+		log.Warn("assistant rate limit")
 		writeJSONError(w, http.StatusTooManyRequests, "rate limit exceeded")
-		return
+		return nil, nil, false
 	}
 
-	h.logger.Info(
+	log.Info(
 		"assistant request",
-		"conversation", payload.ConversationID,
 		"context_version", payload.ContextVersion,
 		"timezone", payload.Timezone,
 		"message_len", len(payload.Message),
 	)
-	
-	ctx, err := h.provider.GetDeviceContext()
+
+	return &payload, log, true
+}
+
+func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
+
+	deviceCtx, err := h.provider.GetDeviceContext()
 	if err != nil {
-		h.logger.Error("failed to get device context", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to get device context")
-		return
+		log.Error("get device context failed", "error", err)
+		return nil, &handlerError{
+			Status:  http.StatusInternalServerError,
+			Message: "failed to get device context",
+			Err:     err,
+		}
 	}
 
-	client, err := h.client.GetClient(r.Context())
+	client, err := h.client.GetClient(ctx)
 	if err != nil {
 		if errors.Is(err, llm.ErrModelStarting) {
-			h.logger.Error("LLM request failed - model starting")
-			writeJSONError(w, http.StatusServiceUnavailable, "model is starting try again in a few seconds")
-			return
+			log.Warn("model starting")
+			return nil, &handlerError{
+				Status:  http.StatusServiceUnavailable,
+				Message: "model is starting, try again shortly",
+				Err:     err,
+			}
 		}
 
-		h.logger.Error("failed to get LLM client", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to get LLM client")
-		return
+		log.Error("get LLM client failed", "error", err)
+		return nil, &handlerError{
+			Status:  http.StatusInternalServerError,
+			Message: "failed to get LLM client",
+			Err:     err,
+		}
 	}
 
-	req := buildChatRequest(payload, ctx)
-	resp, err := client.Chat(r.Context(), req)
+	req := buildChatRequest(payload, deviceCtx)
 
+	resp, err := client.Chat(ctx, req)
 	if err != nil {
-		h.logger.Error("LLM request failed", "error", err)
-		writeJSONError(w, http.StatusBadGateway, "LLM request failed")
-		return
+		log.Error("LLM chat failed", "error", err)
+		return nil, &handlerError{
+			Status:  http.StatusBadGateway,
+			Message: "LLM request failed",
+			Err:     err,
+		}
 	}
 
 	if len(resp.Choices) == 0 {
-		h.logger.Error("LLM request failed - empty response from model")
-		writeJSONError(w, http.StatusBadGateway, "empty response from model")
-		return
-	}
-
-	// handle tool call from LLM
-	choice := resp.Choices[0]
-	if len(choice.ToolCalls) > 0 {
-		result, err := h.engine.ExecuteTool(r.Context(), choice.ToolCalls[0])
-		if err != nil {
-			h.logger.Error("query metrics failed", "error", err)
-			writeJSONError(w, http.StatusInternalServerError, "query failed")
-			return
+		log.Error("empty LLM response")
+		return nil, &handlerError{
+			Status:  http.StatusBadGateway,
+			Message: "empty response from model",
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
-		return
 	}
 
-	// handle LLM reply
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"reply": choice.Message.Content,
-	})
+	return h.handleChoice(ctx, resp.Choices[0], log)
 }
 
-func rateLimitKey(conversationID, remoteAddr string) string {
-	if conversationID != "" {
-		return conversationID
+func (h *AssistantMessageHandler) handleChoice(ctx context.Context, choice proxy.Choice, log logging.Logger) (any, *handlerError) {
+
+	log.Debug(
+		"llm response",
+		"tool_calls", len(choice.ToolCalls),
+		"content_len", len(choice.Message.Content),
+	)
+
+	if len(choice.ToolCalls) > 0 {
+		tc := choice.ToolCalls[0]
+
+		log.Debug(
+			"llm tool call",
+			"name", tc.Function.Name,
+			"args", truncate(tc.Function.Arguments, 500),
+		)
+
+		result, err := h.engine.ExecuteTool(ctx, tc)
+		if err != nil {
+			log.Error("tool execution failed", "error", err)
+			return nil, &handlerError{
+				Status:  http.StatusInternalServerError,
+				Message: "query failed",
+				Err:     err,
+			}
+		}
+
+		return result, nil
 	}
-	return remoteAddr
+
+	return map[string]any{
+		"reply": choice.Message.Content,
+	}, nil
 }
 
 func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/app"
+	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/models"
 )
@@ -14,7 +15,7 @@ func TestAppBoots(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
 
 	cfg := minimalTestConfig()
-	a := app.New(cfg, &mocks.MockLogger{}, &app.BuildInfo{})
+	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	if a == nil {
 		t.Fatal("app not initialized")
@@ -25,7 +26,7 @@ func TestRoutesExist(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
 
 	cfg := minimalTestConfig()
-	a := app.New(cfg, &mocks.MockLogger{}, &app.BuildInfo{})
+	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	tests := []string{
 		"/admin",
@@ -50,7 +51,7 @@ func TestMethodEnforcement(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
 
 	cfg := minimalTestConfig()
-	a := app.New(cfg, &mocks.MockLogger{}, &app.BuildInfo{})
+	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
 	rec := httptest.NewRecorder()
