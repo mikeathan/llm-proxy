@@ -2,11 +2,11 @@ package api
 
 import (
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
+	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/models"
@@ -35,26 +35,20 @@ type AdminHandlers struct {
 	runtime   RuntimeService
 	admin     AdminService
 	logger    logging.Logger
-	version   string
-	commit    string
-	buildDate string
+	buildInfo *buildinfo.Info
 }
 
 func NewAdminHandlers(
 	runtime RuntimeService,
 	admin AdminService,
 	logger logging.Logger,
-	version string,
-	commit string,
-	buildDate string,
+	buildInfo *buildinfo.Info,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		runtime:   runtime,
 		admin:     admin,
 		logger:    logger,
-		version:   version,
-		commit:    commit,
-		buildDate: buildDate,
+		buildInfo: buildInfo,
 	}
 }
 
@@ -124,10 +118,25 @@ type adminLogsResponse struct {
 	AppLogOK  bool      `json:"app_log_ok,omitempty"`
 }
 
+type adminLogLevelResponse struct {
+	Level string `json:"level"`
+}
+
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	respondJSON(w, map[string]string{"error": msg})
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := decodeJSON(r, v); err != nil {
+		if errors.Is(err, ErrUnsupportedContentType) {
+			writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		} else {
+			writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		}
+		return false
+	}
+	return true
 }
 
 func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -196,8 +205,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(state)
+	respondJSON(w, state)
 }
 
 func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +213,11 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 		Name string `json:"name"`
 	}
 
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if r.Header.Get("Content-Type") == "application/json" {
+		if !decodeJSONBody(w, r, &req) {
+			return
+		}
+	}
 	if req.Name == "" {
 		req.Name = r.URL.Query().Get("name")
 	}
@@ -217,9 +229,8 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 
 	mi, err := h.runtime.EnsureModel(req.Name)
 	if err == llm.ErrModelStarting {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(adminStartResponse{Status: "starting", Model: req.Name})
+		respondJSON(w, adminStartResponse{Status: "starting", Model: req.Name})
 		return
 	}
 
@@ -235,8 +246,7 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 		Port:     mi.Port,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	respondJSON(w, resp)
 }
 
 func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Request) {
@@ -254,8 +264,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		GPUBinary:    gpuCfg.Binary,
 		GPUIndex:     gpuCfg.Index,
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(cfg)
+	respondJSON(w, cfg)
 }
 
 func (h *AdminHandlers) AdminStopHandler(w http.ResponseWriter, r *http.Request) {
@@ -272,8 +281,7 @@ func (h *AdminHandlers) AdminStopHandler(w http.ResponseWriter, r *http.Request)
 		resp.Stopped = active.Name
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	respondJSON(w, resp)
 }
 
 func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request) {
@@ -294,8 +302,40 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 		resp.StartedAt = active.Started
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	respondJSON(w, resp)
+}
+
+func (h *AdminHandlers) AdminLogLevelHandler(w http.ResponseWriter, r *http.Request) {
+	if h.logger == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "logger unavailable")
+		return
+	}
+	resp := adminLogLevelResponse{Level: string(h.logger.Level())}
+	respondJSON(w, resp)
+}
+
+func (h *AdminHandlers) AdminLogLevelUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	if h.logger == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "logger unavailable")
+		return
+	}
+	var req struct {
+		Level string `json:"level"`
+	}
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	level, err := parseLogLevel(req.Level)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	h.logger.Info("log level updated", "level", level)
+
+	h.logger.SetLevel(level)
+	resp := adminLogLevelResponse{Level: string(level)}
+	respondJSON(w, resp)
 }
 
 func (h *AdminHandlers) AdminAppLogsHandler(w http.ResponseWriter, r *http.Request) {
@@ -324,10 +364,25 @@ func (h *AdminHandlers) appLogPath() string {
 	return ""
 }
 
+func parseLogLevel(input string) (logging.Level, error) {
+	level := strings.ToUpper(strings.TrimSpace(input))
+	switch level {
+	case string(logging.LevelDebug):
+		return logging.LevelDebug, nil
+	case string(logging.LevelInfo):
+		return logging.LevelInfo, nil
+	case string(logging.LevelWarn):
+		return logging.LevelWarn, nil
+	case string(logging.LevelError):
+		return logging.LevelError, nil
+	default:
+		return "", fmt.Errorf("invalid log level: %s", input)
+	}
+}
+
 func (h *AdminHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	resp := h.admin.MetricsSnapshot()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	respondJSON(w, resp)
 }
 
 func (h *AdminHandlers) AdminUpdateModelHandler(w http.ResponseWriter, r *http.Request) {
@@ -347,8 +402,7 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		GPUBinary   string `json:"gpu_binary"`
 		GPUIndex    *int   `json:"gpu_index"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -408,7 +462,9 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Args     []string `json:"args"`
 		Port     int      `json:"port"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
 
 	filename := strings.TrimSpace(req.Filename)
 	if filename == "" && req.Path != "" {
@@ -473,8 +529,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(runtimeCfg)
+	respondJSON(w, runtimeCfg)
 }
 
 func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
@@ -485,7 +540,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Args     []string `json:"args"`
 		Port     int      `json:"port"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
 
 	if req.Name == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing model name")
@@ -555,8 +612,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(runtimeCfg)
+	respondJSON(w, runtimeCfg)
 }
 
 func (h *AdminHandlers) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
@@ -565,7 +621,11 @@ func (h *AdminHandlers) handleDeleteModel(w http.ResponseWriter, r *http.Request
 		var req struct {
 			Name string `json:"name"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if r.Header.Get("Content-Type") == "application/json" {
+			if !decodeJSONBody(w, r, &req) {
+				return
+			}
+		}
 		name = req.Name
 	}
 
@@ -662,9 +722,9 @@ func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request)
 
 	// Render the admin UI template with version info
 	err := adminTmpl.Execute(w, AdminView{
-		Version:   h.version,
-		Commit:    h.commit,
-		BuildDate: h.buildDate,
+		Version:   h.buildInfo.Version,
+		Commit:    h.buildInfo.Commit,
+		BuildDate: h.buildInfo.BuildDate,
 	})
 	if err != nil {
 		http.Error(w, "template render failed", http.StatusInternalServerError)

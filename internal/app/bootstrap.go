@@ -3,6 +3,7 @@ package app
 import (
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/assistant"
+	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -29,12 +30,6 @@ type Infra struct {
 type Container struct {
 	Core  Core
 	Infra Infra
-}
-
-type BuildInfo struct {
-	Version   string
-	Commit    string
-	BuildDate string
 }
 
 type AssistantService interface {
@@ -129,10 +124,10 @@ func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
 	}
 }
 
-func buildHTTP(s AppServices, buildInfo *BuildInfo) http.Handler {
+func buildHTTP(s AppServices, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
-	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo.Version, buildInfo.Commit, buildInfo.BuildDate)
+	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
 	return buildRouter(adminHandlers, proxyHandlers, assistant)
@@ -159,6 +154,8 @@ func buildRouter(
 	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/log-level", admin.AdminLogLevelUpdateHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs", admin.AdminAppLogsHandler, textMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
 	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)

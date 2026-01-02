@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"llm-proxy/internal/app"
+	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/logging"
 	"llm-proxy/utils"
 )
@@ -51,15 +52,15 @@ func main() {
 	}
 }
 
-func buildInfo() *app.BuildInfo {
-	return &app.BuildInfo{
+func buildInfo() *buildinfo.Info {
+	return &buildinfo.Info{
 		Version:   Version,
 		Commit:    Commit,
 		BuildDate: BuildDate,
 	}
 }
 
-func printVersion(info *app.BuildInfo) {
+func printVersion(info *buildinfo.Info) {
 	fmt.Printf(
 		"llm-proxy %s (commit %s, built %s)\n",
 		info.Version,
@@ -68,7 +69,7 @@ func printVersion(info *app.BuildInfo) {
 	)
 }
 
-func logStartup(logger logging.Logger, info *app.BuildInfo, bind string) {
+func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
 	// print loaded env file
 	env := os.Getenv("APP_ENV")
 	if env == "" {
@@ -92,7 +93,7 @@ func initLogger() logging.Logger {
 	logger, err := logging.NewFileLogger(logging.Options{
 		Stdout: true,
 		File:   "logs/llm-proxy.log",
-		Level:  logging.LevelInfo,
+		Level:  logging.LevelDebug,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)

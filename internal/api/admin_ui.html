@@ -143,6 +143,18 @@
       outline: 2px solid rgba(51, 169, 255, 0.4);
       border-color: rgba(51, 169, 255, 0.3);
     }
+    select {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: #f4f7fb;
+      width: 100%;
+    }
+    select:focus {
+      outline: 2px solid rgba(51, 169, 255, 0.4);
+      border-color: rgba(51, 169, 255, 0.3);
+    }
     .muted { color: var(--muted); }
     .status-line { color: var(--muted); font-size: 14px; margin-top: 6px; }
     .kbd {
@@ -290,6 +302,25 @@
     </div>
 
     <div class="card">
+      <h2>Logging</h2>
+      <div class="status-line">Adjust the application log level without a restart.</div>
+      <div class="grid" style="grid-template-columns: 1fr auto; gap:12px; margin-top:12px; align-items:end;">
+        <div>
+          <label for="log-level" class="muted" style="display:block; margin-bottom:6px;">Log level</label>
+          <select id="log-level">
+            <option value="DEBUG">DEBUG</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+        </div>
+        <div class="toolbar" style="justify-content:flex-end;">
+          <button id="save-log-level" class="secondary">Update level</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Configured models</h2>
       <div class="status-line">Edit, remove, or start models already in your config.</div>
       <div style="overflow-x:auto; margin-top:10px;">
@@ -353,13 +384,15 @@
         inputs: {
           modelDir: document.getElementById("model-dir"),
           modelHost: document.getElementById("model-host"),
-          binaryPath: document.getElementById("binary-path")
+          binaryPath: document.getElementById("binary-path"),
+          logLevel: document.getElementById("log-level")
         },
         buttons: {
           refresh: document.getElementById("refresh"),
           scan: document.getElementById("scan"),
           stop: document.getElementById("stop"),
           saveConfig: document.getElementById("save-config"),
+          saveLogLevel: document.getElementById("save-log-level"),
           refreshMetrics: document.getElementById("refresh-metrics"),
           loadLogs: document.getElementById("load-logs"),
           clearLogs: document.getElementById("clear-logs"),
@@ -694,6 +727,33 @@
         }
       }
 
+      async function fetchLogLevel() {
+        try {
+          const data = await requestJSON("/admin/api/log-level");
+          const level = (data.level || "").toUpperCase();
+          if (level) {
+            dom.inputs.logLevel.value = level;
+          }
+        } catch (err) {
+          setMessage(err.message, "error");
+        }
+      }
+
+      async function saveLogLevel() {
+        const level = dom.inputs.logLevel.value;
+        setMessage("Updating log level...");
+        try {
+          await requestJSON("/admin/api/log-level", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ level })
+          });
+          setMessage(`Log level set to ${level}`);
+        } catch (err) {
+          setMessage(err.message, "error");
+        }
+      }
+
       async function stopActive() {
         setMessage("Stopping active model...");
         try {
@@ -852,6 +912,7 @@
         dom.buttons.scan.addEventListener("click", fetchAvailable);
         dom.buttons.stop.addEventListener("click", stopActive);
         dom.buttons.saveConfig.addEventListener("click", saveConfig);
+        dom.buttons.saveLogLevel.addEventListener("click", saveLogLevel);
         dom.buttons.refreshMetrics.addEventListener("click", fetchMetrics);
         dom.buttons.loadLogs.addEventListener("click", fetchLogs);
         dom.buttons.clearLogs.addEventListener("click", clearLogs);
@@ -865,7 +926,7 @@
       async function init() {
         renderAvailable([], null);
         bindEvents();
-        await Promise.all([fetchState(), fetchMetrics()]);
+        await Promise.all([fetchState(), fetchMetrics(), fetchLogLevel()]);
         startStatusRefresh();
       }
 

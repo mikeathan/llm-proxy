@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,9 +28,11 @@ type Options struct {
 
 type FileLogger struct {
 	mu    sync.Mutex
-	level Level
-	out   *log.Logger
-	path  string
+	level atomic.Value
+
+	out  *log.Logger
+	path string
+	ctx  []any
 }
 
 var _ Logger = (*FileLogger)(nil)
@@ -67,11 +70,13 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		level = LevelInfo
 	}
 
-	return &FileLogger{
-		level: level,
-		out:   log.New(mw, "", 0),
-		path:  logPath,
-	}, nil
+	fileLogger := &FileLogger{
+		out:  log.New(mw, "", 0),
+		path: logPath,
+		ctx:  []any{},
+	}
+	fileLogger.level.Store(level)
+	return fileLogger, nil
 }
 
 func (l *FileLogger) Debug(msg string, args ...any) {
@@ -90,6 +95,25 @@ func (l *FileLogger) Error(msg string, args ...any) {
 	l.log(LevelError, msg, args...)
 }
 
+// With adds contextual key-value pairs to the logger.
+func (l *FileLogger) With(args ...any) Logger {
+	if len(args) == 0 {
+		return l
+	}
+
+	// copy existing context to avoid mutation
+	ctx := make([]any, 0, len(l.ctx)+len(args))
+	ctx = append(ctx, l.ctx...)
+	ctx = append(ctx, args...)
+
+	return &FileLogger{
+		level: l.level,
+		out:   l.out,
+		path:  l.path,
+		ctx:   ctx,
+	}
+}
+
 func (l *FileLogger) LogPath() string {
 	return l.path
 }
@@ -104,25 +128,35 @@ func (l *FileLogger) log(level Level, msg string, args ...any) {
 
 	ts := time.Now().UTC().Format(time.RFC3339)
 
+	allArgs := append(l.ctx, args...)
 	line := fmt.Sprintf(
 		"%s [%s] %s%s",
 		ts,
 		level,
 		msg,
-		formatArgs(args...),
+		formatArgs(allArgs...),
 	)
 
 	l.out.Println(line)
 }
 
 func (l *FileLogger) enabled(level Level) bool {
+	current := l.level.Load().(Level)
 	order := map[Level]int{
 		LevelDebug: 0,
 		LevelInfo:  1,
 		LevelWarn:  2,
 		LevelError: 3,
 	}
-	return order[level] >= order[l.level]
+	return order[level] >= order[current]
+}
+
+func (l *FileLogger) SetLevel(level Level) {
+	l.level.Store(level)
+}
+
+func (l *FileLogger) Level() Level {
+	return l.level.Load().(Level)
 }
 
 func formatArgs(args ...any) string {

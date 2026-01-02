@@ -129,3 +129,85 @@ func TestFileLogger_Concurrent(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestFileLogger_SetLevel_RuntimeChange(t *testing.T) {
+	out := captureStdout(t, func() {
+		logger, err := logging.NewFileLogger(logging.Options{
+			Stdout: true,
+			Level:  logging.LevelInfo,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		logger.Debug("debug before") // should NOT log
+
+		logger.SetLevel(logging.LevelDebug)
+
+		logger.Debug("debug after") // should log
+	})
+
+	if strings.Contains(out, "debug before") {
+		t.Fatalf("debug log should not appear before level change")
+	}
+	if !strings.Contains(out, "debug after") {
+		t.Fatalf("debug log should appear after level change")
+	}
+}
+
+func TestFileLogger_LevelGetter(t *testing.T) {
+	logger, err := logging.NewFileLogger(logging.Options{
+		Stdout: true,
+		Level:  logging.LevelWarn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := logger.Level(); got != logging.LevelWarn {
+		t.Fatalf("expected level WARN, got %s", got)
+	}
+
+	logger.SetLevel(logging.LevelDebug)
+
+	if got := logger.Level(); got != logging.LevelDebug {
+		t.Fatalf("expected level DEBUG after SetLevel, got %s", got)
+	}
+}
+
+func TestFileLogger_ConcurrentSetLevelAndLogging(t *testing.T) {
+	logger, err := logging.NewFileLogger(logging.Options{
+		Stdout: true,
+		Level:  logging.LevelInfo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+
+	// concurrent writers
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				logger.Debug("debug", id, j)
+				logger.Info("info", id, j)
+			}
+		}(i)
+	}
+
+	// concurrent level flipper
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			logger.SetLevel(logging.LevelDebug)
+			logger.SetLevel(logging.LevelInfo)
+			logger.SetLevel(logging.LevelWarn)
+		}
+	}()
+
+	wg.Wait()
+}
