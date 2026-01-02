@@ -37,6 +37,7 @@ func (a *Assistant) ExecuteTool(ctx context.Context, call proxy.ToolCall) (strin
 	switch function.Name {
 
 	case "query_metrics":
+		a.logger.Info("tool args", "name", call.Function.Name, "args", call.Function.Arguments)
 		req, err := buildMetricsQueryRequest(call.Function.Arguments)
 		if err != nil {
 			a.logger.Error("tool parse failed", "name", call.Function.Name, "error", err)

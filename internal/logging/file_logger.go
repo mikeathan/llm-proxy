@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -28,23 +29,30 @@ type FileLogger struct {
 	mu    sync.Mutex
 	level Level
 	out   *log.Logger
+	path  string
 }
 
 var _ Logger = (*FileLogger)(nil)
 
 func NewFileLogger(opts Options) (*FileLogger, error) {
 	var writers []io.Writer
+	logPath := ""
 
 	if opts.Stdout {
 		writers = append(writers, os.Stdout)
 	}
 
 	if opts.File != "" {
-		f, err := os.OpenFile(opts.File, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		path, err := resolveLogPath(opts.File)
+		if err != nil {
+			return nil, err
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
 			return nil, err
 		}
 		writers = append(writers, f)
+		logPath = path
 	}
 
 	if len(writers) == 0 {
@@ -62,6 +70,7 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 	return &FileLogger{
 		level: level,
 		out:   log.New(mw, "", 0),
+		path:  logPath,
 	}, nil
 }
 
@@ -79,6 +88,10 @@ func (l *FileLogger) Warn(msg string, args ...any) {
 
 func (l *FileLogger) Error(msg string, args ...any) {
 	l.log(LevelError, msg, args...)
+}
+
+func (l *FileLogger) LogPath() string {
+	return l.path
 }
 
 func (l *FileLogger) log(level Level, msg string, args ...any) {
@@ -122,4 +135,23 @@ func formatArgs(args ...any) string {
 		out += fmt.Sprintf(" %v", args[i])
 	}
 	return out
+}
+
+func resolveLogPath(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if filepath.IsAbs(path) {
+		return path, ensureLogDir(path)
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	absPath := filepath.Join(filepath.Dir(exePath), path)
+	return absPath, ensureLogDir(absPath)
+}
+
+func ensureLogDir(path string) error {
+	return os.MkdirAll(filepath.Dir(path), 0755)
 }

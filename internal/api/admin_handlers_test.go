@@ -370,5 +370,5 @@ func newAdminHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService)
 	if runtime.ModelHostFunc == nil {
 		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
 	}
-	return api.NewAdminHandlers(runtime, admin, "v1", "c1", "d1")
+	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, "v1", "c1", "d1")
 }

@@ -1,8 +1,10 @@
 package app
 
 import (
-	"llm-proxy/models"
 	"net/http"
+
+	"llm-proxy/internal/logging"
+	"llm-proxy/models"
 )
 
 type App struct {
@@ -17,10 +19,10 @@ func (a *App) ListenAndServe() error {
 	return a.server.ListenAndServe()
 }
 
-func New(cfg *models.Config, version string, commit string, buildDate string) *App {
+func New(cfg *models.Config, logger logging.Logger, buildInfo *BuildInfo) *App {
 
-	container := bootstrap(cfg)
-	router := buildHTTP(container.BuildAppServices(), version, commit, buildDate)
+	container := bootstrap(cfg, logger)
+	router := buildHTTP(container.BuildAppServices(), buildInfo)
 
 	return &App{
 		server: &http.Server{
