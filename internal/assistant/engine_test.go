@@ -42,7 +42,7 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 				"expose": "temperature",
 				"from": 1735689600000,
 				"to":   1735776000000,
-				"aggregation": "avg"
+				"aggregate": "avg"
 			}`,
 		},
 	}
@@ -141,5 +141,33 @@ func TestAssistant_ExecuteTool_UnknownTool(t *testing.T) {
 	_, err := a.ExecuteTool(context.Background(), call)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestQueryMetricsArgsValidate_MissingRequiredFields(t *testing.T) {
+	args := assistant.QueryMetricsArgs{}
+	if err := args.Validate(); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestQueryMetricsArgsValidate_MissingRangeAndAggregate(t *testing.T) {
+	args := assistant.QueryMetricsArgs{
+		DeviceID: "dev1",
+		Expose:   "temperature",
+	}
+	if err := args.Validate(); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestQueryMetricsArgsValidate_OK(t *testing.T) {
+	args := assistant.QueryMetricsArgs{
+		DeviceID:  "dev1",
+		Expose:    "temperature",
+		Aggregate: "avg",
+	}
+	if err := args.Validate(); err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
 	}
 }

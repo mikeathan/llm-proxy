@@ -29,15 +29,6 @@ type AssistantMessageHandler struct {
 	engine   assistant.Engine
 }
 
-type metricsArgs struct {
-	DeviceID   string `json:"device_id"`
-	Metric     string `json:"expose"`
-	From       int64  `json:"from"`
-	To         int64  `json:"to"`
-	Aggregate  string `json:"aggregation,omitempty"`
-	Resolution string `json:"resolution,omitempty"`
-}
-
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
 
 	return &AssistantMessageHandler{

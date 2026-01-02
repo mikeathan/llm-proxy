@@ -2,20 +2,12 @@ package assistant
 
 import "llm-proxy/internal/proxy"
 
-type MetricsQuery struct {
-	DeviceID    string `json:"device_id"`
-	Expose      string `json:"expose"`
-	From        string `json:"from"`
-	To          string `json:"to"`
-	Aggregation string `json:"aggregation,omitempty"`
-}
-
 func MetricsToolSchema() proxy.Tool {
 	return proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
 			Name:        "query_metrics",
-			Description: "Query time-series metrics from the provided device context",
+			Description: "Query historical device metrics. Supports time ranges or aggregate queries (last, min, max, avg, count). Returns timestamps and values.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -40,7 +32,7 @@ func MetricsToolSchema() proxy.Tool {
 						"enum": []string{"last", "min", "max", "avg", "count"},
 					},
 				},
-				"required": []string{"device_id", "expose", "from", "to"},
+				"required": []string{"device_id", "expose"},
 			},
 		},
 	}

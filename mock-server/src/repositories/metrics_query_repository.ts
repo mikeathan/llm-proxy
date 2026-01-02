@@ -2,7 +2,7 @@ import { readFile } from "fs/promises";
 
 export interface MetricsQueryRequest {
   device_id?: string;
-  metric?: string;
+  expose?: string;
   from?: number;
   to?: number;
   aggregate?: string;

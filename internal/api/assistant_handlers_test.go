@@ -212,7 +212,7 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 							Type: "function",
 							Function: proxy.FunctionCall{
 								Name:      "query_metrics",
-								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregation":"avg"}`,
+								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregate":"avg"}`,
 							},
 						},
 					},
