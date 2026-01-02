@@ -32,7 +32,7 @@ type ExposeInfo struct {
 // Query Request
 type MetricsQueryRequest struct {
 	DeviceID   string
-	Metric     string
+	Expose     string
 	From       int64
 	To         int64
 	Aggregate  string

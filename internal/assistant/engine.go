@@ -11,7 +11,7 @@ import (
 
 type QueryMetricsArgs struct {
 	DeviceID   string `json:"device_id"`
-	Metric     string `json:"metric"`
+	Expose     string `json:"expose"`
 	From       int64  `json:"from,omitempty"`
 	To         int64  `json:"to,omitempty"`
 	Aggregate  string `json:"aggregate,omitempty"`
@@ -63,15 +63,31 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 	}
 }
 
+func (q QueryMetricsArgs) Validate() error {
+	if q.DeviceID == "" || q.Expose == "" {
+		return fmt.Errorf("device_id and metric are required")
+	}
+
+	if q.Aggregate == "" && (q.From == 0 || q.To == 0) {
+		return fmt.Errorf("either aggregate or from+to must be provided")
+	}
+
+	return nil
+}
+
 func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, error) {
 	var args QueryMetricsArgs
 	if err := json.Unmarshal([]byte(argJSON), &args); err != nil {
 		return nil, err
 	}
 
+	if err := args.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &nodeherder.MetricsQueryRequest{
 		DeviceID:   args.DeviceID,
-		Metric:     args.Metric,
+		Expose:     args.Expose,
 		From:       args.From,
 		To:         args.To,
 		Aggregate:  args.Aggregate,

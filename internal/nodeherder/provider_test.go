@@ -219,7 +219,7 @@ func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceID: "dev1",
-		Metric:   "temperature",
+		Expose:   "temperature",
 	}
 
 	res, err := provider.QueryMetrics(context.Background(), req)
@@ -246,7 +246,7 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceID: "dev1",
-		Metric:   "temperature",
+		Expose:   "temperature",
 	}
 
 	res, err := provider.QueryMetrics(context.Background(), req)
@@ -310,7 +310,7 @@ func TestNodeHerderFetcher_Success(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_Non200Response(t *testing.T) {
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("boom"))
@@ -386,7 +386,7 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceID: "dev1",
-		Metric:   "temperature",
+		Expose:   "temperature",
 	}
 
 	resp, err := client.QueryMetrics(context.Background(), req)
