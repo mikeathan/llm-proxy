@@ -1,6 +1,7 @@
 package mocks
 
 import (
+	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
@@ -13,6 +14,7 @@ type MockAssistantService struct {
 	RateLimiter ratelimiter.Limiter
 	LoggerRef   logging.Logger
 	Model       string
+	EngineRef   assistant.Engine
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.NodeHerderService {
@@ -33,4 +35,11 @@ func (m *MockAssistantService) Logger() logging.Logger {
 
 func (m *MockAssistantService) DefaultModel() (string, error) {
 	return m.Model, nil
+}
+
+func (m *MockAssistantService) Engine() assistant.Engine {
+	if m.EngineRef != nil {
+		return m.EngineRef
+	}
+	return assistant.NewEngine(m.Herder, m.LoggerRef)
 }

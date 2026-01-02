@@ -18,18 +18,22 @@ type QueryMetricsArgs struct {
 	Resolution string `json:"resolution,omitempty"`
 }
 
-type Assistant struct {
+type Engine interface {
+	ExecuteTool(ctx context.Context, call proxy.ToolCall) (*nodeherder.MetricsQueryResponse, error)
+}
+
+type assistantEngine struct {
 	nodeherder nodeherder.NodeHerderService
 	logger     logging.Logger
 }
 
-func NewAssistant(nodeherder nodeherder.NodeHerderService, logger logging.Logger) *Assistant {
-	return &Assistant{
+func NewEngine(nodeherder nodeherder.NodeHerderService, logger logging.Logger) Engine {
+	return &assistantEngine{
 		nodeherder: nodeherder,
 		logger:     logger,
 	}
 }
-func (a *Assistant) ExecuteTool(ctx context.Context, call proxy.ToolCall) (string, error) {
+func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*nodeherder.MetricsQueryResponse, error) {
 
 	a.logger.Info("tool call", "name", call.Function.Name, "conversation", call.ID)
 
@@ -41,27 +45,21 @@ func (a *Assistant) ExecuteTool(ctx context.Context, call proxy.ToolCall) (strin
 		req, err := buildMetricsQueryRequest(call.Function.Arguments)
 		if err != nil {
 			a.logger.Error("tool parse failed", "name", call.Function.Name, "error", err)
-			return "", err
+			return nil, err
 		}
 
 		res, err := a.nodeherder.QueryMetrics(ctx, req)
 		if err != nil {
 			a.logger.Error("tool execution failed", "name", call.Function.Name, "error", err)
 
-			return "", err
-		}
-
-		bytes, err := json.Marshal(res)
-		if err != nil {
-			a.logger.Error("tool marshal failed", "name", call.Function.Name, "error", err)
-			return "", err
+			return nil, err
 		}
 
 		a.logger.Info("tool completed", "name", call.Function.Name)
-		return string(bytes), nil
+		return res, nil
 
 	default:
-		return "", fmt.Errorf("unknown tool: %s", function.Name)
+		return nil, fmt.Errorf("unknown tool: %s", function.Name)
 	}
 }
 

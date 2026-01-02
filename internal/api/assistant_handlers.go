@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
+	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -21,11 +23,11 @@ type AssistantMessage struct {
 }
 
 type AssistantMessageHandler struct {
-	provider  nodeherder.NodeHerderService
-	client    proxy.LLMClientProvider
-	limiter   ratelimiter.Limiter
-	logger    logging.Logger
-	assistant AssistantService
+	provider nodeherder.NodeHerderService
+	client   proxy.LLMClientProvider
+	limiter  ratelimiter.Limiter
+	logger   logging.Logger
+	engine   assistant.Engine
 }
 
 type metricsArgs struct {
@@ -40,11 +42,11 @@ type metricsArgs struct {
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
 
 	return &AssistantMessageHandler{
-		provider:  service.NodeHerder(),
-		client:    service.ClientProvider(),
-		limiter:   service.Limiter(),
-		logger:    service.Logger(),
-		assistant: service,
+		provider: service.NodeHerder(),
+		client:   service.ClientProvider(),
+		limiter:  service.Limiter(),
+		logger:   service.Logger(),
+		engine:   service.Engine(),
 	}
 }
 
@@ -62,6 +64,12 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if !h.limiter.Allow(rateLimitKey(payload.ConversationID, r.RemoteAddr), time.Second) {
+		h.logger.Warn("assistant rate limit", "conversation", payload.ConversationID)
+		writeJSONError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		return
+	}
+
 	h.logger.Info(
 		"assistant request",
 		"conversation", payload.ConversationID,
@@ -69,6 +77,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		"timezone", payload.Timezone,
 		"message_len", len(payload.Message),
 	)
+	
 	ctx, err := h.provider.GetDeviceContext()
 	if err != nil {
 		h.logger.Error("failed to get device context", "error", err)
@@ -107,7 +116,15 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	// handle tool call from LLM
 	choice := resp.Choices[0]
 	if len(choice.ToolCalls) > 0 {
-		h.handleToolCall(w, r, choice.ToolCalls[0])
+		result, err := h.engine.ExecuteTool(r.Context(), choice.ToolCalls[0])
+		if err != nil {
+			h.logger.Error("query metrics failed", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
 		return
 	}
 
@@ -118,39 +135,11 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (h *AssistantMessageHandler) handleToolCall(w http.ResponseWriter, r *http.Request, tc proxy.ToolCall) {
-	if tc.Function.Name != "query_metrics" {
-		h.logger.Error("Handle tool call failed - Unknown", "tool_name", tc.Function.Name)
-
-		writeJSONError(w, http.StatusBadRequest, "unknown tool")
-		return
+func rateLimitKey(conversationID, remoteAddr string) string {
+	if conversationID != "" {
+		return conversationID
 	}
-
-	var args metricsArgs
-	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-		h.logger.Error("failed to parse tool arguments", "error", err)
-		writeJSONError(w, http.StatusBadRequest, "invalid tool arguments")
-		return
-	}
-
-	queryReq := &nodeherder.MetricsQueryRequest{
-		DeviceID:   args.DeviceID,
-		Metric:     args.Metric,
-		From:       args.From,
-		To:         args.To,
-		Aggregate:  args.Aggregate,
-		Resolution: args.Resolution,
-	}
-
-	result, err := h.assistant.NodeHerder().QueryMetrics(r.Context(), queryReq)
-	if err != nil {
-		h.logger.Error("query metrics failed", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "query failed")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	return remoteAddr
 }
 
 func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {

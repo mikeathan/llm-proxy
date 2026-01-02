@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // AssistantMessageHandler Tests
@@ -55,6 +56,39 @@ func TestAssistantMessageHandler_InvalidJSON(t *testing.T) {
 
 	if len(logger.Errors()) == 0 {
 		t.Fatalf("expected error to be logged")
+	}
+}
+
+func TestAssistantMessageHandler_RateLimited(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+
+	limiter := &denyLimiter{}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      &mocks.MockLLMClientProvider{},
+		RateLimiter: limiter,
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"conversation_id":"conv-123","message":"hello"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", rr.Code)
+	}
+
+	if limiter.Calls != 1 {
+		t.Fatalf("expected limiter to be called once, got %d", limiter.Calls)
 	}
 }
 
@@ -318,3 +352,14 @@ func newTestAssistantHandler(
 
 	return api.NewAssistantMessageHandler(service)
 }
+
+type denyLimiter struct {
+	Calls int
+}
+
+func (d *denyLimiter) Allow(key string, interval time.Duration) bool {
+	d.Calls++
+	return false
+}
+
+func (d *denyLimiter) Clear() {}
