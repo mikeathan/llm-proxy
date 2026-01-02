@@ -15,6 +15,7 @@ import (
 
 // NodeHerder GetDeviceContext Tests
 func TestNodeHerder_ReturnsFromCache(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
@@ -23,7 +24,7 @@ func TestNodeHerder_ReturnsFromCache(t *testing.T) {
 
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, nil)
 
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	ctx, err := provider.GetDeviceContext()
 	if err != nil {
@@ -40,13 +41,14 @@ func TestNodeHerder_ReturnsFromCache(t *testing.T) {
 }
 
 func TestNodeHerder_FetchesAndCaches(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
 	raw := &nodeherder.DeviceContextResponse{Version: "1"}
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(raw, nil)
 
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	ctx, err := provider.GetDeviceContext()
 	if err != nil {
@@ -72,11 +74,12 @@ func TestNodeHerder_FetchesAndCaches(t *testing.T) {
 }
 
 func TestNodeHerder_PropagatesFetchError(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, errors.New("backend down"))
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	ctx, err := provider.GetDeviceContext()
 	if err == nil {
@@ -97,6 +100,7 @@ func TestNodeHerder_PropagatesFetchError(t *testing.T) {
 }
 
 func TestNodeHerder_RefreshesAfterTTL(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Second, clock)
 
@@ -104,7 +108,7 @@ func TestNodeHerder_RefreshesAfterTTL(t *testing.T) {
 	second := &nodeherder.DeviceContextResponse{Version: "2"}
 
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(first, nil)
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	ctx1, _ := provider.GetDeviceContext()
 	if ctx1.Version != "1" {
@@ -125,6 +129,7 @@ func TestNodeHerder_RefreshesAfterTTL(t *testing.T) {
 }
 
 func TestNodeHerder_TransformsResponse(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
@@ -155,7 +160,7 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 	}
 
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(raw, nil)
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	llmCtx, err := provider.GetDeviceContext()
 	if err != nil {
@@ -194,6 +199,7 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 
 // NodeHerder Query Metrics Tests
 func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
@@ -209,7 +215,7 @@ func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, nil)
 	mockClient.SetMetricsResult(expected)
 
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceID: "dev1",
@@ -231,11 +237,12 @@ func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
 }
 
 func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
+	logger := &mocks.MockLogger{}
 	clock := mocks.NewFakeClock(time.Now().UTC())
 	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
 
 	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, errors.New("query failed"))
-	provider := nodeherder.NewNodeHerder(mockClient, cache)
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceID: "dev1",
@@ -303,6 +310,7 @@ func TestNodeHerderFetcher_Success(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_Non200Response(t *testing.T) {
+	
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("boom"))

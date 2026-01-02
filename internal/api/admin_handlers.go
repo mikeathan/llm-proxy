@@ -117,6 +117,7 @@ type adminLogsResponse struct {
 	Ready     bool      `json:"ready,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
 	Logs      string    `json:"logs"`
+	AppLogURL string    `json:"app_log_url,omitempty"`
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
@@ -277,6 +278,11 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 		Running: active != nil,
 		Logs:    h.runtime.ActiveLogs(),
 	}
+	if appLogPath := resolveAppLogPath(); appLogPath != "" {
+		if _, err := os.Stat(appLogPath); err == nil {
+			resp.AppLogURL = "/admin/api/app-logs"
+		}
+	}
 
 	if active != nil {
 		resp.Name = active.Name
@@ -286,6 +292,30 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *AdminHandlers) AdminAppLogsHandler(w http.ResponseWriter, r *http.Request) {
+	appLogPath := resolveAppLogPath()
+	if appLogPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := os.Stat(appLogPath); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(appLogPath)))
+	http.ServeFile(w, r, appLogPath)
+}
+
+func resolveAppLogPath() string {
+	path := os.Getenv("LOG_FILE")
+	if path == "" {
+		return ""
+	}
+	return path
 }
 
 func (h *AdminHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {

@@ -335,6 +335,7 @@
       <div class="toolbar" style="margin-top:8px;">
         <button id="load-logs" class="secondary">Load latest output</button>
         <button id="clear-logs" class="secondary">Clear view</button>
+        <a id="download-app-logs" class="secondary" href="#" style="display:none;">Download app logs</a>
       </div>
       <pre id="logs-box" class="log-box" aria-live="polite">No logs yet.</pre>
     </div>
@@ -361,7 +362,8 @@
           saveConfig: document.getElementById("save-config"),
           refreshMetrics: document.getElementById("refresh-metrics"),
           loadLogs: document.getElementById("load-logs"),
-          clearLogs: document.getElementById("clear-logs")
+          clearLogs: document.getElementById("clear-logs"),
+          downloadAppLogs: document.getElementById("download-app-logs")
         },
         metrics: {
           status: document.getElementById("metrics-status"),
@@ -821,6 +823,12 @@
         try {
           const data = await requestJSON("/admin/api/logs");
           dom.logs.box.textContent = data.logs || "No output yet.";
+          if (data.app_log_url) {
+            dom.buttons.downloadAppLogs.href = data.app_log_url;
+            dom.buttons.downloadAppLogs.style.display = "inline-flex";
+          } else {
+            dom.buttons.downloadAppLogs.style.display = "none";
+          }
           if (!data.running) {
             dom.logs.meta.textContent = "No active model. Start one to stream output here.";
             return;

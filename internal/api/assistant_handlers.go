@@ -61,6 +61,14 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+
+	h.logger.Info(
+		"assistant request",
+		"conversation", payload.ConversationID,
+		"context_version", payload.ContextVersion,
+		"timezone", payload.Timezone,
+		"message_len", len(payload.Message),
+	)
 	ctx, err := h.provider.GetDeviceContext()
 	if err != nil {
 		h.logger.Error("failed to get device context", "error", err)
@@ -71,6 +79,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	client, err := h.client.GetClient(r.Context())
 	if err != nil {
 		if errors.Is(err, llm.ErrModelStarting) {
+			h.logger.Error("LLM request failed - model starting")
 			writeJSONError(w, http.StatusServiceUnavailable, "model is starting try again in a few seconds")
 			return
 		}
@@ -90,6 +99,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 
 	if len(resp.Choices) == 0 {
+		h.logger.Error("LLM request failed - empty response from model")
 		writeJSONError(w, http.StatusBadGateway, "empty response from model")
 		return
 	}
@@ -110,6 +120,8 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 func (h *AssistantMessageHandler) handleToolCall(w http.ResponseWriter, r *http.Request, tc proxy.ToolCall) {
 	if tc.Function.Name != "query_metrics" {
+		h.logger.Error("Handle tool call failed - Unknown", "tool_name", tc.Function.Name)
+
 		writeJSONError(w, http.StatusBadRequest, "unknown tool")
 		return
 	}

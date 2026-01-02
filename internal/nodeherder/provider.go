@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"llm-proxy/internal/logging"
 	"llm-proxy/utils"
 	"net/http"
 )
@@ -19,15 +20,17 @@ type NodeHerderService interface {
 type nodeHerder struct {
 	fetcher NodeHerderFetcher
 	cache   *DeviceContextCache
+	logger  logging.Logger
 }
 
-func NewNodeHerder(fetcher NodeHerderFetcher, cache *DeviceContextCache) NodeHerderService {
-	return &nodeHerder{fetcher: fetcher, cache: cache}
+func NewNodeHerder(fetcher NodeHerderFetcher, cache *DeviceContextCache, logger logging.Logger) NodeHerderService {
+	return &nodeHerder{fetcher: fetcher, cache: cache, logger: logger}
 }
 
 func (p *nodeHerder) GetDeviceContext() (*LLMDeviceContext, error) {
 
 	if ctx, ok := p.cache.Get(); ok {
+		p.logger.Info("device context cache hit", "version", ctx.Version, "generated_at", ctx.GeneratedAt)
 		return ctx, nil
 	}
 
@@ -38,6 +41,7 @@ func (p *nodeHerder) GetDeviceContext() (*LLMDeviceContext, error) {
 
 	llmCtx := transformToLLMDeviceContext(response)
 	p.cache.Set(llmCtx)
+	p.logger.Info("device context fetched", "version", llmCtx.Version, "generated_at", llmCtx.GeneratedAt)
 	return llmCtx, nil
 }
 

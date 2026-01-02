@@ -94,7 +94,7 @@ func bootstrap(cfg *models.Config) *Container {
 	logger := initLogger()
 	clock := utils.NewRealClock()
 
-	nodeHerder := BuildNodeHerder(clock)
+	nodeHerder := BuildNodeHerder(clock, logger)
 
 	manager := llm.NewManagerFromConfig(cfg)
 	appCtx := NewServer(manager, cfg, "config/config.json")
@@ -115,8 +115,10 @@ func bootstrap(cfg *models.Config) *Container {
 }
 
 func initLogger() logging.Logger {
+	logFile := os.Getenv("LOG_FILE")
 	logger, err := logging.NewFileLogger(logging.Options{
 		Stdout: true,
+		File:   logFile,
 		Level:  logging.LevelInfo,
 	})
 	if err != nil {
@@ -155,6 +157,7 @@ func buildRouter(
 	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/app-logs", admin.AdminAppLogsHandler, textMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
 	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)
 
