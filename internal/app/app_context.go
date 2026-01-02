@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/llm"
+	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/system_metrics"
 	"llm-proxy/models"
@@ -207,7 +208,7 @@ func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
 	return s.metrics.Snapshot()
 }
 
-func BuildNodeHerder(clock utils.Clock) nodeherder.NodeHerderService {
+func BuildNodeHerder(clock utils.Clock, logger logging.Logger) nodeherder.NodeHerderService {
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -218,5 +219,5 @@ func BuildNodeHerder(clock utils.Clock) nodeherder.NodeHerderService {
 	)
 
 	cache := nodeherder.NewDeviceContextCache(1*time.Hour, clock)
-	return nodeherder.NewNodeHerder(fetcher, cache)
+	return nodeherder.NewNodeHerder(fetcher, cache, logger)
 }

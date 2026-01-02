@@ -32,4 +32,9 @@ go.work.sum
 # .vscode/
 .cache/
 .gocache/
+
+# binary file
 llm-proxy
+
+# Logs
+llm-proxy.log
