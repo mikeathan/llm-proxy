@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io/fs"
 	"llm-proxy/internal/llm"
+	"llm-proxy/internal/logging"
 	"llm-proxy/models"
 	"net/http"
 	"os"
@@ -33,6 +34,7 @@ type AdminView struct {
 type AdminHandlers struct {
 	runtime   RuntimeService
 	admin     AdminService
+	logger    logging.Logger
 	version   string
 	commit    string
 	buildDate string
@@ -41,6 +43,7 @@ type AdminHandlers struct {
 func NewAdminHandlers(
 	runtime RuntimeService,
 	admin AdminService,
+	logger logging.Logger,
 	version string,
 	commit string,
 	buildDate string,
@@ -48,6 +51,7 @@ func NewAdminHandlers(
 	return &AdminHandlers{
 		runtime:   runtime,
 		admin:     admin,
+		logger:    logger,
 		version:   version,
 		commit:    commit,
 		buildDate: buildDate,
@@ -117,7 +121,7 @@ type adminLogsResponse struct {
 	Ready     bool      `json:"ready,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
 	Logs      string    `json:"logs"`
-	AppLogURL string    `json:"app_log_url,omitempty"`
+	AppLogOK  bool      `json:"app_log_ok,omitempty"`
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
@@ -278,9 +282,9 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 		Running: active != nil,
 		Logs:    h.runtime.ActiveLogs(),
 	}
-	if appLogPath := resolveAppLogPath(); appLogPath != "" {
+	if appLogPath := h.appLogPath(); appLogPath != "" {
 		if _, err := os.Stat(appLogPath); err == nil {
-			resp.AppLogURL = "/admin/api/app-logs"
+			resp.AppLogOK = true
 		}
 	}
 
@@ -295,7 +299,7 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandlers) AdminAppLogsHandler(w http.ResponseWriter, r *http.Request) {
-	appLogPath := resolveAppLogPath()
+	appLogPath := h.appLogPath()
 	if appLogPath == "" {
 		http.NotFound(w, r)
 		return
@@ -310,12 +314,14 @@ func (h *AdminHandlers) AdminAppLogsHandler(w http.ResponseWriter, r *http.Reque
 	http.ServeFile(w, r, appLogPath)
 }
 
-func resolveAppLogPath() string {
-	path := os.Getenv("LOG_FILE")
-	if path == "" {
+func (h *AdminHandlers) appLogPath() string {
+	if h.logger == nil {
 		return ""
 	}
-	return path
+	if provider, ok := h.logger.(logging.LogPathProvider); ok {
+		return provider.LogPath()
+	}
+	return ""
 }
 
 func (h *AdminHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Request) {

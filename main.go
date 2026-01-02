@@ -7,14 +7,9 @@ import (
 	"os"
 
 	"llm-proxy/internal/app"
+	"llm-proxy/internal/logging"
 	"llm-proxy/utils"
 )
-
-type BuildInfo struct {
-	Version   string
-	Commit    string
-	BuildDate string
-}
 
 var (
 	Version   = "dev"
@@ -35,31 +30,36 @@ func main() {
 		return
 	}
 
+	logger := initLogger()
+
 	// Load configuration
 	cfg, err := utils.LoadConfig(configPath)
 	if err != nil {
-		log.Printf("Failed to load config: %v", err)
+		logger.Error("failed to load config", "error", err)
 		return
 	}
 	// Load environment variables
 	utils.LoadEnv()
 
-	proxyApp := app.New(cfg, buildInfo.Version, buildInfo.Commit, buildInfo.BuildDate)
+	proxyApp := app.New(cfg, logger, buildInfo)
 
-	logStartup(buildInfo, cfg.Server.Bind)
+	logStartup(logger, buildInfo, cfg.Server.Bind)
 
-	log.Fatal(proxyApp.ListenAndServe())
+	if err := proxyApp.ListenAndServe(); err != nil {
+		logger.Error("server exited", "error", err)
+		os.Exit(1)
+	}
 }
 
-func buildInfo() BuildInfo {
-	return BuildInfo{
+func buildInfo() *app.BuildInfo {
+	return &app.BuildInfo{
 		Version:   Version,
 		Commit:    Commit,
 		BuildDate: BuildDate,
 	}
 }
 
-func printVersion(info BuildInfo) {
+func printVersion(info *app.BuildInfo) {
 	fmt.Printf(
 		"llm-proxy %s (commit %s, built %s)\n",
 		info.Version,
@@ -68,23 +68,34 @@ func printVersion(info BuildInfo) {
 	)
 }
 
-func logStartup(info BuildInfo, bind string) {
-
+func logStartup(logger logging.Logger, info *app.BuildInfo, bind string) {
 	// print loaded env file
 	env := os.Getenv("APP_ENV")
 	if env == "" {
 		env = "development"
 	}
-	log.Printf("Loaded env file .env.%s", env)
+	logger.Info("Loaded env file", "file", ".env."+env)
 
 	//print version info
-	log.Printf(
-		"LLM proxy version %s (commit %s, built %s)",
-		info.Version,
-		info.Commit,
-		info.BuildDate,
+	logger.Info(
+		"LLM proxy version",
+		"version", info.Version,
+		"commit", info.Commit,
+		"build_date", info.BuildDate,
 	)
 
 	// print bind address
-	log.Printf("LLM proxy listening on %s", bind)
+	logger.Info("LLM proxy listening", "bind", bind)
+}
+
+func initLogger() logging.Logger {
+	logger, err := logging.NewFileLogger(logging.Options{
+		Stdout: true,
+		File:   "logs/llm-proxy.log",
+		Level:  logging.LevelInfo,
+	})
+	if err != nil {
+		log.Fatalf("Failed to create logger: %v", err)
+	}
+	return logger
 }

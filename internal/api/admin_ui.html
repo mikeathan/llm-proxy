@@ -823,8 +823,8 @@
         try {
           const data = await requestJSON("/admin/api/logs");
           dom.logs.box.textContent = data.logs || "No output yet.";
-          if (data.app_log_url) {
-            dom.buttons.downloadAppLogs.href = data.app_log_url;
+          if (data.app_log_ok) {
+            dom.buttons.downloadAppLogs.href = "/admin/api/app-logs";
             dom.buttons.downloadAppLogs.style.display = "inline-flex";
           } else {
             dom.buttons.downloadAppLogs.style.display = "none";

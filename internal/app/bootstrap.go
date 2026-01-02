@@ -30,6 +30,12 @@ type Container struct {
 	Infra Infra
 }
 
+type BuildInfo struct {
+	Version   string
+	Commit    string
+	BuildDate string
+}
+
 type AssistantService interface {
 	NodeHerder() nodeherder.NodeHerderService
 	ClientProvider() proxy.LLMClientProvider
@@ -90,8 +96,10 @@ func (s AppServices) DefaultModel() (string, error) {
 	return s.AppCtx.DefaultModel()
 }
 
-func bootstrap(cfg *models.Config) *Container {
-	logger := initLogger()
+func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
+	if logger == nil {
+		log.Fatal("Logger is required")
+	}
 	clock := utils.NewRealClock()
 
 	nodeHerder := BuildNodeHerder(clock, logger)
@@ -114,23 +122,10 @@ func bootstrap(cfg *models.Config) *Container {
 	}
 }
 
-func initLogger() logging.Logger {
-	logFile := os.Getenv("LOG_FILE")
-	logger, err := logging.NewFileLogger(logging.Options{
-		Stdout: true,
-		File:   logFile,
-		Level:  logging.LevelInfo,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create logger: %v", err)
-	}
-	return logger
-}
-
-func buildHTTP(s AppServices, version string, commit string, buildDate string) http.Handler {
+func buildHTTP(s AppServices, buildInfo *BuildInfo) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
-	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, version, commit, buildDate)
+	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo.Version, buildInfo.Commit, buildInfo.BuildDate)
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
 	return buildRouter(adminHandlers, proxyHandlers, assistant)

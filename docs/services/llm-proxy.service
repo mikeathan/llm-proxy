@@ -8,6 +8,7 @@ User=mikeathan
 Group=mikeathan
 WorkingDirectory=/home/mikeathan/dev/llm-proxy
 Environment=APP_ENV=production
+ReadWritePaths=/home/mikeathan/dev/llm-proxy/logs
 
 ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy
 Restart=always
