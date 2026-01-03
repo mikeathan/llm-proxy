@@ -120,11 +120,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	}
 
 	req := buildChatRequest(payload, deviceCtx)
-	// DEBUG
-	//b, _ := json.Marshal(req)
-	//h.logger.Debug("chat request", "payload", string(b))
-	// DEBUG
-
+	
 	resp, err := client.Chat(ctx, req)
 	if err != nil {
 		log.Error("LLM chat failed", "error", err)
@@ -135,10 +131,6 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
-	// DEBUG
-	//b2, _ := json.Marshal(resp)
-	//h.logger.Debug("chat response", "payload", string(b2))
-	// DEBUG
 	if len(resp.Choices) == 0 {
 		log.Error("empty LLM response")
 		return nil, &handlerError{

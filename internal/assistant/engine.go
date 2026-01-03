@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
+	"time"
 )
 
 type QueryMetricsArgs struct {
@@ -85,11 +86,21 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 		return nil, err
 	}
 
+	now := time.Now().UnixMilli()
+	from := args.From
+	to := args.To
+
+	if from == 0 && to == 0 {
+		// default window: last 24 hours
+		to = now
+		from = now - 24*60*60*1000
+	}
+
 	return &nodeherder.MetricsQueryRequest{
 		DeviceIDs:  []string{args.DeviceID},
 		Expose:     args.Expose,
-		From:       args.From,
-		To:         args.To,
+		From:       from,
+		To:         to,
 		Aggregate:  args.Aggregation,
 		Resolution: args.Resolution,
 	}, nil
