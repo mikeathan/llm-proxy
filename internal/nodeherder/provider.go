@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/utils"
 	"net/http"
+	"os"
 )
 
 // Node Herder
@@ -108,6 +109,7 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 	}
 	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.queryMetricsURL, bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+os.Getenv("NODEHERDER_SERVICE_TOKEN"))
 
 	res, err := c.client.Do(httpReq)
 	if err != nil {
