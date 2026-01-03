@@ -2,11 +2,9 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"llm-proxy/internal/assistant"
@@ -137,7 +135,6 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
-	log.Debug("raw message struct", "msg", fmt.Sprintf("%+v", resp.Choices[0].Message))
 	// DEBUG
 	//b2, _ := json.Marshal(resp)
 	//h.logger.Debug("chat response", "payload", string(b2))
@@ -149,6 +146,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 			Message: "empty response from model",
 		}
 	}
+	log.Debug("raw message struct", "msg", fmt.Sprintf("%+v", resp.Choices[0].Message))
 
 	return h.handleChoice(ctx, resp.Choices[0], log)
 }
@@ -157,56 +155,19 @@ func (h *AssistantMessageHandler) handleChoice(ctx context.Context, choice proxy
 
 	log.Debug(
 		"llm response",
-		"tool_calls", len(choice.ToolCalls),
+		"tool_calls", len(choice.Message.ToolCalls),
 		"content_len", len(choice.Message.Content),
 	)
 
-	// Enforce metrics tool on temporal questions
-	if isTemporalQuestion(choice) && len(choice.ToolCalls) == 0 {
-		log.Warn("model failed to call metrics tool, retrying with enforcement")
+	if len(choice.Message.ToolCalls) > 0 {
+		tc := choice.Message.ToolCalls[0]
 
-		retryReq := proxy.ChatRequest{
-			Messages: []proxy.Message{
-				{
-					Role:    proxy.SystemRole,
-					Content: "You MUST output a valid call to the tool `query_metrics` now. Output only the tool call and nothing else.",
-				},
-			},
-			Tools: []proxy.Tool{assistant.MetricsToolSchema()},
-		}
-
-		client, _ := h.client.GetClient(ctx)
-		resp, err := client.Chat(ctx, retryReq)
-		if err != nil {
-			log.Error("LLM retry failed", "error", err)
-			return nil, &handlerError{Status: 502, Message: "LLM retry failed"}
-		}
-
-		b2, _ := json.Marshal(resp)
-		h.logger.Debug("temporal chat response", "payload", string(b2))
-		// DEBUG
-		if len(resp.Choices) > 0 {
-			choice = resp.Choices[0]
-		}
-	}
-
-	if len(choice.ToolCalls) > 0 {
-		tc := choice.ToolCalls[0]
-
-		log.Debug(
-			"llm tool call",
-			"name", tc.Function.Name,
-			"args", truncate(tc.Function.Arguments, 500),
-		)
+		log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
 
 		result, err := h.engine.ExecuteTool(ctx, tc)
 		if err != nil {
 			log.Error("tool execution failed", "error", err)
-			return nil, &handlerError{
-				Status:  http.StatusInternalServerError,
-				Message: "query failed",
-				Err:     err,
-			}
+			return nil, &handlerError{Status: 500, Message: "query failed"}
 		}
 
 		return result, nil
@@ -215,15 +176,6 @@ func (h *AssistantMessageHandler) handleChoice(ctx context.Context, choice proxy
 	return map[string]any{
 		"reply": choice.Message.Content,
 	}, nil
-}
-
-func isTemporalQuestion(choice proxy.Choice) bool {
-	msg := strings.ToLower(choice.Message.Content)
-	return strings.Contains(msg, "when") ||
-		strings.Contains(msg, "last") ||
-		strings.Contains(msg, "ago") ||
-		strings.Contains(msg, "history") ||
-		strings.Contains(msg, "how long")
 }
 
 func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {

@@ -270,13 +270,16 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
 				{
-					ToolCalls: []proxy.ToolCall{
-						{
-							ID:   "1",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      "query_metrics",
-								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregate":"avg"}`,
+					Message: proxy.Message{
+						Role: proxy.SystemRole,
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID:   "1",
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      "query_metrics",
+									Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregate":"avg"}`,
+								},
 							},
 						},
 					},
@@ -360,11 +363,14 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
 				{
-					ToolCalls: []proxy.ToolCall{
-						{
-							Function: proxy.FunctionCall{
-								Name:      "query_metrics",
-								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":2}`,
+					Message: proxy.Message{
+						Role: proxy.SystemRole,
+						ToolCalls: []proxy.ToolCall{
+							{
+								Function: proxy.FunctionCall{
+									Name:      "query_metrics",
+									Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":2}`,
+								},
 							},
 						},
 					},
