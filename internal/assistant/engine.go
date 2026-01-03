@@ -90,10 +90,16 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 	from := args.From
 	to := args.To
 
-	if from == 0 && to == 0 {
-		// default window: last 24 hours
-		to = now
-		from = now - 24*60*60*1000
+	if args.Aggregation == "" {
+		if from == 0 && to == 0 {
+			// default window: last 24 hours
+			to = now
+			from = now - 24*60*60*1000
+		}
+	} else {
+		// aggregation query: ignore time range entirely
+		from = 0
+		to = 0
 	}
 
 	return &nodeherder.MetricsQueryRequest{
