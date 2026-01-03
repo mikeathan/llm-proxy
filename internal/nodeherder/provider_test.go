@@ -367,18 +367,20 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"expose": "temperature",
-			"from": 1,
-			"to": 10,
-			"values": [
-				{
-					"deviceId": "dev1",
-					"value": 25.5,
-					"timestamp": 5
-				}
-			]
-		}`))
+		w.Write([]byte(`[
+			{
+				"expose": "temperature",
+				"from": 1,
+				"to": 10,
+				"values": [
+					{
+						"deviceId": "dev1",
+						"value": 25.5,
+						"timestamp": 5
+					}
+				]
+			}
+		]`))
 	}))
 	defer server.Close()
 

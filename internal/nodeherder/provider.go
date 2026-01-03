@@ -122,11 +122,16 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 		return nil, fmt.Errorf("query metrics returned %d: %s", res.StatusCode, string(b))
 	}
 
-	var out MetricsQueryResponse
+	var out []MetricsQueryResponse
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	return &out, nil
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty metrics response")
+	}
+
+	return &out[0], nil
 }
 
 // Transform DeviceContextResponse to LLMDeviceContext
