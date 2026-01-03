@@ -86,7 +86,7 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 	}
 
 	return &nodeherder.MetricsQueryRequest{
-		DeviceID:   args.DeviceID,
+		DeviceIDs:  []string{args.DeviceID},
 		Expose:     args.Expose,
 		From:       args.From,
 		To:         args.To,

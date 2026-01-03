@@ -31,12 +31,12 @@ type ExposeInfo struct {
 
 // Query Request
 type MetricsQueryRequest struct {
-	DeviceID   string
-	Expose     string
-	From       int64
-	To         int64
-	Aggregate  string
-	Resolution string
+	DeviceIDs  []string `json:"deviceIds"`
+	Expose     string   `json:"expose"`
+	From       int64    `json:"from,omitempty"`
+	To         int64    `json:"to,omitempty"`
+	Aggregate  string   `json:"aggregate,omitempty"`
+	Resolution string   `json:"resolution,omitempty"`
 }
 
 // Query Response

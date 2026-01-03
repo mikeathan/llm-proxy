@@ -218,8 +218,8 @@ func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
 	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	req := &nodeherder.MetricsQueryRequest{
-		DeviceID: "dev1",
-		Expose:   "temperature",
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
 	}
 
 	res, err := provider.QueryMetrics(context.Background(), req)
@@ -245,8 +245,8 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	req := &nodeherder.MetricsQueryRequest{
-		DeviceID: "dev1",
-		Expose:   "temperature",
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
 	}
 
 	res, err := provider.QueryMetrics(context.Background(), req)
@@ -385,8 +385,8 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
 
 	req := &nodeherder.MetricsQueryRequest{
-		DeviceID: "dev1",
-		Expose:   "temperature",
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
 	}
 
 	resp, err := client.QueryMetrics(context.Background(), req)
