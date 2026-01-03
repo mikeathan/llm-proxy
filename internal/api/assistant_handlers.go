@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -122,8 +123,8 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	req := buildChatRequest(payload, deviceCtx)
 	// DEBUG
-	b, _ := json.Marshal(req)
-	h.logger.Debug("chat request", "payload", string(b))
+	//b, _ := json.Marshal(req)
+	//h.logger.Debug("chat request", "payload", string(b))
 	// DEBUG
 
 	resp, err := client.Chat(ctx, req)
@@ -136,9 +137,10 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
+	log.Debug("raw message struct", "msg", fmt.Sprintf("%+v", resp.Choices[0].Message))
 	// DEBUG
-	b2, _ := json.Marshal(resp)
-	h.logger.Debug("chat response", "payload", string(b2))
+	//b2, _ := json.Marshal(resp)
+	//h.logger.Debug("chat response", "payload", string(b2))
 	// DEBUG
 	if len(resp.Choices) == 0 {
 		log.Error("empty LLM response")
