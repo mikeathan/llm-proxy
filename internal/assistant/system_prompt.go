@@ -34,6 +34,10 @@ STRICT RULES:
    into a single clear answer.
 
 6. Do not guess. Do not approximate. Do not fabricate history.
+
+7. The metrics tool returns timestamps for historical values. Use those timestamps to answer any "when" or time-related questions.
+
+8. Never output SQL, YAML, or pseudo-tool syntax. If metrics are required, you MUST emit a structured tool call and nothing else.
 `
 
 func BuildSystemMessage(conversationID string, contextVersion string, timezone string, deviceContext string) string {
