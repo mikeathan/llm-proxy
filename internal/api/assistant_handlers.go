@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/assistant"
@@ -158,6 +159,35 @@ func (h *AssistantMessageHandler) handleChoice(ctx context.Context, choice proxy
 		"content_len", len(choice.Message.Content),
 	)
 
+	// Enforce metrics tool on temporal questions
+	if isTemporalQuestion(choice) && len(choice.ToolCalls) == 0 {
+		log.Warn("model failed to call metrics tool, retrying with enforcement")
+
+		retryReq := proxy.ChatRequest{
+			Messages: []proxy.Message{
+				{
+					Role:    proxy.SystemRole,
+					Content: "You MUST output a valid call to the tool `query_metrics` now. Output only the tool call and nothing else.",
+				},
+			},
+			Tools: []proxy.Tool{assistant.MetricsToolSchema()},
+		}
+
+		client, _ := h.client.GetClient(ctx)
+		resp, err := client.Chat(ctx, retryReq)
+		if err != nil {
+			log.Error("LLM retry failed", "error", err)
+			return nil, &handlerError{Status: 502, Message: "LLM retry failed"}
+		}
+
+		b2, _ := json.Marshal(resp)
+		h.logger.Debug("temporal chat response", "payload", string(b2))
+		// DEBUG
+		if len(resp.Choices) > 0 {
+			choice = resp.Choices[0]
+		}
+	}
+
 	if len(choice.ToolCalls) > 0 {
 		tc := choice.ToolCalls[0]
 
@@ -185,6 +215,15 @@ func (h *AssistantMessageHandler) handleChoice(ctx context.Context, choice proxy
 	}, nil
 }
 
+func isTemporalQuestion(choice proxy.Choice) bool {
+	msg := strings.ToLower(choice.Message.Content)
+	return strings.Contains(msg, "when") ||
+		strings.Contains(msg, "last") ||
+		strings.Contains(msg, "ago") ||
+		strings.Contains(msg, "history") ||
+		strings.Contains(msg, "how long")
+}
+
 func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContext) proxy.ChatRequest {
 	systemMsg := assistant.BuildSystemMessage(
 		payload.ConversationID,
@@ -205,6 +244,6 @@ func buildChatRequest(payload *AssistantMessage, ctx *nodeherder.LLMDeviceContex
 			},
 		},
 		Tools:      []proxy.Tool{assistant.MetricsToolSchema()},
-		ToolChoice: proxy.ToolChoiceRequired,
+		ToolChoice: proxy.ToolChoiceAuto,
 	}
 }
