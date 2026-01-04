@@ -14,7 +14,7 @@
           "type": "function",
           "function": {
             "name": "query_metrics",
-            "arguments": "{\"device_id\":\"dev1\",\"expose\":\"temperature\",\"from\":1735689600000,\"to\":1735776000000,\"aggregation\":\"avg\"}"
+            "arguments": "{\"device_id\":\"dev1\",\"expose\":\"temperature\",\"time\":{\"from\":1735689600000,\"to\":1735776000000},\"aggregation\":\"avg\"}"
           }
         }
       ]

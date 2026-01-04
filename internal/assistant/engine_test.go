@@ -40,8 +40,10 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 			Arguments: `{
 				"device_id": "dev1",
 				"expose": "temperature",
-				"from": 1735689600000,
-				"to":   1735776000000,
+				"time": {
+					"from": 1735689600000,
+					"to":   1735776000000
+				},
 				"aggregate": "avg"
 			}`,
 		},
@@ -106,8 +108,10 @@ func TestAssistant_ExecuteTool_QueryMetrics_BackendError(t *testing.T) {
 			Arguments: `{
 				"device_id": "dev1",
 				"expose": "temperature",
-				"from": 1735689600000,
-    			"to": 1735776000000
+				"time": {
+					"from": 1735689600000,
+    				"to": 1735776000000
+				}
 			}`,
 		},
 	}

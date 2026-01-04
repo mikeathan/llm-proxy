@@ -3,8 +3,11 @@ import { readFile } from "fs/promises";
 export interface MetricsQueryRequest {
   device_id?: string;
   expose?: string;
-  from?: number;
-  to?: number;
+  time?: {
+    from?: number | string;
+    to?: number | string;
+    lookback?: string;
+  };
   aggregate?: string;
   resolution?: string;
 }

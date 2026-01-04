@@ -29,14 +29,19 @@ type ExposeInfo struct {
 	Aggregations []AggregationType `json:"aggregations"`
 }
 
+type TimeQuery struct {
+	From     time.Time `json:"from,omitempty"`
+	To       time.Time `json:"to,omitempty"`
+	Lookback string    `json:"lookback,omitempty"`
+}
+
 // Query Request
 type MetricsQueryRequest struct {
-	DeviceIDs  []string `json:"deviceIds"`
-	Expose     string   `json:"expose"`
-	From       int64    `json:"from,omitempty"`
-	To         int64    `json:"to,omitempty"`
-	Aggregate  string   `json:"aggregate,omitempty"`
-	Resolution string   `json:"resolution,omitempty"`
+	DeviceIDs  []string   `json:"deviceIds"`
+	Expose     string     `json:"expose"`
+	Time       *TimeQuery `json:"time,omitempty"`
+	Aggregate  string     `json:"aggregate,omitempty"`
+	Resolution string     `json:"resolution,omitempty"`
 }
 
 // Query Response

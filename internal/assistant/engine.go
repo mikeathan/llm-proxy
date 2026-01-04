@@ -11,12 +11,17 @@ import (
 )
 
 type QueryMetricsArgs struct {
-	DeviceID    string `json:"device_id"`
-	Expose      string `json:"expose"`
-	From        int64  `json:"from,omitempty"`
-	To          int64  `json:"to,omitempty"`
-	Aggregation string `json:"aggregation,omitempty"`
-	Resolution  string `json:"resolution,omitempty"`
+	DeviceID    string         `json:"device_id"`
+	Expose      string         `json:"expose"`
+	Time        *TimeQueryArgs `json:"time,omitempty"`
+	Aggregation string         `json:"aggregation,omitempty"`
+	Resolution  string         `json:"resolution,omitempty"`
+}
+
+type TimeQueryArgs struct {
+	From     int64  `json:"from,omitempty"`
+	To       int64  `json:"to,omitempty"`
+	Lookback string `json:"lookback,omitempty"`
 }
 
 type Engine interface {
@@ -69,8 +74,13 @@ func (q QueryMetricsArgs) Validate() error {
 		return fmt.Errorf("device_id and expose are required")
 	}
 
-	if q.Aggregation == "" && (q.From == 0 || q.To == 0) {
-		return fmt.Errorf("either aggregate or from+to must be provided")
+	if q.Aggregation == "" {
+		if q.Time == nil {
+			return fmt.Errorf("either aggregate or time must be provided")
+		}
+		if q.Time.Lookback == "" && (q.Time.From == 0 || q.Time.To == 0) {
+			return fmt.Errorf("time.from and time.to must be provided when lookback is empty")
+		}
 	}
 
 	return nil
@@ -86,27 +96,28 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 		return nil, err
 	}
 
-	now := time.Now().UnixMilli()
-	from := args.From
-	to := args.To
+	var timeQuery *nodeherder.TimeQuery
+	if args.Time != nil {
+		var from, to time.Time
 
-	if args.Aggregation == "" {
-		if from == 0 && to == 0 {
-			// default window: last 24 hours
-			to = now
-			from = now - 24*60*60*1000
+		if args.Time.From != 0 {
+			from = time.UnixMilli(args.Time.From)
 		}
-	} else {
-		// aggregation query: ignore time range entirely
-		from = 0
-		to = 0
+		if args.Time.To != 0 {
+			to = time.UnixMilli(args.Time.To)
+		}
+
+		timeQuery = &nodeherder.TimeQuery{
+			From:     from,
+			To:       to,
+			Lookback: args.Time.Lookback,
+		}
 	}
 
 	return &nodeherder.MetricsQueryRequest{
 		DeviceIDs:  []string{args.DeviceID},
 		Expose:     args.Expose,
-		From:       from,
-		To:         to,
+		Time:       timeQuery,
 		Aggregate:  args.Aggregation,
 		Resolution: args.Resolution,
 	}, nil

@@ -19,13 +19,22 @@ func MetricsToolSchema() proxy.Tool {
 						"type":        "string",
 						"description": "Expose name of the device",
 					},
-					"from": map[string]any{
-						"type":        "integer",
-						"description": "Start time as unix milliseconds",
-					},
-					"to": map[string]any{
-						"type":        "integer",
-						"description": "End time as unix milliseconds",
+					"time": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"from": map[string]any{
+								"type":        "integer",
+								"description": "Start time as unix milliseconds",
+							},
+							"to": map[string]any{
+								"type":        "integer",
+								"description": "End time as unix milliseconds",
+							},
+							"lookback": map[string]any{
+								"type":        "string",
+								"description": "Relative time range (e.g. 24h, 7d)",
+							},
+						},
 					},
 					"aggregation": map[string]any{
 						"type": "string",

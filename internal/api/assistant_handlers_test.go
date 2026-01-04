@@ -278,7 +278,7 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 								Type: "function",
 								Function: proxy.FunctionCall{
 									Name:      "query_metrics",
-									Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregate":"avg"}`,
+									Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1,"to":10},"aggregate":"avg"}`,
 								},
 							},
 						},
@@ -369,7 +369,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 							{
 								Function: proxy.FunctionCall{
 									Name:      "query_metrics",
-									Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":2}`,
+									Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1,"to":2}}`,
 								},
 							},
 						},
