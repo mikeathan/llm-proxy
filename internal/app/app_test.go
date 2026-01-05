@@ -13,6 +13,8 @@ import (
 
 func TestAppBoots(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
 	cfg := minimalTestConfig()
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
@@ -24,6 +26,8 @@ func TestAppBoots(t *testing.T) {
 
 func TestRoutesExist(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
 	cfg := minimalTestConfig()
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
@@ -49,6 +53,8 @@ func TestRoutesExist(t *testing.T) {
 
 func TestMethodEnforcement(t *testing.T) {
 	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
 	cfg := minimalTestConfig()
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})

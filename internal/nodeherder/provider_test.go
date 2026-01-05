@@ -2,10 +2,12 @@ package nodeherder_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -285,7 +287,8 @@ func TestNodeHerderFetcher_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
 
 	resp, err := client.FetchDeviceContext()
 	if err != nil {
@@ -317,7 +320,8 @@ func TestNodeHerderFetcher_Non200Response(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
 
 	_, err := client.FetchDeviceContext()
 	if err == nil {
@@ -336,7 +340,8 @@ func TestNodeHerderFetcher_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
 
 	_, err := client.FetchDeviceContext()
 	if err == nil {
@@ -351,7 +356,8 @@ func TestNodeHerderFetcher_Timeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second}, tokenManager)
 
 	_, err := client.FetchDeviceContext()
 	if err == nil {
@@ -364,6 +370,9 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/metrics/query" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer test-token" {
+			t.Fatalf("unexpected auth header: %s", auth)
 		}
 
 		w.WriteHeader(http.StatusOK)
@@ -384,7 +393,8 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceIDs: []string{"dev1"},
@@ -394,6 +404,10 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 	resp, err := client.QueryMetrics(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tokenManager.CallCount() != 1 {
+		t.Fatalf("expected token manager to be called once, got %d", tokenManager.CallCount())
 	}
 
 	if resp.Expose != "temperature" {
@@ -420,7 +434,8 @@ func TestNodeHerderFetcher_QueryMetrics_Non200Response(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
 
 	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
@@ -439,7 +454,8 @@ func TestNodeHerderFetcher_QueryMetrics_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
 
 	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
@@ -454,11 +470,114 @@ func TestNodeHerderFetcher_QueryMetrics_Timeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second}, tokenManager)
 
 	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+// ServiceTokenManager Tests
+func TestServiceTokenManager_SuccessAndCaches(t *testing.T) {
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		if r.URL.Path != "/api/auth/token" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("expected content-type application/json")
+		}
+
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode body: %v", err)
+		}
+		if payload["client_id"] != "client-id" {
+			t.Fatalf("unexpected client_id: %s", payload["client_id"])
+		}
+		if payload["client_secret"] != "client-secret" {
+			t.Fatalf("unexpected client_secret: %s", payload["client_secret"])
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"access_token":"token-1","expires_in":120}`))
+	}))
+	defer server.Close()
+
+	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL, "client-id", "client-secret")
+
+	token1, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	token2, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if token1 != "token-1" || token2 != "token-1" {
+		t.Fatalf("unexpected tokens: %s, %s", token1, token2)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("expected 1 token request, got %d", calls)
+	}
+}
+
+func TestServiceTokenManager_ShortExpiryForcesRefresh(t *testing.T) {
+
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&calls, 1)
+		token := "token-1"
+		if call == 2 {
+			token = "token-2"
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"access_token":"` + token + `","expires_in":30}`))
+	}))
+	defer server.Close()
+
+	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL, "client-id", "client-secret")
+
+	token1, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	token2, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if token1 == token2 {
+		t.Fatalf("expected refreshed token, got %s", token2)
+	}
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("expected 2 token requests, got %d", calls)
+	}
+}
+
+func TestServiceTokenManager_Non200Response(t *testing.T) {
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("boom"))
+	}))
+	defer server.Close()
+
+	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL, "client-id", "client-secret")
+
+	_, err := manager.Get(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "token request failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

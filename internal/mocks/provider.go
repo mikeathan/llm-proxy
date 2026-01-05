@@ -45,6 +45,37 @@ func (m *MockHttpNodeHerderFetcher) QueryMetrics(ctx context.Context, req *nodeh
 	return m.metricsResult, m.err
 }
 
+// Mock TokenManager
+type MockTokenManager struct {
+	token     string
+	err       error
+	callCount int
+}
+
+func NewMockTokenManager(token string, err error) *MockTokenManager {
+	return &MockTokenManager{
+		token: token,
+		err:   err,
+	}
+}
+
+func (m *MockTokenManager) CallCount() int {
+	return m.callCount
+}
+
+func (m *MockTokenManager) SetToken(token string) {
+	m.token = token
+}
+
+func (m *MockTokenManager) SetError(err error) {
+	m.err = err
+}
+
+func (m *MockTokenManager) Get(ctx context.Context) (string, error) {
+	m.callCount++
+	return m.token, m.err
+}
+
 // Mock NodeHerder
 type MockNodeHerder struct {
 	deviceCtx     *nodeherder.LLMDeviceContext

@@ -213,9 +213,16 @@ func BuildNodeHerder(clock utils.Clock, logger logging.Logger) nodeherder.NodeHe
 		Timeout: 10 * time.Second,
 	}
 
+	baseUrl := utils.Require("DEVICE_CONTEXT_BASE_URL")
 	fetcher := nodeherder.NewHttpNodeHerderFetcher(
-		utils.Require("DEVICE_CONTEXT_BASE_URL"),
+		baseUrl,
 		httpClient,
+		nodeherder.NewServiceTokenManager(
+			httpClient,
+			baseUrl,
+			utils.Require("SERVICE_CLIENT_ID"),
+			utils.Require("SERVICE_CLIENT_SECRET"),
+		),
 	)
 
 	cache := nodeherder.NewDeviceContextCache(1*time.Hour, clock)

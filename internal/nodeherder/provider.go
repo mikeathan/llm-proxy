@@ -9,7 +9,8 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/utils"
 	"net/http"
-	"os"
+	"sync"
+	"time"
 )
 
 // Node Herder
@@ -60,17 +61,16 @@ type HttpNodeHerderFetcher struct {
 	deviceContextURL string
 	queryMetricsURL  string
 	client           *http.Client
+	tokenManager     TokenManager
 }
 
-func NewHttpNodeHerderFetcher(baseUrl string, client *http.Client) NodeHerderFetcher {
-
-	queryMetricsURL := utils.SanitiseUrl(baseUrl) + "/api/metrics/query"
-	deviceContextURL := utils.SanitiseUrl(baseUrl) + "/api/context/devices"
+func NewHttpNodeHerderFetcher(baseUrl string, client *http.Client, tokenManager TokenManager) NodeHerderFetcher {
 
 	return &HttpNodeHerderFetcher{
-		deviceContextURL: deviceContextURL,
-		queryMetricsURL:  queryMetricsURL,
+		deviceContextURL: utils.SanitiseUrl(baseUrl) + "/api/context/devices",
+		queryMetricsURL:  utils.SanitiseUrl(baseUrl) + "/api/metrics/query",
 		client:           client,
+		tokenManager:     tokenManager,
 	}
 }
 
@@ -107,9 +107,15 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 	if err != nil {
 		return nil, err
 	}
+
+	token, err := c.tokenManager.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.queryMetricsURL, bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+os.Getenv("NODEHERDER_SERVICE_TOKEN"))
+	httpReq.Header.Set("Authorization", "Bearer "+token)
 
 	res, err := c.client.Do(httpReq)
 	if err != nil {
@@ -132,6 +138,73 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 	}
 
 	return &out[0], nil
+}
+
+// Token manager
+type TokenManager interface {
+	Get(ctx context.Context) (string, error)
+}
+
+type ServiceTokenManager struct {
+	client       *http.Client
+	tokenURL     string
+	clientID     string
+	clientSecret string
+
+	mu      sync.Mutex
+	token   string
+	expires time.Time
+}
+
+func NewServiceTokenManager(client *http.Client, baseURL string, clientID string, clientSecret string) TokenManager {
+	return &ServiceTokenManager{
+		client:       client,
+		tokenURL:     utils.SanitiseUrl(baseURL) + "/api/auth/token",
+		clientID:     clientID,
+		clientSecret: clientSecret,
+	}
+}
+
+func (m *ServiceTokenManager) Get(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.token != "" && time.Now().Before(m.expires.Add(-time.Minute)) {
+		return m.token, nil
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"client_id":     m.clientID,
+		"client_secret": m.clientSecret,
+	})
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, m.tokenURL, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := m.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return "", fmt.Errorf("token request failed: %s", string(b))
+	}
+
+	var out struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return "", err
+	}
+
+	m.token = out.AccessToken
+	m.expires = time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)
+
+	return m.token, nil
 }
 
 // Transform DeviceContextResponse to LLMDeviceContext
