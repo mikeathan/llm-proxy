@@ -37,11 +37,11 @@ type TimeQuery struct {
 
 // Query Request
 type MetricsQueryRequest struct {
-	DeviceIDs  []string   `json:"deviceIds"`
-	Expose     string     `json:"expose"`
-	Time       *TimeQuery `json:"time,omitempty"`
-	Aggregate  string     `json:"aggregate,omitempty"`
-	Resolution string     `json:"resolution,omitempty"`
+	DeviceIDs   []string   `json:"deviceIds"`
+	Expose      string     `json:"expose"`
+	Time        *TimeQuery `json:"time,omitempty"`
+	Aggregation string     `json:"aggregation,omitempty"`
+	Resolution  string     `json:"resolution,omitempty"`
 }
 
 // Query Response

@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/models"
+	"llm-proxy/utils"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -87,13 +88,15 @@ type adminStateResponse struct {
 }
 
 type adminConfigView struct {
-	ModelDir     string `json:"model_dir"`
-	LlamaBinary  string `json:"llama_binary"`
-	ModelHost    string `json:"model_host"`
-	IdleTimeoutS int    `json:"idle_timeout_seconds"`
-	GPUProvider  string `json:"gpu_provider,omitempty"`
-	GPUBinary    string `json:"gpu_binary,omitempty"`
-	GPUIndex     int    `json:"gpu_index,omitempty"`
+	ModelDir            string `json:"model_dir"`
+	LlamaBinary         string `json:"llama_binary"`
+	ModelHost           string `json:"model_host"`
+	IdleTimeoutS        int    `json:"idle_timeout_seconds"`
+	GPUProvider         string `json:"gpu_provider,omitempty"`
+	GPUBinary           string `json:"gpu_binary,omitempty"`
+	GPUIndex            int    `json:"gpu_index,omitempty"`
+	ServiceClientID     string `json:"service_client_id,omitempty"`
+	ServiceClientSecret string `json:"service_client_secret,omitempty"`
 }
 
 type adminStartResponse struct {
@@ -178,13 +181,15 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			ModelDir:     h.admin.ModelDir(),
-			LlamaBinary:  h.admin.CurrentBinary(),
-			ModelHost:    host,
-			IdleTimeoutS: h.admin.CurrentIdleTimeout(),
-			GPUProvider:  gpuCfg.Provider,
-			GPUBinary:    gpuCfg.Binary,
-			GPUIndex:     gpuCfg.Index,
+			ModelDir:            h.admin.ModelDir(),
+			LlamaBinary:         h.admin.CurrentBinary(),
+			ModelHost:           host,
+			IdleTimeoutS:        h.admin.CurrentIdleTimeout(),
+			GPUProvider:         gpuCfg.Provider,
+			GPUBinary:           gpuCfg.Binary,
+			GPUIndex:            gpuCfg.Index,
+			ServiceClientID:     os.Getenv("SERVICE_CLIENT_ID"),
+			ServiceClientSecret: os.Getenv("SERVICE_CLIENT_SECRET"),
 		},
 	}
 
@@ -256,13 +261,15 @@ func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Requ
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	gpuCfg := h.admin.GPUConfig()
 	cfg := adminConfigView{
-		ModelDir:     h.admin.ModelDir(),
-		LlamaBinary:  h.admin.CurrentBinary(),
-		ModelHost:    h.runtime.ModelHost(),
-		IdleTimeoutS: h.admin.CurrentIdleTimeout(),
-		GPUProvider:  gpuCfg.Provider,
-		GPUBinary:    gpuCfg.Binary,
-		GPUIndex:     gpuCfg.Index,
+		ModelDir:            h.admin.ModelDir(),
+		LlamaBinary:         h.admin.CurrentBinary(),
+		ModelHost:           h.runtime.ModelHost(),
+		IdleTimeoutS:        h.admin.CurrentIdleTimeout(),
+		GPUProvider:         gpuCfg.Provider,
+		GPUBinary:           gpuCfg.Binary,
+		GPUIndex:            gpuCfg.Index,
+		ServiceClientID:     os.Getenv("SERVICE_CLIENT_ID"),
+		ServiceClientSecret: os.Getenv("SERVICE_CLIENT_SECRET"),
 	}
 	respondJSON(w, cfg)
 }
@@ -395,12 +402,14 @@ func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ModelDir    string `json:"model_dir"`
-		LlamaBinary string `json:"llama_binary"`
-		ModelHost   string `json:"model_host"`
-		GPUProvider string `json:"gpu_provider"`
-		GPUBinary   string `json:"gpu_binary"`
-		GPUIndex    *int   `json:"gpu_index"`
+		ModelDir            string `json:"model_dir"`
+		LlamaBinary         string `json:"llama_binary"`
+		ModelHost           string `json:"model_host"`
+		GPUProvider         string `json:"gpu_provider"`
+		GPUBinary           string `json:"gpu_binary"`
+		GPUIndex            *int   `json:"gpu_index"`
+		ServiceClientID     string `json:"service_client_id"`
+		ServiceClientSecret string `json:"service_client_secret"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -426,6 +435,22 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		gpuCfg.Index = *req.GPUIndex
 	}
 	h.admin.SetGPUConfig(gpuCfg)
+
+	envUpdates := map[string]string{}
+	if req.ServiceClientID != "" {
+		os.Setenv("SERVICE_CLIENT_ID", req.ServiceClientID)
+		envUpdates["SERVICE_CLIENT_ID"] = req.ServiceClientID
+	}
+	if req.ServiceClientSecret != "" {
+		os.Setenv("SERVICE_CLIENT_SECRET", req.ServiceClientSecret)
+		envUpdates["SERVICE_CLIENT_SECRET"] = req.ServiceClientSecret
+	}
+	if len(envUpdates) > 0 {
+		if err := utils.UpdateEnvFile(".env", envUpdates); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to save env: "+err.Error())
+			return
+		}
+	}
 
 	if err := h.admin.UpdateConfig(func(cfg *models.Config) {
 		if req.ModelDir != "" {

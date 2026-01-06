@@ -75,7 +75,7 @@ func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
 	if env == "" {
 		env = "development"
 	}
-	logger.Info("Loaded env file", "file", ".env."+env)
+	logger.Info("Loaded env files", "default", ".env", "environment", ".env."+env)
 
 	//print version info
 	logger.Info(

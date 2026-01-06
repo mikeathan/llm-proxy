@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
 	"llm-proxy/models"
 	"log"
 	"os"
@@ -16,10 +17,13 @@ func LoadEnv() {
 		env = "development"
 	}
 
-	envFile := ".env." + env
+	if err := godotenv.Load(".env"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("failed to load .env: %v", err)
+	}
 
-	if err := godotenv.Load(envFile); err != nil {
-		log.Fatalf("failed to load %s: %v", envFile, err)
+	envFile := ".env." + env
+	if err := godotenv.Load(envFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("failed to load %s: %v", envFile, err)
 	}
 }
 
@@ -65,4 +69,19 @@ func LoadEnvOverrides(cfg *models.Config) {
 	if v := os.Getenv("LLAMA_BINARY"); v != "" {
 		cfg.Server.LlamaServerBinary = v
 	}
+}
+
+func UpdateEnvFile(path string, updates map[string]string) error {
+	current := map[string]string{}
+	if existing, err := godotenv.Read(path); err == nil {
+		current = existing
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	for key, value := range updates {
+		current[key] = value
+	}
+
+	return godotenv.Write(current, path)
 }

@@ -102,6 +102,82 @@ func TestAdminConfigUpdateHandler_UpdateConfigError(t *testing.T) {
 	}
 }
 
+func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/config", nil)
+	rr := httptest.NewRecorder()
+
+	handler.AdminConfigHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["service_client_id"] != "client-id" {
+		t.Fatalf("expected service_client_id, got %v", resp["service_client_id"])
+	}
+	if resp["service_client_secret"] != "client-secret" {
+		t.Fatalf("expected service_client_secret, got %v", resp["service_client_secret"])
+	}
+}
+
+func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
+	t.Setenv("SERVICE_CLIENT_ID", "")
+	t.Setenv("SERVICE_CLIENT_SECRET", "")
+
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+
+	body := `{"service_client_id":"new-id","service_client_secret":"new-secret"}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.AdminConfigUpdateHandler(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rr.Code)
+	}
+
+	if got := os.Getenv("SERVICE_CLIENT_ID"); got != "new-id" {
+		t.Fatalf("expected SERVICE_CLIENT_ID to be set, got %q", got)
+	}
+	if got := os.Getenv("SERVICE_CLIENT_SECRET"); got != "new-secret" {
+		t.Fatalf("expected SERVICE_CLIENT_SECRET to be set, got %q", got)
+	}
+
+	envPath := filepath.Join(dir, ".env")
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("read .env: %v", err)
+	}
+	if !strings.Contains(string(data), `SERVICE_CLIENT_ID="new-id"`) {
+		t.Fatalf("expected SERVICE_CLIENT_ID in .env, got %s", string(data))
+	}
+	if !strings.Contains(string(data), `SERVICE_CLIENT_SECRET="new-secret"`) {
+		t.Fatalf("expected SERVICE_CLIENT_SECRET in .env, got %s", string(data))
+	}
+}
+
 func TestAdminAddModelHandler_FileMissing(t *testing.T) {
 	admin := &mocks.MockAdminService{
 		ResolveModelPathFunc: func(filename string, path string) string {
