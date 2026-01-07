@@ -116,6 +116,11 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	return h.runAgentLoop(ctx, client, history, log)
 }
 
+// runAgentLoop drives the agent execution:
+// The model is called repeatedly until it stops requesting tools.
+// Each tool call is executed, its result is injected into the history,
+// and the model is called again. When no tool calls remain, the model's
+// message is considered the final answer and the loop exits.
 func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger) (any, *handlerError) {
 
 	for range MaxRetries {
@@ -126,6 +131,7 @@ func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy
 		}
 
 		if len(msg.ToolCalls) == 0 {
+			// Model has enough information; finish the conversation
 			return map[string]any{"reply": msg.Content}, nil
 		}
 
