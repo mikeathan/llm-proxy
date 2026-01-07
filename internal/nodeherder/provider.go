@@ -146,22 +146,18 @@ type TokenManager interface {
 }
 
 type ServiceTokenManager struct {
-	client       *http.Client
-	tokenURL     string
-	clientID     string
-	clientSecret string
+	client   *http.Client
+	tokenURL string
 
 	mu      sync.Mutex
 	token   string
 	expires time.Time
 }
 
-func NewServiceTokenManager(client *http.Client, baseURL string, clientID string, clientSecret string) TokenManager {
+func NewServiceTokenManager(client *http.Client, baseURL string) TokenManager {
 	return &ServiceTokenManager{
-		client:       client,
-		tokenURL:     utils.SanitiseUrl(baseURL) + "/api/auth/token",
-		clientID:     clientID,
-		clientSecret: clientSecret,
+		client:   client,
+		tokenURL: utils.SanitiseUrl(baseURL) + "/api/auth/token",
 	}
 }
 
@@ -169,13 +165,18 @@ func (m *ServiceTokenManager) Get(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	clientID, clientSecret, err := utils.LoadServiceCredentials()
+	if err != nil {
+		return "", err
+	}
+
 	if m.token != "" && time.Now().Before(m.expires.Add(-time.Minute)) {
 		return m.token, nil
 	}
 
 	body, _ := json.Marshal(map[string]string{
-		"client_id":     m.clientID,
-		"client_secret": m.clientSecret,
+		"client_id":     clientID,
+		"client_secret": clientSecret,
 	})
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, m.tokenURL, bytes.NewReader(body))

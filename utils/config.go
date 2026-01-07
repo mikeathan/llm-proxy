@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"llm-proxy/models"
 	"log"
 	"os"
@@ -33,6 +34,17 @@ func Require(key string) string {
 		log.Fatalf("%s not set", key)
 	}
 	return val
+}
+
+func LoadServiceCredentials() (string, string, error) {
+	clientID := os.Getenv("SERVICE_CLIENT_ID")
+	clientSecret := os.Getenv("SERVICE_CLIENT_SECRET")
+
+	if clientID == "" || clientSecret == "" {
+		return "", "", fmt.Errorf("service credentials not configured")
+	}
+
+	return clientID, clientSecret, nil
 }
 
 func LoadConfig(path string) (*models.Config, error) {

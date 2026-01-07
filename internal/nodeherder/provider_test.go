@@ -510,7 +510,10 @@ func TestServiceTokenManager_SuccessAndCaches(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL, "client-id", "client-secret")
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL)
 
 	token1, err := manager.Get(context.Background())
 	if err != nil {
@@ -543,7 +546,10 @@ func TestServiceTokenManager_ShortExpiryForcesRefresh(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL, "client-id", "client-secret")
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL)
 
 	token1, err := manager.Get(context.Background())
 	if err != nil {
@@ -570,7 +576,10 @@ func TestServiceTokenManager_Non200Response(t *testing.T) {
 	}))
 	defer server.Close()
 
-	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL, "client-id", "client-secret")
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL)
 
 	_, err := manager.Get(context.Background())
 	if err == nil {

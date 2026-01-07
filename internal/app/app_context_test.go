@@ -32,7 +32,7 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
-	srv := app.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
+	srv := app.NewServer(nil, &models.Config{}, "") 
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)

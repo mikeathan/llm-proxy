@@ -369,6 +369,13 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 		Expose: "temperature",
 		From:   1,
 		To:     2,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId:  "dev1",
+				Value:     21.5,
+				Timestamp: 1,
+			},
+		},
 	})
 
 	mockClient := &mocks.MockLLMClient{
