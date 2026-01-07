@@ -367,13 +367,13 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
-		From:   1,
-		To:     2,
+		From:   1735689600000,
+		To:     1735776000000,
 		Values: []nodeherder.MetricsQueryDeviceResponse{
 			{
 				DeviceId:  "dev1",
 				Value:     21.5,
-				Timestamp: 1,
+				Timestamp: 1735689600000,
 			},
 		},
 	})
@@ -389,7 +389,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 								{
 									Function: proxy.FunctionCall{
 										Name:      "query_metrics",
-										Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1,"to":2}}`,
+										Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1735689600000,"to":1735776000000}}`,
 									},
 								},
 							},
@@ -450,7 +450,97 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 	if toolMsg.Role != proxy.ToolRole {
 		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
 	}
-	if !strings.Contains(toolMsg.Content, `"Expose":"temperature"`) || !strings.Contains(toolMsg.Content, `"deviceId":"dev1"`) {
+	if !strings.Contains(toolMsg.Content, `"Metric":"temperature"`) ||
+		!strings.Contains(toolMsg.Content, `"DeviceID":"dev1"`) ||
+		!strings.Contains(toolMsg.Content, `"From":"2025-01-01T00:00:00Z"`) ||
+		!strings.Contains(toolMsg.Content, `"To":"2025-01-02T00:00:00Z"`) {
+		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
+	}
+}
+
+func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1735689600000,
+		To:     1735776000000,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId:  "dev1",
+				Value:     21.5,
+				Timestamp: 1735693200000,
+			},
+		},
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "query_metrics",
+										Arguments: `{"device_id":"dev1","expose":"temperature","aggregation":"last"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "done"}},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if len(mockClient.Requests) < 2 {
+		t.Fatalf("expected second chat request, got %d", len(mockClient.Requests))
+	}
+
+	secondReq := mockClient.Requests[1]
+	if len(secondReq.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(secondReq.Messages))
+	}
+
+	toolMsg := secondReq.Messages[3]
+	if toolMsg.Role != proxy.ToolRole {
+		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
+	}
+	if !strings.Contains(toolMsg.Content, `"Operation":"last"`) ||
+		!strings.Contains(toolMsg.Content, `"Timestamp":"2025-01-01T01:00:00Z"`) {
 		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
 	}
 }

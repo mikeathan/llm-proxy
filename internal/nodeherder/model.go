@@ -5,6 +5,15 @@ import "time"
 // Device context response structure
 type AggregationType string
 
+const (
+	AggNone  AggregationType = ""
+	AggLast  AggregationType = "last"
+	AggMin   AggregationType = "min"
+	AggMax   AggregationType = "max"
+	AggAvg   AggregationType = "avg"
+	AggCount AggregationType = "count"
+)
+
 type DeviceContextResponse struct {
 	Version     string          `json:"version"`
 	GeneratedAt time.Time       `json:"generatedAt"`

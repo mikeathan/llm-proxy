@@ -44,7 +44,7 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 					"from": 1735689600000,
 					"to":   1735776000000
 				},
-				"aggregate": "avg"
+				"aggregation": "avg"
 			}`,
 		},
 	}
@@ -54,14 +54,21 @@ func TestAssistant_ExecuteTool_QueryMetrics_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if out.Expose != expected.Expose ||
-		out.From != expected.From ||
-		out.To != expected.To {
-		t.Fatalf("unexpected output: %+v", out)
+	if out.Response == nil {
+		t.Fatal("expected response payload")
+	}
+	if out.Response.Expose != expected.Expose ||
+		out.Response.From != expected.From ||
+		out.Response.To != expected.To {
+		t.Fatalf("unexpected output: %+v", out.Response)
 	}
 
-	if len(out.Values) != len(expected.Values) {
-		t.Fatalf("unexpected values: %+v", out.Values)
+	if len(out.Response.Values) != len(expected.Values) {
+		t.Fatalf("unexpected values: %+v", out.Response.Values)
+	}
+
+	if out.Aggregation != nodeherder.AggregationType("avg") {
+		t.Fatalf("unexpected aggregation: %s", out.Aggregation)
 	}
 
 	if mockNode.CallCount() != 1 {

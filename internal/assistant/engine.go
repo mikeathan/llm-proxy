@@ -24,8 +24,13 @@ type TimeQueryArgs struct {
 	Lookback string `json:"lookback,omitempty"`
 }
 
+type ToolResult struct {
+	Response    *nodeherder.MetricsQueryResponse
+	Aggregation nodeherder.AggregationType
+}
+
 type Engine interface {
-	ExecuteTool(ctx context.Context, call proxy.ToolCall) (*nodeherder.MetricsQueryResponse, error)
+	ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error)
 }
 
 type assistantEngine struct {
@@ -39,7 +44,7 @@ func NewEngine(nodeherder nodeherder.NodeHerderService, logger logging.Logger) E
 		logger:     logger,
 	}
 }
-func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*nodeherder.MetricsQueryResponse, error) {
+func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error) {
 
 	a.logger.Info("tool call", "name", call.Function.Name, "conversation", call.ID)
 
@@ -62,7 +67,10 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 		}
 
 		a.logger.Info("tool completed", "name", call.Function.Name)
-		return res, nil
+		return &ToolResult{
+			Response:    res,
+			Aggregation: nodeherder.AggregationType(req.Aggregation),
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", function.Name)

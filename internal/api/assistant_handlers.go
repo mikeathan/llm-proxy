@@ -178,6 +178,9 @@ func (h *AssistantMessageHandler) processToolCall(ctx context.Context, msg proxy
 		return &handlerError{Status: 500, Message: "tool execution failed"}
 	}
 
+	// Normalize the tool result for model consumption
+	normalized := assistant.NormalizeMetrics(result.Response, result.Aggregation)
+
 	// Record the model's tool request in the conversation history.
 	// The assistant message contains the tool call but no user-facing content.
 	// This is required so the model can continue reasoning with the tool result.
@@ -186,7 +189,7 @@ func (h *AssistantMessageHandler) processToolCall(ctx context.Context, msg proxy
 
 		// Feed the tool's raw result back into the model as an observation.
 		// This becomes the factual input for the model's next reasoning step.
-		proxy.Message{Role: proxy.ToolRole, Content: utils.ToJson(result)},
+		proxy.Message{Role: proxy.ToolRole, Content: utils.ToJson(normalized)},
 	)
 
 	return nil
