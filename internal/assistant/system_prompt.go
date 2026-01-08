@@ -72,7 +72,7 @@ Conversation ID: %s
 Context Version: %s
 Timezone: %s
 
-Device Context:
+Available Devices:
 %s`,
 		systemPolicy,
 		conversationID,

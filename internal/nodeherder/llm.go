@@ -1,7 +1,5 @@
 package nodeherder
 
-import "encoding/json"
-
 // LLMDeviceContext represents the device context in a format suitable for LLM consumption.
 type LLMDeviceContext struct {
 	Version     string      `json:"version"`
@@ -9,9 +7,28 @@ type LLMDeviceContext struct {
 	Devices     []LLMDevice `json:"devices"`
 }
 
-func (c *LLMDeviceContext) String() string {
-	b, _ := json.MarshalIndent(c, "", "  ")
-	return string(b)
+func (c *LLMDeviceContext) Summary() string {
+	var out string
+
+	for _, d := range c.Devices {
+		out += "- id: " + d.ID + "\n"
+		out += "  name: " + d.Name + "\n"
+
+		if len(d.Exposes) > 0 {
+			out += "  exposes:\n"
+			for key, e := range d.Exposes {
+				out += "    - " + key
+				if e.Unit != "" {
+					out += " (" + e.Unit + ")"
+				}
+				out += "\n"
+			}
+		}
+
+		out += "\n"
+	}
+
+	return out
 }
 
 type LLMDevice struct {

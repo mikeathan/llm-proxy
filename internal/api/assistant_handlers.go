@@ -226,7 +226,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage,
 				payload.ConversationID,
 				payload.ContextVersion,
 				payload.Timezone,
-				deviceCtx.String(),
+				deviceCtx.Summary(),
 			),
 		},
 		{
