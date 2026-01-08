@@ -6,68 +6,45 @@ import (
 	"strings"
 )
 
-func ResolveDevice(
-	ctx *nodeherder.LLMDeviceContext,
-	target string,
-	expose string,
-) (*nodeherder.LLMDevice, error) {
+func ResolveDevice(ctx *nodeherder.LLMDeviceContext, target, expose string) (*nodeherder.LLMDevice, error) {
+	t := normalize(target)
 
-	target = strings.ToLower(strings.TrimSpace(target))
-	expose = strings.ToLower(strings.TrimSpace(expose))
-
-	var exact []nodeherder.LLMDevice
-	var partial []nodeherder.LLMDevice
+	var matches []nodeherder.LLMDevice
 
 	for _, d := range ctx.Devices {
-		name := strings.ToLower(d.Name)
+		name := normalize(d.Name)
 
-		// Expose must exist on the device
+		// Device must support the expose
 		if _, ok := d.Exposes[expose]; !ok {
 			continue
 		}
 
-		if name == target {
-			exact = append(exact, d)
+		// Semantic name match
+		if !strings.Contains(name, t) && !strings.Contains(t, name) {
 			continue
 		}
 
-		if strings.Contains(name, target) || strings.Contains(target, name) {
-			partial = append(partial, d)
-		}
+		matches = append(matches, d)
 	}
 
-	// Prefer exact match
-	if len(exact) == 1 {
-		return &exact[0], nil
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no device matches %q with expose %q", target, expose)
 	}
 
-	// Then partial match
-	if len(exact) == 0 && len(partial) == 1 {
-		return &partial[0], nil
-	}
-
-	if len(exact) > 1 || len(partial) > 1 {
+	if len(matches) > 1 {
 		var names []string
-		candidates := exact
-		if len(candidates) == 0 {
-			candidates = partial
-		}
-
-		for _, d := range candidates {
+		for _, d := range matches {
 			names = append(names, d.Name)
 		}
-
-		return nil, fmt.Errorf(
-			"ambiguous device name %q for expose %q; matches: %s",
-			target,
-			expose,
-			strings.Join(names, ", "),
-		)
+		return nil, fmt.Errorf("ambiguous device %q; matches: %s", target, strings.Join(names, ", "))
 	}
 
-	return nil, fmt.Errorf(
-		"no device matches %q with expose %q",
-		target,
-		expose,
-	)
+	return &matches[0], nil
+}
+
+func normalize(s string) string {
+	s = strings.ToLower(s)
+	s = strings.TrimSpace(s)
+	s = strings.Join(strings.Fields(s), " ")
+	return s
 }
