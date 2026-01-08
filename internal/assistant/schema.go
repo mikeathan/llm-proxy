@@ -7,41 +7,33 @@ func MetricsToolSchema() proxy.Tool {
 		Type: "function",
 		Function: proxy.FunctionSchema{
 			Name:        "query_metrics",
-			Description: "Query historical device metrics. Supports time ranges or aggregate queries (last, min, max, avg, count). Returns timestamps and values.",
+			Description: "Query historical metrics for a specific device",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"device_id": map[string]any{
+					"target_name": map[string]any{
 						"type":        "string",
-						"description": "ID of the device",
+						"description": "Natural language device name, e.g. 'garden', 'attic', 'living room'",
 					},
 					"expose": map[string]any{
 						"type":        "string",
-						"description": "Expose name of the device",
+						"description": "Metric key ONLY from device.exposes.name. NEVER include units, symbols, or descriptions. Example: 'temperature', not 'temperature (°C)'",
 					},
 					"time": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"from": map[string]any{
-								"type":        "integer",
-								"description": "Start time as unix milliseconds",
-							},
-							"to": map[string]any{
-								"type":        "integer",
-								"description": "End time as unix milliseconds",
-							},
-							"lookback": map[string]any{
-								"type":        "string",
-								"description": "Relative time range (e.g. 24h, 7d)",
-							},
+							"from":     map[string]any{"type": "integer"},
+							"to":       map[string]any{"type": "integer"},
+							"lookback": map[string]any{"type": "string"},
 						},
 					},
 					"aggregation": map[string]any{
-						"type": "string",
-						"enum": []string{"last", "min", "max", "avg", "count"},
+						"type":        "string",
+						"description": "Aggregation: last, min, max, avg, count",
 					},
+					"resolution": map[string]any{"type": "string"},
 				},
-				"required": []string{"device_id", "expose"},
+				"required": []string{"target_name", "expose"},
 			},
 		},
 	}
