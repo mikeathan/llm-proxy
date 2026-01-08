@@ -13,10 +13,10 @@ import (
 )
 
 type QueryMetricsArgs struct {
-	DeviceID    string         `json:"device_id"`
+	TargetName  string         `json:"target_name"` // semantic device name (e.g. "garden")
 	Expose      string         `json:"expose"`
 	Time        *TimeQueryArgs `json:"time,omitempty"`
-	Aggregation string         `json:"aggregation"`
+	Aggregation string         `json:"aggregation,omitempty"`
 	Resolution  string         `json:"resolution,omitempty"`
 }
 
@@ -46,66 +46,17 @@ func NewEngine(nodeherder nodeherder.NodeHerderService, logger logging.Logger) E
 		logger:     logger,
 	}
 }
+
 func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error) {
 
 	a.logger.Info("tool call", "name", call.Function.Name, "conversation", call.ID)
 
-	function := call.Function
-	switch function.Name {
-
-	case "query_metrics":
-		a.logger.Info("tool args", "name", call.Function.Name, "args", call.Function.Arguments)
-		req, err := buildMetricsQueryRequest(call.Function.Arguments)
-		if err != nil {
-			a.logger.Error("tool parse failed", "name", call.Function.Name, "error", err)
-			return nil, err
-		}
-
-		a.logger.Info("normalized tool request",
-			"device", req.DeviceIDs,
-			"expose", req.Expose,
-			"aggregation", req.Aggregation,
-			"time", req.Time,
-		)
-
-		res, err := a.nodeherder.QueryMetrics(ctx, req)
-		if err != nil {
-			a.logger.Error("tool execution failed", "name", call.Function.Name, "error", err)
-
-			return nil, err
-		}
-
-		a.logger.Info("tool completed", "name", call.Function.Name)
-		return &ToolResult{
-			Response:    res,
-			Aggregation: nodeherder.AggregationType(req.Aggregation),
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unknown tool: %s", function.Name)
-	}
-}
-
-func (q QueryMetricsArgs) Validate() error {
-	if q.DeviceID == "" || q.Expose == "" {
-		return fmt.Errorf("device_id and expose are required")
+	if call.Function.Name != "query_metrics" {
+		return nil, fmt.Errorf("unknown tool: %s", call.Function.Name)
 	}
 
-	if q.Aggregation == "" {
-		if q.Time == nil {
-			return fmt.Errorf("either aggregate or time must be provided")
-		}
-		if q.Time.Lookback == "" && (q.Time.From == 0 || q.Time.To == 0) {
-			return fmt.Errorf("time.from and time.to must be provided when lookback is empty")
-		}
-	}
-
-	return nil
-}
-
-func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, error) {
 	var args QueryMetricsArgs
-	if err := json.Unmarshal([]byte(argJSON), &args); err != nil {
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return nil, err
 	}
 
@@ -113,60 +64,103 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 		return nil, err
 	}
 
-	// Enforce deterministic defaults (LLM is unreliable here)
+	// Enforce deterministic defaults
 	if args.Aggregation == "" {
 		args.Aggregation = string(nodeherder.AggLast)
 	}
 
-	var timeQuery *nodeherder.TimeQuery
-	if args.Time != nil {
-		tq := &nodeherder.TimeQuery{}
-
-		// If the model sends to==from, treat "to" as not provided.
-		if args.Time.To != 0 && args.Time.To == args.Time.From {
-			args.Time.To = 0
-		}
-
-		// If lookback is set, compute a concrete range and DO NOT send lookback to NodeHerder.
-		if args.Time.Lookback != "" {
-			dur, err := parseLookback(args.Time.Lookback)
-			if err != nil {
-				return nil, fmt.Errorf("invalid lookback %q: %w", args.Time.Lookback, err)
-			}
-
-			to := time.Now().UTC()
-			if args.Time.To != 0 {
-				to = time.UnixMilli(args.Time.To).UTC()
-			}
-			from := to.Add(-dur)
-
-			tq.From = from
-			tq.To = to
-		} else {
-			if args.Time.From != 0 {
-				tq.From = time.UnixMilli(args.Time.From).UTC()
-			}
-			if args.Time.To != 0 {
-				tq.To = time.UnixMilli(args.Time.To).UTC()
-			}
-		}
-
-		timeQuery = tq
+	// Load device context
+	deviceCtx, err := a.nodeherder.GetDeviceContext()
+	if err != nil {
+		return nil, err
 	}
 
-	return &nodeherder.MetricsQueryRequest{
-		DeviceIDs:   []string{args.DeviceID},
+	// Resolve the correct device deterministically
+	device, err := ResolveDevice(deviceCtx, args.TargetName, args.Expose)
+	if err != nil {
+		return nil, err
+	}
+
+	timeQuery, err := buildTimeQuery(args.Time)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &nodeherder.MetricsQueryRequest{
+		DeviceIDs:   []string{device.ID},
 		Expose:      args.Expose,
 		Time:        timeQuery,
 		Aggregation: args.Aggregation,
 		Resolution:  args.Resolution,
+	}
+
+	a.logger.Info("normalized tool request",
+		"device", device.Name,
+		"device_id", device.ID,
+		"expose", req.Expose,
+		"aggregation", req.Aggregation,
+		"time", req.Time,
+	)
+
+	res, err := a.nodeherder.QueryMetrics(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ToolResult{
+		Response:    res,
+		Aggregation: nodeherder.AggregationType(req.Aggregation),
 	}, nil
+}
+
+func (q QueryMetricsArgs) Validate() error {
+	if q.TargetName == "" || q.Expose == "" {
+		return fmt.Errorf("target_name and expose are required")
+	}
+	return nil
+}
+
+func buildTimeQuery(t *TimeQueryArgs) (*nodeherder.TimeQuery, error) {
+	if t == nil {
+		return nil, nil
+	}
+
+	q := &nodeherder.TimeQuery{}
+
+	if t.To != 0 && t.To == t.From {
+		t.To = 0
+	}
+
+	if t.Lookback != "" {
+		dur, err := parseLookback(t.Lookback)
+		if err != nil {
+			return nil, err
+		}
+
+		to := time.Now().UTC()
+		if t.To != 0 {
+			to = time.UnixMilli(t.To).UTC()
+		}
+		from := to.Add(-dur)
+
+		q.From = from
+		q.To = to
+		return q, nil
+	}
+
+	if t.From != 0 {
+		q.From = time.UnixMilli(t.From).UTC()
+	}
+	if t.To != 0 {
+		q.To = time.UnixMilli(t.To).UTC()
+	}
+
+	return q, nil
 }
 
 func parseLookback(s string) (time.Duration, error) {
 	if strings.HasSuffix(s, "d") {
-		nStr := strings.TrimSuffix(s, "d")
-		n, err := strconv.Atoi(nStr)
+		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
 		if err != nil {
 			return 0, err
 		}
