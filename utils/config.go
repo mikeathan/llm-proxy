@@ -8,7 +8,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -126,5 +128,23 @@ func UpdateEnvFile(path string, updates map[string]string) error {
 		current[key] = value
 	}
 
-	return godotenv.Write(current, path)
+	return writeEnvFile(path, current)
+}
+
+func writeEnvFile(path string, values map[string]string) error {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, fmt.Sprintf("%s=%s", key, values[key]))
+	}
+	data := strings.Join(lines, "\n")
+	if data != "" {
+		data += "\n"
+	}
+	return os.WriteFile(path, []byte(data), 0644)
 }

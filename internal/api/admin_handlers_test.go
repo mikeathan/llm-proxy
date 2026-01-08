@@ -133,18 +133,6 @@ func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
 	t.Setenv("SERVICE_CLIENT_ID", "")
 	t.Setenv("SERVICE_CLIENT_SECRET", "")
 
-	dir := t.TempDir()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(wd)
-	})
-
 	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
 
 	body := `{"service_client_id":"new-id","service_client_secret":"new-secret"}`
@@ -165,15 +153,23 @@ func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
 		t.Fatalf("expected SERVICE_CLIENT_SECRET to be set, got %q", got)
 	}
 
-	envPath := filepath.Join(dir, ".env")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("executable: %v", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	envPath := filepath.Join(filepath.Dir(exe), ".env")
 	data, err := os.ReadFile(envPath)
 	if err != nil {
 		t.Fatalf("read .env: %v", err)
 	}
-	if !strings.Contains(string(data), `SERVICE_CLIENT_ID="new-id"`) {
+	if !strings.Contains(string(data), `SERVICE_CLIENT_ID=new-id`) {
 		t.Fatalf("expected SERVICE_CLIENT_ID in .env, got %s", string(data))
 	}
-	if !strings.Contains(string(data), `SERVICE_CLIENT_SECRET="new-secret"`) {
+	if !strings.Contains(string(data), `SERVICE_CLIENT_SECRET=new-secret`) {
 		t.Fatalf("expected SERVICE_CLIENT_SECRET in .env, got %s", string(data))
 	}
 }

@@ -118,20 +118,18 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 
 	var timeQuery *nodeherder.TimeQuery
 	if args.Time != nil {
-		var from, to time.Time
-
-		if args.Time.From != 0 {
-			from = time.UnixMilli(args.Time.From)
-		}
-		if args.Time.To != 0 {
-			to = time.UnixMilli(args.Time.To)
-		}
-
-		timeQuery = &nodeherder.TimeQuery{
-			From:     from,
-			To:       to,
+		tq := &nodeherder.TimeQuery{
 			Lookback: args.Time.Lookback,
 		}
+
+		if args.Time.From != 0 {
+			tq.From = time.UnixMilli(args.Time.From)
+		}
+		if args.Time.To != 0 {
+			tq.To = time.UnixMilli(args.Time.To)
+		}
+
+		timeQuery = tq
 	}
 
 	return &nodeherder.MetricsQueryRequest{
