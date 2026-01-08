@@ -60,6 +60,13 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 		return nil, err
 	}
 
+	a.logger.Debug("raw tool args",
+		"target_name", args.TargetName,
+		"expose", args.Expose,
+		"aggregation", args.Aggregation,
+		"time", args.Time,
+	)
+
 	if err := args.Validate(); err != nil {
 		return nil, err
 	}
@@ -74,17 +81,38 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 	if err != nil {
 		return nil, err
 	}
+	a.logger.Debug("device context loaded",
+		"device_count", len(deviceCtx.Devices),
+	)
 
-	// Resolve the correct device deterministically
+	a.logger.Debug("resolving device",
+		"target", args.TargetName,
+		"expose", args.Expose,
+	)
+
 	device, err := ResolveDevice(deviceCtx, args.TargetName, args.Expose)
 	if err != nil {
+		a.logger.Error("device resolution failed",
+			"target", args.TargetName,
+			"expose", args.Expose,
+			"error", err,
+		)
 		return nil, err
 	}
+
+	a.logger.Info("device resolved",
+		"name", device.Name,
+		"id", device.ID,
+	)
 
 	timeQuery, err := buildTimeQuery(args.Time)
 	if err != nil {
 		return nil, err
 	}
+	a.logger.Debug("normalized time query",
+		"input", args.Time,
+		"result", timeQuery,
+	)
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceIDs:   []string{device.ID},

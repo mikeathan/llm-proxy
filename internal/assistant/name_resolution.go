@@ -10,42 +10,64 @@ func ResolveDevice(
 	ctx *nodeherder.LLMDeviceContext,
 	target string,
 	expose string,
-) (nodeherder.LLMDevice, error) {
+) (*nodeherder.LLMDevice, error) {
 
-	target = strings.ToLower(target)
-	expose = strings.ToLower(expose)
+	target = strings.ToLower(strings.TrimSpace(target))
+	expose = strings.ToLower(strings.TrimSpace(expose))
 
-	var matches []nodeherder.LLMDevice
+	var exact []nodeherder.LLMDevice
+	var partial []nodeherder.LLMDevice
 
 	for _, d := range ctx.Devices {
 		name := strings.ToLower(d.Name)
 
-		if !strings.Contains(name, target) {
-			continue
-		}
-
+		// Expose must exist on the device
 		if _, ok := d.Exposes[expose]; !ok {
 			continue
 		}
 
-		matches = append(matches, d)
+		if name == target {
+			exact = append(exact, d)
+			continue
+		}
+
+		if strings.Contains(name, target) || strings.Contains(target, name) {
+			partial = append(partial, d)
+		}
 	}
 
-	if len(matches) == 0 {
-		return nodeherder.LLMDevice{}, fmt.Errorf(
-			"no device matches name=%q with metric=%q", target, expose,
-		)
+	// Prefer exact match
+	if len(exact) == 1 {
+		return &exact[0], nil
 	}
 
-	if len(matches) > 1 {
+	// Then partial match
+	if len(exact) == 0 && len(partial) == 1 {
+		return &partial[0], nil
+	}
+
+	if len(exact) > 1 || len(partial) > 1 {
 		var names []string
-		for _, d := range matches {
+		candidates := exact
+		if len(candidates) == 0 {
+			candidates = partial
+		}
+
+		for _, d := range candidates {
 			names = append(names, d.Name)
 		}
-		return nodeherder.LLMDevice{}, fmt.Errorf(
-			"ambiguous device reference %q: %v", target, names,
+
+		return nil, fmt.Errorf(
+			"ambiguous device name %q for expose %q; matches: %s",
+			target,
+			expose,
+			strings.Join(names, ", "),
 		)
 	}
 
-	return matches[0], nil
+	return nil, fmt.Errorf(
+		"no device matches %q with expose %q",
+		target,
+		expose,
+	)
 }
