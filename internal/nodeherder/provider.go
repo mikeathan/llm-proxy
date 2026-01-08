@@ -211,10 +211,13 @@ func (m *ServiceTokenManager) Get(ctx context.Context) (string, error) {
 // Transform DeviceContextResponse to LLMDeviceContext
 func transformToLLMDeviceContext(response *DeviceContextResponse) *LLMDeviceContext {
 	llmDevices := make([]LLMDevice, 0, len(response.Devices))
+
 	for _, device := range response.Devices {
-		llmExposes := make(map[string]LLMExpose)
+		llmExposes := make([]LLMExpose, 0, len(device.Exposes))
+
 		for _, expose := range device.Exposes {
 			llmExpose := LLMExpose{
+				Name:         expose.Name,
 				Type:         expose.Type,
 				Unit:         expose.Unit,
 				States:       expose.Values,
@@ -223,18 +226,20 @@ func transformToLLMDeviceContext(response *DeviceContextResponse) *LLMDeviceCont
 				Toggle:       expose.ValueToggle,
 				Aggregations: make([]string, len(expose.Aggregations)),
 			}
+
 			for i, agg := range expose.Aggregations {
 				llmExpose.Aggregations[i] = string(agg)
 			}
-			llmExposes[expose.Name] = llmExpose
+
+			llmExposes = append(llmExposes, llmExpose)
 		}
-		llmDevice := LLMDevice{
+
+		llmDevices = append(llmDevices, LLMDevice{
 			ID:      device.ID,
 			Name:    device.Name,
 			Desc:    device.Description,
 			Exposes: llmExposes,
-		}
-		llmDevices = append(llmDevices, llmDevice)
+		})
 	}
 
 	return &LLMDeviceContext{

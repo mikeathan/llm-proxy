@@ -1,5 +1,7 @@
 package nodeherder
 
+import "strings"
+
 // LLMDeviceContext represents the device context in a format suitable for LLM consumption.
 type LLMDeviceContext struct {
 	Version     string      `json:"version"`
@@ -8,42 +10,60 @@ type LLMDeviceContext struct {
 }
 
 func (c *LLMDeviceContext) Summary() string {
-	var out string
+	var b strings.Builder
 
 	for _, d := range c.Devices {
-		out += "- id: " + d.ID + "\n"
-		out += "  name: " + d.Name + "\n"
+		b.WriteString("- id: ")
+		b.WriteString(d.ID)
+		b.WriteString("\n")
+
+		b.WriteString("  name: ")
+		b.WriteString(d.Name)
+		b.WriteString("\n")
 
 		if len(d.Exposes) > 0 {
-			out += "  exposes:\n"
-			for key, e := range d.Exposes {
-				out += "    - " + key
+			b.WriteString("  exposes:\n")
+
+			for _, e := range d.Exposes {
+				b.WriteString("    - ")
+				b.WriteString(e.Name)
+
 				if e.Unit != "" {
-					out += " (" + e.Unit + ")"
+					b.WriteString(" (")
+					b.WriteString(e.Unit)
+					b.WriteString(")")
 				}
-				out += "\n"
+
+				if len(e.Aggregations) > 0 {
+					b.WriteString(" [")
+					b.WriteString(strings.Join(e.Aggregations, ", "))
+					b.WriteString("]")
+				}
+
+				b.WriteString("\n")
 			}
 		}
 
-		out += "\n"
+		b.WriteString("\n")
 	}
 
-	return out
+	return b.String()
 }
 
 type LLMDevice struct {
-	ID      string               `json:"id"`
-	Name    string               `json:"name"`
-	Desc    string               `json:"desc,omitempty"`
-	Exposes map[string]LLMExpose `json:"exposes"`
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Desc    string      `json:"desc,omitempty"`
+	Exposes []LLMExpose `json:"exposes"`
 }
 
 type LLMExpose struct {
+	Name         string   `json:"name"`
 	Type         string   `json:"type"`
 	Unit         string   `json:"unit,omitempty"`
 	States       []string `json:"states,omitempty"`
-	On           any      `json:"on,omitempty"`
-	Off          any      `json:"off,omitempty"`
-	Toggle       any      `json:"toggle,omitempty"`
+	On           any      `json:"valueOn,omitempty"`
+	Off          any      `json:"valueOff,omitempty"`
+	Toggle       any      `json:"valueToggle,omitempty"`
 	Aggregations []string `json:"aggregations"`
 }

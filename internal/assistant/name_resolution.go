@@ -15,7 +15,14 @@ func ResolveDevice(ctx *nodeherder.LLMDeviceContext, target, expose string) (*no
 		name := normalize(d.Name)
 
 		// Device must support the expose
-		if _, ok := d.Exposes[expose]; !ok {
+		found := false
+		for _, e := range d.Exposes {
+			if normalize(e.Name) == expose {
+				found = true
+				break
+			}
+		}
+		if !found {
 			continue
 		}
 
