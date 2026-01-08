@@ -187,6 +187,19 @@ func buildTimeQuery(t *TimeQueryArgs) (*nodeherder.TimeQuery, error) {
 }
 
 func parseLookback(s string) (time.Duration, error) {
+	s = strings.TrimSpace(strings.ToLower(s))
+
+	switch s {
+	case "day", "1 day":
+		return 24 * time.Hour, nil
+	case "week", "1 week":
+		return 7 * 24 * time.Hour, nil
+	case "hour", "1 hour":
+		return time.Hour, nil
+	case "minute", "1 minute":
+		return time.Minute, nil
+	}
+
 	if strings.HasSuffix(s, "d") {
 		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
 		if err != nil {
@@ -194,5 +207,6 @@ func parseLookback(s string) (time.Duration, error) {
 		}
 		return time.Duration(n) * 24 * time.Hour, nil
 	}
+
 	return time.ParseDuration(s)
 }
