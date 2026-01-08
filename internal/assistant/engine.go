@@ -165,10 +165,9 @@ func buildTimeQuery(t *TimeQueryArgs) (*nodeherder.TimeQuery, error) {
 			return nil, err
 		}
 
+		// TODO: use Clock interface for testability
+
 		to := time.Now().UTC()
-		if t.To != 0 {
-			to = time.UnixMilli(t.To).UTC()
-		}
 		from := to.Add(-dur)
 
 		q.From = from
