@@ -7,6 +7,8 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -118,15 +120,35 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 
 	var timeQuery *nodeherder.TimeQuery
 	if args.Time != nil {
-		tq := &nodeherder.TimeQuery{
-			Lookback: args.Time.Lookback,
+		tq := &nodeherder.TimeQuery{}
+
+		// If the model sends to==from, treat "to" as not provided.
+		if args.Time.To != 0 && args.Time.To == args.Time.From {
+			args.Time.To = 0
 		}
 
-		if args.Time.From != 0 {
-			tq.From = time.UnixMilli(args.Time.From)
-		}
-		if args.Time.To != 0 {
-			tq.To = time.UnixMilli(args.Time.To)
+		// If lookback is set, compute a concrete range and DO NOT send lookback to NodeHerder.
+		if args.Time.Lookback != "" {
+			dur, err := parseLookback(args.Time.Lookback)
+			if err != nil {
+				return nil, fmt.Errorf("invalid lookback %q: %w", args.Time.Lookback, err)
+			}
+
+			to := time.Now().UTC()
+			if args.Time.To != 0 {
+				to = time.UnixMilli(args.Time.To).UTC()
+			}
+			from := to.Add(-dur)
+
+			tq.From = from
+			tq.To = to
+		} else {
+			if args.Time.From != 0 {
+				tq.From = time.UnixMilli(args.Time.From).UTC()
+			}
+			if args.Time.To != 0 {
+				tq.To = time.UnixMilli(args.Time.To).UTC()
+			}
 		}
 
 		timeQuery = tq
@@ -139,4 +161,16 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 		Aggregation: args.Aggregation,
 		Resolution:  args.Resolution,
 	}, nil
+}
+
+func parseLookback(s string) (time.Duration, error) {
+	if strings.HasSuffix(s, "d") {
+		nStr := strings.TrimSuffix(s, "d")
+		n, err := strconv.Atoi(nStr)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }

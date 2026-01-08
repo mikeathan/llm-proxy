@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -182,7 +183,8 @@ func (h *AssistantMessageHandler) processToolCall(
 		return &handlerError{Status: 500, Message: "tool execution failed"}
 	}
 
-	// Convert raw NodeHerder response into a compact, model-friendly structure.
+	b, _ := json.MarshalIndent(toolResult.Response, "", "  ")
+	log.Debug("nodeherder response", "data", string(b)) // Convert raw NodeHerder response into a compact, model-friendly structure.
 	// This removes irrelevant fields and normalizes timestamps, values, etc.
 	normalized := assistant.NormalizeMetrics(
 		toolResult.Response,
