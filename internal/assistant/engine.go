@@ -149,8 +149,29 @@ func (q QueryMetricsArgs) Validate() error {
 }
 
 func buildTimeQuery(t *TimeQueryArgs) (*nodeherder.TimeQuery, error) {
+
 	if t == nil {
 		return nil, nil
+	}
+
+	if t.From < 0 {
+		t.From = 0
+	}
+	if t.To < 0 {
+		t.To = 0
+	}
+
+	switch t.Lookback {
+	case "", "10s", "30s", "1m", "5m", "10m", "30m",
+		"1h", "6h", "12h", "24h", "1d", "7d", "30d":
+		// allowed
+	default:
+		// reject or normalize nonsense like "last"
+		t.Lookback = ""
+	}
+
+	if t.Lookback == "" && t.From == 0 && t.To == 0 {
+		t.Lookback = "24h"
 	}
 
 	q := &nodeherder.TimeQuery{}
