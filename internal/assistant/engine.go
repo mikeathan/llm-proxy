@@ -14,7 +14,7 @@ type QueryMetricsArgs struct {
 	DeviceID    string         `json:"device_id"`
 	Expose      string         `json:"expose"`
 	Time        *TimeQueryArgs `json:"time,omitempty"`
-	Aggregation string         `json:"aggregation,omitempty"`
+	Aggregation string         `json:"aggregation"`
 	Resolution  string         `json:"resolution,omitempty"`
 }
 
@@ -102,6 +102,11 @@ func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, 
 
 	if err := args.Validate(); err != nil {
 		return nil, err
+	}
+
+	// Enforce deterministic defaults (LLM is unreliable here)
+	if args.Aggregation == "" {
+		args.Aggregation = string(nodeherder.AggLast)
 	}
 
 	var timeQuery *nodeherder.TimeQuery

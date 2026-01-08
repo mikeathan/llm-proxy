@@ -88,7 +88,7 @@ func TestAbsConfigPath_ResolvesRelative(t *testing.T) {
 	}
 }
 
-func TestEnvFilePaths_UsesDefaultConfigPath(t *testing.T) {
+func TestEnvFilePaths_UsesWorkingDir(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
 	if err != nil {

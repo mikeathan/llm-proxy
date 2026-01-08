@@ -47,18 +47,10 @@ func GetAbsoluteConfigPath(configPath string) string {
 }
 
 func envBaseDir() string {
-	configPath := GetAbsoluteConfigPath(DefaultConfigPath)
-	if configPath == "" {
-		return "."
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		return wd
 	}
-	dir := filepath.Dir(configPath)
-	if filepath.Base(dir) == "config" {
-		dir = filepath.Dir(dir)
-	}
-	if dir == "" {
-		return "."
-	}
-	return dir
+	return "."
 }
 
 func Require(key string) string {

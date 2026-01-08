@@ -28,5 +28,5 @@ type LLMExpose struct {
 	On           any      `json:"on,omitempty"`
 	Off          any      `json:"off,omitempty"`
 	Toggle       any      `json:"toggle,omitempty"`
-	Aggregations []string `json:"aggregations,omitempty"`
+	Aggregations []string `json:"aggregations"`
 }
