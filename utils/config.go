@@ -47,6 +47,12 @@ func GetAbsoluteConfigPath(configPath string) string {
 }
 
 func envBaseDir() string {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+			return filepath.Dir(resolved)
+		}
+		return filepath.Dir(exe)
+	}
 	if wd, err := os.Getwd(); err == nil && wd != "" {
 		return wd
 	}

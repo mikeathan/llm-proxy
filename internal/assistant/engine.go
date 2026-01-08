@@ -59,6 +59,13 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 			return nil, err
 		}
 
+		a.logger.Info("normalized tool request",
+			"device", req.DeviceIDs,
+			"expose", req.Expose,
+			"aggregation", req.Aggregation,
+			"time", req.Time,
+		)
+
 		res, err := a.nodeherder.QueryMetrics(ctx, req)
 		if err != nil {
 			a.logger.Error("tool execution failed", "name", call.Function.Name, "error", err)

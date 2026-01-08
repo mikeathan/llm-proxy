@@ -88,25 +88,20 @@ func TestAbsConfigPath_ResolvesRelative(t *testing.T) {
 	}
 }
 
-func TestEnvFilePaths_UsesWorkingDir(t *testing.T) {
-	dir := t.TempDir()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(wd)
-	})
+func TestEnvFilePaths_UsesExecutableDir(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 
 	gotEnv, gotEnvApp := utils.EnvFilePaths()
-	wantDir, err := filepath.EvalSymlinks(dir)
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("executable: %v", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
 	if err != nil {
 		t.Fatalf("eval symlinks: %v", err)
 	}
+	wantDir := filepath.Dir(exe)
 	wantEnv := filepath.Join(wantDir, ".env")
 	wantEnvApp := filepath.Join(wantDir, ".env.production")
 
