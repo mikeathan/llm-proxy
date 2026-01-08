@@ -446,7 +446,8 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		envUpdates["SERVICE_CLIENT_SECRET"] = req.ServiceClientSecret
 	}
 	if len(envUpdates) > 0 {
-		if err := utils.UpdateEnvFile(".env", envUpdates); err != nil {
+		envPath, _ := utils.EnvFilePaths()
+		if err := utils.UpdateEnvFile(envPath, envUpdates); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "failed to save env: "+err.Error())
 			return
 		}

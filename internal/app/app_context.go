@@ -32,6 +32,7 @@ func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *A
 		dir = cfg.ModelDir
 		gpuCfg = cfg.Metrics.GPU
 	}
+	configPath = utils.GetAbsoluteConfigPath(configPath)
 
 	s := &AppContext{
 		manager:    mgr,
@@ -54,6 +55,10 @@ func (a *AppContext) DefaultModel() (string, error) {
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
+}
+
+func (s *AppContext) ConfigPath() string {
+	return s.configPath
 }
 
 func (s *AppContext) refreshMetricsService() {

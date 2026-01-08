@@ -7,25 +7,58 @@ import (
 	"llm-proxy/models"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/joho/godotenv"
 )
 
+const DefaultConfigPath = "config/config.json"
+
 func LoadEnv() {
+	envPath, envFile := EnvFilePaths()
+
+	if err := godotenv.Load(envPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("failed to load %s: %v", envPath, err)
+	}
+
+	if err := godotenv.Load(envFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("failed to load %s: %v", envFile, err)
+	}
+}
+
+func EnvFilePaths() (string, string) {
 	env := os.Getenv("APP_ENV")
 	if env == "" {
 		env = "development"
 	}
+	baseDir := envBaseDir()
+	return filepath.Join(baseDir, ".env"), filepath.Join(baseDir, ".env."+env)
+}
 
-	if err := godotenv.Load(".env"); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("failed to load .env: %v", err)
+func GetAbsoluteConfigPath(configPath string) string {
+	if configPath == "" {
+		return ""
 	}
+	if absPath, err := filepath.Abs(configPath); err == nil {
+		return absPath
+	}
+	return configPath
+}
 
-	envFile := ".env." + env
-	if err := godotenv.Load(envFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("failed to load %s: %v", envFile, err)
+func envBaseDir() string {
+	configPath := GetAbsoluteConfigPath(DefaultConfigPath)
+	if configPath == "" {
+		return "."
 	}
+	dir := filepath.Dir(configPath)
+	if filepath.Base(dir) == "config" {
+		dir = filepath.Dir(dir)
+	}
+	if dir == "" {
+		return "."
+	}
+	return dir
 }
 
 func Require(key string) string {

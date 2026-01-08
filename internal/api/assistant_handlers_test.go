@@ -545,6 +545,86 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp
 	}
 }
 
+func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NoDataNote(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     10,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId: "dev1",
+				Value:    nil,
+			},
+		},
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "query_metrics",
+										Arguments: `{"device_id":"dev1","expose":"temperature","aggregation":"avg"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "done"}},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if len(mockClient.Requests) < 2 {
+		t.Fatalf("expected second chat request, got %d", len(mockClient.Requests))
+	}
+
+	toolMsg := mockClient.Requests[1].Messages[3]
+	if toolMsg.Role != proxy.ToolRole {
+		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
+	}
+	if !strings.Contains(toolMsg.Content, `"note":"no data available for this query"`) {
+		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
+	}
+}
+
 func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)

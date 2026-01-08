@@ -1,6 +1,8 @@
 package utils_test
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -58,5 +60,60 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Server.LlamaServerBinary != "new-binary" {
 		t.Fatalf("unexpected llama binary: %s", cfg.Server.LlamaServerBinary)
+	}
+}
+
+func TestAbsConfigPath_ResolvesRelative(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	rel := filepath.Join("config", "config.json")
+	got := utils.GetAbsoluteConfigPath(rel)
+	wantDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	want := filepath.Join(wantDir, rel)
+	if got != want {
+		t.Fatalf("expected %s, got %s", want, got)
+	}
+}
+
+func TestEnvFilePaths_UsesDefaultConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	t.Setenv("APP_ENV", "production")
+
+	gotEnv, gotEnvApp := utils.EnvFilePaths()
+	wantDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	wantEnv := filepath.Join(wantDir, ".env")
+	wantEnvApp := filepath.Join(wantDir, ".env.production")
+
+	if gotEnv != wantEnv {
+		t.Fatalf("expected %s, got %s", wantEnv, gotEnv)
+	}
+	if gotEnvApp != wantEnvApp {
+		t.Fatalf("expected %s, got %s", wantEnvApp, gotEnvApp)
 	}
 }

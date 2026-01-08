@@ -167,30 +167,50 @@ func (h *AssistantMessageHandler) callModel(ctx context.Context, client proxy.Cl
 	return msg, nil
 }
 
-func (h *AssistantMessageHandler) processToolCall(ctx context.Context, msg proxy.Message, history *[]proxy.Message, log logging.Logger) *handlerError {
+func (h *AssistantMessageHandler) processToolCall(
+	ctx context.Context,
+	msg proxy.Message,
+	history *[]proxy.Message,
+	log logging.Logger,
+) *handlerError {
 
 	tc := msg.ToolCalls[0]
-
 	log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
 
-	result, err := h.engine.ExecuteTool(ctx, tc)
+	toolResult, err := h.engine.ExecuteTool(ctx, tc)
 	if err != nil {
 		return &handlerError{Status: 500, Message: "tool execution failed"}
 	}
 
-	// Normalize the tool result for model consumption
-	normalized := assistant.NormalizeMetrics(result.Response, result.Aggregation)
-
-	// Record the model's tool request in the conversation history.
-	// The assistant message contains the tool call but no user-facing content.
-	// This is required so the model can continue reasoning with the tool result.
-	*history = append(*history,
-		proxy.Message{Role: proxy.AssistantRole, Content: "", ToolCalls: msg.ToolCalls},
-
-		// Feed the tool's raw result back into the model as an observation.
-		// This becomes the factual input for the model's next reasoning step.
-		proxy.Message{Role: proxy.ToolRole, Content: utils.ToJson(normalized)},
+	// Convert raw NodeHerder response into a compact, model-friendly structure.
+	// This removes irrelevant fields and normalizes timestamps, values, etc.
+	normalized := assistant.NormalizeMetrics(
+		toolResult.Response,
+		toolResult.Aggregation,
 	)
+
+	// Record the model's tool call in the conversation history.
+	*history = append(*history, proxy.Message{
+		Role:      proxy.AssistantRole,
+		Content:   "",
+		ToolCalls: msg.ToolCalls,
+	})
+
+	// Decide what observation to return to the model:
+	// either the normalized metric data, or a structured "no data" response.
+	var observation any = normalized
+	if normalized.Value == nil {
+		observation = map[string]any{
+			"note": "no data available for this query",
+		}
+	}
+
+	// Feed the observation back into the conversation.
+	// The model will now reason using this factual input.
+	*history = append(*history, proxy.Message{
+		Role:    proxy.ToolRole,
+		Content: utils.ToJson(observation),
+	})
 
 	return nil
 }

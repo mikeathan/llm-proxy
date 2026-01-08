@@ -24,7 +24,7 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		ts = &t
 	}
 
-	return MetricResult{
+	result := MetricResult{
 		Metric:    resp.Expose,
 		DeviceID:  resp.Values[0].DeviceId,
 		Operation: string(aggregation),
@@ -33,4 +33,21 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		To:        time.UnixMilli(resp.To),
 		Timestamp: ts,
 	}
+
+	if len(resp.Values) == 0 {
+		return result
+	}
+
+	v := resp.Values[0]
+	result.DeviceID = v.DeviceId
+	result.Value = v.Value
+
+	switch aggregation {
+	case nodeherder.AggLast, nodeherder.AggMin, nodeherder.AggMax:
+		if v.Timestamp > 0 {
+			t := time.UnixMilli(v.Timestamp)
+			result.Timestamp = &t
+		}
+	}
+	return result
 }

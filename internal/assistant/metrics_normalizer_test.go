@@ -73,3 +73,29 @@ func TestNormalizeMetrics_TimestampHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeMetrics_NilValue(t *testing.T) {
+	resp := &nodeherder.MetricsQueryResponse{
+		Expose: "humidity",
+		From:   1,
+		To:     2,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId:  "dev2",
+				Value:     nil,
+				Timestamp: 0,
+			},
+		},
+	}
+
+	result := assistant.NormalizeMetrics(resp, nodeherder.AggAvg)
+	if result.Value != nil {
+		t.Fatalf("expected value to be nil, got %v", result.Value)
+	}
+	if result.Timestamp != nil {
+		t.Fatalf("expected timestamp to be nil, got %v", result.Timestamp)
+	}
+	if result.Operation != "avg" {
+		t.Fatalf("expected operation %q, got %q", "avg", result.Operation)
+	}
+}
