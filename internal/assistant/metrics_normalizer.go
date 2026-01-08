@@ -28,6 +28,16 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 
 	v := resp.Values[0]
 
+	if v.Value == nil {
+		return MetricResult{
+			Metric:    resp.Expose,
+			DeviceID:  v.DeviceId,
+			Operation: string(aggregation),
+			From:      time.UnixMilli(resp.From),
+			To:        time.UnixMilli(resp.To),
+		}
+	}
+
 	var ts *time.Time
 	switch aggregation {
 	case nodeherder.AggLast, nodeherder.AggMin, nodeherder.AggMax:
