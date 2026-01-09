@@ -36,7 +36,7 @@ func ResolveDevice(ctx *nodeherder.LLMDeviceContext, target, expose string) (*no
 		}
 
 		// Semantic name match
-		if !strings.Contains(name, t) && !strings.Contains(t, name) {
+		if !tokenMatch(name, t) {
 			continue
 		}
 
@@ -66,4 +66,29 @@ func normalize(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.Join(strings.Fields(s), " ")
 	return s
+}
+
+func tokenMatch(a, b string) bool {
+	as := strings.Fields(a)
+	bs := strings.Fields(b)
+
+	hits := 0
+	for _, x := range as {
+		for _, y := range bs {
+			if x == y {
+				hits++
+				break
+			}
+		}
+	}
+
+	// Require at least 2 shared tokens OR 60% overlap
+	minHits := 2
+	threshold := int(float64(len(bs)) * 0.6)
+
+	if hits >= minHits || hits >= threshold {
+		return true
+	}
+
+	return false
 }
