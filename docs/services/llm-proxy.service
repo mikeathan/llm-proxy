@@ -9,13 +9,10 @@ Group=mikeathan
 WorkingDirectory=/home/mikeathan/dev/llm-proxy
 Environment=APP_ENV=production
 ReadWritePaths=/home/mikeathan/dev/llm-proxy
-
 ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy
 Restart=always
 RestartSec=3
-
-# Make sure it doesn't get killed when SSH ends
-KillMode=process
+KillMode=control-group
 
 # Hardening options
 NoNewPrivileges=true

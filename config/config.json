@@ -6,18 +6,30 @@
     "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
     "default_args": [
       "--ctx-size",
-      "4096",
+      "2048",
       "--threads",
       "6",
+      "--n-batch",
+      "512",
+      "--n-ubatch",
+      "128",
+      "--parallel",
+      "1",
       "--gpu-layers",
       "999",
+
+      "--cache-ram",
+      "2048",
+      "--mlock",
+      "--no-mmap",
+
       "--host",
       "0.0.0.0"
     ]
   },
   "models": [
     {
-      "name": "qwen2.5-7b",
+      "name": "qwen2.5-3b-instruct",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "args": [],
       "port": 5001
