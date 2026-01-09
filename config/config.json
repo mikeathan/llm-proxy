@@ -9,12 +9,14 @@
       "2048",
       "--threads",
       "6",
-      "--n-batch",
+
+      "--batch-size",
       "512",
-      "--n-ubatch",
+      "--ubatch-size",
       "128",
       "--parallel",
       "1",
+
       "--gpu-layers",
       "999",
 
