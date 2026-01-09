@@ -6,6 +6,15 @@ import (
 	"strings"
 )
 
+type AmbiguousDeviceError struct {
+	Target  string
+	Matches []string
+}
+
+func (e *AmbiguousDeviceError) Error() string {
+	return fmt.Sprintf("ambiguous device %q; matches: %s", e.Target, strings.Join(e.Matches, ", "))
+}
+
 func ResolveDevice(ctx *nodeherder.LLMDeviceContext, target, expose string) (*nodeherder.LLMDevice, error) {
 	t := normalize(target)
 
@@ -43,7 +52,10 @@ func ResolveDevice(ctx *nodeherder.LLMDeviceContext, target, expose string) (*no
 		for _, d := range matches {
 			names = append(names, d.Name)
 		}
-		return nil, fmt.Errorf("ambiguous device %q; matches: %s", target, strings.Join(names, ", "))
+		return nil, &AmbiguousDeviceError{
+			Target:  target,
+			Matches: names,
+		}
 	}
 
 	return &matches[0], nil

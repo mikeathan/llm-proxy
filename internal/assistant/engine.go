@@ -92,6 +92,24 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 
 	device, err := ResolveDevice(deviceCtx, args.TargetName, args.Expose)
 	if err != nil {
+		if amb, ok := err.(*AmbiguousDeviceError); ok {
+			reply := fmt.Sprintf(
+				"I found multiple devices matching '%s': %s. Which one do you mean?",
+				amb.Target,
+				strings.Join(amb.Matches, ", "),
+			)
+
+			// Return conversational response instead of failing tool
+			return &ToolResult{
+				Response: &nodeherder.MetricsQueryResponse{
+					Expose: "clarification",
+					Values: []nodeherder.MetricsQueryDeviceResponse{
+						{Value: reply},
+					},
+				},
+			}, nil
+		}
+
 		a.logger.Error("device resolution failed",
 			"target", args.TargetName,
 			"expose", args.Expose,
