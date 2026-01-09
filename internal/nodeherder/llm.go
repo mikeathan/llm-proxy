@@ -29,13 +29,13 @@ func (c *LLMDeviceContext) Summary() string {
 				b.WriteString(e.Name)
 
 				if e.Unit != "" {
-					b.WriteString(" (")
+					b.WriteString("  [unit: ")
 					b.WriteString(e.Unit)
-					b.WriteString(")")
+					b.WriteString("]")
 				}
 
 				if len(e.Aggregations) > 0 {
-					b.WriteString(" [")
+					b.WriteString("  [aggregations: ")
 					b.WriteString(strings.Join(e.Aggregations, ", "))
 					b.WriteString("]")
 				}
