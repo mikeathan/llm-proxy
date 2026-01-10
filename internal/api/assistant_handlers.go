@@ -8,16 +8,15 @@ import (
 	"time"
 
 	"llm-proxy/internal/assistant"
+	"llm-proxy/internal/assistant/devices"
+	"llm-proxy/internal/assistant/pending"
+	"llm-proxy/internal/assistant/tools"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 	"llm-proxy/utils"
-)
-
-const (
-	MaxRetries = 5
 )
 
 type AssistantMessage struct {
@@ -33,6 +32,7 @@ type AssistantMessageHandler struct {
 	limiter  ratelimiter.Limiter
 	logger   logging.Logger
 	engine   assistant.Engine
+	pending  pending.PendingToolCallStore
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
@@ -43,6 +43,7 @@ func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandl
 		limiter:  service.Limiter(),
 		logger:   service.Logger(),
 		engine:   service.Engine(),
+		pending:  service.Pending(),
 	}
 }
 
@@ -99,6 +100,13 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 // 3. Execute requested tools and feed results back to the model
 // 4. Return the model's final answer
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
+	// handleAssistant orchestrates a full agent cycle and shortcuts into the
+	// clarification flow when a prior device match was ambiguous.
+	if payload.ConversationID != "" {
+		if result, ok := h.handlePending(ctx, payload, log); ok {
+			return result, nil
+		}
+	}
 
 	deviceCtx, err := h.loadDeviceContext(log)
 	if err != nil {
@@ -114,7 +122,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	// runAgentLoop drives the model/tool execution cycle until the model
 	// produces a final answer or the step limit is reached.
-	return h.runAgentLoop(ctx, client, history, log)
+	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID)
 }
 
 // runAgentLoop drives the agent execution:
@@ -122,22 +130,37 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 // Each tool call is executed, its result is injected into the history,
 // and the model is called again. When no tool calls remain, the model's
 // message is considered the final answer and the loop exits.
-func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger) (any, *handlerError) {
+func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string) (any, *handlerError) {
+	// runAgentLoop drives model→tool→model iteration, with separate retry budgets
+	// for transient model failures vs tool execution failures.
+	const maxSteps = 5
+	const maxModelRetries = 3
 
-	for range MaxRetries {
-
-		msg, err := h.callModel(ctx, client, history, log)
+	for step := 0; step < maxSteps; step++ {
+		var msg proxy.Message
+		var err *handlerError
+		for attempt := 0; attempt < maxModelRetries; attempt++ {
+			msg, err = h.callModel(ctx, client, history, log)
+			if err == nil {
+				break
+			}
+			log.Warn("llm retry", "attempt", attempt+1, "error", err.Message)
+		}
 		if err != nil {
 			return nil, err
 		}
 
 		if len(msg.ToolCalls) == 0 {
-			// Model has enough information; finish the conversation
 			return map[string]any{"reply": msg.Content}, nil
 		}
 
-		if err := h.processToolCall(ctx, msg, &history, log); err != nil {
+		result, err := h.processToolCall(ctx, msg, &history, log, conversationID)
+		if err != nil {
+			log.Error("tool execution failed", "error", err.Message)
 			return nil, err
+		}
+		if result != nil {
+			return result, nil
 		}
 	}
 
@@ -146,9 +169,11 @@ func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy
 
 func (h *AssistantMessageHandler) callModel(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger) (proxy.Message, *handlerError) {
 
+	// callModel is the only place that invokes the LLM. Its errors are retried
+	// separately from tool execution to preserve deterministic tool handling.
 	req := proxy.ChatRequest{
 		Messages:   history,
-		Tools:      []proxy.Tool{assistant.MetricsToolSchema()},
+		Tools:      []proxy.Tool{tools.MetricsToolSchema()},
 		ToolChoice: proxy.ToolChoiceAuto,
 	}
 
@@ -173,33 +198,49 @@ func (h *AssistantMessageHandler) processToolCall(
 	msg proxy.Message,
 	history *[]proxy.Message,
 	log logging.Logger,
-) *handlerError {
-
+	conversationID string,
+) (any, *handlerError) {
+	// processToolCall executes the requested tool and appends a compact observation
+	// for the model's next reasoning step.
 	tc := msg.ToolCalls[0]
 	log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
 
 	toolResult, err := h.engine.ExecuteTool(ctx, tc)
 	if err != nil {
-		return &handlerError{Status: 500, Message: "tool execution failed"}
+		if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
+			h.pending.Set(conversationID, pending.PendingToolCallState{
+				ToolCall:   tc,
+				History:    append([]proxy.Message(nil), (*history)...),
+				Candidates: amb.Candidates,
+				Target:     amb.Target,
+				Expose:     amb.Expose,
+			})
+			reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
+			return map[string]any{"reply": reply}, nil
+		}
+		return nil, &handlerError{Status: 500, Message: "tool execution failed"}
 	}
 
 	b, _ := json.MarshalIndent(toolResult.Response, "", "  ")
-	log.Debug("nodeherder response", "data", string(b)) // Convert raw NodeHerder response into a compact, model-friendly structure.
-	// This removes irrelevant fields and normalizes timestamps, values, etc.
+	log.Debug("nodeherder response", "data", string(b))
+	h.appendToolObservation(history, msg.ToolCalls, toolResult)
+
+	return nil, nil
+}
+
+func (h *AssistantMessageHandler) appendToolObservation(history *[]proxy.Message, toolCalls []proxy.ToolCall, toolResult *assistant.ToolResult) {
+	// Append both the tool call and its observation so the model can ground its next response.
 	normalized := assistant.NormalizeMetrics(
 		toolResult.Response,
 		toolResult.Aggregation,
 	)
 
-	// Record the model's tool call in the conversation history.
 	*history = append(*history, proxy.Message{
 		Role:      proxy.AssistantRole,
 		Content:   "",
-		ToolCalls: msg.ToolCalls,
+		ToolCalls: toolCalls,
 	})
 
-	// Decide what observation to return to the model:
-	// either the normalized metric data, or a structured "no data" response.
 	var observation any = normalized
 	if normalized.Value == nil {
 		observation = map[string]any{
@@ -207,18 +248,14 @@ func (h *AssistantMessageHandler) processToolCall(
 		}
 	}
 
-	// Feed the observation back into the conversation.
-	// The model will now reason using this factual input.
 	*history = append(*history, proxy.Message{
 		Role:    proxy.ToolRole,
 		Content: utils.ToJson(observation),
 	})
-
-	return nil
 }
 
 func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage, deviceCtx *nodeherder.LLMDeviceContext) []proxy.Message {
-
+	// Build a compact system prompt that caps device context to avoid context overflow.
 	return []proxy.Message{
 		{
 			Role: proxy.SystemRole,
@@ -226,7 +263,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage,
 				payload.ConversationID,
 				payload.ContextVersion,
 				payload.Timezone,
-				deviceCtx.Summary(),
+				deviceCtx.SummaryWithLimit(tools.DefaultSummaryMaxLen),
 			),
 		},
 		{
@@ -234,6 +271,44 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage,
 			Content: payload.Message,
 		},
 	}
+}
+
+func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, bool) {
+	// handlePending resolves a user-selected device for an ambiguous match
+	// without re-entering the LLM until the tool result is ready.
+	state, ok := h.pending.Get(payload.ConversationID)
+	if !ok {
+		return nil, false
+	}
+
+	candidate, resolved := pending.ResolvePendingToolCall(payload.Message, state.Candidates)
+	if !resolved {
+		reply := pending.FormatPendingPrompt(state.Target, state.Expose, state.Candidates)
+		return map[string]any{"reply": reply}, true
+	}
+
+	h.pending.Clear(payload.ConversationID)
+
+	toolResult, err := h.engine.ExecuteToolWithDevice(ctx, state.ToolCall, candidate.ID)
+	if err != nil {
+		log.Error("tool execution failed after clarification", "error", err)
+		return map[string]any{"reply": "Failed to run the metrics query after clarification."}, true
+	}
+
+	history := append([]proxy.Message(nil), state.History...)
+	h.appendToolObservation(&history, []proxy.ToolCall{state.ToolCall}, toolResult)
+
+	client, herr := h.getLLMClient(ctx, log)
+	if herr != nil {
+		return map[string]any{"reply": "Metrics collected, but failed to reach the model."}, true
+	}
+
+	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID)
+	if err != nil {
+		return map[string]any{"reply": "Metrics collected, but failed to complete the response."}, true
+	}
+
+	return result, true
 }
 
 func (h *AssistantMessageHandler) loadDeviceContext(log logging.Logger) (*nodeherder.LLMDeviceContext, *handlerError) {

@@ -6,25 +6,13 @@
     "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
     "default_args": [
       "--ctx-size",
-      "2048",
+      "4096",
       "--threads",
       "6",
-
-      "--batch-size",
-      "512",
-      "--ubatch-size",
-      "128",
       "--parallel",
       "1",
-
       "--gpu-layers",
       "999",
-
-      "--cache-ram",
-      "2048",
-      "--mlock",
-      "--no-mmap",
-
       "--host",
       "0.0.0.0"
     ]

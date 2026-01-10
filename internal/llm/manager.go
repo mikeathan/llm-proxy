@@ -267,9 +267,18 @@ func (m *LLMRuntimeManager) stopLocked() error {
 	}
 
 	cmd := m.activeModel.cmd
+	if m.activeModel.cancel != nil {
+		m.activeModel.cancel()
+	}
 
 	// Try graceful stop
-	_ = cmd.Process.Signal(syscall.SIGTERM)
+	if cmd.Process != nil {
+		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
+			_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		} else {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -280,7 +289,13 @@ func (m *LLMRuntimeManager) stopLocked() error {
 	select {
 	case <-done:
 	case <-time.After(shutdownTimeout):
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil {
+			if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			} else {
+				_ = cmd.Process.Kill()
+			}
+		}
 	}
 
 	m.activeModel = nil

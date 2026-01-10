@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"llm-proxy/internal/assistant"
+	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
@@ -15,6 +16,7 @@ type MockAssistantService struct {
 	LoggerRef   logging.Logger
 	Model       string
 	EngineRef   assistant.Engine
+	PendingRef  pending.PendingToolCallStore
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.NodeHerderService {
@@ -42,4 +44,11 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 		return m.EngineRef
 	}
 	return assistant.NewEngine(m.Herder, m.LoggerRef)
+}
+
+func (m *MockAssistantService) Pending() pending.PendingToolCallStore {
+	if m.PendingRef != nil {
+		return m.PendingRef
+	}
+	return pending.NewInMemoryPendingToolCallStore()
 }

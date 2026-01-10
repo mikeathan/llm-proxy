@@ -182,12 +182,18 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 		t.Fatalf("unexpected device mapping")
 	}
 
-	temp := dev.Exposes["temperature"]
+	temp, ok := findExpose(dev.Exposes, "temperature")
+	if !ok {
+		t.Fatalf("expected temperature expose")
+	}
 	if temp.Type != "numeric" || temp.Unit != "°C" {
 		t.Fatalf("numeric expose not transformed correctly")
 	}
 
-	state := dev.Exposes["state"]
+	state, ok := findExpose(dev.Exposes, "state")
+	if !ok {
+		t.Fatalf("expected state expose")
+	}
 	if state.Type != "binary" {
 		t.Fatalf("binary expose type incorrect")
 	}
@@ -197,6 +203,15 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 	if len(state.States) != 2 || state.States[0] != "OFF" || state.States[1] != "ON" {
 		t.Fatalf("binary expose states incorrect")
 	}
+}
+
+func findExpose(exposes []nodeherder.LLMExpose, name string) (nodeherder.LLMExpose, bool) {
+	for _, expose := range exposes {
+		if expose.Name == name {
+			return expose, true
+		}
+	}
+	return nodeherder.LLMExpose{}, false
 }
 
 // NodeHerder Query Metrics Tests

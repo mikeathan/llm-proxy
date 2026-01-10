@@ -2,29 +2,14 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/assistant/devices"
+	"llm-proxy/internal/assistant/tools"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
-	"strconv"
 	"strings"
-	"time"
 )
-
-type QueryMetricsArgs struct {
-	TargetName  string         `json:"target_name"` // semantic device name (e.g. "garden")
-	Expose      string         `json:"expose"`
-	Time        *TimeQueryArgs `json:"time,omitempty"`
-	Aggregation string         `json:"aggregation,omitempty"`
-	Resolution  string         `json:"resolution,omitempty"`
-}
-
-type TimeQueryArgs struct {
-	From     int64  `json:"from,omitempty"`
-	To       int64  `json:"to,omitempty"`
-	Lookback string `json:"lookback,omitempty"`
-}
 
 type ToolResult struct {
 	Response    *nodeherder.MetricsQueryResponse
@@ -33,30 +18,36 @@ type ToolResult struct {
 
 type Engine interface {
 	ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error)
+	ExecuteToolWithDevice(ctx context.Context, call proxy.ToolCall, deviceID string) (*ToolResult, error)
 }
 
 type assistantEngine struct {
 	nodeherder nodeherder.NodeHerderService
 	logger     logging.Logger
+	clock      tools.Clock
+	normalize  tools.NormalizeConfig
 }
 
 func NewEngine(nodeherder nodeherder.NodeHerderService, logger logging.Logger) Engine {
 	return &assistantEngine{
 		nodeherder: nodeherder,
 		logger:     logger,
+		clock:      tools.RealClock{},
+		normalize:  tools.DefaultNormalizeConfig(),
 	}
 }
 
 func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error) {
-
+	// ExecuteTool parses and normalizes LLM tool args, resolves a device, and executes
+	// the metrics query with a sanitized request.
 	a.logger.Info("tool call", "name", call.Function.Name, "conversation", call.ID)
 
 	if call.Function.Name != "query_metrics" {
 		return nil, fmt.Errorf("unknown tool: %s", call.Function.Name)
 	}
 
-	var args QueryMetricsArgs
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+	args, err := tools.ParseMetricsArgs(call.Function.Arguments)
+	if err != nil {
 		return nil, err
 	}
 
@@ -67,82 +58,66 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 		"time", args.Time,
 	)
 
-	if err := args.Validate(); err != nil {
+	normalized, err := tools.NormalizeMetricsArgs(args, a.normalize, a.clock)
+	if err != nil {
 		return nil, err
 	}
 
-	// Enforce deterministic defaults
-	if args.Aggregation == "" {
-		args.Aggregation = string(nodeherder.AggLast)
-	}
-
-	// Load device context
 	deviceCtx, err := a.nodeherder.GetDeviceContext()
 	if err != nil {
 		return nil, err
 	}
-	a.logger.Debug("device context loaded",
-		"device_count", len(deviceCtx.Devices),
-	)
+	a.logger.Debug("device context loaded", "device_count", len(deviceCtx.Devices))
 
 	a.logger.Debug("resolving device",
-		"target", args.TargetName,
-		"expose", args.Expose,
+		"target", normalized.TargetName,
+		"expose", normalized.Expose,
 	)
 
-	device, err := ResolveDevice(deviceCtx, args.TargetName, args.Expose)
-	if err != nil {
-		if amb, ok := err.(*AmbiguousDeviceError); ok {
-			reply := fmt.Sprintf(
-				"I found multiple devices matching '%s': %s. Which one do you mean?",
-				amb.Target,
-				strings.Join(amb.Matches, ", "),
-			)
-
-			// Return conversational response instead of failing tool
-			return &ToolResult{
-				Response: &nodeherder.MetricsQueryResponse{
-					Expose: "clarification",
-					Values: []nodeherder.MetricsQueryDeviceResponse{
-						{Value: reply},
-					},
-				},
-			}, nil
-		}
-
-		a.logger.Error("device resolution failed",
-			"target", args.TargetName,
-			"expose", args.Expose,
-			"error", err,
-		)
-		return nil, err
-	}
-
-	a.logger.Info("device resolved",
-		"name", device.Name,
-		"id", device.ID,
-	)
-
-	timeQuery, err := buildTimeQuery(args.Time)
+	device, err := devices.ResolveDevice(deviceCtx, normalized.TargetName, normalized.Expose)
 	if err != nil {
 		return nil, err
 	}
-	a.logger.Debug("normalized time query",
-		"input", args.Time,
-		"result", timeQuery,
-	)
 
+	return a.executeMetrics(ctx, normalized, device.ID, device.Name)
+}
+
+func (a *assistantEngine) ExecuteToolWithDevice(ctx context.Context, call proxy.ToolCall, deviceID string) (*ToolResult, error) {
+	// ExecuteToolWithDevice bypasses resolution after clarification and reuses the
+	// normalized tool args for the resolved device id.
+	if call.Function.Name != "query_metrics" {
+		return nil, fmt.Errorf("unknown tool: %s", call.Function.Name)
+	}
+
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device_id is required")
+	}
+
+	args, err := tools.ParseMetricsArgs(call.Function.Arguments)
+	if err != nil {
+		return nil, err
+	}
+
+	normalized, err := tools.NormalizeMetricsArgs(args, a.normalize, a.clock)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.executeMetrics(ctx, normalized, deviceID, "")
+}
+
+func (a *assistantEngine) executeMetrics(ctx context.Context, normalized tools.NormalizedMetricsArgs, deviceID, deviceName string) (*ToolResult, error) {
 	req := &nodeherder.MetricsQueryRequest{
-		DeviceIDs:   []string{device.ID},
-		Expose:      args.Expose,
-		Time:        timeQuery,
-		Aggregation: args.Aggregation,
-		Resolution:  args.Resolution,
+		DeviceIDs:   []string{deviceID},
+		Expose:      normalized.Expose,
+		Time:        normalized.Time,
+		Aggregation: normalized.Aggregation,
+		Resolution:  normalized.Resolution,
 	}
 
 	a.logger.Info("normalized tool request",
-		"device", device.Name,
-		"device_id", device.ID,
+		"device", deviceName,
+		"device_id", deviceID,
 		"expose", req.Expose,
 		"aggregation", req.Aggregation,
 		"time", req.Time,
@@ -157,94 +132,4 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 		Response:    res,
 		Aggregation: nodeherder.AggregationType(req.Aggregation),
 	}, nil
-}
-
-func (q QueryMetricsArgs) Validate() error {
-	if q.TargetName == "" || q.Expose == "" {
-		return fmt.Errorf("target_name and expose are required")
-	}
-	return nil
-}
-
-func buildTimeQuery(t *TimeQueryArgs) (*nodeherder.TimeQuery, error) {
-
-	if t == nil {
-		return nil, nil
-	}
-
-	if t.From < 0 {
-		t.From = 0
-	}
-	if t.To < 0 {
-		t.To = 0
-	}
-
-	switch t.Lookback {
-	case "", "10s", "30s", "1m", "5m", "10m", "30m",
-		"1h", "6h", "12h", "24h", "1d", "7d", "30d":
-		// allowed
-	default:
-		// reject or normalize nonsense like "last"
-		t.Lookback = ""
-	}
-
-	if t.Lookback == "" && t.From == 0 && t.To == 0 {
-		t.Lookback = "24h"
-	}
-
-	q := &nodeherder.TimeQuery{}
-
-	if t.To != 0 && t.To == t.From {
-		t.To = 0
-	}
-
-	if t.Lookback != "" {
-		dur, err := parseLookback(t.Lookback)
-		if err != nil {
-			return nil, err
-		}
-
-		// TODO: use Clock interface for testability
-
-		to := time.Now().UTC()
-		from := to.Add(-dur)
-
-		q.From = from
-		q.To = to
-		return q, nil
-	}
-
-	if t.From != 0 {
-		q.From = time.UnixMilli(t.From).UTC()
-	}
-	if t.To != 0 {
-		q.To = time.UnixMilli(t.To).UTC()
-	}
-
-	return q, nil
-}
-
-func parseLookback(s string) (time.Duration, error) {
-	s = strings.TrimSpace(strings.ToLower(s))
-
-	switch s {
-	case "day", "1 day":
-		return 24 * time.Hour, nil
-	case "week", "1 week":
-		return 7 * 24 * time.Hour, nil
-	case "hour", "1 hour":
-		return time.Hour, nil
-	case "minute", "1 minute":
-		return time.Minute, nil
-	}
-
-	if strings.HasSuffix(s, "d") {
-		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
-		if err != nil {
-			return 0, err
-		}
-		return time.Duration(n) * 24 * time.Hour, nil
-	}
-
-	return time.ParseDuration(s)
 }

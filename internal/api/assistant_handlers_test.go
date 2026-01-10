@@ -3,6 +3,7 @@ package api_test
 import (
 	"errors"
 	"llm-proxy/internal/api"
+	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/nodeherder"
@@ -256,7 +257,17 @@ func TestAssistantMessageHandler_ChatRequestHasToolsAndSystemPrompt(t *testing.T
 func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
-	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Living Room Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
 		From:   1,
@@ -279,7 +290,7 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 									Type: "function",
 									Function: proxy.FunctionCall{
 										Name:      "query_metrics",
-										Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1,"to":10},"aggregate":"avg"}`,
+										Arguments: `{"target_name":"living room","expose":"temperature","time":{"from":1,"to":10},"aggregation":"avg"}`,
 									},
 								},
 							},
@@ -327,6 +338,108 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	}
 }
 
+func TestAssistantMessageHandler_PendingFlow(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Attic Air Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+			{
+				ID:   "dev2",
+				Name: "Attic Room Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     10,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{DeviceId: "dev2", Value: 22.5, Timestamp: 5},
+		},
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									ID:   "1",
+									Type: "function",
+									Function: proxy.FunctionCall{
+										Name:      "query_metrics",
+										Arguments: `{"target_name":"attic","expose":"temperature","aggregation":"avg"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "ok"}},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+	store := pending.NewInMemoryPendingToolCallStore()
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+		PendingRef:  store,
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"conversation_id":"conv-1","message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Please choose one") {
+		t.Fatalf("expected clarification prompt, got %s", rr.Body.String())
+	}
+	if mockClient.Calls != 1 {
+		t.Fatalf("expected 1 model call before clarification, got %d", mockClient.Calls)
+	}
+
+	body = `{"conversation_id":"conv-1","message":"2"}`
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"reply":"ok"`) {
+		t.Fatalf("expected final reply, got %s", rr.Body.String())
+	}
+}
+
 func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
@@ -363,7 +476,17 @@ func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
-	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Attic Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
@@ -389,7 +512,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 								{
 									Function: proxy.FunctionCall{
 										Name:      "query_metrics",
-										Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1735689600000,"to":1735776000000}}`,
+										Arguments: `{"target_name":"attic","expose":"temperature","time":{"from":1735689600000,"to":1735776000000}}`,
 									},
 								},
 							},
@@ -461,7 +584,17 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
-	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Kitchen Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
@@ -487,7 +620,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp
 								{
 									Function: proxy.FunctionCall{
 										Name:      "query_metrics",
-										Arguments: `{"device_id":"dev1","expose":"temperature","aggregation":"last"}`,
+										Arguments: `{"target_name":"kitchen","expose":"temperature","aggregation":"last"}`,
 									},
 								},
 							},
@@ -548,7 +681,17 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp
 func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NoDataNote(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
-	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Office Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
@@ -573,7 +716,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NoDataNote(t *testi
 								{
 									Function: proxy.FunctionCall{
 										Name:      "query_metrics",
-										Arguments: `{"device_id":"dev1","expose":"temperature","aggregation":"avg"}`,
+										Arguments: `{"target_name":"office","expose":"temperature","aggregation":"avg"}`,
 									},
 								},
 							},
@@ -628,7 +771,17 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NoDataNote(t *testi
 func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
-	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Garage Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 	provider.SetMetricsError(errors.New("tool failed"))
 
 	mockClient := &mocks.MockLLMClient{
@@ -642,7 +795,7 @@ func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 								{
 									Function: proxy.FunctionCall{
 										Name:      "query_metrics",
-										Arguments: `{"device_id":"dev1","expose":"temperature","time":{"from":1,"to":2}}`,
+										Arguments: `{"target_name":"garage","expose":"temperature","time":{"from":1,"to":2}}`,
 									},
 								},
 							},

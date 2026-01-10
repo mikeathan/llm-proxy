@@ -9,7 +9,14 @@ type LLMDeviceContext struct {
 	Devices     []LLMDevice `json:"devices"`
 }
 
+const defaultSummaryMaxLen = 4000
+
 func (c *LLMDeviceContext) Summary() string {
+	return c.SummaryWithLimit(defaultSummaryMaxLen)
+}
+
+func (c *LLMDeviceContext) SummaryWithLimit(maxLen int) string {
+	// SummaryWithLimit returns a token-friendly summary capped to avoid LLM context overflow.
 	var b strings.Builder
 
 	for _, d := range c.Devices {
@@ -29,7 +36,16 @@ func (c *LLMDeviceContext) Summary() string {
 		b.WriteString("\n")
 	}
 
-	return b.String()
+	out := b.String()
+	if maxLen > 0 && len(out) > maxLen {
+		suffix := "\n... (truncated)"
+		if maxLen <= len(suffix) {
+			return out[:maxLen]
+		}
+		return out[:maxLen-len(suffix)] + suffix
+	}
+
+	return out
 	// var b strings.Builder
 
 	// for _, d := range c.Devices {
