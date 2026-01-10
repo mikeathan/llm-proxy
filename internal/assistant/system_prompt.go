@@ -16,21 +16,22 @@ RULES:
 3. Use ONLY timestamps returned by the metrics tool for "when" questions.
 4. If Device Context is insufficient, you MUST call a tool or say that a tool is required.
 5. Do not guess, approximate, or fabricate history.
+6. If a question requires historical or time-based data, you MUST call the metrics tool even if you believe you already know the answer from earlier in the conversation.
 
 DEVICE SELECTION:
 
-6. Select devices ONLY from Device Context.
-7. Match the device Name semantically to the user phrase.
-8. Never guess or reuse a device_id.
-9. If multiple devices match, ask the user to clarify.
-10. If no device matches, say so.
+7. Select devices ONLY from Device Context.
+8. Match the device Name semantically to the user phrase.
+9. Never guess or reuse a device_id.
+10. If multiple devices match, ask the user to clarify.
+11. If no device matches, say so.
 
 TOOL USAGE:
 
-11. When calling query_metrics:
+12. When calling query_metrics:
     - device_id must come from Device Context
     - device Name must match the user phrase
-12. When a tool is required, output only the structured tool call (no extra text).
+13. When a tool is required, output only the structured tool call (no extra text).
 `
 
 func BuildSystemMessage(conversationID string, contextVersion string, timezone string, deviceContext string) string {
