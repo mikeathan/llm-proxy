@@ -782,7 +782,7 @@ func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 			},
 		},
 	})
-	provider.SetMetricsError(errors.New("tool failed"))
+	provider.SetMetricsError(nodeherder.ErrQueryFailed)
 
 	mockClient := &mocks.MockLLMClient{
 		Responses: []proxy.ChatResponse{
@@ -825,8 +825,76 @@ func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", rr.Code)
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), nodeherder.ErrQueryFailed.Msg) {
+		t.Fatalf("expected error message, got %s", rr.Body.String())
+	}
+}
+
+func TestAssistantMessageHandler_ToolCallExecutionAuthExpired(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Garage Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+	provider.SetMetricsError(nodeherder.ErrAuthExpired)
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "query_metrics",
+										Arguments: `{"target_name":"garage","expose":"temperature","time":{"from":1,"to":2}}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), nodeherder.ErrAuthExpired.Msg) {
+		t.Fatalf("expected error message, got %s", rr.Body.String())
 	}
 }
 

@@ -48,7 +48,36 @@ func (p *nodeHerder) GetDeviceContext() (*LLMDeviceContext, error) {
 }
 
 func (p *nodeHerder) QueryMetrics(ctx context.Context, request *MetricsQueryRequest) (*MetricsQueryResponse, error) {
-	return p.fetcher.QueryMetrics(ctx, request)
+	res, err := p.fetcher.QueryMetrics(ctx, request)
+	if err == nil {
+		return res, nil
+	}
+
+	if httpErr, ok := err.(*HTTPError); ok {
+		if httpErr.Status == 401 || httpErr.Status == 403 {
+			p.logger.Error("nodeherder auth expired",
+				"status", httpErr.Status,
+				"body", httpErr.Body,
+			)
+			return nil, ErrAuthExpired
+		}
+
+		p.logger.Error("nodeherder query failed",
+			"status", httpErr.Status,
+			"body", httpErr.Body,
+		)
+		return nil, ErrQueryFailed
+	}
+
+	p.logger.Error("nodeherder unexpected error",
+		"error", err,
+	)
+
+	return nil, &DomainError{
+		Err:    err,
+		Status: 502,
+		Msg:    "nodeherder request failed",
+	}
 }
 
 // Http Node Herder Fetcher
@@ -125,7 +154,10 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("query metrics returned %d: %s", res.StatusCode, string(b))
+		return nil, &HTTPError{
+			Status: res.StatusCode,
+			Body:   string(b),
+		}
 	}
 
 	var out []MetricsQueryResponse

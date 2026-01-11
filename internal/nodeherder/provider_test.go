@@ -284,6 +284,13 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
+	var dErr *nodeherder.DomainError
+	if !errors.As(err, &dErr) {
+		t.Fatalf("expected DomainError, got %T", err)
+	}
+	if dErr.Status != 502 || dErr.Msg != "nodeherder request failed" {
+		t.Fatalf("unexpected domain error: %+v", dErr)
+	}
 
 	if res != nil {
 		t.Fatalf("expected nil response on error")
@@ -291,6 +298,40 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 
 	if mockClient.CallCount() != 1 {
 		t.Fatalf("expected 1 HTTP call")
+	}
+}
+
+func TestNodeHerder_QueryMetrics_AuthExpired(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
+
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, &nodeherder.HTTPError{Status: 401, Body: "expired"})
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
+
+	_, err := provider.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
+	})
+	if !errors.Is(err, nodeherder.ErrAuthExpired) {
+		t.Fatalf("expected ErrAuthExpired, got %v", err)
+	}
+}
+
+func TestNodeHerder_QueryMetrics_QueryFailed(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
+
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, &nodeherder.HTTPError{Status: 500, Body: "boom"})
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
+
+	_, err := provider.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
+	})
+	if !errors.Is(err, nodeherder.ErrQueryFailed) {
+		t.Fatalf("expected ErrQueryFailed, got %v", err)
 	}
 }
 

@@ -52,9 +52,12 @@ send_and_parse() {
   HTTP_BODY="${RESPONSE%$'\n'*}"
 }
 
+now_ms() {
+  perl -MTime::HiRes=time -e 'printf "%.0f\n", time()*1000'
+}
+
 echo "🧠 Assistant CLI — type 'exit' to quit"
 
-# Load history
 history -r "$HISTORY_FILE"
 
 while true; do
@@ -66,27 +69,22 @@ while true; do
   history -r "$HISTORY_FILE"
 
   echo "→ Sending request..."
-  START_TIME=$(date +%s)
-  START_NS=$(date +%N 2>/dev/null || echo 0)
 
+  START_TIME=$(now_ms)
 
+send_and_parse
+BODY="$HTTP_BODY"
+STATUS="$HTTP_STATUS"
+
+if [[ "$STATUS" != "200" ]] && echo "$BODY" | grep -qi "get device context failed"; then
+  fetch_token || continue
   send_and_parse
   BODY="$HTTP_BODY"
   STATUS="$HTTP_STATUS"
+fi
 
-  if [[ "$STATUS" != "200" ]] && echo "$BODY" | grep -qi "get device context failed"; then
-    fetch_token || continue
-    send_and_parse
-    BODY="$HTTP_BODY"
-    STATUS="$HTTP_STATUS"
-  fi
-
-  END_TIME=$(date +%s)
-  END_NS=$(date +%N 2>/dev/null || echo 0)
-
-  SEC_DIFF=$((END_TIME - START_TIME))
-  NS_DIFF=$((END_NS - START_NS))
-  ELAPSED_MS=$((SEC_DIFF * 1000 + NS_DIFF / 1000000))
+END_TIME=$(now_ms)
+ELAPSED_MS=$((END_TIME - START_TIME))
 
   echo
   echo "$BODY"

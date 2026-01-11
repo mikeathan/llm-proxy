@@ -218,7 +218,10 @@ func (h *AssistantMessageHandler) processToolCall(
 				reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
 				return map[string]any{"reply": reply}, nil
 			}
-			return nil, &handlerError{Status: 500, Message: "tool execution failed"}
+			var dErr *nodeherder.DomainError
+			if errors.As(err, &dErr) {
+				return nil, &handlerError{Status: dErr.Status, Message: dErr.Msg}
+			}
 		}
 
 		// DEBUGGING LOGGING - Remove later
