@@ -168,7 +168,8 @@ func (m *MockLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy
 			response := m.Responses[idx]
 			return &response, nil
 		}
-		return &proxy.ChatResponse{}, nil
+		response := m.Responses[len(m.Responses)-1]
+		return &response, nil
 	}
 	response := m.Response
 	return &response, nil

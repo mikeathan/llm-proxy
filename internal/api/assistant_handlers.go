@@ -200,36 +200,41 @@ func (h *AssistantMessageHandler) processToolCall(
 	log logging.Logger,
 	conversationID string,
 ) (any, *handlerError) {
-	// processToolCall executes the requested tool and appends a compact observation
+	// processToolCall executes the requested tool and appends a compact history
 	// for the model's next reasoning step.
-	tc := msg.ToolCalls[0]
-	log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
+	for _, tc := range msg.ToolCalls {
 
-	toolResult, err := h.engine.ExecuteTool(ctx, tc)
-	if err != nil {
-		if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
-			h.pending.Set(conversationID, pending.PendingToolCallState{
-				ToolCall:   tc,
-				History:    append([]proxy.Message(nil), (*history)...),
-				Candidates: amb.Candidates,
-				Target:     amb.Target,
-				Expose:     amb.Expose,
-			})
-			reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
-			return map[string]any{"reply": reply}, nil
+		log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
+		toolResult, err := h.engine.ExecuteTool(ctx, tc)
+		if err != nil {
+			if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
+				h.pending.Set(conversationID, pending.PendingToolCallState{
+					ToolCall:   tc,
+					History:    append([]proxy.Message(nil), (*history)...),
+					Candidates: amb.Candidates,
+					Target:     amb.Target,
+					Expose:     amb.Expose,
+				})
+				reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
+				return map[string]any{"reply": reply}, nil
+			}
+			return nil, &handlerError{Status: 500, Message: "tool execution failed"}
 		}
-		return nil, &handlerError{Status: 500, Message: "tool execution failed"}
+
+		// DEBUGGING LOGGING - Remove later
+		b, _ := json.MarshalIndent(toolResult.Response, "", "  ")
+		log.Debug("nodeherder response", "data", string(b))
+
+		h.appendToolResult(history, []proxy.ToolCall{tc}, toolResult)
+
 	}
-
-	b, _ := json.MarshalIndent(toolResult.Response, "", "  ")
-	log.Debug("nodeherder response", "data", string(b))
-	h.appendToolObservation(history, msg.ToolCalls, toolResult)
-
 	return nil, nil
 }
 
-func (h *AssistantMessageHandler) appendToolObservation(history *[]proxy.Message, toolCalls []proxy.ToolCall, toolResult *assistant.ToolResult) {
-	// Append both the tool call and its observation so the model can ground its next response.
+// Commit the executed tool call and its result into the conversation history
+// so the model can continue the reasoning loop with the new information.
+func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, toolCalls []proxy.ToolCall, toolResult *assistant.ToolResult) {
+
 	normalized := assistant.NormalizeMetrics(
 		toolResult.Response,
 		toolResult.Aggregation,
@@ -273,9 +278,9 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage,
 	}
 }
 
+// handlePending resolves a user selected device for an ambiguous match
+// without re-entering the LLM until the tool result is ready.
 func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, bool) {
-	// handlePending resolves a user-selected device for an ambiguous match
-	// without re-entering the LLM until the tool result is ready.
 	state, ok := h.pending.Get(payload.ConversationID)
 	if !ok {
 		return nil, false
@@ -296,7 +301,7 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 	}
 
 	history := append([]proxy.Message(nil), state.History...)
-	h.appendToolObservation(&history, []proxy.ToolCall{state.ToolCall}, toolResult)
+	h.appendToolResult(&history, []proxy.ToolCall{state.ToolCall}, toolResult)
 
 	client, herr := h.getLLMClient(ctx, log)
 	if herr != nil {
@@ -305,6 +310,10 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 
 	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID)
 	if err != nil {
+		msg, herr := h.callModel(ctx, client, history, log)
+		if herr == nil && len(msg.ToolCalls) == 0 {
+			return map[string]any{"reply": msg.Content}, true
+		}
 		return map[string]any{"reply": "Metrics collected, but failed to complete the response."}, true
 	}
 

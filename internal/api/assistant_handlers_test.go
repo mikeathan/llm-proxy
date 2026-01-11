@@ -246,10 +246,10 @@ func TestAssistantMessageHandler_ChatRequestHasToolsAndSystemPrompt(t *testing.T
 	if systemMsg.Role != proxy.SystemRole {
 		t.Fatalf("expected system role, got %s", systemMsg.Role)
 	}
-	if !strings.Contains(systemMsg.Content, "STRICT RULES:") {
+	if !strings.Contains(systemMsg.Content, "RULES:") {
 		t.Fatalf("expected system policy in system message")
 	}
-	if !strings.Contains(systemMsg.Content, "Device Context:") {
+	if !strings.Contains(systemMsg.Content, "Available Devices:") {
 		t.Fatalf("expected device context in system message")
 	}
 }
@@ -436,7 +436,7 @@ func TestAssistantMessageHandler_PendingFlow(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	if !strings.Contains(rr.Body.String(), `"reply":"ok"`) {
-		t.Fatalf("expected final reply, got %s", rr.Body.String())
+		t.Fatalf("expected final reply, got %s (calls=%d)", rr.Body.String(), mockClient.Calls)
 	}
 }
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,6 +14,20 @@ import (
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/nodeherder"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newTestResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
 
 // NodeHerder GetDeviceContext Tests
 func TestNodeHerder_ReturnsFromCache(t *testing.T) {
@@ -282,30 +296,29 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 
 // HttpNodeHerderFetcher FetchDeviceContext Tests
 func TestNodeHerderFetcher_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/context/devices" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"version": "1",
-			"generatedAt": "2025-01-01T10:00:00Z",
-			"devices": [
-				{
-					"id": "dev1",
-					"name": "Sensor",
-					"exposes": []
-				}
-			]
-		}`))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/context/devices" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			return newTestResponse(http.StatusOK, `{
+				"version": "1",
+				"generatedAt": "2025-01-01T10:00:00Z",
+				"devices": [
+					{
+						"id": "dev1",
+						"name": "Sensor",
+						"exposes": []
+					}
+				]
+			}`), nil
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("ignored", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	resp, err := client.FetchDeviceContext()
+	resp, err := fetcher.FetchDeviceContext()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -328,17 +341,16 @@ func TestNodeHerderFetcher_Success(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_Non200Response(t *testing.T) {
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("boom"))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusInternalServerError, "boom"), nil
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("ignored", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.FetchDeviceContext()
+	_, err := fetcher.FetchDeviceContext()
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -349,32 +361,32 @@ func TestNodeHerderFetcher_Non200Response(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{invalid-json`))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, `{invalid-json`), nil
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("ignored", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.FetchDeviceContext()
+	_, err := fetcher.FetchDeviceContext()
 	if err == nil {
 		t.Fatal("expected JSON error, got nil")
 	}
 }
 
 func TestNodeHerderFetcher_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("ignored", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.FetchDeviceContext()
+	_, err := fetcher.FetchDeviceContext()
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -382,41 +394,40 @@ func TestNodeHerderFetcher_Timeout(t *testing.T) {
 
 // HttpNodeHerderFetcher Query Metrics Tests
 func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/metrics/query" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if auth := r.Header.Get("Authorization"); auth != "Bearer test-token" {
-			t.Fatalf("unexpected auth header: %s", auth)
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[
-			{
-				"expose": "temperature",
-				"from": 1,
-				"to": 10,
-				"values": [
-					{
-						"deviceId": "dev1",
-						"value": 25.5,
-						"timestamp": 5
-					}
-				]
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/metrics/query" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
-		]`))
-	}))
-	defer server.Close()
+			if auth := r.Header.Get("Authorization"); auth != "Bearer test-token" {
+				t.Fatalf("unexpected auth header: %s", auth)
+			}
+			return newTestResponse(http.StatusOK, `[
+				{
+					"expose": "temperature",
+					"from": 1,
+					"to": 10,
+					"values": [
+						{
+							"deviceId": "dev1",
+							"value": 25.5,
+							"timestamp": 5
+						}
+					]
+				}
+			]`), nil
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("test-token", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceIDs: []string{"dev1"},
 		Expose:    "temperature",
 	}
 
-	resp, err := client.QueryMetrics(context.Background(), req)
+	resp, err := fetcher.QueryMetrics(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -443,16 +454,16 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_QueryMetrics_Non200Response(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("boom"))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusInternalServerError, "boom"), nil
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("test-token", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	_, err := fetcher.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -463,32 +474,32 @@ func TestNodeHerderFetcher_QueryMetrics_Non200Response(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_QueryMetrics_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{invalid-json`))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, `{invalid-json`), nil
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("test-token", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	_, err := fetcher.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected JSON error, got nil")
 	}
 }
 
 func TestNodeHerderFetcher_QueryMetrics_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}),
+	}
 
 	tokenManager := mocks.NewMockTokenManager("test-token", nil)
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second}, tokenManager)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	_, err := fetcher.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -497,38 +508,38 @@ func TestNodeHerderFetcher_QueryMetrics_Timeout(t *testing.T) {
 // ServiceTokenManager Tests
 func TestServiceTokenManager_SuccessAndCaches(t *testing.T) {
 	var calls int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&calls, 1)
-		if r.URL.Path != "/api/auth/token" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("unexpected method: %s", r.Method)
-		}
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Fatalf("expected content-type application/json")
-		}
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			atomic.AddInt32(&calls, 1)
+			if r.URL.Path != "/api/auth/token" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			if r.Method != http.MethodPost {
+				t.Fatalf("unexpected method: %s", r.Method)
+			}
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("expected content-type application/json")
+			}
 
-		var payload map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("failed to decode body: %v", err)
-		}
-		if payload["client_id"] != "client-id" {
-			t.Fatalf("unexpected client_id: %s", payload["client_id"])
-		}
-		if payload["client_secret"] != "client-secret" {
-			t.Fatalf("unexpected client_secret: %s", payload["client_secret"])
-		}
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("failed to decode body: %v", err)
+			}
+			if payload["client_id"] != "client-id" {
+				t.Fatalf("unexpected client_id: %s", payload["client_id"])
+			}
+			if payload["client_secret"] != "client-secret" {
+				t.Fatalf("unexpected client_secret: %s", payload["client_secret"])
+			}
 
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"access_token":"token-1","expires_in":120}`))
-	}))
-	defer server.Close()
+			return newTestResponse(http.StatusOK, `{"access_token":"token-1","expires_in":120}`), nil
+		}),
+	}
 
 	t.Setenv("SERVICE_CLIENT_ID", "client-id")
 	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
-	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL)
+	manager := nodeherder.NewServiceTokenManager(client, "http://example.test")
 
 	token1, err := manager.Get(context.Background())
 	if err != nil {
@@ -550,21 +561,21 @@ func TestServiceTokenManager_SuccessAndCaches(t *testing.T) {
 func TestServiceTokenManager_ShortExpiryForcesRefresh(t *testing.T) {
 
 	var calls int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		call := atomic.AddInt32(&calls, 1)
-		token := "token-1"
-		if call == 2 {
-			token = "token-2"
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"access_token":"` + token + `","expires_in":30}`))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			call := atomic.AddInt32(&calls, 1)
+			token := "token-1"
+			if call == 2 {
+				token = "token-2"
+			}
+			return newTestResponse(http.StatusOK, `{"access_token":"`+token+`","expires_in":30}`), nil
+		}),
+	}
 
 	t.Setenv("SERVICE_CLIENT_ID", "client-id")
 	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
-	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL)
+	manager := nodeherder.NewServiceTokenManager(client, "http://example.test")
 
 	token1, err := manager.Get(context.Background())
 	if err != nil {
@@ -584,17 +595,16 @@ func TestServiceTokenManager_ShortExpiryForcesRefresh(t *testing.T) {
 }
 
 func TestServiceTokenManager_Non200Response(t *testing.T) {
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("boom"))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusInternalServerError, "boom"), nil
+		}),
+	}
 
 	t.Setenv("SERVICE_CLIENT_ID", "client-id")
 	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
-	manager := nodeherder.NewServiceTokenManager(&http.Client{}, server.URL)
+	manager := nodeherder.NewServiceTokenManager(client, "http://example.test")
 
 	_, err := manager.Get(context.Background())
 	if err == nil {

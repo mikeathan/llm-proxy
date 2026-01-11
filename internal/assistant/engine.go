@@ -106,13 +106,13 @@ func (a *assistantEngine) ExecuteToolWithDevice(ctx context.Context, call proxy.
 	return a.executeMetrics(ctx, normalized, deviceID, "")
 }
 
-func (a *assistantEngine) executeMetrics(ctx context.Context, normalized tools.NormalizedMetricsArgs, deviceID, deviceName string) (*ToolResult, error) {
+func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.NormalizedMetricsArgs, deviceID, deviceName string) (*ToolResult, error) {
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceIDs:   []string{deviceID},
-		Expose:      normalized.Expose,
-		Time:        normalized.Time,
-		Aggregation: normalized.Aggregation,
-		Resolution:  normalized.Resolution,
+		Expose:      args.Expose,
+		Time:        args.Time,
+		Aggregation: args.Aggregation,
+		Resolution:  args.Resolution,
 	}
 
 	a.logger.Info("normalized tool request",
@@ -128,8 +128,33 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, normalized tools.N
 		return nil, err
 	}
 
+	// Adaptive expansion for last queries only
+	if args.Aggregation == string(nodeherder.AggLast) &&
+		len(res.Values) == 0 &&
+		args.Time != nil {
+
+		res, err = a.expandLookbackAndRetry(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &ToolResult{
 		Response:    res,
 		Aggregation: nodeherder.AggregationType(req.Aggregation),
 	}, nil
+}
+
+func (a *assistantEngine) expandLookbackAndRetry(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
+
+	a.logger.Info("no data in recent window, expanding lookback")
+
+	req.Time = tools.BuildMaxLookbackTime(a.clock, a.normalize)
+
+	a.logger.Info("retrying with expanded window",
+		"from", req.Time.From,
+		"to", req.Time.To,
+	)
+
+	return a.nodeherder.QueryMetrics(ctx, req)
 }

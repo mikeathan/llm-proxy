@@ -32,6 +32,14 @@ TOOL USAGE:
     - device_id must come from Device Context
     - device Name must match the user phrase
 13. When a tool is required, output only the structured tool call (no extra text).
+
+MULTI-METRIC QUERIES:
+
+14. If a user request involves more than one metric or sensor
+    (e.g. "temperature and humidity", "motion and door status"),
+    you MUST issue one tool call per metric before producing a final answer.
+15. You MAY call query_metrics multiple times in a single conversation turn.
+16. Do NOT answer until all required metrics have been retrieved.
 `
 
 func BuildSystemMessage(conversationID string, contextVersion string, timezone string, deviceContext string) string {

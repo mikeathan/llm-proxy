@@ -3,46 +3,62 @@ package proxy_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"llm-proxy/internal/proxy"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newTestResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
 
 func TestClientChatSuccess(t *testing.T) {
 	var gotPath string
 	var gotMethod string
 	var gotContentType string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotMethod = r.Method
-		gotContentType = r.Header.Get("Content-Type")
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			gotPath = r.URL.Path
+			gotMethod = r.Method
+			gotContentType = r.Header.Get("Content-Type")
 
-		var req proxy.ChatRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
+			var req proxy.ChatRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
 
-		resp := proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{
-					Message: proxy.Message{
-						Role:    "assistant",
-						Content: "hello",
+			resp := proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role:    "assistant",
+							Content: "hello",
+						},
 					},
 				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Fatalf("encode response: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
+			}
+			data, err := json.Marshal(resp)
+			if err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
+			return newTestResponse(http.StatusOK, string(data)), nil
+		}),
+	}
 
-	client := proxy.NewLLMClient(server.URL+"/", server.Client())
+	client := proxy.NewLLMClient("http://example.test/", httpClient)
 	out, err := client.Chat(context.Background(), proxy.ChatRequest{
 		Model: "test",
 		Messages: []proxy.Message{
@@ -67,12 +83,13 @@ func TestClientChatSuccess(t *testing.T) {
 }
 
 func TestClientChatHTTPErrorIncludesBody(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "bad news", http.StatusBadRequest)
-	}))
-	t.Cleanup(server.Close)
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusBadRequest, "bad news"), nil
+		}),
+	}
 
-	client := proxy.NewLLMClient(server.URL, server.Client())
+	client := proxy.NewLLMClient("http://example.test", httpClient)
 	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -83,14 +100,13 @@ func TestClientChatHTTPErrorIncludesBody(t *testing.T) {
 }
 
 func TestClientChatInvalidJSONResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("{not-json"))
-	}))
-	t.Cleanup(server.Close)
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, "{not-json"), nil
+		}),
+	}
 
-	client := proxy.NewLLMClient(server.URL, server.Client())
+	client := proxy.NewLLMClient("http://example.test", httpClient)
 	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")

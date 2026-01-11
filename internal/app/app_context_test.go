@@ -47,7 +47,11 @@ func TestNewServer_ConfigPathAbs(t *testing.T) {
 	rel := filepath.Join("config", "config.json")
 	ctx := app.NewServer(&mocks.MockManager{}, &models.Config{}, rel)
 
-	want := filepath.Join(dir, rel)
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks dir: %v", err)
+	}
+	want := filepath.Join(resolvedDir, rel)
 	if got := ctx.ConfigPath(); got != want {
 		t.Fatalf("expected %s, got %s", want, got)
 	}

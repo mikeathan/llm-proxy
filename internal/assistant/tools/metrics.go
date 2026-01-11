@@ -289,3 +289,11 @@ func normalizeAggregation(raw string) string {
 	}
 	return string(nodeherder.AggLast)
 }
+
+func BuildMaxLookbackTime(clock Clock, cfg NormalizeConfig) *nodeherder.TimeQuery {
+	now := clock.Now().UTC()
+	return &nodeherder.TimeQuery{
+		From: now.Add(-cfg.MaxLookback),
+		To:   now,
+	}
+}
