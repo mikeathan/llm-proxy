@@ -62,6 +62,29 @@ func ParseIntentArgs(raw string) (Intent, error) {
 	return args, nil
 }
 
+func ValidateIntent(intent Intent) error {
+
+	// Rule 1: latest_value cannot answer any historical event question
+	if intent.Intent == "latest_value" {
+		switch intent.TimeScope {
+		case "today", "yesterday", "last_hour", "last_day", "last_week", "last_month", "last_year":
+			return fmt.Errorf("latest_value cannot satisfy historical or event-based queries")
+		}
+	}
+
+	// Rule 2: change-related queries require more than one sample
+	if intent.Intent == "latest_value" && strings.HasPrefix(intent.TimeScope, "range:") {
+		return fmt.Errorf("latest_value invalid for range queries")
+	}
+
+	// Rule 3: count_events requires a time scope
+	if intent.Intent == "count_events" && intent.TimeScope == "" {
+		return fmt.Errorf("count_events requires explicit time_scope")
+	}
+
+	return nil
+}
+
 // IntentToMetricsArgs deterministically maps a declared intent into concrete
 // query_metrics arguments so execution is controlled by code, not the LLM.
 func IntentToMetricsArgs(intent Intent, clock utils.Clock) ([]MetricsArgs, error) {

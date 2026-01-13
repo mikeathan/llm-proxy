@@ -219,6 +219,10 @@ func (h *AssistantMessageHandler) processToolCall(
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
 		}
 
+		if err := tools.ValidateIntent(intent); err != nil {
+			return nil, &handlerError{Status: 400, Message: err.Error()}
+		}
+
 		metricCalls, err := tools.IntentToMetricsArgs(intent, &utils.RealClock{})
 		if err != nil {
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: err.Error()}
