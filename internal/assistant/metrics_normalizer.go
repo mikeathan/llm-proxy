@@ -39,12 +39,9 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 	}
 
 	var ts *time.Time
-	switch aggregation {
-	case nodeherder.AggLast, nodeherder.AggMin, nodeherder.AggMax:
-		if v.Timestamp > 0 {
-			t := time.UnixMilli(v.Timestamp)
-			ts = &t
-		}
+	if v.Timestamp > 0 {
+		t := time.UnixMilli(v.Timestamp)
+		ts = &t
 	}
 
 	return MetricResult{

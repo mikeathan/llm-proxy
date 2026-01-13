@@ -25,16 +25,15 @@ func TestNormalizeMetrics_TimestampHandling(t *testing.T) {
 	tests := []struct {
 		name       string
 		agg        nodeherder.AggregationType
-		wantTS     bool
 		wantOp     string
 		wantTSUnix int64
 	}{
-		{name: "last", agg: nodeherder.AggLast, wantTS: true, wantOp: "last", wantTSUnix: 1735693200000},
-		{name: "min", agg: nodeherder.AggMin, wantTS: true, wantOp: "min", wantTSUnix: 1735693200000},
-		{name: "max", agg: nodeherder.AggMax, wantTS: true, wantOp: "max", wantTSUnix: 1735693200000},
-		{name: "avg", agg: nodeherder.AggAvg, wantTS: false, wantOp: "avg"},
-		{name: "count", agg: nodeherder.AggCount, wantTS: false, wantOp: "count"},
-		{name: "none", agg: nodeherder.AggNone, wantTS: false, wantOp: ""},
+		{name: "last", agg: nodeherder.AggLast, wantOp: "last", wantTSUnix: 1735693200000},
+		{name: "min", agg: nodeherder.AggMin, wantOp: "min", wantTSUnix: 1735693200000},
+		{name: "max", agg: nodeherder.AggMax, wantOp: "max", wantTSUnix: 1735693200000},
+		{name: "avg", agg: nodeherder.AggAvg, wantOp: "avg", wantTSUnix: 1735693200000},
+		{name: "count", agg: nodeherder.AggCount, wantOp: "count", wantTSUnix: 1735693200000},
+		{name: "none", agg: nodeherder.AggNone, wantOp: "", wantTSUnix: 1735693200000},
 	}
 
 	for _, tt := range tests {
@@ -58,17 +57,11 @@ func TestNormalizeMetrics_TimestampHandling(t *testing.T) {
 			if !result.To.Equal(time.UnixMilli(1735776000000)) {
 				t.Fatalf("unexpected to time: %v", result.To)
 			}
-			if tt.wantTS {
-				if result.Timestamp == nil {
-					t.Fatalf("expected timestamp to be set")
-				}
-				if !result.Timestamp.Equal(time.UnixMilli(tt.wantTSUnix)) {
-					t.Fatalf("unexpected timestamp: %v", result.Timestamp)
-				}
-				return
+			if result.Timestamp == nil {
+				t.Fatalf("expected timestamp to be set")
 			}
-			if result.Timestamp != nil {
-				t.Fatalf("expected timestamp to be nil, got %v", result.Timestamp)
+			if !result.Timestamp.Equal(time.UnixMilli(tt.wantTSUnix)) {
+				t.Fatalf("unexpected timestamp: %v", result.Timestamp)
 			}
 		})
 	}
