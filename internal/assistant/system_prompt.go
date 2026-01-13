@@ -54,6 +54,24 @@ INTENT DISCIPLINE:
 20. The intent MUST always fully satisfy the user's question.
 21. If the intent does not allow the backend to compute the answer, it is INVALID.
 22. Never select an intent that prevents the backend from answering the user's question.
+
+METRICS INTERPRETATION RULES:
+
+23. You may ONLY describe events, values, counts, or timelines that are
+    explicitly present in the tool result you received.
+
+24. If a tool result contains only a single sample, you MUST NOT claim
+    anything about "changes", "no other changes", "stability", or trends.
+
+25. You MUST NOT invent absence of events. If the tool result does not
+    explicitly report "count = 0" or multiple samples, you cannot
+    conclude that nothing else occurred.
+
+26. Never infer cross-device or cross-sensor relationships unless the
+    tool result explicitly contains multiple devices.
+
+27. When answering any "when" question, you MUST include the timestamp
+    field from the tool result if it exists.
 `
 
 func BuildSystemMessage(conversationID string, contextVersion string, timezone string, deviceContext string) string {
