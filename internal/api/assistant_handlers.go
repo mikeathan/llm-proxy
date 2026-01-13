@@ -220,7 +220,16 @@ func (h *AssistantMessageHandler) processToolCall(
 		}
 
 		if err := tools.ValidateIntent(intent); err != nil {
-			return nil, &handlerError{Status: 400, Message: err.Error()}
+			// Inject the validation error back into the model and retry
+			*history = append(*history, proxy.Message{
+				Role: proxy.ToolRole,
+				Content: utils.ToJson(map[string]any{
+					"error": err.Error(),
+					"rule":  "intent_invalid",
+				}),
+			})
+
+			return nil, nil
 		}
 
 		metricCalls, err := tools.IntentToMetricsArgs(intent, &utils.RealClock{})
