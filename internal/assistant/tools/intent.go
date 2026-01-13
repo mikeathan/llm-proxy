@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/utils"
@@ -68,18 +69,18 @@ func ValidateIntent(intent Intent) error {
 	if intent.Intent == "latest_value" {
 		switch intent.TimeScope {
 		case "today", "yesterday", "last_hour", "last_day", "last_week", "last_month", "last_year":
-			return fmt.Errorf("latest_value cannot satisfy historical or event-based queries")
+			return errors.New("Use intent = count_events or a wider time range for change or event queries")
 		}
 	}
 
-	// Rule 2: change-related queries require more than one sample
+	// Rule 2: latest_value is invalid for explicit ranges (change/comparison)
 	if intent.Intent == "latest_value" && strings.HasPrefix(intent.TimeScope, "range:") {
-		return fmt.Errorf("latest_value invalid for range queries")
+		return errors.New("Use intent = count_events or remove range when requesting latest value")
 	}
 
-	// Rule 3: count_events requires a time scope
+	// Rule 3: count_events requires time_scope
 	if intent.Intent == "count_events" && intent.TimeScope == "" {
-		return fmt.Errorf("count_events requires explicit time_scope")
+		return errors.New("count_events requires a time_scope such as today, yesterday, last_day, or range")
 	}
 
 	return nil
