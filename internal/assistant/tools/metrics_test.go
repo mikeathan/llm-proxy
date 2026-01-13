@@ -11,8 +11,8 @@ type fixedClock struct {
 	now time.Time
 }
 
-func (f fixedClock) Now() time.Time {
-	return f.now
+func (f fixedClock) NowUtc() time.Time {
+	return f.now.UTC()
 }
 
 func TestNormalizeExpose(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -173,7 +174,7 @@ func (h *AssistantMessageHandler) callModel(ctx context.Context, client proxy.Cl
 	// separately from tool execution to preserve deterministic tool handling.
 	req := proxy.ChatRequest{
 		Messages:   history,
-		Tools:      []proxy.Tool{tools.MetricsToolSchema()},
+		Tools:      []proxy.Tool{tools.IntentToolSchema()},
 		ToolChoice: proxy.ToolChoiceAuto,
 	}
 
@@ -204,38 +205,68 @@ func (h *AssistantMessageHandler) processToolCall(
 	// for the model's next reasoning step.
 	for _, tc := range msg.ToolCalls {
 
-		log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
-		toolResult, err := h.engine.ExecuteTool(ctx, tc)
-		if err != nil {
-			if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
-				h.pending.Set(conversationID, pending.PendingToolCallState{
-					ToolCall:   tc,
-					History:    append([]proxy.Message(nil), (*history)...),
-					Candidates: amb.Candidates,
-					Target:     amb.Target,
-					Expose:     amb.Expose,
-				})
-				reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
-				return map[string]any{"reply": reply}, nil
-			}
-			var dErr *nodeherder.DomainError
-			if errors.As(err, &dErr) {
-				return nil, &handlerError{Status: dErr.Status, Message: dErr.Msg}
+		if tc.Function.Name != "declare_intent" {
+			return nil, &handlerError{
+				Status:  400,
+				Message: "invalid tool call: only declare_intent is allowed",
 			}
 		}
 
-		// DEBUGGING LOGGING - Remove later
-		b, _ := json.MarshalIndent(toolResult.Response, "", "  ")
-		log.Debug("nodeherder response", "data", string(b))
+		log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
+		// declare_intent separates intent extraction (LLM) from deterministic execution.
+		intent, err := tools.ParseIntentArgs(tc.Function.Arguments)
+		if err != nil {
+			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
+		}
 
-		h.appendToolResult(history, []proxy.ToolCall{tc}, toolResult)
+		metricCalls, err := tools.IntentToMetricsArgs(intent, &utils.RealClock{})
+		if err != nil {
+			return nil, &handlerError{Status: http.StatusBadRequest, Message: err.Error()}
+		}
 
+		// Map the intent into concrete query_metrics calls so the backend owns aggregation/time.
+		for idx, args := range metricCalls {
+			queryCall := proxy.ToolCall{
+				ID:   fmt.Sprintf("%s-%d", tc.ID, idx),
+				Type: "function",
+				Function: proxy.FunctionCall{
+					Name:      "query_metrics",
+					Arguments: utils.ToJson(args),
+				},
+			}
+
+			toolResult, err := h.engine.ExecuteTool(ctx, queryCall)
+			if err != nil {
+				if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
+					h.pending.Set(conversationID, pending.PendingToolCallState{
+						ToolCall:   queryCall,
+						History:    append([]proxy.Message(nil), (*history)...),
+						Candidates: amb.Candidates,
+						Target:     amb.Target,
+						Expose:     amb.Expose,
+					})
+					reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
+					return map[string]any{"reply": reply}, nil
+				}
+				var dErr *nodeherder.DomainError
+				if errors.As(err, &dErr) {
+					return nil, &handlerError{Status: dErr.Status, Message: dErr.Msg}
+				}
+			}
+
+			// DEBUGGING LOGGING - Remove later
+			b, _ := json.MarshalIndent(toolResult.Response, "", "  ")
+			log.Debug("nodeherder response", "data", string(b))
+
+			h.appendToolResult(history, []proxy.ToolCall{queryCall}, toolResult)
+		}
 	}
 	return nil, nil
 }
 
 // Commit the executed tool call and its result into the conversation history
 // so the model can continue the reasoning loop with the new information.
+// This is particularly important for multi-step tool use when LLM replys back with a selection for the user to confirm.
 func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, toolCalls []proxy.ToolCall, toolResult *assistant.ToolResult) {
 
 	normalized := assistant.NormalizeMetrics(

@@ -289,8 +289,8 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 									ID:   "1",
 									Type: "function",
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"living room","expose":"temperature","time":{"from":1,"to":10},"aggregation":"avg"}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"avg_value","target_name":"living room","metrics":["temperature"],"time_scope":"range:1..10"}`,
 									},
 								},
 							},
@@ -380,8 +380,8 @@ func TestAssistantMessageHandler_PendingFlow(t *testing.T) {
 									ID:   "1",
 									Type: "function",
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"attic","expose":"temperature","aggregation":"avg"}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"avg_value","target_name":"attic","metrics":["temperature"],"time_scope":"last_day"}`,
 									},
 								},
 							},
@@ -511,8 +511,8 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 							ToolCalls: []proxy.ToolCall{
 								{
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"attic","expose":"temperature","time":{"from":1735689600000,"to":1735776000000}}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"attic","metrics":["temperature"],"time_scope":"range:1735689600000..1735776000000"}`,
 									},
 								},
 							},
@@ -619,8 +619,8 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp
 							ToolCalls: []proxy.ToolCall{
 								{
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"kitchen","expose":"temperature","aggregation":"last"}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"kitchen","metrics":["temperature"],"time_scope":"last_day"}`,
 									},
 								},
 							},
@@ -715,8 +715,8 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NoDataNote(t *testi
 							ToolCalls: []proxy.ToolCall{
 								{
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"office","expose":"temperature","aggregation":"avg"}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"avg_value","target_name":"office","metrics":["temperature"],"time_scope":"last_day"}`,
 									},
 								},
 							},
@@ -794,8 +794,8 @@ func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 							ToolCalls: []proxy.ToolCall{
 								{
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"garage","expose":"temperature","time":{"from":1,"to":2}}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"range:1..2"}`,
 									},
 								},
 							},
@@ -859,8 +859,8 @@ func TestAssistantMessageHandler_ToolCallExecutionAuthExpired(t *testing.T) {
 							ToolCalls: []proxy.ToolCall{
 								{
 									Function: proxy.FunctionCall{
-										Name:      "query_metrics",
-										Arguments: `{"target_name":"garage","expose":"temperature","time":{"from":1,"to":2}}`,
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"range:1..2"}`,
 									},
 								},
 							},

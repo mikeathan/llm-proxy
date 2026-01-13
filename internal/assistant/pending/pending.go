@@ -5,8 +5,8 @@ package pending
 import (
 	"fmt"
 	"llm-proxy/internal/assistant/devices"
-	"llm-proxy/internal/assistant/tools"
 	"llm-proxy/internal/proxy"
+	"llm-proxy/utils"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +31,7 @@ type InMemoryPendingToolCallStore struct {
 	mu       sync.Mutex
 	store    map[string]pendingEntry
 	ttl      time.Duration
-	clock    tools.Clock
+	clock    utils.Clock
 	interval time.Duration
 }
 
@@ -47,10 +47,10 @@ const (
 
 func NewInMemoryPendingToolCallStore() *InMemoryPendingToolCallStore {
 	// Default TTL/cleanup protects against abandoned conversations and memory leaks.
-	return NewInMemoryPendingToolCallStoreWithOptions(defaultPendingTTL, tools.RealClock{}, defaultPendingInterval)
+	return NewInMemoryPendingToolCallStoreWithOptions(defaultPendingTTL, &utils.RealClock{}, defaultPendingInterval)
 }
 
-func NewInMemoryPendingToolCallStoreWithOptions(ttl time.Duration, clock tools.Clock, interval time.Duration) *InMemoryPendingToolCallStore {
+func NewInMemoryPendingToolCallStoreWithOptions(ttl time.Duration, clock utils.Clock, interval time.Duration) *InMemoryPendingToolCallStore {
 	if ttl <= 0 {
 		ttl = defaultPendingTTL
 	}
@@ -79,7 +79,7 @@ func (s *InMemoryPendingToolCallStore) cleanupLoop() {
 func (s *InMemoryPendingToolCallStore) cleanupExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.clock.Now()
+	now := s.clock.NowUtc()
 	for key, entry := range s.store {
 		if now.After(entry.expiresAt) {
 			delete(s.store, key)
@@ -98,7 +98,7 @@ func (s *InMemoryPendingToolCallStore) pruneExpiredLocked(now time.Time) {
 func (s *InMemoryPendingToolCallStore) Get(conversationID string) (*PendingToolCallState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.clock.Now()
+	now := s.clock.NowUtc()
 	s.pruneExpiredLocked(now)
 	entry, ok := s.store[conversationID]
 	if !ok {
@@ -117,7 +117,7 @@ func (s *InMemoryPendingToolCallStore) Get(conversationID string) (*PendingToolC
 func (s *InMemoryPendingToolCallStore) Set(conversationID string, state PendingToolCallState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.clock.Now()
+	now := s.clock.NowUtc()
 	s.pruneExpiredLocked(now)
 	s.store[conversationID] = pendingEntry{
 		state:     state,

@@ -8,6 +8,7 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
+	"llm-proxy/utils"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ type Engine interface {
 type assistantEngine struct {
 	nodeherder nodeherder.NodeHerderService
 	logger     logging.Logger
-	clock      tools.Clock
+	clock      utils.Clock
 	normalize  tools.NormalizeConfig
 }
 
@@ -32,7 +33,7 @@ func NewEngine(nodeherder nodeherder.NodeHerderService, logger logging.Logger) E
 	return &assistantEngine{
 		nodeherder: nodeherder,
 		logger:     logger,
-		clock:      tools.RealClock{},
+		clock:      &utils.RealClock{},
 		normalize:  tools.DefaultNormalizeConfig(),
 	}
 }

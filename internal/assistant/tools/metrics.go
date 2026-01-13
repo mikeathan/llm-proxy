@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
+	"llm-proxy/utils"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,16 +19,6 @@ const (
 	defaultMaxExplicitLookback = 365 * 24 * time.Hour
 	defaultMaxFutureSkew       = time.Hour
 )
-
-type Clock interface {
-	Now() time.Time
-}
-
-type RealClock struct{}
-
-func (RealClock) Now() time.Time {
-	return time.Now().UTC()
-}
 
 type NormalizeConfig struct {
 	DefaultLookback     time.Duration
@@ -112,7 +103,7 @@ func ParseMetricsArgs(raw string) (MetricsArgs, error) {
 	return args, nil
 }
 
-func NormalizeMetricsArgs(args MetricsArgs, cfg NormalizeConfig, clock Clock) (NormalizedMetricsArgs, error) {
+func NormalizeMetricsArgs(args MetricsArgs, cfg NormalizeConfig, clock utils.Clock) (NormalizedMetricsArgs, error) {
 	// Normalize tool args to protect downstream components from LLM artifacts.
 	normalized := NormalizedMetricsArgs{
 		TargetName: strings.TrimSpace(args.TargetName),
@@ -147,12 +138,12 @@ func NormalizeExpose(raw string) string {
 	return strings.Join(parts, "_")
 }
 
-func NormalizeTimeQuery(args *TimeArgs, cfg NormalizeConfig, clock Clock) *nodeherder.TimeQuery {
+func NormalizeTimeQuery(args *TimeArgs, cfg NormalizeConfig, clock utils.Clock) *nodeherder.TimeQuery {
 	// Clamp and normalize time bounds to avoid negative or absurd ranges.
 	if cfg.DefaultLookback == 0 {
 		cfg = DefaultNormalizeConfig()
 	}
-	now := clock.Now().UTC()
+	now := clock.NowUtc()
 
 	var fromMs, toMs int64
 	var lookbackRaw string
@@ -290,8 +281,8 @@ func normalizeAggregation(raw string) string {
 	return string(nodeherder.AggLast)
 }
 
-func BuildMaxLookbackTime(clock Clock, cfg NormalizeConfig) *nodeherder.TimeQuery {
-	now := clock.Now().UTC()
+func BuildMaxLookbackTime(clock utils.Clock, cfg NormalizeConfig) *nodeherder.TimeQuery {
+	now := clock.NowUtc()
 	return &nodeherder.TimeQuery{
 		From: now.Add(-cfg.MaxLookback),
 		To:   now,

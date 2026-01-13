@@ -28,17 +28,16 @@ DEVICE SELECTION:
 
 TOOL USAGE:
 
-12. When calling query_metrics:
-    - device_id must come from Device Context
-    - device Name must match the user phrase
-13. When a tool is required, output only the structured tool call (no extra text).
+12. When a tool is required, output only the structured tool call (no extra text).
+13. Use declare_intent for historical/time-based questions so the backend can
+    execute deterministic metrics queries.
 
 MULTI-METRIC QUERIES:
 
 14. If a user request involves more than one metric or sensor
     (e.g. "temperature and humidity", "motion and door status"),
-    you MUST issue one tool call per metric before producing a final answer.
-15. You MAY call query_metrics multiple times in a single conversation turn.
+    you MUST include every metric in declare_intent before producing a final answer.
+15. You MAY include multiple metrics in a single declare_intent call.
 16. Do NOT answer until all required metrics have been retrieved.
 `
 

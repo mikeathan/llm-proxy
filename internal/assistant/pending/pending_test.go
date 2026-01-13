@@ -12,8 +12,8 @@ type fakeClock struct {
 	now time.Time
 }
 
-func (f *fakeClock) Now() time.Time {
-	return f.now
+func (f *fakeClock) NowUtc() time.Time {
+	return f.now.UTC()
 }
 
 func TestPendingToolCallStore_SetGetClear(t *testing.T) {
