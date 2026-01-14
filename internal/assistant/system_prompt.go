@@ -47,6 +47,16 @@ METRICS INTERPRETATION:
 14. You may ONLY describe what exists in the tool result.
 15. If only one sample exists, you MUST NOT claim trends, stability, or no changes.
 16. When answering any "when" question, include the timestamp if present.
+
+TIME SAFETY:
+
+17. If a question asks "when", "last time", "first time", or requires a timestamp,
+    and the metrics tool result does NOT contain any timestamps,
+    you MUST respond:
+    "The exact time cannot be determined with the current metrics data."
+
+18. You MUST NOT invent, infer, or approximate timestamps.
+    If the backend does not provide timestamps, you MUST explicitly state that the time is unavailable.
 `
 
 func BuildSystemMessage(conversationID string, contextVersion string, timezone string, deviceContext string) string {
