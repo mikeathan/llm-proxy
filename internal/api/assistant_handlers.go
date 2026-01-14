@@ -34,6 +34,8 @@ type AssistantMessageHandler struct {
 	logger   logging.Logger
 	engine   assistant.Engine
 	pending  pending.PendingToolCallStore
+
+	lockedIntent string
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
@@ -101,6 +103,8 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 // 3. Execute requested tools and feed results back to the model
 // 4. Return the model's final answer
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
+	h.lockedIntent = ""
+
 	// handleAssistant orchestrates a full agent cycle and shortcuts into the
 	// clarification flow when a prior device match was ambiguous.
 	if payload.ConversationID != "" {
@@ -217,6 +221,22 @@ func (h *AssistantMessageHandler) processToolCall(
 		intent, err := tools.ParseIntentArgs(tc.Function.Arguments)
 		if err != nil {
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
+		}
+
+		if h.lockedIntent == "" {
+			h.lockedIntent = intent.Intent
+		} else if intent.Intent != h.lockedIntent {
+			log.Warn("blocking intent drift", "from", h.lockedIntent, "to", intent.Intent)
+
+			*history = append(*history, proxy.Message{
+				Role: proxy.ToolRole,
+				Content: utils.ToJson(map[string]any{
+					"error":  "Intent drift detected. Retry with same intent.",
+					"rule":   "intent_locked",
+					"intent": h.lockedIntent,
+				}),
+			})
+			return nil, nil
 		}
 
 		if err := tools.ValidateIntent(intent); err != nil {
