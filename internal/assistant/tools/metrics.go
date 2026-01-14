@@ -41,7 +41,7 @@ type MetricsArgs struct {
 	Expose      string    `json:"expose"`
 	Time        *TimeArgs `json:"time,omitempty"`
 	Aggregation string    `json:"aggregation,omitempty"`
-	Resolution  string    `json:"resolution,omitempty"`
+	EventValue  *any      `json:"event_value,omitempty"`
 }
 
 type TimeArgs struct {
@@ -55,7 +55,7 @@ type NormalizedMetricsArgs struct {
 	Expose      string
 	Time        *nodeherder.TimeQuery
 	Aggregation string
-	Resolution  string
+	EventValue  *any
 }
 
 func MetricsToolSchema() proxy.Tool {
@@ -87,7 +87,9 @@ func MetricsToolSchema() proxy.Tool {
 						"type":        "string",
 						"description": "Aggregation: last, min, max, avg, count",
 					},
-					"resolution": map[string]any{"type": "string"},
+					"event_value": map[string]any{
+						"description": "For aggregation=event: value to match (e.g. true, false, 1, 0)",
+					},
 				},
 				"required": []string{"target_name", "expose"},
 			},
@@ -104,20 +106,18 @@ func ParseMetricsArgs(raw string) (MetricsArgs, error) {
 }
 
 func NormalizeMetricsArgs(args MetricsArgs, cfg NormalizeConfig, clock utils.Clock) (NormalizedMetricsArgs, error) {
-	// Normalize tool args to protect downstream components from LLM artifacts.
 	normalized := NormalizedMetricsArgs{
-		TargetName: strings.TrimSpace(args.TargetName),
-		Expose:     NormalizeExpose(args.Expose),
-		Resolution: strings.TrimSpace(args.Resolution),
+		TargetName:  strings.TrimSpace(args.TargetName),
+		Expose:      NormalizeExpose(args.Expose),
+		Aggregation: normalizeAggregation(args.Aggregation),
+		EventValue:  args.EventValue,
 	}
-	normalized.Aggregation = normalizeAggregation(args.Aggregation)
 
 	if normalized.TargetName == "" || normalized.Expose == "" {
 		return NormalizedMetricsArgs{}, fmt.Errorf("target_name and expose are required")
 	}
 
-	timeQuery := NormalizeTimeQuery(args.Time, cfg, clock)
-	normalized.Time = timeQuery
+	normalized.Time = NormalizeTimeQuery(args.Time, cfg, clock)
 	return normalized, nil
 }
 
@@ -272,6 +272,7 @@ func normalizeAggregation(raw string) string {
 		string(nodeherder.AggMax),
 		string(nodeherder.AggAvg),
 		string(nodeherder.AggCount),
+		"event",
 	}
 	for _, v := range allowed {
 		if agg == v {

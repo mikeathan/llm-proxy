@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/utils"
+	"reflect"
 	"strings"
 )
 
@@ -108,12 +109,56 @@ func (a *assistantEngine) ExecuteToolWithDevice(ctx context.Context, call proxy.
 }
 
 func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.NormalizedMetricsArgs, deviceID, deviceName string) (*ToolResult, error) {
+	if args.Aggregation == "event" {
+		if args.EventValue == nil {
+			return nil, fmt.Errorf("event_value is required for event aggregation")
+		}
+
+		req := &nodeherder.MetricsQueryRequest{
+			DeviceIDs:   []string{deviceID},
+			Expose:      args.Expose,
+			Time:        args.Time,
+			Aggregation: "",
+		}
+
+		a.logger.Info("normalized tool request",
+			"device", deviceName,
+			"device_id", deviceID,
+			"expose", req.Expose,
+			"aggregation", args.Aggregation,
+			"time", req.Time,
+		)
+
+		res, err := a.nodeherder.QueryMetrics(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		matchIdx := -1
+		for i := len(res.Values) - 1; i >= 0; i-- {
+			if reflect.DeepEqual(res.Values[i].Value, *args.EventValue) {
+				matchIdx = i
+				break
+			}
+		}
+
+		if matchIdx == -1 {
+			res.Values = nil
+		} else {
+			res.Values = []nodeherder.MetricsQueryDeviceResponse{res.Values[matchIdx]}
+		}
+
+		return &ToolResult{
+			Response:    res,
+			Aggregation: nodeherder.AggregationType(args.Aggregation),
+		}, nil
+	}
+
 	req := &nodeherder.MetricsQueryRequest{
 		DeviceIDs:   []string{deviceID},
 		Expose:      args.Expose,
 		Time:        args.Time,
 		Aggregation: args.Aggregation,
-		Resolution:  args.Resolution,
 	}
 
 	a.logger.Info("normalized tool request",
