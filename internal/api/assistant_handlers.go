@@ -224,21 +224,21 @@ func (h *AssistantMessageHandler) processToolCall(
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
 		}
 
-		if *lockedIntent == "" {
-			*lockedIntent = intent.Intent
-		} else if intent.Intent != *lockedIntent {
-			log.Warn("blocking intent drift", "from", *lockedIntent, "to", intent.Intent)
+		// if *lockedIntent == "" {
+		// 	*lockedIntent = intent.Intent
+		// } else if intent.Intent != *lockedIntent {
+		// 	log.Warn("blocking intent drift", "from", *lockedIntent, "to", intent.Intent)
 
-			*history = append(*history, proxy.Message{
-				Role: proxy.ToolRole,
-				Content: utils.ToJson(map[string]any{
-					"error":  "Intent drift detected. Retry with same intent.",
-					"rule":   "intent_locked",
-					"intent": *lockedIntent,
-				}),
-			})
-			return nil, nil
-		}
+		// 	*history = append(*history, proxy.Message{
+		// 		Role: proxy.ToolRole,
+		// 		Content: utils.ToJson(map[string]any{
+		// 			"error":  "Intent drift detected. Retry with same intent.",
+		// 			"rule":   "intent_locked",
+		// 			"intent": *lockedIntent,
+		// 		}),
+		// 	})
+		// 	return nil, nil
+		// }
 
 		if err := tools.ValidateIntent(intent, exposeIndex); err != nil {
 			// Inject the validation error back into the model and retry
