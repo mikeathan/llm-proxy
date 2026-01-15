@@ -34,8 +34,6 @@ type AssistantMessageHandler struct {
 	logger   logging.Logger
 	engine   assistant.Engine
 	pending  pending.PendingToolCallStore
-
-	lockedIntent string
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
@@ -103,7 +101,7 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 // 3. Execute requested tools and feed results back to the model
 // 4. Return the model's final answer
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	h.lockedIntent = ""
+	lockedIntent := ""
 
 	// handleAssistant orchestrates a full agent cycle and shortcuts into the
 	// clarification flow when a prior device match was ambiguous.
@@ -117,6 +115,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	if err != nil {
 		return nil, err
 	}
+	exposeIndex := tools.BuildExposeIndex(deviceCtx)
 
 	client, err := h.getLLMClient(ctx, log)
 	if err != nil {
@@ -127,7 +126,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	// runAgentLoop drives the model/tool execution cycle until the model
 	// produces a final answer or the step limit is reached.
-	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID)
+	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex)
 }
 
 // runAgentLoop drives the agent execution:
@@ -135,7 +134,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 // Each tool call is executed, its result is injected into the history,
 // and the model is called again. When no tool calls remain, the model's
 // message is considered the final answer and the loop exits.
-func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string) (any, *handlerError) {
+func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string, lockedIntent string, exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose) (any, *handlerError) {
 	// runAgentLoop drives model→tool→model iteration, with separate retry budgets
 	// for transient model failures vs tool execution failures.
 	const maxSteps = 5
@@ -159,7 +158,7 @@ func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy
 			return map[string]any{"reply": msg.Content}, nil
 		}
 
-		result, err := h.processToolCall(ctx, msg, &history, log, conversationID)
+		result, err := h.processToolCall(ctx, msg, &history, log, conversationID, &lockedIntent, exposeIndex)
 		if err != nil {
 			log.Error("tool execution failed", "error", err.Message)
 			return nil, err
@@ -204,6 +203,8 @@ func (h *AssistantMessageHandler) processToolCall(
 	history *[]proxy.Message,
 	log logging.Logger,
 	conversationID string,
+	lockedIntent *string,
+	exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose,
 ) (any, *handlerError) {
 	// processToolCall executes the requested tool and appends a compact history
 	// for the model's next reasoning step.
@@ -223,23 +224,23 @@ func (h *AssistantMessageHandler) processToolCall(
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
 		}
 
-		if h.lockedIntent == "" {
-			h.lockedIntent = intent.Intent
-		} else if intent.Intent != h.lockedIntent {
-			log.Warn("blocking intent drift", "from", h.lockedIntent, "to", intent.Intent)
+		if *lockedIntent == "" {
+			*lockedIntent = intent.Intent
+		} else if intent.Intent != *lockedIntent {
+			log.Warn("blocking intent drift", "from", *lockedIntent, "to", intent.Intent)
 
 			*history = append(*history, proxy.Message{
 				Role: proxy.ToolRole,
 				Content: utils.ToJson(map[string]any{
 					"error":  "Intent drift detected. Retry with same intent.",
 					"rule":   "intent_locked",
-					"intent": h.lockedIntent,
+					"intent": *lockedIntent,
 				}),
 			})
 			return nil, nil
 		}
 
-		if err := tools.ValidateIntent(intent); err != nil {
+		if err := tools.ValidateIntent(intent, exposeIndex); err != nil {
 			// Inject the validation error back into the model and retry
 			*history = append(*history, proxy.Message{
 				Role: proxy.ToolRole,
@@ -361,9 +362,14 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 
 	h.pending.Clear(payload.ConversationID)
 
-	toolResult, err := h.engine.ExecuteToolWithDevice(ctx, state.ToolCall, candidate.ID)
-	if err != nil {
-		log.Error("tool execution failed after clarification", "error", err)
+	toolResult, execErr := h.engine.ExecuteToolWithDevice(ctx, state.ToolCall, candidate.ID)
+	if execErr != nil {
+		log.Error("tool execution failed after clarification", "error", execErr)
+
+		var dErr *nodeherder.DomainError
+		if errors.As(execErr, &dErr) {
+			return map[string]any{"reply": dErr.Msg}, true
+		}
 		return map[string]any{"reply": "Failed to run the metrics query after clarification."}, true
 	}
 
@@ -375,7 +381,14 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 		return map[string]any{"reply": "Metrics collected, but failed to reach the model."}, true
 	}
 
-	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID)
+	deviceCtx, derr := h.loadDeviceContext(log)
+	if derr != nil {
+		return map[string]any{"reply": "Failed to load device context for the pending selection."}, true
+	}
+	exposeIndex := tools.BuildExposeIndex(deviceCtx)
+
+	lockedIntent := ""
+	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex)
 	if err != nil {
 		msg, herr := h.callModel(ctx, client, history, log)
 		if herr == nil && len(msg.ToolCalls) == 0 {

@@ -4,12 +4,34 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/utils"
 	"strconv"
 	"strings"
 	"time"
 )
+
+type ExposeKey struct {
+	device string
+	expose string
+}
+
+func BuildExposeIndex(ctx *nodeherder.LLMDeviceContext) map[ExposeKey]nodeherder.LLMExpose {
+	index := make(map[ExposeKey]nodeherder.LLMExpose, 64)
+
+	for _, d := range ctx.Devices {
+		name := strings.ToLower(d.Name)
+		for _, e := range d.Exposes {
+			index[ExposeKey{
+				device: name,
+				expose: strings.ToLower(e.Name),
+			}] = e
+		}
+	}
+
+	return index
+}
 
 // Intent captures the user-facing intent so the backend can deterministically
 // map it into metrics queries without the LLM choosing execution parameters.
@@ -63,15 +85,54 @@ func ParseIntentArgs(raw string) (Intent, error) {
 	return args, nil
 }
 
-func ValidateIntent(intent Intent) error {
+func ValidateIntent(intent Intent, index map[ExposeKey]nodeherder.LLMExpose) error {
 
-	// Rule 1: latest_value cannot answer any historical event question
-	if intent.Intent == "latest_value" {
-		switch intent.TimeScope {
-		case "today", "yesterday", "last_hour", "last_day", "last_week", "last_month", "last_year":
-			return errors.New("Use intent = count_events or a wider time range for change or event queries")
+	intent.Intent = strings.ToLower(strings.TrimSpace(intent.Intent))
+	intent.TimeScope = strings.ToLower(strings.TrimSpace(intent.TimeScope))
+
+	for _, m := range intent.Metrics {
+		key := ExposeKey{
+			device: strings.ToLower(intent.TargetName),
+			expose: strings.ToLower(m),
+		}
+
+		expose, ok := index[key]
+		if !ok {
+			return fmt.Errorf("metric '%s' not found on device '%s'", m, intent.TargetName)
+		}
+
+		isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
+			expose.Type == "float" || expose.Type == "integer"
+
+		if isNumeric && intent.Intent == "count_events" {
+			return fmt.Errorf("count_events is invalid for numeric sensor: %s", m)
+		}
+
+		if !isNumeric && intent.Intent == "latest_value" &&
+			strings.Contains(intent.TimeScope, "change") {
+			return fmt.Errorf("latest_value cannot answer change questions for event sensor: %s", m)
 		}
 	}
+	// Rule 1: latest_value cannot answer any historical event question
+	// if intent.Intent == "latest_value" {
+	// 	for _, m := range intent.Metrics {
+	// 		key := ExposeKey{
+	// 			device: strings.ToLower(intent.TargetName),
+	// 			expose: strings.ToLower(m),
+	// 		}
+	// 		expose := index[key]
+
+	// 		isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
+	// 			expose.Type == "float" || expose.Type == "integer"
+
+	// 		if !isNumeric {
+	// 			switch intent.TimeScope {
+	// 			case "today", "yesterday", "last_hour", "last_day", "last_week", "last_month", "last_year":
+	// 				return errors.New("Use intent = count_events for event-based history queries")
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	// Rule 2: latest_value is invalid for explicit ranges (change/comparison)
 	if intent.Intent == "latest_value" && strings.HasPrefix(intent.TimeScope, "range:") {
@@ -122,7 +183,7 @@ func IntentToMetricsArgs(intent Intent, clock utils.Clock) ([]MetricsArgs, error
 }
 
 func aggregationForIntent(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	switch raw {
 	case "count_events", "count":
 		return "count"
 	case "latest_value", "last_value", "last":

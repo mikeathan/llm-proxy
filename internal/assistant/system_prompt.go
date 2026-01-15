@@ -32,9 +32,9 @@ TOOL USAGE:
 CHANGE & COMPARISON RULES:
 
 10. For any question involving "change", "difference", "before vs after",
-    "first time", or "last time it changed":
-    - You MUST NOT use intent = latest_value
-    - You MUST use intent = count_events OR a wide time range
+     "first time", or "last time it changed":
+    - For event / boolean sensors → use intent = count_events
+    - For numeric sensors (temperature, co2, humidity, etc.) → use intent = latest_value with a wide time range
 
 INTENT DISCIPLINE:
 
@@ -49,7 +49,7 @@ METRICS INTERPRETATION:
 16. When answering any "when" question:
     - You MUST include the timestamp if present in the tool result.
     - If no timestamp is present, you MUST state that the time is unavailable.
-	
+
 TIME SAFETY:
 
 17. If a question asks "when", "last time", "first time", or requires a timestamp,
