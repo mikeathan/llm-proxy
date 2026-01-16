@@ -381,42 +381,71 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 
 	h.pending.Clear(payload.ConversationID)
 
-	toolResult, execErr := h.engine.ExecuteToolWithDevice(ctx, state.ToolCall, candidate.ID)
-	if execErr != nil {
-		log.Error("tool execution failed after clarification", "error", execErr)
+	// Update the original intent with the resolved device name so the standard flow can process it.
+	// This ensures we handle multi-metric expansion and validation correctly.
+	intent, err := tools.ParseIntentArgs(state.ToolCall.Function.Arguments)
+	if err != nil {
+		log.Error("failed to parse pending intent", "error", err)
+		return map[string]any{"reply": "Failed to process selection due to internal error."}, true
+	}
+	intent.TargetName = candidate.Name
 
-		var dErr *nodeherder.DomainError
-		if errors.As(execErr, &dErr) {
-			return map[string]any{"reply": dErr.Msg}, true
-		}
-		return map[string]any{"reply": "Failed to run the metrics query after clarification."}, true
+	updatedArgs := utils.ToJson(intent)
+	state.ToolCall.Function.Arguments = updatedArgs
+
+	// Create a synthetic message for processToolCall
+	msg := proxy.Message{
+		ToolCalls: []proxy.ToolCall{state.ToolCall},
 	}
 
-	history := append([]proxy.Message(nil), state.History...)
-	h.appendToolResult(&history, []proxy.ToolCall{state.ToolCall}, toolResult)
+	// Reconstruct history: The pending state history includes up to the point of ambiguity.
+	// We pass a pointer to a copy of it so processToolCall can append results.
+	historyCtx := append([]proxy.Message(nil), state.History...)
+
+	deviceCtx, loadErr := h.loadDeviceContext(log)
+	if loadErr != nil {
+		return map[string]any{"reply": "Failed to load device context."}, true
+	}
+	exposeIndex := tools.BuildExposeIndex(deviceCtx)
+
+	// We pass lockedIntent as nil or empty because we are resuming a known flow.
+	// Actually we should probably check if we had a locked intent, but for now assuming drift check
+	// happens inside processToolCall is fine.
+	lockedIntent := ""
+
+	// We need the timezone from the current payload if available, or fall back to something?
+	// The pending state doesn't store timezone. We should use the current request's timezone
+	// since the user is interacting now.
+	timezone := payload.Timezone
+
+	result, callErr := h.processToolCall(ctx, msg, &historyCtx, log, payload.ConversationID, &lockedIntent, exposeIndex, deviceCtx, timezone)
+
+	if callErr != nil {
+		log.Error("process tool call failed after clarification", "error", callErr.Message)
+		// If processToolCall failed, return a generic error or the message
+		return map[string]any{"reply": "Failed to execute request after selection."}, true
+	}
+
+	if result != nil {
+		return result, true // Likely the final reply map
+	}
+
+	// If processToolCall returned nil, it means it successfully executed tools and appended to history.
+	// We now need to execute the agent loop to generate the final response.
+	// We use the updated historyCtx which now contains the tool results.
 
 	client, herr := h.getLLMClient(ctx, log)
 	if herr != nil {
 		return map[string]any{"reply": "Metrics collected, but failed to reach the model."}, true
 	}
 
-	deviceCtx, derr := h.loadDeviceContext(log)
-	if derr != nil {
-		return map[string]any{"reply": "Failed to load device context for the pending selection."}, true
-	}
-	exposeIndex := tools.BuildExposeIndex(deviceCtx)
-
-	lockedIntent := ""
-	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex, deviceCtx, payload.Timezone)
-	if err != nil {
-		msg, herr := h.callModel(ctx, client, history, log)
-		if herr == nil && len(msg.ToolCalls) == 0 {
-			return map[string]any{"reply": msg.Content}, true
-		}
-		return map[string]any{"reply": "Metrics collected, but failed to complete the response."}, true
+	loopResult, lerr := h.runAgentLoop(ctx, client, historyCtx, log, payload.ConversationID, lockedIntent, exposeIndex, deviceCtx, timezone)
+	if lerr != nil {
+		log.Error("agent loop failed after clarification", "error", lerr.Message)
+		return map[string]any{"reply": "Failed to generate response after collecting metrics."}, true
 	}
 
-	return result, true
+	return loopResult, true
 }
 
 func (h *AssistantMessageHandler) loadDeviceContext(log logging.Logger) (*nodeherder.LLMDeviceContext, *handlerError) {
