@@ -57,11 +57,31 @@ func TestNormalizeMetrics_TimestampHandling(t *testing.T) {
 			if !result.To.Equal(time.UnixMilli(1735776000000)) {
 				t.Fatalf("unexpected to time: %v", result.To)
 			}
-			if result.Timestamp == nil {
-				t.Fatalf("expected timestamp to be set")
-			}
-			if !result.Timestamp.Equal(time.UnixMilli(tt.wantTSUnix)) {
-				t.Fatalf("unexpected timestamp: %v", result.Timestamp)
+
+			// Verify conditional timestamp fields
+			isLast := tt.agg == nodeherder.AggLast || tt.agg == nodeherder.LastEvent
+			if isLast {
+				if result.LastChanged == nil {
+					t.Fatal("expected LastChanged to be set for last aggregation")
+				}
+				if !result.LastChanged.Equal(time.UnixMilli(tt.wantTSUnix)) {
+					t.Fatalf("unexpected LastChanged: %v", result.LastChanged)
+				}
+				if result.Timestamp != nil {
+					t.Fatalf("expected Timestamp to be nil for last aggregation, got %v", result.Timestamp)
+				}
+			} else {
+				// Special case: AggNone usually carries no op string, but might still have timestamp if value present
+				// In our table, wantTSUnix is set for all.
+				if result.Timestamp == nil {
+					t.Fatal("expected Timestamp to be set for non-last aggregation")
+				}
+				if !result.Timestamp.Equal(time.UnixMilli(tt.wantTSUnix)) {
+					t.Fatalf("unexpected Timestamp: %v", result.Timestamp)
+				}
+				if result.LastChanged != nil {
+					t.Fatalf("expected LastChanged to be nil for non-last aggregation, got %v", result.LastChanged)
+				}
 			}
 		})
 	}
@@ -87,6 +107,9 @@ func TestNormalizeMetrics_NilValue(t *testing.T) {
 	}
 	if result.Timestamp != nil {
 		t.Fatalf("expected timestamp to be nil, got %v", result.Timestamp)
+	}
+	if result.LastChanged != nil {
+		t.Fatalf("expected LastChanged to be nil, got %v", result.LastChanged)
 	}
 	if result.Operation != "avg" {
 		t.Fatalf("expected operation %q, got %q", "avg", result.Operation)

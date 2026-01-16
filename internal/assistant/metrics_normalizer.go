@@ -6,13 +6,14 @@ import (
 )
 
 type MetricResult struct {
-	Metric    string
-	DeviceID  string
-	Operation string
-	Value     any
-	From      time.Time
-	To        time.Time
-	Timestamp *time.Time
+	Metric      string
+	DeviceID    string
+	Operation   string
+	Value       any
+	From        time.Time
+	To          time.Time
+	Timestamp   *time.Time `json:",omitempty"`
+	LastChanged *time.Time `json:",omitempty"`
 }
 
 func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType) MetricResult {
@@ -44,13 +45,26 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		ts = &t
 	}
 
-	return MetricResult{
+	result := MetricResult{
 		Metric:    resp.Expose,
 		DeviceID:  v.DeviceId,
 		Operation: string(aggregation),
 		Value:     v.Value,
 		From:      time.UnixMilli(resp.From),
 		To:        time.UnixMilli(resp.To),
-		Timestamp: ts,
 	}
+
+	// Use specific field names to help the LLM understand the temporal context
+	// of the result, especially for "last value" queries vs statistical aggregates.
+	isLast := aggregation == nodeherder.AggLast ||
+		aggregation == nodeherder.LastEvent ||
+		aggregation == "event"
+
+	if isLast {
+		result.LastChanged = ts
+	} else {
+		result.Timestamp = ts
+	}
+
+	return result
 }
