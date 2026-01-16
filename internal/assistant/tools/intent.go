@@ -69,11 +69,11 @@ func IntentToolSchema() proxy.Tool {
 					},
 					"time_scope": map[string]any{
 						"type":        "string",
-						"description": "Time scope such as today, last_hour, last_day, last_week, or range:<from>..<to>",
+						"description": "Time scope such as today, yesterday, last_hour, last_day, last_week, or range:<from>..<to>",
 					},
 					"positive_outcome": map[string]any{
 						"type":        "boolean",
-						"description": "For binary sensors, whether the user is asking for a positive outcome (e.g. on, open, true) vs a negative one (e.g. off, closed, false). Omit for non-binary sensors.",
+						"description": "For binary sensors, use 'true' if the user asks when a specific event happened (e.g. 'when did it open', 'when was it turned on', 'when was presence detected') to find that specific state change. Use 'false' for negative events ('when did it close', 'when did it turn off'). Omit if asking for the current status.",
 					},
 				},
 				"required": []string{"intent", "target_name", "metrics", "time_scope"},
