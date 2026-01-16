@@ -54,7 +54,7 @@ func IntentToolSchema() proxy.Tool {
 				"properties": map[string]any{
 					"intent": map[string]any{
 						"type":        "string",
-						"description": "Intent such as count_events, latest_value, last_event, min_value, max_value, avg_value",
+						"description": "Intent such as count_events, latest_value (current status only), last_event (find when something happened), min_value, max_value, avg_value",
 					},
 					"target_name": map[string]any{
 						"type":        "string",
