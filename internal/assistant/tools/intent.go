@@ -69,7 +69,7 @@ func IntentToolSchema() proxy.Tool {
 					},
 					"time_scope": map[string]any{
 						"type":        "string",
-						"description": "Time scope such as today, yesterday, last_hour, last_day, last_week, or range:<from>..<to>",
+						"description": "Time scope such as today, yesterday, last_24_hours, last_week, or range:<from>..<to>",
 					},
 					"positive_outcome": map[string]any{
 						"type":        "boolean",
