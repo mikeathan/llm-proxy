@@ -225,6 +225,7 @@ func timeArgsForScope(raw string, clock utils.Clock, timezone string) *TimeArgs 
 		return nil
 	}
 
+	// Exact match first
 	switch scope {
 	case "today":
 		return timeArgsForToday(clock, timezone)
@@ -244,6 +245,14 @@ func timeArgsForScope(raw string, clock utils.Clock, timezone string) *TimeArgs 
 
 	if strings.HasPrefix(scope, "range:") {
 		return parseRangeScope(strings.TrimPrefix(scope, "range:"), clock)
+	}
+
+	// Fallback/Fuzzy matching logic for when LLM combines terms like "last_day yesterday"
+	if strings.Contains(scope, "yesterday") {
+		return timeArgsForYesterday(clock, timezone)
+	}
+	if strings.Contains(scope, "today") {
+		return timeArgsForToday(clock, timezone)
 	}
 
 	if _, ok := NormalizeLookback(scope, DefaultNormalizeConfig()); ok {
