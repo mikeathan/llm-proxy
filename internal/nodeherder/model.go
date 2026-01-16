@@ -12,6 +12,7 @@ const (
 	AggMax   AggregationType = "max"
 	AggAvg   AggregationType = "avg"
 	AggCount AggregationType = "count"
+	LastEvent AggregationType = "last_event"
 )
 
 type DeviceContextResponse struct {
@@ -46,10 +47,11 @@ type TimeQuery struct {
 
 // Query Request
 type MetricsQueryRequest struct {
-	DeviceIDs   []string   `json:"deviceIds"`
-	Expose      string     `json:"expose"`
-	Time        *TimeQuery `json:"time,omitempty"`
-	Aggregation string     `json:"aggregation"`
+	DeviceIDs        []string        `json:"deviceIds"`
+	Expose           string          `json:"expose"`
+	Time             *TimeQuery      `json:"time,omitempty"`
+	Aggregation      AggregationType `json:"aggregation"`
+	AggregationValue any             `json:"aggregationValue,omitempty"`
 }
 
 // Query Response

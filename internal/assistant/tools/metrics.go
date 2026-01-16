@@ -37,11 +37,12 @@ func DefaultNormalizeConfig() NormalizeConfig {
 }
 
 type MetricsArgs struct {
-	TargetName  string    `json:"target_name"`
-	Expose      string    `json:"expose"`
-	Time        *TimeArgs `json:"time,omitempty"`
-	Aggregation string    `json:"aggregation,omitempty"`
-	EventValue  *any      `json:"event_value,omitempty"`
+	TargetName      string    `json:"target_name"`
+	Expose          string    `json:"expose"`
+	Time            *TimeArgs `json:"time,omitempty"`
+	Aggregation     string    `json:"aggregation,omitempty"`
+	EventValue      *any      `json:"event_value,omitempty"`
+	PositiveOutcome *bool     `json:"positive_outcome,omitempty"`
 }
 
 type TimeArgs struct {
@@ -51,11 +52,12 @@ type TimeArgs struct {
 }
 
 type NormalizedMetricsArgs struct {
-	TargetName  string
-	Expose      string
-	Time        *nodeherder.TimeQuery
-	Aggregation string
-	EventValue  *any
+	TargetName      string
+	Expose          string
+	Time            *nodeherder.TimeQuery
+	Aggregation     string
+	EventValue      *any
+	PositiveOutcome *bool
 }
 
 func MetricsToolSchema() proxy.Tool {
@@ -107,10 +109,11 @@ func ParseMetricsArgs(raw string) (MetricsArgs, error) {
 
 func NormalizeMetricsArgs(args MetricsArgs, cfg NormalizeConfig, clock utils.Clock) (NormalizedMetricsArgs, error) {
 	normalized := NormalizedMetricsArgs{
-		TargetName:  strings.TrimSpace(args.TargetName),
-		Expose:      NormalizeExpose(args.Expose),
-		Aggregation: normalizeAggregation(args.Aggregation),
-		EventValue:  args.EventValue,
+		TargetName:      strings.TrimSpace(args.TargetName),
+		Expose:          NormalizeExpose(args.Expose),
+		Aggregation:     normalizeAggregation(args.Aggregation),
+		EventValue:      args.EventValue,
+		PositiveOutcome: args.PositiveOutcome,
 	}
 
 	if normalized.TargetName == "" || normalized.Expose == "" {
@@ -272,6 +275,7 @@ func normalizeAggregation(raw string) string {
 		string(nodeherder.AggMax),
 		string(nodeherder.AggAvg),
 		string(nodeherder.AggCount),
+		string(nodeherder.LastEvent),
 		"event",
 	}
 	for _, v := range allowed {

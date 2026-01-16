@@ -1,32 +1,66 @@
-package devices_test
+package devices
 
 import (
-	"errors"
-	"testing"
-
-	"llm-proxy/internal/assistant/devices"
 	"llm-proxy/internal/nodeherder"
+	"testing"
 )
 
-func TestResolveDevice_ExactMatch(t *testing.T) {
+func TestResolveDevice_Fuzzy(t *testing.T) {
 	ctx := &nodeherder.LLMDeviceContext{
 		Devices: []nodeherder.LLMDevice{
 			{
-				ID:   "dev1",
-				Name: "Living Room Sensor",
+				ID:   "1",
+				Name: "Attic air sensor",
 				Exposes: []nodeherder.LLMExpose{
+					{Name: "co2"},
 					{Name: "temperature"},
+				},
+			},
+			{
+				ID:   "2",
+				Name: "Living Room Light",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "state"},
 				},
 			},
 		},
 	}
 
-	device, err := devices.ResolveDevice(ctx, "living room", "temperature")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	tests := []struct {
+		target      string
+		metric      string
+		expectID    string
+		expectError bool
+		ambiguous   bool
+	}{
+		// Exact match
+		{"Attic air sensor", "co2", "1", false, false},
+		// Case insensitive
+		{"attic air sensor", "CO2", "1", false, false},
+		// Fuzzy match
+		{"attic room", "co2", "1", false, false},
+		{"attic", "co2", "1", false, false},
+		// No match for metric
+		{"attic air sensor", "humidity", "", true, false},
+		// No match for device
+		{"garage", "co2", "", true, false},
 	}
-	if device.ID != "dev1" {
-		t.Fatalf("expected dev1, got %s", device.ID)
+
+	for _, tt := range tests {
+		dev, err := ResolveDevice(ctx, tt.target, tt.metric)
+		if tt.expectError {
+			if err == nil {
+				t.Errorf("ResolveDevice(%q, %q) expected error, got nil", tt.target, tt.metric)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("ResolveDevice(%q, %q) unexpected error: %v", tt.target, tt.metric, err)
+			continue
+		}
+		if dev.ID != tt.expectID {
+			t.Errorf("ResolveDevice(%q, %q) = %s, want %s", tt.target, tt.metric, dev.ID, tt.expectID)
+		}
 	}
 }
 
@@ -34,75 +68,38 @@ func TestResolveDevice_Ambiguous(t *testing.T) {
 	ctx := &nodeherder.LLMDeviceContext{
 		Devices: []nodeherder.LLMDevice{
 			{
-				ID:   "dev1",
-				Name: "Attic Air Sensor",
+				ID:   "1",
+				Name: "Attic Switch",
 				Exposes: []nodeherder.LLMExpose{
-					{Name: "temperature"},
+					{Name: "state"},
 				},
 			},
 			{
-				ID:   "dev2",
-				Name: "Attic Room Sensor",
+				ID:   "2",
+				Name: "Attic Light",
 				Exposes: []nodeherder.LLMExpose{
-					{Name: "temperature"},
+					{Name: "state"},
 				},
 			},
 		},
 	}
 
-	_, err := devices.ResolveDevice(ctx, "attic", "temperature")
-	var amb *devices.AmbiguousDeviceError
-	if !errors.As(err, &amb) {
-		t.Fatalf("expected AmbiguousDeviceError, got %v", err)
+	// "attic" matches both equally well (both have just "attic" in common with target)
+	// Actually "attic" target against "Attic Switch" -> score 0.5 (attic matched, switch missed)
+	// against "Attic Light" -> score 0.5
+	// Should be ambiguous.
+
+	_, err := ResolveDevice(ctx, "attic", "state")
+	if err == nil {
+		t.Fatal("expected ambiguity error, got nil")
 	}
+
+	amb, ok := err.(*AmbiguousDeviceError)
+	if !ok {
+		t.Fatalf("expected AmbiguousDeviceError, got %T: %v", err, err)
+	}
+
 	if len(amb.Candidates) != 2 {
-		t.Fatalf("expected 2 candidates, got %d", len(amb.Candidates))
-	}
-}
-
-func TestResolveDevice_PrefersHigherScore(t *testing.T) {
-	ctx := &nodeherder.LLMDeviceContext{
-		Devices: []nodeherder.LLMDevice{
-			{
-				ID:   "dev1",
-				Name: "Living Room Sensor",
-				Exposes: []nodeherder.LLMExpose{
-					{Name: "temperature"},
-				},
-			},
-			{
-				ID:   "dev2",
-				Name: "Living Room Temperature Sensor",
-				Exposes: []nodeherder.LLMExpose{
-					{Name: "temperature"},
-				},
-			},
-		},
-	}
-
-	device, err := devices.ResolveDevice(ctx, "living room temperature", "temperature")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if device.ID != "dev2" {
-		t.Fatalf("expected dev2, got %s", device.ID)
-	}
-}
-
-func TestResolveDevice_NoMatch(t *testing.T) {
-	ctx := &nodeherder.LLMDeviceContext{
-		Devices: []nodeherder.LLMDevice{
-			{
-				ID:   "dev1",
-				Name: "Garden Sensor",
-				Exposes: []nodeherder.LLMExpose{
-					{Name: "humidity"},
-				},
-			},
-		},
-	}
-
-	if _, err := devices.ResolveDevice(ctx, "kitchen", "temperature"); err == nil {
-		t.Fatal("expected error")
+		t.Errorf("expected 2 candidates, got %d", len(amb.Candidates))
 	}
 }

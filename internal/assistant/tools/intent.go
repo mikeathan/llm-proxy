@@ -36,10 +36,11 @@ func BuildExposeIndex(ctx *nodeherder.LLMDeviceContext) map[ExposeKey]nodeherder
 // Intent captures the user-facing intent so the backend can deterministically
 // map it into metrics queries without the LLM choosing execution parameters.
 type Intent struct {
-	Intent     string   `json:"intent"`
-	TargetName string   `json:"target_name"`
-	Metrics    []string `json:"metrics"`
-	TimeScope  string   `json:"time_scope"`
+	Intent          string   `json:"intent"`
+	TargetName      string   `json:"target_name"`
+	Metrics         []string `json:"metrics"`
+	TimeScope       string   `json:"time_scope"`
+	PositiveOutcome *bool    `json:"positive_outcome,omitempty"`
 }
 
 func IntentToolSchema() proxy.Tool {
@@ -69,6 +70,10 @@ func IntentToolSchema() proxy.Tool {
 					"time_scope": map[string]any{
 						"type":        "string",
 						"description": "Time scope such as today, last_hour, last_day, last_week, or range:<from>..<to>",
+					},
+					"positive_outcome": map[string]any{
+						"type":        "boolean",
+						"description": "For binary sensors, whether the user is asking for a positive outcome (e.g. on, open, true) vs a negative one (e.g. off, closed, false). Omit for non-binary sensors.",
 					},
 				},
 				"required": []string{"intent", "target_name", "metrics", "time_scope"},
@@ -149,7 +154,7 @@ func ValidateIntent(intent Intent, index map[ExposeKey]nodeherder.LLMExpose) err
 
 // IntentToMetricsArgs deterministically maps a declared intent into concrete
 // query_metrics arguments so execution is controlled by code, not the LLM.
-func IntentToMetricsArgs(intent Intent, clock utils.Clock) ([]MetricsArgs, error) {
+func IntentToMetricsArgs(intent Intent, clock utils.Clock, exposeIndex map[ExposeKey]nodeherder.LLMExpose, timezone string) ([]MetricsArgs, error) {
 	target := strings.TrimSpace(intent.TargetName)
 	if target == "" {
 		return nil, fmt.Errorf("target_name is required")
@@ -167,16 +172,31 @@ func IntentToMetricsArgs(intent Intent, clock utils.Clock) ([]MetricsArgs, error
 	}
 
 	aggregation := aggregationForIntent(intent.Intent)
-	timeArgs := timeArgsForScope(intent.TimeScope, clock)
+	timeArgs := timeArgsForScope(intent.TimeScope, clock, timezone)
 
 	out := make([]MetricsArgs, 0, len(metrics))
 	for _, metric := range metrics {
-		out = append(out, MetricsArgs{
+		args := MetricsArgs{
 			TargetName:  target,
 			Expose:      metric,
 			Time:        timeArgs,
 			Aggregation: aggregation,
-		})
+		}
+
+		key := ExposeKey{
+			device: strings.ToLower(intent.TargetName),
+			expose: strings.ToLower(metric),
+		}
+		expose, ok := exposeIndex[key]
+		isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
+			expose.Type == "float" || expose.Type == "integer"
+
+		if ok && !isNumeric && intent.PositiveOutcome != nil {
+			args.Aggregation = "none"
+			args.PositiveOutcome = intent.PositiveOutcome
+		}
+
+		out = append(out, args)
 	}
 
 	return out, nil
@@ -199,7 +219,7 @@ func aggregationForIntent(raw string) string {
 	}
 }
 
-func timeArgsForScope(raw string, clock utils.Clock) *TimeArgs {
+func timeArgsForScope(raw string, clock utils.Clock, timezone string) *TimeArgs {
 	scope := strings.ToLower(strings.TrimSpace(raw))
 	if scope == "" {
 		return nil
@@ -207,9 +227,9 @@ func timeArgsForScope(raw string, clock utils.Clock) *TimeArgs {
 
 	switch scope {
 	case "today":
-		return timeArgsForToday(clock)
+		return timeArgsForToday(clock, timezone)
 	case "yesterday":
-		return timeArgsForYesterday(clock)
+		return timeArgsForYesterday(clock, timezone)
 	case "last_hour":
 		return &TimeArgs{Lookback: "1h"}
 	case "last_day", "last_24_hours":
@@ -233,22 +253,34 @@ func timeArgsForScope(raw string, clock utils.Clock) *TimeArgs {
 	return nil
 }
 
-func timeArgsForToday(clock utils.Clock) *TimeArgs {
+func timeArgsForToday(clock utils.Clock, timezone string) *TimeArgs {
 	now := clock.NowUtc()
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	loc, err := time.LoadLocation(timezone)
+	if err != nil || timezone == "" {
+		loc = time.UTC
+	}
+
+	nowInLoc := now.In(loc)
+	start := time.Date(nowInLoc.Year(), nowInLoc.Month(), nowInLoc.Day(), 0, 0, 0, 0, loc)
 	return &TimeArgs{
-		From: start.UnixMilli(),
+		From: start.UTC().UnixMilli(),
 		To:   now.UnixMilli(),
 	}
 }
 
-func timeArgsForYesterday(clock utils.Clock) *TimeArgs {
+func timeArgsForYesterday(clock utils.Clock, timezone string) *TimeArgs {
 	now := clock.NowUtc()
-	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	loc, err := time.LoadLocation(timezone)
+	if err != nil || timezone == "" {
+		loc = time.UTC
+	}
+
+	nowInLoc := now.In(loc)
+	startToday := time.Date(nowInLoc.Year(), nowInLoc.Month(), nowInLoc.Day(), 0, 0, 0, 0, loc)
 	startYesterday := startToday.Add(-24 * time.Hour)
 	return &TimeArgs{
-		From: startYesterday.UnixMilli(),
-		To:   startToday.UnixMilli(),
+		From: startYesterday.UTC().UnixMilli(),
+		To:   startToday.UTC().UnixMilli(),
 	}
 }
 

@@ -126,7 +126,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	// runAgentLoop drives the model/tool execution cycle until the model
 	// produces a final answer or the step limit is reached.
-	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex)
+	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex, deviceCtx, payload.Timezone)
 }
 
 // runAgentLoop drives the agent execution:
@@ -134,7 +134,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 // Each tool call is executed, its result is injected into the history,
 // and the model is called again. When no tool calls remain, the model's
 // message is considered the final answer and the loop exits.
-func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string, lockedIntent string, exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose) (any, *handlerError) {
+func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string, lockedIntent string, exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose, deviceCtx *nodeherder.LLMDeviceContext, timezone string) (any, *handlerError) {
 	// runAgentLoop drives model→tool→model iteration, with separate retry budgets
 	// for transient model failures vs tool execution failures.
 	const maxSteps = 5
@@ -158,7 +158,7 @@ func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy
 			return map[string]any{"reply": msg.Content}, nil
 		}
 
-		result, err := h.processToolCall(ctx, msg, &history, log, conversationID, &lockedIntent, exposeIndex)
+		result, err := h.processToolCall(ctx, msg, &history, log, conversationID, &lockedIntent, exposeIndex, deviceCtx, timezone)
 		if err != nil {
 			log.Error("tool execution failed", "error", err.Message)
 			return nil, err
@@ -205,6 +205,8 @@ func (h *AssistantMessageHandler) processToolCall(
 	conversationID string,
 	lockedIntent *string,
 	exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose,
+	deviceCtx *nodeherder.LLMDeviceContext,
+	timezone string,
 ) (any, *handlerError) {
 	// processToolCall executes the requested tool and appends a compact history
 	// for the model's next reasoning step.
@@ -224,21 +226,38 @@ func (h *AssistantMessageHandler) processToolCall(
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
 		}
 
-		// if *lockedIntent == "" {
-		// 	*lockedIntent = intent.Intent
-		// } else if intent.Intent != *lockedIntent {
-		// 	log.Warn("blocking intent drift", "from", *lockedIntent, "to", intent.Intent)
-
-		// 	*history = append(*history, proxy.Message{
-		// 		Role: proxy.ToolRole,
-		// 		Content: utils.ToJson(map[string]any{
-		// 			"error":  "Intent drift detected. Retry with same intent.",
-		// 			"rule":   "intent_locked",
-		// 			"intent": *lockedIntent,
-		// 		}),
-		// 	})
 		// 	return nil, nil
 		// }
+
+		// Resolve device names fuzzily before validation
+		for _, metric := range intent.Metrics {
+			// Try to resolve the device to a canonical name
+			resolved, err := devices.ResolveDevice(deviceCtx, intent.TargetName, metric)
+			if err != nil {
+				// If ambiguous, return clarification prompt immediately
+				if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
+					h.pending.Set(conversationID, pending.PendingToolCallState{
+						// Reconstruct the original tool call for the pending state so we can retry it later
+						ToolCall:   tc,
+						History:    append([]proxy.Message(nil), (*history)...),
+						Candidates: amb.Candidates,
+						Target:     amb.Target,
+						Expose:     amb.Expose,
+					})
+					reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
+					return map[string]any{"reply": reply}, nil
+				}
+				// If not found or other error, let ValidateIntent catch it or return error here?
+				// ValidateIntent relies on exposeIndex. If we can't resolve it, exposeIndex lookup will likely fail too.
+				// However, let's keep the flow getting to ValidateIntent for standard error messaging if possible,
+				// OR we can rely on ResolveDevice's error.
+				// For now, if we fail to resolve, we just leave the target name as is, and ValidateIntent will fail.
+				log.Debug("failed to resolve device fuzzily", "target", intent.TargetName, "error", err)
+			} else {
+				// Update to canonical name
+				intent.TargetName = resolved.Name
+			}
+		}
 
 		if err := tools.ValidateIntent(intent, exposeIndex); err != nil {
 			// Inject the validation error back into the model and retry
@@ -253,7 +272,7 @@ func (h *AssistantMessageHandler) processToolCall(
 			return nil, nil
 		}
 
-		metricCalls, err := tools.IntentToMetricsArgs(intent, &utils.RealClock{})
+		metricCalls, err := tools.IntentToMetricsArgs(intent, &utils.RealClock{}, exposeIndex, timezone)
 		if err != nil {
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: err.Error()}
 		}
@@ -388,7 +407,7 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 	exposeIndex := tools.BuildExposeIndex(deviceCtx)
 
 	lockedIntent := ""
-	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex)
+	result, err := h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex, deviceCtx, payload.Timezone)
 	if err != nil {
 		msg, herr := h.callModel(ctx, client, history, log)
 		if herr == nil && len(msg.ToolCalls) == 0 {
