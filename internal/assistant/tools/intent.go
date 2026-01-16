@@ -183,6 +183,13 @@ func IntentToMetricsArgs(intent Intent, clock utils.Clock, exposeIndex map[Expos
 			Aggregation: aggregation,
 		}
 
+		// Implicitly default to finding the positive event (true/open) if user asks for last_event
+		// but doesn't specify outcome. This handles "wen did it open" queries where LLM forgets to set positive_outcome.
+		if aggregation == "last_event" && intent.PositiveOutcome == nil {
+			val := true
+			args.PositiveOutcome = &val
+		}
+
 		key := ExposeKey{
 			device: strings.ToLower(intent.TargetName),
 			expose: strings.ToLower(metric),

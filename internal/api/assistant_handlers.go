@@ -305,6 +305,9 @@ func (h *AssistantMessageHandler) processToolCall(
 				if errors.As(err, &dErr) {
 					return nil, &handlerError{Status: dErr.Status, Message: dErr.Msg}
 				}
+				// Any other error from execution should be treated as a failure
+				log.Error("tool execution failed", "error", err)
+				return nil, &handlerError{Status: http.StatusInternalServerError, Message: err.Error()}
 			}
 
 			// DEBUGGING LOGGING - Remove later
