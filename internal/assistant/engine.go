@@ -123,6 +123,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 			"device_id", deviceID,
 			"expose", req.Expose,
 			"aggregation", req.Aggregation,
+			"aggregation_value", req.AggregationValue,
 			"time", req.Time,
 		)
 

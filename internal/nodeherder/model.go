@@ -6,12 +6,12 @@ import "time"
 type AggregationType string
 
 const (
-	AggNone  AggregationType = ""
-	AggLast  AggregationType = "last"
-	AggMin   AggregationType = "min"
-	AggMax   AggregationType = "max"
-	AggAvg   AggregationType = "avg"
-	AggCount AggregationType = "count"
+	AggNone   AggregationType = ""
+	AggLast   AggregationType = "last"
+	AggMin    AggregationType = "min"
+	AggMax    AggregationType = "max"
+	AggAvg    AggregationType = "avg"
+	AggCount  AggregationType = "count"
 	LastEvent AggregationType = "last_event"
 )
 
@@ -51,7 +51,7 @@ type MetricsQueryRequest struct {
 	Expose           string          `json:"expose"`
 	Time             *TimeQuery      `json:"time,omitempty"`
 	Aggregation      AggregationType `json:"aggregation"`
-	AggregationValue any             `json:"aggregationValue,omitempty"`
+	AggregationValue any             `json:"aggregation_value,omitempty"`
 }
 
 // Query Response
