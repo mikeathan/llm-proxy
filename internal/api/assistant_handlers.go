@@ -343,9 +343,13 @@ func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, too
 		}
 	}
 
+	content := utils.ToJson(observation)
+	// Log the exact DATA sent to the LLM to verify timestamp fidelity
+	h.logger.Debug("tool output to llm", "content", content)
+
 	*history = append(*history, proxy.Message{
 		Role:    proxy.ToolRole,
-		Content: utils.ToJson(observation),
+		Content: content,
 	})
 }
 
