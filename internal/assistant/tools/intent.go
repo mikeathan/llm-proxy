@@ -195,11 +195,51 @@ func IntentToMetricsArgs(intent Intent, clock utils.Clock, exposeIndex map[Expos
 			expose: strings.ToLower(metric),
 		}
 		expose, ok := exposeIndex[key]
-		isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
-			expose.Type == "float" || expose.Type == "integer"
+		// Check numeric type first
+		isNumeric := false
+		if ok {
+			isNumeric = expose.Type == "numeric" || expose.Type == "number" ||
+				expose.Type == "float" || expose.Type == "integer"
+		}
 
-		if ok && !isNumeric && intent.PositiveOutcome != nil {
-			args.Aggregation = "none"
+		// Resolve abstract "PositiveOutcome" to concrete device value (ValueOn/ValueOff)
+		// This handles inverted sensors (e.g. contact: true=closed, false=open).
+		if args.PositiveOutcome != nil {
+			isPositive := *args.PositiveOutcome
+			var targetValue any
+
+			if ok {
+				if isPositive {
+					if expose.On != nil {
+						targetValue = expose.On
+					} else {
+						targetValue = true
+					}
+				} else {
+					if expose.Off != nil {
+						targetValue = expose.Off
+					} else {
+						targetValue = false
+					}
+				}
+			} else {
+				// Default if device not found in index
+				targetValue = isPositive
+			}
+
+			// Map to EventValue and 'last_event' aggregation if not numeric
+			if !isNumeric {
+				if aggregation == "last" || aggregation == "last_event" || aggregation == "latest_value" || aggregation == "none" {
+					args.Aggregation = "last_event"
+				}
+
+				args.EventValue = &targetValue
+				// Clear PositiveOutcome so execution engine uses EventValue (via second block)
+				args.PositiveOutcome = nil
+			}
+		} else if ok && !isNumeric && intent.PositiveOutcome != nil {
+			// Redundant fallback, but kept for safety if args.PositiveOutcome somehow missed.
+			args.Aggregation = "last_event" // Was "none"
 			args.PositiveOutcome = intent.PositiveOutcome
 		}
 
