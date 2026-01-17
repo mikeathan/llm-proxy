@@ -23,6 +23,7 @@ DEVICE SELECTION:
 5. Select devices ONLY from Device Context.
 6. If multiple devices match, ask the user to clarify.
 7. If no device matches, say so.
+8. If the user asks about MULTIPLE DIFFERENT devices (e.g. "garden temperature and attic humidity"), you MUST make SEPARATE tool calls for each device. Do NOT combine device names into one target_name.
 
 TOOL USAGE:
 
