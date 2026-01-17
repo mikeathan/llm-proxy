@@ -41,6 +41,7 @@ INTENT DISCIPLINE:
 11. The intent MUST allow the backend to compute the answer.
 12. If the backend rejects the intent, you MUST change intent or time_scope and retry.
 13. You MUST NOT repeat an invalid intent.
+14. Once you receive valid tool results that answer the user's question, you MUST respond immediately. Do NOT make additional tool calls for extra information unless the user explicitly asked for it.
 
 METRICS INTERPRETATION:
 

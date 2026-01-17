@@ -137,7 +137,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string, lockedIntent string, exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose, deviceCtx *nodeherder.LLMDeviceContext, timezone string) (any, *handlerError) {
 	// runAgentLoop drives model→tool→model iteration, with separate retry budgets
 	// for transient model failures vs tool execution failures.
-	const maxSteps = 5
+	const maxSteps = 10
 	const maxModelRetries = 3
 
 	for step := 0; step < maxSteps; step++ {
