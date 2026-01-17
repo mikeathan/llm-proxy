@@ -182,14 +182,6 @@ func IntentToMetricsArgs(intent Intent, clock utils.Clock, exposeIndex map[Expos
 			Time:        timeArgs,
 			Aggregation: aggregation,
 		}
-
-		// Implicitly default to finding the positive event (true/open) if user asks for last_event
-		// but doesn't specify outcome. This handles "wen did it open" queries where LLM forgets to set positive_outcome.
-		if aggregation == "last_event" && intent.PositiveOutcome == nil {
-			val := true
-			args.PositiveOutcome = &val
-		}
-
 		key := ExposeKey{
 			device: strings.ToLower(intent.TargetName),
 			expose: strings.ToLower(metric),
@@ -200,6 +192,20 @@ func IntentToMetricsArgs(intent Intent, clock utils.Clock, exposeIndex map[Expos
 		if ok {
 			isNumeric = expose.Type == "numeric" || expose.Type == "number" ||
 				expose.Type == "float" || expose.Type == "integer"
+		}
+
+		// For numeric sensors, last_event is not supported. Downgrade to latest_value (AggLast).
+		if isNumeric && aggregation == "last_event" {
+			args.Aggregation = "last"
+			// Don't set PositiveOutcome or EventValue for numeric sensors
+		}
+
+		// Implicitly default to finding the positive event (true/open) if user asks for last_event
+		// but doesn't specify outcome. This handles "when did it open" queries where LLM forgets to set positive_outcome.
+		// Only for non-numeric (binary) sensors.
+		if !isNumeric && aggregation == "last_event" && intent.PositiveOutcome == nil {
+			val := true
+			args.PositiveOutcome = &val
 		}
 
 		// Resolve abstract "PositiveOutcome" to concrete device value (ValueOn/ValueOff)
