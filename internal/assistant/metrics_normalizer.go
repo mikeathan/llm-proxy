@@ -45,11 +45,20 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		ts = &t
 	}
 
+	var resultValue any = v.Value
+	if aggregation == nodeherder.LastEvent || aggregation == "event" {
+		// For event queries, the value found IS the match.
+		// If the specific device value is false (e.g. Inverted sensor), returning "false" confuses the LLM
+		// into thinking it found the "Closed" state instead of the "Open" (false) state it asked for.
+		// We set it to a semantic confirmation instead.
+		resultValue = "Event Found"
+	}
+
 	result := MetricResult{
 		Metric:    resp.Expose,
 		DeviceID:  v.DeviceId,
 		Operation: string(aggregation),
-		Value:     v.Value,
+		Value:     resultValue,
 		From:      time.UnixMilli(resp.From),
 		To:        time.UnixMilli(resp.To),
 	}
