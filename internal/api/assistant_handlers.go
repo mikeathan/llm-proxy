@@ -230,32 +230,60 @@ func (h *AssistantMessageHandler) processToolCall(
 		// }
 
 		// Resolve device names fuzzily before validation
-		for _, metric := range intent.Metrics {
-			// Try to resolve the device to a canonical name
-			resolved, err := devices.ResolveDevice(deviceCtx, intent.TargetName, metric)
-			if err != nil {
-				// If ambiguous, return clarification prompt immediately
-				if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
-					h.pending.Set(conversationID, pending.PendingToolCallState{
-						// Reconstruct the original tool call for the pending state so we can retry it later
-						ToolCall:   tc,
-						History:    append([]proxy.Message(nil), (*history)...),
-						Candidates: amb.Candidates,
-						Target:     amb.Target,
-						Expose:     amb.Expose,
-					})
-					reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
-					return map[string]any{"reply": reply}, nil
+		// Build list of targets to resolve (supports both legacy and multi-target formats)
+		type targetToResolve struct {
+			name    string
+			metrics []string
+			index   int // Index in intent.Targets (-1 for legacy format)
+		}
+		var resolveTargets []targetToResolve
+		if len(intent.Targets) > 0 {
+			for i, t := range intent.Targets {
+				resolveTargets = append(resolveTargets, targetToResolve{
+					name:    t.Name,
+					metrics: t.Metrics,
+					index:   i,
+				})
+			}
+		} else if intent.TargetName != "" && len(intent.Metrics) > 0 {
+			resolveTargets = []targetToResolve{{
+				name:    intent.TargetName,
+				metrics: intent.Metrics,
+				index:   -1, // Legacy format
+			}}
+		}
+
+		for i := range resolveTargets {
+			target := &resolveTargets[i]
+			for _, metric := range target.metrics {
+				// Try to resolve the device to a canonical name
+				resolved, err := devices.ResolveDevice(deviceCtx, target.name, metric)
+				if err != nil {
+					// If ambiguous, return clarification prompt immediately
+					if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
+						h.pending.Set(conversationID, pending.PendingToolCallState{
+							// Reconstruct the original tool call for the pending state so we can retry it later
+							ToolCall:    tc,
+							History:     append([]proxy.Message(nil), (*history)...),
+							Candidates:  amb.Candidates,
+							Target:      amb.Target,
+							Expose:      amb.Expose,
+							TargetIndex: target.index, // Track which target was ambiguous
+						})
+						reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
+						return map[string]any{"reply": reply}, nil
+					}
+					log.Debug("failed to resolve device fuzzily", "target", target.name, "error", err)
+				} else {
+					// Update to canonical name
+					if target.index >= 0 {
+						intent.Targets[target.index].Name = resolved.Name
+					} else {
+						intent.TargetName = resolved.Name
+					}
+					// Break after first successful resolution for this target
+					break
 				}
-				// If not found or other error, let ValidateIntent catch it or return error here?
-				// ValidateIntent relies on exposeIndex. If we can't resolve it, exposeIndex lookup will likely fail too.
-				// However, let's keep the flow getting to ValidateIntent for standard error messaging if possible,
-				// OR we can rely on ResolveDevice's error.
-				// For now, if we fail to resolve, we just leave the target name as is, and ValidateIntent will fail.
-				log.Debug("failed to resolve device fuzzily", "target", intent.TargetName, "error", err)
-			} else {
-				// Update to canonical name
-				intent.TargetName = resolved.Name
 			}
 		}
 
@@ -395,7 +423,13 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 		log.Error("failed to parse pending intent", "error", err)
 		return map[string]any{"reply": "Failed to process selection due to internal error."}, true
 	}
-	intent.TargetName = candidate.Name
+
+	// Update the correct target based on whether legacy or multi-target format was used
+	if state.TargetIndex >= 0 && state.TargetIndex < len(intent.Targets) {
+		intent.Targets[state.TargetIndex].Name = candidate.Name
+	} else {
+		intent.TargetName = candidate.Name
+	}
 
 	updatedArgs := utils.ToJson(intent)
 	state.ToolCall.Function.Arguments = updatedArgs

@@ -23,11 +23,9 @@ DEVICE SELECTION:
 5. Select devices ONLY from Device Context.
 6. If multiple devices match, ask the user to clarify.
 7. If no device matches, say so.
-8. If the user asks about MULTIPLE DIFFERENT devices (e.g. "device A temperature and device B humidity"):
-   - You MUST make TWO SEPARATE declare_intent calls, one per device.
-   - First call: target_name="[device A name]", metrics=["temperature"]
-   - Second call: target_name="[device B name]", metrics=["humidity"]
-   - NEVER combine device names like "A; B" or "device1 and device2" in one target_name.
+8. For MULTI-DEVICE queries (e.g. "attic temperature and garden humidity"):
+   Use the "targets" array instead of target_name+metrics:
+   targets: [{name: "attic room temperature sensor", metrics: ["temperature"]}, {name: "garden temperature", metrics: ["humidity"]}]
 
 TOOL USAGE:
 

@@ -14,11 +14,12 @@ import (
 )
 
 type PendingToolCallState struct {
-	ToolCall   proxy.ToolCall
-	History    []proxy.Message
-	Candidates []devices.Candidate
-	Target     string
-	Expose     string
+	ToolCall    proxy.ToolCall
+	History     []proxy.Message
+	Candidates  []devices.Candidate
+	Target      string
+	Expose      string
+	TargetIndex int // Index into intent.Targets array, -1 for legacy format
 }
 
 type PendingToolCallStore interface {
