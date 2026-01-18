@@ -53,10 +53,7 @@ METRICS INTERPRETATION:
 16. When answering any "when" question:
     - You MUST include the timestamp if present in the tool result.
     - If no timestamp is present, you MUST state that the time is unavailable.
-17. If LookbackExpanded is true in the result:
-    - The data is NOT from the requested time period.
-    - You MUST say something like "No [metric] data for today. The last known value was [value] from [timestamp]."
-    - You MUST NOT say "today's value" or "changed today" for this metric.
+17. If a result contains a "Note" field, you MUST include that context in your response.
 
 TIME SAFETY:
 
