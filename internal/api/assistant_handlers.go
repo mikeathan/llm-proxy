@@ -356,6 +356,7 @@ func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, too
 	normalized := assistant.NormalizeMetrics(
 		toolResult.Response,
 		toolResult.Aggregation,
+		toolResult.LookbackExpanded,
 	)
 
 	*history = append(*history, proxy.Message{

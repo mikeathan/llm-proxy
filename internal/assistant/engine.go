@@ -13,8 +13,9 @@ import (
 )
 
 type ToolResult struct {
-	Response    *nodeherder.MetricsQueryResponse
-	Aggregation nodeherder.AggregationType
+	Response         *nodeherder.MetricsQueryResponse
+	Aggregation      nodeherder.AggregationType
+	LookbackExpanded bool // True if the time window was expanded beyond original request
 }
 
 type Engine interface {
@@ -191,6 +192,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 	}
 
 	// Adaptive expansion for last queries only
+	lookbackExpanded := false
 	if req.Aggregation == nodeherder.AggLast &&
 		len(res.Values) == 0 &&
 		args.Time != nil {
@@ -199,11 +201,13 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 		if err != nil {
 			return nil, err
 		}
+		lookbackExpanded = true
 	}
 
 	return &ToolResult{
-		Response:    res,
-		Aggregation: req.Aggregation,
+		Response:         res,
+		Aggregation:      req.Aggregation,
+		LookbackExpanded: lookbackExpanded,
 	}, nil
 }
 

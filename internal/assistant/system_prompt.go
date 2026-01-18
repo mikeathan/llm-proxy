@@ -53,6 +53,7 @@ METRICS INTERPRETATION:
 16. When answering any "when" question:
     - You MUST include the timestamp if present in the tool result.
     - If no timestamp is present, you MUST state that the time is unavailable.
+17. If LookbackExpanded is true in the result, the data is from OUTSIDE the requested time window (e.g. user asked for "today" but data is from days ago). You MUST clearly indicate this when reporting the value.
 
 TIME SAFETY:
 

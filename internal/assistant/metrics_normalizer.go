@@ -6,17 +6,18 @@ import (
 )
 
 type MetricResult struct {
-	Metric      string
-	DeviceID    string
-	Operation   string
-	Value       any
-	From        time.Time
-	To          time.Time
-	Timestamp   *time.Time `json:",omitempty"`
-	LastChanged *time.Time `json:",omitempty"`
+	Metric           string
+	DeviceID         string
+	Operation        string
+	Value            any
+	From             time.Time
+	To               time.Time
+	Timestamp        *time.Time `json:",omitempty"`
+	LastChanged      *time.Time `json:",omitempty"`
+	LookbackExpanded bool       `json:",omitempty"` // True if data is from outside the requested time window
 }
 
-func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType) MetricResult {
+func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType, lookbackExpanded bool) MetricResult {
 
 	if len(resp.Values) == 0 {
 		return MetricResult{
@@ -74,6 +75,8 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 	} else {
 		result.Timestamp = ts
 	}
+
+	result.LookbackExpanded = lookbackExpanded
 
 	return result
 }
