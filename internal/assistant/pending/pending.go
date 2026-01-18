@@ -106,11 +106,12 @@ func (s *InMemoryPendingToolCallStore) Get(conversationID string) (*PendingToolC
 		return nil, false
 	}
 	copyState := PendingToolCallState{
-		ToolCall:   entry.state.ToolCall,
-		History:    append([]proxy.Message(nil), entry.state.History...),
-		Candidates: append([]devices.Candidate(nil), entry.state.Candidates...),
-		Target:     entry.state.Target,
-		Expose:     entry.state.Expose,
+		ToolCall:    entry.state.ToolCall,
+		History:     append([]proxy.Message(nil), entry.state.History...),
+		Candidates:  append([]devices.Candidate(nil), entry.state.Candidates...),
+		Target:      entry.state.Target,
+		Expose:      entry.state.Expose,
+		TargetIndex: entry.state.TargetIndex,
 	}
 	return &copyState, true
 }
