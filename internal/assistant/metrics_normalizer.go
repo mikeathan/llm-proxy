@@ -78,8 +78,17 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 	}
 
 	if lookbackExpanded && ts != nil {
-		result.Note = fmt.Sprintf("No %s data for requested period. Last known: %v from %s",
-			resp.Expose, v.Value, ts.Format("Jan 2, 2006"))
+		// Don't return the Value when lookback is expanded - only the Note.
+		// This prevents the LLM from misreporting old data as "today's value".
+		return MetricResult{
+			Metric:    resp.Expose,
+			DeviceID:  v.DeviceId,
+			Operation: string(aggregation),
+			From:      time.UnixMilli(resp.From),
+			To:        time.UnixMilli(resp.To),
+			Note: fmt.Sprintf("No %s data for requested period. Last known: %v from %s",
+				resp.Expose, v.Value, ts.Format("Jan 2, 2006")),
+		}
 	}
 
 	return result
