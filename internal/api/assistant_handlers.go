@@ -366,7 +366,7 @@ func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, too
 	})
 
 	var observation any = normalized
-	if normalized.Value == nil {
+	if normalized.Value == nil && normalized.Note == "" {
 		observation = map[string]any{
 			"note": "no data available for this query",
 		}
