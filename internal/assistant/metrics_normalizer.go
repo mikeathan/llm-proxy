@@ -86,8 +86,8 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 			Operation: string(aggregation),
 			From:      time.UnixMilli(resp.From),
 			To:        time.UnixMilli(resp.To),
-			Note: fmt.Sprintf("No %s data for requested period. Last known: %v from %s",
-				resp.Expose, v.Value, ts.Format("Jan 2, 2006")),
+			Note: fmt.Sprintf("No %s data for today (device %s). Last known: %v from %s",
+				resp.Expose, v.DeviceId, v.Value, ts.Format("Jan 2, 2006")),
 		}
 	}
 
