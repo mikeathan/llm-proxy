@@ -15,7 +15,8 @@ import (
 type ToolResult struct {
 	Response         *nodeherder.MetricsQueryResponse
 	Aggregation      nodeherder.AggregationType
-	LookbackExpanded bool // True if the time window was expanded beyond original request
+	LookbackExpanded bool   // True if the time window was expanded beyond original request
+	DeviceName       string // Resolved device name for correct attribution
 }
 
 type Engine interface {
@@ -136,6 +137,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 		return &ToolResult{
 			Response:    res,
 			Aggregation: nodeherder.AggLast, // Treat as 'last' for normalization to match previous behavior
+			DeviceName:  deviceName,
 		}, nil
 	}
 
@@ -168,6 +170,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 		return &ToolResult{
 			Response:    res,
 			Aggregation: nodeherder.LastEvent,
+			DeviceName:  deviceName,
 		}, nil
 	}
 
@@ -208,6 +211,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 		Response:         res,
 		Aggregation:      req.Aggregation,
 		LookbackExpanded: lookbackExpanded,
+		DeviceName:       deviceName,
 	}, nil
 }
 

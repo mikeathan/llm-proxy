@@ -8,6 +8,7 @@ import (
 
 type MetricResult struct {
 	Metric      string
+	DeviceName  string // Human-readable device name for correct attribution
 	DeviceID    string
 	Operation   string
 	Value       any
@@ -18,14 +19,15 @@ type MetricResult struct {
 	Note        string     `json:",omitempty"` // Important context about the data
 }
 
-func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType, lookbackExpanded bool) MetricResult {
+func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType, lookbackExpanded bool, deviceName string) MetricResult {
 
 	if len(resp.Values) == 0 {
 		return MetricResult{
-			Metric:    resp.Expose,
-			Operation: string(aggregation),
-			From:      time.UnixMilli(resp.From),
-			To:        time.UnixMilli(resp.To),
+			Metric:     resp.Expose,
+			DeviceName: deviceName,
+			Operation:  string(aggregation),
+			From:       time.UnixMilli(resp.From),
+			To:         time.UnixMilli(resp.To),
 		}
 	}
 
@@ -33,11 +35,12 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 
 	if v.Value == nil {
 		return MetricResult{
-			Metric:    resp.Expose,
-			DeviceID:  v.DeviceId,
-			Operation: string(aggregation),
-			From:      time.UnixMilli(resp.From),
-			To:        time.UnixMilli(resp.To),
+			Metric:     resp.Expose,
+			DeviceName: deviceName,
+			DeviceID:   v.DeviceId,
+			Operation:  string(aggregation),
+			From:       time.UnixMilli(resp.From),
+			To:         time.UnixMilli(resp.To),
 		}
 	}
 
@@ -57,12 +60,13 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 	}
 
 	result := MetricResult{
-		Metric:    resp.Expose,
-		DeviceID:  v.DeviceId,
-		Operation: string(aggregation),
-		Value:     resultValue,
-		From:      time.UnixMilli(resp.From),
-		To:        time.UnixMilli(resp.To),
+		Metric:     resp.Expose,
+		DeviceName: deviceName,
+		DeviceID:   v.DeviceId,
+		Operation:  string(aggregation),
+		Value:      resultValue,
+		From:       time.UnixMilli(resp.From),
+		To:         time.UnixMilli(resp.To),
 	}
 
 	// Use specific field names to help the LLM understand the temporal context
@@ -81,13 +85,14 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		// Don't return the Value when lookback is expanded - only the Note.
 		// This prevents the LLM from misreporting old data as "today's value".
 		return MetricResult{
-			Metric:    resp.Expose,
-			DeviceID:  v.DeviceId,
-			Operation: string(aggregation),
-			From:      time.UnixMilli(resp.From),
-			To:        time.UnixMilli(resp.To),
-			Note: fmt.Sprintf("No %s data for today (device %s). Last known: %v from %s",
-				resp.Expose, v.DeviceId, v.Value, ts.Format("Jan 2, 2006")),
+			Metric:     resp.Expose,
+			DeviceName: deviceName,
+			DeviceID:   v.DeviceId,
+			Operation:  string(aggregation),
+			From:       time.UnixMilli(resp.From),
+			To:         time.UnixMilli(resp.To),
+			Note: fmt.Sprintf("No %s data for today (%s). Last known: %v from %s",
+				resp.Expose, deviceName, v.Value, ts.Format("Jan 2, 2006")),
 		}
 	}
 

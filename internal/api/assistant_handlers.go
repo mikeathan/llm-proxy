@@ -357,6 +357,7 @@ func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, too
 		toolResult.Response,
 		toolResult.Aggregation,
 		toolResult.LookbackExpanded,
+		toolResult.DeviceName,
 	)
 
 	*history = append(*history, proxy.Message{
