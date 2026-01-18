@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"fmt"
 	"llm-proxy/internal/nodeherder"
 	"time"
 )
@@ -76,8 +77,9 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		result.Timestamp = ts
 	}
 
-	if lookbackExpanded {
-		result.Note = "NO DATA for requested time period. This value is from an earlier date."
+	if lookbackExpanded && ts != nil {
+		result.Note = fmt.Sprintf("No %s data for requested period. Last known: %v from %s",
+			resp.Expose, v.Value, ts.Format("Jan 2, 2006"))
 	}
 
 	return result
