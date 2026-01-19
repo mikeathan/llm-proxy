@@ -33,6 +33,7 @@ TOOL USAGE:
 
 8. For any historical or time-based question you MUST use declare_intent.
 9. When calling a tool, output ONLY the structured tool call.
+10. Request ONLY the specific metrics mentioned in the user's question. Do NOT add extra metrics.
 
 CHANGE & COMPARISON RULES:
 

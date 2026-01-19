@@ -101,7 +101,6 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 // 3. Execute requested tools and feed results back to the model
 // 4. Return the model's final answer
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	lockedIntent := ""
 
 	// handleAssistant orchestrates a full agent cycle and shortcuts into the
 	// clarification flow when a prior device match was ambiguous.
@@ -126,7 +125,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	// runAgentLoop drives the model/tool execution cycle until the model
 	// produces a final answer or the step limit is reached.
-	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID, lockedIntent, exposeIndex, deviceCtx, payload.Timezone)
+	return h.runAgentLoop(ctx, client, history, log, payload.ConversationID, exposeIndex, deviceCtx, payload.Timezone)
 }
 
 // runAgentLoop drives the agent execution:
@@ -134,7 +133,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 // Each tool call is executed, its result is injected into the history,
 // and the model is called again. When no tool calls remain, the model's
 // message is considered the final answer and the loop exits.
-func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string, lockedIntent string, exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose, deviceCtx *nodeherder.LLMDeviceContext, timezone string) (any, *handlerError) {
+func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger, conversationID string, exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose, deviceCtx *nodeherder.LLMDeviceContext, timezone string) (any, *handlerError) {
 	// runAgentLoop drives model→tool→model iteration, with separate retry budgets
 	// for transient model failures vs tool execution failures.
 	const maxSteps = 10
@@ -158,7 +157,7 @@ func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy
 			return map[string]any{"reply": msg.Content}, nil
 		}
 
-		result, err := h.processToolCall(ctx, msg, &history, log, conversationID, &lockedIntent, exposeIndex, deviceCtx, timezone)
+		result, err := h.processToolCall(ctx, msg, &history, log, conversationID, exposeIndex, deviceCtx, timezone)
 		if err != nil {
 			log.Error("tool execution failed", "error", err.Message)
 			return nil, err
@@ -203,7 +202,6 @@ func (h *AssistantMessageHandler) processToolCall(
 	history *[]proxy.Message,
 	log logging.Logger,
 	conversationID string,
-	lockedIntent *string,
 	exposeIndex map[tools.ExposeKey]nodeherder.LLMExpose,
 	deviceCtx *nodeherder.LLMDeviceContext,
 	timezone string,
@@ -224,6 +222,23 @@ func (h *AssistantMessageHandler) processToolCall(
 		intent, err := tools.ParseIntentArgs(tc.Function.Arguments)
 		if err != nil {
 			return nil, &handlerError{Status: http.StatusBadRequest, Message: "invalid intent arguments"}
+		}
+
+		// Filter metrics to only those mentioned in the user message
+		// This prevents the LLM from over-fetching metrics the user didn't ask for
+		userMessage := extractUserMessage(*history)
+		mentionedMetrics := tools.ExtractMentionedMetrics(userMessage, deviceCtx)
+		if len(mentionedMetrics) > 0 {
+			// Filter single-target format metrics
+			if len(intent.Metrics) > 0 {
+				intent.Metrics = tools.FilterMetricsByMentioned(intent.Metrics, mentionedMetrics)
+			}
+			// Filter multi-target format metrics
+			for i := range intent.Targets {
+				if len(intent.Targets[i].Metrics) > 0 {
+					intent.Targets[i].Metrics = tools.FilterMetricsByMentioned(intent.Targets[i].Metrics, mentionedMetrics)
+				}
+			}
 		}
 
 		// 	return nil, nil
@@ -451,17 +466,12 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 	}
 	exposeIndex := tools.BuildExposeIndex(deviceCtx)
 
-	// We pass lockedIntent as nil or empty because we are resuming a known flow.
-	// Actually we should probably check if we had a locked intent, but for now assuming drift check
-	// happens inside processToolCall is fine.
-	lockedIntent := ""
-
 	// We need the timezone from the current payload if available, or fall back to something?
 	// The pending state doesn't store timezone. We should use the current request's timezone
 	// since the user is interacting now.
 	timezone := payload.Timezone
 
-	result, callErr := h.processToolCall(ctx, msg, &historyCtx, log, payload.ConversationID, &lockedIntent, exposeIndex, deviceCtx, timezone)
+	result, callErr := h.processToolCall(ctx, msg, &historyCtx, log, payload.ConversationID, exposeIndex, deviceCtx, timezone)
 
 	if callErr != nil {
 		log.Error("process tool call failed after clarification", "error", callErr.Message)
@@ -482,7 +492,7 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 		return map[string]any{"reply": "Metrics collected, but failed to reach the model."}, true
 	}
 
-	loopResult, lerr := h.runAgentLoop(ctx, client, historyCtx, log, payload.ConversationID, lockedIntent, exposeIndex, deviceCtx, timezone)
+	loopResult, lerr := h.runAgentLoop(ctx, client, historyCtx, log, payload.ConversationID, exposeIndex, deviceCtx, timezone)
 	if lerr != nil {
 		log.Error("agent loop failed after clarification", "error", lerr.Message)
 		return map[string]any{"reply": "Failed to generate response after collecting metrics."}, true
@@ -519,4 +529,14 @@ func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.
 	}
 
 	return client, nil
+}
+
+// extractUserMessage finds the first user message in the history.
+func extractUserMessage(history []proxy.Message) string {
+	for _, msg := range history {
+		if msg.Role == proxy.UserRole && msg.Content != "" {
+			return msg.Content
+		}
+	}
+	return ""
 }
