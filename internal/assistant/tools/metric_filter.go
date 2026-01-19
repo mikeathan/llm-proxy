@@ -96,7 +96,8 @@ func FilterMetricsByMentioned(requested []string, mentioned []string) []string {
 
 // DetectMultipleDevices checks if the user message mentions multiple distinct devices.
 // Returns the list of matched device names if more than one device is mentioned.
-// Uses device context to dynamically determine which words are generic (expose names, common words).
+// Only flags multi-device if user mentions DIFFERENT distinctive location words (e.g., "attic AND garden"),
+// not if one word (like "attic") matches multiple devices sharing that location.
 func DetectMultipleDevices(userMessage string, deviceCtx *nodeherder.LLMDeviceContext) []string {
 	message := strings.ToLower(userMessage)
 
@@ -113,11 +114,13 @@ func DetectMultipleDevices(userMessage string, deviceCtx *nodeherder.LLMDeviceCo
 		}
 	}
 	// Add common English words that shouldn't trigger matching
-	for _, w := range []string{"the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "is", "was", "what", "when", "how", "sensor", "device"} {
+	for _, w := range []string{"the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "is", "was", "what", "when", "how", "sensor", "device", "room", "last", "value", "reported"} {
 		genericWords[w] = true
 	}
 
-	matchedDevices := make([]string, 0)
+	// Track which distinctive tokens from the message are found
+	// Key: distinctive token, Value: list of devices containing that token
+	tokenToDevices := make(map[string][]string)
 
 	for _, device := range deviceCtx.Devices {
 		deviceNameLower := strings.ToLower(device.Name)
@@ -129,17 +132,29 @@ func DetectMultipleDevices(userMessage string, deviceCtx *nodeherder.LLMDeviceCo
 			if genericWords[token] {
 				continue
 			}
-			// If this distinctive token (3+ chars) appears in the message, device is mentioned
+			// If this distinctive token (3+ chars) appears in the message
 			if len(token) >= 3 && strings.Contains(message, token) {
-				matchedDevices = append(matchedDevices, device.Name)
-				break
+				tokenToDevices[token] = append(tokenToDevices[token], device.Name)
 			}
 		}
 	}
 
-	// Only return if multiple devices detected
-	if len(matchedDevices) > 1 {
-		return matchedDevices
+	// Only flag multi-device if user mentioned DIFFERENT distinctive tokens
+	// (e.g., "attic" AND "garden" both found in message)
+	if len(tokenToDevices) > 1 {
+		// User mentioned multiple different location words - collect one device per token
+		matchedDevices := make([]string, 0, len(tokenToDevices))
+		seen := make(map[string]bool)
+		for _, devices := range tokenToDevices {
+			if len(devices) > 0 && !seen[devices[0]] {
+				matchedDevices = append(matchedDevices, devices[0])
+				seen[devices[0]] = true
+			}
+		}
+		if len(matchedDevices) > 1 {
+			return matchedDevices
+		}
 	}
+
 	return nil
 }
