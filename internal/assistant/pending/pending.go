@@ -14,12 +14,11 @@ import (
 )
 
 type PendingToolCallState struct {
-	ToolCall    proxy.ToolCall
-	History     []proxy.Message
-	Candidates  []devices.Candidate
-	Target      string
-	Expose      string
-	TargetIndex int // Index into intent.Targets array, -1 for legacy format
+	ToolCall   proxy.ToolCall
+	History    []proxy.Message
+	Candidates []devices.Candidate
+	Target     string
+	Expose     string
 }
 
 type PendingToolCallStore interface {
@@ -106,12 +105,11 @@ func (s *InMemoryPendingToolCallStore) Get(conversationID string) (*PendingToolC
 		return nil, false
 	}
 	copyState := PendingToolCallState{
-		ToolCall:    entry.state.ToolCall,
-		History:     append([]proxy.Message(nil), entry.state.History...),
-		Candidates:  append([]devices.Candidate(nil), entry.state.Candidates...),
-		Target:      entry.state.Target,
-		Expose:      entry.state.Expose,
-		TargetIndex: entry.state.TargetIndex,
+		ToolCall:   entry.state.ToolCall,
+		History:    append([]proxy.Message(nil), entry.state.History...),
+		Candidates: append([]devices.Candidate(nil), entry.state.Candidates...),
+		Target:     entry.state.Target,
+		Expose:     entry.state.Expose,
 	}
 	return &copyState, true
 }

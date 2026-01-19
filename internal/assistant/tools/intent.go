@@ -33,19 +33,12 @@ func BuildExposeIndex(ctx *nodeherder.LLMDeviceContext) map[ExposeKey]nodeherder
 	return index
 }
 
-// Target represents a single device target with its metrics for multi-device queries.
-type Target struct {
-	Name    string   `json:"name"`
-	Metrics []string `json:"metrics"`
-}
-
 // Intent captures the user-facing intent so the backend can deterministically
 // map it into metrics queries without the LLM choosing execution parameters.
 type Intent struct {
 	Intent          string   `json:"intent"`
-	TargetName      string   `json:"target_name,omitempty"` // Legacy single-device
-	Metrics         []string `json:"metrics,omitempty"`     // Legacy single-device
-	Targets         []Target `json:"targets,omitempty"`     // Multi-device queries
+	TargetName      string   `json:"target_name,omitempty"`
+	Metrics         []string `json:"metrics,omitempty"`
 	TimeScope       string   `json:"time_scope,omitempty"`
 	PositiveOutcome *bool    `json:"positive_outcome,omitempty"`
 }
@@ -65,31 +58,13 @@ func IntentToolSchema() proxy.Tool {
 					},
 					"target_name": map[string]any{
 						"type":        "string",
-						"description": "Single device name (use for single-device queries). E.g. 'garage', 'living room'",
+						"description": "Device name. E.g. 'garage', 'living room'",
 					},
 					"metrics": map[string]any{
 						"type":        "array",
-						"description": "Metric keys for single-device query (use with target_name)",
+						"description": "Metric keys to query. E.g. ['temperature'] or ['contact']",
 						"items": map[string]any{
 							"type": "string",
-						},
-					},
-					"targets": map[string]any{
-						"type":        "array",
-						"description": "For MULTI-DEVICE queries: array of targets. Use this instead of target_name+metrics when the user asks about different devices.",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"name": map[string]any{
-									"type":        "string",
-									"description": "Device name",
-								},
-								"metrics": map[string]any{
-									"type":  "array",
-									"items": map[string]any{"type": "string"},
-								},
-							},
-							"required": []string{"name", "metrics"},
 						},
 					},
 					"time_scope": map[string]any{
@@ -101,7 +76,7 @@ func IntentToolSchema() proxy.Tool {
 						"description": "For binary sensors, use 'true' if the user asks when a specific event happened (e.g. 'when did it open', 'when was it turned on', 'when was presence detected') to find that specific state change. Use 'false' for negative events ('when did it close', 'when did it turn off'). Omit if asking for the current status.",
 					},
 				},
-				"required": []string{"intent", "time_scope"},
+				"required": []string{"intent", "target_name", "metrics", "time_scope"},
 			},
 		},
 	}
@@ -120,69 +95,35 @@ func ValidateIntent(intent Intent, index map[ExposeKey]nodeherder.LLMExpose) err
 	intent.Intent = strings.ToLower(strings.TrimSpace(intent.Intent))
 	intent.TimeScope = strings.ToLower(strings.TrimSpace(intent.TimeScope))
 
-	// Determine which format is being used
-	hasLegacy := intent.TargetName != "" && len(intent.Metrics) > 0
-	hasTargets := len(intent.Targets) > 0
-
-	if !hasLegacy && !hasTargets {
-		return errors.New("must provide either target_name+metrics or targets array")
+	if intent.TargetName == "" || len(intent.Metrics) == 0 {
+		return errors.New("must provide target_name and metrics")
 	}
 
-	// Build list of targets to validate
-	var targets []Target
-	if hasTargets {
-		targets = intent.Targets
-	} else {
-		targets = []Target{{Name: intent.TargetName, Metrics: intent.Metrics}}
-	}
+	// Validate each metric for the target
+	for _, m := range intent.Metrics {
+		key := ExposeKey{
+			device: strings.ToLower(intent.TargetName),
+			expose: strings.ToLower(m),
+		}
 
-	// Validate each target
-	for _, target := range targets {
-		for _, m := range target.Metrics {
-			key := ExposeKey{
-				device: strings.ToLower(target.Name),
-				expose: strings.ToLower(m),
-			}
+		expose, ok := index[key]
+		if !ok {
+			return fmt.Errorf("metric '%s' not found on device '%s'", m, intent.TargetName)
+		}
 
-			expose, ok := index[key]
-			if !ok {
-				return fmt.Errorf("metric '%s' not found on device '%s'", m, target.Name)
-			}
+		isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
+			expose.Type == "float" || expose.Type == "integer"
 
-			isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
-				expose.Type == "float" || expose.Type == "integer"
+		if isNumeric && intent.Intent == "count_events" {
+			return fmt.Errorf("count_events is invalid for numeric sensor: %s", m)
+		}
 
-			if isNumeric && intent.Intent == "count_events" {
-				return fmt.Errorf("count_events is invalid for numeric sensor: %s", m)
-			}
-
-			if !isNumeric && intent.Intent == "latest_value" &&
-				strings.Contains(intent.TimeScope, "change") {
-				return fmt.Errorf("latest_value cannot answer change questions for event sensor: %s", m)
-			}
+		if !isNumeric && intent.Intent == "latest_value" &&
+			strings.Contains(intent.TimeScope, "change") {
+			return fmt.Errorf("latest_value cannot answer change questions for event sensor: %s", m)
 		}
 	}
-	// Rule 1: latest_value cannot answer any historical event question
-	// if intent.Intent == "latest_value" {
-	// 	for _, m := range intent.Metrics {
-	// 		key := ExposeKey{
-	// 			device: strings.ToLower(intent.TargetName),
-	// 			expose: strings.ToLower(m),
-	// 		}
-	// 		expose := index[key]
-
-	// 		isNumeric := expose.Type == "numeric" || expose.Type == "number" ||
-	// 			expose.Type == "float" || expose.Type == "integer"
-
-	// 		if !isNumeric {
-	// 			switch intent.TimeScope {
-	// 			case "today", "yesterday", "last_hour", "last_day", "last_week", "last_month", "last_year":
-	// 				return errors.New("Use intent = count_events for event-based history queries")
-	// 			}
-	// 		}
-	// 	}
-	// }
-
+	
 	// Rule 2: latest_value is invalid for explicit ranges (change/comparison)
 	if intent.Intent == "latest_value" && strings.HasPrefix(intent.TimeScope, "range:") {
 		return errors.New("Use intent = count_events or remove range when requesting latest value")
@@ -199,115 +140,105 @@ func ValidateIntent(intent Intent, index map[ExposeKey]nodeherder.LLMExpose) err
 // IntentToMetricsArgs deterministically maps a declared intent into concrete
 // query_metrics arguments so execution is controlled by code, not the LLM.
 func IntentToMetricsArgs(intent Intent, clock utils.Clock, exposeIndex map[ExposeKey]nodeherder.LLMExpose, timezone string) ([]MetricsArgs, error) {
-	// Determine which format is being used and build targets list
-	var targets []Target
-	if len(intent.Targets) > 0 {
-		// New multi-target format
-		targets = intent.Targets
-	} else if intent.TargetName != "" && len(intent.Metrics) > 0 {
-		// Legacy single-target format
-		targets = []Target{{Name: intent.TargetName, Metrics: intent.Metrics}}
-	} else {
-		return nil, fmt.Errorf("must provide either target_name+metrics or targets array")
+	if intent.TargetName == "" || len(intent.Metrics) == 0 {
+		return nil, fmt.Errorf("must provide target_name and metrics")
 	}
 
 	aggregation := aggregationForIntent(intent.Intent)
 	timeArgs := timeArgsForScope(intent.TimeScope, clock, timezone)
 
-	out := make([]MetricsArgs, 0, len(targets)*2) // Rough capacity estimate
-	for _, target := range targets {
-		targetName := strings.TrimSpace(target.Name)
-		if targetName == "" {
-			return nil, fmt.Errorf("target name is required")
+	targetName := strings.TrimSpace(intent.TargetName)
+	if targetName == "" {
+		return nil, fmt.Errorf("target name is required")
+	}
+
+	metrics := make([]string, 0, len(intent.Metrics))
+	for _, metric := range intent.Metrics {
+		metric = strings.TrimSpace(metric)
+		if metric != "" {
+			metrics = append(metrics, metric)
+		}
+	}
+	if len(metrics) == 0 {
+		return nil, fmt.Errorf("metrics is required for target '%s'", targetName)
+	}
+
+	out := make([]MetricsArgs, 0, len(metrics))
+	for _, metric := range metrics {
+		args := MetricsArgs{
+			TargetName:  targetName,
+			Expose:      metric,
+			Time:        timeArgs,
+			Aggregation: aggregation,
+		}
+		key := ExposeKey{
+			device: strings.ToLower(targetName),
+			expose: strings.ToLower(metric),
+		}
+		expose, ok := exposeIndex[key]
+		// Check numeric type first
+		isNumeric := false
+		if ok {
+			isNumeric = expose.Type == "numeric" || expose.Type == "number" ||
+				expose.Type == "float" || expose.Type == "integer"
 		}
 
-		metrics := make([]string, 0, len(target.Metrics))
-		for _, metric := range target.Metrics {
-			metric = strings.TrimSpace(metric)
-			if metric != "" {
-				metrics = append(metrics, metric)
-			}
-		}
-		if len(metrics) == 0 {
-			return nil, fmt.Errorf("metrics is required for target '%s'", targetName)
+		// For numeric sensors, last_event is not supported. Downgrade to latest_value (AggLast).
+		if isNumeric && aggregation == "last_event" {
+			args.Aggregation = "last"
+			// Don't set PositiveOutcome or EventValue for numeric sensors
 		}
 
-		for _, metric := range metrics {
-			args := MetricsArgs{
-				TargetName:  targetName,
-				Expose:      metric,
-				Time:        timeArgs,
-				Aggregation: aggregation,
-			}
-			key := ExposeKey{
-				device: strings.ToLower(targetName),
-				expose: strings.ToLower(metric),
-			}
-			expose, ok := exposeIndex[key]
-			// Check numeric type first
-			isNumeric := false
+		// Implicitly default to finding the positive event (true/open) if user asks for last_event
+		// but doesn't specify outcome. This handles "when did it open" queries where LLM forgets to set positive_outcome.
+		// Only for non-numeric (binary) sensors.
+		if !isNumeric && aggregation == "last_event" && intent.PositiveOutcome == nil {
+			val := true
+			args.PositiveOutcome = &val
+		}
+
+		// Resolve abstract "PositiveOutcome" to concrete device value (ValueOn/ValueOff)
+		// This handles inverted sensors (e.g. contact: true=closed, false=open).
+		if args.PositiveOutcome != nil {
+			isPositive := *args.PositiveOutcome
+			var targetValue any
+
 			if ok {
-				isNumeric = expose.Type == "numeric" || expose.Type == "number" ||
-					expose.Type == "float" || expose.Type == "integer"
-			}
-
-			// For numeric sensors, last_event is not supported. Downgrade to latest_value (AggLast).
-			if isNumeric && aggregation == "last_event" {
-				args.Aggregation = "last"
-				// Don't set PositiveOutcome or EventValue for numeric sensors
-			}
-
-			// Implicitly default to finding the positive event (true/open) if user asks for last_event
-			// but doesn't specify outcome. This handles "when did it open" queries where LLM forgets to set positive_outcome.
-			// Only for non-numeric (binary) sensors.
-			if !isNumeric && aggregation == "last_event" && intent.PositiveOutcome == nil {
-				val := true
-				args.PositiveOutcome = &val
-			}
-
-			// Resolve abstract "PositiveOutcome" to concrete device value (ValueOn/ValueOff)
-			// This handles inverted sensors (e.g. contact: true=closed, false=open).
-			if args.PositiveOutcome != nil {
-				isPositive := *args.PositiveOutcome
-				var targetValue any
-
-				if ok {
-					if isPositive {
-						if expose.On != nil {
-							targetValue = expose.On
-						} else {
-							targetValue = true
-						}
+				if isPositive {
+					if expose.On != nil {
+						targetValue = expose.On
 					} else {
-						if expose.Off != nil {
-							targetValue = expose.Off
-						} else {
-							targetValue = false
-						}
+						targetValue = true
 					}
 				} else {
-					// Default if device not found in index
-					targetValue = isPositive
-				}
-
-				// Map to EventValue and 'last_event' aggregation if not numeric
-				if !isNumeric {
-					if aggregation == "last" || aggregation == "last_event" || aggregation == "latest_value" || aggregation == "none" {
-						args.Aggregation = "last_event"
+					if expose.Off != nil {
+						targetValue = expose.Off
+					} else {
+						targetValue = false
 					}
-
-					args.EventValue = &targetValue
-					// Clear PositiveOutcome so execution engine uses EventValue (via second block)
-					args.PositiveOutcome = nil
 				}
-			} else if ok && !isNumeric && intent.PositiveOutcome != nil {
-				// Redundant fallback, but kept for safety if args.PositiveOutcome somehow missed.
-				args.Aggregation = "last_event" // Was "none"
-				args.PositiveOutcome = intent.PositiveOutcome
+			} else {
+				// Default if device not found in index
+				targetValue = isPositive
 			}
 
-			out = append(out, args)
+			// Map to EventValue and 'last_event' aggregation if not numeric
+			if !isNumeric {
+				if aggregation == "last" || aggregation == "last_event" || aggregation == "latest_value" || aggregation == "none" {
+					args.Aggregation = "last_event"
+				}
+
+				args.EventValue = &targetValue
+				// Clear PositiveOutcome so execution engine uses EventValue (via second block)
+				args.PositiveOutcome = nil
+			}
+		} else if ok && !isNumeric && intent.PositiveOutcome != nil {
+			// Redundant fallback, but kept for safety if args.PositiveOutcome somehow missed.
+			args.Aggregation = "last_event" // Was "none"
+			args.PositiveOutcome = intent.PositiveOutcome
 		}
+
+		out = append(out, args)
 	}
 
 	return out, nil

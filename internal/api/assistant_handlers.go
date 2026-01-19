@@ -116,6 +116,14 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	}
 	exposeIndex := tools.BuildExposeIndex(deviceCtx)
 
+	// Check if user is asking about multiple devices - we only support single-device queries
+	if multiDevices := tools.DetectMultipleDevices(payload.Message, deviceCtx); len(multiDevices) > 0 {
+		return map[string]any{
+			"reply": "I can only query one device at a time. You mentioned multiple devices: " +
+				formatDeviceList(multiDevices) + ". Please ask about each device separately.",
+		}, nil
+	}
+
 	client, err := h.getLLMClient(ctx, log)
 	if err != nil {
 		return nil, err
@@ -228,75 +236,34 @@ func (h *AssistantMessageHandler) processToolCall(
 		// This prevents the LLM from over-fetching metrics the user didn't ask for
 		userMessage := extractUserMessage(*history)
 		mentionedMetrics := tools.ExtractMentionedMetrics(userMessage, deviceCtx)
-		if len(mentionedMetrics) > 0 {
-			// Filter single-target format metrics
-			if len(intent.Metrics) > 0 {
-				intent.Metrics = tools.FilterMetricsByMentioned(intent.Metrics, mentionedMetrics)
-			}
-			// Filter multi-target format metrics
-			for i := range intent.Targets {
-				if len(intent.Targets[i].Metrics) > 0 {
-					intent.Targets[i].Metrics = tools.FilterMetricsByMentioned(intent.Targets[i].Metrics, mentionedMetrics)
-				}
-			}
+		if len(mentionedMetrics) > 0 && len(intent.Metrics) > 0 {
+			intent.Metrics = tools.FilterMetricsByMentioned(intent.Metrics, mentionedMetrics)
 		}
 
-		// 	return nil, nil
-		// }
-
-		// Resolve device names fuzzily before validation
-		// Build list of targets to resolve (supports both legacy and multi-target formats)
-		type targetToResolve struct {
-			name    string
-			metrics []string
-			index   int // Index in intent.Targets (-1 for legacy format)
-		}
-		var resolveTargets []targetToResolve
-		if len(intent.Targets) > 0 {
-			for i, t := range intent.Targets {
-				resolveTargets = append(resolveTargets, targetToResolve{
-					name:    t.Name,
-					metrics: t.Metrics,
-					index:   i,
-				})
-			}
-		} else if intent.TargetName != "" && len(intent.Metrics) > 0 {
-			resolveTargets = []targetToResolve{{
-				name:    intent.TargetName,
-				metrics: intent.Metrics,
-				index:   -1, // Legacy format
-			}}
-		}
-
-		for i := range resolveTargets {
-			target := &resolveTargets[i]
-			for _, metric := range target.metrics {
+		// Resolve device name fuzzily before validation
+		if intent.TargetName != "" && len(intent.Metrics) > 0 {
+			for _, metric := range intent.Metrics {
 				// Try to resolve the device to a canonical name
-				resolved, err := devices.ResolveDevice(deviceCtx, target.name, metric)
+				resolved, err := devices.ResolveDevice(deviceCtx, intent.TargetName, metric)
 				if err != nil {
 					// If ambiguous, return clarification prompt immediately
 					if amb, ok := err.(*devices.AmbiguousDeviceError); ok {
 						h.pending.Set(conversationID, pending.PendingToolCallState{
 							// Reconstruct the original tool call for the pending state so we can retry it later
-							ToolCall:    tc,
-							History:     append([]proxy.Message(nil), (*history)...),
-							Candidates:  amb.Candidates,
-							Target:      amb.Target,
-							Expose:      amb.Expose,
-							TargetIndex: target.index, // Track which target was ambiguous
+							ToolCall:   tc,
+							History:    append([]proxy.Message(nil), (*history)...),
+							Candidates: amb.Candidates,
+							Target:     amb.Target,
+							Expose:     amb.Expose,
 						})
 						reply := pending.FormatPendingPrompt(amb.Target, amb.Expose, amb.Candidates)
 						return map[string]any{"reply": reply}, nil
 					}
-					log.Debug("failed to resolve device fuzzily", "target", target.name, "error", err)
+					log.Debug("failed to resolve device fuzzily", "target", intent.TargetName, "error", err)
 				} else {
 					// Update to canonical name
-					if target.index >= 0 {
-						intent.Targets[target.index].Name = resolved.Name
-					} else {
-						intent.TargetName = resolved.Name
-					}
-					// Break after first successful resolution for this target
+					intent.TargetName = resolved.Name
+					// Break after first successful resolution
 					break
 				}
 			}
@@ -434,19 +401,14 @@ func (h *AssistantMessageHandler) handlePending(ctx context.Context, payload *As
 	h.pending.Clear(payload.ConversationID)
 
 	// Update the original intent with the resolved device name so the standard flow can process it.
-	// This ensures we handle multi-metric expansion and validation correctly.
 	intent, err := tools.ParseIntentArgs(state.ToolCall.Function.Arguments)
 	if err != nil {
 		log.Error("failed to parse pending intent", "error", err)
 		return map[string]any{"reply": "Failed to process selection due to internal error."}, true
 	}
 
-	// Update the correct target based on whether legacy or multi-target format was used
-	if state.TargetIndex >= 0 && state.TargetIndex < len(intent.Targets) {
-		intent.Targets[state.TargetIndex].Name = candidate.Name
-	} else {
-		intent.TargetName = candidate.Name
-	}
+	// Update target name with resolved device
+	intent.TargetName = candidate.Name
 
 	updatedArgs := utils.ToJson(intent)
 	state.ToolCall.Function.Arguments = updatedArgs
@@ -539,4 +501,27 @@ func extractUserMessage(history []proxy.Message) string {
 		}
 	}
 	return ""
+}
+
+// formatDeviceList formats a list of device names for user-friendly display.
+func formatDeviceList(devices []string) string {
+	if len(devices) == 0 {
+		return ""
+	}
+	if len(devices) == 1 {
+		return devices[0]
+	}
+	if len(devices) == 2 {
+		return devices[0] + " and " + devices[1]
+	}
+	// 3 or more: "A, B, and C"
+	result := ""
+	for i, d := range devices {
+		if i == len(devices)-1 {
+			result += "and " + d
+		} else {
+			result += d + ", "
+		}
+	}
+	return result
 }

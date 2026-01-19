@@ -93,3 +93,53 @@ func FilterMetricsByMentioned(requested []string, mentioned []string) []string {
 
 	return filtered
 }
+
+// DetectMultipleDevices checks if the user message mentions multiple distinct devices.
+// Returns the list of matched device names if more than one device is mentioned.
+// Uses device context to dynamically determine which words are generic (expose names, common words).
+func DetectMultipleDevices(userMessage string, deviceCtx *nodeherder.LLMDeviceContext) []string {
+	message := strings.ToLower(userMessage)
+
+	// Build set of all expose names (these are generic and shouldn't trigger device matching)
+	genericWords := make(map[string]bool)
+	for _, device := range deviceCtx.Devices {
+		for _, expose := range device.Exposes {
+			// Add expose name and its parts as generic
+			exposeLower := strings.ToLower(expose.Name)
+			genericWords[exposeLower] = true
+			for _, part := range strings.Fields(exposeLower) {
+				genericWords[part] = true
+			}
+		}
+	}
+	// Add common English words that shouldn't trigger matching
+	for _, w := range []string{"the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "is", "was", "what", "when", "how", "sensor", "device"} {
+		genericWords[w] = true
+	}
+
+	matchedDevices := make([]string, 0)
+
+	for _, device := range deviceCtx.Devices {
+		deviceNameLower := strings.ToLower(device.Name)
+
+		// Extract distinctive tokens from device name (not generic words)
+		tokens := strings.Fields(deviceNameLower)
+		for _, token := range tokens {
+			// Skip if it's a generic word (expose name or common word)
+			if genericWords[token] {
+				continue
+			}
+			// If this distinctive token (3+ chars) appears in the message, device is mentioned
+			if len(token) >= 3 && strings.Contains(message, token) {
+				matchedDevices = append(matchedDevices, device.Name)
+				break
+			}
+		}
+	}
+
+	// Only return if multiple devices detected
+	if len(matchedDevices) > 1 {
+		return matchedDevices
+	}
+	return nil
+}

@@ -512,7 +512,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 								{
 									Function: proxy.FunctionCall{
 										Name:      "declare_intent",
-										Arguments: `{"intent":"latest_value","target_name":"attic","metrics":["temperature"],"time_scope":"range:1735689600000..1735776000000"}`,
+										Arguments: `{"intent":"latest_value","target_name":"attic","metrics":["temperature"],"time_scope":"today"}`,
 									},
 								},
 							},
@@ -673,7 +673,7 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp
 		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
 	}
 	if !strings.Contains(toolMsg.Content, `"Operation":"last"`) ||
-		!strings.Contains(toolMsg.Content, `"Timestamp":"2025-01-01T01:00:00Z"`) {
+		!strings.Contains(toolMsg.Content, `"LastChanged":"2025-01-01T01:00:00Z"`) {
 		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
 	}
 }
@@ -795,7 +795,7 @@ func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
 								{
 									Function: proxy.FunctionCall{
 										Name:      "declare_intent",
-										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"range:1..2"}`,
+										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"today"}`,
 									},
 								},
 							},
@@ -860,7 +860,7 @@ func TestAssistantMessageHandler_ToolCallExecutionAuthExpired(t *testing.T) {
 								{
 									Function: proxy.FunctionCall{
 										Name:      "declare_intent",
-										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"range:1..2"}`,
+										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"today"}`,
 									},
 								},
 							},
