@@ -19,7 +19,7 @@ type MetricResult struct {
 	Note        string     `json:",omitempty"` // Important context about the data
 }
 
-func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType, lookbackExpanded bool, deviceName string) MetricResult {
+func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeherder.AggregationType, lookbackExpanded bool, deviceName string, expose *nodeherder.LLMExpose) MetricResult {
 
 	if len(resp.Values) == 0 {
 		return MetricResult{
@@ -57,6 +57,9 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 		// into thinking it found the "Closed" state instead of the "Open" (false) state it asked for.
 		// We set it to a semantic confirmation instead.
 		resultValue = "Event Found"
+	} else if expose != nil && expose.Type == "binary" {
+		// Translate binary values to human-readable using expose metadata
+		resultValue = translateBinaryValue(v.Value, expose, resp.Expose)
 	}
 
 	result := MetricResult{
@@ -97,4 +100,85 @@ func NormalizeMetrics(resp *nodeherder.MetricsQueryResponse, aggregation nodeher
 	}
 
 	return result
+}
+
+// translateBinaryValue converts a binary sensor value to human-readable text
+// using the expose's valueOn/valueOff mapping.
+func translateBinaryValue(value any, expose *nodeherder.LLMExpose, exposeName string) string {
+	if expose == nil {
+		return fmt.Sprintf("%v", value)
+	}
+
+	// Check if value matches valueOn
+	if valuesEqual(value, expose.On) {
+		return binaryOnLabel(exposeName)
+	}
+	// Check if value matches valueOff
+	if valuesEqual(value, expose.Off) {
+		return binaryOffLabel(exposeName)
+	}
+
+	// Fallback to raw value
+	return fmt.Sprintf("%v", value)
+}
+
+// valuesEqual compares two values that may be of different types
+func valuesEqual(a, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	// Handle bool comparison with JSON decoded values (which may be float64)
+	switch av := a.(type) {
+	case bool:
+		switch bv := b.(type) {
+		case bool:
+			return av == bv
+		}
+	case float64:
+		switch bv := b.(type) {
+		case float64:
+			return av == bv
+		case bool:
+			// false = 0, true = 1
+			return (av == 0 && !bv) || (av == 1 && bv)
+		}
+	case string:
+		switch bv := b.(type) {
+		case string:
+			return av == bv
+		}
+	}
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// binaryOnLabel returns human-readable label for the "on" state based on expose type
+func binaryOnLabel(exposeName string) string {
+	switch exposeName {
+	case "contact":
+		return "open" // Contact sensor "on" = contact broken = door OPEN
+	case "presence", "occupancy":
+		return "presence detected"
+	case "state":
+		return "on"
+	case "smoke", "alarm":
+		return "triggered"
+	default:
+		return "on"
+	}
+}
+
+// binaryOffLabel returns human-readable label for the "off" state based on expose type
+func binaryOffLabel(exposeName string) string {
+	switch exposeName {
+	case "contact":
+		return "closed" // Contact sensor "off" = contact made = door CLOSED
+	case "presence", "occupancy":
+		return "no presence"
+	case "state":
+		return "off"
+	case "smoke", "alarm":
+		return "normal"
+	default:
+		return "off"
+	}
 }

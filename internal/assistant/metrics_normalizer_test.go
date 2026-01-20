@@ -38,7 +38,7 @@ func TestNormalizeMetrics_TimestampHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := assistant.NormalizeMetrics(resp, tt.agg, false, "")
+			result := assistant.NormalizeMetrics(resp, tt.agg, false, "", nil)
 			if result.Metric != "temperature" {
 				t.Fatalf("expected metric temperature, got %s", result.Metric)
 			}
@@ -101,7 +101,7 @@ func TestNormalizeMetrics_NilValue(t *testing.T) {
 		},
 	}
 
-	result := assistant.NormalizeMetrics(resp, nodeherder.AggAvg, false, "")
+	result := assistant.NormalizeMetrics(resp, nodeherder.AggAvg, false, "", nil)
 	if result.Value != nil {
 		t.Fatalf("expected value to be nil, got %v", result.Value)
 	}

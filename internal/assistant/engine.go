@@ -15,8 +15,9 @@ import (
 type ToolResult struct {
 	Response         *nodeherder.MetricsQueryResponse
 	Aggregation      nodeherder.AggregationType
-	LookbackExpanded bool   // True if the time window was expanded beyond original request
-	DeviceName       string // Resolved device name for correct attribution
+	LookbackExpanded bool                  // True if the time window was expanded beyond original request
+	DeviceName       string                // Resolved device name for correct attribution
+	Expose           *nodeherder.LLMExpose // Expose metadata for value translation
 }
 
 type Engine interface {
@@ -82,7 +83,16 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 		return nil, err
 	}
 
-	return a.executeMetrics(ctx, normalized, device.ID, device.Name)
+	// Find the expose metadata for value translation
+	var expose *nodeherder.LLMExpose
+	for i := range device.Exposes {
+		if strings.EqualFold(device.Exposes[i].Name, normalized.Expose) {
+			expose = &device.Exposes[i]
+			break
+		}
+	}
+
+	return a.executeMetrics(ctx, normalized, device.ID, device.Name, expose)
 }
 
 func (a *assistantEngine) ExecuteToolWithDevice(ctx context.Context, call proxy.ToolCall, deviceID string) (*ToolResult, error) {
@@ -106,10 +116,10 @@ func (a *assistantEngine) ExecuteToolWithDevice(ctx context.Context, call proxy.
 		return nil, err
 	}
 
-	return a.executeMetrics(ctx, normalized, deviceID, "")
+	return a.executeMetrics(ctx, normalized, deviceID, "", nil)
 }
 
-func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.NormalizedMetricsArgs, deviceID, deviceName string) (*ToolResult, error) {
+func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.NormalizedMetricsArgs, deviceID, deviceName string, expose *nodeherder.LLMExpose) (*ToolResult, error) {
 	// Handle binary event filtering when a positive outcome is specified
 	if args.PositiveOutcome != nil {
 		req := &nodeherder.MetricsQueryRequest{
@@ -138,6 +148,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 			Response:    res,
 			Aggregation: nodeherder.AggLast, // Treat as 'last' for normalization to match previous behavior
 			DeviceName:  deviceName,
+			Expose:      expose,
 		}, nil
 	}
 
@@ -171,6 +182,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 			Response:    res,
 			Aggregation: nodeherder.LastEvent,
 			DeviceName:  deviceName,
+			Expose:      expose,
 		}, nil
 	}
 
@@ -212,6 +224,7 @@ func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.Normali
 		Aggregation:      req.Aggregation,
 		LookbackExpanded: lookbackExpanded,
 		DeviceName:       deviceName,
+		Expose:           expose,
 	}, nil
 }
 
