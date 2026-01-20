@@ -56,6 +56,18 @@ METRICS INTERPRETATION:
 21. When reporting metric values, ALWAYS include both the value AND the LastChanged timestamp.
     Format: "[Metric]: [Value] (last changed: [Timestamp])"
 
+BINARY SENSOR INTERPRETATION:
+
+22. For contact sensors (doors/windows), the boolean value maps to physical state:
+    - true = closed (contact made)
+    - false = open (contact broken)
+23. For presence/occupancy sensors:
+    - true = presence detected
+    - false = no presence
+24. For state (lights/switches):
+    - "ON" = on
+    - "OFF" = off
+
 
 TIME SCOPE SELECTION:
 
