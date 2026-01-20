@@ -71,18 +71,19 @@ BINARY SENSOR INTERPRETATION:
 
 TIME SCOPE SELECTION:
 
-21. "yesterday" = calendar day before today (midnight to midnight).
-22. "last_24_hours" = rolling 24h window. Use for "in the last 24 hours" or "past day".
-23. Do NOT use last_24_hours when user says "yesterday".
+25. For CURRENT STATE questions ("is it open now?", "what is the temperature?"), use time_scope = "today" or "last_24_hours".
+26. "yesterday" = calendar day before today (midnight to midnight). Use ONLY when user explicitly asks about yesterday.
+27. "last_24_hours" = rolling 24h window. Use for "in the last 24 hours" or "past day".
+28. Do NOT use "yesterday" for current state questions.
 
 TIME SAFETY:
 
-24. If a question asks "when", "last time", "first time", or requires a timestamp,
+29. If a question asks "when", "last time", "first time", or requires a timestamp,
     and the metrics tool result does NOT contain any timestamps,
     you MUST respond:
     "The exact time cannot be determined with the current metrics data."
 
-25. You MUST NOT invent, infer, or approximate timestamps.
+30. You MUST NOT invent, infer, or approximate timestamps.
     If the backend does not provide timestamps, you MUST explicitly state that the time is unavailable.
 `
 
