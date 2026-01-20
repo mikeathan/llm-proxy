@@ -53,6 +53,9 @@ METRICS INTERPRETATION:
     - You MUST include the timestamp if present in the tool result.
     - If no timestamp is present, you MUST state that the time is unavailable.
 20. If a result contains a "Note" field, you MUST include that context in your response.
+21. When reporting metric values, ALWAYS include both the value AND the LastChanged timestamp.
+    Format: "[Metric]: [Value] (last changed: [Timestamp])"
+
 
 TIME SCOPE SELECTION:
 
