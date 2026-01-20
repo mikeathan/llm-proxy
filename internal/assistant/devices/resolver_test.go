@@ -103,3 +103,33 @@ func TestResolveDevice_Ambiguous(t *testing.T) {
 		t.Errorf("expected 2 candidates, got %d", len(amb.Candidates))
 	}
 }
+
+func TestDetectMultipleDevices(t *testing.T) {
+	ctx := &nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{ID: "1", Name: "Living Room Light"},
+			{ID: "2", Name: "Attic room Light"},
+			{ID: "3", Name: "Garden Sensor"},
+		},
+	}
+
+	tests := []struct {
+		message     string
+		expectMulti bool
+		desc        string
+	}{
+		{"is the living room light on", false, "single device - should not flag"},
+		{"what's the attic temperature", false, "single device - should not flag"},
+		{"living room and garden", true, "distinct locations - should flag"},
+		{"attic and garden sensors", true, "distinct locations - should flag"},
+		{"what's the temperature", false, "no specific device - should not flag"},
+	}
+
+	for _, tt := range tests {
+		result := DetectMultipleDevices(tt.message, ctx)
+		gotMulti := len(result) > 1
+		if gotMulti != tt.expectMulti {
+			t.Errorf("%s: DetectMultipleDevices(%q) = %v, want multi=%v", tt.desc, tt.message, result, tt.expectMulti)
+		}
+	}
+}

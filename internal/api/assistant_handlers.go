@@ -117,7 +117,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	exposeIndex := tools.BuildExposeIndex(deviceCtx)
 
 	// Check if user is asking about multiple devices - we only support single-device queries
-	if multiDevices := tools.DetectMultipleDevices(payload.Message, deviceCtx); len(multiDevices) > 0 {
+	if multiDevices := devices.DetectMultipleDevices(payload.Message, deviceCtx); len(multiDevices) > 0 {
 		return map[string]any{
 			"reply": "I can only query one device at a time. You mentioned multiple devices: " +
 				formatDeviceList(multiDevices) + ". Please ask about each device separately.",
