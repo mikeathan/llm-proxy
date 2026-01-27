@@ -3,6 +3,7 @@ package api_test
 import (
 	"errors"
 	"llm-proxy/internal/api"
+	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/nodeherder"
@@ -245,10 +246,10 @@ func TestAssistantMessageHandler_ChatRequestHasToolsAndSystemPrompt(t *testing.T
 	if systemMsg.Role != proxy.SystemRole {
 		t.Fatalf("expected system role, got %s", systemMsg.Role)
 	}
-	if !strings.Contains(systemMsg.Content, "STRICT RULES:") {
+	if !strings.Contains(systemMsg.Content, "RULES:") {
 		t.Fatalf("expected system policy in system message")
 	}
-	if !strings.Contains(systemMsg.Content, "Device Context:") {
+	if !strings.Contains(systemMsg.Content, "Available Devices:") {
 		t.Fatalf("expected device context in system message")
 	}
 }
@@ -256,7 +257,17 @@ func TestAssistantMessageHandler_ChatRequestHasToolsAndSystemPrompt(t *testing.T
 func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
-	provider.SetDeviceContextResult(&mocks.TestDeviceContext{})
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Living Room Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
 		From:   1,
@@ -267,19 +278,29 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 	})
 
 	mockClient := &mocks.MockLLMClient{
-		Response: proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{
-					ToolCalls: []proxy.ToolCall{
-						{
-							ID:   "1",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      "query_metrics",
-								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":10,"aggregate":"avg"}`,
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									ID:   "1",
+									Type: "function",
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"avg_value","target_name":"living room","metrics":["temperature"],"time_scope":"range:1..10"}`,
+									},
+								},
 							},
 						},
 					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "metrics ready"}},
 				},
 			},
 		},
@@ -308,8 +329,114 @@ func TestAssistantMessageHandler_ToolCallPassthrough(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	if !strings.Contains(rr.Body.String(), `"deviceId":"dev1"`) {
+	if !strings.Contains(rr.Body.String(), `"reply":"metrics ready"`) {
 		t.Fatalf("expected metrics response: %s", rr.Body.String())
+	}
+
+	if mockClient.Calls != 2 {
+		t.Fatalf("expected 2 model calls, got %d", mockClient.Calls)
+	}
+}
+
+func TestAssistantMessageHandler_PendingFlow(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Attic Air Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+			{
+				ID:   "dev2",
+				Name: "Attic Room Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     10,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{DeviceId: "dev2", Value: 22.5, Timestamp: 5},
+		},
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									ID:   "1",
+									Type: "function",
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"avg_value","target_name":"attic","metrics":["temperature"],"time_scope":"last_day"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "ok"}},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+	store := pending.NewInMemoryPendingToolCallStore()
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+		PendingRef:  store,
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"conversation_id":"conv-1","message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Please choose one") {
+		t.Fatalf("expected clarification prompt, got %s", rr.Body.String())
+	}
+	if mockClient.Calls != 1 {
+		t.Fatalf("expected 1 model call before clarification, got %d", mockClient.Calls)
+	}
+
+	body = `{"conversation_id":"conv-1","message":"2"}`
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"reply":"ok"`) {
+		t.Fatalf("expected final reply, got %s (calls=%d)", rr.Body.String(), mockClient.Calls)
 	}
 }
 
@@ -349,25 +476,53 @@ func TestAssistantMessageHandler_EmptyModelResponse(t *testing.T) {
 func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Attic Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
 
 	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
 		Expose: "temperature",
-		From:   1,
-		To:     2,
+		From:   1735689600000,
+		To:     1735776000000,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId:  "dev1",
+				Value:     21.5,
+				Timestamp: 1735689600000,
+			},
+		},
 	})
 
 	mockClient := &mocks.MockLLMClient{
-		Response: proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{
-					ToolCalls: []proxy.ToolCall{
-						{
-							Function: proxy.FunctionCall{
-								Name:      "query_metrics",
-								Arguments: `{"device_id":"dev1","expose":"temperature","from":1,"to":2}`,
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"attic","metrics":["temperature"],"time_scope":"today"}`,
+									},
+								},
 							},
 						},
 					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "done"}},
 				},
 			},
 		},
@@ -396,8 +551,350 @@ func TestAssistantMessageHandler_HandleToolCall_QueryMetrics(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	if !strings.Contains(rr.Body.String(), `"Expose":"temperature"`) {
-		t.Fatalf("unexpected response: %s", rr.Body.String())
+	if mockClient.Calls != 2 {
+		t.Fatalf("expected 2 model calls, got %d", mockClient.Calls)
+	}
+
+	if len(mockClient.Requests) < 2 {
+		t.Fatalf("expected second chat request, got %d", len(mockClient.Requests))
+	}
+
+	secondReq := mockClient.Requests[1]
+	if len(secondReq.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(secondReq.Messages))
+	}
+
+	assistantMsg := secondReq.Messages[2]
+	if assistantMsg.Role != proxy.AssistantRole || len(assistantMsg.ToolCalls) != 1 {
+		t.Fatalf("expected assistant tool call message")
+	}
+
+	toolMsg := secondReq.Messages[3]
+	if toolMsg.Role != proxy.ToolRole {
+		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
+	}
+	if !strings.Contains(toolMsg.Content, `"Metric":"temperature"`) ||
+		!strings.Contains(toolMsg.Content, `"DeviceID":"dev1"`) ||
+		!strings.Contains(toolMsg.Content, `"From":"2025-01-01T00:00:00Z"`) ||
+		!strings.Contains(toolMsg.Content, `"To":"2025-01-02T00:00:00Z"`) {
+		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
+	}
+}
+
+func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NormalizedTimestamp(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Kitchen Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1735689600000,
+		To:     1735776000000,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId:  "dev1",
+				Value:     21.5,
+				Timestamp: 1735693200000,
+			},
+		},
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"kitchen","metrics":["temperature"],"time_scope":"last_day"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "done"}},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if len(mockClient.Requests) < 2 {
+		t.Fatalf("expected second chat request, got %d", len(mockClient.Requests))
+	}
+
+	secondReq := mockClient.Requests[1]
+	if len(secondReq.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(secondReq.Messages))
+	}
+
+	toolMsg := secondReq.Messages[3]
+	if toolMsg.Role != proxy.ToolRole {
+		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
+	}
+	if !strings.Contains(toolMsg.Content, `"Operation":"last"`) ||
+		!strings.Contains(toolMsg.Content, `"LastChanged":"2025-01-01T01:00:00Z"`) {
+		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
+	}
+}
+
+func TestAssistantMessageHandler_HandleToolCall_QueryMetrics_NoDataNote(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Office Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+
+	provider.SetMetricsResult(&nodeherder.MetricsQueryResponse{
+		Expose: "temperature",
+		From:   1,
+		To:     10,
+		Values: []nodeherder.MetricsQueryDeviceResponse{
+			{
+				DeviceId: "dev1",
+				Value:    nil,
+			},
+		},
+	})
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"avg_value","target_name":"office","metrics":["temperature"],"time_scope":"last_day"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Content: "done"}},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if len(mockClient.Requests) < 2 {
+		t.Fatalf("expected second chat request, got %d", len(mockClient.Requests))
+	}
+
+	toolMsg := mockClient.Requests[1].Messages[3]
+	if toolMsg.Role != proxy.ToolRole {
+		t.Fatalf("expected tool role message, got %s", toolMsg.Role)
+	}
+	if !strings.Contains(toolMsg.Content, `"note":"no data available for this query"`) {
+		t.Fatalf("unexpected tool result: %s", toolMsg.Content)
+	}
+}
+
+func TestAssistantMessageHandler_ToolCallExecutionError(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Garage Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+	provider.SetMetricsError(nodeherder.ErrQueryFailed)
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"today"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), nodeherder.ErrQueryFailed.Msg) {
+		t.Fatalf("expected error message, got %s", rr.Body.String())
+	}
+}
+
+func TestAssistantMessageHandler_ToolCallExecutionAuthExpired(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	provider := mocks.NewMockNodeHerder(nil)
+	provider.SetDeviceContextResult(&nodeherder.LLMDeviceContext{
+		Devices: []nodeherder.LLMDevice{
+			{
+				ID:   "dev1",
+				Name: "Garage Sensor",
+				Exposes: []nodeherder.LLMExpose{
+					{Name: "temperature"},
+				},
+			},
+		},
+	})
+	provider.SetMetricsError(nodeherder.ErrAuthExpired)
+
+	mockClient := &mocks.MockLLMClient{
+		Responses: []proxy.ChatResponse{
+			{
+				Choices: []proxy.Choice{
+					{
+						Message: proxy.Message{
+							Role: proxy.SystemRole,
+							ToolCalls: []proxy.ToolCall{
+								{
+									Function: proxy.FunctionCall{
+										Name:      "declare_intent",
+										Arguments: `{"intent":"latest_value","target_name":"garage","metrics":["temperature"],"time_scope":"today"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientProvider := &mocks.MockLLMClientProvider{Client: mockClient}
+
+	service := &mocks.MockAssistantService{
+		Herder:      provider,
+		LoggerRef:   logger,
+		Client:      clientProvider,
+		RateLimiter: &mocks.MockRateLimiter{},
+		Model:       "test-model",
+	}
+
+	handler := api.NewAssistantMessageHandler(service)
+
+	body := `{"message":"run tool"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), nodeherder.ErrAuthExpired.Msg) {
+		t.Fatalf("expected error message, got %s", rr.Body.String())
 	}
 }
 

@@ -2,95 +2,242 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/assistant/devices"
+	"llm-proxy/internal/assistant/tools"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
+	"llm-proxy/utils"
+	"strings"
 )
 
-type QueryMetricsArgs struct {
-	DeviceID    string `json:"device_id"`
-	Expose      string `json:"expose"`
-	From        int64  `json:"from,omitempty"`
-	To          int64  `json:"to,omitempty"`
-	Aggregation string `json:"aggregation,omitempty"`
-	Resolution  string `json:"resolution,omitempty"`
+type ToolResult struct {
+	Response         *nodeherder.MetricsQueryResponse
+	Aggregation      nodeherder.AggregationType
+	LookbackExpanded bool                  // True if the time window was expanded beyond original request
+	DeviceName       string                // Resolved device name for correct attribution
+	Expose           *nodeherder.LLMExpose // Expose metadata for value translation
 }
 
 type Engine interface {
-	ExecuteTool(ctx context.Context, call proxy.ToolCall) (*nodeherder.MetricsQueryResponse, error)
+	ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error)
+	ExecuteToolWithDevice(ctx context.Context, call proxy.ToolCall, deviceID string) (*ToolResult, error)
 }
 
 type assistantEngine struct {
 	nodeherder nodeherder.NodeHerderService
 	logger     logging.Logger
+	clock      utils.Clock
+	normalize  tools.NormalizeConfig
 }
 
 func NewEngine(nodeherder nodeherder.NodeHerderService, logger logging.Logger) Engine {
 	return &assistantEngine{
 		nodeherder: nodeherder,
 		logger:     logger,
+		clock:      &utils.RealClock{},
+		normalize:  tools.DefaultNormalizeConfig(),
 	}
 }
-func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*nodeherder.MetricsQueryResponse, error) {
 
+func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (*ToolResult, error) {
+	// ExecuteTool parses and normalizes LLM tool args, resolves a device, and executes
+	// the metrics query with a sanitized request.
 	a.logger.Info("tool call", "name", call.Function.Name, "conversation", call.ID)
 
-	function := call.Function
-	switch function.Name {
+	if call.Function.Name != "query_metrics" {
+		return nil, fmt.Errorf("unknown tool: %s", call.Function.Name)
+	}
 
-	case "query_metrics":
-		a.logger.Info("tool args", "name", call.Function.Name, "args", call.Function.Arguments)
-		req, err := buildMetricsQueryRequest(call.Function.Arguments)
-		if err != nil {
-			a.logger.Error("tool parse failed", "name", call.Function.Name, "error", err)
-			return nil, err
+	args, err := tools.ParseMetricsArgs(call.Function.Arguments)
+	if err != nil {
+		return nil, err
+	}
+
+	a.logger.Debug("raw tool args",
+		"target_name", args.TargetName,
+		"expose", args.Expose,
+		"aggregation", args.Aggregation,
+		"time", args.Time,
+	)
+
+	normalized, err := tools.NormalizeMetricsArgs(args, a.normalize, a.clock)
+	if err != nil {
+		return nil, err
+	}
+
+	deviceCtx, err := a.nodeherder.GetDeviceContext()
+	if err != nil {
+		return nil, err
+	}
+	a.logger.Debug("device context loaded", "device_count", len(deviceCtx.Devices))
+
+	a.logger.Debug("resolving device",
+		"target", normalized.TargetName,
+		"expose", normalized.Expose,
+	)
+
+	device, err := devices.ResolveDevice(deviceCtx, normalized.TargetName, normalized.Expose)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the expose metadata for value translation
+	var expose *nodeherder.LLMExpose
+	for i := range device.Exposes {
+		if strings.EqualFold(device.Exposes[i].Name, normalized.Expose) {
+			expose = &device.Exposes[i]
+			break
 		}
+	}
+
+	return a.executeMetrics(ctx, normalized, device.ID, device.Name, expose)
+}
+
+func (a *assistantEngine) ExecuteToolWithDevice(ctx context.Context, call proxy.ToolCall, deviceID string) (*ToolResult, error) {
+	// ExecuteToolWithDevice bypasses resolution after clarification and reuses the
+	// normalized tool args for the resolved device id.
+	if call.Function.Name != "query_metrics" {
+		return nil, fmt.Errorf("unknown tool: %s", call.Function.Name)
+	}
+
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device_id is required")
+	}
+
+	args, err := tools.ParseMetricsArgs(call.Function.Arguments)
+	if err != nil {
+		return nil, err
+	}
+
+	normalized, err := tools.NormalizeMetricsArgs(args, a.normalize, a.clock)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.executeMetrics(ctx, normalized, deviceID, "", nil)
+}
+
+func (a *assistantEngine) executeMetrics(ctx context.Context, args tools.NormalizedMetricsArgs, deviceID, deviceName string, expose *nodeherder.LLMExpose) (*ToolResult, error) {
+	// Handle binary event filtering when a positive outcome is specified
+	if args.PositiveOutcome != nil {
+		req := &nodeherder.MetricsQueryRequest{
+			DeviceIDs:        []string{deviceID},
+			Expose:           args.Expose,
+			Time:             args.Time,
+			Aggregation:      nodeherder.LastEvent,
+			AggregationValue: *args.PositiveOutcome,
+		}
+
+		a.logger.Info("normalized tool request for binary event (last_event)",
+			"device", deviceName,
+			"device_id", deviceID,
+			"expose", req.Expose,
+			"aggregation", req.Aggregation,
+			"aggregation_value", req.AggregationValue,
+			"time", req.Time,
+		)
 
 		res, err := a.nodeherder.QueryMetrics(ctx, req)
 		if err != nil {
-			a.logger.Error("tool execution failed", "name", call.Function.Name, "error", err)
-
 			return nil, err
 		}
 
-		a.logger.Info("tool completed", "name", call.Function.Name)
-		return res, nil
-
-	default:
-		return nil, fmt.Errorf("unknown tool: %s", function.Name)
-	}
-}
-
-func (q QueryMetricsArgs) Validate() error {
-	if q.DeviceID == "" || q.Expose == "" {
-		return fmt.Errorf("device_id and expose are required")
+		return &ToolResult{
+			Response:    res,
+			Aggregation: nodeherder.AggLast, // Treat as 'last' for normalization to match previous behavior
+			DeviceName:  deviceName,
+			Expose:      expose,
+		}, nil
 	}
 
-	if q.Aggregation == "" && (q.From == 0 || q.To == 0) {
-		return fmt.Errorf("either aggregate or from+to must be provided")
+	if args.Aggregation == "event" || args.Aggregation == string(nodeherder.LastEvent) {
+		if args.EventValue == nil {
+			return nil, fmt.Errorf("event_value is required for event aggregation")
+		}
+
+		req := &nodeherder.MetricsQueryRequest{
+			DeviceIDs:        []string{deviceID},
+			Expose:           args.Expose,
+			Time:             args.Time,
+			Aggregation:      nodeherder.LastEvent,
+			AggregationValue: *args.EventValue,
+		}
+
+		a.logger.Info("normalized tool request for event (last_event)",
+			"device", deviceName,
+			"device_id", deviceID,
+			"expose", req.Expose,
+			"aggregation", req.Aggregation,
+			"time", req.Time,
+		)
+
+		res, err := a.nodeherder.QueryMetrics(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ToolResult{
+			Response:    res,
+			Aggregation: nodeherder.LastEvent,
+			DeviceName:  deviceName,
+			Expose:      expose,
+		}, nil
 	}
 
-	return nil
-}
+	req := &nodeherder.MetricsQueryRequest{
+		DeviceIDs:   []string{deviceID},
+		Expose:      args.Expose,
+		Time:        args.Time,
+		Aggregation: nodeherder.AggregationType(args.Aggregation),
+	}
 
-func buildMetricsQueryRequest(argJSON string) (*nodeherder.MetricsQueryRequest, error) {
-	var args QueryMetricsArgs
-	if err := json.Unmarshal([]byte(argJSON), &args); err != nil {
+	a.logger.Info("normalized tool request",
+		"device", deviceName,
+		"device_id", deviceID,
+		"expose", req.Expose,
+		"aggregation", req.Aggregation,
+		"time", req.Time,
+	)
+
+	res, err := a.nodeherder.QueryMetrics(ctx, req)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := args.Validate(); err != nil {
-		return nil, err
+	// Adaptive expansion for last queries only
+	lookbackExpanded := false
+	if req.Aggregation == nodeherder.AggLast &&
+		len(res.Values) == 0 &&
+		args.Time != nil {
+
+		res, err = a.expandLookbackAndRetry(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		lookbackExpanded = true
 	}
 
-	return &nodeherder.MetricsQueryRequest{
-		DeviceID:   args.DeviceID,
-		Expose:     args.Expose,
-		From:       args.From,
-		To:         args.To,
-		Aggregate:  args.Aggregation,
-		Resolution: args.Resolution,
+	return &ToolResult{
+		Response:         res,
+		Aggregation:      req.Aggregation,
+		LookbackExpanded: lookbackExpanded,
+		DeviceName:       deviceName,
+		Expose:           expose,
 	}, nil
+}
+
+func (a *assistantEngine) expandLookbackAndRetry(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
+
+	a.logger.Info("no data in recent window, expanding lookback")
+
+	req.Time = tools.BuildMaxLookbackTime(a.clock, a.normalize)
+
+	a.logger.Info("retrying with expanded window",
+		"from", req.Time.From,
+		"to", req.Time.To,
+	)
+
+	return a.nodeherder.QueryMetrics(ctx, req)
 }

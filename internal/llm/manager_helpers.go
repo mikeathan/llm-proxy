@@ -1,11 +1,14 @@
 package llm
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"time"
 
 	"llm-proxy/internal/logging"
@@ -19,6 +22,7 @@ const logBufferSize = 64 * 1024
 type runningModel struct {
 	cfg        models.ModelConfig
 	cmd        *exec.Cmd
+	cancel     context.CancelFunc
 	started    time.Time
 	lastUsed   time.Time
 	logs       *logging.BufferLogger
@@ -119,17 +123,23 @@ func modelInstance(cfg models.ModelConfig, host string) ModelInstance {
 func (m *LLMRuntimeManager) startModelLocked(cfg models.ModelConfig) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := system_metrics.NewTokenTracker()
-	cmd := testhooks.ExecCommand(m.llamaBinary, buildLaunchArgs(cfg)...)
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := testhooks.ExecCommandContext(ctx, m.llamaBinary, buildLaunchArgs(cfg)...)
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
 	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
 
 	if err := cmd.Start(); err != nil {
+		cancel()
 		return fmt.Errorf("model start failed: %w", err)
 	}
 
 	m.activeModel = &runningModel{
 		cfg:        cfg,
 		cmd:        cmd,
+		cancel:     cancel,
 		started:    time.Now(),
 		lastUsed:   time.Now(),
 		logs:       logBuf,
@@ -141,5 +151,23 @@ func (m *LLMRuntimeManager) startModelLocked(cfg models.ModelConfig) error {
 
 func buildLaunchArgs(cfg models.ModelConfig) []string {
 	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
-	return append(args, cfg.Args...)
+	return append(args, sanitizeArgs(cfg.Args)...)
+}
+
+func sanitizeArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	skipNext := false
+	for i := 0; i < len(args); i++ {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		arg := args[i]
+		if arg == "--n-batch" {
+			skipNext = true
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }

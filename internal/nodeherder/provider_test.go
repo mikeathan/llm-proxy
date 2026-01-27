@@ -2,16 +2,32 @@ package nodeherder_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/nodeherder"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newTestResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
 
 // NodeHerder GetDeviceContext Tests
 func TestNodeHerder_ReturnsFromCache(t *testing.T) {
@@ -180,12 +196,18 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 		t.Fatalf("unexpected device mapping")
 	}
 
-	temp := dev.Exposes["temperature"]
+	temp, ok := findExpose(dev.Exposes, "temperature")
+	if !ok {
+		t.Fatalf("expected temperature expose")
+	}
 	if temp.Type != "numeric" || temp.Unit != "°C" {
 		t.Fatalf("numeric expose not transformed correctly")
 	}
 
-	state := dev.Exposes["state"]
+	state, ok := findExpose(dev.Exposes, "state")
+	if !ok {
+		t.Fatalf("expected state expose")
+	}
 	if state.Type != "binary" {
 		t.Fatalf("binary expose type incorrect")
 	}
@@ -195,6 +217,15 @@ func TestNodeHerder_TransformsResponse(t *testing.T) {
 	if len(state.States) != 2 || state.States[0] != "OFF" || state.States[1] != "ON" {
 		t.Fatalf("binary expose states incorrect")
 	}
+}
+
+func findExpose(exposes []nodeherder.LLMExpose, name string) (nodeherder.LLMExpose, bool) {
+	for _, expose := range exposes {
+		if expose.Name == name {
+			return expose, true
+		}
+	}
+	return nodeherder.LLMExpose{}, false
 }
 
 // NodeHerder Query Metrics Tests
@@ -218,8 +249,8 @@ func TestNodeHerder_QueryMetrics_DelegatesToFetcher(t *testing.T) {
 	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	req := &nodeherder.MetricsQueryRequest{
-		DeviceID: "dev1",
-		Expose:   "temperature",
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
 	}
 
 	res, err := provider.QueryMetrics(context.Background(), req)
@@ -245,13 +276,20 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
 
 	req := &nodeherder.MetricsQueryRequest{
-		DeviceID: "dev1",
-		Expose:   "temperature",
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
 	}
 
 	res, err := provider.QueryMetrics(context.Background(), req)
 	if err == nil {
 		t.Fatalf("expected error")
+	}
+	var dErr *nodeherder.DomainError
+	if !errors.As(err, &dErr) {
+		t.Fatalf("expected DomainError, got %T", err)
+	}
+	if dErr.Status != 502 || dErr.Msg != "nodeherder request failed" {
+		t.Fatalf("unexpected domain error: %+v", dErr)
 	}
 
 	if res != nil {
@@ -263,31 +301,65 @@ func TestNodeHerder_QueryMetrics_PropagatesError(t *testing.T) {
 	}
 }
 
+func TestNodeHerder_QueryMetrics_AuthExpired(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
+
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, &nodeherder.HTTPError{Status: 401, Body: "expired"})
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
+
+	_, err := provider.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
+	})
+	if !errors.Is(err, nodeherder.ErrAuthExpired) {
+		t.Fatalf("expected ErrAuthExpired, got %v", err)
+	}
+}
+
+func TestNodeHerder_QueryMetrics_QueryFailed(t *testing.T) {
+	logger := &mocks.MockLogger{}
+	clock := mocks.NewFakeClock(time.Now().UTC())
+	cache := nodeherder.NewDeviceContextCache(1*time.Minute, clock)
+
+	mockClient := mocks.NewMockHttpNodeHerderFetcher(nil, &nodeherder.HTTPError{Status: 500, Body: "boom"})
+	provider := nodeherder.NewNodeHerder(mockClient, cache, logger)
+
+	_, err := provider.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
+	})
+	if !errors.Is(err, nodeherder.ErrQueryFailed) {
+		t.Fatalf("expected ErrQueryFailed, got %v", err)
+	}
+}
+
 // HttpNodeHerderFetcher FetchDeviceContext Tests
 func TestNodeHerderFetcher_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/context/devices" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/context/devices" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			return newTestResponse(http.StatusOK, `{
+				"version": "1",
+				"generatedAt": "2025-01-01T10:00:00Z",
+				"devices": [
+					{
+						"id": "dev1",
+						"name": "Sensor",
+						"exposes": []
+					}
+				]
+			}`), nil
+		}),
+	}
 
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"version": "1",
-			"generatedAt": "2025-01-01T10:00:00Z",
-			"devices": [
-				{
-					"id": "dev1",
-					"name": "Sensor",
-					"exposes": []
-				}
-			]
-		}`))
-	}))
-	defer server.Close()
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
-
-	resp, err := client.FetchDeviceContext()
+	resp, err := fetcher.FetchDeviceContext()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -310,16 +382,16 @@ func TestNodeHerderFetcher_Success(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_Non200Response(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusInternalServerError, "boom"), nil
+		}),
+	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("boom"))
-	}))
-	defer server.Close()
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
-
-	_, err := client.FetchDeviceContext()
+	_, err := fetcher.FetchDeviceContext()
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -330,30 +402,32 @@ func TestNodeHerderFetcher_Non200Response(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{invalid-json`))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, `{invalid-json`), nil
+		}),
+	}
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.FetchDeviceContext()
+	_, err := fetcher.FetchDeviceContext()
 	if err == nil {
 		t.Fatal("expected JSON error, got nil")
 	}
 }
 
 func TestNodeHerderFetcher_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}),
+	}
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+	tokenManager := mocks.NewMockTokenManager("ignored", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.FetchDeviceContext()
+	_, err := fetcher.FetchDeviceContext()
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -361,37 +435,46 @@ func TestNodeHerderFetcher_Timeout(t *testing.T) {
 
 // HttpNodeHerderFetcher Query Metrics Tests
 func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/metrics/query" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"expose": "temperature",
-			"from": 1,
-			"to": 10,
-			"values": [
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/metrics/query" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			if auth := r.Header.Get("Authorization"); auth != "Bearer test-token" {
+				t.Fatalf("unexpected auth header: %s", auth)
+			}
+			return newTestResponse(http.StatusOK, `[
 				{
-					"deviceId": "dev1",
-					"value": 25.5,
-					"timestamp": 5
+					"expose": "temperature",
+					"from": 1,
+					"to": 10,
+					"values": [
+						{
+							"deviceId": "dev1",
+							"value": 25.5,
+							"timestamp": 5
+						}
+					]
 				}
-			]
-		}`))
-	}))
-	defer server.Close()
-
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
-
-	req := &nodeherder.MetricsQueryRequest{
-		DeviceID: "dev1",
-		Expose:   "temperature",
+			]`), nil
+		}),
 	}
 
-	resp, err := client.QueryMetrics(context.Background(), req)
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
+
+	req := &nodeherder.MetricsQueryRequest{
+		DeviceIDs: []string{"dev1"},
+		Expose:    "temperature",
+	}
+
+	resp, err := fetcher.QueryMetrics(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tokenManager.CallCount() != 1 {
+		t.Fatalf("expected token manager to be called once, got %d", tokenManager.CallCount())
 	}
 
 	if resp.Expose != "temperature" {
@@ -412,15 +495,16 @@ func TestNodeHerderFetcher_QueryMetrics_Success(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_QueryMetrics_Non200Response(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("boom"))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusInternalServerError, "boom"), nil
+		}),
+	}
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	_, err := fetcher.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -431,32 +515,144 @@ func TestNodeHerderFetcher_QueryMetrics_Non200Response(t *testing.T) {
 }
 
 func TestNodeHerderFetcher_QueryMetrics_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{invalid-json`))
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, `{invalid-json`), nil
+		}),
+	}
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	_, err := fetcher.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected JSON error, got nil")
 	}
 }
 
 func TestNodeHerderFetcher_QueryMetrics_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(50 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}),
+	}
 
-	client := nodeherder.NewHttpNodeHerderFetcher(server.URL, &http.Client{Timeout: 5 * time.Second})
+	tokenManager := mocks.NewMockTokenManager("test-token", nil)
+	fetcher := nodeherder.NewHttpNodeHerderFetcher("http://example.test", client, tokenManager)
 
-	_, err := client.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
+	_, err := fetcher.QueryMetrics(context.Background(), &nodeherder.MetricsQueryRequest{})
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+// ServiceTokenManager Tests
+func TestServiceTokenManager_SuccessAndCaches(t *testing.T) {
+	var calls int32
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			atomic.AddInt32(&calls, 1)
+			if r.URL.Path != "/api/auth/token" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			if r.Method != http.MethodPost {
+				t.Fatalf("unexpected method: %s", r.Method)
+			}
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("expected content-type application/json")
+			}
+
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("failed to decode body: %v", err)
+			}
+			if payload["client_id"] != "client-id" {
+				t.Fatalf("unexpected client_id: %s", payload["client_id"])
+			}
+			if payload["client_secret"] != "client-secret" {
+				t.Fatalf("unexpected client_secret: %s", payload["client_secret"])
+			}
+
+			return newTestResponse(http.StatusOK, `{"access_token":"token-1","expires_in":120}`), nil
+		}),
+	}
+
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	manager := nodeherder.NewServiceTokenManager(client, "http://example.test")
+
+	token1, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	token2, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if token1 != "token-1" || token2 != "token-1" {
+		t.Fatalf("unexpected tokens: %s, %s", token1, token2)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("expected 1 token request, got %d", calls)
+	}
+}
+
+func TestServiceTokenManager_ShortExpiryForcesRefresh(t *testing.T) {
+
+	var calls int32
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			call := atomic.AddInt32(&calls, 1)
+			token := "token-1"
+			if call == 2 {
+				token = "token-2"
+			}
+			return newTestResponse(http.StatusOK, `{"access_token":"`+token+`","expires_in":30}`), nil
+		}),
+	}
+
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	manager := nodeherder.NewServiceTokenManager(client, "http://example.test")
+
+	token1, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	token2, err := manager.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if token1 == token2 {
+		t.Fatalf("expected refreshed token, got %s", token2)
+	}
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("expected 2 token requests, got %d", calls)
+	}
+}
+
+func TestServiceTokenManager_Non200Response(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusInternalServerError, "boom"), nil
+		}),
+	}
+
+	t.Setenv("SERVICE_CLIENT_ID", "client-id")
+	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
+
+	manager := nodeherder.NewServiceTokenManager(client, "http://example.test")
+
+	_, err := manager.Get(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "token request failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

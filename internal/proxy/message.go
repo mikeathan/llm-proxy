@@ -4,18 +4,23 @@ type ChatRole string
 type ToolChoice string
 
 const (
-	SystemRole ChatRole = "system"
-	UserRole   ChatRole = "user"
+	SystemRole    ChatRole = "system"
+	UserRole      ChatRole = "user"
+	AssistantRole ChatRole = "assistant"
+	ToolRole      ChatRole = "tool"
 
 	ToolChoiceAuto     ToolChoice = "auto"
 	ToolChoiceRequired ToolChoice = "required"
 	ToolChoiceNone     ToolChoice = "none"
 )
 
+type ExecutionHistory = []Message
+
 // Message
 type Message struct {
-	Role    ChatRole `json:"role"`
-	Content string   `json:"content"`
+	Role      ChatRole   `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // Chat Request
@@ -38,8 +43,7 @@ type FunctionCall struct {
 }
 
 type Choice struct {
-	Message   Message    `json:"message"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Message Message `json:"message"`
 }
 
 // Chat Response

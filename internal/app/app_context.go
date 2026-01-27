@@ -32,6 +32,7 @@ func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *A
 		dir = cfg.ModelDir
 		gpuCfg = cfg.Metrics.GPU
 	}
+	configPath = utils.GetAbsoluteConfigPath(configPath)
 
 	s := &AppContext{
 		manager:    mgr,
@@ -54,6 +55,10 @@ func (a *AppContext) DefaultModel() (string, error) {
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
+}
+
+func (s *AppContext) ConfigPath() string {
+	return s.configPath
 }
 
 func (s *AppContext) refreshMetricsService() {
@@ -213,9 +218,11 @@ func BuildNodeHerder(clock utils.Clock, logger logging.Logger) nodeherder.NodeHe
 		Timeout: 10 * time.Second,
 	}
 
+	baseUrl := utils.Require("DEVICE_CONTEXT_BASE_URL")
 	fetcher := nodeherder.NewHttpNodeHerderFetcher(
-		utils.Require("DEVICE_CONTEXT_BASE_URL"),
+		baseUrl,
 		httpClient,
+		nodeherder.NewServiceTokenManager(httpClient, baseUrl),
 	)
 
 	cache := nodeherder.NewDeviceContextCache(1*time.Hour, clock)

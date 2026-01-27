@@ -6,20 +6,20 @@ import (
 )
 
 type MockAdminService struct {
-	ModelDirFunc            func() string
-	SetModelDirFunc         func(string)
-	GPUConfigFunc           func() models.GPUConfig
-	SetGPUConfigFunc        func(models.GPUConfig)
-	CurrentBinaryFunc       func() string
-	CurrentIdleTimeoutFunc  func() int
-	DefaultArgsFunc         func() []string
-	UpdateConfigFunc        func(func(*models.Config)) error
-	PersistModelFunc        func(models.ModelConfig) error
-	PersistReplaceModelFunc func(models.ModelConfig) error
-	PersistDeleteModelFunc  func(string) error
-	ResolveModelPathFunc    func(string, string) string
+	ModelDirFunc              func() string
+	SetModelDirFunc           func(string)
+	GPUConfigFunc             func() models.GPUConfig
+	SetGPUConfigFunc          func(models.GPUConfig)
+	CurrentBinaryFunc         func() string
+	CurrentIdleTimeoutFunc    func() int
+	DefaultArgsFunc           func() []string
+	UpdateConfigFunc          func(func(*models.Config)) error
+	PersistModelFunc          func(models.ModelConfig) error
+	PersistReplaceModelFunc   func(models.ModelConfig) error
+	PersistDeleteModelFunc    func(string) error
+	ResolveModelPathFunc      func(string, string) string
 	RefreshMetricsServiceFunc func()
-	MetricsSnapshotFunc     func() system_metrics.MetricsSnapshot
+	MetricsSnapshotFunc       func() system_metrics.MetricsSnapshot
 }
 
 func (m *MockAdminService) ModelDir() string {

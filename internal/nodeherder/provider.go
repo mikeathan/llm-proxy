@@ -9,6 +9,8 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/utils"
 	"net/http"
+	"sync"
+	"time"
 )
 
 // Node Herder
@@ -46,7 +48,36 @@ func (p *nodeHerder) GetDeviceContext() (*LLMDeviceContext, error) {
 }
 
 func (p *nodeHerder) QueryMetrics(ctx context.Context, request *MetricsQueryRequest) (*MetricsQueryResponse, error) {
-	return p.fetcher.QueryMetrics(ctx, request)
+	res, err := p.fetcher.QueryMetrics(ctx, request)
+	if err == nil {
+		return res, nil
+	}
+
+	if httpErr, ok := err.(*HTTPError); ok {
+		if httpErr.Status == 401 || httpErr.Status == 403 {
+			p.logger.Error("nodeherder auth expired",
+				"status", httpErr.Status,
+				"body", httpErr.Body,
+			)
+			return nil, ErrAuthExpired
+		}
+
+		p.logger.Error("nodeherder query failed",
+			"status", httpErr.Status,
+			"body", httpErr.Body,
+		)
+		return nil, ErrQueryFailed
+	}
+
+	p.logger.Error("nodeherder unexpected error",
+		"error", err,
+	)
+
+	return nil, &DomainError{
+		Err:    err,
+		Status: 502,
+		Msg:    "nodeherder request failed",
+	}
 }
 
 // Http Node Herder Fetcher
@@ -59,17 +90,16 @@ type HttpNodeHerderFetcher struct {
 	deviceContextURL string
 	queryMetricsURL  string
 	client           *http.Client
+	tokenManager     TokenManager
 }
 
-func NewHttpNodeHerderFetcher(baseUrl string, client *http.Client) NodeHerderFetcher {
-
-	queryMetricsURL := utils.SanitiseUrl(baseUrl) + "/api/metrics/query"
-	deviceContextURL := utils.SanitiseUrl(baseUrl) + "/api/context/devices"
+func NewHttpNodeHerderFetcher(baseUrl string, client *http.Client, tokenManager TokenManager) NodeHerderFetcher {
 
 	return &HttpNodeHerderFetcher{
-		deviceContextURL: deviceContextURL,
-		queryMetricsURL:  queryMetricsURL,
+		deviceContextURL: utils.SanitiseUrl(baseUrl) + "/api/context/devices",
+		queryMetricsURL:  utils.SanitiseUrl(baseUrl) + "/api/metrics/query",
 		client:           client,
+		tokenManager:     tokenManager,
 	}
 }
 
@@ -106,8 +136,15 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 	if err != nil {
 		return nil, err
 	}
+
+	token, err := c.tokenManager.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.queryMetricsURL, bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+token)
 
 	res, err := c.client.Do(httpReq)
 	if err != nil {
@@ -117,23 +154,102 @@ func (c *HttpNodeHerderFetcher) QueryMetrics(ctx context.Context, request *Metri
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("query metrics returned %d: %s", res.StatusCode, string(b))
+		return nil, &HTTPError{
+			Status: res.StatusCode,
+			Body:   string(b),
+		}
 	}
 
-	var out MetricsQueryResponse
+	var out []MetricsQueryResponse
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	return &out, nil
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty metrics response")
+	}
+
+	return &out[0], nil
+}
+
+// Token manager
+type TokenManager interface {
+	Get(ctx context.Context) (string, error)
+}
+
+type ServiceTokenManager struct {
+	client   *http.Client
+	tokenURL string
+
+	mu      sync.Mutex
+	token   string
+	expires time.Time
+}
+
+func NewServiceTokenManager(client *http.Client, baseURL string) TokenManager {
+	return &ServiceTokenManager{
+		client:   client,
+		tokenURL: utils.SanitiseUrl(baseURL) + "/api/auth/token",
+	}
+}
+
+func (m *ServiceTokenManager) Get(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	clientID, clientSecret, err := utils.LoadServiceCredentials()
+	if err != nil {
+		return "", err
+	}
+
+	if m.token != "" && time.Now().Before(m.expires.Add(-time.Minute)) {
+		return m.token, nil
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"client_id":     clientID,
+		"client_secret": clientSecret,
+	})
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, m.tokenURL, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := m.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return "", fmt.Errorf("token request failed: %s", string(b))
+	}
+
+	var out struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return "", err
+	}
+
+	m.token = out.AccessToken
+	m.expires = time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)
+
+	return m.token, nil
 }
 
 // Transform DeviceContextResponse to LLMDeviceContext
 func transformToLLMDeviceContext(response *DeviceContextResponse) *LLMDeviceContext {
 	llmDevices := make([]LLMDevice, 0, len(response.Devices))
+
 	for _, device := range response.Devices {
-		llmExposes := make(map[string]LLMExpose)
+		llmExposes := make([]LLMExpose, 0, len(device.Exposes))
+
 		for _, expose := range device.Exposes {
 			llmExpose := LLMExpose{
+				Name:         expose.Name,
 				Type:         expose.Type,
 				Unit:         expose.Unit,
 				States:       expose.Values,
@@ -142,18 +258,20 @@ func transformToLLMDeviceContext(response *DeviceContextResponse) *LLMDeviceCont
 				Toggle:       expose.ValueToggle,
 				Aggregations: make([]string, len(expose.Aggregations)),
 			}
+
 			for i, agg := range expose.Aggregations {
 				llmExpose.Aggregations[i] = string(agg)
 			}
-			llmExposes[expose.Name] = llmExpose
+
+			llmExposes = append(llmExposes, llmExpose)
 		}
-		llmDevice := LLMDevice{
+
+		llmDevices = append(llmDevices, LLMDevice{
 			ID:      device.ID,
 			Name:    device.Name,
 			Desc:    device.Description,
 			Exposes: llmExposes,
-		}
-		llmDevices = append(llmDevices, llmDevice)
+		})
 	}
 
 	return &LLMDeviceContext{

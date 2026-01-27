@@ -1,6 +1,7 @@
 package llm_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,8 +15,8 @@ import (
 )
 
 // Fake exec.Command that doesn't spawn a real process.
-func fakeCmd() func(name string, arg ...string) *exec.Cmd {
-	return func(name string, arg ...string) *exec.Cmd {
+func fakeCmd() func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	return func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperFakeProcess")
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
 		return cmd
@@ -59,7 +60,7 @@ func TestNewManagerFromConfig_NormalizesModels(t *testing.T) {
 }
 
 func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -91,7 +92,7 @@ func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
 }
 
 func TestUpdateModel_StopsActiveModel(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -114,7 +115,7 @@ func TestUpdateModel_StopsActiveModel(t *testing.T) {
 }
 
 func TestRemoveModel_StopsActiveModel(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -136,8 +137,39 @@ func TestRemoveModel_StopsActiveModel(t *testing.T) {
 	}
 }
 
+func TestStopActive_CancelsProcessContext(t *testing.T) {
+	var captured context.Context
+	restoreExec := testhooks.SetExecCommandContext(func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		captured = ctx
+		cmd := exec.Command(os.Args[0], "-test.run=TestHelperFakeProcess")
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		return cmd
+	})
+	defer restoreExec()
+
+	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
+	_, _ = manager.EnsureModel("test")
+
+	if captured == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	if err := manager.StopActive(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case <-captured.Done():
+	default:
+		t.Fatal("expected command context to be canceled")
+	}
+}
+
 func TestActiveInfo_ReadyReflectsPortState(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -174,7 +206,6 @@ func equalStrings(got, want []string) bool {
 
 // --- Existing runtime manager tests ---
 
-
 func TestRuntimeManager_EnsureModel_Unknown(t *testing.T) {
 	m := llm.New(nil, "127.0.0.1", time.Minute)
 
@@ -185,7 +216,7 @@ func TestRuntimeManager_EnsureModel_Unknown(t *testing.T) {
 }
 
 func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -210,7 +241,7 @@ func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 }
 
 func TestRuntimeManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -244,7 +275,7 @@ func TestRuntimeManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 }
 
 func TestRuntimeManager_RecordActivity(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return false })
@@ -267,7 +298,7 @@ func TestRuntimeManager_RecordActivity(t *testing.T) {
 }
 
 func TestRuntimeManager_IdleReaperStopsModel(t *testing.T) {
-	restoreExec := testhooks.SetExecCommand(fakeCmd())
+	restoreExec := testhooks.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
 	restorePort := testhooks.SetPortReady(func(port int) bool { return true })

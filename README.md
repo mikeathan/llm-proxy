@@ -69,8 +69,12 @@ Key fields:
 
 ## Environment variables
 - `DEVICE_CONTEXT_BASE_URL`: required. Base URL for the device context API.
+- `SERVICE_CLIENT_ID`: required. Client credential ID for the target service (for example, nodeherder).
+- `SERVICE_CLIENT_SECRET`: required. Client credential secret for the target service (for example, nodeherder).
 - `LLM_PROXY_DEV_BASE_URL`: optional. If set, the proxy skips model startup and
   sends chat requests to this base URL instead (useful with the mock server).
+
+You can set `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` from the admin UI; the values are written to `.env` so they load on restart. If you prefer, you can set them in `.env.development` or `.env.production` and those values take precedence. The client credentials must be provisioned by the target service (for example, nodeherder).
 
 ## Local testing with the mock server
 The mock server lives under `mock-server` and serves both:

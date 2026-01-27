@@ -31,8 +31,34 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("proxied"))
 }
 
+func TestNewServer_ConfigPathAbs(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	rel := filepath.Join("config", "config.json")
+	ctx := app.NewServer(&mocks.MockManager{}, &models.Config{}, rel)
+
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks dir: %v", err)
+	}
+	want := filepath.Join(resolvedDir, rel)
+	if got := ctx.ConfigPath(); got != want {
+		t.Fatalf("expected %s, got %s", want, got)
+	}
+}
+
 func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
-	srv := app.NewServer(nil, &models.Config{}, "") // Mgr not used for this case
+	srv := app.NewServer(nil, &models.Config{}, "")
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)

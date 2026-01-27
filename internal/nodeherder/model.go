@@ -5,6 +5,16 @@ import "time"
 // Device context response structure
 type AggregationType string
 
+const (
+	AggNone   AggregationType = ""
+	AggLast   AggregationType = "last"
+	AggMin    AggregationType = "min"
+	AggMax    AggregationType = "max"
+	AggAvg    AggregationType = "avg"
+	AggCount  AggregationType = "count"
+	LastEvent AggregationType = "last_event"
+)
+
 type DeviceContextResponse struct {
 	Version     string          `json:"version"`
 	GeneratedAt time.Time       `json:"generatedAt"`
@@ -29,14 +39,19 @@ type ExposeInfo struct {
 	Aggregations []AggregationType `json:"aggregations"`
 }
 
+type TimeQuery struct {
+	From     time.Time `json:"from,omitempty"`
+	To       time.Time `json:"to,omitempty"`
+	Lookback string    `json:"lookback,omitempty"`
+}
+
 // Query Request
 type MetricsQueryRequest struct {
-	DeviceID   string
-	Expose     string
-	From       int64
-	To         int64
-	Aggregate  string
-	Resolution string
+	DeviceIDs        []string        `json:"deviceIds"`
+	Expose           string          `json:"expose"`
+	Time             *TimeQuery      `json:"time,omitempty"`
+	Aggregation      AggregationType `json:"aggregation"`
+	AggregationValue any             `json:"aggregation_value,omitempty"`
 }
 
 // Query Response

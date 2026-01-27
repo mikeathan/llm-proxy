@@ -2,25 +2,63 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"llm-proxy/models"
 	"log"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
+const DefaultConfigPath = "config/config.json"
+
 func LoadEnv() {
+	envPath, envFile := EnvFilePaths()
+
+	if err := godotenv.Load(envPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("failed to load %s: %v", envPath, err)
+	}
+
+	if err := godotenv.Load(envFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("failed to load %s: %v", envFile, err)
+	}
+}
+
+func EnvFilePaths() (string, string) {
 	env := os.Getenv("APP_ENV")
 	if env == "" {
 		env = "development"
 	}
+	baseDir := envBaseDir()
+	return filepath.Join(baseDir, ".env"), filepath.Join(baseDir, ".env."+env)
+}
 
-	envFile := ".env." + env
-
-	if err := godotenv.Load(envFile); err != nil {
-		log.Fatalf("failed to load %s: %v", envFile, err)
+func GetAbsoluteConfigPath(configPath string) string {
+	if configPath == "" {
+		return ""
 	}
+	if absPath, err := filepath.Abs(configPath); err == nil {
+		return absPath
+	}
+	return configPath
+}
+
+func envBaseDir() string {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+			return filepath.Dir(resolved)
+		}
+		return filepath.Dir(exe)
+	}
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		return wd
+	}
+	return "."
 }
 
 func Require(key string) string {
@@ -29,6 +67,17 @@ func Require(key string) string {
 		log.Fatalf("%s not set", key)
 	}
 	return val
+}
+
+func LoadServiceCredentials() (string, string, error) {
+	clientID := os.Getenv("SERVICE_CLIENT_ID")
+	clientSecret := os.Getenv("SERVICE_CLIENT_SECRET")
+
+	if clientID == "" || clientSecret == "" {
+		return "", "", fmt.Errorf("service credentials not configured")
+	}
+
+	return clientID, clientSecret, nil
 }
 
 func LoadConfig(path string) (*models.Config, error) {
@@ -65,4 +114,37 @@ func LoadEnvOverrides(cfg *models.Config) {
 	if v := os.Getenv("LLAMA_BINARY"); v != "" {
 		cfg.Server.LlamaServerBinary = v
 	}
+}
+
+func UpdateEnvFile(path string, updates map[string]string) error {
+	current := map[string]string{}
+	if existing, err := godotenv.Read(path); err == nil {
+		current = existing
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	for key, value := range updates {
+		current[key] = value
+	}
+
+	return writeEnvFile(path, current)
+}
+
+func writeEnvFile(path string, values map[string]string) error {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, fmt.Sprintf("%s=%s", key, values[key]))
+	}
+	data := strings.Join(lines, "\n")
+	if data != "" {
+		data += "\n"
+	}
+	return os.WriteFile(path, []byte(data), 0644)
 }

@@ -8,11 +8,12 @@ import (
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/mocks"
+	"llm-proxy/internal/testutils"
 	"llm-proxy/models"
 )
 
 func TestAppBoots(t *testing.T) {
-	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	testutils.SetRequiredEnv(t)
 
 	cfg := minimalTestConfig()
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
@@ -23,7 +24,7 @@ func TestAppBoots(t *testing.T) {
 }
 
 func TestRoutesExist(t *testing.T) {
-	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	testutils.SetRequiredEnv(t)
 
 	cfg := minimalTestConfig()
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
@@ -48,7 +49,7 @@ func TestRoutesExist(t *testing.T) {
 }
 
 func TestMethodEnforcement(t *testing.T) {
-	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	testutils.SetRequiredEnv(t)
 
 	cfg := minimalTestConfig()
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
