@@ -3,6 +3,7 @@ package app
 import (
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/assistant"
+	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
@@ -47,6 +48,7 @@ func (c *Container) BuildAppServices() AppServices {
 		nodeHerder: c.Infra.NodeHerder,
 		logger:     c.Infra.Logger,
 		Clock:      c.Infra.Clock,
+		pending:    pending.NewInMemoryPendingToolCallStore(),
 	}
 
 	factory := func(baseURL string) proxy.Client {
@@ -72,6 +74,7 @@ type AppServices struct {
 	engine         assistant.Engine
 	logger         logging.Logger
 	Clock          utils.Clock
+	pending        pending.PendingToolCallStore
 }
 
 func (s AppServices) NodeHerder() nodeherder.NodeHerderService {
@@ -96,6 +99,10 @@ func (s AppServices) DefaultModel() (string, error) {
 
 func (s AppServices) Engine() assistant.Engine {
 	return s.engine
+}
+
+func (s AppServices) Pending() pending.PendingToolCallStore {
+	return s.pending
 }
 
 func bootstrap(cfg *models.Config, logger logging.Logger) *Container {

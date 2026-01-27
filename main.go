@@ -18,7 +18,7 @@ var (
 	BuildDate = "unknown"
 )
 
-const configPath = "config/config.json"
+const configPath = utils.DefaultConfigPath
 
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
@@ -70,12 +70,8 @@ func printVersion(info *buildinfo.Info) {
 }
 
 func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
-	// print loaded env file
-	env := os.Getenv("APP_ENV")
-	if env == "" {
-		env = "development"
-	}
-	logger.Info("Loaded env file", "file", ".env."+env)
+	envPath, envFile := utils.EnvFilePaths()
+	logger.Info("Loaded env files", "default", envPath, "environment", envFile)
 
 	//print version info
 	logger.Info(

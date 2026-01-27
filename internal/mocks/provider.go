@@ -45,13 +45,46 @@ func (m *MockHttpNodeHerderFetcher) QueryMetrics(ctx context.Context, req *nodeh
 	return m.metricsResult, m.err
 }
 
+// Mock TokenManager
+type MockTokenManager struct {
+	token     string
+	err       error
+	callCount int
+}
+
+func NewMockTokenManager(token string, err error) *MockTokenManager {
+	return &MockTokenManager{
+		token: token,
+		err:   err,
+	}
+}
+
+func (m *MockTokenManager) CallCount() int {
+	return m.callCount
+}
+
+func (m *MockTokenManager) SetToken(token string) {
+	m.token = token
+}
+
+func (m *MockTokenManager) SetError(err error) {
+	m.err = err
+}
+
+func (m *MockTokenManager) Get(ctx context.Context) (string, error) {
+	m.callCount++
+	return m.token, m.err
+}
+
 // Mock NodeHerder
 type MockNodeHerder struct {
 	deviceCtx     *nodeherder.LLMDeviceContext
 	metricsResult *nodeherder.MetricsQueryResponse
 
-	err       error
-	callCount int
+	err        error
+	deviceErr  error
+	metricsErr error
+	callCount  int
 }
 
 func NewMockNodeHerder(err error) *MockNodeHerder {
@@ -64,11 +97,22 @@ func (m *MockNodeHerder) SetDeviceContextResult(result *nodeherder.LLMDeviceCont
 	m.deviceCtx = result
 }
 
+func (m *MockNodeHerder) SetDeviceContextError(err error) {
+	m.deviceErr = err
+}
+
 func (m *MockNodeHerder) SetMetricsResult(result *nodeherder.MetricsQueryResponse) {
 	m.metricsResult = result
 }
+
+func (m *MockNodeHerder) SetMetricsError(err error) {
+	m.metricsErr = err
+}
 func (m *MockNodeHerder) GetDeviceContext() (*nodeherder.LLMDeviceContext, error) {
 	m.callCount++
+	if m.deviceErr != nil {
+		return m.deviceCtx, m.deviceErr
+	}
 	return m.deviceCtx, m.err
 }
 
@@ -78,6 +122,9 @@ func (m *MockNodeHerder) CallCount() int {
 
 func (m *MockNodeHerder) QueryMetrics(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
 	m.callCount++
+	if m.metricsErr != nil {
+		return m.metricsResult, m.metricsErr
+	}
 	return m.metricsResult, m.err
 }
 
@@ -99,16 +146,30 @@ func (m *MockLLMClientProvider) GetClient(ctx context.Context) (proxy.Client, er
 
 // Mock LLMClient
 type MockLLMClient struct {
-	Response proxy.ChatResponse
-	Err      error
-	LastReq  *proxy.ChatRequest
+	Response  proxy.ChatResponse
+	Responses []proxy.ChatResponse
+	Err       error
+	LastReq   *proxy.ChatRequest
+	Requests  []proxy.ChatRequest
+	Calls     int
 }
 
 func (m *MockLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 	copyReq := req
 	m.LastReq = &copyReq
+	m.Requests = append(m.Requests, copyReq)
+	m.Calls++
 	if m.Err != nil {
 		return nil, m.Err
+	}
+	if len(m.Responses) > 0 {
+		idx := m.Calls - 1
+		if idx < len(m.Responses) {
+			response := m.Responses[idx]
+			return &response, nil
+		}
+		response := m.Responses[len(m.Responses)-1]
+		return &response, nil
 	}
 	response := m.Response
 	return &response, nil

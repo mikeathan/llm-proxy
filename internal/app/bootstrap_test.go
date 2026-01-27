@@ -5,11 +5,12 @@ import (
 
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/proxy"
+	"llm-proxy/internal/testutils"
 	"llm-proxy/models"
 )
 
 func TestBuildAppServices_UsesDevBaseURL(t *testing.T) {
-	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	testutils.SetRequiredEnv(t)
 	t.Setenv("LLM_PROXY_DEV_BASE_URL", "http://mock-llm")
 
 	logger := &mocks.MockLogger{}
@@ -24,11 +25,11 @@ func TestBuildAppServices_UsesDevBaseURL(t *testing.T) {
 }
 
 func TestBuildAppServices_UsesRuntimeProviderByDefault(t *testing.T) {
-	t.Setenv("DEVICE_CONTEXT_BASE_URL", "http://mock-device-context")
+	testutils.SetRequiredEnv(t)
 
 	logger := &mocks.MockLogger{}
 	cfg := minimalConfig()
-	
+
 	container := bootstrap(cfg, logger)
 	services := container.BuildAppServices()
 

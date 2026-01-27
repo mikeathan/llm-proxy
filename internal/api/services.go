@@ -2,6 +2,7 @@ package api
 
 import (
 	"llm-proxy/internal/assistant"
+	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -53,4 +54,5 @@ type AssistantService interface {
 	DefaultModel() (string, error)
 
 	Engine() assistant.Engine
+	Pending() pending.PendingToolCallStore
 }

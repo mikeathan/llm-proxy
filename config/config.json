@@ -9,6 +9,8 @@
       "4096",
       "--threads",
       "6",
+      "--parallel",
+      "1",
       "--gpu-layers",
       "999",
       "--host",
@@ -17,7 +19,7 @@
   },
   "models": [
     {
-      "name": "qwen2.5-7b",
+      "name": "qwen2.5-3b-instruct",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "args": [],
       "port": 5001
