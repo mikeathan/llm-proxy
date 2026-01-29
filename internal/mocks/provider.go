@@ -5,45 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 )
-
-// Mock HttpNodeHerderFetcher
-type MockHttpNodeHerderFetcher struct {
-	callCount     int
-	deviceResult  *nodeherder.DeviceContextResponse
-	metricsResult *nodeherder.MetricsQueryResponse
-	err           error
-}
-
-func NewMockHttpNodeHerderFetcher(result *nodeherder.DeviceContextResponse, err error) *MockHttpNodeHerderFetcher {
-	return &MockHttpNodeHerderFetcher{
-		deviceResult: result,
-		err:          err,
-	}
-}
-func (m *MockHttpNodeHerderFetcher) CallCount() int {
-	return m.callCount
-}
-
-func (m *MockHttpNodeHerderFetcher) SetDeviceResult(result *nodeherder.DeviceContextResponse) {
-	m.deviceResult = result
-}
-
-func (m *MockHttpNodeHerderFetcher) SetMetricsResult(result *nodeherder.MetricsQueryResponse) {
-	m.metricsResult = result
-}
-
-func (m *MockHttpNodeHerderFetcher) FetchDeviceContext() (*nodeherder.DeviceContextResponse, error) {
-	m.callCount++
-	return m.deviceResult, m.err
-}
-
-func (m *MockHttpNodeHerderFetcher) QueryMetrics(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
-	m.callCount++
-	return m.metricsResult, m.err
-}
 
 // Mock TokenManager
 type MockTokenManager struct {
@@ -78,54 +41,61 @@ func (m *MockTokenManager) Get(ctx context.Context) (string, error) {
 
 // Mock NodeHerder
 type MockNodeHerder struct {
-	deviceCtx     *nodeherder.LLMDeviceContext
-	metricsResult *nodeherder.MetricsQueryResponse
+	// Existing fields...
 
-	err        error
-	deviceErr  error
-	metricsErr error
-	callCount  int
+	err          error
+	systemPrompt string
+	callCount    int
+
+	// New fields for MCPService
+	toolsResult []proxy.Tool
+	callResult  any
+	callErr     error
 }
 
 func NewMockNodeHerder(err error) *MockNodeHerder {
 	return &MockNodeHerder{
-		err: err,
+		err:          err,
+		systemPrompt: "Mock System Prompt with RULES:", // Default with RULES to satisfy some old tests if any
 	}
 }
 
-func (m *MockNodeHerder) SetDeviceContextResult(result *nodeherder.LLMDeviceContext) {
-	m.deviceCtx = result
+func (m *MockNodeHerder) SetSystemPrompt(prompt string) {
+	m.systemPrompt = prompt
 }
 
-func (m *MockNodeHerder) SetDeviceContextError(err error) {
-	m.deviceErr = err
+func (m *MockNodeHerder) SetToolsResult(tools []proxy.Tool) {
+	m.toolsResult = tools
 }
 
-func (m *MockNodeHerder) SetMetricsResult(result *nodeherder.MetricsQueryResponse) {
-	m.metricsResult = result
+func (m *MockNodeHerder) SetCallToolResult(result any, err error) {
+	m.callResult = result
+	m.callErr = err
 }
 
-func (m *MockNodeHerder) SetMetricsError(err error) {
-	m.metricsErr = err
-}
-func (m *MockNodeHerder) GetDeviceContext() (*nodeherder.LLMDeviceContext, error) {
-	m.callCount++
-	if m.deviceErr != nil {
-		return m.deviceCtx, m.deviceErr
-	}
-	return m.deviceCtx, m.err
+func (m *MockNodeHerder) GetSystemPrompt() (string, error) {
+	return m.systemPrompt, nil
 }
 
 func (m *MockNodeHerder) CallCount() int {
 	return m.callCount
 }
 
-func (m *MockNodeHerder) QueryMetrics(ctx context.Context, req *nodeherder.MetricsQueryRequest) (*nodeherder.MetricsQueryResponse, error) {
+func (m *MockNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	m.callCount++
-	if m.metricsErr != nil {
-		return m.metricsResult, m.metricsErr
+	return m.toolsResult, m.err
+}
+
+func (m *MockNodeHerder) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
+	m.callCount++
+	if m.callErr != nil {
+		return nil, m.callErr
 	}
-	return m.metricsResult, m.err
+	// Fail if general error set
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.callResult, nil
 }
 
 // Mock LLMClientProvider

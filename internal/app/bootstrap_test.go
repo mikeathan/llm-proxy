@@ -9,22 +9,7 @@ import (
 	"llm-proxy/models"
 )
 
-func TestBuildAppServices_UsesDevBaseURL(t *testing.T) {
-	testutils.SetRequiredEnv(t)
-	t.Setenv("LLM_PROXY_DEV_BASE_URL", "http://mock-llm")
-
-	logger := &mocks.MockLogger{}
-	cfg := minimalConfig()
-
-	container := bootstrap(cfg, logger)
-	services := container.BuildAppServices()
-
-	if _, ok := services.ClientProvider().(*proxy.StaticClientProvider); !ok {
-		t.Fatalf("expected StaticClientProvider when LLM_PROXY_DEV_BASE_URL is set")
-	}
-}
-
-func TestBuildAppServices_UsesRuntimeProviderByDefault(t *testing.T) {
+func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 	testutils.SetRequiredEnv(t)
 
 	logger := &mocks.MockLogger{}
@@ -34,7 +19,7 @@ func TestBuildAppServices_UsesRuntimeProviderByDefault(t *testing.T) {
 	services := container.BuildAppServices()
 
 	if _, ok := services.ClientProvider().(*proxy.RuntimeClientProvider); !ok {
-		t.Fatalf("expected RuntimeClientProvider when LLM_PROXY_DEV_BASE_URL is not set")
+		t.Fatalf("expected RuntimeClientProvider")
 	}
 }
 

@@ -2,7 +2,6 @@ package api
 
 import (
 	"llm-proxy/internal/assistant"
-	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -47,12 +46,11 @@ type AdminService interface {
 }
 
 type AssistantService interface {
-	NodeHerder() nodeherder.NodeHerderService
+	NodeHerder() nodeherder.MCPService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
 	DefaultModel() (string, error)
 
 	Engine() assistant.Engine
-	Pending() pending.PendingToolCallStore
 }

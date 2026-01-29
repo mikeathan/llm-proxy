@@ -1,12 +1,13 @@
 package app
 
 import (
+	"context"
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/assistant"
-	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/mcp"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
@@ -14,7 +15,6 @@ import (
 	"llm-proxy/utils"
 	"log"
 	"net/http"
-	"os"
 )
 
 type Core struct {
@@ -25,7 +25,7 @@ type Core struct {
 type Infra struct {
 	Logger     logging.Logger
 	Clock      utils.Clock
-	NodeHerder nodeherder.NodeHerderService
+	NodeHerder nodeherder.MCPService
 }
 
 type Container struct {
@@ -34,7 +34,7 @@ type Container struct {
 }
 
 type AssistantService interface {
-	NodeHerder() nodeherder.NodeHerderService
+	NodeHerder() nodeherder.MCPService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
@@ -48,16 +48,10 @@ func (c *Container) BuildAppServices() AppServices {
 		nodeHerder: c.Infra.NodeHerder,
 		logger:     c.Infra.Logger,
 		Clock:      c.Infra.Clock,
-		pending:    pending.NewInMemoryPendingToolCallStore(),
 	}
 
 	factory := func(baseURL string) proxy.Client {
 		return proxy.NewLLMClient(baseURL, nil)
-	}
-
-	if baseURL := os.Getenv("LLM_PROXY_DEV_BASE_URL"); baseURL != "" {
-		s.clientProvider = proxy.NewStaticClientProvider(factory(baseURL))
-		return s
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
@@ -69,15 +63,14 @@ func (c *Container) BuildAppServices() AppServices {
 type AppServices struct {
 	Runtime        llm.RuntimeManager
 	AppCtx         *AppContext
-	nodeHerder     nodeherder.NodeHerderService
+	nodeHerder     nodeherder.MCPService
 	clientProvider proxy.LLMClientProvider
 	engine         assistant.Engine
 	logger         logging.Logger
 	Clock          utils.Clock
-	pending        pending.PendingToolCallStore
 }
 
-func (s AppServices) NodeHerder() nodeherder.NodeHerderService {
+func (s AppServices) NodeHerder() nodeherder.MCPService {
 	return s.nodeHerder
 }
 
@@ -101,17 +94,50 @@ func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func (s AppServices) Pending() pending.PendingToolCallStore {
-	return s.pending
-}
-
 func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
 	clock := utils.NewRealClock()
 
-	nodeHerder := BuildNodeHerder(clock, logger)
+	// Initialize MCP Client
+	mcpURL, err := utils.GetMCPServerURL()
+	if err != nil {
+		logger.Error("Failed to get MCP URL", "error", err)
+		return nil
+	}
+
+	mcpClient := mcp.NewMCPClient(mcpURL, logger)
+
+	// Initialize Resource Mirror
+	mirror := mcp.NewResourceMirror()
+
+	// Start MCP Client
+	// Note: We use a background context here as the client should run for the lifetime of the app.
+	// In a more robust implementation, we might want to propagate a shutdown signal.
+	ctx := context.Background()
+	if err := mcpClient.Start(ctx); err != nil {
+		logger.Error("Failed to start MCP client", "error", err)
+		// We might not want to fail startup hard if MCP is down, but for now let's log error.
+		// nodeHerder execution will likely fail or use cached data later.
+	}
+
+	// Subscribe to required resources
+	go func() {
+		// Give the client a moment to connect
+		// Or rely on retry logic inside client (which we implemented).
+		// Subscribe calls send notifications to server.
+		if err := mcpClient.Subscribe(ctx, "nodeherder://system-prompt"); err != nil {
+			logger.Error("Failed to subscribe to system-prompt", "error", err)
+		}
+	}()
+
+	// Register updates
+	mcpClient.OnPromptUpdate(func(prompt string) {
+		mirror.SetSystemPrompt(prompt)
+	})
+
+	nodeHerder := mcp.NewMCPNodeHerder(mcpClient, mirror, logger)
 
 	manager := llm.NewManagerFromConfig(cfg)
 	appCtx := NewServer(manager, cfg, "config/config.json")

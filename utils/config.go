@@ -80,6 +80,14 @@ func LoadServiceCredentials() (string, string, error) {
 	return clientID, clientSecret, nil
 }
 
+func GetMCPServerURL() (string, error) {
+	mcpURL := os.Getenv("MCP_SERVER_SSE_URL")
+	if mcpURL == "" {
+		return "", fmt.Errorf("MCP_SERVER_SSE_URL not set")
+	}
+	return mcpURL, nil
+}
+
 func LoadConfig(path string) (*models.Config, error) {
 	f, err := os.ReadFile(path)
 	if err != nil {

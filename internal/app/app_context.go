@@ -2,14 +2,10 @@ package app
 
 import (
 	"errors"
-	"net/http"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"llm-proxy/internal/llm"
-	"llm-proxy/internal/logging"
-	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/system_metrics"
 	"llm-proxy/models"
 	"llm-proxy/utils"
@@ -211,20 +207,4 @@ func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
 		s.refreshMetricsService()
 	}
 	return s.metrics.Snapshot()
-}
-
-func BuildNodeHerder(clock utils.Clock, logger logging.Logger) nodeherder.NodeHerderService {
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	baseUrl := utils.Require("DEVICE_CONTEXT_BASE_URL")
-	fetcher := nodeherder.NewHttpNodeHerderFetcher(
-		baseUrl,
-		httpClient,
-		nodeherder.NewServiceTokenManager(httpClient, baseUrl),
-	)
-
-	cache := nodeherder.NewDeviceContextCache(1*time.Hour, clock)
-	return nodeherder.NewNodeHerder(fetcher, cache, logger)
 }

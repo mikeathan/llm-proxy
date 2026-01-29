@@ -16,21 +16,6 @@ type LLMClientProvider interface {
 	GetClient(ctx context.Context) (Client, error)
 }
 
-type StaticClientProvider struct {
-	client Client
-}
-
-func NewStaticClientProvider(client Client) LLMClientProvider {
-	return &StaticClientProvider{client: client}
-}
-
-func (p *StaticClientProvider) GetClient(ctx context.Context) (Client, error) {
-	if p.client == nil {
-		return nil, errors.New("static client not configured")
-	}
-	return p.client, nil
-}
-
 type RuntimeClientProvider struct {
 	selector ModelSelector
 

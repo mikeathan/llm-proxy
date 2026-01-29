@@ -18,9 +18,10 @@ type ExecutionHistory = []Message
 
 // Message
 type Message struct {
-	Role      ChatRole   `json:"role"`
-	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role       ChatRole   `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 // Chat Request
