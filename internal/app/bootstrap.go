@@ -100,44 +100,12 @@ func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
 	}
 	clock := utils.NewRealClock()
 
-	// Initialize MCP Client
-	mcpURL, err := utils.GetMCPServerURL()
+	// Configure MCP Service
+	nodeHerder, err := configureMCP(logger)
 	if err != nil {
-		logger.Error("Failed to get MCP URL", "error", err)
+		logger.Error("Failed to configure MCP service", "error", err)
 		return nil
 	}
-
-	mcpClient := mcp.NewMCPClient(mcpURL, logger)
-
-	// Initialize Resource Mirror
-	mirror := mcp.NewResourceMirror()
-
-	// Start MCP Client
-	// Note: We use a background context here as the client should run for the lifetime of the app.
-	// In a more robust implementation, we might want to propagate a shutdown signal.
-	ctx := context.Background()
-	if err := mcpClient.Start(ctx); err != nil {
-		logger.Error("Failed to start MCP client", "error", err)
-		// We might not want to fail startup hard if MCP is down, but for now let's log error.
-		// nodeHerder execution will likely fail or use cached data later.
-	}
-
-	// Subscribe to required resources
-	go func() {
-		// Give the client a moment to connect
-		// Or rely on retry logic inside client (which we implemented).
-		// Subscribe calls send notifications to server.
-		if err := mcpClient.Subscribe(ctx, "nodeherder://system-prompt"); err != nil {
-			logger.Error("Failed to subscribe to system-prompt", "error", err)
-		}
-	}()
-
-	// Register updates
-	mcpClient.OnPromptUpdate(func(prompt string) {
-		mirror.SetSystemPrompt(prompt)
-	})
-
-	nodeHerder := mcp.NewMCPNodeHerder(mcpClient, mirror, logger)
 
 	manager := llm.NewManagerFromConfig(cfg)
 	appCtx := NewServer(manager, cfg, "config/config.json")
@@ -155,6 +123,41 @@ func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
 			NodeHerder: nodeHerder,
 		},
 	}
+}
+
+func configureMCP(logger logging.Logger) (nodeherder.MCPService, error) {
+	// Initialize MCP Client
+	mcpURL, err := utils.GetMCPServerURL()
+	if err != nil {
+		return nil, err
+	}
+
+	mcpClient := mcp.NewMCPClient(mcpURL, logger)
+
+	// Initialize Resource Mirror
+	mirror := mcp.NewResourceMirror()
+
+	// Start MCP Client
+	// This will run in the background and attempt to connect/reconnect
+	ctx := context.Background()
+	mcpClient.Start(ctx)
+
+	// Subscribe to required resources
+	go func() {
+		// Give the client a moment to connect
+		// Or rely on retry logic inside client (which we implemented).
+		// Subscribe calls send notifications to server.
+		if err := mcpClient.Subscribe(ctx, "nodeherder://system-prompt"); err != nil {
+			logger.Error("Failed to subscribe to system-prompt", "error", err)
+		}
+	}()
+
+	// Register updates
+	mcpClient.OnPromptUpdate(func(prompt string) {
+		mirror.SetSystemPrompt(prompt)
+	})
+
+	return mcp.NewMCPNodeHerder(mcpClient, mirror, logger), nil
 }
 
 func buildHTTP(s AppServices, buildInfo *buildinfo.Info) http.Handler {
