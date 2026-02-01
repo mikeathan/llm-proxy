@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,10 +16,10 @@ import (
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/models"
-	"llm-proxy/utils"
 )
 
 type mockProxy struct {
@@ -31,34 +32,34 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("proxied"))
 }
 
-func TestNewServer_ConfigPathAbs(t *testing.T) {
+// Helper to create valid server with optional config overrides
+func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.Config) *app.AppContext {
 	dir := t.TempDir()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(wd)
-	})
+	configPath := filepath.Join(dir, "config.json")
 
-	rel := filepath.Join("config", "config.json")
-	ctx := app.NewServer(&mocks.MockManager{}, &models.Config{}, rel)
+	if initialCfg == nil {
+		initialCfg = &models.Config{}
+	}
 
-	resolvedDir, err := filepath.EvalSymlinks(dir)
+	cfgMgr := config.NewConfigManager(configPath)
+
+	data, err := json.Marshal(initialCfg)
 	if err != nil {
-		t.Fatalf("EvalSymlinks dir: %v", err)
+		t.Fatalf("marshal config: %v", err)
 	}
-	want := filepath.Join(resolvedDir, rel)
-	if got := ctx.ConfigPath(); got != want {
-		t.Fatalf("expected %s, got %s", want, got)
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
 	}
+
+	if err := cfgMgr.Load(); err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	return app.NewServer(mgr, cfgMgr)
 }
 
 func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
-	srv := app.NewServer(nil, &models.Config{}, "")
+	srv := createTestServer(t, nil, nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
@@ -76,12 +77,12 @@ func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
 
 func TestEnsureModelProxyHandler_ModelStarting(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, llm.ErrModelStarting
 		},
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
@@ -107,12 +108,12 @@ func TestEnsureModelProxyHandler_ModelStarting(t *testing.T) {
 
 func TestEnsureModelProxyHandler_ModelError(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, errors.New("boom")
 		},
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
@@ -140,13 +141,13 @@ func TestEnsureModelProxyHandler_ProxyCalled(t *testing.T) {
 	defer restore()
 
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{Port: 9999}, nil
 		},
 		RecordActivityFunc: func(name string) {},
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
@@ -187,7 +188,7 @@ func TestAdminStateHandler(t *testing.T) {
 		ModelHostFunc: func() string { return "127.0.0.1" },
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
@@ -235,14 +236,14 @@ func TestAdminStateHandler(t *testing.T) {
 
 func TestAdminStartHandler(t *testing.T) {
 	mgr := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{Name: name, Port: 9090}, nil
 		},
 		RecordActivityFunc: func(name string) {},
 		ModelHostFunc:      func() string { return "127.0.0.1" },
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -268,7 +269,7 @@ func TestAdminStopHandler(t *testing.T) {
 		},
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
@@ -292,7 +293,7 @@ func TestAdminStopHandler_Error(t *testing.T) {
 		StopActiveFunc: func() error { return errors.New("boom") },
 	}
 
-	srv := app.NewServer(mgr, &models.Config{}, "")
+	srv := createTestServer(t, mgr, nil)
 	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
@@ -328,7 +329,7 @@ func TestAdminAddModelHandler(t *testing.T) {
 		ModelDir: filepath.Dir(tmpFile.Name()),
 	}
 
-	srv := app.NewServer(mgr, cfg, "")
+	srv := createTestServer(t, mgr, cfg)
 	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
 	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
@@ -357,7 +358,7 @@ func TestAppContextDefaultModel_NoModels(t *testing.T) {
 	mgr := &mocks.MockManager{
 		ListModelsFunc: func() []models.ModelConfig { return nil },
 	}
-	ctx := app.NewServer(mgr, &models.Config{}, "")
+	ctx := createTestServer(t, mgr, nil)
 
 	if _, err := ctx.DefaultModel(); err == nil {
 		t.Fatalf("expected error when no models configured")
@@ -370,7 +371,7 @@ func TestAppContextDefaultModel_FirstModel(t *testing.T) {
 			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
 		},
 	}
-	ctx := app.NewServer(mgr, &models.Config{}, "")
+	ctx := createTestServer(t, mgr, nil)
 
 	name, err := ctx.DefaultModel()
 	if err != nil {
@@ -382,7 +383,7 @@ func TestAppContextDefaultModel_FirstModel(t *testing.T) {
 }
 
 func TestAppContextResolveModelPath(t *testing.T) {
-	ctx := app.NewServer(&mocks.MockManager{}, &models.Config{ModelDir: "/models"}, "")
+	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{ModelDir: "/models"})
 
 	cases := []struct {
 		name     string
@@ -410,17 +411,22 @@ func TestAppContextResolveModelPath(t *testing.T) {
 }
 
 func TestAppContextUpdateConfig_Persists(t *testing.T) {
+	// Setup
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	cfg := &models.Config{
 		Server: models.ServerConfig{Bind: ":0", IdleTimeoutSecs: 1},
 		Models: []models.ModelConfig{},
 	}
-	if err := utils.SaveConfig(path, cfg); err != nil {
-		t.Fatalf("save config: %v", err)
-	}
+	data, _ := json.Marshal(cfg)
+	_ = os.WriteFile(path, data, 0644)
 
-	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	// Create manager
+	mgr := config.NewConfigManager(path)
+	mgr.Load()
+
+	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+
 	if err := ctx.UpdateConfig(func(c *models.Config) {
 		c.Server.Bind = ":9999"
 		c.Server.IdleTimeoutSecs = 42
@@ -428,10 +434,13 @@ func TestAppContextUpdateConfig_Persists(t *testing.T) {
 		t.Fatalf("update config: %v", err)
 	}
 
-	loaded, err := utils.LoadConfig(path)
-	if err != nil {
+	// Verify persistence via new manager (avoiding stale cache if any, though load reads file)
+	loadedMgr := config.NewConfigManager(path)
+	if err := loadedMgr.Load(); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
+	loaded := loadedMgr.GetConfig()
+
 	if loaded.Server.Bind != ":9999" || loaded.Server.IdleTimeoutSecs != 42 {
 		t.Fatalf("unexpected config: %+v", loaded.Server)
 	}
@@ -443,11 +452,14 @@ func TestAppContextPersistModel_AddsOnce(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}},
 	}
-	if err := utils.SaveConfig(path, cfg); err != nil {
-		t.Fatalf("save config: %v", err)
-	}
+	data, _ := json.Marshal(cfg)
+	_ = os.WriteFile(path, data, 0644)
 
-	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	mgr := config.NewConfigManager(path)
+	mgr.Load()
+
+	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+
 	if err := ctx.PersistModel(models.ModelConfig{Name: "beta"}); err != nil {
 		t.Fatalf("persist model: %v", err)
 	}
@@ -455,10 +467,10 @@ func TestAppContextPersistModel_AddsOnce(t *testing.T) {
 		t.Fatalf("persist model (duplicate): %v", err)
 	}
 
-	loaded, err := utils.LoadConfig(path)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	loadedMgr := config.NewConfigManager(path)
+	loadedMgr.Load()
+	loaded := loadedMgr.GetConfig()
+
 	if len(loaded.Models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(loaded.Models))
 	}
@@ -470,11 +482,14 @@ func TestAppContextPersistReplaceModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha", Port: 1}},
 	}
-	if err := utils.SaveConfig(path, cfg); err != nil {
-		t.Fatalf("save config: %v", err)
-	}
+	data, _ := json.Marshal(cfg)
+	_ = os.WriteFile(path, data, 0644)
 
-	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	mgr := config.NewConfigManager(path)
+	mgr.Load()
+
+	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+
 	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Port: 9}); err != nil {
 		t.Fatalf("persist replace: %v", err)
 	}
@@ -482,10 +497,10 @@ func TestAppContextPersistReplaceModel(t *testing.T) {
 		t.Fatalf("persist replace new: %v", err)
 	}
 
-	loaded, err := utils.LoadConfig(path)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	loadedMgr := config.NewConfigManager(path)
+	loadedMgr.Load()
+	loaded := loadedMgr.GetConfig()
+
 	alpha, ok := findModel(loaded.Models, "alpha")
 	if !ok || alpha.Port != 9 {
 		t.Fatalf("expected alpha port 9, got %+v", alpha)
@@ -501,19 +516,22 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
 	}
-	if err := utils.SaveConfig(path, cfg); err != nil {
-		t.Fatalf("save config: %v", err)
-	}
+	data, _ := json.Marshal(cfg)
+	_ = os.WriteFile(path, data, 0644)
 
-	ctx := app.NewServer(&mocks.MockManager{}, cfg, path)
+	mgr := config.NewConfigManager(path)
+	mgr.Load()
+
+	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+
 	if err := ctx.PersistDeleteModel("alpha"); err != nil {
 		t.Fatalf("persist delete: %v", err)
 	}
 
-	loaded, err := utils.LoadConfig(path)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	loadedMgr := config.NewConfigManager(path)
+	loadedMgr.Load()
+	loaded := loadedMgr.GetConfig()
+
 	if _, ok := findModel(loaded.Models, "alpha"); ok {
 		t.Fatalf("expected alpha to be removed")
 	}

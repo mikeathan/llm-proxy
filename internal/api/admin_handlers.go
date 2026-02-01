@@ -7,10 +7,10 @@ import (
 	"html/template"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/models"
-	"llm-proxy/utils"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -175,6 +175,8 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	nextPort := nextAvailablePort(modelsList, activePort)
 	gpuCfg := h.admin.GPUConfig()
 
+	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
+
 	state := adminStateResponse{
 		Models:    make([]adminModelView, 0, len(modelsList)),
 		Available: available,
@@ -188,8 +190,8 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			GPUProvider:         gpuCfg.Provider,
 			GPUBinary:           gpuCfg.Binary,
 			GPUIndex:            gpuCfg.Index,
-			ServiceClientID:     os.Getenv("SERVICE_CLIENT_ID"),
-			ServiceClientSecret: os.Getenv("SERVICE_CLIENT_SECRET"),
+			ServiceClientID:     serviceClientID,
+			ServiceClientSecret: serviceClientSecret,
 		},
 	}
 
@@ -232,7 +234,7 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mi, err := h.runtime.EnsureModel(req.Name)
+	mi, err := h.runtime.EnsureModel(r.Context(), req.Name)
 	if err == llm.ErrModelStarting {
 		w.WriteHeader(http.StatusAccepted)
 		respondJSON(w, adminStartResponse{Status: "starting", Model: req.Name})
@@ -260,6 +262,7 @@ func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Requ
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	gpuCfg := h.admin.GPUConfig()
+	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
 	cfg := adminConfigView{
 		ModelDir:            h.admin.ModelDir(),
 		LlamaBinary:         h.admin.CurrentBinary(),
@@ -268,8 +271,8 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		GPUProvider:         gpuCfg.Provider,
 		GPUBinary:           gpuCfg.Binary,
 		GPUIndex:            gpuCfg.Index,
-		ServiceClientID:     os.Getenv("SERVICE_CLIENT_ID"),
-		ServiceClientSecret: os.Getenv("SERVICE_CLIENT_SECRET"),
+		ServiceClientID:     serviceClientID,
+		ServiceClientSecret: serviceClientSecret,
 	}
 	respondJSON(w, cfg)
 }
@@ -445,9 +448,14 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		os.Setenv("SERVICE_CLIENT_SECRET", req.ServiceClientSecret)
 		envUpdates["SERVICE_CLIENT_SECRET"] = req.ServiceClientSecret
 	}
+	// Update .env file
 	if len(envUpdates) > 0 {
-		envPath, _ := utils.EnvFilePaths()
-		if err := utils.UpdateEnvFile(envPath, envUpdates); err != nil {
+		envPath, _ := config.EnvFilePaths() // Using new config package
+		// We only write to the main .env for now or checking existence?
+		// Logic was: utils.UpdateEnvFile(envPath, envUpdates)
+		// Assuming envPath returned by EnvFilePaths (first return ref) is target.
+
+		if err := config.UpdateEnvFile(envPath, envUpdates); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "failed to save env: "+err.Error())
 			return
 		}

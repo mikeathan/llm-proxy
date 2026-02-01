@@ -5,38 +5,42 @@ import (
 	"path/filepath"
 	"sync"
 
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/system_metrics"
 	"llm-proxy/models"
-	"llm-proxy/utils"
 )
 
 type AppContext struct {
-	manager    llm.RuntimeManager
-	config     *models.Config
-	configPath string
-	modelDir   string
-	gpuConfig  models.GPUConfig
-	metrics    *system_metrics.MetricsService
-	configMu   sync.Mutex
+	manager   llm.RuntimeManager
+	config    *models.Config
+	configMgr *config.ConfigManager
+	modelDir  string
+	gpuConfig models.GPUConfig
+	metrics   *system_metrics.MetricsService
+	configMu  sync.Mutex // Kept for other fields if needed, but configMgr handles config
 }
 
-func NewServer(mgr llm.RuntimeManager, cfg *models.Config, configPath string) *AppContext {
-	dir := ""
-	var gpuCfg models.GPUConfig
-	if cfg != nil {
-		dir = cfg.ModelDir
-		gpuCfg = cfg.Metrics.GPU
-	}
-	configPath = utils.GetAbsoluteConfigPath(configPath)
+func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext {
+	cfg := cfgMgr.GetConfig()
 
 	s := &AppContext{
-		manager:    mgr,
-		config:     cfg,
-		configPath: configPath,
-		modelDir:   dir,
-		gpuConfig:  gpuCfg,
+		manager:   mgr,
+		config:    &cfg,
+		configMgr: cfgMgr,
+		modelDir:  cfg.ModelDir,
+		gpuConfig: cfg.Metrics.GPU,
 	}
+
+	cfgMgr.OnChange(func(newCfg models.Config) {
+		s.configMu.Lock()
+		s.config = &newCfg
+		s.modelDir = newCfg.ModelDir
+		s.gpuConfig = newCfg.Metrics.GPU
+		s.configMu.Unlock()
+		s.refreshMetricsService()
+	})
+
 	s.refreshMetricsService()
 	return s
 }
@@ -51,10 +55,6 @@ func (a *AppContext) DefaultModel() (string, error) {
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
-}
-
-func (s *AppContext) ConfigPath() string {
-	return s.configPath
 }
 
 func (s *AppContext) refreshMetricsService() {
@@ -108,75 +108,49 @@ func (s *AppContext) DefaultArgs() []string {
 }
 
 func (s *AppContext) UpdateConfig(update func(cfg *models.Config)) error {
-	if s.config == nil || s.configPath == "" {
+	if s.configMgr == nil {
 		return nil
 	}
-
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-
-	update(s.config)
-	return utils.SaveConfig(s.configPath, s.config)
+	return s.configMgr.Update(update)
 }
 
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
-	if s.config == nil || s.configPath == "" {
-		return nil
-	}
-
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-
-	for _, existing := range s.config.Models {
-		if existing.Name == cfg.Name {
-			return nil
+	return s.UpdateConfig(func(c *models.Config) {
+		for _, existing := range c.Models {
+			if existing.Name == cfg.Name {
+				return
+			}
 		}
-	}
-
-	s.config.Models = append(s.config.Models, cfg)
-	return utils.SaveConfig(s.configPath, s.config)
+		c.Models = append(c.Models, cfg)
+	})
 }
 
 func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
-	if s.config == nil || s.configPath == "" {
-		return nil
-	}
-
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-
-	replaced := false
-	for i, m := range s.config.Models {
-		if m.Name == cfg.Name {
-			s.config.Models[i] = cfg
-			replaced = true
-			break
+	return s.UpdateConfig(func(c *models.Config) {
+		replaced := false
+		for i, m := range c.Models {
+			if m.Name == cfg.Name {
+				c.Models[i] = cfg
+				replaced = true
+				break
+			}
 		}
-	}
-	if !replaced {
-		s.config.Models = append(s.config.Models, cfg)
-	}
-
-	return utils.SaveConfig(s.configPath, s.config)
+		if !replaced {
+			c.Models = append(c.Models, cfg)
+		}
+	})
 }
 
 func (s *AppContext) PersistDeleteModel(name string) error {
-	if s.config == nil || s.configPath == "" {
-		return nil
-	}
-
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-
-	out := s.config.Models[:0]
-	for _, m := range s.config.Models {
-		if m.Name != name {
-			out = append(out, m)
+	return s.UpdateConfig(func(c *models.Config) {
+		out := c.Models[:0]
+		for _, m := range c.Models {
+			if m.Name != name {
+				out = append(out, m)
+			}
 		}
-	}
-	s.config.Models = out
-
-	return utils.SaveConfig(s.configPath, s.config)
+		c.Models = out
+	})
 }
 
 func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {

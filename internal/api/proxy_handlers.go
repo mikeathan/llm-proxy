@@ -36,7 +36,7 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	mi, err := h.runtime.EnsureModel(model)
+	mi, err := h.runtime.EnsureModel(r.Context(), model)
 	if err == llm.ErrModelStarting {
 		w.Header().Set("Retry-After", "1")
 		w.Header().Set("X-LLM-Status", "starting")

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
@@ -13,7 +14,7 @@ import (
 )
 
 type RuntimeService interface {
-	EnsureModel(string) (llm.ModelInstance, error)
+	EnsureModel(context.Context, string) (llm.ModelInstance, error)
 	RecordActivity(string)
 	ListModels() []models.ModelConfig
 	AddModel(models.ModelConfig) error

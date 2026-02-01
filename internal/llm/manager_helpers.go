@@ -120,11 +120,19 @@ func modelInstance(cfg models.ModelConfig, host string) ModelInstance {
 	}
 }
 
-func (m *LLMRuntimeManager) startModelLocked(cfg models.ModelConfig) error {
+func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.ModelConfig) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := system_metrics.NewTokenTracker()
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := testhooks.ExecCommandContext(ctx, m.llamaBinary, buildLaunchArgs(cfg)...)
+	// Create a new context derived from background for the process,
+	// but we could use the passed ctx for the *startup wait* if we had one.
+	// However, the process should outlive the request.
+	// The passed ctx is from EnsureModel (request scoped).
+	// So we should NOT use passed ctx for the command itself.
+	// We continue to use context.WithCancel(context.Background()).
+	// But we might want to respect passed ctx for cancellation of STARTUP?
+	// For now, let's just match the signature.
+	procCtx, cancel := context.WithCancel(context.Background())
+	cmd := testhooks.ExecCommandContext(procCtx, m.llamaBinary, buildLaunchArgs(cfg)...)
 	if runtime.GOOS != "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}

@@ -22,7 +22,7 @@ func (m *mockSelector) DefaultModel() (string, error) {
 	return m.model, nil
 }
 
-type dummyClient struct{
+type dummyClient struct {
 	baseURL string
 }
 
@@ -33,7 +33,7 @@ func (d *dummyClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.C
 func TestRuntimeClientProvider_DefaultModelError(t *testing.T) {
 	selector := &mockSelector{err: errors.New("no default")}
 	manager := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			t.Fatalf("EnsureModel should not be called")
 			return llm.ModelInstance{}, nil
 		},
@@ -51,7 +51,7 @@ func TestRuntimeClientProvider_DefaultModelError(t *testing.T) {
 func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 	selector := &mockSelector{model: "alpha"}
 	manager := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, llm.ErrModelStarting
 		},
 	}
@@ -72,7 +72,7 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 	activity := 0
 
 	manager := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			switch name {
 			case "alpha":
 				return llm.ModelInstance{Name: name, Host: "127.0.0.1", Port: 1234}, nil

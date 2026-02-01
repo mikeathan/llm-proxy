@@ -49,7 +49,7 @@ func (p *RuntimeClientProvider) GetClient(ctx context.Context) (Client, error) {
 		return nil, err
 	}
 
-	inst, err := p.runtime.EnsureModel(modelName)
+	inst, err := p.runtime.EnsureModel(ctx, modelName)
 	if err != nil {
 		if errors.Is(err, llm.ErrModelStarting) {
 			return nil, err

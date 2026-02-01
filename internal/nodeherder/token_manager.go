@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"llm-proxy/utils"
+	"llm-proxy/internal/config"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,7 +31,7 @@ type ServiceTokenManager struct {
 func NewServiceTokenManager(client *http.Client, baseURL string) TokenManager {
 	return &ServiceTokenManager{
 		client:   client,
-		tokenURL: utils.SanitiseUrl(baseURL) + "/api/auth/token",
+		tokenURL: strings.TrimSuffix(baseURL, "/") + "/api/auth/token",
 	}
 }
 
@@ -38,7 +39,7 @@ func (m *ServiceTokenManager) Get(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	clientID, clientSecret, err := utils.LoadServiceCredentials()
+	clientID, clientSecret, err := config.RequireServiceCredentials()
 	if err != nil {
 		return "", err
 	}

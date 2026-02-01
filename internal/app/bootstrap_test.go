@@ -1,8 +1,12 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/testutils"
@@ -13,9 +17,9 @@ func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 	testutils.SetRequiredEnv(t)
 
 	logger := &mocks.MockLogger{}
-	cfg := minimalConfig()
+	cfgMgr := minimalConfig(t)
 
-	container := bootstrap(cfg, logger)
+	container := bootstrap(cfgMgr, logger)
 	services := container.BuildAppServices()
 
 	if _, ok := services.ClientProvider().(*proxy.RuntimeClientProvider); !ok {
@@ -23,8 +27,8 @@ func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 	}
 }
 
-func minimalConfig() *models.Config {
-	return &models.Config{
+func minimalConfig(t *testing.T) *config.ConfigManager {
+	cfg := &models.Config{
 		Server: models.ServerConfig{
 			Bind:            ":0",
 			ModelHost:       "http://localhost",
@@ -38,4 +42,22 @@ func minimalConfig() *models.Config {
 			},
 		},
 	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	mgr := config.NewConfigManager(path)
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := mgr.Load(); err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return mgr
 }

@@ -5,6 +5,7 @@ import (
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/mcp"
@@ -94,21 +95,23 @@ func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
+func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
 	clock := utils.NewRealClock()
 
 	// Configure MCP Service
-	nodeHerder, err := configureMCP(logger)
+	nodeHerder, err := configureMCP(cfgMgr, logger)
 	if err != nil {
 		logger.Error("Failed to configure MCP service", "error", err)
 		return nil
 	}
 
-	manager := llm.NewManagerFromConfig(cfg)
-	appCtx := NewServer(manager, cfg, "config/config.json")
+	cfg := cfgMgr.GetConfig()
+	manager := llm.NewManagerFromConfig(&cfg)
+
+	appCtx := NewServer(manager, cfgMgr)
 	runtime := appCtx.Manager()
 
 	return &Container{
@@ -125,39 +128,29 @@ func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
 	}
 }
 
-func configureMCP(logger logging.Logger) (nodeherder.MCPService, error) {
-	// Initialize MCP Client
-	mcpURL, err := utils.GetMCPServerURL()
-	if err != nil {
-		return nil, err
-	}
-
-	mcpClient := mcp.NewMCPClient(mcpURL, logger)
+func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherder.MCPService, error) {
+	// Initialize MCP Orchestrator
+	orchestrator := mcp.NewOrchestrator(logger)
 
 	// Initialize Resource Mirror
 	mirror := mcp.NewResourceMirror()
 
-	// Start MCP Client
-	// This will run in the background and attempt to connect/reconnect
-	ctx := context.Background()
-	mcpClient.Start(ctx)
+	// Subscribe ConfigManager -> MCP Orchestrator
+	cfgMgr.OnChange(func(newCfg models.Config) {
+		orchestrator.Reload(context.Background(), newCfg.MCPServers)
+	})
 
-	// Subscribe to required resources
-	go func() {
-		// Give the client a moment to connect
-		// Or rely on retry logic inside client (which we implemented).
-		// Subscribe calls send notifications to server.
-		if err := mcpClient.Subscribe(ctx, "nodeherder://system-prompt"); err != nil {
-			logger.Error("Failed to subscribe to system-prompt", "error", err)
-		}
-	}()
+	// Initial Load
+	currentCfg := cfgMgr.GetConfig()
+	orchestrator.Reload(context.Background(), currentCfg.MCPServers)
 
-	// Register updates
-	mcpClient.OnPromptUpdate(func(prompt string) {
+	// Register prompt updates handled by Orchestrator (which propagates to Clients)
+	// The Orchestrator's OnPromptUpdate is called when a client receives a notification.
+	orchestrator.OnPromptUpdate(func(prompt string) {
 		mirror.SetSystemPrompt(prompt)
 	})
 
-	return mcp.NewMCPNodeHerder(mcpClient, mirror, logger), nil
+	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
 func buildHTTP(s AppServices, buildInfo *buildinfo.Info) http.Handler {

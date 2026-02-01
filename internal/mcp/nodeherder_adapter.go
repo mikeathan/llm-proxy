@@ -12,19 +12,25 @@ import (
 	mcp_sdk "github.com/mark3labs/mcp-go/mcp"
 )
 
-// MCPNodeHerder implements nodeherder.NodeHerderService using MCP client and resource mirror.
+// MCPNodeHerder implements nodeherder.NodeHerderService using MCP Orchestrator and resource mirror.
 type MCPNodeHerder struct {
-	client *MCPClient
-	mirror *ResourceMirror
-	logger logging.Logger
+	orchestrator *Orchestrator
+	mirror       *ResourceMirror
+	logger       logging.Logger
 }
 
 // NewMCPNodeHerder creates a new MCPNodeHerder.
-func NewMCPNodeHerder(client *MCPClient, mirror *ResourceMirror, logger logging.Logger) nodeherder.MCPService {
+func NewMCPNodeHerder(orchestrator *Orchestrator, mirror *ResourceMirror, logger logging.Logger) nodeherder.MCPService {
+	// Register the prompt update handler on the pool
+	orchestrator.OnPromptUpdate(func(content string) {
+		logger.Info("Received system-prompt update via notification")
+		mirror.SetSystemPrompt(content)
+	})
+
 	return &MCPNodeHerder{
-		client: client,
-		mirror: mirror,
-		logger: logger,
+		orchestrator: orchestrator,
+		mirror:       mirror,
+		logger:       logger,
 	}
 }
 
@@ -33,7 +39,7 @@ func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 	prompt := n.mirror.GetSystemPrompt()
 	if prompt == "" {
 		// Try to fetch explicitly if missing
-		content, err := n.client.ReadResource(context.Background(), "nodeherder://system-prompt")
+		content, err := n.orchestrator.ReadResource(context.Background(), "nodeherder://system-prompt")
 		if err != nil {
 			return "", fmt.Errorf("system prompt not available: %w", err)
 		}
@@ -46,7 +52,7 @@ func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 
 // ListTools returns the list of tools available on the MCP server.
 func (n *MCPNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
-	mcpTools, err := n.client.ListTools(ctx)
+	mcpTools, err := n.orchestrator.ListTools(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +78,7 @@ func (n *MCPNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 
 // CallTool executes a tool on the MCP server.
 func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
-	result, err := n.client.CallTool(ctx, name, args)
+	result, err := n.orchestrator.CallTool(ctx, name, args)
 	if err != nil {
 		return nil, fmt.Errorf("tool call failed: %w", err)
 	}
@@ -93,10 +99,7 @@ func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[stri
 
 	// Extract content. MCP supports list of content (text/image/embedded).
 	// For LLM Proxy, we assume the first content block is the primary JSON response or Text.
-	// If it's pure text, we return it as is.
-	// If it's JSON encoded text (common in some MCP tools), handle it?
-	// NodeHerder returns JSON as TextContent.
-
+	// We handle TextContent primarily.
 	content := result.Content[0]
 	var textStr string
 	if textContent, ok := content.(mcp_sdk.TextContent); ok {

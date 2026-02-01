@@ -1,10 +1,17 @@
 package models
 
 type Config struct {
-	Server   ServerConfig  `json:"server"`
-	Models   []ModelConfig `json:"models"`
-	ModelDir string        `json:"model_dir"`
-	Metrics  MetricsConfig `json:"metrics,omitempty"`
+	Server     ServerConfig      `json:"server"`
+	Models     []ModelConfig     `json:"models"`
+	ModelDir   string            `json:"model_dir"`
+	Metrics    MetricsConfig     `json:"metrics,omitempty"`
+	MCPServers []MCPServerConfig `json:"mcp_servers,omitempty"`
+}
+
+type MCPServerConfig struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled"`
 }
 
 type ServerConfig struct {

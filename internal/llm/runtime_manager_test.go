@@ -68,7 +68,7 @@ func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
 
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
 
-	_, err := manager.EnsureModel("test")
+	_, err := manager.EnsureModel(context.Background(), "test")
 	if !errors.Is(err, llm.ErrModelStarting) {
 		t.Fatalf("expected ErrModelStarting, got %v", err)
 	}
@@ -82,7 +82,7 @@ func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
 	restorePort()
 	restorePort = testhooks.SetPortReady(func(port int) bool { return true })
 
-	inst, err := manager.EnsureModel("test")
+	inst, err := manager.EnsureModel(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestUpdateModel_StopsActiveModel(t *testing.T) {
 	defer restorePort()
 
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
-	_, _ = manager.EnsureModel("test")
+	_, _ = manager.EnsureModel(context.Background(), "test")
 
 	if manager.ActiveModel() == nil {
 		t.Fatalf("expected active model")
@@ -122,7 +122,7 @@ func TestRemoveModel_StopsActiveModel(t *testing.T) {
 	defer restorePort()
 
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
-	_, _ = manager.EnsureModel("test")
+	_, _ = manager.EnsureModel(context.Background(), "test")
 
 	if manager.ActiveModel() == nil {
 		t.Fatalf("expected active model")
@@ -151,7 +151,7 @@ func TestStopActive_CancelsProcessContext(t *testing.T) {
 	defer restorePort()
 
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
-	_, _ = manager.EnsureModel("test")
+	_, _ = manager.EnsureModel(context.Background(), "test")
 
 	if captured == nil {
 		t.Fatal("expected context to be captured")
@@ -176,7 +176,7 @@ func TestActiveInfo_ReadyReflectsPortState(t *testing.T) {
 	defer restorePort()
 
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
-	_, _ = manager.EnsureModel("test")
+	_, _ = manager.EnsureModel(context.Background(), "test")
 
 	info := manager.ActiveInfo()
 	if info == nil || info.Ready {
@@ -209,7 +209,7 @@ func equalStrings(got, want []string) bool {
 func TestRuntimeManager_EnsureModel_Unknown(t *testing.T) {
 	m := llm.New(nil, "127.0.0.1", time.Minute)
 
-	_, err := m.EnsureModel("nope")
+	_, err := m.EnsureModel(context.Background(), "nope")
 	if !errors.Is(err, llm.ErrUnknownModel) {
 		t.Fatalf("expected ErrUnknownModel, got: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 		{Name: "test", Path: "/tmp/model.gguf", Args: []string{"--x"}, Port: 9999},
 	}, "127.0.0.1", time.Minute)
 
-	mi, err := m.EnsureModel("test")
+	mi, err := m.EnsureModel(context.Background(), "test")
 
 	if mi.Port != 0 {
 		t.Fatalf("expected empty ModelInstance (Port=0) while starting, got: %+v", mi)
@@ -252,13 +252,13 @@ func TestRuntimeManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	}, "127.0.0.1", time.Minute)
 
 	// First call: starting
-	_, _ = m.EnsureModel("test")
+	_, _ = m.EnsureModel(context.Background(), "test")
 
 	// Now simulate ready
 	restorePort2 := testhooks.SetPortReady(func(port int) bool { return true })
 	defer restorePort2()
 
-	mi, err := m.EnsureModel("test")
+	mi, err := m.EnsureModel(context.Background(), "test")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -285,7 +285,7 @@ func TestRuntimeManager_RecordActivity(t *testing.T) {
 		{Name: "test", Path: "x", Port: 4444},
 	}, "127.0.0.1", time.Millisecond*200)
 
-	_, _ = m.EnsureModel("test")
+	_, _ = m.EnsureModel(context.Background(), "test")
 
 	old := m.ActiveModel().LastUsed()
 	time.Sleep(10 * time.Millisecond)
@@ -313,7 +313,7 @@ func TestRuntimeManager_IdleReaperStopsModel(t *testing.T) {
 		time.Millisecond*20, // reaper tick
 	)
 
-	_, _ = m.EnsureModel("test")
+	_, _ = m.EnsureModel(context.Background(), "test")
 
 	time.Sleep(time.Millisecond * 120)
 

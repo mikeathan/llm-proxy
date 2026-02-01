@@ -87,7 +87,7 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 
 // handleAssistant executes a single agent cycle.
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	
+
 	client, err := h.getLLMClient(ctx, log)
 	if err != nil {
 		return nil, err
@@ -120,6 +120,9 @@ func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy
 		if err != nil {
 			return nil, err
 		}
+
+		// Append Assistant's response to history immediately
+		history = append(history, msg)
 
 		if len(msg.ToolCalls) == 0 {
 			return map[string]any{"reply": msg.Content}, nil
