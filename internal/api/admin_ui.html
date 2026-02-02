@@ -520,6 +520,58 @@
       </div>
 
       <div class="card">
+        <h2>MCP Servers</h2>
+        <div class="status-line">
+          Manage externally configured MCP servers.
+        </div>
+        <div
+          class="grid"
+          style="
+            grid-template-columns: 1fr 2fr auto;
+            gap: 12px;
+            margin-top: 12px;
+            align-items: end;
+          "
+        >
+          <div>
+            <label
+              for="mcp-name"
+              class="muted"
+              style="display: block; margin-bottom: 6px"
+              >Name</label
+            >
+            <input id="mcp-name" placeholder="server-name" />
+          </div>
+          <div>
+            <label
+              for="mcp-url"
+              class="muted"
+              style="display: block; margin-bottom: 6px"
+              >URL</label
+            >
+            <input id="mcp-url" placeholder="http://localhost:8080/sse" />
+          </div>
+          <div class="toolbar" style="justify-content: flex-end">
+            <button id="add-mcp" class="secondary">Add Server</button>
+          </div>
+        </div>
+        <div style="overflow-x: auto; margin-top: 10px">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>URL</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="mcp-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+
+      <div class="card">
         <h2>Process logs</h2>
         <div class="status-line" id="logs-meta">
           Load logs to view recent llama-server output.
