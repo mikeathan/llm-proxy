@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/config"
@@ -362,6 +363,46 @@ func (h *AdminHandlers) AdminAppLogsHandler(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(appLogPath)))
 	http.ServeFile(w, r, appLogPath)
+}
+
+func (h *AdminHandlers) AdminAppLogsTailHandler(w http.ResponseWriter, r *http.Request) {
+	appLogPath := h.appLogPath()
+	if appLogPath == "" {
+		writeJSONError(w, http.StatusNotFound, "log path unknown")
+		return
+	}
+	f, err := os.Open(appLogPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			respondJSON(w, map[string]string{"logs": "Log file does not exist yet.", "running": "false"})
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to open log: "+err.Error())
+		return
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to stat log: "+err.Error())
+		return
+	}
+
+	const tailSize = 64 * 1024
+	if stat.Size() > tailSize {
+		if _, err := f.Seek(-tailSize, io.SeekEnd); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to seek log: "+err.Error())
+			return
+		}
+	}
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to read log: "+err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]string{"logs": string(b), "running": "true"})
 }
 
 func (h *AdminHandlers) appLogPath() string {

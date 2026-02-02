@@ -577,16 +577,16 @@
           Load logs to view recent llama-server output.
         </div>
         <div class="toolbar" style="margin-top: 8px">
-          <button id="load-logs" class="secondary">Load latest output</button>
-          <button id="clear-logs" class="secondary">Clear view</button>
-          <a
-            id="download-app-logs"
+            <button id="clear-logs" class="secondary">Clear view</button>
+            <button id="view-app-logs" class="secondary" style="display: none">View app logs</button>
+            <a
+              id="download-app-logs"
             class="secondary"
             href="#"
             style="display: none"
             >Download app logs</a
           >
-        </div>
+          </div>
         <pre id="logs-box" class="log-box" aria-live="polite">No logs yet.</pre>
       </div>
     </div>
@@ -623,6 +623,7 @@
             loadLogs: document.getElementById("load-logs"),
             clearLogs: document.getElementById("clear-logs"),
             downloadAppLogs: document.getElementById("download-app-logs"),
+            viewAppLogs: document.getElementById("view-app-logs"),
             addMCP: document.getElementById("add-mcp"),
           },
           metrics: {
@@ -1231,12 +1232,15 @@
           try {
             const data = await requestJSON("/admin/api/logs");
             dom.logs.box.textContent = data.logs || "No output yet.";
-            if (data.app_log_ok) {
+            
+            const showAppLogButtons = !!data.app_log_ok;
+            dom.buttons.downloadAppLogs.style.display = showAppLogButtons ? "inline-flex" : "none";
+            dom.buttons.viewAppLogs.style.display = showAppLogButtons ? "inline-flex" : "none";
+
+            if (showAppLogButtons) {
               dom.buttons.downloadAppLogs.href = "/admin/api/app-logs";
-              dom.buttons.downloadAppLogs.style.display = "inline-flex";
-            } else {
-              dom.buttons.downloadAppLogs.style.display = "none";
             }
+
             if (!data.running) {
               dom.logs.meta.textContent =
                 "No active model. Start one to stream output here.";
@@ -1249,6 +1253,18 @@
             dom.logs.meta.textContent = `${data.name || "Active model"} (${readiness}) – started ${started}.`;
           } catch (err) {
             dom.logs.meta.textContent = "Unable to load logs.";
+            setMessage(err.message, "error");
+          }
+        }
+
+        async function fetchAppLogs() {
+          dom.logs.meta.textContent = "Loading application logs...";
+          try {
+            const data = await requestJSON("/admin/api/app-logs/tail");
+            dom.logs.box.textContent = data.logs || "Log file empty.";
+            dom.logs.meta.textContent = "Displaying last 64KB of application log.";
+          } catch (err) {
+            dom.logs.meta.textContent = "Unable to load app logs.";
             setMessage(err.message, "error");
           }
         }
@@ -1384,6 +1400,9 @@
           dom.buttons.loadLogs.addEventListener("click", fetchLogs);
           dom.buttons.clearLogs.addEventListener("click", clearLogs);
           dom.buttons.addMCP.addEventListener("click", addMCP);
+          if (dom.buttons.viewAppLogs) {
+             dom.buttons.viewAppLogs.addEventListener("click", fetchAppLogs);
+          }
         }
 
         function startStatusRefresh() {
