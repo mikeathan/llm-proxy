@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="v0.1.12"
+VERSION="v0.1.13"
 
 if [[ -z "${VERSION}" ]]; then
   echo "VERSION is empty. Set VERSION in scripts/tag_version.sh."
