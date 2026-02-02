@@ -20,6 +20,10 @@ type MockAdminService struct {
 	ResolveModelPathFunc      func(string, string) string
 	RefreshMetricsServiceFunc func()
 	MetricsSnapshotFunc       func() system_metrics.MetricsSnapshot
+	ListMCPServersFunc        func() []models.MCPServerConfig
+	AddMCPServerFunc          func(models.MCPServerConfig) error
+	UpdateMCPServerFunc       func(models.MCPServerConfig) error
+	RemoveMCPServerFunc       func(string) error
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -115,4 +119,32 @@ func (m *MockAdminService) MetricsSnapshot() system_metrics.MetricsSnapshot {
 		return m.MetricsSnapshotFunc()
 	}
 	return system_metrics.MetricsSnapshot{}
+}
+
+func (m *MockAdminService) ListMCPServers() []models.MCPServerConfig {
+	if m.ListMCPServersFunc != nil {
+		return m.ListMCPServersFunc()
+	}
+	return nil
+}
+
+func (m *MockAdminService) AddMCPServer(cfg models.MCPServerConfig) error {
+	if m.AddMCPServerFunc != nil {
+		return m.AddMCPServerFunc(cfg)
+	}
+	return nil
+}
+
+func (m *MockAdminService) UpdateMCPServer(cfg models.MCPServerConfig) error {
+	if m.UpdateMCPServerFunc != nil {
+		return m.UpdateMCPServerFunc(cfg)
+	}
+	return nil
+}
+
+func (m *MockAdminService) RemoveMCPServer(name string) error {
+	if m.RemoveMCPServerFunc != nil {
+		return m.RemoveMCPServerFunc(name)
+	}
+	return nil
 }

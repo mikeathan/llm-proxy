@@ -44,6 +44,10 @@ type AdminService interface {
 	ResolveModelPath(string, string) string
 	RefreshMetricsService()
 	MetricsSnapshot() system_metrics.MetricsSnapshot
+	ListMCPServers() []models.MCPServerConfig
+	AddMCPServer(models.MCPServerConfig) error
+	UpdateMCPServer(models.MCPServerConfig) error
+	RemoveMCPServer(string) error
 }
 
 type AssistantService interface {

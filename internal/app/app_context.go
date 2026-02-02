@@ -182,3 +182,46 @@ func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
 	}
 	return s.metrics.Snapshot()
 }
+
+func (s *AppContext) ListMCPServers() []models.MCPServerConfig {
+	if s.config == nil {
+		return nil
+	}
+	// Return copy
+	return append([]models.MCPServerConfig{}, s.config.MCPServers...)
+}
+
+func (s *AppContext) AddMCPServer(cfg models.MCPServerConfig) error {
+	return s.UpdateConfig(func(c *models.Config) {
+		for _, existing := range c.MCPServers {
+			if existing.Name == cfg.Name {
+				// Already exists
+				return
+			}
+		}
+		c.MCPServers = append(c.MCPServers, cfg)
+	})
+}
+
+func (s *AppContext) UpdateMCPServer(cfg models.MCPServerConfig) error {
+	return s.UpdateConfig(func(c *models.Config) {
+		for i, m := range c.MCPServers {
+			if m.Name == cfg.Name {
+				c.MCPServers[i] = cfg
+				return
+			}
+		}
+	})
+}
+
+func (s *AppContext) RemoveMCPServer(name string) error {
+	return s.UpdateConfig(func(c *models.Config) {
+		out := c.MCPServers[:0]
+		for _, m := range c.MCPServers {
+			if m.Name != name {
+				out = append(out, m)
+			}
+		}
+		c.MCPServers = out
+	})
+}

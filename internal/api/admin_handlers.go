@@ -485,6 +485,70 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 
 	h.admin.RefreshMetricsService()
 
+	h.admin.RefreshMetricsService()
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// MCP Handlers
+
+func (h *AdminHandlers) AdminMCPListHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, h.admin.ListMCPServers())
+}
+
+func (h *AdminHandlers) AdminMCPAddHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.MCPServerConfig
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+
+	if req.Name == "" || req.URL == "" {
+		writeJSONError(w, http.StatusBadRequest, "name and url are required")
+		return
+	}
+
+	// Default enabled
+	req.Enabled = true
+
+	if err := h.admin.AddMCPServer(req); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to add mcp server: "+err.Error())
+		return
+	}
+
+	respondJSON(w, req)
+}
+
+func (h *AdminHandlers) AdminMCPUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.MCPServerConfig
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+
+	if req.Name == "" {
+		writeJSONError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	if err := h.admin.UpdateMCPServer(req); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to update mcp server: "+err.Error())
+		return
+	}
+
+	respondJSON(w, req)
+}
+
+func (h *AdminHandlers) AdminMCPRemoveHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing name")
+		return
+	}
+
+	if err := h.admin.RemoveMCPServer(name); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to remove mcp server: "+err.Error())
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

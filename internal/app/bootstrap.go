@@ -187,6 +187,14 @@ func buildRouter(
 	router.Put("/admin/api/log-level", admin.AdminLogLevelUpdateHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs", admin.AdminAppLogsHandler, textMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
+
+	// MCP
+	router.Get("/admin/api/mcp", admin.AdminMCPListHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/mcp", admin.AdminMCPAddHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
+
 	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)
 
 	// Proxy
