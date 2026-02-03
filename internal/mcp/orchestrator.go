@@ -35,7 +35,7 @@ func (m *Orchestrator) OnPromptUpdate(handler func(content string)) {
 
 // Reload updates the pool of MCP clients based on the new configuration.
 // It starts new clients, re-configures existing ones if needed, and stops removed ones.
-func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPServerConfig) {
+func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPServerConfig, bindAddr string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -53,11 +53,11 @@ func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPSer
 			if existing.URL != cfg.URL {
 				m.logger.Info("MCP Server URL changed, restarting client", "name", cfg.Name, "old_url", existing.URL, "new_url", cfg.URL)
 				existing.Stop()
-				m.startClient(ctx, cfg)
+				m.startClient(ctx, cfg, bindAddr)
 			}
 			// URL is same, do nothing
 		} else {
-			m.startClient(ctx, cfg)
+			m.startClient(ctx, cfg, bindAddr)
 		}
 	}
 
@@ -73,8 +73,8 @@ func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPSer
 
 // startClient initializes and starts a new Client.
 // Caller must hold lock.
-func (m *Orchestrator) startClient(parentCtx context.Context, cfg models.MCPServerConfig) {
-	client := NewClient(cfg.Name, cfg.URL, m.logger)
+func (m *Orchestrator) startClient(parentCtx context.Context, cfg models.MCPServerConfig, bindAddr string) {
+	client := NewClient(cfg.Name, cfg.URL, bindAddr, m.logger)
 
 	// Create a context for this client that can be cancelled
 	ctx, cancel := context.WithCancel(parentCtx)

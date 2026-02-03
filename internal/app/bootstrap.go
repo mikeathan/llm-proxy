@@ -137,12 +137,12 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 
 	// Subscribe ConfigManager -> MCP Orchestrator
 	cfgMgr.OnChange(func(newCfg models.Config) {
-		orchestrator.Reload(context.Background(), newCfg.MCPServers)
+		orchestrator.Reload(context.Background(), newCfg.MCPServers, newCfg.Server.Bind)
 	})
 
 	// Initial Load
 	currentCfg := cfgMgr.GetConfig()
-	orchestrator.Reload(context.Background(), currentCfg.MCPServers)
+	orchestrator.Reload(context.Background(), currentCfg.MCPServers, currentCfg.Server.Bind)
 
 	// Register prompt updates handled by Orchestrator (which propagates to Clients)
 	// The Orchestrator's OnPromptUpdate is called when a client receives a notification.

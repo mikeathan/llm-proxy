@@ -52,7 +52,7 @@ func (chk *ConfigManager) Load() error {
 	}
 
 	// Apply overrides
-	applyEnvOverrides(&cfg)
+	// applyEnvOverrides(&cfg) - Removed to enforce config.json as source of truth
 
 	chk.config = &cfg
 	return nil
@@ -147,9 +147,3 @@ func (chk *ConfigManager) atomicSave() error {
 }
 
 // Helper functions
-
-func applyEnvOverrides(cfg *models.Config) {
-	if v := GetBindOverride(); v != "" {
-		cfg.Server.Bind = v
-	}
-}

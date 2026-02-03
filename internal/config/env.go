@@ -28,11 +28,6 @@ func GetAppEnv() string {
 	return env
 }
 
-// GetBindOverride returns the BIND environment variable if set.
-func GetBindOverride() string {
-	return os.Getenv("BIND")
-}
-
 // GetServiceCredentials returns the configured service client ID and secret.
 // Returns empty strings if not configured.
 func GetServiceCredentials() (string, string) {

@@ -5,6 +5,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"llm-proxy/internal/network"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -97,32 +98,17 @@ func (c *Client) manageConnection(ctx context.Context) {
 func (c *Client) connect(ctx context.Context) error {
 	c.logger.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
 
-	mcpClient, err := client.NewSSEMCPClient(c.URL)
+	// Resolve origin dynamically
+	origin := network.ResolveOrigin(c.BindAddr)
+	mcpClient, err := client.NewSSEMCPClient(
+		c.URL,
+		client.WithHeaders(map[string]string{
+			"Origin": origin,
+		}),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create SSE client: %w", err)
 	}
-
-	// Register notification handler
-	// Note: We need a method for this on Client if we want to handle notifications.
-	// For now, assuming existing behavior or TODO.
-	// Re-adding the notification handler logic from original file if applicable.
-	// The original had `handleNotification`. I will stub it or add it if it was there.
-	// It was in `manager.go` originally? No, it was called in `manager.go` but defined where?
-	// It wasn't in `client.go` or `manager.go` I viewed.
-	// Ah, I missed `handlers.go`!
-	// I need to ensure `handleNotification` is available or moved.
-
-	// Let's defer adding the notification handler for a second and check if I missed viewing `handlers.go`.
-	// Yes, `handlers.go` was in the file list but I didn't view it.
-	// I should probably just assume it exists on `*Client` (since I'm renaming methods).
-	// But `handleNotification` (private) likely needs to be on `*Client`.
-	// I'll add the registration here assuming `handleNotification` is or will be on `*Client`.
-
-	/*
-		mcpClient.OnNotification(func(notification mcp.JSONRPCNotification) {
-			c.handleNotification(ctx, notification)
-		})
-	*/
 
 	// Register connection lost handler
 	mcpClient.OnConnectionLost(func(err error) {

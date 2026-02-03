@@ -15,10 +15,11 @@ import (
 )
 
 // NewClient creates a new MCP Client for a specific server.
-func NewClient(name, sseURL string, logger logging.Logger) *Client {
+func NewClient(name, sseURL, bindAddr string, logger logging.Logger) *Client {
 	return &Client{
 		Name:          name,
 		URL:           sseURL,
+		BindAddr:      bindAddr,
 		logger:        logger,
 		retryInterval: 5 * time.Second,
 		subscriptions: make(map[string]struct{}),

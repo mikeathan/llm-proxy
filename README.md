@@ -58,7 +58,14 @@ Example snippet:
       "port": 5001
     }
   ],
-  "model_dir": "/home/mikeathan/dev/models"
+  "model_dir": "/home/mikeathan/dev/models",
+  "mcp_servers": [
+    {
+      "name": "nodeherder",
+      "url": "http://localhost:4110/sse",
+      "enabled": true
+    }
+  ]
 }
 ```
 
@@ -78,12 +85,15 @@ Key fields:
 - `metrics.gpu`: GPU metrics settings.
   - `provider`: `auto`, `nvidia-smi`, `rocm-smi`, `amdgpu_top`, `sysfs`, `none`
   - `binary`, `index`, `sysfs_path`: optional overrides.
+- `mcp_servers[]`:
+  - `name`: server identifier.
+  - `url`: SSE endpoint URL.
+  - `enabled`: boolean flag.
 
 ## Environment variables
 
-- `MCP_SERVER_SSE_URL`: Optional. URL for the NodeHerder MCP Server SSE endpoint. Defaults to `http://localhost:4110/api/mcp/events`.
-
-Note: Legacy variables `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` are no longer used as device context is now fetched via MCP.
+- `APP_ENV` (Optional): Application environment (default `development`).
+  Note: Legacy variables `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` are no longer used as device context is now fetched via MCP.
 
 Send a test request to the assistant endpoint (replace the port if your config
 uses a different `server.bind`):
