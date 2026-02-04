@@ -59,8 +59,6 @@ func (c *Client) ListResources(ctx context.Context) ([]mcp.Resource, error) {
 	initialized := c.initialized
 	c.mu.RUnlock()
 
-	c.logger.Debug("Listing resources...", "server", c.Name)
-
 	if !initialized || client == nil {
 		return nil, fmt.Errorf("MCP client %s not initialized", c.Name)
 	}
@@ -70,7 +68,6 @@ func (c *Client) ListResources(ctx context.Context) ([]mcp.Resource, error) {
 		return nil, fmt.Errorf("failed to list resources from %s: %w", c.Name, err)
 	}
 
-	c.logger.Debug("Found resources", "server", c.Name, "count", len(result.Resources))
 	return result.Resources, nil
 }
 
@@ -80,8 +77,6 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
 	client := c.client
 	initialized := c.initialized
 	c.mu.RUnlock()
-
-	c.logger.Debug("Reading resource", "server", c.Name, "uri", uri)
 
 	if !initialized || client == nil {
 		return "", fmt.Errorf("MCP client %s not initialized", c.Name)
@@ -102,7 +97,6 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
 	// Extract text content from the first result
 	content := result.Contents[0]
 	if textContent, ok := content.(mcp.TextResourceContents); ok {
-		c.logger.Debug("Read resource content", "server", c.Name, "uri", uri, "length", len(textContent.Text))
 		return textContent.Text, nil
 	}
 
@@ -121,8 +115,6 @@ func (c *Client) Subscribe(ctx context.Context, uri string) error {
 	client := c.client
 	initialized := c.initialized
 	c.mu.Unlock()
-
-	c.logger.Debug("Subscribing to resource", "server", c.Name, "uri", uri)
 
 	if !initialized || client == nil {
 		// We recorded the subscription, so it will be picked up on next connect
@@ -182,14 +174,10 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 	req.Params.Name = name
 	req.Params.Arguments = args
 
-	c.logger.Debug("Calling tool", "server", c.Name, "tool", name, "args", args)
-
 	result, err := client.CallTool(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call tool %s on %s: %w", name, c.Name, err)
 	}
-
-	c.logger.Debug("Tool call succeeded", "server", c.Name, "tool", name)
 
 	return result, nil
 }

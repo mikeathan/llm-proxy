@@ -54,9 +54,31 @@ func (c *Client) manageConnection(ctx context.Context) {
 			c.mu.RUnlock()
 
 			if initialized {
-				// IDLE STATE: Client is healthy, just sleep and check again later
-				timer.Reset(idleInterval)
-				continue
+				// IDLE STATE: Client is healthy, check connection with Ping
+				// Create a short timeout for the ping
+				pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				err := c.client.Ping(pingCtx)
+				cancel()
+
+				if err != nil {
+					c.logger.Warn("MCP connection unhealthy (ping failed)", "server", c.Name, "error", err)
+
+					// Force disconnect to trigger reconnection logic
+					c.mu.Lock()
+					c.initialized = false
+					// Close client to ensure clean state
+					if c.client != nil {
+						_ = c.client.Close()
+						c.client = nil
+					}
+					c.mu.Unlock()
+
+					// Fall through to RECONNECT STATE immediately
+				} else {
+					// Healthy
+					timer.Reset(idleInterval)
+					continue
+				}
 			}
 
 			// RECONNECT STATE: Client is down, try to connect
@@ -98,10 +120,7 @@ func (c *Client) manageConnection(ctx context.Context) {
 func (c *Client) connect(ctx context.Context) error {
 	c.logger.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
 
-	// Resolve origin dynamically
 	origin := network.ResolveOrigin(c.BindAddr)
-	c.logger.Debug("Creating MCP SSE client", "server", c.Name, "url", c.URL, "origin", origin)
-
 	mcpClient, err := client.NewSSEMCPClient(
 		c.URL,
 		client.WithHeaders(map[string]string{
@@ -137,8 +156,6 @@ func (c *Client) connect(ctx context.Context) error {
 	initReq.Params.Capabilities = mcp.ClientCapabilities{}
 
 	c.logger.Info("Sending MCP initialize request", "server", c.Name)
-	c.logger.Debug("MCP initialize request details", "server", c.Name, "protocol_version", initReq.Params.ProtocolVersion, "client_info", initReq.Params.ClientInfo)
-
 	result, err := mcpClient.Initialize(ctx, initReq)
 	if err != nil {
 		// Close client on failure to allow clean retry
@@ -153,7 +170,6 @@ func (c *Client) connect(ctx context.Context) error {
 		"version", result.ServerInfo.Version,
 		"protocol", result.ProtocolVersion,
 	)
-	c.logger.Debug("MCP initialize result details", "server", c.Name, "capabilities", result.Capabilities)
 
 	// Atomic commit of the initialized client
 	c.mu.Lock()
