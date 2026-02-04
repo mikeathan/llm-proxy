@@ -100,6 +100,8 @@ func (c *Client) connect(ctx context.Context) error {
 
 	// Resolve origin dynamically
 	origin := network.ResolveOrigin(c.BindAddr)
+	c.logger.Debug("Creating MCP SSE client", "server", c.Name, "url", c.URL, "origin", origin)
+
 	mcpClient, err := client.NewSSEMCPClient(
 		c.URL,
 		client.WithHeaders(map[string]string{
@@ -123,6 +125,7 @@ func (c *Client) connect(ctx context.Context) error {
 	if err := mcpClient.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start MCP client: %w", err)
 	}
+	c.logger.Info("MCP transport started", "server", c.Name)
 
 	// Perform initialization handshake
 	initReq := mcp.InitializeRequest{}
@@ -133,9 +136,13 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 	initReq.Params.Capabilities = mcp.ClientCapabilities{}
 
+	c.logger.Info("Sending MCP initialize request", "server", c.Name)
+	c.logger.Debug("MCP initialize request details", "server", c.Name, "protocol_version", initReq.Params.ProtocolVersion, "client_info", initReq.Params.ClientInfo)
+
 	result, err := mcpClient.Initialize(ctx, initReq)
 	if err != nil {
 		// Close client on failure to allow clean retry
+		c.logger.Error("MCP initialize failed", "server", c.Name, "error", err)
 		_ = mcpClient.Close()
 		return fmt.Errorf("failed to initialize MCP session: %w", err)
 	}
@@ -146,6 +153,7 @@ func (c *Client) connect(ctx context.Context) error {
 		"version", result.ServerInfo.Version,
 		"protocol", result.ProtocolVersion,
 	)
+	c.logger.Debug("MCP initialize result details", "server", c.Name, "capabilities", result.Capabilities)
 
 	// Atomic commit of the initialized client
 	c.mu.Lock()
