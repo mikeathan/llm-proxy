@@ -30,6 +30,7 @@ func (c *Client) manageConnection(ctx context.Context) {
 
 	delay := minDelay
 	failureCount := 0
+	pingFailureCount := 0
 
 	// Initial connection attempt
 	if err := c.connect(ctx); err != nil {
@@ -61,7 +62,12 @@ func (c *Client) manageConnection(ctx context.Context) {
 				cancel()
 
 				if err != nil {
-					c.logger.Warn("MCP connection unhealthy (ping failed)", "server", c.Name, "error", err)
+					pingFailureCount++
+					if pingFailureCount <= 3 {
+						c.logger.Warn("MCP connection unhealthy (ping failed)", "server", c.Name, "error", err, "attempt", pingFailureCount)
+					} else {
+						c.logger.Debug("MCP connection unhealthy (ping failed), suppressing logs", "server", c.Name, "error", err, "attempt", pingFailureCount)
+					}
 
 					// Force disconnect to trigger reconnection logic
 					c.mu.Lock()
@@ -76,6 +82,7 @@ func (c *Client) manageConnection(ctx context.Context) {
 					// Fall through to RECONNECT STATE immediately
 				} else {
 					// Healthy
+					pingFailureCount = 0
 					timer.Reset(idleInterval)
 					continue
 				}
