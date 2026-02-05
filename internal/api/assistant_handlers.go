@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -194,18 +195,18 @@ func (h *AssistantMessageHandler) processToolCall(
 }
 
 func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, toolCall proxy.ToolCall, result any) {
-	// 1. Append the Assistant's Tool Call message (if not already appended in bulk?
-	// Actually typical chat history requires: User, Assistant (calls), Tool (result).
-	// runAgentLoop gets `msg` which has `ToolCalls`. We should append THAT message once.
-	// But `processToolCall` iterates tool calls.
-	// We need to append the Assistant message containing ALL tool calls found in `msg`.
-	// Correct logic: Appending `msg` (Assistant) happens in loop before `processToolCall` calls `appendToolResult`?
-	// No, `processToolCall` gets `msg`.
+	// Serialize result to JSON
+	jsonResult, err := json.Marshal(result)
+	if err != nil {
+		h.logger.Error("failed to marshal tool result", "error", err)
+		jsonResult = []byte(`{"error": "failed to serialize tool result"}`)
+	}
 
-	// Wait, `history` passed to `processToolCall` does NOT contain `msg` yet.
-	// We should append the Assistant message ONCE.
-	// My `processToolCall` loop iterates tool calls.
-	// I should change logic: append Assistant message first, then iterate tools and append results.
+	*history = append(*history, proxy.Message{
+		Role:       proxy.ToolRole,
+		Content:    string(jsonResult),
+		ToolCallID: toolCall.ID,
+	})
 }
 
 // Logic fix for appendToolResult structure:

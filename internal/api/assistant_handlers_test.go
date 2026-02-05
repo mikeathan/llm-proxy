@@ -117,13 +117,47 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	}
 
 	// Verify calls
-	// 1. GetSystemPrompt
-	// 2. ListTools (called by callModel)
-	// 3. CallTool (called by processToolCall -> engine)
+	// Check that the second call to Chat included the tool result
+	if len(clientMock.Requests) < 2 {
+		t.Fatalf("expected 2 calls to Chat, got %d", len(clientMock.Requests))
+	}
 
-	// We can check call count roughly or add specific spy methods if needed.
-	// MockNodeHerder CallCount aggregates all calls.
-	if mockMCP.CallCount() < 3 {
-		t.Errorf("expected at least 3 MCP calls, got %d", mockMCP.CallCount())
+	secondCallReq := clientMock.Requests[1] // The call AFTER the tool execution
+	msgs := secondCallReq.Messages
+
+	// Expected history: System, User, Assistant (Tool Call), Tool (Result)
+	if len(msgs) != 4 {
+		t.Errorf("expected 4 messages in history for second call, got %d", len(msgs))
+		for i, m := range msgs {
+			t.Logf("Message %d: Role=%s Content=%s ToolCalls=%d", i, m.Role, m.Content, len(m.ToolCalls))
+		}
+	} else {
+		// Verify the sequence
+		if msgs[2].Role != proxy.AssistantRole {
+			t.Errorf("expected message 2 to be Assistant, got %s", msgs[2].Role)
+		}
+		if len(msgs[2].ToolCalls) == 0 {
+			t.Errorf("expected message 2 to have tool calls")
+		}
+
+		if msgs[3].Role != proxy.ToolRole {
+			t.Errorf("expected message 3 to be Tool, got %s", msgs[3].Role)
+		}
+		if msgs[3].ToolCallID != "call_1" {
+			t.Errorf("expected message 3 ToolCallID to be 'call_1', got %s", msgs[3].ToolCallID)
+		}
+
+		// Verify content is the JSON result
+		expectedContent := `{"state":"on"}`
+		if msgs[3].Content != expectedContent { // approximate check, might depend on map ordering
+			// Decode to map to compare if order varies
+			var contentMap map[string]any
+			if err := json.Unmarshal([]byte(msgs[3].Content), &contentMap); err != nil {
+				t.Errorf("failed to unmarshal tool content: %v", err)
+			}
+			if s, ok := contentMap["state"].(string); !ok || s != "on" {
+				t.Errorf("expected tool content state 'on', got %v", contentMap)
+			}
+		}
 	}
 }
