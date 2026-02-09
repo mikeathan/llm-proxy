@@ -188,32 +188,7 @@ func (c *Client) connect(ctx context.Context) error {
 	for uri := range c.subscriptions {
 		subs = append(subs, uri)
 	}
-	// promptHandler := c.onPromptUpdate // Check if this field exists on new Client struct? It wasn in types.go I wrote?
-	// I did NOT include `onPromptUpdate` in the `types.go` `Client` struct I wrote in step 39...
-	// Wait, I used `types.go` content:
-	/*
-		type Client struct {
-			Name          string
-			URL           string
-			logger        logging.Logger
-			retryInterval time.Duration
-
-			mu            sync.RWMutex
-			client        *client.Client
-			initialized   bool
-			subscriptions map[string]struct{}
-			lastSuccess   time.Time
-
-			cancelFunc    context.CancelFunc
-			done          chan struct{}
-		}
-	*/
-	// I missed `onPromptUpdate`. This is a regression if I don't add it back.
-	// The original `MCPClient` had it.
-	// The `NodeHerder` adapter relied on `mirror` and explicit fetch, but `onPromptUpdate` was used for notifications?
-	// Let's double check `handlers.go` and `manager.go` original.
-	// Logic: `promptHandler := c.onPromptUpdate`
-
+	
 	c.mu.Unlock()
 
 	// Re-subscribe to resources
@@ -225,11 +200,15 @@ func (c *Client) connect(ctx context.Context) error {
 		}
 	}
 
-	// I am omitting the immediate prompt update trigger for now because I need to restore `onPromptUpdate` to `Client` struct first if needed,
-	// OR rely on the Manager/Adapter to handle this.
-	// Given this is a refactor, I should probably restore it or find a better place.
-	// The `NodeHerder` adapter calls `ReadResource` explicitly.
-	// The notification handler is what drove `onPromptUpdate`.
+	// Verify tool availability
+	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tools, err := c.ListTools(verifyCtx)
+	if err != nil {
+		c.logger.Warn("Verification: Failed to list tools after connect", "server", c.Name, "error", err)
+	} else {
+		c.logger.Info("Verification: MCP connection ready", "server", c.Name, "tool_count", len(tools))
+	}
 
 	return nil
 }

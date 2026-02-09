@@ -156,6 +156,7 @@ func (c *Client) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 		return nil, fmt.Errorf("failed to list tools from %s: %w", c.Name, err)
 	}
 
+	c.logger.Debug("ListTools called", "server", c.Name, "count", len(result.Tools))
 	return result.Tools, nil
 }
 
