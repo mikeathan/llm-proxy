@@ -41,7 +41,8 @@ func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 		// Try to fetch explicitly if missing
 		content, err := n.orchestrator.ReadResource(context.Background(), "nodeherder://system-prompt")
 		if err != nil {
-			return "", fmt.Errorf("system prompt not available: %w", err)
+			n.logger.Warn("System prompt not available, utilizing fallback", "error", err)
+			return "You are a helpful assistant. The home automation system (NodeHerder) is currently disconnected. You cannot access device states or control devices. Please inform the user of this connection status if they request device interactions.", nil
 		}
 
 		n.mirror.SetSystemPrompt(content)

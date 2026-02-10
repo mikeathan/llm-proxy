@@ -188,7 +188,7 @@ func (c *Client) connect(ctx context.Context) error {
 	for uri := range c.subscriptions {
 		subs = append(subs, uri)
 	}
-	
+
 	c.mu.Unlock()
 
 	// Re-subscribe to resources
@@ -198,16 +198,6 @@ func (c *Client) connect(ctx context.Context) error {
 		} else {
 			c.logger.Info("Re-subscribed to resource", "server", c.Name, "uri", uri)
 		}
-	}
-
-	// Verify tool availability
-	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	tools, err := c.ListTools(verifyCtx)
-	if err != nil {
-		c.logger.Warn("Verification: Failed to list tools after connect", "server", c.Name, "error", err)
-	} else {
-		c.logger.Info("Verification: MCP connection ready", "server", c.Name, "tool_count", len(tools))
 	}
 
 	return nil

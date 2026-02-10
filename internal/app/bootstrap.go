@@ -150,6 +150,10 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 		mirror.SetSystemPrompt(prompt)
 	})
 
+	// Subscribe to system prompt to receive updates
+	// This ensures we get notified when NodeHerder loads devices or updates context
+	orchestrator.Subscribe(context.Background(), "nodeherder://system-prompt")
+
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 

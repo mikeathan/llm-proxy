@@ -210,3 +210,19 @@ func (m *Orchestrator) ReadResource(ctx context.Context, uri string) (string, er
 
 	return "", fmt.Errorf("failed to read resource %s from any server: last error: %w", uri, lastErr)
 }
+
+// Subscribe registers a subscription for a resource on all applicable clients.
+func (m *Orchestrator) Subscribe(ctx context.Context, uri string) {
+	m.mu.RLock()
+	clients := make([]*Client, 0, len(m.clients))
+	for _, c := range m.clients {
+		clients = append(clients, c)
+	}
+	m.mu.RUnlock()
+
+	for _, c := range clients {
+		if err := c.Subscribe(ctx, uri); err != nil {
+			m.logger.Warn("Failed to subscribe to resource", "server", c.Name, "uri", uri, "error", err)
+		}
+	}
+}
