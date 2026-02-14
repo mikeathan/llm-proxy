@@ -5,6 +5,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"llm-proxy/internal/logger"
 	"llm-proxy/internal/network"
 	"time"
 
@@ -29,17 +30,17 @@ func (c *Client) manageConnection(ctx context.Context) {
 	)
 
 	delay := minDelay
-	failureCount := 0
-	pingFailureCount := 0
+	// Wrap the client logger with PulseLogger for automatic suppression
+	pulseLog := logger.NewPulseLogger(c.logger, c.Name)
 
 	// Initial connection attempt
-	if err := c.connect(ctx); err != nil {
-		c.logger.Warn("Failed to establish initial MCP connection", "server", c.Name, "error", err)
-		failureCount++
+	pulseLog.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
+
+	if err := c.connect(ctx, pulseLog); err != nil {
+		pulseLog.Warn("Failed to establish initial MCP connection", "server", c.Name, "error", err)
 	} else {
-		// Reset on success
+		// Reset logic handled by success in connect
 		delay = minDelay
-		failureCount = 0
 	}
 
 	timer := time.NewTimer(delay)
@@ -62,12 +63,9 @@ func (c *Client) manageConnection(ctx context.Context) {
 				cancel()
 
 				if err != nil {
-					pingFailureCount++
-					if pingFailureCount <= 3 {
-						c.logger.Warn("MCP connection unhealthy (ping failed)", "server", c.Name, "error", err, "attempt", pingFailureCount)
-					} else {
-						c.logger.Debug("MCP connection unhealthy (ping failed), suppressing logs", "server", c.Name, "error", err, "attempt", pingFailureCount)
-					}
+					pulseLog.Alive() // Ensure clean state before counting failure (defensive)
+					// We reuse PulseLogger for pings. If ping fails, it's a failure.
+					pulseLog.Warn("MCP connection unhealthy (ping failed)", "server", c.Name, "error", err)
 
 					// Force disconnect to trigger reconnection logic
 					c.mu.Lock()
@@ -82,32 +80,25 @@ func (c *Client) manageConnection(ctx context.Context) {
 					// Fall through to RECONNECT STATE immediately
 				} else {
 					// Healthy
-					pingFailureCount = 0
+					pulseLog.Alive()
 					timer.Reset(idleInterval)
 					continue
 				}
 			}
 
 			// RECONNECT STATE: Client is down, try to connect
-			err := c.connect(ctx)
+			pulseLog.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
+			err := c.connect(ctx, pulseLog)
 			if err == nil {
 				// SUCCESS: Reset backoff and failure count
 				delay = minDelay
-				failureCount = 0
+				// Success logged in connect
 				timer.Reset(idleInterval) // Go to idle check
 				continue
 			}
 
 			// FAILURE: Handle backoff and logging
-			failureCount++
-
-			// Log based on failure count ("Quiet-Pulse")
-			if failureCount <= 3 {
-				c.logger.Warn("Failed to reconnect to MCP server", "server", c.Name, "error", err, "attempt", failureCount)
-			} else if failureCount == 4 {
-				c.logger.Info("MCP unreachable. Muting logs and retrying every 5 minutes in background.", "server", c.Name)
-			}
-			// For failureCount > 4, we suppress logs (Quiet mode)
+			pulseLog.Warn("Failed to reconnect to MCP server", "server", c.Name, "error", err)
 
 			// Update delay with exponential backoff, capped at maxDelay
 			if delay < maxDelay {
@@ -124,8 +115,7 @@ func (c *Client) manageConnection(ctx context.Context) {
 }
 
 // connect attempts to establish the MCP connection.
-func (c *Client) connect(ctx context.Context) error {
-	c.logger.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
+func (c *Client) connect(ctx context.Context, logger *logger.PulseLogger) error {
 
 	origin := network.ResolveOrigin(c.BindAddr)
 	mcpClient, err := client.NewSSEMCPClient(
@@ -140,8 +130,9 @@ func (c *Client) connect(ctx context.Context) error {
 
 	// Register connection lost handler
 	mcpClient.OnConnectionLost(func(err error) {
-		c.logger.Warn("MCP connection lost", "server", c.Name, "error", err)
+		logger.Warn("MCP connection lost", "server", c.Name, "error", err)
 		c.mu.Lock()
+
 		c.initialized = false
 		c.client = nil
 		c.mu.Unlock()
@@ -151,7 +142,7 @@ func (c *Client) connect(ctx context.Context) error {
 	if err := mcpClient.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start MCP client: %w", err)
 	}
-	c.logger.Info("MCP transport started", "server", c.Name)
+	logger.Info("MCP transport started", "server", c.Name)
 
 	// Perform initialization handshake
 	initReq := mcp.InitializeRequest{}
@@ -162,16 +153,16 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 	initReq.Params.Capabilities = mcp.ClientCapabilities{}
 
-	c.logger.Info("Sending MCP initialize request", "server", c.Name)
+	logger.Info("Sending MCP initialize request", "server", c.Name)
 	result, err := mcpClient.Initialize(ctx, initReq)
 	if err != nil {
 		// Close client on failure to allow clean retry
-		c.logger.Error("MCP initialize failed", "server", c.Name, "error", err)
+		logger.Error("MCP initialize failed", "server", c.Name, "error", err)
 		_ = mcpClient.Close()
 		return fmt.Errorf("failed to initialize MCP session: %w", err)
 	}
 
-	c.logger.Info("MCP session initialized",
+	logger.Success("MCP session initialized",
 		"server", c.Name,
 		"remote_server", result.ServerInfo.Name,
 		"version", result.ServerInfo.Version,
@@ -194,9 +185,9 @@ func (c *Client) connect(ctx context.Context) error {
 	// Re-subscribe to resources
 	for _, uri := range subs {
 		if err := c.subscribeInternal(ctx, mcpClient, uri); err != nil {
-			c.logger.Error("Failed to re-subscribe to resource", "server", c.Name, "uri", uri, "error", err)
+			logger.Error("Failed to re-subscribe to resource", "server", c.Name, "uri", uri, "error", err)
 		} else {
-			c.logger.Info("Re-subscribed to resource", "server", c.Name, "uri", uri)
+			logger.Info("Re-subscribed to resource", "server", c.Name, "uri", uri)
 		}
 	}
 
