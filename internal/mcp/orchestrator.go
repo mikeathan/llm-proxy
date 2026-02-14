@@ -226,3 +226,16 @@ func (m *Orchestrator) Subscribe(ctx context.Context, uri string) {
 		}
 	}
 }
+
+// HasActiveClients returns true if at least one client is initialized.
+func (m *Orchestrator) HasActiveClients() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, c := range m.clients {
+		if c.IsInitialized() {
+			return true
+		}
+	}
+	return false
+}

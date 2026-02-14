@@ -37,8 +37,8 @@ func NewMCPNodeHerder(orchestrator *Orchestrator, mirror *ResourceMirror, logger
 // GetSystemPrompt returns the current system prompt from the mirror.
 func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 	prompt := n.mirror.GetSystemPrompt()
-	if prompt == "" {
-		// Try to fetch explicitly if missing
+	if !n.orchestrator.HasActiveClients() || prompt == "" {
+		// Try to fetch explicitly if missing or no clients active (force refresh if reconnecting)
 		content, err := n.orchestrator.ReadResource(context.Background(), "nodeherder://system-prompt")
 		if err != nil {
 			n.logger.Warn("System prompt not available, utilizing fallback", "error", err)
