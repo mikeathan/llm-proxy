@@ -12,14 +12,12 @@ import (
 	mcp_sdk "github.com/mark3labs/mcp-go/mcp"
 )
 
-// MCPNodeHerder implements nodeherder.NodeHerderService using MCP Orchestrator and resource mirror.
 type MCPNodeHerder struct {
 	orchestrator *Orchestrator
 	mirror       *ResourceMirror
 	logger       logging.Logger
 }
 
-// NewMCPNodeHerder creates a new MCPNodeHerder.
 func NewMCPNodeHerder(orchestrator *Orchestrator, mirror *ResourceMirror, logger logging.Logger) nodeherder.MCPService {
 	// Register the prompt update handler on the pool
 	orchestrator.OnPromptUpdate(func(content string) {
@@ -34,7 +32,6 @@ func NewMCPNodeHerder(orchestrator *Orchestrator, mirror *ResourceMirror, logger
 	}
 }
 
-// GetSystemPrompt returns the current system prompt from the mirror.
 func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 	prompt := n.mirror.GetSystemPrompt()
 	if !n.orchestrator.HasActiveClients() || prompt == "" {
@@ -51,7 +48,6 @@ func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 	return prompt, nil
 }
 
-// ListTools returns the list of tools available on the MCP server.
 func (n *MCPNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	mcpTools, err := n.orchestrator.ListTools(ctx)
 	if err != nil {
@@ -77,7 +73,6 @@ func (n *MCPNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	return tools, nil
 }
 
-// CallTool executes a tool on the MCP server.
 func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
 	result, err := n.orchestrator.CallTool(ctx, name, args)
 	if err != nil {

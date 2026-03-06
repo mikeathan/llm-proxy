@@ -11,10 +11,11 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"llm-proxy/internal/logger"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/network"
 )
 
-// NewClient creates a new MCP Client for a specific server.
 func NewClient(name, sseURL, bindAddr string, logger logging.Logger) *Client {
 	return &Client{
 		Name:          name,
@@ -27,7 +28,6 @@ func NewClient(name, sseURL, bindAddr string, logger logging.Logger) *Client {
 	}
 }
 
-// Close closes the MCP client connection and stops the manager.
 func (c *Client) Stop() {
 	// Cancel the context to stop the manager loop
 	if c.cancelFunc != nil {
@@ -45,14 +45,191 @@ func (c *Client) Stop() {
 	c.initialized = false
 }
 
-// IsInitialized returns whether the client has completed initialization.
+func (c *Client) Start(ctx context.Context) {
+	go c.manageConnection(ctx)
+}
+
+// manageConnection handles the connection lifecycle with "Quiet-Pulse" backoff.
+func (c *Client) manageConnection(ctx context.Context) {
+	defer close(c.done)
+
+	const (
+		minDelay     = 5 * time.Second
+		maxDelay     = 5 * time.Minute
+		idleInterval = 10 * time.Second
+	)
+
+	delay := minDelay
+	// Wrap the client logger with PulseLogger for automatic suppression
+	pulseLog := logger.NewPulseLogger(c.logger, c.Name)
+
+	// Initial connection attempt
+	pulseLog.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
+
+	if err := c.connect(ctx, pulseLog); err != nil {
+		pulseLog.Warn("Failed to establish initial MCP connection", "server", c.Name, "error", err)
+	} else {
+		// Reset logic handled by success in connect
+		delay = minDelay
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			c.mu.RLock()
+			initialized := c.initialized
+			c.mu.RUnlock()
+
+			if initialized {
+				// IDLE STATE: Client is healthy, check connection with Ping
+				// Create a short timeout for the ping
+				pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				err := c.client.Ping(pingCtx)
+				cancel()
+
+				if err != nil {
+					pulseLog.Alive() // Ensure clean state before counting failure (defensive)
+					// We reuse PulseLogger for pings. If ping fails, it's a failure.
+					pulseLog.Warn("MCP connection unhealthy (ping failed)", "server", c.Name, "error", err)
+
+					// Force disconnect to trigger reconnection logic
+					c.mu.Lock()
+					c.initialized = false
+					// Close client to ensure clean state
+					if c.client != nil {
+						_ = c.client.Close()
+						c.client = nil
+					}
+					c.mu.Unlock()
+
+					// Fall through to RECONNECT STATE immediately
+				} else {
+					// Healthy
+					pulseLog.Alive()
+					timer.Reset(idleInterval)
+					continue
+				}
+			}
+
+			// RECONNECT STATE: Client is down, try to connect
+			pulseLog.Info("Connecting to MCP server", "server", c.Name, "url", c.URL)
+			err := c.connect(ctx, pulseLog)
+			if err == nil {
+				// SUCCESS: Reset backoff and failure count
+				delay = minDelay
+				// Success logged in connect
+				timer.Reset(idleInterval) // Go to idle check
+				continue
+			}
+
+			// FAILURE: Handle backoff and logging
+			pulseLog.Warn("Failed to reconnect to MCP server", "server", c.Name, "error", err)
+
+			// Update delay with exponential backoff, capped at maxDelay
+			if delay < maxDelay {
+				delay *= 2
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+			}
+
+			// If we hit the cap, we stick to maxDelay
+			timer.Reset(delay)
+		}
+	}
+}
+
+// connect attempts to establish the MCP connection.
+func (c *Client) connect(ctx context.Context, logger *logger.PulseLogger) error {
+
+	origin := network.ResolveOrigin(c.BindAddr)
+	mcpClient, err := client.NewSSEMCPClient(
+		c.URL,
+		client.WithHeaders(map[string]string{
+			"Origin": origin,
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create SSE client: %w", err)
+	}
+
+	// Register connection lost handler
+	mcpClient.OnConnectionLost(func(err error) {
+		logger.Warn("MCP connection lost", "server", c.Name, "error", err)
+		c.mu.Lock()
+
+		c.initialized = false
+		c.client = nil
+		c.mu.Unlock()
+	})
+
+	// Start the transport
+	if err := mcpClient.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start MCP client: %w", err)
+	}
+	logger.Info("MCP transport started", "server", c.Name)
+
+	// Perform initialization handshake
+	initReq := mcp.InitializeRequest{}
+	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initReq.Params.ClientInfo = mcp.Implementation{
+		Name:    "llm-proxy",
+		Version: "1.0.0",
+	}
+	initReq.Params.Capabilities = mcp.ClientCapabilities{}
+
+	logger.Info("Sending MCP initialize request", "server", c.Name)
+	result, err := mcpClient.Initialize(ctx, initReq)
+	if err != nil {
+		// Close client on failure to allow clean retry
+		logger.Error("MCP initialize failed", "server", c.Name, "error", err)
+		_ = mcpClient.Close()
+		return fmt.Errorf("failed to initialize MCP session: %w", err)
+	}
+
+	logger.Success("MCP session initialized",
+		"server", c.Name,
+		"remote_server", result.ServerInfo.Name,
+		"version", result.ServerInfo.Version,
+		"protocol", result.ProtocolVersion,
+	)
+
+	// Atomic commit of the initialized client
+	c.mu.Lock()
+	c.client = mcpClient
+	c.initialized = true
+	c.lastSuccess = time.Now()
+	// Copy subscriptions to local slice to avoid holding lock during network calls
+	subs := make([]string, 0, len(c.subscriptions))
+	for uri := range c.subscriptions {
+		subs = append(subs, uri)
+	}
+
+	c.mu.Unlock()
+
+	// Re-subscribe to resources
+	for _, uri := range subs {
+		if err := c.subscribeInternal(ctx, mcpClient, uri); err != nil {
+			logger.Error("Failed to re-subscribe to resource", "server", c.Name, "uri", uri, "error", err)
+		} else {
+			logger.Info("Re-subscribed to resource", "server", c.Name, "uri", uri)
+		}
+	}
+
+	return nil
+}
+
 func (c *Client) IsInitialized() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.initialized
 }
 
-// ListResources retrieves the list of available resources from the MCP server.
 func (c *Client) ListResources(ctx context.Context) ([]mcp.Resource, error) {
 	c.mu.RLock()
 	client := c.client
@@ -71,7 +248,6 @@ func (c *Client) ListResources(ctx context.Context) ([]mcp.Resource, error) {
 	return result.Resources, nil
 }
 
-// ReadResource reads the content of a resource by URI.
 func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
 	c.mu.RLock()
 	client := c.client
@@ -108,7 +284,6 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
 	return string(jsonBytes), nil
 }
 
-// Subscribe subscribes to updates for a resource URI.
 func (c *Client) Subscribe(ctx context.Context, uri string) error {
 	c.mu.Lock()
 	c.subscriptions[uri] = struct{}{}
@@ -140,7 +315,6 @@ func (c *Client) subscribeInternal(ctx context.Context, client *client.Client, u
 	return nil
 }
 
-// ListTools retrieves the list of available tools from the MCP server.
 func (c *Client) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	c.mu.RLock()
 	client := c.client
@@ -160,7 +334,6 @@ func (c *Client) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	return result.Tools, nil
 }
 
-// CallTool invokes a tool on the MCP server.
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 	c.mu.RLock()
 	client := c.client
@@ -181,4 +354,55 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 	}
 
 	return result, nil
+}
+
+func (c *Client) OnPromptUpdate(handler func(content string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onPromptUpdate = handler
+}
+
+func (c *Client) handleNotification(ctx context.Context, notification mcp.JSONRPCNotification) {
+
+	switch notification.Method {
+	case "notifications/resources/updated":
+		c.handleResourceUpdated(ctx, notification)
+	default:
+		c.logger.Debug("Unhandled notification", "server", c.Name, "method", notification.Method)
+	}
+}
+
+func (c *Client) handleResourceUpdated(ctx context.Context, notification mcp.JSONRPCNotification) {
+	params := notification.Params.AdditionalFields
+	uri, ok := params["uri"].(string)
+	if !ok {
+		c.logger.Warn("Resource update notification missing URI", "server", c.Name)
+		return
+	}
+
+	c.logger.Info("Resource updated", "server", c.Name, "uri", uri)
+
+	switch uri {
+	case "nodeherder://system-prompt":
+		c.mu.RLock()
+		promptHandler := c.onPromptUpdate
+		c.mu.RUnlock()
+
+		if promptHandler != nil {
+			// Fetch and update using the lifecycle context
+			go func() {
+				// Use a timeout for the fetch operation to avoid hanging
+				fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+
+				content, err := c.ReadResource(fetchCtx, uri)
+				if err != nil {
+					c.logger.Error("Initial prompt sync failed after reconnect", "server", c.Name, "error", err)
+					return
+				}
+				promptHandler(content)
+				c.logger.Info("System-prompt sync complete after notification", "server", c.Name)
+			}()
+		}
+	}
 }

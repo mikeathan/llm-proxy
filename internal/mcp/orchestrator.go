@@ -13,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// NewOrchestrator creates a new MCP Orchestrator.
 func NewOrchestrator(logger logging.Logger) *Orchestrator {
 	return &Orchestrator{
 		logger:  logger,
@@ -21,7 +20,6 @@ func NewOrchestrator(logger logging.Logger) *Orchestrator {
 	}
 }
 
-// OnPromptUpdate registers a global callback for system prompt updates across all clients.
 func (m *Orchestrator) OnPromptUpdate(handler func(content string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -71,8 +69,6 @@ func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPSer
 	}
 }
 
-// startClient initializes and starts a new Client.
-// Caller must hold lock.
 func (m *Orchestrator) startClient(parentCtx context.Context, cfg models.MCPServerConfig, bindAddr string) {
 	client := NewClient(cfg.Name, cfg.URL, bindAddr, m.logger)
 
@@ -102,9 +98,7 @@ func (m *Orchestrator) Close() {
 	m.clients = make(map[string]*Client)
 }
 
-// Aggregated Methods
 
-// ListTools returns a combined list of tools from all available clients.
 func (m *Orchestrator) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	m.mu.RLock()
 	clients := make([]*Client, 0, len(m.clients))
@@ -130,7 +124,6 @@ func (m *Orchestrator) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	return allTools, nil
 }
 
-// CallTool attempts to call a tool on the appropriate server.
 func (m *Orchestrator) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 	m.mu.RLock()
 	clients := make([]*Client, 0, len(m.clients))
@@ -159,8 +152,6 @@ func (m *Orchestrator) CallTool(ctx context.Context, name string, args map[strin
 	return nil, fmt.Errorf("tool %s not found on any active MCP server", name)
 }
 
-// ReadResource attempts to read a resource from any server that has it.
-// This is needed for the adapter.
 func (m *Orchestrator) ReadResource(ctx context.Context, uri string) (string, error) {
 	m.mu.RLock()
 	clients := make([]*Client, 0, len(m.clients))
@@ -211,7 +202,6 @@ func (m *Orchestrator) ReadResource(ctx context.Context, uri string) (string, er
 	return "", fmt.Errorf("failed to read resource %s from any server: last error: %w", uri, lastErr)
 }
 
-// Subscribe registers a subscription for a resource on all applicable clients.
 func (m *Orchestrator) Subscribe(ctx context.Context, uri string) {
 	m.mu.RLock()
 	clients := make([]*Client, 0, len(m.clients))
@@ -227,7 +217,6 @@ func (m *Orchestrator) Subscribe(ctx context.Context, uri string) {
 	}
 }
 
-// HasActiveClients returns true if at least one client is initialized.
 func (m *Orchestrator) HasActiveClients() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
