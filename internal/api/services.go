@@ -37,6 +37,9 @@ type AdminService interface {
 	CurrentBinary() string
 	CurrentIdleTimeout() int
 	DefaultArgs() []string
+	Environment() map[string]string
+	SetEnvironment(map[string]string) error
+	Models() []models.ModelConfig
 	UpdateConfig(func(*models.Config)) error
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error

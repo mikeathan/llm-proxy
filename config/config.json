@@ -15,7 +15,11 @@
       "999",
       "--host",
       "0.0.0.0"
-    ]
+    ],
+    "environment": {
+      "HSA_OVERRIDE_GFX_VERSION": "11.0.0",
+      "AMD_SERIALIZE_KERNEL": "1"
+    }
   },
   "models": [
     {

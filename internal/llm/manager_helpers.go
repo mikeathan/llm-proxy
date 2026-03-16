@@ -64,11 +64,12 @@ func resolveModelFile(baseDir string, m models.ModelConfig) string {
 func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
 	args := append(cfg.Server.DefaultArgs, model.Args...)
 	return models.ModelConfig{
-		Name:     model.Name,
-		Filename: model.Filename,
-		Path:     resolveModelFile(cfg.ModelDir, model),
-		Args:     args,
-		Port:     model.Port,
+		Name:        model.Name,
+		Filename:    model.Filename,
+		Path:        resolveModelFile(cfg.ModelDir, model),
+		Args:        args,
+		Port:        model.Port,
+		Environment: cfg.Server.Environment,
 	}
 }
 
@@ -138,6 +139,15 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 	}
 	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
 	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
+	
+	if len(cfg.Environment) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range cfg.Environment {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+	
+	logBuf.Info("Launching llama-server: %s %s", "env", cmd.Env, "args", cmd.Args)
 
 	if err := cmd.Start(); err != nil {
 		cancel()

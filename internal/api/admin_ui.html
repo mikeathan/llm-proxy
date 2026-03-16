@@ -435,6 +435,17 @@
             />
           </div>
         </div>
+        <div class="status-line" style="margin-top: 12px">
+          Environment variables executed prior to starting the `llama-server` process. (Format: <code>VAR=value</code> on new lines)
+        </div>
+        <div style="margin-top: 12px">
+          <textarea
+            id="environment-vars"
+            placeholder="HSA_OVERRIDE_GFX_VERSION=11.0.0&#10;ROCR_VISIBLE_DEVICES=0"
+            rows="4"
+            style="width: 100%; box-sizing: border-box; font-family: monospace;"
+          ></textarea>
+        </div>
         <div class="toolbar" style="margin-top: 12px">
           <button id="save-config" class="secondary">Save config</button>
         </div>
@@ -610,6 +621,7 @@
             serviceClientSecret: document.getElementById(
               "service-client-secret",
             ),
+            environmentVars: document.getElementById("environment-vars"),
             logLevel: document.getElementById("log-level"),
             mcpName: document.getElementById("mcp-name"),
             mcpURL: document.getElementById("mcp-url"),
@@ -891,6 +903,16 @@
           dom.inputs.serviceClientID.value = cfg.service_client_id || "";
           dom.inputs.serviceClientSecret.value =
             cfg.service_client_secret || "";
+
+          if (cfg.environment) {
+            const envVars = [];
+            for (const [key, value] of Object.entries(cfg.environment)) {
+              if (key) envVars.push(`${key}=${value}`);
+            }
+            dom.inputs.environmentVars.value = envVars.join("\n");
+          } else {
+            dom.inputs.environmentVars.value = "";
+          }
         }
 
         function updateRowStatus(model) {
@@ -997,6 +1019,25 @@
         }
 
         async function saveConfig() {
+          let envObj = {};
+          const envVal = dom.inputs.environmentVars.value || "";
+          const envLines = envVal.split("\n");
+          for (let i = 0; i < envLines.length; i++) {
+            const line = envLines[i].trim();
+            if (!line) continue;
+            
+            const eqIdx = line.indexOf("=");
+            if (eqIdx === -1) {
+                setMessage(`Invalid environment variable format on line ${i + 1}. Expected KEY=VALUE.`, "error");
+                return;
+            }
+            const k = line.slice(0, eqIdx).trim();
+            const v = line.slice(eqIdx + 1).trim();
+            if (k) {
+                envObj[k] = v;
+            }
+          }
+
           const payload = {
             model_dir: (dom.inputs.modelDir.value || "").trim(),
             model_host: (dom.inputs.modelHost.value || "").trim(),
@@ -1005,6 +1046,7 @@
             service_client_secret: (
               dom.inputs.serviceClientSecret.value || ""
             ).trim(),
+            environment: envObj,
           };
           setMessage("Saving config...");
           try {

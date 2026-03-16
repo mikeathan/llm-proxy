@@ -24,6 +24,9 @@ type MockAdminService struct {
 	AddMCPServerFunc          func(models.MCPServerConfig) error
 	UpdateMCPServerFunc       func(models.MCPServerConfig) error
 	RemoveMCPServerFunc       func(string) error
+	EnvironmentFunc           func() map[string]string
+	SetEnvironmentFunc        func(map[string]string) error
+	ModelsFunc                func() []models.ModelConfig
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -145,6 +148,27 @@ func (m *MockAdminService) UpdateMCPServer(cfg models.MCPServerConfig) error {
 func (m *MockAdminService) RemoveMCPServer(name string) error {
 	if m.RemoveMCPServerFunc != nil {
 		return m.RemoveMCPServerFunc(name)
+	}
+	return nil
+}
+
+func (m *MockAdminService) Environment() map[string]string {
+	if m.EnvironmentFunc != nil {
+		return m.EnvironmentFunc()
+	}
+	return map[string]string{}
+}
+
+func (m *MockAdminService) SetEnvironment(env map[string]string) error {
+	if m.SetEnvironmentFunc != nil {
+		return m.SetEnvironmentFunc(env)
+	}
+	return nil
+}
+
+func (m *MockAdminService) Models() []models.ModelConfig {
+	if m.ModelsFunc != nil {
+		return m.ModelsFunc()
 	}
 	return nil
 }

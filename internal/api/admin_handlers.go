@@ -96,8 +96,9 @@ type adminConfigView struct {
 	GPUProvider         string `json:"gpu_provider,omitempty"`
 	GPUBinary           string `json:"gpu_binary,omitempty"`
 	GPUIndex            int    `json:"gpu_index,omitempty"`
-	ServiceClientID     string `json:"service_client_id,omitempty"`
-	ServiceClientSecret string `json:"service_client_secret,omitempty"`
+	ServiceClientID     string            `json:"service_client_id,omitempty"`
+	ServiceClientSecret string            `json:"service_client_secret,omitempty"`
+	Environment         map[string]string `json:"environment"`
 }
 
 type adminStartResponse struct {
@@ -196,16 +197,29 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		},
 	}
 
+	rawModels := h.admin.Models()
+	rawArgs := map[string][]string{}
+	for _, raw := range rawModels {
+		rawArgs[raw.Name] = raw.Args
+	}
+
 	for _, mc := range modelsList {
 		filename := mc.Filename
 		if filename == "" && mc.Path != "" {
 			filename = filepath.Base(mc.Path)
 		}
+		
+		// Use raw arguments from the config, not the runtime combinations which inject DefaultArgs.
+		args := rawArgs[mc.Name]
+		if args == nil {
+			args = mc.Args
+		}
+
 		state.Models = append(state.Models, adminModelView{
 			Name:         mc.Name,
 			Filename:     filename,
 			ResolvedPath: mc.Path,
-			Args:         mc.Args,
+			Args:         args,
 			Port:         mc.Port,
 			Endpoint:     fmt.Sprintf("http://%s:%d", host, mc.Port),
 			Active:       mc.Name == activeName,
@@ -274,6 +288,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		GPUIndex:            gpuCfg.Index,
 		ServiceClientID:     serviceClientID,
 		ServiceClientSecret: serviceClientSecret,
+		Environment:         h.admin.Environment(),
 	}
 	respondJSON(w, cfg)
 }
@@ -451,9 +466,10 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		ModelHost           string `json:"model_host"`
 		GPUProvider         string `json:"gpu_provider"`
 		GPUBinary           string `json:"gpu_binary"`
-		GPUIndex            *int   `json:"gpu_index"`
-		ServiceClientID     string `json:"service_client_id"`
-		ServiceClientSecret string `json:"service_client_secret"`
+		GPUIndex            *int              `json:"gpu_index"`
+		ServiceClientID     string            `json:"service_client_id"`
+		ServiceClientSecret string            `json:"service_client_secret"`
+		Environment         map[string]string `json:"environment"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -518,6 +534,9 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 			if req.GPUIndex != nil {
 				cfg.Metrics.GPU.Index = gpuCfg.Index
 			}
+		}
+		if req.Environment != nil {
+			cfg.Server.Environment = req.Environment
 		}
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
@@ -634,16 +653,14 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		req.Port = nextAvailablePort(h.runtime.ListModels(), activePort)
 	}
 
-	args := req.Args
-	if defaults := h.admin.DefaultArgs(); len(defaults) > 0 {
-		args = append(append([]string{}, defaults...), req.Args...)
-	}
+	// Merge default args into runtime configuration
+	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
 
 	runtimeCfg := models.ModelConfig{
 		Name:     req.Name,
 		Filename: filename,
 		Path:     fullPath,
-		Args:     args,
+		Args:     runtimeArgs,
 		Port:     req.Port,
 	}
 
@@ -715,7 +732,8 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		req.Args = existing.Args
 	}
 
-	args := req.Args
+	// Merge default args into runtime configuration
+	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
 	fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
 	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
@@ -726,7 +744,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Name:     req.Name,
 		Filename: req.Filename,
 		Path:     fullPath,
-		Args:     args,
+		Args:     runtimeArgs,
 		Port:     req.Port,
 	}
 

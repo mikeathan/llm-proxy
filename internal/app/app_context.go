@@ -107,6 +107,29 @@ func (s *AppContext) DefaultArgs() []string {
 	return append([]string{}, s.config.Server.DefaultArgs...)
 }
 
+func (s *AppContext) Environment() map[string]string {
+	if s.config == nil || s.config.Server.Environment == nil {
+		return map[string]string{}
+	}
+	return s.config.Server.Environment
+}
+
+func (s *AppContext) Models() []models.ModelConfig {
+	if s.config == nil {
+		return nil
+	}
+	// return a copy
+	out := make([]models.ModelConfig, len(s.config.Models))
+	copy(out, s.config.Models)
+	return out
+}
+
+func (s *AppContext) SetEnvironment(env map[string]string) error {
+	return s.UpdateConfig(func(cfg *models.Config) {
+		cfg.Server.Environment = env
+	})
+}
+
 func (s *AppContext) UpdateConfig(update func(cfg *models.Config)) error {
 	if s.configMgr == nil {
 		return nil
