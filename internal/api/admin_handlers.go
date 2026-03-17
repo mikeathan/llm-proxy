@@ -539,13 +539,19 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		if req.Environment != nil {
 			cfg.Server.Environment = req.Environment
 		}
-	}); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
-		return
-	}
-
-	h.admin.RefreshMetricsService()
-
+			}); err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
+				return
+			}
+	
+			if req.Environment != nil {
+				for _, m := range h.runtime.ListModels() {
+					m.Environment = req.Environment
+					_ = h.runtime.UpdateModel(m)
+				}
+			}
+	
+			h.admin.RefreshMetricsService()
 	h.admin.RefreshMetricsService()
 
 	w.WriteHeader(http.StatusNoContent)
@@ -658,11 +664,12 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
 
 	runtimeCfg := models.ModelConfig{
-		Name:     req.Name,
-		Filename: filename,
-		Path:     fullPath,
-		Args:     runtimeArgs,
-		Port:     req.Port,
+		Name:        req.Name,
+		Filename:    filename,
+		Path:        fullPath,
+		Args:        runtimeArgs,
+		Port:        req.Port,
+		Environment: h.admin.Environment(),
 	}
 
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
@@ -742,11 +749,12 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	runtimeCfg := models.ModelConfig{
-		Name:     req.Name,
-		Filename: req.Filename,
-		Path:     fullPath,
-		Args:     runtimeArgs,
-		Port:     req.Port,
+		Name:        req.Name,
+		Filename:    req.Filename,
+		Path:        fullPath,
+		Args:        runtimeArgs,
+		Port:        req.Port,
+		Environment: h.admin.Environment(),
 	}
 
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
