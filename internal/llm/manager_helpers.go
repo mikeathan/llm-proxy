@@ -140,15 +140,16 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
 	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
 	
-	if len(cfg.Environment) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range cfg.Environment {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-	
-	logBuf.Info("Launching llama-server: %s %s", "env", cmd.Env, "args", cmd.Args)
-
+			if len(cfg.Environment) > 0 {
+				cmd.Env = os.Environ()
+				for k, v := range cfg.Environment {
+					cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+				}
+			} else {
+				logBuf.Info("DEBUG: cfg.Environment is empty!")
+			}
+			
+			logBuf.Info("Launching llama-server (UPDATED BINARY): %s %s", "env", cmd.Env, "args", cmd.Args)
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return fmt.Errorf("model start failed: %w", err)
