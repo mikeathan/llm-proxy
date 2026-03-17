@@ -544,14 +544,15 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 				return
 			}
 	
-			if req.Environment != nil {
-				for _, m := range h.runtime.ListModels() {
-					m.Environment = req.Environment
-					_ = h.runtime.UpdateModel(m)
-				}
-			}
-	
-			h.admin.RefreshMetricsService()
+					if req.Environment != nil {
+						if h.logger != nil {
+							h.logger.Info("DEBUG: AdminConfigUpdateHandler updating %d models with %d env vars", len(h.runtime.ListModels()), len(req.Environment))
+						}
+						for _, m := range h.runtime.ListModels() {
+							m.Environment = req.Environment
+							_ = h.runtime.UpdateModel(m)
+						}
+					}
 	h.admin.RefreshMetricsService()
 
 	w.WriteHeader(http.StatusNoContent)
@@ -747,15 +748,19 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	runtimeCfg := models.ModelConfig{
-		Name:        req.Name,
-		Filename:    req.Filename,
-		Path:        fullPath,
-		Args:        runtimeArgs,
-		Port:        req.Port,
-		Environment: h.admin.Environment(),
-	}
-
+			env := h.admin.Environment()
+			if h.logger != nil {
+				h.logger.Info("DEBUG: handleUpdateModel h.admin.Environment() returned %d items", len(env))
+			}
+			
+			runtimeCfg := models.ModelConfig{
+				Name:        req.Name,
+				Filename:    req.Filename,
+				Path:        fullPath,
+				Args:        runtimeArgs,
+				Port:        req.Port,
+				Environment: env,
+			}
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, llm.ErrUnknownModel) {

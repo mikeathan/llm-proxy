@@ -240,12 +240,19 @@ func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
 	for _, name := range names {
 		cfg := m.models[name]
 		argsCopy := append([]string(nil), cfg.Args...)
+		
+		envCopy := make(map[string]string)
+		for k, v := range cfg.Environment {
+			envCopy[k] = v
+		}
+
 		modelsOut = append(modelsOut, models.ModelConfig{
-			Name:     cfg.Name,
-			Filename: cfg.Filename,
-			Path:     cfg.Path,
-			Args:     argsCopy,
-			Port:     cfg.Port,
+			Name:        cfg.Name,
+			Filename:    cfg.Filename,
+			Path:        cfg.Path,
+			Args:        argsCopy,
+			Port:        cfg.Port,
+			Environment: envCopy,
 		})
 	}
 

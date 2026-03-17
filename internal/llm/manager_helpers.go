@@ -63,13 +63,22 @@ func resolveModelFile(baseDir string, m models.ModelConfig) string {
 
 func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
 	args := append(cfg.Server.DefaultArgs, model.Args...)
+	
+	env := make(map[string]string)
+	for k, v := range cfg.Server.Environment {
+		env[k] = v
+	}
+	for k, v := range model.Environment {
+		env[k] = v
+	}
+
 	return models.ModelConfig{
 		Name:        model.Name,
 		Filename:    model.Filename,
 		Path:        resolveModelFile(cfg.ModelDir, model),
 		Args:        args,
 		Port:        model.Port,
-		Environment: cfg.Server.Environment,
+		Environment: env,
 	}
 }
 
@@ -149,7 +158,7 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 				logBuf.Info("DEBUG: cfg.Environment is empty!")
 			}
 			
-			logBuf.Info("Launching llama-server (UPDATED BINARY): %s %s", "env", cmd.Env, "args", cmd.Args)
+			logBuf.Info(fmt.Sprintf("Launching llama-server (UPDATED BINARY): env %v, args %v", cmd.Env, cmd.Args))
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return fmt.Errorf("model start failed: %w", err)
