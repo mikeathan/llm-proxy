@@ -194,6 +194,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			GPUIndex:            gpuCfg.Index,
 			ServiceClientID:     serviceClientID,
 			ServiceClientSecret: serviceClientSecret,
+			Environment:         h.admin.Environment(),
 		},
 	}
 
