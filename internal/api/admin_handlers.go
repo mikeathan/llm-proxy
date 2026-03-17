@@ -660,9 +660,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		req.Port = nextAvailablePort(h.runtime.ListModels(), activePort)
 	}
 
-	// Merge default args into runtime configuration
-	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
-
+			// Use the user-provided arguments directly for runtime configuration
+			runtimeArgs := req.Args
 	runtimeCfg := models.ModelConfig{
 		Name:        req.Name,
 		Filename:    filename,
@@ -740,9 +739,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		req.Args = existing.Args
 	}
 
-	// Merge default args into runtime configuration
-	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
-	fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
+		// Use the user-provided arguments directly for runtime configuration
+		runtimeArgs := req.Args
+		fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
 	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
 		return
