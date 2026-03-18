@@ -536,7 +536,6 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 				cfg.Metrics.GPU.Index = gpuCfg.Index
 			}
 		}
-		h.logger.Info("DEBUG: AdminConfigUpdateHandler received config update request with %d env vars", len(req.Environment))
 		if req.Environment != nil {
 			cfg.Server.Environment = req.Environment
 		}
@@ -546,9 +545,6 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 	}
 
 	if req.Environment != nil {
-		if h.logger != nil {
-			h.logger.Info("DEBUG: AdminConfigUpdateHandler updating %d models with %d env vars", len(h.runtime.ListModels()), len(req.Environment))
-		}
 		for _, m := range h.runtime.ListModels() {
 			m.Environment = req.Environment
 			_ = h.runtime.UpdateModel(m)
@@ -664,7 +660,6 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	// Merge default args with user-provided arguments for runtime configuration
 	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
-	h.logger.Info("DEBUG: handleAddModel env returned %d items", len(h.admin.Environment()))
 
 	runtimeCfg := models.ModelConfig{
 		Name:        req.Name,
@@ -675,7 +670,6 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Environment: h.admin.Environment(),
 	}
 
-	h.logger.Info("DEBUG: handleAddModel runtime config: %+v", runtimeCfg)
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, llm.ErrModelExists) {
@@ -757,7 +751,6 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		env[k] = v
 	}
 
-	h.logger.Info("DEBUG: handleUpdateModel admin env returned %d items", len(h.admin.Environment()))
 	for _, raw := range h.admin.Models() {
 		if raw.Name == req.Name {
 			for k, v := range raw.Environment {
@@ -765,10 +758,6 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 			}
 			break
 		}
-	}
-
-	if h.logger != nil {
-		h.logger.Info("DEBUG: handleUpdateModel env returned %d items", len(env))
 	}
 
 	runtimeCfg := models.ModelConfig{
