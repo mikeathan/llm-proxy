@@ -13,7 +13,7 @@ import (
 
 type AppContext struct {
 	manager   llm.RuntimeManager
-	config    *models.Config
+	config    models.Config
 	configMgr *config.ConfigManager
 	modelDir  string
 	gpuConfig models.GPUConfig
@@ -25,7 +25,7 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 	cfg := cfgMgr.GetConfig()
 	s := &AppContext{
 		manager:   mgr,
-		config:    &cfg,
+		config:    cfg,
 		configMgr: cfgMgr,
 		modelDir:  cfg.ModelDir,
 		gpuConfig: cfg.Metrics.GPU,
@@ -33,7 +33,7 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 
 	cfgMgr.OnChange(func(newCfg models.Config) {
 		s.configMu.Lock()
-		s.config = &newCfg
+		s.config = newCfg
 		s.modelDir = newCfg.ModelDir
 		s.gpuConfig = newCfg.Metrics.GPU
 		s.configMu.Unlock()
@@ -86,38 +86,31 @@ func (s *AppContext) SetGPUConfig(cfg models.GPUConfig) {
 }
 
 func (s *AppContext) CurrentBinary() string {
-	if s.config != nil && s.config.Server.LlamaServerBinary != "" {
+	if s.config.Server.LlamaServerBinary != "" {
 		return s.config.Server.LlamaServerBinary
 	}
 	return "llama-server"
 }
 
 func (s *AppContext) CurrentIdleTimeout() int {
-	if s.config != nil {
-		return s.config.Server.IdleTimeoutSecs
-	}
-	return 0
+	return s.config.Server.IdleTimeoutSecs
 }
 
 func (s *AppContext) DefaultArgs() []string {
-	if s.config == nil || len(s.config.Server.DefaultArgs) == 0 {
+	if len(s.config.Server.DefaultArgs) == 0 {
 		return nil
 	}
 	return append([]string{}, s.config.Server.DefaultArgs...)
 }
 
 func (s *AppContext) Environment() map[string]string {
-
-	if s.config == nil || s.config.Server.Environment == nil {
+	if s.config.Server.Environment == nil {
 		return map[string]string{}
 	}
 	return s.config.Server.Environment
 }
 
 func (s *AppContext) Models() []models.ModelConfig {
-	if s.config == nil {
-		return nil
-	}
 	// return a copy
 	out := make([]models.ModelConfig, len(s.config.Models))
 	copy(out, s.config.Models)
@@ -207,9 +200,6 @@ func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
 }
 
 func (s *AppContext) ListMCPServers() []models.MCPServerConfig {
-	if s.config == nil {
-		return nil
-	}
 	// Return copy
 	return append([]models.MCPServerConfig{}, s.config.MCPServers...)
 }
