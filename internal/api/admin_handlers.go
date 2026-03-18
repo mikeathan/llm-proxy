@@ -89,13 +89,13 @@ type adminStateResponse struct {
 }
 
 type adminConfigView struct {
-	ModelDir            string `json:"model_dir"`
-	LlamaBinary         string `json:"llama_binary"`
-	ModelHost           string `json:"model_host"`
-	IdleTimeoutS        int    `json:"idle_timeout_seconds"`
-	GPUProvider         string `json:"gpu_provider,omitempty"`
-	GPUBinary           string `json:"gpu_binary,omitempty"`
-	GPUIndex            int    `json:"gpu_index,omitempty"`
+	ModelDir            string            `json:"model_dir"`
+	LlamaBinary         string            `json:"llama_binary"`
+	ModelHost           string            `json:"model_host"`
+	IdleTimeoutS        int               `json:"idle_timeout_seconds"`
+	GPUProvider         string            `json:"gpu_provider,omitempty"`
+	GPUBinary           string            `json:"gpu_binary,omitempty"`
+	GPUIndex            int               `json:"gpu_index,omitempty"`
 	ServiceClientID     string            `json:"service_client_id,omitempty"`
 	ServiceClientSecret string            `json:"service_client_secret,omitempty"`
 	Environment         map[string]string `json:"environment"`
@@ -209,7 +209,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		if filename == "" && mc.Path != "" {
 			filename = filepath.Base(mc.Path)
 		}
-		
+
 		// Use raw arguments from the config, not the runtime combinations which inject DefaultArgs.
 		args := rawArgs[mc.Name]
 		if args == nil {
@@ -462,11 +462,11 @@ func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ModelDir            string `json:"model_dir"`
-		LlamaBinary         string `json:"llama_binary"`
-		ModelHost           string `json:"model_host"`
-		GPUProvider         string `json:"gpu_provider"`
-		GPUBinary           string `json:"gpu_binary"`
+		ModelDir            string            `json:"model_dir"`
+		LlamaBinary         string            `json:"llama_binary"`
+		ModelHost           string            `json:"model_host"`
+		GPUProvider         string            `json:"gpu_provider"`
+		GPUBinary           string            `json:"gpu_binary"`
 		GPUIndex            *int              `json:"gpu_index"`
 		ServiceClientID     string            `json:"service_client_id"`
 		ServiceClientSecret string            `json:"service_client_secret"`
@@ -536,23 +536,24 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 				cfg.Metrics.GPU.Index = gpuCfg.Index
 			}
 		}
+		h.logger.Info("DEBUG: AdminConfigUpdateHandler received config update request with %d env vars", len(req.Environment))
 		if req.Environment != nil {
 			cfg.Server.Environment = req.Environment
 		}
-			}); err != nil {
-				writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
-				return
-			}
-	
-					if req.Environment != nil {
-						if h.logger != nil {
-							h.logger.Info("DEBUG: AdminConfigUpdateHandler updating %d models with %d env vars", len(h.runtime.ListModels()), len(req.Environment))
-						}
-						for _, m := range h.runtime.ListModels() {
-							m.Environment = req.Environment
-							_ = h.runtime.UpdateModel(m)
-						}
-					}
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
+		return
+	}
+
+	if req.Environment != nil {
+		if h.logger != nil {
+			h.logger.Info("DEBUG: AdminConfigUpdateHandler updating %d models with %d env vars", len(h.runtime.ListModels()), len(req.Environment))
+		}
+		for _, m := range h.runtime.ListModels() {
+			m.Environment = req.Environment
+			_ = h.runtime.UpdateModel(m)
+		}
+	}
 	h.admin.RefreshMetricsService()
 
 	w.WriteHeader(http.StatusNoContent)
@@ -661,8 +662,10 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		req.Port = nextAvailablePort(h.runtime.ListModels(), activePort)
 	}
 
-			// Use the user-provided arguments directly for runtime configuration
-			runtimeArgs := req.Args
+	// Merge default args with user-provided arguments for runtime configuration
+	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
+	h.logger.Info("DEBUG: handleAddModel env returned %d items", len(h.admin.Environment()))
+
 	runtimeCfg := models.ModelConfig{
 		Name:        req.Name,
 		Filename:    filename,
@@ -672,6 +675,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Environment: h.admin.Environment(),
 	}
 
+	h.logger.Info("DEBUG: handleAddModel runtime config: %+v", runtimeCfg)
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, llm.ErrModelExists) {
@@ -740,27 +744,39 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		req.Args = existing.Args
 	}
 
-		// Use the user-provided arguments directly for runtime configuration
-		runtimeArgs := req.Args
-		fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
+	// Merge default args with user-provided arguments for runtime configuration
+	runtimeArgs := append(h.admin.DefaultArgs(), req.Args...)
+	fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
 	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
 		return
 	}
 
-			env := h.admin.Environment()
-			if h.logger != nil {
-				h.logger.Info("DEBUG: handleUpdateModel h.admin.Environment() returned %d items", len(env))
+	env := make(map[string]string)
+	for k, v := range h.admin.Environment() {
+		env[k] = v
+	}
+	for _, raw := range h.admin.Models() {
+		if raw.Name == req.Name {
+			for k, v := range raw.Environment {
+				env[k] = v
 			}
-			
-			runtimeCfg := models.ModelConfig{
-				Name:        req.Name,
-				Filename:    req.Filename,
-				Path:        fullPath,
-				Args:        runtimeArgs,
-				Port:        req.Port,
-				Environment: env,
-			}
+			break
+		}
+	}
+
+	if h.logger != nil {
+		h.logger.Info("DEBUG: handleUpdateModel env returned %d items", len(env))
+	}
+
+	runtimeCfg := models.ModelConfig{
+		Name:        req.Name,
+		Filename:    req.Filename,
+		Path:        fullPath,
+		Args:        runtimeArgs,
+		Port:        req.Port,
+		Environment: env,
+	}
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, llm.ErrUnknownModel) {
