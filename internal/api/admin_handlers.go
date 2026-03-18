@@ -756,6 +756,8 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	for k, v := range h.admin.Environment() {
 		env[k] = v
 	}
+
+	h.logger.Info("DEBUG: handleUpdateModel admin env returned %d items", len(h.admin.Environment()))
 	for _, raw := range h.admin.Models() {
 		if raw.Name == req.Name {
 			for k, v := range raw.Environment {

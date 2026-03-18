@@ -148,7 +148,7 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 	}
 	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
 	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
-	
+	logBuf.Info(fmt.Sprintf("Launching llama-server: env %v, args %v", cmd.Env, cmd.Args))
 			if len(cfg.Environment) > 0 {
 				cmd.Env = os.Environ()
 				for k, v := range cfg.Environment {

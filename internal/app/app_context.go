@@ -23,7 +23,6 @@ type AppContext struct {
 
 func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext {
 	cfg := cfgMgr.GetConfig()
-
 	s := &AppContext{
 		manager:   mgr,
 		config:    &cfg,
@@ -108,6 +107,7 @@ func (s *AppContext) DefaultArgs() []string {
 }
 
 func (s *AppContext) Environment() map[string]string {
+
 	if s.config == nil || s.config.Server.Environment == nil {
 		return map[string]string{}
 	}
