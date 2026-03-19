@@ -116,3 +116,72 @@ func TestParseContentToolCalls_FunctionNameTrimmed(t *testing.T) {
 		t.Errorf("expected trimmed name 'declare_intent', got %q", calls[0].Function.Name)
 	}
 }
+
+// --- Tests for the <tools> JSON format ---
+
+func TestParseContentToolCalls_ToolsTagFormat(t *testing.T) {
+	content := "<tools>\n{\"name\": \"query_device\", \"arguments\": {\"target_name\": \"Living Room Light\", \"metrics\": [\"state\"], \"time_scope\": \"today\", \"aggregation\": \"last\"}}\n</tools>"
+
+	calls, ok := proxy.ParseContentToolCalls(content)
+	if !ok {
+		t.Fatal("expected ok=true for <tools> format")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	tc := calls[0]
+	if tc.Function.Name != "query_device" {
+		t.Errorf("expected name 'query_device', got %q", tc.Function.Name)
+	}
+	if tc.Type != "function" {
+		t.Errorf("expected type 'function', got %q", tc.Type)
+	}
+	if tc.Function.Arguments == "" || tc.Function.Arguments == "{}" {
+		t.Errorf("expected non-empty arguments, got %q", tc.Function.Arguments)
+	}
+}
+
+func TestParseContentToolCalls_ToolsTagMultiple(t *testing.T) {
+	content := `<tools>
+{"name": "get_state", "arguments": {"room": "kitchen"}}
+</tools>
+<tools>
+{"name": "get_state", "arguments": {"room": "hallway"}}
+</tools>`
+
+	calls, ok := proxy.ParseContentToolCalls(content)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+	if calls[0].ID == calls[1].ID {
+		t.Error("expected unique IDs for each call")
+	}
+}
+
+func TestParseContentToolCalls_ToolsTagMalformedJSON(t *testing.T) {
+	// Malformed JSON inside <tools> should be silently skipped
+	content := "<tools>\nnot-json\n</tools>"
+	calls, ok := proxy.ParseContentToolCalls(content)
+	if ok {
+		t.Error("expected ok=false for malformed JSON in <tools>")
+	}
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls, got %d", len(calls))
+	}
+}
+
+func TestParseContentToolCalls_ToolsTagMissingName(t *testing.T) {
+	// Valid JSON but missing "name" key - should be rejected
+	content := `<tools>{"arguments": {"foo": "bar"}}</tools>`
+	calls, ok := proxy.ParseContentToolCalls(content)
+	if ok {
+		t.Error("expected ok=false when name is missing")
+	}
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls, got %d", len(calls))
+	}
+}
+
