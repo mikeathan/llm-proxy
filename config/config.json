@@ -8,11 +8,14 @@
       "--ctx-size",
       "4096",
       "--threads",
-      "6",
+      "8",
       "--parallel",
       "1",
       "--gpu-layers",
       "999",
+      "--flash-attn",
+      "on",
+      "--no-mmap",
       "--host",
       "0.0.0.0"
     ],
@@ -26,7 +29,7 @@
       "name": "qwen2.5-3b-instruct",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "args": [],
-      "port": 5001
+      "port": 9002
     }
   ],
   "model_dir": "/home/mikeathan/dev/models",
