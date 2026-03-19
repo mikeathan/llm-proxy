@@ -1,5 +1,7 @@
 package proxy
 
+import "encoding/json"
+
 type ChatRole string
 type ToolChoice string
 
@@ -41,6 +43,33 @@ type ToolCall struct {
 type FunctionCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+func (f *FunctionCall) UnmarshalJSON(data []byte) error {
+	type Alias FunctionCall
+	aux := &struct {
+		Arguments json.RawMessage `json:"arguments"`
+		*Alias
+	}{
+		Alias: (*Alias)(f),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if len(aux.Arguments) > 0 {
+		if aux.Arguments[0] == '"' {
+			var s string
+			if err := json.Unmarshal(aux.Arguments, &s); err != nil {
+				return err
+			}
+			f.Arguments = s
+		} else if aux.Arguments[0] == 'n' && string(aux.Arguments) == "null" {
+			f.Arguments = ""
+		} else {
+			f.Arguments = string(aux.Arguments)
+		}
+	}
+	return nil
 }
 
 type Choice struct {
