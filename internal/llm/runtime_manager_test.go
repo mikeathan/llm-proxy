@@ -53,7 +53,7 @@ func TestNewManagerFromConfig_NormalizesModels(t *testing.T) {
 	if m.Path != filepath.Join(cfg.ModelDir, "model.gguf") {
 		t.Fatalf("unexpected path: %s", m.Path)
 	}
-	expectedArgs := []string{"--alpha", "1", "--beta", "2"}
+	expectedArgs := []string{"--beta", "2"}
 	if !equalStrings(m.Args, expectedArgs) {
 		t.Fatalf("unexpected args: %#v", m.Args)
 	}

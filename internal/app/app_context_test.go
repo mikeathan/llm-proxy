@@ -347,8 +347,8 @@ func TestAdminAddModelHandler(t *testing.T) {
 	if added.Filename != filepath.Base(tmpFile.Name()) || added.Path != tmpFile.Name() {
 		t.Fatalf("expected resolved path to match temp file, got %+v", added)
 	}
-	if len(added.Args) != 4 || added.Args[0] != "--gpu-layers" || added.Args[1] != "2" || added.Args[2] != "--ctx-size" || added.Args[3] != "2048" {
-		t.Fatalf("expected default args merged, got %v", added.Args)
+	if len(added.Args) != 2 || added.Args[0] != "--ctx-size" || added.Args[1] != "2048" {
+		t.Fatalf("expected args to not merge defaults if provided, got %v", added.Args)
 	}
 }
 

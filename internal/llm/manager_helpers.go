@@ -62,7 +62,12 @@ func resolveModelFile(baseDir string, m models.ModelConfig) string {
 }
 
 func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
-	args := append(cfg.Server.DefaultArgs, model.Args...)
+	var args []string
+	if len(model.Args) == 0 {
+		args = append([]string(nil), cfg.Server.DefaultArgs...)
+	} else {
+		args = append([]string(nil), model.Args...)
+	}
 	
 	env := make(map[string]string)
 	for k, v := range cfg.Server.Environment {
