@@ -165,6 +165,17 @@ func (h *AssistantMessageHandler) callModel(ctx context.Context, client proxy.Cl
 	msg := resp.Choices[0].Message
 	log.Debug("llm step", "tool_calls", len(msg.ToolCalls), "content_len", len(msg.Content))
 
+	// Some local models (e.g. qwen2.5-coder) embed tool calls as XML markup in
+	// Content instead of using the standard tool_calls JSON field.
+	// Detect and normalise this so the agent loop behaves identically.
+	if len(msg.ToolCalls) == 0 && msg.Content != "" {
+		if parsed, ok := proxy.ParseContentToolCalls(msg.Content); ok {
+			log.Debug("detected content-embedded tool calls, normalising", "count", len(parsed))
+			msg.ToolCalls = parsed
+			msg.Content = ""
+		}
+	}
+
 	return msg, nil
 }
 
