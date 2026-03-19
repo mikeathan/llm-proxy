@@ -446,6 +446,17 @@
             style="width: 100%; box-sizing: border-box; font-family: monospace;"
           ></textarea>
         </div>
+        <div class="status-line" style="margin-top: 12px">
+          Global default arguments passed to `llama-server`. These are automatically appended if a model does not have its own arguments set. (Format: one argument or flag per line)
+        </div>
+        <div style="margin-top: 12px">
+          <textarea
+            id="default-args"
+            placeholder="--ctx-size&#10;4096"
+            rows="4"
+            style="width: 100%; box-sizing: border-box; font-family: monospace;"
+          ></textarea>
+        </div>
         <div class="toolbar" style="margin-top: 12px">
           <button id="save-config" class="secondary">Save config</button>
         </div>
@@ -622,6 +633,7 @@
               "service-client-secret",
             ),
             environmentVars: document.getElementById("environment-vars"),
+            defaultArgs: document.getElementById("default-args"),
             logLevel: document.getElementById("log-level"),
             mcpName: document.getElementById("mcp-name"),
             mcpURL: document.getElementById("mcp-url"),
@@ -913,6 +925,12 @@
           } else {
             dom.inputs.environmentVars.value = "";
           }
+
+          if (cfg.default_args && cfg.default_args.length > 0) {
+            dom.inputs.defaultArgs.value = cfg.default_args.join("\n");
+          } else {
+            dom.inputs.defaultArgs.value = "";
+          }
         }
 
         function updateRowStatus(model) {
@@ -1038,6 +1056,12 @@
             }
           }
 
+          const defaultArgsRaw = dom.inputs.defaultArgs.value || "";
+          const defaultArgs = defaultArgsRaw
+              .split("\n")
+              .map(v => v.trim())
+              .filter(Boolean);
+
           const payload = {
             model_dir: (dom.inputs.modelDir.value || "").trim(),
             model_host: (dom.inputs.modelHost.value || "").trim(),
@@ -1047,6 +1071,7 @@
               dom.inputs.serviceClientSecret.value || ""
             ).trim(),
             environment: envObj,
+            default_args: defaultArgs,
           };
           setMessage("Saving config...");
           try {

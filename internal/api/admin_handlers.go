@@ -99,6 +99,7 @@ type adminConfigView struct {
 	ServiceClientID     string            `json:"service_client_id,omitempty"`
 	ServiceClientSecret string            `json:"service_client_secret,omitempty"`
 	Environment         map[string]string `json:"environment"`
+	DefaultArgs         []string          `json:"default_args"`
 }
 
 type adminStartResponse struct {
@@ -195,6 +196,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			ServiceClientID:     serviceClientID,
 			ServiceClientSecret: serviceClientSecret,
 			Environment:         h.admin.Environment(),
+			DefaultArgs:         h.admin.DefaultArgs(),
 		},
 	}
 
@@ -290,6 +292,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		ServiceClientID:     serviceClientID,
 		ServiceClientSecret: serviceClientSecret,
 		Environment:         h.admin.Environment(),
+		DefaultArgs:         h.admin.DefaultArgs(),
 	}
 	respondJSON(w, cfg)
 }
@@ -471,6 +474,7 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		ServiceClientID     string            `json:"service_client_id"`
 		ServiceClientSecret string            `json:"service_client_secret"`
 		Environment         map[string]string `json:"environment"`
+		DefaultArgs         []string          `json:"default_args"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -538,6 +542,9 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		}
 		if req.Environment != nil {
 			cfg.Server.Environment = req.Environment
+		}
+		if req.DefaultArgs != nil {
+			cfg.Server.DefaultArgs = req.DefaultArgs
 		}
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
