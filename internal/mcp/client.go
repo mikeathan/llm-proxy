@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -17,6 +19,19 @@ import (
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/network"
 )
+
+// getKeepAliveInterval reads the TCP KeepAlive interval from environment variable
+// MCP_KEEPALIVE_INTERVAL. If missing or invalid, defaults to 15 seconds.
+// This interval is optimized for LAN/Wi-Fi environments to prevent NAT state-table
+// expiry and Wi-Fi chip sleep cycles that can silently drop idle TCP connections.
+func getKeepAliveInterval() time.Duration {
+	if val := os.Getenv("MCP_KEEPALIVE_INTERVAL"); val != "" {
+		if seconds, err := strconv.Atoi(val); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return 15 * time.Second
+}
 
 func NewClient(name, sseURL, bindAddr string, logger logging.Logger) *Client {
 	return &Client{
@@ -90,7 +105,7 @@ func (c *Client) manageConnection(ctx context.Context) {
 			if initialized {
 				// IDLE STATE: Client is healthy, check connection with Ping
 				// Create a short timeout for the ping
-				pingCtx, cancel := context.WithTimeout(ctx,10*time.Second)
+				pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				err := c.client.Ping(pingCtx)
 				cancel()
 
@@ -157,7 +172,8 @@ func (c *Client) connect(ctx context.Context, logger *logger.PulseLogger) error 
 		Timeout: 30 * time.Second,
 		// KeepAlive is the OS-level TCP heartbeat.
 		// 15s is often safer than 10s to avoid aggressive triggers on busy networks.
-		KeepAlive: 15 * time.Second,
+		// Optimized for LAN/Wi-Fi to prevent NAT state-table expiry and Wi-Fi chip sleep cycles.
+		KeepAlive: getKeepAliveInterval(),
 	}
 
 	transport := &http.Transport{
@@ -245,7 +261,11 @@ func (c *Client) connect(ctx context.Context, logger *logger.PulseLogger) error 
 
 	// Re-subscribe to resources
 	for _, uri := range subs {
-		if err := c.subscribeInternal(ctx, mcpClient, uri); err != nil {
+		subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := c.subscribeInternal(subCtx, mcpClient, uri)
+		cancel()
+
+		if err != nil {
 			logger.Error("Failed to re-subscribe to resource", "server", c.Name, "uri", uri, "error", err)
 		} else {
 			logger.Info("Re-subscribed to resource", "server", c.Name, "uri", uri)
