@@ -4,7 +4,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
@@ -20,18 +19,8 @@ import (
 	"time"
 )
 
-//go:embed admin_ui.html
-var adminFS embed.FS
-
-var adminTmpl = template.Must(
-	template.ParseFS(adminFS, "admin_ui.html"),
-)
-
-type AdminView struct {
-	Version   string
-	Commit    string
-	BuildDate string
-}
+//go:embed all:frontend_dist
+var frontendFS embed.FS
 
 type AdminHandlers struct {
 	runtime   RuntimeService
@@ -198,6 +187,12 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Environment:         h.admin.Environment(),
 			DefaultArgs:         h.admin.DefaultArgs(),
 		},
+	}
+
+	rawModels := h.admin.Models()
+	rawArgs := map[string][]string{}
+	for _, raw := range rawModels {
+		rawArgs[raw.Name] = raw.Args
 	}
 
 	rawModels := h.admin.Models()
@@ -559,6 +554,14 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 	}
 	h.admin.RefreshMetricsService()
 
+	if req.Environment != nil {
+		for _, m := range h.runtime.ListModels() {
+			m.Environment = req.Environment
+			_ = h.runtime.UpdateModel(m)
+		}
+	}
+	h.admin.RefreshMetricsService()
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -777,6 +780,20 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	env := make(map[string]string)
+	for k, v := range h.admin.Environment() {
+		env[k] = v
+	}
+
+	for _, raw := range h.admin.Models() {
+		if raw.Name == req.Name {
+			for k, v := range raw.Environment {
+				env[k] = v
+			}
+			break
+		}
+	}
+
 	runtimeCfg := models.ModelConfig{
 		Name:        req.Name,
 		Filename:    req.Filename,
@@ -912,15 +929,30 @@ func nextAvailablePort(modelsList []models.ModelConfig, activePort int) int {
 }
 
 func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	// Render the admin UI template with version info
-	err := adminTmpl.Execute(w, AdminView{
-		Version:   h.buildInfo.Version,
-		Commit:    h.buildInfo.Commit,
-		BuildDate: h.buildInfo.BuildDate,
-	})
+	fsys, err := fs.Sub(frontendFS, "frontend_dist")
 	if err != nil {
-		http.Error(w, "template render failed", http.StatusInternalServerError)
+		http.Error(w, "Failed to load UI assets", http.StatusInternalServerError)
+		return
 	}
+
+	p := strings.TrimPrefix(r.URL.Path, "/admin")
+	if p == "" || p == "/" {
+		p = "index.html"
+	} else {
+		p = strings.TrimPrefix(p, "/")
+	}
+
+	// Check if file exists, if not serve index.html (SPA)
+	if _, err := fs.Stat(fsys, p); os.IsNotExist(err) {
+		p = "index.html"
+	}
+
+	// If we serve index.html, we must reset the URL path because FileServer looks at it
+	if p == "index.html" {
+		r.URL.Path = "/"
+	} else {
+		r.URL.Path = "/" + p
+	}
+
+	http.FileServer(http.FS(fsys)).ServeHTTP(w, r)
 }
