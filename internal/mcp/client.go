@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -88,7 +90,7 @@ func (c *Client) manageConnection(ctx context.Context) {
 			if initialized {
 				// IDLE STATE: Client is healthy, check connection with Ping
 				// Create a short timeout for the ping
-				pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				pingCtx, cancel := context.WithTimeout(ctx,10*time.Second)
 				err := c.client.Ping(pingCtx)
 				cancel()
 
@@ -148,11 +150,40 @@ func (c *Client) manageConnection(ctx context.Context) {
 func (c *Client) connect(ctx context.Context, logger *logger.PulseLogger) error {
 
 	origin := network.ResolveOrigin(c.BindAddr)
+
+	// Create a custom HTTP client with aggressive TCP keep-alives to prevent
+	// silent connection drops by network infrastructure (NATs, Firewalls, Wi-Fi sleep)
+	dialer := &net.Dialer{
+		Timeout: 30 * time.Second,
+		// KeepAlive is the OS-level TCP heartbeat.
+		// 15s is often safer than 10s to avoid aggressive triggers on busy networks.
+		KeepAlive: 15 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         dialer.DialContext,
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 2, // Limits reuse to prevent "sticky" dead connections
+		// Set IdleConnTimeout to 0 or a very high value.
+		// We want the TCP layer, not the HTTP layer, to manage "idleness".
+		IdleConnTimeout:       0,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
+		// CRITICAL: Do NOT set Timeout here, it will kill the SSE stream.
+	}
+
 	mcpClient, err := client.NewSSEMCPClient(
 		c.URL,
 		client.WithHeaders(map[string]string{
 			"Origin": origin,
 		}),
+		client.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create SSE client: %w", err)
