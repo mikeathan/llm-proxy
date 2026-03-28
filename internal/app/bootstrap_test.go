@@ -1,45 +1,34 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/testutils"
 	"llm-proxy/models"
 )
 
-func TestBuildAppServices_UsesDevBaseURL(t *testing.T) {
-	testutils.SetRequiredEnv(t)
-	t.Setenv("LLM_PROXY_DEV_BASE_URL", "http://mock-llm")
-
-	logger := &mocks.MockLogger{}
-	cfg := minimalConfig()
-
-	container := bootstrap(cfg, logger)
-	services := container.BuildAppServices()
-
-	if _, ok := services.ClientProvider().(*proxy.StaticClientProvider); !ok {
-		t.Fatalf("expected StaticClientProvider when LLM_PROXY_DEV_BASE_URL is set")
-	}
-}
-
-func TestBuildAppServices_UsesRuntimeProviderByDefault(t *testing.T) {
+func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 	testutils.SetRequiredEnv(t)
 
 	logger := &mocks.MockLogger{}
-	cfg := minimalConfig()
+	cfgMgr := minimalConfig(t)
 
-	container := bootstrap(cfg, logger)
+	container := bootstrap(cfgMgr, logger)
 	services := container.BuildAppServices()
 
 	if _, ok := services.ClientProvider().(*proxy.RuntimeClientProvider); !ok {
-		t.Fatalf("expected RuntimeClientProvider when LLM_PROXY_DEV_BASE_URL is not set")
+		t.Fatalf("expected RuntimeClientProvider")
 	}
 }
 
-func minimalConfig() *models.Config {
-	return &models.Config{
+func minimalConfig(t *testing.T) *config.ConfigManager {
+	cfg := &models.Config{
 		Server: models.ServerConfig{
 			Bind:            ":0",
 			ModelHost:       "http://localhost",
@@ -53,4 +42,22 @@ func minimalConfig() *models.Config {
 			},
 		},
 	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	mgr := config.NewConfigManager(path)
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := mgr.Load(); err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return mgr
 }

@@ -2,24 +2,33 @@ package mocks
 
 import (
 	"llm-proxy/internal/assistant"
-	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 )
 
+// noopLogger for testing
+type noopLogger struct{}
+
+func (l *noopLogger) Debug(msg string, args ...any)   {}
+func (l *noopLogger) Info(msg string, args ...any)    {}
+func (l *noopLogger) Warn(msg string, args ...any)    {}
+func (l *noopLogger) Error(msg string, args ...any)   {}
+func (l *noopLogger) With(args ...any) logging.Logger { return l }
+func (l *noopLogger) SetLevel(logging.Level)          {}
+func (l *noopLogger) Level() logging.Level            { return logging.LevelInfo }
+
 type MockAssistantService struct {
-	Herder      nodeherder.NodeHerderService
+	Herder      nodeherder.MCPService
 	Client      proxy.LLMClientProvider
 	RateLimiter ratelimiter.Limiter
 	LoggerRef   logging.Logger
 	Model       string
 	EngineRef   assistant.Engine
-	PendingRef  pending.PendingToolCallStore
 }
 
-func (m *MockAssistantService) NodeHerder() nodeherder.NodeHerderService {
+func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
 	return m.Herder
 }
 
@@ -46,9 +55,17 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 	return assistant.NewEngine(m.Herder, m.LoggerRef)
 }
 
-func (m *MockAssistantService) Pending() pending.PendingToolCallStore {
-	if m.PendingRef != nil {
-		return m.PendingRef
+func NewMockAssistantService(
+	client proxy.LLMClientProvider,
+	limiter ratelimiter.Limiter,
+	engine assistant.Engine,
+	herder nodeherder.MCPService,
+) *MockAssistantService {
+	return &MockAssistantService{
+		Client:      client,
+		RateLimiter: limiter,
+		EngineRef:   engine,
+		Herder:      herder,
+		LoggerRef:   &noopLogger{},
 	}
-	return pending.NewInMemoryPendingToolCallStore()
 }

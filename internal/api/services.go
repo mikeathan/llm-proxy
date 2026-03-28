@@ -1,8 +1,8 @@
 package api
 
 import (
+	"context"
 	"llm-proxy/internal/assistant"
-	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/nodeherder"
@@ -14,7 +14,7 @@ import (
 )
 
 type RuntimeService interface {
-	EnsureModel(string) (llm.ModelInstance, error)
+	EnsureModel(context.Context, string) (llm.ModelInstance, error)
 	RecordActivity(string)
 	ListModels() []models.ModelConfig
 	AddModel(models.ModelConfig) error
@@ -37,6 +37,9 @@ type AdminService interface {
 	CurrentBinary() string
 	CurrentIdleTimeout() int
 	DefaultArgs() []string
+	Environment() map[string]string
+	SetEnvironment(map[string]string) error
+	Models() []models.ModelConfig
 	UpdateConfig(func(*models.Config)) error
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error
@@ -44,15 +47,18 @@ type AdminService interface {
 	ResolveModelPath(string, string) string
 	RefreshMetricsService()
 	MetricsSnapshot() system_metrics.MetricsSnapshot
+	ListMCPServers() []models.MCPServerConfig
+	AddMCPServer(models.MCPServerConfig) error
+	UpdateMCPServer(models.MCPServerConfig) error
+	RemoveMCPServer(string) error
 }
 
 type AssistantService interface {
-	NodeHerder() nodeherder.NodeHerderService
+	NodeHerder() nodeherder.MCPService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
 	DefaultModel() (string, error)
 
 	Engine() assistant.Engine
-	Pending() pending.PendingToolCallStore
 }

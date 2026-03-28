@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"errors"
 	"log"
 	"sort"
@@ -39,7 +40,7 @@ type ActiveModelInfo struct {
 }
 
 type RuntimeManager interface {
-	EnsureModel(name string) (ModelInstance, error)
+	EnsureModel(ctx context.Context, name string) (ModelInstance, error)
 	RecordActivity(name string)
 	ListModels() []models.ModelConfig
 	AddModel(models.ModelConfig) error
@@ -61,6 +62,7 @@ type LLMRuntimeManager struct {
 	idleTimeout time.Duration
 	modelHost   string
 	llamaBinary string
+	stopCh      chan struct{}
 }
 
 var ErrUnknownModel = errors.New("unknown model")
@@ -89,6 +91,7 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 		idleTimeout: idleTimeout,
 		modelHost:   modelHost,
 		llamaBinary: defaultLlamaBinary,
+		stopCh:      make(chan struct{}),
 	}
 
 	for _, mc := range modelConfigs {
@@ -100,38 +103,50 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 
 	return m
 }
-func (m *LLMRuntimeManager) EnsureModel(name string) (ModelInstance, error) {
+func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (ModelInstance, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Loop to handle "unlock-wait-lock" retry pattern
+	for {
+		cfg, ok := m.models[name]
+		if !ok {
+			m.mu.Unlock()
+			return ModelInstance{}, ErrUnknownModel
+		}
 
-	cfg, ok := m.models[name]
-	if !ok {
-		return ModelInstance{}, ErrUnknownModel
-	}
+		cfg = m.syncPortWithActiveLocked(cfg)
 
-	cfg = m.syncPortWithActiveLocked(cfg)
+		if inst, ok := m.readyInstanceLocked(name, cfg); ok {
+			m.mu.Unlock()
+			return inst, nil
+		}
 
-	if inst, ok := m.readyInstanceLocked(name, cfg); ok {
-		return inst, nil
-	}
+		if m.activeModel != nil && m.activeModel.cfg.Name == name {
+			m.mu.Unlock()
+			return ModelInstance{}, ErrModelStarting
+		}
 
-	if m.activeModel != nil && m.activeModel.cfg.Name == name {
+		// Need to stop another active model?
+		activePort := m.activePortLocked()
+		waiter := m.signalStopLocked()
+		if waiter != nil {
+			m.mu.Unlock()
+			waiter() // Wait for process to exit without holding the lock
+			m.mu.Lock()
+			continue // Retry checking state
+		}
+
+		// No active model, start the new one
+		cfg.Port = m.defaultPortLocked(cfg, activePort)
+		m.models[name] = cfg
+
+		err := m.startModelLocked(ctx, cfg)
+		m.mu.Unlock()
+		if err != nil {
+			return ModelInstance{}, err
+		}
+
 		return ModelInstance{}, ErrModelStarting
 	}
-
-	activePort := m.activePortLocked()
-	if err := m.stopLocked(); err != nil {
-		return ModelInstance{}, err
-	}
-
-	cfg.Port = m.defaultPortLocked(cfg, activePort)
-	m.models[name] = cfg
-
-	if err := m.startModelLocked(cfg); err != nil {
-		return ModelInstance{}, err
-	}
-
-	return ModelInstance{}, ErrModelStarting
 }
 
 func (m *LLMRuntimeManager) RecordActivity(model string) {
@@ -145,8 +160,12 @@ func (m *LLMRuntimeManager) RecordActivity(model string) {
 
 func (m *LLMRuntimeManager) StopActive() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.stopLocked()
+	waiter := m.signalStopLocked()
+	m.mu.Unlock()
+	if waiter != nil {
+		waiter()
+	}
+	return nil
 }
 
 func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
@@ -163,16 +182,22 @@ func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
 
 func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if _, ok := m.models[cfg.Name]; !ok {
+		m.mu.Unlock()
 		return ErrUnknownModel
 	}
 
 	m.models[cfg.Name] = cfg
 
+	var waiter func()
 	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
-		_ = m.stopLocked()
+		waiter = m.signalStopLocked()
+	}
+	m.mu.Unlock()
+
+	if waiter != nil {
+		waiter()
 	}
 
 	return nil
@@ -180,18 +205,24 @@ func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 
 func (m *LLMRuntimeManager) RemoveModel(name string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	cfg, ok := m.models[name]
 	if !ok {
+		m.mu.Unlock()
 		return ErrUnknownModel
 	}
 
+	var waiter func()
 	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
-		_ = m.stopLocked()
+		waiter = m.signalStopLocked()
 	}
 
 	delete(m.models, name)
+	m.mu.Unlock()
+
+	if waiter != nil {
+		waiter()
+	}
 	return nil
 }
 
@@ -209,12 +240,19 @@ func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
 	for _, name := range names {
 		cfg := m.models[name]
 		argsCopy := append([]string(nil), cfg.Args...)
+		
+		envCopy := make(map[string]string)
+		for k, v := range cfg.Environment {
+			envCopy[k] = v
+		}
+
 		modelsOut = append(modelsOut, models.ModelConfig{
-			Name:     cfg.Name,
-			Filename: cfg.Filename,
-			Path:     cfg.Path,
-			Args:     argsCopy,
-			Port:     cfg.Port,
+			Name:        cfg.Name,
+			Filename:    cfg.Filename,
+			Path:        cfg.Path,
+			Args:        argsCopy,
+			Port:        cfg.Port,
+			Environment: envCopy,
 		})
 	}
 
@@ -261,7 +299,7 @@ func (m *LLMRuntimeManager) LastTokensPerSecond() (float64, time.Time) {
 	return 0, time.Time{}
 }
 
-func (m *LLMRuntimeManager) stopLocked() error {
+func (m *LLMRuntimeManager) signalStopLocked() func() {
 	if m.activeModel == nil {
 		return nil
 	}
@@ -280,26 +318,27 @@ func (m *LLMRuntimeManager) stopLocked() error {
 		}
 	}
 
-	done := make(chan struct{})
-	go func() {
-		cmd.Wait()
-		close(done)
-	}()
+	m.activeModel = nil
 
-	select {
-	case <-done:
-	case <-time.After(shutdownTimeout):
-		if cmd.Process != nil {
-			if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
-				_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			} else {
-				_ = cmd.Process.Kill()
+	return func() {
+		done := make(chan struct{})
+		go func() {
+			cmd.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(shutdownTimeout):
+			if cmd.Process != nil {
+				if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
+					_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				} else {
+					_ = cmd.Process.Kill()
+				}
 			}
 		}
 	}
-
-	m.activeModel = nil
-	return nil
 }
 
 func (m *LLMRuntimeManager) ActiveModel() *runningModel {
@@ -350,16 +389,37 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 	t := time.NewTicker(reapInterval)
 	defer t.Stop()
 
-	for range t.C {
-		m.mu.Lock()
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-t.C:
+			m.mu.Lock()
 
-		if m.activeModel != nil {
-			if time.Since(m.activeModel.lastUsed) > m.idleTimeout {
-				log.Printf("Idle timeout on model %s → stopping", m.activeModel.cfg.Name)
-				_ = m.stopLocked()
+			if m.activeModel != nil {
+				if time.Since(m.activeModel.lastUsed) > m.idleTimeout {
+					log.Printf("Idle timeout on model %s → stopping", m.activeModel.cfg.Name)
+					waiter := m.signalStopLocked()
+					m.mu.Unlock()
+					if waiter != nil {
+						waiter()
+					}
+					continue
+				}
 			}
-		}
 
-		m.mu.Unlock()
+			m.mu.Unlock()
+		}
+	}
+}
+
+// Shutdown stops the background reaper and any active model.
+func (m *LLMRuntimeManager) Shutdown() {
+	close(m.stopCh)
+	m.mu.Lock()
+	waiter := m.signalStopLocked()
+	m.mu.Unlock()
+	if waiter != nil {
+		waiter()
 	}
 }

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -33,7 +34,7 @@ func TestAdminStartHandler_MissingName(t *testing.T) {
 
 func TestAdminStartHandler_ModelStarting(t *testing.T) {
 	manager := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, llm.ErrModelStarting
 		},
 	}
@@ -52,7 +53,7 @@ func TestAdminStartHandler_ModelStarting(t *testing.T) {
 
 func TestAdminStartHandler_ModelError(t *testing.T) {
 	manager := &mocks.MockManager{
-		EnsureModelFunc: func(name string) (llm.ModelInstance, error) {
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			return llm.ModelInstance{}, errors.New("boom")
 		},
 	}
@@ -166,10 +167,10 @@ func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .env: %v", err)
 	}
-	if !strings.Contains(string(data), `SERVICE_CLIENT_ID=new-id`) {
+	if !strings.Contains(string(data), `SERVICE_CLIENT_ID="new-id"`) {
 		t.Fatalf("expected SERVICE_CLIENT_ID in .env, got %s", string(data))
 	}
-	if !strings.Contains(string(data), `SERVICE_CLIENT_SECRET=new-secret`) {
+	if !strings.Contains(string(data), `SERVICE_CLIENT_SECRET="new-secret"`) {
 		t.Fatalf("expected SERVICE_CLIENT_SECRET in .env, got %s", string(data))
 	}
 }

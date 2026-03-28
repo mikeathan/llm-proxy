@@ -5,6 +5,7 @@ LLM proxy that starts and manages local model runtimes, exposes an OpenAI-style
 injects device context into the prompt.
 
 ## How it works
+
 - The proxy starts a model process (llama-server) on demand and forwards
   `/v1/chat/completions` requests to it.
 - `/api/conversation/message` fetches device context, builds a system prompt,
@@ -12,6 +13,7 @@ injects device context into the prompt.
 - Admin routes under `/admin` expose status and model management.
 
 Additional endpoints:
+
 - `POST /v1/chat/completions`: OpenAI-style chat completions.
 - `GET /admin`: Admin UI.
 - `GET /admin/api/state`: Server/model status snapshot.
@@ -26,10 +28,12 @@ Additional endpoints:
 - `GET /admin/api/metrics`: Read GPU/system metrics snapshot.
 
 ## Configuration
+
 The proxy reads `config/config.json` at startup. See `models/config.go` for the
 full schema.
 
 Example snippet:
+
 ```json
 {
   "server": {
@@ -37,7 +41,14 @@ Example snippet:
     "model_host": "127.0.0.1",
     "idle_timeout_seconds": 1800,
     "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
-    "default_args": ["--ctx-size", "4096", "--threads", "6", "--gpu-layers", "999"]
+    "default_args": [
+      "--ctx-size",
+      "4096",
+      "--threads",
+      "6",
+      "--gpu-layers",
+      "999"
+    ]
   },
   "models": [
     {
@@ -47,11 +58,19 @@ Example snippet:
       "port": 5001
     }
   ],
-  "model_dir": "/home/mikeathan/dev/models"
+  "model_dir": "/home/mikeathan/dev/models",
+  "mcp_servers": [
+    {
+      "name": "nodeherder",
+      "url": "http://localhost:4110/sse",
+      "enabled": true
+    }
+  ]
 }
 ```
 
 Key fields:
+
 - `server.bind`: host:port to listen on.
 - `server.model_host`: host used when constructing the model URL.
 - `server.idle_timeout_seconds`: stop the model after this idle period.
@@ -66,37 +85,19 @@ Key fields:
 - `metrics.gpu`: GPU metrics settings.
   - `provider`: `auto`, `nvidia-smi`, `rocm-smi`, `amdgpu_top`, `sysfs`, `none`
   - `binary`, `index`, `sysfs_path`: optional overrides.
+- `mcp_servers[]`:
+  - `name`: server identifier.
+  - `url`: SSE endpoint URL.
+  - `enabled`: boolean flag.
 
 ## Environment variables
-- `DEVICE_CONTEXT_BASE_URL`: required. Base URL for the device context API.
-- `SERVICE_CLIENT_ID`: required. Client credential ID for the target service (for example, nodeherder).
-- `SERVICE_CLIENT_SECRET`: required. Client credential secret for the target service (for example, nodeherder).
-- `LLM_PROXY_DEV_BASE_URL`: optional. If set, the proxy skips model startup and
-  sends chat requests to this base URL instead (useful with the mock server).
 
-You can set `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` from the admin UI; the values are written to `.env` so they load on restart. If you prefer, you can set them in `.env.development` or `.env.production` and those values take precedence. The client credentials must be provisioned by the target service (for example, nodeherder).
-
-## Local testing with the mock server
-The mock server lives under `mock-server` and serves both:
-- `GET /api/context/devices`
-- `POST /v1/chat/completions`
-
-Start the mock server:
-```bash
-cd mock-server
-npm install
-npm run dev
-```
-
-Run the proxy with the mock server wired in:
-```bash
-DEVICE_CONTEXT_BASE_URL=http://localhost:3001 \
-LLM_PROXY_DEV_BASE_URL=http://localhost:3001 \
-go run ./...
-```
+- `APP_ENV` (Optional): Application environment (default `development`).
+  Note: Legacy variables `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` are no longer used as device context is now fetched via MCP.
 
 Send a test request to the assistant endpoint (replace the port if your config
 uses a different `server.bind`):
+
 ```bash
 curl -sS -X POST "http://localhost:4001/api/conversation/message" \
   -H "Content-Type: application/json" \
