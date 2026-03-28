@@ -62,13 +62,28 @@ func resolveModelFile(baseDir string, m models.ModelConfig) string {
 }
 
 func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
-	args := append(cfg.Server.DefaultArgs, model.Args...)
+	var args []string
+	if len(model.Args) == 0 {
+		args = append([]string(nil), cfg.Server.DefaultArgs...)
+	} else {
+		args = append([]string(nil), model.Args...)
+	}
+	
+	env := make(map[string]string)
+	for k, v := range cfg.Server.Environment {
+		env[k] = v
+	}
+	for k, v := range model.Environment {
+		env[k] = v
+	}
+
 	return models.ModelConfig{
-		Name:     model.Name,
-		Filename: model.Filename,
-		Path:     resolveModelFile(cfg.ModelDir, model),
-		Args:     args,
-		Port:     model.Port,
+		Name:        model.Name,
+		Filename:    model.Filename,
+		Path:        resolveModelFile(cfg.ModelDir, model),
+		Args:        args,
+		Port:        model.Port,
+		Environment: env,
 	}
 }
 
@@ -120,17 +135,32 @@ func modelInstance(cfg models.ModelConfig, host string) ModelInstance {
 	}
 }
 
-func (m *LLMRuntimeManager) startModelLocked(cfg models.ModelConfig) error {
+func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.ModelConfig) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := system_metrics.NewTokenTracker()
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := testhooks.ExecCommandContext(ctx, m.llamaBinary, buildLaunchArgs(cfg)...)
+	// Create a new context derived from background for the process,
+	// but we could use the passed ctx for the *startup wait* if we had one.
+	// However, the process should outlive the request.
+	// The passed ctx is from EnsureModel (request scoped).
+	// So we should NOT use passed ctx for the command itself.
+	// We continue to use context.WithCancel(context.Background()).
+	// But we might want to respect passed ctx for cancellation of STARTUP?
+	// For now, let's just match the signature.
+	procCtx, cancel := context.WithCancel(context.Background())
+	cmd := testhooks.ExecCommandContext(procCtx, m.llamaBinary, buildLaunchArgs(cfg)...)
 	if runtime.GOOS != "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
 	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
 	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
+	if len(cfg.Environment) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range cfg.Environment {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
 
+	logBuf.Info(fmt.Sprintf("Launching llama-server: env %v, args %v", cmd.Env, cmd.Args))
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return fmt.Errorf("model start failed: %w", err)

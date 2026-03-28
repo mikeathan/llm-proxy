@@ -1,13 +1,14 @@
 package mocks
 
 import (
+	"context"
 	"llm-proxy/internal/llm"
 	"llm-proxy/models"
 	"time"
 )
 
 type MockManager struct {
-	EnsureModelFunc         func(name string) (llm.ModelInstance, error)
+	EnsureModelFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
 	RecordActivityFunc      func(name string)
 	ListModelsFunc          func() []models.ModelConfig
 	AddModelFunc            func(models.ModelConfig) error
@@ -22,8 +23,8 @@ type MockManager struct {
 	SetModelHostFunc        func(string)
 }
 
-func (m *MockManager) EnsureModel(name string) (llm.ModelInstance, error) {
-	return m.EnsureModelFunc(name)
+func (m *MockManager) EnsureModel(ctx context.Context, name string) (llm.ModelInstance, error) {
+	return m.EnsureModelFunc(ctx, name)
 }
 
 func (m *MockManager) RecordActivity(name string) {

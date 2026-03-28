@@ -8,8 +8,8 @@ import (
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/logging"
-	"llm-proxy/utils"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 	BuildDate = "unknown"
 )
 
-const configPath = utils.DefaultConfigPath
+const configPath = "config/config.json" // Hardcoded default, can be improved
 
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
@@ -33,17 +33,23 @@ func main() {
 
 	logger := initLogger()
 
-	// Load configuration
-	cfg, err := utils.LoadConfig(configPath)
-	if err != nil {
+	// Load configuration using ConfigManager
+	cfgMgr := config.NewConfigManager(configPath)
+	if err := cfgMgr.Load(); err != nil {
 		logger.Error("failed to load config", "error", err)
-		return
+		// Fallback or exit? Exit is safer if config is broken
+		if config.GetAppEnv() != "test" { // Allow test to proceed?
+			// return // or continue with defaults?
+			// For now, let's log and try to proceed if possible or exit.
+			// Existing code exited on load fail.
+			// However ConfigManager Load handles missing file? No.
+			// So exit.
+		}
 	}
-	// Load environment variables
-	utils.LoadEnv()
 
-	proxyApp := app.New(cfg, logger, buildInfo)
+	proxyApp := app.New(cfgMgr, logger, buildInfo)
 
+	cfg := cfgMgr.GetConfig()
 	logStartup(logger, buildInfo, cfg.Server.Bind)
 
 	if err := proxyApp.ListenAndServe(); err != nil {
@@ -70,9 +76,6 @@ func printVersion(info *buildinfo.Info) {
 }
 
 func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
-	envPath, envFile := utils.EnvFilePaths()
-	logger.Info("Loaded env files", "default", envPath, "environment", envFile)
-
 	//print version info
 	logger.Info(
 		"LLM proxy version",

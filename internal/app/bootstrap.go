@@ -1,12 +1,14 @@
 package app
 
 import (
+	"context"
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/assistant"
-	"llm-proxy/internal/assistant/pending"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
+	"llm-proxy/internal/mcp"
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
@@ -14,7 +16,6 @@ import (
 	"llm-proxy/utils"
 	"log"
 	"net/http"
-	"os"
 )
 
 type Core struct {
@@ -25,7 +26,7 @@ type Core struct {
 type Infra struct {
 	Logger     logging.Logger
 	Clock      utils.Clock
-	NodeHerder nodeherder.NodeHerderService
+	NodeHerder nodeherder.MCPService
 }
 
 type Container struct {
@@ -34,7 +35,7 @@ type Container struct {
 }
 
 type AssistantService interface {
-	NodeHerder() nodeherder.NodeHerderService
+	NodeHerder() nodeherder.MCPService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
@@ -48,16 +49,10 @@ func (c *Container) BuildAppServices() AppServices {
 		nodeHerder: c.Infra.NodeHerder,
 		logger:     c.Infra.Logger,
 		Clock:      c.Infra.Clock,
-		pending:    pending.NewInMemoryPendingToolCallStore(),
 	}
 
 	factory := func(baseURL string) proxy.Client {
 		return proxy.NewLLMClient(baseURL, nil)
-	}
-
-	if baseURL := os.Getenv("LLM_PROXY_DEV_BASE_URL"); baseURL != "" {
-		s.clientProvider = proxy.NewStaticClientProvider(factory(baseURL))
-		return s
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
@@ -69,15 +64,14 @@ func (c *Container) BuildAppServices() AppServices {
 type AppServices struct {
 	Runtime        llm.RuntimeManager
 	AppCtx         *AppContext
-	nodeHerder     nodeherder.NodeHerderService
+	nodeHerder     nodeherder.MCPService
 	clientProvider proxy.LLMClientProvider
 	engine         assistant.Engine
 	logger         logging.Logger
 	Clock          utils.Clock
-	pending        pending.PendingToolCallStore
 }
 
-func (s AppServices) NodeHerder() nodeherder.NodeHerderService {
+func (s AppServices) NodeHerder() nodeherder.MCPService {
 	return s.nodeHerder
 }
 
@@ -101,20 +95,23 @@ func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func (s AppServices) Pending() pending.PendingToolCallStore {
-	return s.pending
-}
-
-func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
+func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
 	clock := utils.NewRealClock()
 
-	nodeHerder := BuildNodeHerder(clock, logger)
+	// Configure MCP Service
+	nodeHerder, err := configureMCP(cfgMgr, logger)
+	if err != nil {
+		logger.Error("Failed to configure MCP service", "error", err)
+		return nil
+	}
 
-	manager := llm.NewManagerFromConfig(cfg)
-	appCtx := NewServer(manager, cfg, "config/config.json")
+	cfg := cfgMgr.GetConfig()
+	manager := llm.NewManagerFromConfig(&cfg)
+
+	appCtx := NewServer(manager, cfgMgr)
 	runtime := appCtx.Manager()
 
 	return &Container{
@@ -129,6 +126,35 @@ func bootstrap(cfg *models.Config, logger logging.Logger) *Container {
 			NodeHerder: nodeHerder,
 		},
 	}
+}
+
+func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherder.MCPService, error) {
+	// Initialize MCP Orchestrator
+	orchestrator := mcp.NewOrchestrator(logger)
+
+	// Initialize Resource Mirror
+	mirror := mcp.NewResourceMirror()
+
+	// Subscribe ConfigManager -> MCP Orchestrator
+	cfgMgr.OnChange(func(newCfg models.Config) {
+		orchestrator.Reload(context.Background(), newCfg.MCPServers, newCfg.Server.Bind)
+	})
+
+	// Initial Load
+	currentCfg := cfgMgr.GetConfig()
+	orchestrator.Reload(context.Background(), currentCfg.MCPServers, currentCfg.Server.Bind)
+
+	// Register prompt updates handled by Orchestrator (which propagates to Clients)
+	// The Orchestrator's OnPromptUpdate is called when a client receives a notification.
+	orchestrator.OnPromptUpdate(func(prompt string) {
+		mirror.SetSystemPrompt(prompt)
+	})
+
+	// Subscribe to system prompt to receive updates
+	// This ensures we get notified when NodeHerder loads devices or updates context
+	orchestrator.Subscribe(context.Background(), "nodeherder://system-prompt")
+
+	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
 func buildHTTP(s AppServices, buildInfo *buildinfo.Info) http.Handler {
@@ -164,7 +190,16 @@ func buildRouter(
 	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/log-level", admin.AdminLogLevelUpdateHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs", admin.AdminAppLogsHandler, textMethodNotAllowed)
+	router.Get("/admin/api/app-logs/tail", admin.AdminAppLogsTailHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
+
+	// MCP
+	router.Get("/admin/api/mcp", admin.AdminMCPListHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/mcp", admin.AdminMCPAddHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
+
 	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)
 
 	// Proxy

@@ -1,12 +1,16 @@
 package app_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/config"
 	"llm-proxy/internal/mocks"
 	"llm-proxy/internal/testutils"
 	"llm-proxy/models"
@@ -15,7 +19,7 @@ import (
 func TestAppBoots(t *testing.T) {
 	testutils.SetRequiredEnv(t)
 
-	cfg := minimalTestConfig()
+	cfg := minimalTestConfig(t)
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	if a == nil {
@@ -26,7 +30,7 @@ func TestAppBoots(t *testing.T) {
 func TestRoutesExist(t *testing.T) {
 	testutils.SetRequiredEnv(t)
 
-	cfg := minimalTestConfig()
+	cfg := minimalTestConfig(t)
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	tests := []string{
@@ -51,7 +55,7 @@ func TestRoutesExist(t *testing.T) {
 func TestMethodEnforcement(t *testing.T) {
 	testutils.SetRequiredEnv(t)
 
-	cfg := minimalTestConfig()
+	cfg := minimalTestConfig(t)
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
@@ -64,8 +68,8 @@ func TestMethodEnforcement(t *testing.T) {
 	}
 }
 
-func minimalTestConfig() *models.Config {
-	return &models.Config{
+func minimalTestConfig(t *testing.T) *config.ConfigManager {
+	cfg := &models.Config{
 		Server: models.ServerConfig{
 			Bind:            ":0",
 			ModelHost:       "http://localhost",
@@ -79,4 +83,25 @@ func minimalTestConfig() *models.Config {
 			},
 		},
 	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	// Create manager
+	mgr := config.NewConfigManager(path)
+
+	// Write initial config
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := mgr.Load(); err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	return mgr
 }
