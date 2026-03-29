@@ -195,12 +195,6 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		rawArgs[raw.Name] = raw.Args
 	}
 
-	rawModels := h.admin.Models()
-	rawArgs := map[string][]string{}
-	for _, raw := range rawModels {
-		rawArgs[raw.Name] = raw.Args
-	}
-
 	for _, mc := range modelsList {
 		filename := mc.Filename
 		if filename == "" && mc.Path != "" {
@@ -764,20 +758,6 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	if _, err := os.Stat(fullPath); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
 		return
-	}
-
-	env := make(map[string]string)
-	for k, v := range h.admin.Environment() {
-		env[k] = v
-	}
-
-	for _, raw := range h.admin.Models() {
-		if raw.Name == req.Name {
-			for k, v := range raw.Environment {
-				env[k] = v
-			}
-			break
-		}
 	}
 
 	env := make(map[string]string)

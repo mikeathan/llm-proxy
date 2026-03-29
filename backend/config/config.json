@@ -20,8 +20,8 @@
       "0.0.0.0"
     ],
     "environment": {
-      "HSA_OVERRIDE_GFX_VERSION": "11.0.0",
-      "AMD_SERIALIZE_KERNEL": "1"
+      "AMD_SERIALIZE_KERNEL": "1",
+      "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
     }
   },
   "models": [
@@ -29,15 +29,22 @@
       "name": "qwen2.5-3b-instruct",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "args": [],
-      "port": 9002
+      "port": 9002,
+      "environment": null
     }
   ],
   "model_dir": "/home/mikeathan/dev/models",
   "metrics": {
     "gpu": {
       "provider": "sysfs",
-      "sysfs_path": "/sys/class/drm/card0/device",
-      "index": 0
+      "sysfs_path": "/sys/class/drm/card0/device"
     }
-  }
+  },
+  "mcp_servers": [
+    {
+      "name": "nodeherder-dev",
+      "url": "http://192.168.50.251:4110/api/mcp",
+      "enabled": false
+    }
+  ]
 }
