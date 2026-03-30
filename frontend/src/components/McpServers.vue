@@ -78,16 +78,16 @@ function submitAddMCPServer() {
   @apply text-lg font-semibold text-white mb-4 border-b border-gray-700 pb-2;
 }
 .mcp-form {
-  @apply mb-5 flex gap-2;
+  @apply mb-5 flex flex-col sm:flex-row gap-2;
 }
 .mcp-input {
   @apply bg-gray-900 border border-gray-600 text-white rounded px-3 py-2 flex-1 text-sm focus:outline-none focus:border-blue-500;
 }
 .mcp-btn-add {
-  @apply bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors;
+  @apply bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors shrink-0;
 }
 .mcp-table-container {
-  @apply overflow-y-auto flex-1 border border-gray-700 rounded-lg;
+  @apply overflow-x-auto flex-1 border border-gray-700 rounded-lg;
 }
 .mcp-table {
   @apply w-full text-left text-sm;

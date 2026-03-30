@@ -24,7 +24,7 @@
             <span class="metric-value">{{ formatPercent(metrics.load_percent) }}%</span>
           </div>
           <div class="progress-track">
-            <div class="progress-bar-blue" :style="{ width: `${metrics.load_percent ?? 0}%` }"></div>
+            <div class="progress-bar-blue" :style="{ width: `${clampPercent(metrics.load_percent ?? 0)}%` }"></div>
           </div>
         </div>
         <div>
@@ -33,7 +33,7 @@
             <span class="metric-value">{{ formatMemory(metrics.mem_used_mb, metrics.mem_total_mb) }}</span>
           </div>
           <div class="progress-track">
-            <div class="progress-bar-blue" :style="{ width: `${memPercent(metrics.mem_used_mb, metrics.mem_total_mb)}%` }"></div>
+            <div class="progress-bar-blue" :style="{ width: `${clampPercent(memPercent(metrics.mem_used_mb, metrics.mem_total_mb))}%` }"></div>
           </div>
         </div>
       </div>
@@ -49,7 +49,7 @@
             <span class="metric-value">{{ formatMemory(metrics.gpu.memory_used_mb, metrics.gpu.memory_total_mb) }}</span>
           </div>
           <div class="progress-track">
-            <div class="progress-bar-purple" :style="{ width: `${metrics.gpu.memory_utilization_percent}%` }"></div>
+            <div class="progress-bar-purple" :style="{ width: `${clampPercent(metrics.gpu.memory_utilization_percent)}%` }"></div>
           </div>
         </div>
         <div class="metric-row-margin">
@@ -82,6 +82,8 @@
 import { formatPercent, formatMemory, memPercent, formatTokenRate, gpuTempClass } from '../utils/formatters'
 import type { SystemMetrics } from '../types/metrics'
 import type { ActiveModel } from '../types/model'
+
+const clampPercent = (v: number) => Math.min(Math.max(v, 0), 100)
 
 defineProps<{
   activeModel: ActiveModel | undefined | null

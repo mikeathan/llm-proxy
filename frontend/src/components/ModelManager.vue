@@ -36,7 +36,7 @@
             <!-- Edit View -->
             <div v-else class="w-full flex flex-col gap-3">
               <div class="font-medium text-white mb-1">Edit {{ model.name }}</div>
-              <div class="grid grid-cols-4 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div class="form-col-1-edit">
                   <label class="form-label">Port</label>
                   <input v-model.number="editingModel.port" type="number" class="form-input">
@@ -168,7 +168,7 @@ function submitModel() {
   @apply grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6;
 }
 .models-box {
-  @apply bg-gray-800 rounded-lg shadow border border-gray-700 p-5 flex flex-col h-[500px];
+  @apply bg-gray-800 rounded-lg shadow border border-gray-700 p-5 flex flex-col min-h-[300px] sm:h-[500px];
 }
 .models-title {
   @apply text-lg font-semibold text-white mb-4 flex justify-between items-center;
@@ -207,7 +207,7 @@ function submitModel() {
   @apply text-xs text-gray-500 mt-1;
 }
 .model-actions {
-  @apply flex gap-2 items-center;
+  @apply flex gap-2 items-center flex-wrap justify-end shrink-0;
 }
 .btn-start {
   @apply px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition-colors;
@@ -231,22 +231,22 @@ function submitModel() {
   @apply mb-6 space-y-3 p-4 bg-gray-900/50 rounded border border-gray-700;
 }
 .form-grid-2 {
-  @apply grid grid-cols-2 gap-3;
+  @apply grid grid-cols-1 sm:grid-cols-2 gap-3;
 }
 .form-grid-3 {
-  @apply grid grid-cols-3 gap-3;
+  @apply grid grid-cols-1 sm:grid-cols-3 gap-3;
 }
 .form-col-1 {
-  @apply col-span-1;
+  @apply sm:col-span-1;
 }
 .form-col-2 {
-  @apply col-span-2;
+  @apply sm:col-span-2;
 }
 .form-col-1-edit {
-  @apply col-span-1;
+  @apply sm:col-span-1;
 }
 .form-col-3-edit {
-  @apply col-span-3;
+  @apply sm:col-span-3;
 }
 .form-label {
   @apply block text-xs font-medium text-gray-400 mb-1;
