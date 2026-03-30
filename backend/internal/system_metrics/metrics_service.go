@@ -57,6 +57,13 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 	resp.GPUMemoryUsedMB = gpu.MemoryUsedMB
 	resp.GPUMemoryTotalMB = gpu.MemoryTotalMB
 
+	if gpu.GttUsedMB > 0 {
+		resp.HostMetrics.MemUsedMB -= gpu.GttUsedMB
+		if resp.HostMetrics.MemUsedMB < 0 {
+			resp.HostMetrics.MemUsedMB = 0
+		}
+	}
+
 	if s.throughput != nil {
 		if tps, ts := s.throughput.LastTokensPerSecond(); tps > 0 {
 			resp.LLMTokensPerSec = tps

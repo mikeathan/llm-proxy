@@ -2,6 +2,7 @@ package system_metrics
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
 )
@@ -26,6 +27,7 @@ type GPUMetrics struct {
 	MemoryUtilizationPct float64 `json:"memory_utilization_percent"`
 	MemoryTotalMB        float64 `json:"memory_total_mb,omitempty"`
 	MemoryUsedMB         float64 `json:"memory_used_mb,omitempty"`
+	GttUsedMB            float64 `json:"gtt_used_mb,omitempty"`
 	TemperatureC         float64 `json:"temperature_c,omitempty"`
 }
 
@@ -82,6 +84,7 @@ type rocmSMIProvider struct {
 
 type sysfsProvider struct {
 	basePath string
+	files    map[string]*os.File
 }
 
 type amdGpuTopProvider struct {

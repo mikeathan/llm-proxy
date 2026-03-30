@@ -272,7 +272,7 @@ func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
 			util = extractPercent(data, "gpu activity")
 		}
 
-		memUsed, memTotal := extractMemoryMB(data)
+		memUsed, memTotal, gttUsed := extractMemoryMB(data)
 		memPct := 0.0
 		if memTotal > 0 {
 			memPct = (memUsed / memTotal) * 100
@@ -286,6 +286,7 @@ func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
 			UtilizationPct:       util,
 			MemoryUsedMB:         memUsed,
 			MemoryTotalMB:        memTotal,
+			GttUsedMB:            gttUsed,
 			MemoryUtilizationPct: memPct,
 			TemperatureC:         temp,
 		}, nil
@@ -306,19 +307,22 @@ func extractPercent(data map[string]interface{}, keyContains string) float64 {
 	return 0
 }
 
-func extractMemoryMB(data map[string]interface{}) (float64, float64) {
+func extractMemoryMB(data map[string]interface{}) (float64, float64, float64) {
 	vramUsed := firstNumberForKeys(data, []string{"vram total used", "vram usage", "vram used"})
+	gttUsed := firstNumberForKeys(data, []string{"gtt total used", "gtt usage", "gtt used"})
+
 	vramTotal := firstNumberForKeys(data, []string{"vram total memory", "vram total"})
 
-	totalUsed := bytesToMB(vramUsed)
+	totalUsed := bytesToMB(vramUsed + gttUsed)
 	totalTotal := bytesToMB(vramTotal)
+	gttUsedMB := bytesToMB(gttUsed)
 
 	if totalUsed == 0 && totalTotal == 0 {
 		totalUsed = bytesToMB(firstNumberForKeys(data, []string{"used (b)", "usage (b)", "memory used"}))
 		totalTotal = bytesToMB(firstNumberForKeys(data, []string{"total (b)", "memory total"}))
 	}
 
-	return totalUsed, totalTotal
+	return totalUsed, totalTotal, gttUsedMB
 }
 
 func extractTemperature(data map[string]interface{}) float64 {
@@ -374,53 +378,40 @@ func bytesToMB(v float64) float64 {
 }
 
 func newSysfsProvider(basePath string) *sysfsProvider {
-	return &sysfsProvider{basePath: basePath}
+	return &sysfsProvider{basePath: basePath, files: make(map[string]*os.File)}
 }
 
 func (p *sysfsProvider) Name() string {
 	return "sysfs"
 }
 
-func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
-	util, err := readSysfsFloat(p.basePath, "gpu_busy_percent")
-	if err != nil {
+func (p *sysfsProvider) readPersistent(file string) ([]byte, error) {
+	if p.files == nil {
+		p.files = make(map[string]*os.File)
+	}
+	f, ok := p.files[file]
+	if !ok {
+		var err error
+		f, err = os.Open(filepath.Join(p.basePath, file))
+		if err != nil {
+			return nil, err
+		}
+		p.files[file] = f
+	}
+
+	if _, err := f.Seek(0, 0); err != nil {
 		return nil, err
 	}
-	memUsedBytes, err := readSysfsFloat(p.basePath, "mem_info_vram_used")
-	if err != nil {
+	var buf [128]byte
+	n, err := f.Read(buf[:])
+	if err != nil && err.Error() != "EOF" {
 		return nil, err
 	}
-	memTotalBytes, err := readSysfsFloat(p.basePath, "mem_info_vram_total")
-	if err != nil {
-		return nil, err
-	}
-
-	memUsedMB := bytesToMB(memUsedBytes)
-	memTotalMB := bytesToMB(memTotalBytes)
-
-	memPct := 0.0
-	if memTotalMB > 0 {
-		memPct = (memUsedMB / memTotalMB) * 100
-	}
-
-	tempC := 0.0
-	if t, err := readSysfsTempC(p.basePath); err == nil {
-		tempC = t
-	}
-
-	return &GPUMetrics{
-		Vendor:               "amd",
-		Name:                 filepath.Base(p.basePath),
-		UtilizationPct:       util,
-		MemoryUsedMB:         memUsedMB,
-		MemoryTotalMB:        memTotalMB,
-		MemoryUtilizationPct: memPct,
-		TemperatureC:         tempC,
-	}, nil
+	return buf[:n], nil
 }
 
-func readSysfsFloat(basePath, file string) (float64, error) {
-	b, err := os.ReadFile(filepath.Join(basePath, file))
+func (p *sysfsProvider) readFloat(file string) (float64, error) {
+	b, err := p.readPersistent(file)
 	if err != nil {
 		return 0, fmt.Errorf("sysfs: %w", err)
 	}
@@ -431,30 +422,102 @@ func readSysfsFloat(basePath, file string) (float64, error) {
 	return v, nil
 }
 
-// readSysfsTempC tries common hwmon temp paths under the device for AMD GPUs.
-func readSysfsTempC(basePath string) (float64, error) {
-	matches, err := filepath.Glob(filepath.Join(basePath, "hwmon", "hwmon*", "temp1_input"))
-	if err != nil || len(matches) == 0 {
-		return 0, fmt.Errorf("sysfs temp: no hwmon temp1_input found")
+func (p *sysfsProvider) readTempC() (float64, error) {
+	if p.files == nil {
+		p.files = make(map[string]*os.File)
 	}
-	b, err := os.ReadFile(matches[0])
+	tempKey := "hwmon_temp"
+	if _, ok := p.files[tempKey]; !ok {
+		matches, err := filepath.Glob(filepath.Join(p.basePath, "hwmon", "hwmon*", "temp1_input"))
+		if err == nil && len(matches) > 0 {
+			f, _ := os.Open(matches[0])
+			p.files[tempKey] = f
+		} else {
+			p.files[tempKey] = nil
+		}
+	}
+
+	f := p.files[tempKey]
+	if f == nil {
+		return 0, errors.New("no sysfs temp sensor")
+	}
+
+	if _, err := f.Seek(0, 0); err != nil {
+		return 0, err
+	}
+	var buf [128]byte
+	n, err := f.Read(buf[:])
+	if err != nil && err.Error() != "EOF" {
+		return 0, err
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(buf[:n])), 64)
 	if err != nil {
-		return 0, fmt.Errorf("sysfs temp: %w", err)
+		return 0, err
 	}
-	v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
-	if err != nil {
-		return 0, fmt.Errorf("sysfs temp parse: %w", err)
-	}
-	// Most drivers expose millidegrees; normalize to Celsius if so.
 	if v > 200 {
 		v = v / 1000.0
 	}
 	return v, nil
 }
 
+func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
+	util, err := p.readFloat("gpu_busy_percent")
+	if err != nil {
+		return nil, err
+	}
+	memUsedBytes, err := p.readFloat("mem_info_vram_used")
+	if err != nil {
+		return nil, err
+	}
+	memTotalBytes, err := p.readFloat("mem_info_vram_total")
+	if err != nil {
+		return nil, err
+	}
+	gttUsedBytes, _ := p.readFloat("mem_info_gtt_used")
+	_, _ = p.readFloat("mem_info_gtt_total")
+
+	memUsedMB := bytesToMB(memUsedBytes + gttUsedBytes)
+	memTotalMB := bytesToMB(memTotalBytes)
+	gttUsedMB := bytesToMB(gttUsedBytes)
+
+	memPct := 0.0
+	if memTotalMB > 0 {
+		memPct = (memUsedMB / memTotalMB) * 100
+	}
+
+	tempC := 0.0
+	if t, err := p.readTempC(); err == nil {
+		tempC = t
+	}
+
+	return &GPUMetrics{
+		Vendor:               "amd",
+		Name:                 filepath.Base(p.basePath),
+		UtilizationPct:       util,
+		MemoryUsedMB:         memUsedMB,
+		MemoryTotalMB:        memTotalMB,
+		GttUsedMB:            gttUsedMB,
+		MemoryUtilizationPct: memPct,
+		TemperatureC:         tempC,
+	}, nil
+}
+
 func defaultSysfsPath(index int) string {
-	card := fmt.Sprintf("card%d", index)
-	return filepath.Join("/sys/class/drm", card, "device")
+	if index >= 0 {
+		path := filepath.Join("/sys/class/drm", fmt.Sprintf("card%d", index), "device")
+		if sysfsAvailable(path) {
+			return path
+		}
+	}
+
+	for i := 0; i < 8; i++ {
+		path := filepath.Join("/sys/class/drm", fmt.Sprintf("card%d", i), "device")
+		if sysfsAvailable(path) {
+			return path
+		}
+	}
+
+	return filepath.Join("/sys/class/drm", "card0", "device")
 }
 
 func sysfsAvailable(basePath string) bool {
@@ -547,7 +610,7 @@ func parseAmdGpuTopJSON(raw []byte) (*GPUMetrics, error) {
 		util = extractPercent(device, "activity")
 	}
 
-	memUsed, memTotal := findNestedMemory(device)
+	memUsed, memTotal, gttUsed := findNestedMemory(device)
 	memPct := 0.0
 	if memTotal > 0 {
 		memPct = (memUsed / memTotal) * 100
@@ -569,6 +632,7 @@ func parseAmdGpuTopJSON(raw []byte) (*GPUMetrics, error) {
 		UtilizationPct:       util,
 		MemoryUsedMB:         memUsed,
 		MemoryTotalMB:        memTotal,
+		GttUsedMB:            gttUsed,
 		MemoryUtilizationPct: memPct,
 		TemperatureC:         temp,
 	}, nil
@@ -591,19 +655,64 @@ func findNestedPercent(data map[string]interface{}, keyHints []string) float64 {
 	return 0
 }
 
-func findNestedMemory(data map[string]interface{}) (float64, float64) {
-	used := firstNumberForKeys(data, []string{"usage vram", "used vram", "usage vram [mib]", "usage vram [mb]", "vram usage", "vram used", "used vram [mib]"})
-	total := firstNumberForKeys(data, []string{"total vram", "total vram [mib]", "total vram [mb]", "vram total"})
+func findNestedMemory(data map[string]interface{}) (float64, float64, float64) {
+	// Phase 1: look for flat top-level keys (e.g. rocm-smi style).
+	vramUsed := firstNumberForKeys(data, []string{"usage vram", "used vram", "usage vram [mib]", "usage vram [mb]", "vram usage", "vram used", "used vram [mib]"})
+	gttUsed := firstNumberForKeys(data, []string{"usage gtt", "used gtt", "usage gtt [mib]", "usage gtt [mb]", "gtt usage", "gtt used"})
+	vramTotal := firstNumberForKeys(data, []string{"total vram", "total vram [mib]", "total vram [mb]", "vram total", "vram total [mib]"})
 
-	for _, v := range data {
-		if m, ok := v.(map[string]interface{}); ok {
-			u, t := findNestedMemory(m)
-			used += u
-			total += t
+	// Phase 2: look one level deeper ONLY inside pool-specific sub-objects
+	// (e.g. amdgpu_top nests memory → { "VRAM": {...}, "GTT": {...} }).
+	// We deliberately do NOT recurse beyond one extra level to prevent double-counting.
+	for k, v := range data {
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		lk := strings.ToLower(k)
+
+		// "memory" container → look inside for VRAM and GTT sub-objects.
+		if strings.Contains(lk, "memory") && !strings.Contains(lk, "vram") && !strings.Contains(lk, "gtt") {
+			for poolKey, poolVal := range m {
+				pm, ok := poolVal.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				plk := strings.ToLower(poolKey)
+				if strings.Contains(plk, "vram") {
+					if vramUsed == 0 {
+						vramUsed = firstNumberForKeys(pm, []string{"usage vram", "used vram", "usage vram [mib]", "total usage", "usage", "used"})
+					}
+					if vramTotal == 0 {
+						vramTotal = firstNumberForKeys(pm, []string{"total vram", "total vram [mib]", "total", "total memory"})
+					}
+				}
+				if strings.Contains(plk, "gtt") {
+					if gttUsed == 0 {
+						gttUsed = firstNumberForKeys(pm, []string{"usage gtt", "used gtt", "usage gtt [mib]", "total usage", "usage", "used"})
+					}
+				}
+			}
+			continue
+		}
+
+		// Direct VRAM or GTT container.
+		if strings.Contains(lk, "vram") {
+			if vramUsed == 0 {
+				vramUsed = firstNumberForKeys(m, []string{"usage vram", "used vram", "vram usage", "vram used", "usage", "used", "total usage"})
+			}
+			if vramTotal == 0 {
+				vramTotal = firstNumberForKeys(m, []string{"total vram", "vram total", "total vram [mib]", "total", "total memory"})
+			}
+		}
+		if strings.Contains(lk, "gtt") {
+			if gttUsed == 0 {
+				gttUsed = firstNumberForKeys(m, []string{"usage gtt", "used gtt", "gtt usage", "gtt used", "usage", "used", "total usage"})
+			}
 		}
 	}
 
-	return used, total
+	return vramUsed + gttUsed, vramTotal, gttUsed
 }
 
 func findNestedTemperature(data map[string]interface{}) float64 {
