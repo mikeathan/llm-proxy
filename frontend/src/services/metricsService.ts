@@ -17,6 +17,15 @@ export const MetricsApiService = {
   fetchLogs: (): Promise<ProcessLogs> =>
     fetch(API_ENDPOINTS.logs).then(r => handleResponse<ProcessLogs>(r)),
 
+  fetchAppLogs: (): Promise<{ logs: string }> =>
+    fetch(API_ENDPOINTS.appLogs).then(r => handleResponse<{ logs: string }>(r)),
+
+  clearLogs: (): Promise<void> =>
+    fetch(API_ENDPOINTS.logs, { method: 'DELETE' }).then(r => handleResponse<void>(r)),
+
+  clearAppLogs: (): Promise<void> =>
+    fetch(API_ENDPOINTS.appLogs.replace('/tail', ''), { method: 'DELETE' }).then(r => handleResponse<void>(r)),
+
   fetchLogLevel: async (): Promise<LogLevel> => {
     const data = await fetch(API_ENDPOINTS.logLevel).then(r => handleResponse<{ level: LogLevel }>(r))
     return data.level

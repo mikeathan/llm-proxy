@@ -24,6 +24,7 @@ type RuntimeService interface {
 	ActiveLogs() string
 	LastTokensPerSecond() (float64, time.Time)
 	StopActive() error
+	ClearLogs() error
 	ModelHost() string
 	SetBinary(string)
 	SetModelHost(string)

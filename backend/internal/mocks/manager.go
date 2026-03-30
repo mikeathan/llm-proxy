@@ -18,6 +18,7 @@ type MockManager struct {
 	ActiveLogsFunc          func() string
 	LastTokensPerSecondFunc func() (float64, time.Time)
 	StopActiveFunc          func() error
+	ClearLogsFunc           func() error
 	ModelHostFunc           func() string
 	SetBinaryFunc           func(string)
 	SetModelHostFunc        func(string)
@@ -85,6 +86,13 @@ func (m *MockManager) LastTokensPerSecond() (float64, time.Time) {
 func (m *MockManager) StopActive() error {
 	if m.StopActiveFunc != nil {
 		return m.StopActiveFunc()
+	}
+	return nil
+}
+
+func (m *MockManager) ClearLogs() error {
+	if m.ClearLogsFunc != nil {
+		return m.ClearLogsFunc()
 	}
 	return nil
 }

@@ -36,12 +36,7 @@
       <div class="form-section">
         <label class="form-label">System Log Level</label>
         <div class="form-helper mb-custom">Change the verbosity of proxy logging in the terminal</div>
-        <div class="log-level-buttons">
-          <button type="button" @click="$emit('updateLogLevel', 'DEBUG')" :class="['btn-log', logLevel === 'DEBUG' ? 'btn-log-active' : 'btn-log-inactive']">DEBUG</button>
-          <button type="button" @click="$emit('updateLogLevel', 'INFO')" :class="['btn-log', logLevel === 'INFO' ? 'btn-log-active' : 'btn-log-inactive']">INFO</button>
-          <button type="button" @click="$emit('updateLogLevel', 'WARN')" :class="['btn-log', logLevel === 'WARN' ? 'btn-log-active' : 'btn-log-inactive']">WARN</button>
-          <button type="button" @click="$emit('updateLogLevel', 'ERROR')" :class="['btn-log', logLevel === 'ERROR' ? 'btn-log-active' : 'btn-log-inactive']">ERROR</button>
-        </div>
+        <LogLevelPanel :modelValue="logLevel" @update="$emit('updateLogLevel', $event)" />
       </div>
 
       <div class="form-actions">
@@ -53,6 +48,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import LogLevelPanel from './LogLevelPanel.vue'
 import { argsToString, stringToArgs, envMapToString, stringToEnvMap } from '../utils/config'
 import type { GlobalConfig } from '../types/admin'
 

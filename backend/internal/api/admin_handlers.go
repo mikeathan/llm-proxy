@@ -331,6 +331,14 @@ func (h *AdminHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, resp)
 }
 
+func (h *AdminHandlers) AdminLogsClearHandler(w http.ResponseWriter, r *http.Request) {
+	if err := h.runtime.ClearLogs(); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to clear logs: "+err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"status": "ok"})
+}
+
 func (h *AdminHandlers) AdminLogLevelHandler(w http.ResponseWriter, r *http.Request) {
 	if h.logger == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "logger unavailable")
@@ -428,6 +436,21 @@ func (h *AdminHandlers) appLogPath() string {
 		return provider.LogPath()
 	}
 	return ""
+}
+
+func (h *AdminHandlers) AdminAppLogsClearHandler(w http.ResponseWriter, r *http.Request) {
+	appLogPath := h.appLogPath()
+	if appLogPath == "" {
+		writeJSONError(w, http.StatusNotFound, "log path unknown")
+		return
+	}
+	// Truncate the file to 0 size.
+	// We might have an open handle in the logger, but truncating should work on most OSs.
+	if err := os.Truncate(appLogPath, 0); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to truncate log: "+err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"status": "ok"})
 }
 
 func parseLogLevel(input string) (logging.Level, error) {

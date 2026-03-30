@@ -50,6 +50,7 @@ type RuntimeManager interface {
 	ActiveLogs() string
 	LastTokensPerSecond() (float64, time.Time)
 	StopActive() error
+	ClearLogs() error
 	ModelHost() string
 	SetBinary(path string)
 	SetModelHost(host string)
@@ -164,6 +165,15 @@ func (m *LLMRuntimeManager) StopActive() error {
 	m.mu.Unlock()
 	if waiter != nil {
 		waiter()
+	}
+	return nil
+}
+
+func (m *LLMRuntimeManager) ClearLogs() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeModel != nil && m.activeModel.logs != nil {
+		m.activeModel.logs.Clear()
 	}
 	return nil
 }

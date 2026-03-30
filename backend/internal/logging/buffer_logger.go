@@ -59,6 +59,12 @@ func (b *BufferLogger) Error(msg string, args ...any) {
 	b.log(LevelError, msg, args...)
 }
 
+func (b *BufferLogger) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = nil
+}
+
 func (b *BufferLogger) log(level Level, msg string, args ...any) {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	line := fmt.Sprintf("%s [%s] %s%s\n", ts, level, msg, formatArgs(args...))

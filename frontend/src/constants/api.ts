@@ -5,6 +5,7 @@ export const API_ENDPOINTS = {
   state: `${API_BASE}/state`,
   metrics: `${API_BASE}/metrics`,
   logs: `${API_BASE}/logs`,
+  appLogs: `${API_BASE}/app-logs/tail`,
   logLevel: `${API_BASE}/log-level`,
   models: `${API_BASE}/models`,
   start: `${API_BASE}/start`,
