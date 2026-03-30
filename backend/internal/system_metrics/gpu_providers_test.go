@@ -139,6 +139,7 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+// floatEquals is a helper for unit tests
 func floatEquals(got, want float64) bool {
 	return math.Abs(got-want) < 0.0001
 }

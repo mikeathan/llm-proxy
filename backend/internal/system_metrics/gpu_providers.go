@@ -312,13 +312,11 @@ func extractPercent(data map[string]interface{}, keyContains string) float64 {
 func extractMemoryMB(data map[string]interface{}) (float64, float64) {
 	vramUsed := firstNumberForKeys(data, []string{"vram total used", "vram usage", "vram used"})
 	gttUsed := firstNumberForKeys(data, []string{"gtt total used", "gtt usage", "gtt used"})
-	visUsed := firstNumberForKeys(data, []string{"vis_vram total used", "vis_vram usage", "vis_vram used"})
 
 	vramTotal := firstNumberForKeys(data, []string{"vram total memory", "vram total"})
-	visTotal := firstNumberForKeys(data, []string{"vis_vram total memory", "vis_vram total"})
 
-	totalUsed := bytesToMB(vramUsed + gttUsed + visUsed)
-	totalTotal := bytesToMB(vramTotal + visTotal)
+	totalUsed := bytesToMB(vramUsed + gttUsed)
+	totalTotal := bytesToMB(vramTotal)
 
 	if totalUsed == 0 && totalTotal == 0 {
 		totalUsed = bytesToMB(firstNumberForKeys(data, []string{"used (b)", "usage (b)", "memory used"}))
@@ -404,11 +402,9 @@ func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
 
 	gttUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_gtt_used")
 	_, _ = readSysfsFloat(p.basePath, "mem_info_gtt_total")
-	visUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_vis_vram_used")
-	visTotalBytes, _ := readSysfsFloat(p.basePath, "mem_info_vis_vram_total")
 
-	memUsedMB := bytesToMB(memUsedBytes + gttUsedBytes + visUsedBytes)
-	memTotalMB := bytesToMB(memTotalBytes + visTotalBytes)
+	memUsedMB := bytesToMB(memUsedBytes + gttUsedBytes)
+	memTotalMB := bytesToMB(memTotalBytes)
 
 	// Adaptive total
 	if memUsedMB > memTotalMB {
