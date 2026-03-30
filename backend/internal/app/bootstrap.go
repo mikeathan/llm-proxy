@@ -200,7 +200,7 @@ func buildRouter(
 	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
 
-	router.Get("/admin", admin.AdminPageHandler, textMethodNotAllowed)
+	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)
 
 	// Proxy
 	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.EnsureModelProxyHandler))

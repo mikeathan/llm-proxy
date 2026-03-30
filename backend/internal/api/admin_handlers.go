@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/models"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,12 @@ import (
 	"strings"
 	"time"
 )
+
+func init() {
+	_ = mime.AddExtensionType(".js", "application/javascript")
+	_ = mime.AddExtensionType(".css", "text/css")
+	_ = mime.AddExtensionType(".svg", "image/svg+xml")
+}
 
 //go:embed all:frontend_dist
 var frontendFS embed.FS

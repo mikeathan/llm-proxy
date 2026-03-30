@@ -12,5 +12,9 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    outDir: '../backend/internal/api/frontend_dist',
+    emptyOutDir: true
   }
 })

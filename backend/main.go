@@ -18,10 +18,9 @@ var (
 	BuildDate = "unknown"
 )
 
-const configPath = "config/config.json" // Hardcoded default, can be improved
-
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
+	configFlag := flag.String("config", "", "path to config file")
 	flag.Parse()
 
 	buildInfo := buildInfo()
@@ -32,6 +31,15 @@ func main() {
 	}
 
 	logger := initLogger()
+
+	configPath := *configFlag
+	if configPath == "" {
+		if _, err := os.Stat("backend/config/config.json"); err == nil {
+			configPath = "backend/config/config.json"
+		} else {
+			configPath = "config/config.json"
+		}
+	}
 
 	// Load configuration using ConfigManager
 	cfgMgr := config.NewConfigManager(configPath)
