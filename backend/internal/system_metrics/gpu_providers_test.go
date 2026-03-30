@@ -23,10 +23,10 @@ func TestParseAmdGpuTopJSON_DevicesArray(t *testing.T) {
 	if snap.UtilizationPct != 45 {
 		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
 	}
-	if snap.MemoryUsedMB != 150 || snap.MemoryTotalMB != 200 {
+	if snap.MemoryUsedMB != 100 || snap.MemoryTotalMB != 200 {
 		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
 	}
-	if snap.MemoryUtilizationPct != 75 {
+	if snap.MemoryUtilizationPct != 50 {
 		t.Fatalf("unexpected memory percent: %v", snap.MemoryUtilizationPct)
 	}
 	if snap.TemperatureC != 70 {
@@ -67,10 +67,10 @@ func TestSysfsProviderSample(t *testing.T) {
 	if snap.UtilizationPct != 25 {
 		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
 	}
-	if snap.MemoryUsedMB != 200 || snap.MemoryTotalMB != 200 {
+	if snap.MemoryUsedMB != 100 || snap.MemoryTotalMB != 200 {
 		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
 	}
-	if !floatEquals(snap.MemoryUtilizationPct, 100.0) {
+	if !floatEquals(snap.MemoryUtilizationPct, 50.0) {
 		t.Fatalf("unexpected memory percent: %v", snap.MemoryUtilizationPct)
 	}
 	if snap.TemperatureC != 42 {
@@ -111,10 +111,10 @@ func TestParseRocmSMIOutput(t *testing.T) {
 	if snap.UtilizationPct != 45 {
 		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
 	}
-	if !floatEquals(snap.MemoryUsedMB, 150) || !floatEquals(snap.MemoryTotalMB, 150) {
+	if !floatEquals(snap.MemoryUsedMB, 50) || !floatEquals(snap.MemoryTotalMB, 100) {
 		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
 	}
-	if !floatEquals(snap.MemoryUtilizationPct, 100.0) {
+	if !floatEquals(snap.MemoryUtilizationPct, 50.0) {
 		t.Fatalf("unexpected memory percent: %v", snap.MemoryUtilizationPct)
 	}
 	if snap.TemperatureC != 55 {

@@ -21,11 +21,11 @@ const { metrics } = useMetrics()
 
 const newModel = ref<NewModelForm>({ name: '', filename: '', port: 0, args: '' })
 
-const handleAddModel = (): void => {
-  if (!newModel.value.name || !newModel.value.filename) return
+const handleAddModel = (model: any): void => {
+  if (!model.name || !model.filename) return
   addModel({
-    ...newModel.value,
-    args: newModel.value.args.split(' ').filter(Boolean),
+    ...model,
+    args: (model.args || '').split(' ').filter(Boolean),
   })
   newModel.value = { name: '', filename: '', port: 0, args: '' }
 }

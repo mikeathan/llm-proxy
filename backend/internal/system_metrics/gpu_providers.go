@@ -273,9 +273,6 @@ func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
 		}
 
 		memUsed, memTotal := extractMemoryMB(data)
-		if memUsed > memTotal {
-			memTotal = memUsed
-		}
 		memPct := 0.0
 		if memTotal > 0 {
 			memPct = (memUsed / memTotal) * 100
@@ -311,11 +308,9 @@ func extractPercent(data map[string]interface{}, keyContains string) float64 {
 
 func extractMemoryMB(data map[string]interface{}) (float64, float64) {
 	vramUsed := firstNumberForKeys(data, []string{"vram total used", "vram usage", "vram used"})
-	gttUsed := firstNumberForKeys(data, []string{"gtt total used", "gtt usage", "gtt used"})
-
 	vramTotal := firstNumberForKeys(data, []string{"vram total memory", "vram total"})
 
-	totalUsed := bytesToMB(vramUsed + gttUsed)
+	totalUsed := bytesToMB(vramUsed)
 	totalTotal := bytesToMB(vramTotal)
 
 	if totalUsed == 0 && totalTotal == 0 {
@@ -400,16 +395,8 @@ func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
 		return nil, err
 	}
 
-	gttUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_gtt_used")
-	_, _ = readSysfsFloat(p.basePath, "mem_info_gtt_total")
-
-	memUsedMB := bytesToMB(memUsedBytes + gttUsedBytes)
+	memUsedMB := bytesToMB(memUsedBytes)
 	memTotalMB := bytesToMB(memTotalBytes)
-
-	// Adaptive total
-	if memUsedMB > memTotalMB {
-		memTotalMB = memUsedMB
-	}
 
 	memPct := 0.0
 	if memTotalMB > 0 {
@@ -561,9 +548,6 @@ func parseAmdGpuTopJSON(raw []byte) (*GPUMetrics, error) {
 	}
 
 	memUsed, memTotal := findNestedMemory(device)
-	if memUsed > memTotal {
-		memTotal = memUsed
-	}
 	memPct := 0.0
 	if memTotal > 0 {
 		memPct = (memUsed / memTotal) * 100
@@ -609,10 +593,7 @@ func findNestedPercent(data map[string]interface{}, keyHints []string) float64 {
 
 func findNestedMemory(data map[string]interface{}) (float64, float64) {
 	used := firstNumberForKeys(data, []string{"usage vram", "used vram", "usage vram [mib]", "usage vram [mb]", "vram usage", "vram used", "used vram [mib]"})
-	gttUsed := firstNumberForKeys(data, []string{"usage gtt", "used gtt", "usage gtt [mib]", "usage gtt [mb]", "gtt usage", "gtt used"})
 	total := firstNumberForKeys(data, []string{"total vram", "total vram [mib]", "total vram [mb]", "vram total"})
-
-	used += gttUsed
 
 	for _, v := range data {
 		if m, ok := v.(map[string]interface{}); ok {

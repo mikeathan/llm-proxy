@@ -120,7 +120,7 @@ const emit = defineEmits<{
   (e: 'stopModel'): void
   (e: 'removeModel', name: string): void
   (e: 'updateModel', model: any): void
-  (e: 'addModel'): void
+  (e: 'addModel', model: any): void
 }>()
 
 const localNewModel = ref({ ...props.newModel })
@@ -148,10 +148,6 @@ watch(() => props.newModel, (newVal) => {
   localNewModel.value = { ...newVal }
 }, { deep: true })
 
-watch(localNewModel, (newVal) => {
-  emit('update:newModel', newVal)
-}, { deep: true })
-
 function selectAvailableModel(model: any) {
   const newM = {
     name: model.name,
@@ -163,7 +159,7 @@ function selectAvailableModel(model: any) {
 }
 
 function submitModel() {
-  emit('addModel')
+  emit('addModel', localNewModel.value)
 }
 </script>
 
