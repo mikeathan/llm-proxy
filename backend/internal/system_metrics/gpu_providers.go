@@ -273,6 +273,9 @@ func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
 		}
 
 		memUsed, memTotal := extractMemoryMB(data)
+		if memUsed > memTotal {
+			memTotal = memUsed
+		}
 		memPct := 0.0
 		if memTotal > 0 {
 			memPct = (memUsed / memTotal) * 100
@@ -307,9 +310,22 @@ func extractPercent(data map[string]interface{}, keyContains string) float64 {
 }
 
 func extractMemoryMB(data map[string]interface{}) (float64, float64) {
-	memUsed := firstNumberForKeys(data, []string{"used (b)", "usage (b)", "memory used", "vram usage", "vram used"})
-	memTotal := firstNumberForKeys(data, []string{"total (b)", "vram total", "memory total"})
-	return bytesToMB(memUsed), bytesToMB(memTotal)
+	vramUsed := firstNumberForKeys(data, []string{"vram total used", "vram usage", "vram used"})
+	gttUsed := firstNumberForKeys(data, []string{"gtt total used", "gtt usage", "gtt used"})
+	visUsed := firstNumberForKeys(data, []string{"vis_vram total used", "vis_vram usage", "vis_vram used"})
+
+	vramTotal := firstNumberForKeys(data, []string{"vram total memory", "vram total"})
+	visTotal := firstNumberForKeys(data, []string{"vis_vram total memory", "vis_vram total"})
+
+	totalUsed := bytesToMB(vramUsed + gttUsed + visUsed)
+	totalTotal := bytesToMB(vramTotal + visTotal)
+
+	if totalUsed == 0 && totalTotal == 0 {
+		totalUsed = bytesToMB(firstNumberForKeys(data, []string{"used (b)", "usage (b)", "memory used"}))
+		totalTotal = bytesToMB(firstNumberForKeys(data, []string{"total (b)", "memory total"}))
+	}
+
+	return totalUsed, totalTotal
 }
 
 func extractTemperature(data map[string]interface{}) float64 {
@@ -386,8 +402,19 @@ func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
 		return nil, err
 	}
 
-	memUsedMB := bytesToMB(memUsedBytes)
-	memTotalMB := bytesToMB(memTotalBytes)
+	gttUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_gtt_used")
+	_, _ = readSysfsFloat(p.basePath, "mem_info_gtt_total")
+	visUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_vis_vram_used")
+	visTotalBytes, _ := readSysfsFloat(p.basePath, "mem_info_vis_vram_total")
+
+	memUsedMB := bytesToMB(memUsedBytes + gttUsedBytes + visUsedBytes)
+	memTotalMB := bytesToMB(memTotalBytes + visTotalBytes)
+
+	// Adaptive total
+	if memUsedMB > memTotalMB {
+		memTotalMB = memUsedMB
+	}
+
 	memPct := 0.0
 	if memTotalMB > 0 {
 		memPct = (memUsedMB / memTotalMB) * 100
@@ -538,6 +565,9 @@ func parseAmdGpuTopJSON(raw []byte) (*GPUMetrics, error) {
 	}
 
 	memUsed, memTotal := findNestedMemory(device)
+	if memUsed > memTotal {
+		memTotal = memUsed
+	}
 	memPct := 0.0
 	if memTotal > 0 {
 		memPct = (memUsed / memTotal) * 100
@@ -583,21 +613,19 @@ func findNestedPercent(data map[string]interface{}, keyHints []string) float64 {
 
 func findNestedMemory(data map[string]interface{}) (float64, float64) {
 	used := firstNumberForKeys(data, []string{"usage vram", "used vram", "usage vram [mib]", "usage vram [mb]", "vram usage", "vram used", "used vram [mib]"})
+	gttUsed := firstNumberForKeys(data, []string{"usage gtt", "used gtt", "usage gtt [mib]", "usage gtt [mb]", "gtt usage", "gtt used"})
 	total := firstNumberForKeys(data, []string{"total vram", "total vram [mib]", "total vram [mb]", "vram total"})
+
+	used += gttUsed
 
 	for _, v := range data {
 		if m, ok := v.(map[string]interface{}); ok {
 			u, t := findNestedMemory(m)
-			if u > 0 && used == 0 {
-				used = u
-			}
-			if t > 0 && total == 0 {
-				total = t
-			}
+			used += u
+			total += t
 		}
 	}
 
-	// amdgpu_top reports in MiB already
 	return used, total
 }
 
