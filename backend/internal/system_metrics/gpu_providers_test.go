@@ -11,7 +11,7 @@ import (
 )
 
 func TestParseAmdGpuTopJSON_DevicesArray(t *testing.T) {
-	raw := `{"devices":[{"name":"card0","GFX Activity":45,"VRAM":{"Usage VRAM [MiB]":100,"Total VRAM [MiB]":200},"Temperature (C)":70}]}`
+	raw := `{"devices":[{"name":"card0","GFX Activity":45,"memory":{"VRAM":{"Usage VRAM [MiB]":100,"Total VRAM [MiB]":200},"GTT":{"Usage GTT [MiB]":50,"Total GTT [MiB]":100}},"Temperature (C)":70}]}`
 
 	snap, err := parseAmdGpuTopJSON([]byte(raw))
 	if err != nil {
@@ -23,7 +23,7 @@ func TestParseAmdGpuTopJSON_DevicesArray(t *testing.T) {
 	if snap.UtilizationPct != 45 {
 		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
 	}
-	if snap.MemoryUsedMB != 100 || snap.MemoryTotalMB != 200 {
+	if snap.MemoryUsedMB != 150 || snap.MemoryTotalMB != 300 {
 		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
 	}
 	if snap.MemoryUtilizationPct != 50 {
@@ -55,6 +55,8 @@ func TestSysfsProviderSample(t *testing.T) {
 	writeFile(t, filepath.Join(base, "gpu_busy_percent"), "25")
 	writeFile(t, filepath.Join(base, "mem_info_vram_used"), "104857600")
 	writeFile(t, filepath.Join(base, "mem_info_vram_total"), "209715200")
+	writeFile(t, filepath.Join(base, "mem_info_gtt_used"), "104857600")
+	writeFile(t, filepath.Join(base, "mem_info_gtt_total"), "419430400")
 	writeFile(t, filepath.Join(base, "hwmon", "hwmon0", "temp1_input"), "42000")
 
 	provider := newSysfsProvider(base)
@@ -65,10 +67,11 @@ func TestSysfsProviderSample(t *testing.T) {
 	if snap.UtilizationPct != 25 {
 		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
 	}
-	if snap.MemoryUsedMB != 100 || snap.MemoryTotalMB != 200 {
+	if snap.MemoryUsedMB != 200 || snap.MemoryTotalMB != 600 {
 		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
 	}
-	if snap.MemoryUtilizationPct != 50 {
+	expectedPct := (200.0 / 600.0) * 100
+	if !floatEquals(snap.MemoryUtilizationPct, expectedPct) {
 		t.Fatalf("unexpected memory percent: %v", snap.MemoryUtilizationPct)
 	}
 	if snap.TemperatureC != 42 {
@@ -97,7 +100,7 @@ func TestBuildGPUProvider_SysfsPath(t *testing.T) {
 }
 
 func TestParseRocmSMIOutput(t *testing.T) {
-	raw := `{"card0":{"GPU use (%)":"45%","VRAM Usage (B)":52428800,"VRAM Total (B)":104857600,"Temperature (C)":55}}`
+	raw := `{"card0":{"GPU use (%)":"45%","VRAM Total Used Memory (B)":52428800,"VRAM Total Memory (B)":104857600,"GTT Total Used Memory (B)":104857600,"GTT Total Memory (B)":419430400,"Temperature (C)":55}}`
 
 	snap, err := parseRocmSMIOutput([]byte(raw))
 	if err != nil {
@@ -109,10 +112,10 @@ func TestParseRocmSMIOutput(t *testing.T) {
 	if snap.UtilizationPct != 45 {
 		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
 	}
-	if !floatEquals(snap.MemoryUsedMB, 50) || !floatEquals(snap.MemoryTotalMB, 100) {
+	if !floatEquals(snap.MemoryUsedMB, 150) || !floatEquals(snap.MemoryTotalMB, 500) {
 		t.Fatalf("unexpected memory: used=%v total=%v", snap.MemoryUsedMB, snap.MemoryTotalMB)
 	}
-	if !floatEquals(snap.MemoryUtilizationPct, 50) {
+	if !floatEquals(snap.MemoryUtilizationPct, 30.0) {
 		t.Fatalf("unexpected memory percent: %v", snap.MemoryUtilizationPct)
 	}
 	if snap.TemperatureC != 55 {

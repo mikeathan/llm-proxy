@@ -307,9 +307,23 @@ func extractPercent(data map[string]interface{}, keyContains string) float64 {
 }
 
 func extractMemoryMB(data map[string]interface{}) (float64, float64) {
-	memUsed := firstNumberForKeys(data, []string{"used (b)", "usage (b)", "memory used", "vram usage", "vram used"})
-	memTotal := firstNumberForKeys(data, []string{"total (b)", "vram total", "memory total"})
-	return bytesToMB(memUsed), bytesToMB(memTotal)
+	vramUsed := firstNumberForKeys(data, []string{"vram total used", "vram usage", "vram used"})
+	gttUsed := firstNumberForKeys(data, []string{"gtt total used", "gtt usage", "gtt used"})
+	visUsed := firstNumberForKeys(data, []string{"vis_vram total used", "vis_vram usage", "vis_vram used"})
+
+	vramTotal := firstNumberForKeys(data, []string{"vram total memory", "vram total"})
+	gttTotal := firstNumberForKeys(data, []string{"gtt total memory", "gtt total"})
+	visTotal := firstNumberForKeys(data, []string{"vis_vram total memory", "vis_vram total"})
+
+	totalUsed := vramUsed + gttUsed + visUsed
+	totalTotal := vramTotal + gttTotal + visTotal
+
+	if totalUsed == 0 && totalTotal == 0 {
+		totalUsed = firstNumberForKeys(data, []string{"used (b)", "usage (b)", "memory used"})
+		totalTotal = firstNumberForKeys(data, []string{"total (b)", "memory total"})
+	}
+
+	return bytesToMB(totalUsed), bytesToMB(totalTotal)
 }
 
 func extractTemperature(data map[string]interface{}) float64 {
@@ -386,8 +400,13 @@ func (p *sysfsProvider) Sample() (*GPUMetrics, error) {
 		return nil, err
 	}
 
-	memUsedMB := bytesToMB(memUsedBytes)
-	memTotalMB := bytesToMB(memTotalBytes)
+	gttUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_gtt_used")
+	gttTotalBytes, _ := readSysfsFloat(p.basePath, "mem_info_gtt_total")
+	visUsedBytes, _ := readSysfsFloat(p.basePath, "mem_info_vis_vram_used")
+	visTotalBytes, _ := readSysfsFloat(p.basePath, "mem_info_vis_vram_total")
+
+	memUsedMB := bytesToMB(memUsedBytes + gttUsedBytes + visUsedBytes)
+	memTotalMB := bytesToMB(memTotalBytes + gttTotalBytes + visTotalBytes)
 	memPct := 0.0
 	if memTotalMB > 0 {
 		memPct = (memUsedMB / memTotalMB) * 100
@@ -582,18 +601,14 @@ func findNestedPercent(data map[string]interface{}, keyHints []string) float64 {
 }
 
 func findNestedMemory(data map[string]interface{}) (float64, float64) {
-	used := firstNumberForKeys(data, []string{"usage vram", "used vram", "usage vram [mib]", "usage vram [mb]", "vram usage", "vram used", "used vram [mib]"})
-	total := firstNumberForKeys(data, []string{"total vram", "total vram [mib]", "total vram [mb]", "vram total"})
+	used := firstNumberForKeys(data, []string{"usage vram", "used vram", "usage vram [mib]", "usage vram [mb]", "vram usage", "vram used", "used vram [mib]", "usage gtt", "used gtt", "usage gtt [mib]", "usage gtt [mb]", "gtt usage", "gtt used"})
+	total := firstNumberForKeys(data, []string{"total vram", "total vram [mib]", "total vram [mb]", "vram total", "total gtt", "total gtt [mib]", "total gtt [mb]", "gtt total"})
 
 	for _, v := range data {
 		if m, ok := v.(map[string]interface{}); ok {
 			u, t := findNestedMemory(m)
-			if u > 0 && used == 0 {
-				used = u
-			}
-			if t > 0 && total == 0 {
-				total = t
-			}
+			used += u
+			total += t
 		}
 	}
 
