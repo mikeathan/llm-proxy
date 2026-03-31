@@ -606,9 +606,6 @@ func (h *AdminHandlers) AdminMCPAddHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Default enabled
-	req.Enabled = true
-
 	if err := h.admin.AddMCPServer(req); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to add mcp server: "+err.Error())
 		return
