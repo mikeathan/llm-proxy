@@ -1,0 +1,50 @@
+{
+  "server": {
+    "bind": "0.0.0.0:4001",
+    "model_host": "127.0.0.1",
+    "idle_timeout_seconds": 1800,
+    "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
+    "default_args": [
+      "--ctx-size",
+      "4096",
+      "--threads",
+      "8",
+      "--parallel",
+      "1",
+      "--gpu-layers",
+      "999",
+      "--flash-attn",
+      "on",
+      "--host",
+      "0.0.0.0"
+    ],
+    "environment": {
+      "AMD_SERIALIZE_KERNEL": "1",
+      "GGML_HIP_UMA": "1",
+      "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
+    }
+  },
+  "models": [
+    {
+      "name": "qwen2.5-3b-instruct",
+      "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
+      "args": [],
+      "port": 9002,
+      "environment": null
+    }
+  ],
+  "model_dir": "/home/mikeathan/dev/models",
+  "metrics": {
+    "gpu": {
+      "provider": "sysfs",
+      "sysfs_path": "/sys/class/drm/card0/device"
+    }
+  },
+  "mcp_servers": [
+    {
+      "name": "nodeherder-dev",
+      "url": "http://192.168.50.251:4110/api/mcp",
+      "enabled": false
+    }
+  ]
+}
