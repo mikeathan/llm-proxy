@@ -14,7 +14,7 @@ const refresh = async (): Promise<void> => {
 
 const addMCPServer = async (payload: Omit<McpServer, 'enabled'>): Promise<void> => {
   try {
-    await McpApiService.add(payload)
+    await McpApiService.add({ ...payload, enabled: false } as McpServer)
     await refresh()
   } catch (e: any) {
     console.error(e)

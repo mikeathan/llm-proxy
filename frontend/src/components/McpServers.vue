@@ -3,8 +3,8 @@
     <h2 class="mcp-title">MCP Servers</h2>
 
     <div class="mcp-form">
-      <input v-model="localNewMcpServer.name" type="text" placeholder="Server Name" class="mcp-input">
-      <input v-model="localNewMcpServer.url" type="text" placeholder="Server URL" class="mcp-input">
+      <input v-model="localName" type="text" placeholder="Server Name" class="mcp-input">
+      <input v-model="localUrl" type="text" placeholder="Server URL" class="mcp-input">
       <button @click="submitAddMCPServer" class="mcp-btn-add">Add</button>
     </div>
 
@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps<{
   mcpServers: any[]
@@ -55,15 +55,15 @@ const emit = defineEmits<{
   (e: 'removeMCPServer', name: string): void
 }>()
 
-const localNewMcpServer = ref({ ...props.newMcpServer })
+const localName = computed({
+  get: () => props.newMcpServer.name,
+  set: (val) => emit('update:newMcpServer', { ...props.newMcpServer, name: val })
+})
 
-watch(() => props.newMcpServer, (newVal) => {
-  localNewMcpServer.value = { ...newVal }
-}, { deep: true })
-
-watch(localNewMcpServer, (newVal) => {
-  emit('update:newMcpServer', newVal)
-}, { deep: true })
+const localUrl = computed({
+  get: () => props.newMcpServer.url,
+  set: (val) => emit('update:newMcpServer', { ...props.newMcpServer, url: val })
+})
 
 function submitAddMCPServer() {
   emit('addMCPServer')

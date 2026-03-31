@@ -20,8 +20,8 @@
     ],
     "environment": {
       "AMD_SERIALIZE_KERNEL": "1",
-      "HSA_OVERRIDE_GFX_VERSION": "11.0.0",
-      "GGML_HIP_UMA": "1"
+      "GGML_HIP_UMA": "1",
+      "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
     }
   },
   "models": [
