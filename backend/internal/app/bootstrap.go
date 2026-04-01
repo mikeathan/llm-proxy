@@ -19,7 +19,6 @@ import (
 	"llm-proxy/internal/persistence"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
-	"llm-proxy/internal/workspace"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -38,15 +37,7 @@ type Infra struct {
 type Container struct {
 	Core   Core
 	Infra  Infra
-	Workspaces *WorkspaceServices
 	Dispatcher *dispatcher.Dispatcher
-}
-
-type WorkspaceServices struct {
-	Manager    *workspace.Manager
-	Executor   workspace.AgentExecutor
-	Scheduler  *workspace.Scheduler
-	Handlers   *api.WorkspaceHandlers
 }
 
 type AssistantService interface {
@@ -142,27 +133,6 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 	}
 }
 
-// BuildWorkspaceServices composes the workspace subsystem: manager, executor, scheduler, and HTTP handlers.
-// It is the composition root for the workspace feature — all dependencies are resolved here.
-func (c *Container) BuildWorkspaceServices() *WorkspaceServices {
-	baseDir := filepath.Join(c.Core.AppCtx.ModelDir(), "..", "workspaces")
-	mgr := workspace.NewManager(baseDir)
-	exec := NewWorkspaceExecutor(c.BuildAppServices())
-
-	sched, err := workspace.NewScheduler(mgr, exec, slog.Default())
-	if err != nil {
-		c.Infra.Logger.Error("Failed to create workspace scheduler", "error", err)
-		return &WorkspaceServices{Manager: mgr, Executor: exec}
-	}
-
-	return &WorkspaceServices{
-		Manager:   mgr,
-		Executor:  exec,
-		Scheduler: sched,
-		Handlers:  api.NewWorkspaceHandlers(mgr, sched, c.Infra.Logger),
-	}
-}
-
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
 func (c *Container) BuildDispatcher(svc AssistantService) (*dispatcher.Dispatcher, error) {
@@ -211,7 +181,7 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
-func buildHTTP(s AppServices, ws *WorkspaceServices, disp *dispatcher.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
+func buildHTTP(s AppServices, disp *dispatcher.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
@@ -222,14 +192,13 @@ func buildHTTP(s AppServices, ws *WorkspaceServices, disp *dispatcher.Dispatcher
 		dispatcherHandlers = api.NewDispatcherHandlers(disp)
 	}
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, ws.Handlers, dispatcherHandlers)
+	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers)
 }
 
 func buildRouter(
 	admin *api.AdminHandlers,
 	proxyHandlers *api.ProxyHandlers,
 	assistant http.Handler,
-	workspaces *api.WorkspaceHandlers,
 	dispatcherHandlers *api.DispatcherHandlers,
 ) http.Handler {
 
@@ -262,12 +231,6 @@ func buildRouter(
 	router.Post("/admin/api/mcp", admin.AdminMCPAddHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
-
-	// Workspaces
-	router.Get("/admin/api/workspaces", workspaces.ListWorkspaces, jsonMethodNotAllowed)
-	router.Post("/admin/api/workspaces", workspaces.SaveWorkspace, jsonMethodNotAllowed)
-	router.Delete("/admin/api/workspaces", workspaces.DeleteWorkspace, jsonMethodNotAllowed)
-	router.Post("/admin/api/workspaces/trigger", workspaces.TriggerHeartbeat, jsonMethodNotAllowed)
 
 	// Dispatcher (Phase 2)
 	if dispatcherHandlers != nil {

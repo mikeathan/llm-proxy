@@ -2,9 +2,8 @@ package api
 
 import (
 	"encoding/json"
-	"net/http"
-
 	"llm-proxy/internal/dispatcher"
+	"net/http"
 )
 
 // DispatcherHandlers handles REST API endpoints for the dispatcher.
@@ -63,11 +62,11 @@ func (h *DispatcherHandlers) GetDispatcherMetrics(w http.ResponseWriter, r *http
 	metrics := h.dispatcher.Metrics()
 
 	respondJSON(w, map[string]interface{}{
-		"total_executions":   metrics.TotalExecutions,
-		"successful":         metrics.SuccessfulExecutions,
-		"failed":             metrics.FailedExecutions,
-		"skipped":            metrics.SkippedExecutions,
-		"total_latency_ms":   metrics.TotalLatency.Milliseconds(),
+		"total_executions": metrics.TotalExecutions,
+		"successful":       metrics.SuccessfulExecutions,
+		"failed":           metrics.FailedExecutions,
+		"skipped":          metrics.SkippedExecutions,
+		"total_latency_ms": metrics.TotalLatency.Milliseconds(),
 	})
 }
 
