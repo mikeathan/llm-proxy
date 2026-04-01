@@ -43,6 +43,12 @@
         >
           Workspaces
         </button>
+        <button
+          @click="$emit('update:activeTab', 'agent-ide')"
+          :class="['nav-button', activeTab === 'agent-ide' ? 'nav-button-active' : 'nav-button-inactive']"
+        >
+          Agent IDE
+        </button>
       </nav>
     </div>
   </header>

@@ -5,10 +5,11 @@ import DashboardView from './views/DashboardView.vue'
 import SettingsView from './views/SettingsView.vue'
 import LogsView from './views/LogsView.vue'
 import WorkspacesView from './views/WorkspacesView.vue'
+import AgentIdeView from './views/AgentIdeView.vue'
 import { useModels } from './composables/useModels'
 import { useMcpServers } from './composables/useMcpServers'
 
-type Tab = 'dashboard' | 'settings' | 'logs' | 'workspaces'
+type Tab = 'dashboard' | 'settings' | 'logs' | 'workspaces' | 'agent-ide'
 
 const activeTab = ref<Tab>('dashboard')
 
@@ -34,6 +35,7 @@ onMounted(() => {
         <SettingsView  v-else-if="activeTab === 'settings'" />
         <LogsView      v-else-if="activeTab === 'logs'" />
         <WorkspacesView v-else-if="activeTab === 'workspaces'" />
+        <AgentIdeView v-else-if="activeTab === 'agent-ide'" />
       </template>
     </main>
   </div>
