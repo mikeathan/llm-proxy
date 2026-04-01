@@ -286,3 +286,7 @@ func (m *Manager) ListWorkspaces() ([]*models.Workspace, error) {
 
 	return workspaces, nil
 }
+// BaseDir returns the base directory path for workspaces.
+func (m *Manager) BaseDir() string {
+	return m.baseDir
+}

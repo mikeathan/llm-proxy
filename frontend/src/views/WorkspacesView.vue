@@ -124,12 +124,12 @@ const handleTrigger = async (id: string) => {
     <!-- Edit/Create Modal -->
     <div v-if="showForm && editingWorkspace" class="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-3xl w-full my-8">
-        <h2 class="text-xl font-bold text-white mb-6">{{ workspaces.some(w => w.id === editingWorkspace!.id) ? 'Edit' : 'Create' }} Workspace</h2>
+        <h2 class="text-xl font-bold text-white mb-6">{{ workspaces.some((w: Workspace) => w.id === editingWorkspace!.id) ? 'Edit' : 'Create' }} Workspace</h2>
         
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-1">Workspace ID</label>
-            <input v-model="editingWorkspace.id" :disabled="workspaces.some(w => w.id === editingWorkspace!.id)" type="text" class="w-full bg-gray-900 border border-gray-600 text-white rounded px-3 py-2 disabled:opacity-50">
+            <input v-model="editingWorkspace.id" :disabled="workspaces.some((w: Workspace) => w.id === editingWorkspace!.id)" type="text" class="w-full bg-gray-900 border border-gray-600 text-white rounded px-3 py-2 disabled:opacity-50">
           </div>
           
           <div class="grid grid-cols-2 gap-4">
