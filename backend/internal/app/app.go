@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
@@ -23,7 +24,15 @@ func (a *App) ListenAndServe() error {
 func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
 
 	container := bootstrap(cfgMgr, logger)
-	router := buildHTTP(container.BuildAppServices(), buildInfo)
+	svc := container.BuildAppServices()
+	ws := container.BuildWorkspaceServices()
+
+	// Start workspace scheduler in background
+	if ws.Scheduler != nil {
+		go ws.Scheduler.Start(context.Background())
+	}
+
+	router := buildHTTP(svc, ws, buildInfo)
 
 	// Get initial config for binding
 	cfg := cfgMgr.GetConfig()

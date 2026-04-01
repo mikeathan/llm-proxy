@@ -34,8 +34,16 @@ type Infra struct {
 }
 
 type Container struct {
-	Core  Core
-	Infra Infra
+	Core   Core
+	Infra  Infra
+	Workspaces *WorkspaceServices
+}
+
+type WorkspaceServices struct {
+	Manager    *workspace.Manager
+	Executor   workspace.AgentExecutor
+	Scheduler  *workspace.Scheduler
+	Handlers   *api.WorkspaceHandlers
 }
 
 type AssistantService interface {
@@ -119,7 +127,6 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 	runtime := appCtx.Manager()
 
 	return &Container{
-
 		Core: Core{
 			AppCtx:  appCtx,
 			Runtime: runtime,
@@ -129,6 +136,27 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 			Clock:      clock,
 			NodeHerder: nodeHerder,
 		},
+	}
+}
+
+// BuildWorkspaceServices composes the workspace subsystem: manager, executor, scheduler, and HTTP handlers.
+// It is the composition root for the workspace feature — all dependencies are resolved here.
+func (c *Container) BuildWorkspaceServices() *WorkspaceServices {
+	baseDir := filepath.Join(c.Core.AppCtx.ModelDir(), "..", "workspaces")
+	mgr := workspace.NewManager(baseDir)
+	exec := NewWorkspaceExecutor(c.BuildAppServices())
+
+	sched, err := workspace.NewScheduler(mgr, exec, slog.Default())
+	if err != nil {
+		c.Infra.Logger.Error("Failed to create workspace scheduler", "error", err)
+		return &WorkspaceServices{Manager: mgr, Executor: exec}
+	}
+
+	return &WorkspaceServices{
+		Manager:   mgr,
+		Executor:  exec,
+		Scheduler: sched,
+		Handlers:  api.NewWorkspaceHandlers(mgr, sched, c.Infra.Logger),
 	}
 }
 
@@ -161,25 +189,13 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
-func buildHTTP(s AppServices, buildInfo *buildinfo.Info) http.Handler {
+func buildHTTP(s AppServices, ws *WorkspaceServices, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
-	// Initialize workspace subsystem
-	wsBaseDir := filepath.Join(s.AppCtx.ModelDir(), "..", "workspaces")
-	wsManager := workspace.NewManager(wsBaseDir)
-	wsExecutor := NewWorkspaceExecutor(s)
-	wsScheduler, err := workspace.NewScheduler(wsManager, wsExecutor, slog.Default())
-	if err != nil {
-		s.Logger().Error("Failed to init workspace scheduler", "error", err)
-	} else {
-		go wsScheduler.Start(context.Background())
-	}
-	workspaceHandlers := api.NewWorkspaceHandlers(wsManager, wsScheduler, s.Logger())
-
-	return buildRouter(adminHandlers, proxyHandlers, assistant, workspaceHandlers)
+	return buildRouter(adminHandlers, proxyHandlers, assistant, ws.Handlers)
 }
 
 func buildRouter(
