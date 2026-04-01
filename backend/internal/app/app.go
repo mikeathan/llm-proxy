@@ -27,6 +27,14 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 	svc := container.BuildAppServices()
 	ws := container.BuildWorkspaceServices()
 
+	// Build new dispatcher (Phase 1: created but not yet wired into HTTP or started)
+	disp, err := container.BuildDispatcher()
+	if err != nil {
+		logger.Error("Failed to build dispatcher", "error", err)
+	} else {
+		container.Dispatcher = disp
+	}
+
 	// Start workspace scheduler in background
 	if ws.Scheduler != nil {
 		go ws.Scheduler.Start(context.Background())

@@ -11,10 +11,12 @@ import (
 	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/config"
+	"llm-proxy/internal/dispatcher"
 	"llm-proxy/internal/llm"
 	"llm-proxy/internal/logging"
 	"llm-proxy/internal/mcp"
 	"llm-proxy/internal/nodeherder"
+	"llm-proxy/internal/persistence"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
 	"llm-proxy/internal/workspace"
@@ -37,6 +39,7 @@ type Container struct {
 	Core   Core
 	Infra  Infra
 	Workspaces *WorkspaceServices
+	Dispatcher *dispatcher.Dispatcher
 }
 
 type WorkspaceServices struct {
@@ -158,6 +161,26 @@ func (c *Container) BuildWorkspaceServices() *WorkspaceServices {
 		Scheduler: sched,
 		Handlers:  api.NewWorkspaceHandlers(mgr, sched, c.Infra.Logger),
 	}
+}
+
+// BuildDispatcher creates the new dispatcher subsystem.
+// It uses the persistence layer directly (not the old workspace.Manager).
+func (c *Container) BuildDispatcher() (*dispatcher.Dispatcher, error) {
+	baseDir := filepath.Join(c.Core.AppCtx.ModelDir(), "..", "workspaces")
+	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
+
+	exec := &dispatcher.DefaultTaskExecutor{}
+	// Note: In full implementation, DefaultTaskExecutor would use LLMService from AppServices
+	// For now, it's a placeholder that can be replaced via DI
+
+	d, err := dispatcher.NewDispatcher(persistenceMgr, exec, slog.Default(),
+		dispatcher.WithWorkerCount(1),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return d, nil
 }
 
 func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherder.MCPService, error) {
