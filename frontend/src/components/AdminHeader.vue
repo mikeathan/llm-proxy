@@ -43,12 +43,6 @@
         >
           Workspaces
         </button>
-        <button
-          @click="$emit('update:activeTab', 'workspaces')"
-          :class="['nav-button', activeTab === 'workspaces' ? 'nav-button-active' : 'nav-button-inactive']"
-        >
-          Workspaces
-        </button>
       </nav>
     </div>
   </header>
