@@ -48,6 +48,28 @@ func (m *Manager) AcquireLock(workspaceID string) (*os.File, error) {
 	return f, nil
 }
 
+// TryAcquireLock attempts to get an exclusive OS-level flock without blocking.
+// Returns an error if the lock is already held.
+func (m *Manager) TryAcquireLock(workspaceID string) (*os.File, error) {
+	dirPath := filepath.Join(m.baseDir, workspaceID)
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create workspace dir: %w", err)
+	}
+
+	lockPath := filepath.Join(dirPath, ".lock")
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open lock file: %w", err)
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("lock already held or unavailable: %w", err)
+	}
+
+	return f, nil
+}
+
 // ReleaseLock drops the OS-level flock.
 func (m *Manager) ReleaseLock(f *os.File) error {
 	if f == nil {
@@ -248,7 +270,7 @@ func (m *Manager) ListWorkspaces() ([]*models.Workspace, error) {
 			continue
 		}
 		id := entry.Name()
-		
+
 		cfg, _ := m.ReadConfig(id)
 		state, _ := m.ReadState(id)
 		heartbeat, _ := m.ReadHeartbeat(id)
