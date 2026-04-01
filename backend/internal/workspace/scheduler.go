@@ -26,7 +26,6 @@ type Scheduler struct {
 	watcher *fsnotify.Watcher
 }
 
-// NewScheduler initializes a new scheduler.
 func NewScheduler(manager *Manager, executor AgentExecutor, logger *slog.Logger) (*Scheduler, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -69,7 +68,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	// File watcher loop
 	eg.Go(func() error {
 		for {
 			select {
@@ -95,7 +93,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	<-egCtx.Done()
 
-	// 3. Graceful Shutdown
+	// 3. Shutdown
 	s.logger.Info("Stopping scheduler gracefully...")
 	s.watcher.Close()
 
@@ -178,7 +176,7 @@ func (s *Scheduler) scheduleWorkspace(ws *models.Workspace) error {
 
 	s.logger.Info("Scheduled workspace heartbeat", "workspace", ws.ID, "next_run", entry.Next)
 
-	// Optimistically update NextRunPredicted
+	// Update NextRunPredicted
 	f, err := s.manager.TryAcquireLock(ws.ID)
 	if err == nil {
 		defer s.manager.ReleaseLock(f)
@@ -186,14 +184,13 @@ func (s *Scheduler) scheduleWorkspace(ws *models.Workspace) error {
 		if state == nil {
 			state = &models.AgentState{}
 		}
-		state.NextRunPredicted = entry.Next
+		state.NextRunAt = entry.Next
 		_ = s.manager.WriteState(ws.ID, state)
 	}
 
 	return nil
 }
 
-// ExecuteHeartbeat performs a single execution safely. Can be triggered manually or via cron.
 func (s *Scheduler) ExecuteHeartbeat(ctx context.Context, workspaceID string) error {
 	// 1. Prevent concurrent runs using non-blocking lock
 	f, err := s.manager.TryAcquireLock(workspaceID)
@@ -236,7 +233,7 @@ func (s *Scheduler) ExecuteHeartbeat(ctx context.Context, workspaceID string) er
 	s.mu.RLock()
 	if entryID, ok := s.jobs[workspaceID]; ok {
 		entry := s.cron.Entry(entryID)
-		state.NextRunPredicted = entry.Next
+		state.NextRunAt = entry.Next
 	}
 	s.mu.RUnlock()
 

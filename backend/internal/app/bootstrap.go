@@ -2,6 +2,11 @@ package app
 
 import (
 	"context"
+	"log"
+	"log/slog"
+	"net/http"
+	"path/filepath"
+
 	"llm-proxy/internal/api"
 	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/buildinfo"
@@ -12,10 +17,9 @@ import (
 	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/internal/ratelimiter"
+	"llm-proxy/internal/workspace"
 	"llm-proxy/models"
 	"llm-proxy/utils"
-	"log"
-	"net/http"
 )
 
 type Core struct {
@@ -163,13 +167,26 @@ func buildHTTP(s AppServices, buildInfo *buildinfo.Info) http.Handler {
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant)
+	// Initialize workspace subsystem
+	wsBaseDir := filepath.Join(s.AppCtx.ModelDir(), "..", "workspaces")
+	wsManager := workspace.NewManager(wsBaseDir)
+	wsExecutor := NewWorkspaceExecutor(s)
+	wsScheduler, err := workspace.NewScheduler(wsManager, wsExecutor, slog.Default())
+	if err != nil {
+		s.Logger().Error("Failed to init workspace scheduler", "error", err)
+	} else {
+		go wsScheduler.Start(context.Background())
+	}
+	workspaceHandlers := api.NewWorkspaceHandlers(wsManager, wsScheduler, s.Logger())
+
+	return buildRouter(adminHandlers, proxyHandlers, assistant, workspaceHandlers)
 }
 
 func buildRouter(
 	admin *api.AdminHandlers,
 	proxyHandlers *api.ProxyHandlers,
 	assistant http.Handler,
+	workspaces *api.WorkspaceHandlers,
 ) http.Handler {
 
 	router := api.NewRouter()
@@ -201,6 +218,12 @@ func buildRouter(
 	router.Post("/admin/api/mcp", admin.AdminMCPAddHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
+
+	// Workspaces
+	router.Get("/admin/api/workspaces", workspaces.ListWorkspaces, jsonMethodNotAllowed)
+	router.Post("/admin/api/workspaces", workspaces.SaveWorkspace, jsonMethodNotAllowed)
+	router.Delete("/admin/api/workspaces", workspaces.DeleteWorkspace, jsonMethodNotAllowed)
+	router.Post("/admin/api/workspaces/trigger", workspaces.TriggerHeartbeat, jsonMethodNotAllowed)
 
 	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)
 

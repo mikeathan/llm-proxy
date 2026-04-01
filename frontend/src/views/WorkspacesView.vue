@@ -26,7 +26,7 @@ const openCreateForm = () => {
   editingWorkspace.value = {
     id: `agent-${Date.now()}`,
     config: { cron_schedule: '@every 1h', model: getAvailableModels.value[0] || '', temperature: 0.7 },
-    state: { last_output: '', last_error: '', next_run_predicted: '', is_running: false },
+    state: { last_output: '', last_error: '', next_run_at: '', is_running: false },
     heartbeat: 'You are an autonomous agent. Summarize the latest news...'
   }
   showForm.value = true
@@ -99,7 +99,7 @@ const handleTrigger = async (id: string) => {
           </div>
           <div class="bg-gray-900 rounded p-3">
             <span class="block text-gray-500 mb-1">Next Run</span>
-            <span class="text-gray-300">{{ ws.state.next_run_predicted && ws.state.next_run_predicted !== '0001-01-01T00:00:00Z' ? new Date(ws.state.next_run_predicted).toLocaleString() : 'N/A' }}</span>
+            <span class="text-gray-300">{{ ws.state.next_run_at && ws.state.next_run_at !== '0001-01-01T00:00:00Z' ? new Date(ws.state.next_run_at).toLocaleString() : 'N/A' }}</span>
           </div>
         </div>
 

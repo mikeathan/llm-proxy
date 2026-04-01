@@ -7,7 +7,7 @@ export interface WorkspaceConfig {
 export interface AgentState {
   last_output: string;
   last_error: string;
-  next_run_predicted: string;
+  next_run_at: string;
   is_running: boolean;
 }
 

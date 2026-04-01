@@ -13,20 +13,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Manager handles file I/O operations for workspaces safely.
 type Manager struct {
 	baseDir string
 	mu      sync.RWMutex
 }
 
-// NewManager creates a new Workspace Manager.
 func NewManager(baseDir string) *Manager {
 	os.MkdirAll(baseDir, 0755)
 	return &Manager{baseDir: baseDir}
 }
 
-// AcquireLock gets an exclusive OS-level flock on a workspace dir to prevent concurrent writes.
-// This handles manual triggers firing concurrently with scheduled cron jobs.
 func (m *Manager) AcquireLock(workspaceID string) (*os.File, error) {
 	dirPath := filepath.Join(m.baseDir, workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -48,8 +44,6 @@ func (m *Manager) AcquireLock(workspaceID string) (*os.File, error) {
 	return f, nil
 }
 
-// TryAcquireLock attempts to get an exclusive OS-level flock without blocking.
-// Returns an error if the lock is already held.
 func (m *Manager) TryAcquireLock(workspaceID string) (*os.File, error) {
 	dirPath := filepath.Join(m.baseDir, workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -115,7 +109,7 @@ func (m *Manager) WriteState(workspaceID string, state *models.AgentState) error
 	}
 	tmpPath := tmpFile.Name()
 
-	// Clean up temp file on error; ignored if renamed successfully
+	// Clean up temp file on error
 	defer os.Remove(tmpPath)
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -129,7 +123,7 @@ func (m *Manager) WriteState(workspaceID string, state *models.AgentState) error
 		return fmt.Errorf("failed to write temp state file: %w", err)
 	}
 
-	// Flush to physical disk
+	// Flush to disk
 	if err := tmpFile.Sync(); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("failed to sync temp state file: %w", err)
@@ -165,7 +159,6 @@ func (m *Manager) ReadConfig(workspaceID string) (*models.WorkspaceConfig, error
 	return &config, nil
 }
 
-// WriteConfig atomically writes config.yaml.
 func (m *Manager) WriteConfig(workspaceID string, cfg *models.WorkspaceConfig) error {
 	dirPath := filepath.Join(m.baseDir, workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -204,7 +197,6 @@ func (m *Manager) WriteConfig(workspaceID string, cfg *models.WorkspaceConfig) e
 	return nil
 }
 
-// ReadHeartbeat reads the markdown prompt from heartbeat.md
 func (m *Manager) ReadHeartbeat(workspaceID string) (string, error) {
 	path := filepath.Join(m.baseDir, workspaceID, "heartbeat.md")
 	data, err := os.ReadFile(path)
@@ -217,7 +209,6 @@ func (m *Manager) ReadHeartbeat(workspaceID string) (string, error) {
 	return string(data), nil
 }
 
-// WriteHeartbeat atomically writes the heartbeat.md
 func (m *Manager) WriteHeartbeat(workspaceID string, content string) error {
 	dirPath := filepath.Join(m.baseDir, workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -250,7 +241,6 @@ func (m *Manager) WriteHeartbeat(workspaceID string, content string) error {
 	return nil
 }
 
-// ListWorkspaces retrieves all discovered workspaces
 func (m *Manager) ListWorkspaces() ([]*models.Workspace, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -286,7 +276,7 @@ func (m *Manager) ListWorkspaces() ([]*models.Workspace, error) {
 
 	return workspaces, nil
 }
-// BaseDir returns the base directory path for workspaces.
+
 func (m *Manager) BaseDir() string {
 	return m.baseDir
 }

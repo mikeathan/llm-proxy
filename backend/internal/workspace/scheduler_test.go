@@ -46,7 +46,7 @@ func TestScheduler_CronExecution(t *testing.T) {
 	go sched.Start(ctx)
 
 	time.Sleep(1500 * time.Millisecond)
-	
+
 	cancel() // Graceful shutdown
 
 	time.Sleep(100 * time.Millisecond)

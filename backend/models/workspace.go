@@ -11,10 +11,10 @@ type WorkspaceConfig struct {
 
 // AgentState represents the execution history and state from workspaces/{id}/state.json
 type AgentState struct {
-	LastOutput       string    `json:"last_output"`
-	LastError        string    `json:"last_error"`
-	NextRunPredicted time.Time `json:"next_run_predicted"`
-	IsRunning        bool      `json:"is_running"`
+	LastOutput string    `json:"last_output"`
+	LastError  string    `json:"last_error"`
+	NextRunAt  time.Time `json:"next_run_at"`
+	IsRunning  bool      `json:"is_running"`
 }
 
 // Workspace represents an entire workspace object
@@ -22,5 +22,5 @@ type Workspace struct {
 	ID        string          `json:"id"`
 	Config    WorkspaceConfig `json:"config"`
 	State     AgentState      `json:"state"`
-	Heartbeat string          `json:"heartbeat"` // The prompt in heartbeat.md
+	Heartbeat string          `json:"heartbeat"` 
 }
