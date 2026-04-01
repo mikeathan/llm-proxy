@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"llm-proxy/internal/logging"
-	"llm-proxy/internal/nodeherder"
 	"llm-proxy/internal/proxy"
 	"llm-proxy/models"
 )
@@ -32,10 +31,9 @@ type ExecuteResponse struct {
 }
 
 // LLMServiceProvider is the minimal interface needed by LLMTaskExecutor.
-// It avoids an import cycle by not depending on the api package.
+// It avoids an import cycle by not depending on the api or nodeherder packages.
 type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
-	NodeHerder() nodeherder.MCPService
 	Logger() logging.Logger
 }
 
@@ -92,30 +90,16 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		return resp, fmt.Errorf("failed to get llm client: %w", err)
 	}
 
-	// Build messages
+	// Build messages - simple user prompt for automation execution
 	var history []proxy.Message
-
-	// Add system prompt
-	systemPrompt, err := e.svc.NodeHerder().GetSystemPrompt()
-	if err == nil && systemPrompt != "" {
-		history = append(history, proxy.Message{Role: "system", Content: systemPrompt})
-	}
 
 	// Build task prompt from automation info
 	prompt := e.buildPrompt(req)
 	history = append(history, proxy.Message{Role: "user", Content: prompt})
 
-	// Get tools
-	tools, err := e.svc.NodeHerder().ListTools(ctx)
-	if err != nil {
-		e.svc.Logger().Warn("Failed to list tools for automation", "error", err)
-		// Continue without tools
-	}
-
-	// Make LLM call
+	// Make LLM call (no tools for dispatcher automations)
 	chatReq := proxy.ChatRequest{
 		Messages: history,
-		Tools:    tools,
 	}
 
 	chatResp, err := client.Chat(ctx, chatReq)
