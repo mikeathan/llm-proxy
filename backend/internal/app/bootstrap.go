@@ -165,12 +165,12 @@ func (c *Container) BuildWorkspaceServices() *WorkspaceServices {
 
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
-func (c *Container) BuildDispatcher() (*dispatcher.Dispatcher, error) {
+func (c *Container) BuildDispatcher(svc AssistantService) (*dispatcher.Dispatcher, error) {
 	baseDir := filepath.Join(c.Core.AppCtx.ModelDir(), "..", "workspaces")
 	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
 
-	// Phase 2: Using placeholder executor. Phase 3 will wire in LLM service.
-	exec := dispatcher.NewDefaultTaskExecutor()
+	// Phase 3: Using LLM-backed executor
+	exec := dispatcher.NewLLMTaskExecutor(svc)
 
 	d, err := dispatcher.NewDispatcher(persistenceMgr, exec, slog.Default(),
 		dispatcher.WithWorkerCount(1),

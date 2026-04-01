@@ -27,8 +27,8 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 	svc := container.BuildAppServices()
 	ws := container.BuildWorkspaceServices()
 
-	// Build new dispatcher
-	disp, err := container.BuildDispatcher()
+	// Build new dispatcher with AssistantService for LLM execution
+	disp, err := container.BuildDispatcher(svc)
 	if err != nil {
 		logger.Error("Failed to build dispatcher", "error", err)
 	} else {
