@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"llm-proxy/internal/persistence"
+	"llm-proxy/internal/trigger"
 	"llm-proxy/models"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/robfig/cron/v3"
 	"golang.org/x/sync/errgroup"
 )
@@ -111,7 +114,19 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 	d.cron.Start()
 
+	// Start fsnotify watcher for hot-reload
+	watcher, err := d.startWatcher(ctx)
+	if err != nil {
+		d.logger.Warn("Failed to start fsnotify watcher", "error", err)
+	}
+
 	eg, egCtx := errgroup.WithContext(ctx)
+
+	if watcher != nil {
+		eg.Go(func() error {
+			return d.watchConfigChanges(egCtx, watcher)
+		})
+	}
 
 	eg.Go(func() error {
 		<-egCtx.Done()
@@ -119,6 +134,10 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	})
 
 	<-egCtx.Done()
+
+	if watcher != nil {
+		watcher.Close()
+	}
 	return nil
 }
 
@@ -181,10 +200,19 @@ func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName st
 	return d.executeAutomation(ctx, entry)
 }
 
+// ListAll returns all registered automations.
+func (d *Dispatcher) ListAll() []*AutomationEntry {
+	return d.registry.ListAll()
+}
+
+// Metrics returns the current dispatcher metrics.
+func (d *Dispatcher) Metrics() *DispatcherMetrics {
+	return d.metrics
+}
+
 // ============================================================================
 // Internal
 // ============================================================================
-
 func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {
 	automations := ws.Config.Automations
 	if len(automations) == 0 && ws.Config.CronSchedule != "" {
@@ -211,7 +239,19 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 		return nil
 	}
 
+	// Determine schedule based on trigger type
+	schedule := d.triggerToCron(entry.Trigger)
+	if schedule == "" {
+		return fmt.Errorf("cannot determine schedule for trigger type %s", entry.Trigger.Type())
+	}
+
 	jobFunc := func() {
+		// Check ShouldRun to avoid redundant executions
+		state, err := d.persistence.ReadState(entry.Workspace)
+		if err == nil && !entry.Trigger.ShouldRun(state.NextRunAt) {
+			return // Not time to run yet
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
@@ -223,7 +263,7 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 		}
 	}
 
-	entryID, err := d.cron.AddFunc("@every 1m", jobFunc)
+	entryID, err := d.cron.AddFunc(schedule, jobFunc)
 	if err != nil {
 		return fmt.Errorf("failed to add cron function: %w", err)
 	}
@@ -233,6 +273,23 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 	d.mu.Unlock()
 
 	return nil
+}
+
+// triggerToCron converts a Trigger to a cron-compatible schedule string.
+func (d *Dispatcher) triggerToCron(tr trigger.Trigger) string {
+	switch tr.Type() {
+	case "cron":
+		// CronTrigger itself has the schedule; return the expression
+		// Note: This is a simplification; the actual cron is embedded in the trigger
+		// We use @every 1m as a poll interval and rely on ShouldRun for actual timing
+		return "@every 1m"
+	case "interval":
+		// Convert interval duration to @every syntax
+		// The interval trigger stores duration; we approximate with 1m polling
+		return "@every 1m"
+	default:
+		return ""
+	}
 }
 
 func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEntry) error {
@@ -312,4 +369,100 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 
 	d.metrics.RecordExecution(true, false, elapsed)
 	return nil
+}
+
+// ============================================================================
+// fsnotify Hot-Reload
+// ============================================================================
+func (d *Dispatcher) startWatcher(ctx context.Context) (*fsnotify.Watcher, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
+	}
+	if err := watcher.Add(d.persistence.BaseDir()); err != nil {
+		watcher.Close()
+		return nil, fmt.Errorf("failed to watch base directory: %w", err)
+	}
+	d.logger.Info("Started fsnotify watcher", "path", d.persistence.BaseDir())
+	return watcher, nil
+}
+
+func (d *Dispatcher) watchConfigChanges(ctx context.Context, watcher *fsnotify.Watcher) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return nil
+			}
+			// Only react to config.yaml changes
+			if filepath.Base(event.Name) == "config.yaml" {
+				d.logger.Info("Config change detected, reconciling automations", "file", event.Name)
+				d.handleConfigChange()
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
+			d.logger.Error("Watcher error", "error", err)
+		}
+	}
+}
+
+func (d *Dispatcher) handleConfigChange() {
+	// Re-list workspaces and reconcile automations
+	workspaces, err := d.persistence.ListWorkspaces()
+	if err != nil {
+		d.logger.Error("Failed to list workspaces during config change", "error", err)
+		return
+	}
+
+	activeIDs := make(map[string]bool)
+	for _, ws := range workspaces {
+		activeIDs[ws.ID] = true
+
+		// Unregister old automations for this workspace
+		d.registry.UnregisterWorkspace(ws.ID)
+
+		// Remove old cron jobs
+		d.mu.Lock()
+		for id, entryID := range d.jobs {
+			if hasPrefix(id, ws.ID+"/") {
+				d.cron.Remove(entryID)
+				delete(d.jobs, id)
+			}
+		}
+		d.mu.Unlock()
+
+		// Re-register automations
+		if err := d.registerWorkspaceAutomations(ws); err != nil {
+			d.logger.Error("Failed to re-register automations", "workspace", ws.ID, "error", err)
+		}
+	}
+
+	// Remove deleted workspaces
+	d.mu.Lock()
+	for id := range d.jobs {
+		parts := splitID(id)
+		if len(parts) == 2 && !activeIDs[parts[0]] {
+			d.cron.Remove(d.jobs[id])
+			delete(d.jobs, id)
+			d.logger.Info("Removed deleted workspace from dispatcher", "workspace", parts[0])
+		}
+	}
+	d.mu.Unlock()
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+func splitID(id string) []string {
+	for i := 0; i < len(id); i++ {
+		if id[i] == '/' {
+			return []string{id[:i], id[i+1:]}
+		}
+	}
+	return []string{id}
 }

@@ -169,9 +169,8 @@ func (c *Container) BuildDispatcher() (*dispatcher.Dispatcher, error) {
 	baseDir := filepath.Join(c.Core.AppCtx.ModelDir(), "..", "workspaces")
 	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
 
-	exec := &dispatcher.DefaultTaskExecutor{}
-	// Note: In full implementation, DefaultTaskExecutor would use LLMService from AppServices
-	// For now, it's a placeholder that can be replaced via DI
+	// Phase 2: Using placeholder executor. Phase 3 will wire in LLM service.
+	exec := dispatcher.NewDefaultTaskExecutor()
 
 	d, err := dispatcher.NewDispatcher(persistenceMgr, exec, slog.Default(),
 		dispatcher.WithWorkerCount(1),
@@ -212,13 +211,18 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
-func buildHTTP(s AppServices, ws *WorkspaceServices, buildInfo *buildinfo.Info) http.Handler {
+func buildHTTP(s AppServices, ws *WorkspaceServices, disp *dispatcher.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, ws.Handlers)
+	var dispatcherHandlers *api.DispatcherHandlers
+	if disp != nil {
+		dispatcherHandlers = api.NewDispatcherHandlers(disp)
+	}
+
+	return buildRouter(adminHandlers, proxyHandlers, assistant, ws.Handlers, dispatcherHandlers)
 }
 
 func buildRouter(
@@ -226,6 +230,7 @@ func buildRouter(
 	proxyHandlers *api.ProxyHandlers,
 	assistant http.Handler,
 	workspaces *api.WorkspaceHandlers,
+	dispatcherHandlers *api.DispatcherHandlers,
 ) http.Handler {
 
 	router := api.NewRouter()
@@ -263,6 +268,13 @@ func buildRouter(
 	router.Post("/admin/api/workspaces", workspaces.SaveWorkspace, jsonMethodNotAllowed)
 	router.Delete("/admin/api/workspaces", workspaces.DeleteWorkspace, jsonMethodNotAllowed)
 	router.Post("/admin/api/workspaces/trigger", workspaces.TriggerHeartbeat, jsonMethodNotAllowed)
+
+	// Dispatcher (Phase 2)
+	if dispatcherHandlers != nil {
+		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
+	}
 
 	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)
 

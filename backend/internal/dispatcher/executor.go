@@ -27,17 +27,12 @@ type ExecuteResponse struct {
 	State  *models.AgentState
 }
 
-// DefaultTaskExecutor is the default implementation backed by LLM calls.
-type DefaultTaskExecutor struct {
-	llmService LLMService
-}
+// DefaultTaskExecutor is a placeholder that marks execution as running.
+// In Phase 3, this will be replaced with a proper LLM-backed executor.
+type DefaultTaskExecutor struct{}
 
-type LLMService interface {
-	Complete(ctx context.Context, model, prompt string, temperature float64) (string, error)
-}
-
-func NewDefaultTaskExecutor(llm LLMService) *DefaultTaskExecutor {
-	return &DefaultTaskExecutor{llmService: llm}
+func NewDefaultTaskExecutor() *DefaultTaskExecutor {
+	return &DefaultTaskExecutor{}
 }
 
 func (e *DefaultTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
@@ -50,6 +45,7 @@ func (e *DefaultTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (
 	}
 
 	resp.State.IsRunning = true
+	resp.Output = "dispatcher placeholder output (Phase 3: wire LLM)"
 
 	return resp, nil
 }
