@@ -232,11 +232,17 @@ func buildRouter(
 	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
 
-	// Dispatcher (Phase 2)
+	// Dispatcher (Phase 2 & 4)
 	if dispatcherHandlers != nil {
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
+		
+		router.Get("/admin/api/dispatcher/workspaces", dispatcherHandlers.ListWorkspaces, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/workspaces", dispatcherHandlers.CreateWorkspace, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
 	}
 
 	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)

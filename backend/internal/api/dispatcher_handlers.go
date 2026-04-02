@@ -85,3 +85,90 @@ func respondError(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
+
+// ListWorkspaces lists all available workspaces.
+func (h *DispatcherHandlers) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := h.dispatcher.Persistence().ListWorkspaces()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := make([]map[string]interface{}, 0, len(workspaces))
+	for _, ws := range workspaces {
+		result = append(result, map[string]interface{}{
+			"id": ws.ID,
+		})
+	}
+	respondJSON(w, result)
+}
+
+// CreateWorkspace creates a new workspace.
+func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	if req.ID == "" {
+		respondError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	// Just try to acquire a lock to create the directory
+	lock, err := h.dispatcher.Persistence().AcquireLock(req.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.dispatcher.Persistence().ReleaseLock(lock)
+
+	respondJSON(w, map[string]string{"status": "created", "id": req.ID})
+}
+
+// ListWorkspaceFiles lists files in a workspace.
+func (h *DispatcherHandlers) ListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	files, err := h.dispatcher.Persistence().ListFiles(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, files)
+}
+
+// ReadWorkspaceFile reads a file from a workspace.
+func (h *DispatcherHandlers) ReadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	filename := r.PathValue("file")
+
+	content, err := h.dispatcher.Persistence().ReadTaskFile(workspaceID, filename)
+	if err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"content": content})
+}
+
+// WriteWorkspaceFile writes a file to a workspace.
+func (h *DispatcherHandlers) WriteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	filename := r.PathValue("file")
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	if err := h.dispatcher.Persistence().WriteTaskFile(workspaceID, filename, req.Content); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"status": "saved"})
+}

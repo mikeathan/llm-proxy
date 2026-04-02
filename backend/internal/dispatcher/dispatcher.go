@@ -466,3 +466,8 @@ func splitID(id string) []string {
 	}
 	return []string{id}
 }
+
+// Persistence returns the underlying WorkspaceManager.
+func (d *Dispatcher) Persistence() *persistence.WorkspaceManager {
+	return d.persistence
+}

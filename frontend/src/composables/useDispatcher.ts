@@ -4,6 +4,8 @@ import { DispatcherService } from '../services/dispatcherService'
 
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
+const workspaces = ref<{id: string}[]>([])
+const workspaceFiles = ref<Record<string, string[]>>({})
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -17,6 +19,28 @@ async function fetchAutomations() {
   } finally {
     loading.value = false
   }
+}
+
+async function fetchWorkspaces() {
+  try {
+    workspaces.value = await DispatcherService.listWorkspaces()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to fetch workspaces'
+  }
+}
+
+async function fetchWorkspaceFiles(workspace: string) {
+  try {
+    const files = await DispatcherService.listWorkspaceFiles(workspace)
+    workspaceFiles.value[workspace] = files
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to fetch workspace files'
+  }
+}
+
+async function createWorkspace(id: string) {
+  await DispatcherService.createWorkspace(id)
+  await fetchWorkspaces()
 }
 
 async function fetchMetrics() {
@@ -41,10 +65,15 @@ export function useDispatcher() {
   return {
     automations,
     metrics,
+    workspaces,
+    workspaceFiles,
     loading,
     error,
     fetchAutomations,
     fetchMetrics,
     triggerAutomation,
+    fetchWorkspaces,
+    fetchWorkspaceFiles,
+    createWorkspace,
   }
 }

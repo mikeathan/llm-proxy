@@ -340,3 +340,23 @@ func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 	}
 	return info.ModTime(), nil
 }
+
+// ListFiles lists all non-hidden files in a workspace directory.
+func (m *WorkspaceManager) ListFiles(workspaceID string) ([]string, error) {
+	dirPath := filepath.Join(m.baseDir, workspaceID)
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if !entry.IsDir() && entry.Name() != "" && entry.Name()[0] != '.' {
+			files = append(files, entry.Name())
+		}
+	}
+	return files, nil
+}
