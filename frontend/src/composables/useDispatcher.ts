@@ -1,6 +1,5 @@
 import { ref } from 'vue'
 import type { Automation, DispatcherMetrics } from '../types/dispatcher'
-import { DispatcherService } from '../services/dispatcherService'
 
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
@@ -13,9 +12,15 @@ async function fetchAutomations() {
   loading.value = true
   error.value = null
   try {
-    automations.value = await DispatcherService.listAutomations()
+    const res = await fetch('/admin/api/dispatcher/automations')
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    automations.value = JSON.parse(text)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to fetch automations'
+    console.error('fetchAutomations error:', e)
   } finally {
     loading.value = false
   }
@@ -23,40 +28,72 @@ async function fetchAutomations() {
 
 async function fetchWorkspaces() {
   try {
-    workspaces.value = await DispatcherService.listWorkspaces()
+    const res = await fetch('/admin/api/dispatcher/workspaces')
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    workspaces.value = JSON.parse(text)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to fetch workspaces'
+    console.error('fetchWorkspaces error:', e)
   }
 }
 
 async function fetchWorkspaceFiles(workspace: string) {
   try {
-    const files = await DispatcherService.listWorkspaceFiles(workspace)
-    workspaceFiles.value[workspace] = files
+    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/files`)
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    workspaceFiles.value[workspace] = JSON.parse(text)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to fetch workspace files'
+    console.error('fetchWorkspaceFiles error:', e)
   }
 }
 
 async function createWorkspace(id: string) {
-  await DispatcherService.createWorkspace(id)
+  const res = await fetch('/admin/api/dispatcher/workspaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Server error: ${res.status} - ${text}`)
+  }
   await fetchWorkspaces()
 }
 
 async function fetchMetrics() {
   try {
-    metrics.value = await DispatcherService.getMetrics()
+    const res = await fetch('/admin/api/dispatcher/metrics')
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    metrics.value = JSON.parse(text)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to fetch metrics'
+    console.error('fetchMetrics error:', e)
   }
 }
 
 async function triggerAutomation(workspace: string, automation: string) {
   error.value = null
   try {
-    await DispatcherService.triggerAutomation(workspace, automation)
+    const res = await fetch(`/admin/api/dispatcher/trigger/${workspace}/${automation}`, {
+      method: 'POST'
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to trigger automation'
+    console.error('triggerAutomation error:', e)
     throw e
   }
 }
