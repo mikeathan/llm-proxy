@@ -5,20 +5,19 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 
-	"llm-proxy/internal/api"
-	"llm-proxy/internal/assistant"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/dispatcher"
-	"llm-proxy/internal/llm"
-	"llm-proxy/internal/logging"
-	"llm-proxy/internal/mcp"
-	"llm-proxy/internal/nodeherder"
-	"llm-proxy/internal/persistence"
-	"llm-proxy/internal/proxy"
-	"llm-proxy/internal/ratelimiter"
+	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/mcp"
+	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/ratelimiter"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -35,9 +34,9 @@ type Infra struct {
 }
 
 type Container struct {
-	Core   Core
-	Infra  Infra
-	Dispatcher *dispatcher.Dispatcher
+	Core       Core
+	Infra      Infra
+	Dispatcher *automation.Dispatcher
 }
 
 type AssistantService interface {
@@ -110,7 +109,7 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 	// Configure MCP Service
 	nodeHerder, err := configureMCP(cfgMgr, logger)
 	if err != nil {
-		logger.Error("Failed to configure MCP service", "error", err)
+		logging.Error("Failed to configure MCP service", "error", err)
 		return nil
 	}
 
@@ -135,15 +134,16 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
-func (c *Container) BuildDispatcher(svc AssistantService) (*dispatcher.Dispatcher, error) {
-	baseDir := filepath.Join(c.Core.AppCtx.ModelDir(), "..", "workspaces")
+func (c *Container) BuildDispatcher(svc AssistantService) (*automation.Dispatcher, error) {
+	// Use workspaces_dir from config, or default to {rootDir}/workspaces
+	baseDir := c.Core.AppCtx.WorkspacesDir()
 	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
 
 	// Phase 3: Using LLM-backed executor
-	exec := dispatcher.NewLLMTaskExecutor(svc)
+	exec := automation.NewLLMTaskExecutor(svc)
 
-	d, err := dispatcher.NewDispatcher(persistenceMgr, exec, slog.Default(),
-		dispatcher.WithWorkerCount(1),
+	d, err := automation.NewDispatcher(persistenceMgr, exec, slog.Default(),
+		automation.WithWorkerCount(1),
 	)
 	if err != nil {
 		return nil, err
@@ -181,7 +181,7 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
-func buildHTTP(s AppServices, disp *dispatcher.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
+func buildHTTP(s AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
@@ -237,12 +237,15 @@ func buildRouter(
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
-		
+
 		router.Get("/admin/api/dispatcher/workspaces", dispatcherHandlers.ListWorkspaces, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/workspaces", dispatcherHandlers.CreateWorkspace, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/workspaces/{workspace}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
 		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{workspace}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
 	}
 
 	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)

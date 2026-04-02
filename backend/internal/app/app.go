@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/logging"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/logging"
 )
 
 type App struct {
@@ -29,7 +29,7 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 	// Build new dispatcher with AssistantService for LLM execution
 	disp, err := container.BuildDispatcher(svc)
 	if err != nil {
-		logger.Error("Failed to build dispatcher", "error", err)
+		logging.Error("Failed to build dispatcher", "error", err)
 	} else {
 		container.Dispatcher = disp
 		// Start dispatcher in background

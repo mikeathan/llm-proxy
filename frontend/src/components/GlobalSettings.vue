@@ -10,6 +10,12 @@
       </div>
 
       <div class="form-group">
+        <label class="form-label">Workspaces Directory</label>
+        <div class="form-helper">Path for agent workspaces (automations, state). Defaults to &lt;repo&gt;/workspaces</div>
+        <input v-model="localConfig.workspaces_dir" type="text" class="form-input">
+      </div>
+
+      <div class="form-group">
         <label class="form-label">Llama Binary Path</label>
         <div class="form-helper">Path to llama-server executable</div>
         <input v-model="localConfig.llama_binary" type="text" class="form-input">

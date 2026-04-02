@@ -10,14 +10,14 @@ import (
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/mocks"
-	"llm-proxy/internal/testutils"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/testing/mocks"
+	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
 
 func TestAppBoots(t *testing.T) {
-	testutils.SetRequiredEnv(t)
+	utils.SetRequiredEnv(t)
 
 	cfg := minimalTestConfig(t)
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
@@ -28,7 +28,7 @@ func TestAppBoots(t *testing.T) {
 }
 
 func TestRoutesExist(t *testing.T) {
-	testutils.SetRequiredEnv(t)
+	utils.SetRequiredEnv(t)
 
 	cfg := minimalTestConfig(t)
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
@@ -53,7 +53,7 @@ func TestRoutesExist(t *testing.T) {
 }
 
 func TestMethodEnforcement(t *testing.T) {
-	testutils.SetRequiredEnv(t)
+	utils.SetRequiredEnv(t)
 
 	cfg := minimalTestConfig(t)
 	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})

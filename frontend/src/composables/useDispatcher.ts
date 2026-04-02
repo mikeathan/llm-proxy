@@ -112,5 +112,61 @@ export function useDispatcher() {
     fetchWorkspaces,
     fetchWorkspaceFiles,
     createWorkspace,
+    deleteWorkspaceFile,
+    deleteWorkspace,
+    createAutomation,
+  }
+}
+
+async function createAutomation(workspace: string, automation: Automation) {
+  try {
+    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(automation)
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchAutomations()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to create automation'
+    console.error('createAutomation error:', e)
+    throw e
+  }
+}
+
+async function deleteWorkspaceFile(workspace: string, file: string) {
+  try {
+    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/files/${file}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchWorkspaceFiles(workspace)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to delete file'
+    console.error('deleteWorkspaceFile error:', e)
+    throw e
+  }
+}
+
+async function deleteWorkspace(workspace: string) {
+  try {
+    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchWorkspaces()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to delete workspace'
+    console.error('deleteWorkspace error:', e)
+    throw e
   }
 }

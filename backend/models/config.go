@@ -1,11 +1,12 @@
 package models
 
 type Config struct {
-	Server     ServerConfig      `json:"server"`
-	Models     []ModelConfig     `json:"models"`
-	ModelDir   string            `json:"model_dir"`
-	Metrics    MetricsConfig     `json:"metrics,omitempty"`
-	MCPServers []MCPServerConfig `json:"mcp_servers,omitempty"`
+	Server        ServerConfig      `json:"server"`
+	Models        []ModelConfig     `json:"models"`
+	ModelDir      string            `json:"model_dir"`
+	WorkspacesDir string            `json:"workspaces_dir,omitempty"`
+	Metrics       MetricsConfig     `json:"metrics,omitempty"`
+	MCPServers    []MCPServerConfig `json:"mcp_servers,omitempty"`
 }
 
 type MCPServerConfig struct {
@@ -15,17 +16,17 @@ type MCPServerConfig struct {
 }
 
 type ServerConfig struct {
-	Bind              string   `json:"bind"`
-	ModelHost         string   `json:"model_host"`
-	IdleTimeoutSecs   int      `json:"idle_timeout_seconds"`
+	Bind              string            `json:"bind"`
+	ModelHost         string            `json:"model_host"`
+	IdleTimeoutSecs   int               `json:"idle_timeout_seconds"`
 	LlamaServerBinary string            `json:"llama_server_binary"`
 	DefaultArgs       []string          `json:"default_args"`
 	Environment       map[string]string `json:"environment"`
 }
 
 type ModelConfig struct {
-	Name     string   `json:"name"`
-	Filename string   `json:"filename"`
+	Name        string            `json:"name"`
+	Filename    string            `json:"filename"`
 	Args        []string          `json:"args"`
 	Port        int               `json:"port"`
 	Path        string            `json:"-"` // resolved absolute path, not persisted

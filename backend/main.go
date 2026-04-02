@@ -8,8 +8,8 @@ import (
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/logging"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/logging"
 )
 
 var (
@@ -44,7 +44,7 @@ func main() {
 	// Load configuration using ConfigManager
 	cfgMgr := config.NewConfigManager(configPath)
 	if err := cfgMgr.Load(); err != nil {
-		logger.Error("failed to load config", "error", err)
+		logging.Error("failed to load config", "error", err)
 		// Fallback or exit? Exit is safer if config is broken
 		if config.GetAppEnv() != "test" { // Allow test to proceed?
 			// return // or continue with defaults?
@@ -61,7 +61,7 @@ func main() {
 	logStartup(logger, buildInfo, cfg.Server.Bind)
 
 	if err := proxyApp.ListenAndServe(); err != nil {
-		logger.Error("server exited", "error", err)
+		logging.Error("server exited", "error", err)
 		os.Exit(1)
 	}
 }
@@ -85,7 +85,7 @@ func printVersion(info *buildinfo.Info) {
 
 func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
 	//print version info
-	logger.Info(
+	logging.Info(
 		"LLM proxy version",
 		"version", info.Version,
 		"commit", info.Commit,
@@ -93,7 +93,7 @@ func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
 	)
 
 	// print bind address
-	logger.Info("LLM proxy listening", "bind", bind)
+	logging.Info("LLM proxy listening", "bind", bind)
 }
 
 func initLogger() logging.Logger {

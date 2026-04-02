@@ -3,6 +3,17 @@ import { onMounted, ref, computed } from 'vue'
 import { useDispatcher } from '../composables/useDispatcher'
 import type { Automation } from '../types/dispatcher'
 import { DispatcherService } from '../services/dispatcherService'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+
+import WorkspaceExplorer from '../components/AgentIde/WorkspaceExplorer.vue'
+import CreateAutomationForm from '../components/AgentIde/CreateAutomationForm.vue'
+import AutomationsPanel from '../components/AgentIde/AutomationsPanel.vue'
+import FileEditor from '../components/AgentIde/FileEditor.vue'
+import SystemMetricsPanel from '../components/AgentIde/SystemMetricsPanel.vue'
+
+const confirmDialog = ref<InstanceType<typeof ConfirmDialog> | null>(null)
+const pendingAction = ref<(() => Promise<void>) | null>(null)
+const dialogProps = ref({ title: '', message: '', type: 'warning' as const })
 
 const {
   automations,
@@ -17,6 +28,9 @@ const {
   fetchWorkspaces,
   fetchWorkspaceFiles,
   createWorkspace,
+  deleteWorkspaceFile,
+  deleteWorkspace,
+  createAutomation,
 } = useDispatcher()
 
 const leftTab = ref<'explorer' | 'automations'>('explorer')
@@ -26,8 +40,6 @@ const selectedFile = ref<{ workspace: string, filename: string } | null>(null)
 const fileContent = ref<string>('')
 const loadingFile = ref(false)
 const savingFile = ref(false)
-const newWorkspaceName = ref('')
-const newFileName = ref('')
 
 const triggering = ref(false)
 const lastTriggerResult = ref<string | null>(null)
@@ -49,20 +61,20 @@ const groupedByWorkspace = computed(() => {
   return groups
 })
 
-const selectAutomation = (auto: Automation) => {
+const handleSelectAutomation = (auto: Automation) => {
   selectedAutomation.value = auto
   selectedFile.value = null
   lastTriggerResult.value = null
 }
 
-const selectWorkspace = async (wsId: string) => {
+const handleSelectWorkspace = async (wsId: string) => {
   selectedWorkspace.value = selectedWorkspace.value === wsId ? null : wsId
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId)
   }
 }
 
-const openFile = async (workspace: string, filename: string) => {
+const handleOpenFile = async (workspace: string, filename: string) => {
   selectedFile.value = { workspace, filename }
   selectedAutomation.value = null
   loadingFile.value = true
@@ -77,14 +89,13 @@ const openFile = async (workspace: string, filename: string) => {
   }
 }
 
-const saveFile = async () => {
+const handleSaveFile = async () => {
   if (!selectedFile.value) return
   savingFile.value = true
   try {
     await DispatcherService.writeWorkspaceFile(selectedFile.value.workspace, selectedFile.value.filename, fileContent.value)
-    // Refresh automations if config was updated
     if (selectedFile.value.filename === 'config.yaml') {
-      setTimeout(fetchAutomations, 500) // Give backend time to hot-reload
+      setTimeout(fetchAutomations, 500)
     }
   } catch (err) {
     console.error('Error saving file', err)
@@ -94,22 +105,44 @@ const saveFile = async () => {
   }
 }
 
-const handleCreateWorkspace = async () => {
-  if (!newWorkspaceName.value) return
-  await createWorkspace(newWorkspaceName.value)
-  newWorkspaceName.value = ''
+const handleCreateWorkspace = async (name: string) => {
+  await createWorkspace(name)
 }
 
-const handleCreateFile = async (workspace: string) => {
-  if (!newFileName.value) return
+const handleCreateFile = async (workspace: string, filename: string) => {
   try {
-    await DispatcherService.writeWorkspaceFile(workspace, newFileName.value, '')
-    newFileName.value = ''
+    await DispatcherService.writeWorkspaceFile(workspace, filename, '')
     await fetchWorkspaceFiles(workspace)
   } catch (err) {
     console.error('Error creating file', err)
     alert('Error creating file')
   }
+}
+
+const handleDeleteWorkspace = async (wsId: string) => {
+  dialogProps.value = {
+    title: 'Delete Workspace',
+    message: `Are you sure you want to delete workspace "${wsId}"? This action cannot be undone.`,
+    type: 'warning'
+  }
+  pendingAction.value = async () => {
+    await deleteWorkspace(wsId)
+    await fetchWorkspaces()
+  }
+  confirmDialog.value?.open()
+}
+
+const handleDeleteFile = async (wsId: string, file: string) => {
+  dialogProps.value = {
+    title: 'Delete File',
+    message: `Are you sure you want to delete file "${file}" from workspace "${wsId}"?`,
+    type: 'warning'
+  }
+  pendingAction.value = async () => {
+    await deleteWorkspaceFile(wsId, file)
+    await fetchWorkspaceFiles(wsId)
+  }
+  confirmDialog.value?.open()
 }
 
 const handleTrigger = async () => {
@@ -123,6 +156,15 @@ const handleTrigger = async () => {
     lastTriggerResult.value = `Failed to trigger ${selectedAutomation.value.name}`
   } finally {
     triggering.value = false
+  }
+}
+
+const handleCreateAutomation = async (workspace: string, data: any) => {
+  try {
+    await createAutomation(workspace, data)
+  } catch (err) {
+    console.error('Error creating automation', err)
+    alert('Error creating automation')
   }
 }
 </script>
@@ -150,74 +192,38 @@ const handleTrigger = async () => {
       
       <div class="flex-1 overflow-y-auto">
         <!-- Explorer Tab -->
-        <div v-if="leftTab === 'explorer'">
-          <div class="p-3 border-b border-gray-750 flex gap-2">
-            <input v-model="newWorkspaceName" placeholder="New workspace name" class="flex-1 bg-gray-900 text-xs text-white px-2 py-1.5 rounded border border-gray-700 focus:outline-none focus:border-blue-500" @keyup.enter="handleCreateWorkspace" />
-            <button @click="handleCreateWorkspace" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1.5 rounded text-xs">+</button>
-          </div>
-          
-          <div v-if="loading" class="p-4 text-gray-500 text-sm">Loading...</div>
-          <div v-else>
-            <div v-for="ws in workspaces" :key="ws.id" class="border-b border-gray-750">
-              <button
-                @click="selectWorkspace(ws.id)"
-                class="w-full px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-750 flex justify-between items-center"
-              >
-                <span class="font-medium">📁 {{ ws.id }}</span>
-                <span class="text-xs text-gray-500">{{ selectedWorkspace === ws.id ? '▼' : '▶' }}</span>
-              </button>
-              
-              <div v-if="selectedWorkspace === ws.id" class="bg-gray-900/50 pb-2">
-                <div class="px-4 py-2 flex gap-2">
-                  <input v-model="newFileName" placeholder="New file name" class="flex-1 bg-gray-800 text-xs text-white px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-500" @keyup.enter="handleCreateFile(ws.id)" />
-                  <button @click="handleCreateFile(ws.id)" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs">+</button>
-                </div>
-                
-                <button
-                  v-for="file in workspaceFiles[ws.id]"
-                  :key="file"
-                  @click="openFile(ws.id, file)"
-                  :class="[
-                    'w-full px-8 py-1.5 text-left text-xs transition-colors',
-                    selectedFile?.workspace === ws.id && selectedFile?.filename === file
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-                  ]"
-                >
-                  📄 {{ file }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <WorkspaceExplorer 
+          v-if="leftTab === 'explorer'"
+          :workspaces="workspaces"
+          :workspaceFiles="workspaceFiles"
+          :selectedWorkspace="selectedWorkspace"
+          :selectedFile="selectedFile"
+          :loading="loading"
+          @select-workspace="handleSelectWorkspace"
+          @create-workspace="handleCreateWorkspace"
+          @delete-workspace="handleDeleteWorkspace"
+          @open-file="handleOpenFile"
+          @create-file="handleCreateFile"
+          @delete-file="handleDeleteFile"
+        />
 
         <!-- Automations Tab -->
         <div v-else-if="leftTab === 'automations'">
+          <CreateAutomationForm
+            :workspaces="workspaces"
+            :workspaceFiles="workspaceFiles"
+            @create-automation="handleCreateAutomation"
+            @fetch-files="fetchWorkspaceFiles"
+          />
+
           <div v-if="loading" class="p-4 text-gray-500 text-sm">Loading...</div>
           <div v-else-if="error" class="p-4 text-red-400 text-sm">{{ error }}</div>
-          <div v-else>
-            <div v-for="(autos, workspace) in groupedByWorkspace" :key="workspace">
-              <div class="px-4 py-2 bg-gray-750 text-xs font-semibold text-gray-400 uppercase">
-                {{ workspace }}
-              </div>
-              <button
-                v-for="auto in autos"
-                :key="auto.id"
-                @click="selectAutomation(auto)"
-                :class="[
-                  'w-full px-4 py-2.5 text-left text-sm transition-colors',
-                  selectedAutomation?.id === auto.id
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-700'
-                ]"
-              >
-                <div class="font-medium">{{ auto.name }}</div>
-                <div class="text-xs opacity-70 mt-0.5">
-                  {{ auto.trigger }} · {{ auto.strategy }}
-                </div>
-              </button>
-            </div>
-          </div>
+          <AutomationsPanel 
+            v-else
+            :groupedAutomations="groupedByWorkspace"
+            :selectedAutomationId="selectedAutomation?.id"
+            @select-automation="handleSelectAutomation"
+          />
         </div>
       </div>
     </div>
@@ -229,32 +235,15 @@ const handleTrigger = async () => {
       </div>
       
       <!-- Editor View -->
-      <template v-else-if="selectedFile">
-        <div class="p-3 border-b border-gray-700 flex justify-between items-center bg-gray-900">
-          <div class="flex items-center gap-2">
-            <span class="text-gray-400 text-xs">📁 {{ selectedFile.workspace }}</span>
-            <span class="text-gray-500">/</span>
-            <span class="font-medium text-sm text-gray-200">📄 {{ selectedFile.filename }}</span>
-          </div>
-          <button 
-            @click="saveFile" 
-            :disabled="savingFile || loadingFile"
-            class="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1.5 rounded text-xs font-medium"
-          >
-            {{ savingFile ? 'Saving...' : 'Save File' }}
-          </button>
-        </div>
-        <div class="flex-1 relative">
-          <div v-if="loadingFile" class="absolute inset-0 flex items-center justify-center bg-gray-800/80 z-10">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-          </div>
-          <textarea 
-            v-model="fileContent" 
-            class="w-full h-full bg-gray-900 text-gray-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
-            spellcheck="false"
-          ></textarea>
-        </div>
-      </template>
+      <FileEditor 
+        v-else-if="selectedFile"
+        :file="selectedFile"
+        :content="fileContent"
+        :loading="loadingFile"
+        :saving="savingFile"
+        @update:content="fileContent = $event"
+        @save="handleSaveFile"
+      />
 
       <!-- Automation Details View -->
       <template v-else-if="selectedAutomation">
@@ -283,6 +272,12 @@ const handleTrigger = async () => {
       </template>
     </div>
 
+    <ConfirmDialog
+      ref="confirmDialog"
+      v-bind="dialogProps"
+      @confirm="pendingAction?.()"
+    />
+
     <!-- Right Pane: Trigger + Metrics -->
     <div class="w-64 flex flex-col gap-4">
       <!-- Trigger Control -->
@@ -306,32 +301,7 @@ const handleTrigger = async () => {
       </div>
 
       <!-- Dispatcher Metrics -->
-      <div class="bg-gray-800 rounded-lg p-4 flex-1">
-        <h3 class="font-semibold text-sm text-gray-300 mb-3">System Metrics</h3>
-        <div v-if="metrics" class="space-y-2 text-sm">
-          <div class="flex justify-between">
-            <span class="text-gray-400">Total Runs</span>
-            <span class="text-gray-200">{{ metrics.total_executions }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-400">Successful</span>
-            <span class="text-green-400">{{ metrics.successful }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-400">Failed</span>
-            <span class="text-red-400">{{ metrics.failed }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-400">Skipped</span>
-            <span class="text-yellow-400">{{ metrics.skipped }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-400">Avg Latency</span>
-            <span class="text-gray-200">{{ Math.round(metrics.total_latency_ms / Math.max(metrics.total_executions, 1)) }}ms</span>
-          </div>
-        </div>
-        <div v-else class="text-gray-500 text-sm">No metrics available</div>
-      </div>
+      <SystemMetricsPanel :metrics="metrics" />
     </div>
   </div>
 </template>

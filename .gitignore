@@ -40,3 +40,4 @@ llm-proxy
 llm-proxy.log
 .DS_Store
 backend/internal/api/frontend_dist/*
+backend/workspaces/*

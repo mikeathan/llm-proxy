@@ -1,6 +1,7 @@
 // Global configuration types
 export interface GlobalConfig {
   model_dir: string
+  workspaces_dir?: string
   llama_binary: string
   model_host: string
   idle_timeout_seconds: number

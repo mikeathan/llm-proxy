@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "cronstrue": "^3.14.0",
     "vue": "^3.5.25"
   },
   "devDependencies": {

@@ -58,5 +58,28 @@ export const DispatcherService = {
       body: JSON.stringify({ content })
     })
     if (!res.ok) throw new Error('Failed to write file')
+  },
+
+  async deleteWorkspaceFile(workspace: string, file: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/workspaces/${workspace}/files/${file}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) throw new Error('Failed to delete file')
+  },
+
+  async deleteWorkspace(workspace: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/workspaces/${workspace}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) throw new Error('Failed to delete workspace')
+  },
+
+  async createAutomation(workspace: string, automation: Automation): Promise<void> {
+    const res = await fetch(`${BASE_URL}/workspaces/${workspace}/automations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(automation)
+    })
+    if (!res.ok) throw new Error('Failed to create automation')
   }
 }

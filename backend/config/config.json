@@ -33,7 +33,7 @@
       "environment": null
     }
   ],
-  "model_dir": "/Users/mikeathan/dev/models",
+  "model_dir": "/home/mikeathan/dev/models",
   "metrics": {
     "gpu": {
       "provider": "sysfs",

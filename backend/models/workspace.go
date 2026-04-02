@@ -2,26 +2,34 @@ package models
 
 import "time"
 
+type TriggerType string
+
+const (
+	TriggerCron     TriggerType = "cron"
+	TriggerInterval TriggerType = "interval"
+	TriggerManual   TriggerType = "manual"
+)
+
 // TriggerConfig describes a trigger for an automation.
 type TriggerConfig struct {
-	Type  string `yaml:"type"  json:"type"`  // "cron" | "interval" | "manual"
+	Type  TriggerType `yaml:"type"  json:"type"`  // "cron" | "interval" | "manual"
 	Value string `yaml:"value" json:"value"` // "*/5 * * * *" | "15m" | ""
 }
 
 // Automation binds a Trigger to a Task file with an execution strategy.
 type Automation struct {
-	Name      string        `yaml:"name"      json:"name"`
-	Trigger   TriggerConfig `yaml:"trigger"   json:"trigger"`
-	TaskFile  string        `yaml:"task_file" json:"task_file"`
-	Strategy  string        `yaml:"strategy"  json:"strategy"` // "isolated" | "persistent"
+	Name     string        `yaml:"name"      json:"name"`
+	Trigger  TriggerConfig `yaml:"trigger"   json:"trigger"`
+	TaskFile string        `yaml:"task_file" json:"task_file"`
+	Strategy string        `yaml:"strategy"  json:"strategy"` // "isolated" | "persistent"
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml
 type WorkspaceConfig struct {
 	// Legacy single cron schedule (for backward compatibility)
-	CronSchedule string        `yaml:"cron_schedule" json:"cron_schedule"`
-	Model        string        `yaml:"model" json:"model"`
-	Temperature  float64       `yaml:"temperature" json:"temperature"`
+	CronSchedule string  `yaml:"cron_schedule" json:"cron_schedule"`
+	Model        string  `yaml:"model" json:"model"`
+	Temperature  float64 `yaml:"temperature" json:"temperature"`
 	// New: automations array (N:M model)
 	Automations []*Automation `yaml:"automations" json:"automations"`
 }

@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/api"
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/llm"
-	"llm-proxy/internal/mocks"
+	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/config"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
+	"llm-proxy/internal/testing/mocks"
 )
 
 type mockProxy struct {
