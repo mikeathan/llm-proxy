@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ const logBufferSize = 64 * 1024
 type LocalProvider struct {
 	cfg         models.ModelConfig
 	llamaBinary string
+	modelDir    string
 	activeModel *runningModel
 }
 
@@ -43,11 +45,43 @@ func (r *runningModel) LastUsed() time.Time {
 	return r.lastUsed
 }
 
-func NewLocalProvider(cfg models.ModelConfig, llamaBinary string) *LocalProvider {
+func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir string) *LocalProvider {
 	return &LocalProvider{
 		cfg:         cfg,
 		llamaBinary: llamaBinary,
+		modelDir:    modelDir,
 	}
+}
+
+func (p *LocalProvider) ListModels(ctx context.Context) ([]string, error) {
+	if p.modelDir == "" {
+		return nil, nil
+	}
+
+	files, err := os.ReadDir(p.modelDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var models []string
+	for _, f := range files {
+		if !f.IsDir() && (strings.HasSuffix(f.Name(), ".gguf") || strings.HasSuffix(f.Name(), ".bin")) {
+			models = append(models, f.Name())
+		}
+	}
+	return models, nil
+}
+
+func (p *LocalProvider) TestConnection(ctx context.Context) error {
+	if _, err := os.Stat(p.llamaBinary); err != nil {
+		return fmt.Errorf("llama server binary not found: %w", err)
+	}
+	if p.modelDir != "" {
+		if _, err := os.Stat(p.modelDir); err != nil {
+			return fmt.Errorf("model directory not found: %w", err)
+		}
+	}
+	return nil
 }
 
 func (p *LocalProvider) Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error) {

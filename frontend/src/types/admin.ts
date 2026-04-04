@@ -1,5 +1,5 @@
 // Global configuration types
-export type ProviderType = 'local' | 'gemini' | 'openai'
+export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex'
 
 export interface ProviderItem {
   type: ProviderType

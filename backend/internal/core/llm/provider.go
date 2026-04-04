@@ -35,4 +35,6 @@ type Provider interface {
 	// For administrative and proxy management
 	EnsureReady(ctx context.Context) error
 	GetEndpoint(ctx context.Context) (string, http.Header, error)
+	ListModels(ctx context.Context) ([]string, error)
+	TestConnection(ctx context.Context) error
 }

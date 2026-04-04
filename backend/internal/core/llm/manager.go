@@ -63,6 +63,8 @@ type RuntimeManager interface {
 	ModelHost() string
 	SetBinary(path string)
 	SetModelHost(host string)
+	ListProviderModels(ctx context.Context, provider string) ([]string, error)
+	TestProviderConnection(ctx context.Context, provider string) error
 }
 
 type LLMRuntimeManager struct {
@@ -133,6 +135,7 @@ func hostFromConfig(host string) string {
 func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provider {
 	// For cloud providers, we look up the credentials in the providers map
 	pCfg := cfg
+	var modelDir string
 	if provider, ok := m.providers[cfg.Provider]; ok {
 		// Merge provider settings into model config for the provider implementation
 		if pCfg.ProviderConfig.APIKey == "" {
@@ -147,6 +150,7 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 		if pCfg.ProviderConfig.Region == "" {
 			pCfg.ProviderConfig.Region = provider.Region
 		}
+		modelDir = provider.ModelDir
 	}
 
 	switch cfg.Provider {
@@ -156,14 +160,33 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 		return NewVertexProvider(pCfg)
 	case "openrouter":
 		return NewOpenRouterProvider(pCfg)
+	case "openai":
+		return NewOpenAIProvider(pCfg)
 	default:
 		// Fallback to local
 		binary := m.llamaBinary
 		if local, ok := m.providers["local"]; ok && local.LlamaServerBinary != "" {
 			binary = local.LlamaServerBinary
+			if modelDir == "" {
+				modelDir = local.ModelDir
+			}
 		}
-		return NewLocalProvider(pCfg, binary)
+		return NewLocalProvider(pCfg, binary, modelDir)
 	}
+}
+
+func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName string) error {
+	m.mu.Lock()
+	p := m.createProviderLocked(models.ModelConfig{Provider: providerName})
+	m.mu.Unlock()
+	return p.TestConnection(ctx)
+}
+
+func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName string) ([]string, error) {
+	m.mu.Lock()
+	p := m.createProviderLocked(models.ModelConfig{Provider: providerName})
+	m.mu.Unlock()
+	return p.ListModels(ctx)
 }
 
 func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (ModelInstance, error) {

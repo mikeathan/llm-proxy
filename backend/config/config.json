@@ -2,9 +2,15 @@
   "server": {
     "bind": "0.0.0.0:4001",
     "model_host": "127.0.0.1",
-    "idle_timeout_seconds": 1800
+    "idle_timeout_seconds": 1800,
+    "llama_server_binary": "",
+    "default_args": null,
+    "environment": {}
   },
   "providers": {
+    "gemini": {
+      "type": "gemini"
+    },
     "local": {
       "type": "local",
       "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
@@ -28,6 +34,12 @@
         "GGML_HIP_UMA": "1",
         "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
       }
+    },
+    "openai": {
+      "type": "openai"
+    },
+    "openrouter": {
+      "type": "openrouter"
     }
   },
   "models": [
@@ -35,9 +47,8 @@
       "name": "qwen2.5-3b-instruct",
       "provider": "local",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
-      "args": [],
       "port": 9002,
-      "environment": null
+      "provider_config": {}
     }
   ],
   "metrics": {

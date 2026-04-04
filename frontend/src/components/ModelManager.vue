@@ -109,8 +109,32 @@
             <input v-model="localNewModel.filename" type="text" required placeholder="qwen2.5-3b.gguf" class="form-input">
           </div>
           <div v-else>
-            <label class="form-label">Model ID</label>
-            <input v-model="localNewModel.model_id" type="text" required placeholder="e.g. gpt-4o or gemini-1.5-pro" class="form-input">
+            <div v-if="!isProviderConfigured" class="mb-3 p-2.5 bg-yellow-900/20 border border-yellow-700/50 rounded-md flex justify-between items-center gap-2">
+              <span class="text-[11px] text-yellow-500 font-bold uppercase tracking-tight flex items-center gap-1.5">
+                <span class="text-base">⚠️</span> Configuration Required
+              </span>
+              <router-link to="/settings" class="text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all">Settings</router-link>
+            </div>
+
+            <div class="flex justify-between items-center mb-1.5">
+              <label class="form-label mb-0" :class="!isProviderConfigured ? 'opacity-50' : ''">Model ID</label>
+              <button 
+                v-if="['gemini', 'openai', 'openrouter', 'vertex'].includes(localNewModel.provider)"
+                type="button" 
+                @click="loadProviderModels" 
+                class="text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1 disabled:opacity-20"
+                :disabled="isLoadingModels || !isProviderConfigured"
+              >
+                <span v-if="isLoadingModels" class="animate-spin h-2 w-2 border-b border-current rounded-full"></span>
+                {{ isLoadingModels ? 'Loading...' : 'Refresh List' }}
+              </button>
+            </div>
+            
+            <select v-if="providerModels.length > 0" v-model="localNewModel.model_id" class="form-input" required :disabled="!isProviderConfigured">
+              <option value="" disabled>Select a model...</option>
+              <option v-for="m in providerModels" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <input v-else v-model="localNewModel.model_id" type="text" required placeholder="e.g. gpt-4o or gemini-1.5-pro" class="form-input" :disabled="!isProviderConfigured">
           </div>
         </div>
 
@@ -125,7 +149,9 @@
           </div>
         </div>
 
-        <button type="submit" class="btn-add">Add to Configuration</button>
+        <button type="submit" class="btn-add disabled:opacity-20 disabled:grayscale" :disabled="localNewModel.provider !== 'local' && (!isProviderConfigured || !localNewModel.model_id)">
+          Add to Configuration
+        </button>
       </form>
 
       <!-- Search Local Dir (Only for Local Tab) -->
@@ -153,6 +179,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { argsToString, stringToArgs } from '../utils/config'
+import { useModels } from '../composables/useModels'
 import type { AdminState, AvailableModel, NewModelForm } from '../types'
 
 const props = defineProps<{
@@ -171,8 +198,23 @@ const emit = defineEmits<{
   (e: 'addModel', model: any): void
 }>()
 
+const { fetchProviderModels } = useModels()
+
 const localNewModel = ref({ ...props.newModel })
 const editingModel = ref<any>(null)
+const providerModels = ref<string[]>([])
+const isLoadingModels = ref(false)
+
+const isProviderConfigured = computed(() => {
+  const prov = localNewModel.value.provider
+  if (!prov || prov === 'local') return true
+  const cfg = props.state?.config?.providers?.[prov]
+  if (!cfg) return false
+  
+  // Basic validation: must have API key or project_id (for vertex)
+  if (prov === 'vertex') return !!cfg.project_id
+  return !!cfg.api_key
+})
 
 const filteredModels = computed(() => {
   if (!props.state?.models) return []
@@ -188,6 +230,22 @@ const editingArgsStr = computed({
     if (editingModel.value) editingModel.value.args = stringToArgs(val)
   }
 })
+
+async function loadProviderModels() {
+  const provider = localNewModel.value.provider
+  if (!provider || provider === 'local') return
+  
+  isLoadingModels.value = true
+  try {
+    const list = await fetchProviderModels(provider)
+    providerModels.value = list
+    if (list.length > 0 && !localNewModel.value.model_id) {
+      localNewModel.value.model_id = list[0]
+    }
+  } finally {
+    isLoadingModels.value = false
+  }
+}
 
 function startEdit(model: any) {
   editingModel.value = JSON.parse(JSON.stringify(model))
@@ -207,6 +265,15 @@ watch(() => props.newModel, (newVal) => {
 watch(localNewModel, (newVal) => {
   emit('update:newModel', newVal)
 }, { deep: true })
+
+watch(() => localNewModel.value.provider, (newProv, oldProv) => {
+  if (newProv !== oldProv) {
+    providerModels.value = []
+    if (newProv !== 'local' && isProviderConfigured.value) {
+      loadProviderModels()
+    }
+  }
+}, { immediate: true })
 
 function selectAvailableModel(model: any) {
   if (props.filterProvider !== 'local') return

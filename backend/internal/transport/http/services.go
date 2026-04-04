@@ -28,6 +28,8 @@ type RuntimeService interface {
 	ModelHost() string
 	SetBinary(string)
 	SetModelHost(string)
+	ListProviderModels(context.Context, string) ([]string, error)
+	TestProviderConnection(context.Context, string) error
 }
 
 type AdminService interface {

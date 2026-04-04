@@ -641,6 +641,38 @@ func (h *AdminHandlers) AdminMCPRemoveHandler(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AdminHandlers) AdminListProviderModelsHandler(w http.ResponseWriter, r *http.Request) {
+	provider := r.URL.Query().Get("provider")
+	if provider == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing provider")
+		return
+	}
+
+	models, err := h.runtime.ListProviderModels(r.Context(), provider)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list models: "+err.Error())
+		return
+	}
+
+	respondJSON(w, models)
+}
+
+func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter, r *http.Request) {
+	provider := r.URL.Query().Get("provider")
+	if provider == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing provider")
+		return
+	}
+
+	err := h.runtime.TestProviderConnection(r.Context(), provider)
+	if err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "connection test failed: "+err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]string{"status": "ok", "message": "Connection successful"})
+}
+
 func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string   `json:"name"`

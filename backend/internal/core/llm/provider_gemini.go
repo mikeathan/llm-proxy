@@ -2,9 +2,11 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"llm-proxy/models"
 	"net/http"
+	"strings"
 )
 
 type GeminiProvider struct {
@@ -31,6 +33,47 @@ func (p *GeminiProvider) GetEndpoint(ctx context.Context) (string, http.Header, 
 
 func (p *GeminiProvider) EnsureReady(ctx context.Context) error {
 	return nil
+}
+
+func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
+	if p.cfg.ProviderConfig.APIKey == "" {
+		return nil, fmt.Errorf("gemini API key is not configured")
+	}
+
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", p.cfg.ProviderConfig.APIKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gemini API returned status %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	var models []string
+	for _, m := range data.Models {
+		// Names come in format "models/gemini-pro", we just want "gemini-pro"
+		name := strings.TrimPrefix(m.Name, "models/")
+		models = append(models, name)
+	}
+
+	return models, nil
+}
+
+func (p *GeminiProvider) TestConnection(ctx context.Context) error {
+	_, err := p.ListModels(ctx)
+	return err
 }
 
 func (p *GeminiProvider) Shutdown() error {

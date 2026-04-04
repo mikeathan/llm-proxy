@@ -6,6 +6,7 @@ import { useConfig } from '../composables/useConfig'
 import { useMcpServers } from '../composables/useMcpServers'
 import { useMetrics } from '../composables/useMetrics'
 import { useModels } from '../composables/useModels'
+import { AdminApiService } from '../services/adminService'
 import type { NewMcpServerForm } from '../types/mcp'
 import type { ProviderType } from '../types/admin'
 
@@ -14,7 +15,23 @@ const { editConfig, seedFromState, updateConfig } = useConfig(refreshModels)
 const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } = useMcpServers()
 const { logLevel, updateLogLevel } = useMetrics()
 
-const activeTab = ref<'local' | 'gemini' | 'openai' | 'mcp'>('local')
+const activeTab = ref<'local' | 'gemini' | 'openai' | 'openrouter' | 'mcp'>('local')
+const testStatus = ref<{ [key: string]: { loading: boolean, error?: string, success?: string } }>({})
+
+const testProvider = async (type: string) => {
+  testStatus.value[type] = { loading: true }
+  try {
+    const res = await AdminApiService.testConnection(type)
+    testStatus.value[type] = { loading: false, success: res.message }
+    setTimeout(() => {
+      if (testStatus.value[type]?.success === res.message) {
+        testStatus.value[type].success = undefined
+      }
+    }, 5000)
+  } catch (e: any) {
+    testStatus.value[type] = { loading: false, error: e.message }
+  }
+}
 
 // Seed editConfig the first time state.config arrives
 watch(() => state.value?.config, (cfg) => {
@@ -38,6 +55,7 @@ const ensureProvider = (type: ProviderType) => {
 
 const geminiProvider = computed(() => ensureProvider('gemini'))
 const openaiProvider = computed(() => ensureProvider('openai'))
+const openrouterProvider = computed(() => ensureProvider('openrouter'))
 </script>
 
 <template>
@@ -66,6 +84,13 @@ const openaiProvider = computed(() => ensureProvider('openai'))
         >
           <span class="nav-icon">🤖</span>
           OpenAI
+        </button>
+        <button
+          @click="activeTab = 'openrouter'"
+          :class="['nav-item', activeTab === 'openrouter' ? 'nav-active' : '']"
+        >
+          <span class="nav-icon">🚀</span>
+          OpenRouter
         </button>
         <div class="sidebar-divider"></div>
         <button
@@ -108,7 +133,17 @@ const openaiProvider = computed(() => ensureProvider('openai'))
               <div class="form-helper">Region for Vertex AI (e.g. us-central1)</div>
               <input v-model="geminiProvider.region" type="text" class="form-input">
             </div>
-            <div class="form-actions">
+            
+            <div v-if="testStatus['gemini']" class="test-feedback">
+              <div v-if="testStatus['gemini'].loading" class="test-loading">Verifying connection...</div>
+              <div v-if="testStatus['gemini'].success" class="test-success">{{ testStatus['gemini'].success }}</div>
+              <div v-if="testStatus['gemini'].error" class="test-error">{{ testStatus['gemini'].error }}</div>
+            </div>
+
+            <div class="form-actions gap-3">
+              <button type="button" @click="testProvider('gemini')" class="btn-secondary" :disabled="testStatus['gemini']?.loading">
+                Test Connection
+              </button>
               <button type="submit" class="btn-submit">Save Gemini Config</button>
             </div>
           </form>
@@ -128,8 +163,44 @@ const openaiProvider = computed(() => ensureProvider('openai'))
               <div class="form-helper">Override for localized proxies or self-hosted engines</div>
               <input v-model="openaiProvider.base_url" type="text" placeholder="https://api.openai.com/v1" class="form-input">
             </div>
-            <div class="form-actions">
+
+            <div v-if="testStatus['openai']" class="test-feedback">
+              <div v-if="testStatus['openai'].loading" class="test-loading">Verifying connection...</div>
+              <div v-if="testStatus['openai'].success" class="test-success">{{ testStatus['openai'].success }}</div>
+              <div v-if="testStatus['openai'].error" class="test-error">{{ testStatus['openai'].error }}</div>
+            </div>
+
+            <div class="form-actions gap-3">
+              <button type="button" @click="testProvider('openai')" class="btn-secondary" :disabled="testStatus['openai']?.loading">
+                Test Connection
+              </button>
               <button type="submit" class="btn-submit">Save OpenAI Config</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'openrouter'">
+        <div class="detail-card">
+          <h2 class="detail-title">OpenRouter Configuration</h2>
+          <form @submit.prevent="updateConfig" class="space-y-6">
+            <div class="form-group">
+              <label class="form-label">API Key</label>
+              <div class="form-helper">Generate at openrouter.ai/keys</div>
+              <input v-model="openrouterProvider.api_key" type="password" placeholder="sk-or-v1-..." class="form-input">
+            </div>
+
+            <div v-if="testStatus['openrouter']" class="test-feedback">
+              <div v-if="testStatus['openrouter'].loading" class="test-loading">Verifying connection...</div>
+              <div v-if="testStatus['openrouter'].success" class="test-success">{{ testStatus['openrouter'].success }}</div>
+              <div v-if="testStatus['openrouter'].error" class="test-error">{{ testStatus['openrouter'].error }}</div>
+            </div>
+
+            <div class="form-actions gap-3">
+              <button type="button" @click="testProvider('openrouter')" class="btn-secondary" :disabled="testStatus['openrouter']?.loading">
+                Test Connection
+              </button>
+              <button type="submit" class="btn-submit">Save OpenRouter Config</button>
             </div>
           </form>
         </div>
@@ -220,5 +291,25 @@ const openaiProvider = computed(() => ensureProvider('openai'))
 
 .btn-submit {
   @apply bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-md font-bold transition-all shadow-lg hover:shadow-blue-600/20 active:scale-95;
+}
+
+.btn-secondary {
+  @apply bg-gray-700 hover:bg-gray-600 text-gray-200 px-6 py-2.5 rounded-md font-bold transition-all active:scale-95 disabled:opacity-50;
+}
+
+.test-feedback {
+  @apply mt-4 p-3 rounded-md text-sm border animate-in fade-in slide-in-from-top-2;
+}
+
+.test-loading {
+  @apply text-blue-400 flex items-center gap-2;
+}
+
+.test-success {
+  @apply text-green-400 bg-green-950/20 border-green-500/30 p-2 rounded;
+}
+
+.test-error {
+  @apply text-red-400 bg-red-950/20 border-red-500/30 p-2 rounded break-words;
 }
 </style>

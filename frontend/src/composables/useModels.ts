@@ -68,6 +68,15 @@ const removeModel = async (name: string): Promise<void> => {
   }
 }
 
+const fetchProviderModels = async (provider: string): Promise<string[]> => {
+  try {
+    return await AdminApiService.fetchProviderModels(provider)
+  } catch (e: any) {
+    console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)
+    return []
+  }
+}
+
 export function useModels() {
   return {
     state,
@@ -81,5 +90,6 @@ export function useModels() {
     addModel,
     updateModel,
     removeModel,
+    fetchProviderModels,
   }
 }

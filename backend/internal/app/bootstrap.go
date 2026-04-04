@@ -138,7 +138,6 @@ func (c *Container) BuildDispatcher(svc AssistantService) (*automation.Dispatche
 	baseDir := c.Core.AppCtx.WorkspacesDir()
 	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
 
-	// Phase 3: Using LLM-backed executor
 	exec := automation.NewLLMTaskExecutor(svc)
 
 	d, err := automation.NewDispatcher(persistenceMgr, exec, c.Infra.Logger,
@@ -230,8 +229,10 @@ func buildRouter(
 	router.Post("/admin/api/mcp", admin.AdminMCPAddHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/providers/models", admin.AdminListProviderModelsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
 
-	// Dispatcher (Phase 2 & 4)
+	// Dispatcher
 	if dispatcherHandlers != nil {
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
