@@ -18,14 +18,15 @@ type Client interface {
 type LLMClient struct {
 	httpClient         *http.Client
 	chatCompletionsURL string
+	headers            http.Header
 }
 
-func NewLLMClient(baseURL string, httpClient *http.Client) Client {
+func NewLLMClient(baseURL string, httpClient *http.Client, headers http.Header) Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 	chatCompletionsURL := utils.SanitiseUrl(baseURL) + "/v1/chat/completions"
-	return &LLMClient{chatCompletionsURL: chatCompletionsURL, httpClient: httpClient}
+	return &LLMClient{chatCompletionsURL: chatCompletionsURL, httpClient: httpClient, headers: headers}
 }
 
 func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
@@ -36,6 +37,11 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 
 	httpReq, _ := http.NewRequest("POST", c.chatCompletionsURL, bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
+	for k, vv := range c.headers {
+		for _, v := range vv {
+			httpReq.Header.Add(k, v)
+		}
+	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

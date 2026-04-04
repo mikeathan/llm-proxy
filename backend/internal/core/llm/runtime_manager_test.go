@@ -38,7 +38,9 @@ func TestNewManagerFromConfig_NormalizesModels(t *testing.T) {
 			ModelHost:   "127.0.0.1",
 			DefaultArgs: []string{"--alpha", "1"},
 		},
-		ModelDir: "/models",
+		Providers: map[string]models.ProviderItem{
+			"local": {ModelDir: "/models"},
+		},
 		Models: []models.ModelConfig{
 			{Name: "m1", Filename: "model.gguf", Args: []string{"--beta", "2"}, Port: 9000},
 		},
@@ -50,7 +52,8 @@ func TestNewManagerFromConfig_NormalizesModels(t *testing.T) {
 		t.Fatalf("expected 1 model, got %d", len(modelsOut))
 	}
 	m := modelsOut[0]
-	if m.Path != filepath.Join(cfg.ModelDir, "model.gguf") {
+	localDir := cfg.Providers["local"].ModelDir
+	if m.Path != filepath.Join(localDir, "model.gguf") {
 		t.Fatalf("unexpected path: %s", m.Path)
 	}
 	expectedArgs := []string{"--beta", "2"}

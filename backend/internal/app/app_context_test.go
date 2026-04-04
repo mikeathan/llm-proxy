@@ -325,8 +325,10 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	cfg := &models.Config{
-		Server:   models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
-		ModelDir: filepath.Dir(tmpFile.Name()),
+		Server: models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
+		Providers: map[string]models.ProviderItem{
+			"local": {ModelDir: filepath.Dir(tmpFile.Name())},
+		},
 	}
 
 	srv := createTestServer(t, mgr, cfg)
@@ -383,7 +385,11 @@ func TestAppContextDefaultModel_FirstModel(t *testing.T) {
 }
 
 func TestAppContextResolveModelPath(t *testing.T) {
-	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{ModelDir: "/models"})
+	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{
+		Providers: map[string]models.ProviderItem{
+			"local": {ModelDir: "/models"},
+		},
+	})
 
 	cases := []struct {
 		name     string

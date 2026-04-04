@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -13,6 +14,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+var workspaceFiles = []string{
+	"state.json",
+	"config.yaml",
+}
 
 // WorkspaceManager handles atomic file I/O for workspaces with flock locking.
 type WorkspaceManager struct {
@@ -84,19 +90,20 @@ func (m *WorkspaceManager) ReleaseLock(f *os.File) error {
 
 // ReadState reads state.json for a workspace. Returns empty state if absent.
 func (m *WorkspaceManager) ReadState(workspaceID string) (*models.AgentState, error) {
+	state := &models.AgentState{}
 	path := filepath.Join(m.baseDir, workspaceID, "state.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &models.AgentState{}, nil
+			return state, nil
 		}
-		return nil, fmt.Errorf("failed to read state.json: %w", err)
+		return state, fmt.Errorf("failed to read state.json: %w", err)
 	}
-	var state models.AgentState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("failed to decode state.json: %w", err)
+	if err := json.Unmarshal(data, state); err != nil {
+		fmt.Printf("FAILED TO DECODE %s: %v\n", path, err)
+		return state, fmt.Errorf("failed to decode state.json: %w", err)
 	}
-	return &state, nil
+	return state, nil
 }
 
 // WriteState writes state.json atomically (temp file + rename + sync).
@@ -140,19 +147,20 @@ func (m *WorkspaceManager) WriteState(workspaceID string, state *models.AgentSta
 
 // ReadConfig reads config.yaml for a workspace. Returns empty config if absent.
 func (m *WorkspaceManager) ReadConfig(workspaceID string) (*models.WorkspaceConfig, error) {
+	cfg := &models.WorkspaceConfig{}
 	path := filepath.Join(m.baseDir, workspaceID, "config.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &models.WorkspaceConfig{}, nil
+			return cfg, nil
 		}
-		return nil, fmt.Errorf("failed to read config.yaml: %w", err)
+		return cfg, fmt.Errorf("failed to read config.yaml: %w", err)
 	}
-	var cfg models.WorkspaceConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to decode config.yaml: %w", err)
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		fmt.Printf("FAILED TO DECODE %s: %v\n", path, err)
+		return cfg, fmt.Errorf("failed to decode config.yaml: %w", err)
 	}
-	return &cfg, nil
+	return cfg, nil
 }
 
 // WriteConfig writes config.yaml atomically.
@@ -284,11 +292,6 @@ func (m *WorkspaceManager) WriteTaskFile(workspaceID, filename, content string) 
 	return nil
 }
 
-// ============================================================================
-// Listing
-// ============================================================================
-
-// ListWorkspaces returns all workspaces under baseDir.
 func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -323,12 +326,10 @@ func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 	return workspaces, nil
 }
 
-// BaseDir returns the base directory path.
 func (m *WorkspaceManager) BaseDir() string {
 	return m.baseDir
 }
 
-// LastModified returns the last modification time of a workspace's state.json.
 func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 	path := filepath.Join(m.baseDir, workspaceID, "state.json")
 	info, err := os.Stat(path)
@@ -341,7 +342,6 @@ func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 	return info.ModTime(), nil
 }
 
-// ListFiles lists all non-hidden files in a workspace directory.
 func (m *WorkspaceManager) ListFiles(workspaceID string) ([]string, error) {
 	dirPath := filepath.Join(m.baseDir, workspaceID)
 	entries, err := os.ReadDir(dirPath)
@@ -354,8 +354,21 @@ func (m *WorkspaceManager) ListFiles(workspaceID string) ([]string, error) {
 
 	var files []string
 	for _, entry := range entries {
-		if !entry.IsDir() && entry.Name() != "" && entry.Name()[0] != '.' {
-			files = append(files, entry.Name())
+
+		name := filepath.Base(entry.Name())
+		isWorkspaceFile := false
+		// Skip if it's a directory, empty, or hidden
+		if entry.IsDir() || name == "" || name[0] == '.' {
+			continue
+		}
+
+		// exclude known workspace files to only list task files
+		if slices.Contains(workspaceFiles, name) {
+			isWorkspaceFile = true
+		}
+
+		if !isWorkspaceFile {
+			files = append(files, name)
 		}
 	}
 	return files, nil

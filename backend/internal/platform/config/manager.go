@@ -57,11 +57,6 @@ func (chk *ConfigManager) Load() error {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Apply env overrides for development flexibility
-	if dir := os.Getenv("MODEL_DIR"); dir != "" {
-		cfg.ModelDir = dir
-	}
-
 	chk.config = &cfg
 	return nil
 }

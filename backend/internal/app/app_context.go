@@ -29,11 +29,12 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 	// Compute rootDir from config directory (backend/config -> repo root)
 	rootDir := filepath.Dir(filepath.Dir(cfgMgr.ConfigDir()))
 
+	local := cfg.Providers["local"]
 	s := &AppContext{
 		manager:       mgr,
 		config:        cfg,
 		configMgr:     cfgMgr,
-		modelDir:      cfg.ModelDir,
+		modelDir:      local.ModelDir,
 		workspacesDir: cfg.WorkspacesDir,
 		rootDir:       rootDir,
 		gpuConfig:     cfg.Metrics.GPU,
@@ -47,7 +48,8 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 	cfgMgr.OnChange(func(newCfg models.Config) {
 		s.configMu.Lock()
 		s.config = newCfg
-		s.modelDir = newCfg.ModelDir
+		local := newCfg.Providers["local"]
+		s.modelDir = local.ModelDir
 		s.gpuConfig = newCfg.Metrics.GPU
 		if newCfg.WorkspacesDir != "" {
 			s.workspacesDir = newCfg.WorkspacesDir
@@ -142,6 +144,17 @@ func (s *AppContext) Models() []models.ModelConfig {
 	// return a copy
 	out := make([]models.ModelConfig, len(s.config.Models))
 	copy(out, s.config.Models)
+	return out
+}
+
+func (s *AppContext) Providers() map[string]models.ProviderItem {
+	if s.config.Providers == nil {
+		return map[string]models.ProviderItem{}
+	}
+	out := make(map[string]models.ProviderItem, len(s.config.Providers))
+	for k, v := range s.config.Providers {
+		out[k] = v
+	}
 	return out
 }
 

@@ -1,8 +1,23 @@
 // Global configuration types
+export type ProviderType = 'local' | 'gemini' | 'openai'
+
+export interface ProviderItem {
+  type: ProviderType
+  api_key?: string
+  base_url?: string
+  project_id?: string
+  region?: string
+  llama_server_binary?: string
+  model_dir?: string
+  default_args?: string[]
+  environment?: Record<string, string>
+}
+
+// Global configuration types
 export interface GlobalConfig {
-  model_dir: string
+  providers: Record<string, ProviderItem>
+  agents?: AgentDefinition[]
   workspaces_dir?: string
-  llama_binary: string
   model_host: string
   idle_timeout_seconds: number
   gpu_provider?: string
@@ -10,8 +25,15 @@ export interface GlobalConfig {
   gpu_index?: number
   service_client_id?: string
   service_client_secret?: string
-  environment: Record<string, string>
-  default_args: string[]
+}
+
+export interface AgentDefinition {
+  id: string
+  name: string
+  provider_id: string
+  model_id: string
+  system_prompt: string
+  tools: string[]
 }
 
 export interface AdminState {

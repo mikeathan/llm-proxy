@@ -51,9 +51,25 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 	}
 
 	h.runtime.RecordActivity(model)
-
-	target := fmt.Sprintf("http://%s:%d", mi.Host, mi.Port)
+	
+	target := mi.URL
+	if target == "" {
+		target = fmt.Sprintf("http://%s:%d", mi.Host, mi.Port)
+	}
+	
 	rp := reverseProxyFactory(target)
+	
+	// If we have custom headers (e.g. for cloud providers), we need to inject them.
+	inner := rp
+	rp = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, vv := range mi.Headers {
+			for _, v := range vv {
+				r.Header.Set(k, v)
+			}
+		}
+		inner.ServeHTTP(w, r)
+	})
+
 	rp.ServeHTTP(w, r)
 }
 

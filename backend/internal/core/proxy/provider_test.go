@@ -3,11 +3,12 @@ package proxy_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/testing/mocks"
 )
 
 type mockSelector struct {
@@ -39,7 +40,7 @@ func TestRuntimeClientProvider_DefaultModelError(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, headers http.Header) proxy.Client {
 		return &dummyClient{baseURL: baseURL}
 	})
 
@@ -56,7 +57,7 @@ func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, headers http.Header) proxy.Client {
 		return &dummyClient{baseURL: baseURL}
 	})
 
@@ -87,7 +88,7 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, headers http.Header) proxy.Client {
 		calls++
 		lastURL = baseURL
 		return &dummyClient{baseURL: baseURL}

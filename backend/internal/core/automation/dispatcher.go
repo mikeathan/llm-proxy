@@ -3,12 +3,12 @@ package automation
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 
@@ -23,7 +23,7 @@ type Dispatcher struct {
 	persistence *persistence.WorkspaceManager
 	executor    TaskExecutor
 	cron        *cron.Cron
-	logger      *slog.Logger
+	logger      logging.Logger
 	workerCount int
 
 	mu      sync.RWMutex
@@ -35,7 +35,7 @@ type Dispatcher struct {
 func NewDispatcher(
 	persistence *persistence.WorkspaceManager,
 	executor TaskExecutor,
-	logger *slog.Logger,
+	logger logging.Logger,
 	opts ...Option,
 ) (*Dispatcher, error) {
 	d := &Dispatcher{

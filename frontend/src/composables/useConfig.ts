@@ -3,12 +3,17 @@ import { AdminApiService } from '../services/adminService'
 import type { GlobalConfig } from '../types/admin'
 
 const DEFAULT_CONFIG: GlobalConfig = {
-  model_dir: '',
-  llama_binary: '',
+  providers: {
+    local: {
+      type: 'local',
+      model_dir: '',
+      llama_server_binary: '',
+      default_args: [],
+      environment: {},
+    },
+  },
   model_host: '',
   idle_timeout_seconds: 1800,
-  environment: {},
-  default_args: [],
 }
 
 const editConfig = ref<GlobalConfig>({ ...DEFAULT_CONFIG })
@@ -17,7 +22,19 @@ let seeded = false
 
 const seedFromState = (config: GlobalConfig): void => {
   if (!seeded) {
-    editConfig.value = JSON.parse(JSON.stringify(config))
+    const raw = JSON.parse(JSON.stringify(config))
+    // Ensure structure
+    if (!raw.providers) raw.providers = {}
+    if (!raw.providers.local) {
+      raw.providers.local = {
+        type: 'local',
+        model_dir: '',
+        llama_server_binary: '',
+        default_args: [],
+        environment: {},
+      }
+    }
+    editConfig.value = raw
     seeded = true
   }
 }

@@ -27,6 +27,7 @@ type MockAdminService struct {
 	EnvironmentFunc           func() map[string]string
 	SetEnvironmentFunc        func(map[string]string) error
 	ModelsFunc                func() []models.ModelConfig
+	ProvidersFunc             func() map[string]models.ProviderItem
 	WorkspacesDirFunc         func() string
 	SetWorkspacesDirFunc      func(string)
 }
@@ -184,6 +185,12 @@ func (m *MockAdminService) SetEnvironment(env map[string]string) error {
 func (m *MockAdminService) Models() []models.ModelConfig {
 	if m.ModelsFunc != nil {
 		return m.ModelsFunc()
+	}
+	return nil
+}
+func (m *MockAdminService) Providers() map[string]models.ProviderItem {
+	if m.ProvidersFunc != nil {
+		return m.ProvidersFunc()
 	}
 	return nil
 }

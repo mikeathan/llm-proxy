@@ -10,10 +10,12 @@ export interface ActiveModel {
 
 export interface Model {
   name: string
-  filename: string
-  resolved_path: string
-  args: string[]
-  port: number
+  provider: import('./admin').ProviderType
+  model_id?: string
+  filename?: string
+  resolved_path?: string
+  args?: string[]
+  port?: number
   endpoint: string
   active: boolean
   ready: boolean
@@ -27,7 +29,9 @@ export interface AvailableModel {
 
 export interface NewModelForm {
   name: string
-  filename: string
-  port: number
-  args: string
+  provider: import('./admin').ProviderType
+  model_id?: string
+  filename?: string
+  port?: number
+  args?: string
 }

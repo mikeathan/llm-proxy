@@ -14,7 +14,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../backend/internal/api/frontend_dist',
+    outDir: '../backend/internal/transport/http/frontend_dist',
     emptyOutDir: true
   }
 })

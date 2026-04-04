@@ -31,6 +31,7 @@ func main() {
 	}
 
 	logger := initLogger()
+	logging.SetGlobalLogger(logger)
 
 	configPath := *configFlag
 	if configPath == "" {
@@ -45,14 +46,7 @@ func main() {
 	cfgMgr := config.NewConfigManager(configPath)
 	if err := cfgMgr.Load(); err != nil {
 		logging.Error("failed to load config", "error", err)
-		// Fallback or exit? Exit is safer if config is broken
-		if config.GetAppEnv() != "test" { // Allow test to proceed?
-			// return // or continue with defaults?
-			// For now, let's log and try to proceed if possible or exit.
-			// Existing code exited on load fail.
-			// However ConfigManager Load handles missing file? No.
-			// So exit.
-		}
+		os.Exit(1)
 	}
 
 	proxyApp := app.New(cfgMgr, logger, buildInfo)

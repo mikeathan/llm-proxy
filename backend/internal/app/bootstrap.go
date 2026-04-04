@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"log"
-	"log/slog"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
@@ -56,8 +55,8 @@ func (c *Container) BuildAppServices() AppServices {
 		Clock:      c.Infra.Clock,
 	}
 
-	factory := func(baseURL string) proxy.Client {
-		return proxy.NewLLMClient(baseURL, nil)
+	factory := func(baseURL string, headers http.Header) proxy.Client {
+		return proxy.NewLLMClient(baseURL, nil, headers)
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
@@ -142,7 +141,7 @@ func (c *Container) BuildDispatcher(svc AssistantService) (*automation.Dispatche
 	// Phase 3: Using LLM-backed executor
 	exec := automation.NewLLMTaskExecutor(svc)
 
-	d, err := automation.NewDispatcher(persistenceMgr, exec, slog.Default(),
+	d, err := automation.NewDispatcher(persistenceMgr, exec, c.Infra.Logger,
 		automation.WithWorkerCount(1),
 	)
 	if err != nil {

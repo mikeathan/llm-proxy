@@ -52,6 +52,7 @@ func NewAdminHandlers(
 
 type adminModelView struct {
 	Name         string   `json:"name"`
+	Provider     string   `json:"provider"`
 	Filename     string   `json:"filename"`
 	ResolvedPath string   `json:"resolved_path"`
 	Args         []string `json:"args"`
@@ -85,17 +86,16 @@ type adminStateResponse struct {
 }
 
 type adminConfigView struct {
-	ModelDir            string            `json:"model_dir"`
-	LlamaBinary         string            `json:"llama_binary"`
-	ModelHost           string            `json:"model_host"`
-	IdleTimeoutS        int               `json:"idle_timeout_seconds"`
-	GPUProvider         string            `json:"gpu_provider,omitempty"`
-	GPUBinary           string            `json:"gpu_binary,omitempty"`
-	GPUIndex            int               `json:"gpu_index,omitempty"`
-	ServiceClientID     string            `json:"service_client_id,omitempty"`
-	ServiceClientSecret string            `json:"service_client_secret,omitempty"`
-	Environment         map[string]string `json:"environment"`
-	DefaultArgs         []string          `json:"default_args"`
+	ModelHost           string                          `json:"model_host"`
+	IdleTimeoutS        int                             `json:"idle_timeout_seconds"`
+	GPUProvider         string                          `json:"gpu_provider,omitempty"`
+	GPUBinary           string                          `json:"gpu_binary,omitempty"`
+	GPUIndex            int                             `json:"gpu_index,omitempty"`
+	ServiceClientID     string                          `json:"service_client_id,omitempty"`
+	ServiceClientSecret string                          `json:"service_client_secret,omitempty"`
+	Environment         map[string]string               `json:"environment"`
+	DefaultArgs         []string                        `json:"default_args"`
+	Providers           map[string]models.ProviderItem `json:"providers"`
 }
 
 type adminStartResponse struct {
@@ -182,8 +182,6 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			ModelDir:            h.admin.ModelDir(),
-			LlamaBinary:         h.admin.CurrentBinary(),
 			ModelHost:           host,
 			IdleTimeoutS:        h.admin.CurrentIdleTimeout(),
 			GPUProvider:         gpuCfg.Provider,
@@ -193,6 +191,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			ServiceClientSecret: serviceClientSecret,
 			Environment:         h.admin.Environment(),
 			DefaultArgs:         h.admin.DefaultArgs(),
+			Providers:           h.admin.Providers(),
 		},
 	}
 
@@ -216,6 +215,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 
 		state.Models = append(state.Models, adminModelView{
 			Name:         mc.Name,
+			Provider:     mc.Provider,
 			Filename:     filename,
 			ResolvedPath: mc.Path,
 			Args:         args,
@@ -278,8 +278,6 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 	gpuCfg := h.admin.GPUConfig()
 	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
 	cfg := adminConfigView{
-		ModelDir:            h.admin.ModelDir(),
-		LlamaBinary:         h.admin.CurrentBinary(),
 		ModelHost:           h.runtime.ModelHost(),
 		IdleTimeoutS:        h.admin.CurrentIdleTimeout(),
 		GPUProvider:         gpuCfg.Provider,
@@ -289,6 +287,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		ServiceClientSecret: serviceClientSecret,
 		Environment:         h.admin.Environment(),
 		DefaultArgs:         h.admin.DefaultArgs(),
+		Providers:           h.admin.Providers(),
 	}
 	respondJSON(w, cfg)
 }
@@ -484,30 +483,23 @@ func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ModelDir            string            `json:"model_dir"`
-		WorkspacesDir       string            `json:"workspaces_dir"`
-		LlamaBinary         string            `json:"llama_binary"`
-		ModelHost           string            `json:"model_host"`
-		GPUProvider         string            `json:"gpu_provider"`
-		GPUBinary           string            `json:"gpu_binary"`
-		GPUIndex            *int              `json:"gpu_index"`
-		ServiceClientID     string            `json:"service_client_id"`
-		ServiceClientSecret string            `json:"service_client_secret"`
-		Environment         map[string]string `json:"environment"`
-		DefaultArgs         []string          `json:"default_args"`
+		WorkspacesDir       string                          `json:"workspaces_dir"`
+		ModelHost           string                          `json:"model_host"`
+		GPUProvider         string                          `json:"gpu_provider"`
+		GPUBinary           string                          `json:"gpu_binary"`
+		GPUIndex            *int                             `json:"gpu_index"`
+		ServiceClientID     string                          `json:"service_client_id"`
+		ServiceClientSecret string                          `json:"service_client_secret"`
+		Environment         map[string]string               `json:"environment"`
+		DefaultArgs         []string                        `json:"default_args"`
+		Providers           map[string]models.ProviderItem `json:"providers"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
-	if req.ModelDir != "" {
-		h.admin.SetModelDir(req.ModelDir)
-	}
 	if req.WorkspacesDir != "" {
 		h.admin.SetWorkspacesDir(req.WorkspacesDir)
-	}
-	if req.LlamaBinary != "" {
-		h.runtime.SetBinary(req.LlamaBinary)
 	}
 	if req.ModelHost != "" {
 		h.runtime.SetModelHost(req.ModelHost)
@@ -547,14 +539,8 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.admin.UpdateConfig(func(cfg *models.Config) {
-		if req.ModelDir != "" {
-			cfg.ModelDir = req.ModelDir
-		}
 		if req.WorkspacesDir != "" {
 			cfg.WorkspacesDir = req.WorkspacesDir
-		}
-		if req.LlamaBinary != "" {
-			cfg.Server.LlamaServerBinary = req.LlamaBinary
 		}
 		if req.ModelHost != "" {
 			cfg.Server.ModelHost = req.ModelHost
@@ -572,18 +558,18 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		if req.DefaultArgs != nil {
 			cfg.Server.DefaultArgs = req.DefaultArgs
 		}
+		if req.Providers != nil {
+			if cfg.Providers == nil {
+				cfg.Providers = make(map[string]models.ProviderItem)
+			}
+			for k, v := range req.Providers {
+				cfg.Providers[k] = v
+			}
+		}
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
 		return
 	}
-
-	if req.Environment != nil {
-		for _, m := range h.runtime.ListModels() {
-			m.Environment = req.Environment
-			_ = h.runtime.UpdateModel(m)
-		}
-	}
-	h.admin.RefreshMetricsService()
 
 	if req.Environment != nil {
 		for _, m := range h.runtime.ListModels() {

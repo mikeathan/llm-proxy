@@ -43,6 +43,7 @@ type AdminService interface {
 	Environment() map[string]string
 	SetEnvironment(map[string]string) error
 	Models() []models.ModelConfig
+	Providers() map[string]models.ProviderItem
 	UpdateConfig(func(*models.Config)) error
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error

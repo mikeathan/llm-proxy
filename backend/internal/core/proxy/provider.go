@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/llm"
+	"net/http"
 	"sync"
 )
 
@@ -24,14 +25,15 @@ type RuntimeClientProvider struct {
 	client  Client
 	url     string
 	model   string
+	headers http.Header
 
-	newClient func(baseURL string) Client
+	newClient func(baseURL string, headers http.Header) Client
 }
 
 func NewRuntimeClientProvider(
 	selector ModelSelector,
 	runtime llm.RuntimeManager,
-	newClient func(baseURL string) Client) LLMClientProvider {
+	newClient func(baseURL string, headers http.Header) Client) LLMClientProvider {
 
 	return &RuntimeClientProvider{
 		selector:  selector,
@@ -65,16 +67,38 @@ func (p *RuntimeClientProvider) GetClient(ctx context.Context) (Client, error) {
 }
 
 func (p *RuntimeClientProvider) ensureClient(inst llm.ModelInstance, modelName string) {
+	baseURL := inst.URL
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://%s:%d", inst.Host, inst.Port)
+	}
 
 	// Rebuild if:
 	// - no client yet
 	// - requested model differs from cached model
 	// - URL changed (port/host changed)
-	baseURL := fmt.Sprintf("http://%s:%d", inst.Host, inst.Port)
-
-	if p.client == nil || p.model != modelName || p.url != baseURL {
-		p.client = p.newClient(baseURL)
+	// - headers changed
+	if p.client == nil || p.model != modelName || p.url != baseURL || !compareHeaders(p.headers, inst.Headers) {
+		p.client = p.newClient(baseURL, inst.Headers)
 		p.model = modelName
 		p.url = baseURL
+		p.headers = inst.Headers
 	}
+}
+
+func compareHeaders(h1, h2 http.Header) bool {
+	if len(h1) != len(h2) {
+		return false
+	}
+	for k, v1 := range h1 {
+		v2, ok := h2[k]
+		if !ok || len(v1) != len(v2) {
+			return false
+		}
+		for i := range v1 {
+			if v1[i] != v2[i] {
+				return false
+			}
+		}
+	}
+	return true
 }

@@ -76,7 +76,6 @@ func minimalTestConfig(t *testing.T) *config.ConfigManager {
 			IdleTimeoutSecs: 10,
 		},
 		Models:   []models.ModelConfig{},
-		ModelDir: "",
 		Metrics: models.MetricsConfig{
 			GPU: models.GPUConfig{
 				Provider: "none",
