@@ -1,0 +1,98 @@
+<script setup lang="ts">
+import { ref, computed, watch } from 'vue'
+import { useModels } from '../../composables/useModels'
+import type { AdminState } from '../../types'
+
+const props = defineProps<{
+  provider: string
+  modelId: string
+  state: AdminState | null
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:modelId', value: string): void
+}>()
+
+const { fetchProviderModels } = useModels()
+const providerModels = ref<string[]>([])
+const isLoadingModels = ref(false)
+
+const isProviderConfigured = computed(() => {
+  if (props.provider === 'local') return true
+  const cfg = props.state?.config?.providers?.[props.provider]
+  if (!cfg) return false
+
+  if (props.provider === 'vertex') return !!cfg.project_id
+  return !!cfg.api_key
+})
+
+async function loadProviderModels() {
+  if (!props.provider || props.provider === 'local') return
+
+  isLoadingModels.value = true
+  try {
+    const list = await fetchProviderModels(props.provider)
+    providerModels.value = list
+    if (list.length > 0 && !props.modelId) {
+      const firstModel = list[0]
+      if (firstModel) {
+        emit('update:modelId', firstModel)
+      }
+    }
+  } finally {
+    isLoadingModels.value = false
+  }
+}
+
+watch(() => props.provider, (newProv, oldProv) => {
+  if (newProv !== oldProv) {
+    providerModels.value = []
+    if (newProv !== 'local' && isProviderConfigured.value) {
+      loadProviderModels()
+    }
+  }
+}, { immediate: true })
+</script>
+
+<template>
+  <div class="grid grid-cols-1 gap-3">
+    <div v-if="!isProviderConfigured" class="mb-3 p-2.5 bg-yellow-900/20 border border-yellow-700/50 rounded-md flex justify-between items-center gap-2">
+      <span class="text-[11px] text-yellow-500 font-bold uppercase tracking-tight flex items-center gap-1.5">
+        <span class="text-base">⚠️</span> Configuration Required
+      </span>
+      <router-link to="/settings" class="text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all">Settings</router-link>
+    </div>
+
+    <div class="flex justify-between items-center mb-1.5">
+      <label class="form-label mb-0" :class="!isProviderConfigured ? 'opacity-50' : ''">Model ID</label>
+      <button
+        v-if="['gemini', 'openai', 'openrouter', 'vertex'].includes(provider)"
+        type="button"
+        @click="loadProviderModels"
+        class="text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1 disabled:opacity-20"
+        :disabled="isLoadingModels || !isProviderConfigured"
+      >
+        <span v-if="isLoadingModels" class="animate-spin h-2 w-2 border-b border-current rounded-full"></span>
+        {{ isLoadingModels ? 'Loading...' : 'Refresh List' }}
+      </button>
+    </div>
+
+    <select v-if="providerModels.length > 0" :value="modelId" @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)" class="form-input" required :disabled="!isProviderConfigured">
+      <option value="" disabled>Select a model...</option>
+      <option v-for="m in providerModels" :key="m" :value="m">{{ m }}</option>
+    </select>
+    <input v-else :value="modelId" @input="emit('update:modelId', ($event.target as HTMLInputElement).value)" type="text" required placeholder="e.g. gpt-4o or gemini-1.5-pro" class="form-input" :disabled="!isProviderConfigured">
+  </div>
+</template>
+
+<style scoped lang="postcss">
+.form-label {
+  @apply block text-[10px] uppercase font-bold text-gray-500 mb-1.5 tracking-wider;
+}
+.form-input {
+  @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all;
+}
+select.form-input {
+  @apply appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[position:right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat pr-10;
+}
+</style>

@@ -1,3 +1,26 @@
+<script setup lang="ts">
+import {
+  formatPercent,
+  formatMemory,
+  memPercent,
+  formatTokenRate,
+  gpuTempClass,
+} from "../../utils/formatters";
+import type { SystemMetrics } from "../../types/metrics";
+import type { ActiveModel } from "../../types/model";
+
+const clampPercent = (v: number) => Math.min(Math.max(v, 0), 100);
+
+defineProps<{
+  activeModel: ActiveModel | undefined | null;
+  metrics: SystemMetrics | null;
+}>();
+
+defineEmits<{
+  (e: "stopModel"): void;
+}>();
+</script>
+
 <template>
   <div class="system-status-container">
     <!-- Active Model Status -->
@@ -5,8 +28,15 @@
       <h3 class="card-title">Active Model</h3>
       <div v-if="activeModel" class="active-model-info">
         <div class="model-header">
-          <span :class="['model-indicator', activeModel.ready ? 'indicator-ready' : 'indicator-loading']"></span>
-          <span class="model-name" :title="activeModel.name">{{ activeModel.name }}</span>
+          <span
+            :class="[
+              'model-indicator',
+              activeModel.ready ? 'indicator-ready' : 'indicator-loading',
+            ]"
+          ></span>
+          <span class="model-name" :title="activeModel.name">{{
+            activeModel.name
+          }}</span>
         </div>
         <div class="model-endpoint">{{ activeModel.endpoint }}</div>
         <button @click="$emit('stopModel')" class="btn-stop">Stop Model</button>
@@ -21,19 +51,31 @@
         <div>
           <div class="metric-row">
             <span>CPU Load</span>
-            <span class="metric-value">{{ formatPercent(metrics.load_percent) }}%</span>
+            <span class="metric-value"
+              >{{ formatPercent(metrics.load_percent) }}%</span
+            >
           </div>
           <div class="progress-track">
-            <div class="progress-bar-blue" :style="{ width: `${clampPercent(metrics.load_percent ?? 0)}%` }"></div>
+            <div
+              class="progress-bar-blue"
+              :style="{ width: `${clampPercent(metrics.load_percent ?? 0)}%` }"
+            ></div>
           </div>
         </div>
         <div>
           <div class="metric-row">
             <span>Memory</span>
-            <span class="metric-value">{{ formatMemory(metrics.mem_used_mb, metrics.mem_total_mb) }}</span>
+            <span class="metric-value">{{
+              formatMemory(metrics.mem_used_mb, metrics.mem_total_mb)
+            }}</span>
           </div>
           <div class="progress-track">
-            <div class="progress-bar-blue" :style="{ width: `${clampPercent(memPercent(metrics.mem_used_mb, metrics.mem_total_mb))}%` }"></div>
+            <div
+              class="progress-bar-blue"
+              :style="{
+                width: `${clampPercent(memPercent(metrics.mem_used_mb, metrics.mem_total_mb))}%`,
+              }"
+            ></div>
           </div>
         </div>
       </div>
@@ -46,19 +88,33 @@
         <div>
           <div class="metric-row">
             <span>VRAM ({{ metrics.gpu.name || metrics.gpu.vendor }})</span>
-            <span class="metric-value">{{ formatMemory(metrics.gpu.memory_used_mb, metrics.gpu.memory_total_mb) }}</span>
+            <span class="metric-value">{{
+              formatMemory(
+                metrics.gpu.memory_used_mb,
+                metrics.gpu.memory_total_mb,
+              )
+            }}</span>
           </div>
           <div class="progress-track">
-            <div class="progress-bar-purple" :style="{ width: `${clampPercent(metrics.gpu.memory_utilization_percent)}%` }"></div>
+            <div
+              class="progress-bar-purple"
+              :style="{
+                width: `${clampPercent(metrics.gpu.memory_utilization_percent)}%`,
+              }"
+            ></div>
           </div>
         </div>
         <div class="metric-row-margin">
           <span>Core Utilization</span>
-          <span class="metric-value">{{ metrics.gpu.utilization_percent }}%</span>
+          <span class="metric-value"
+            >{{ metrics.gpu.utilization_percent }}%</span
+          >
         </div>
         <div class="metric-row-plain">
           <span>Temperature</span>
-          <span :class="gpuTempClass(metrics.gpu.temperature_c)">{{ metrics.gpu.temperature_c }}°C</span>
+          <span :class="gpuTempClass(metrics.gpu.temperature_c)"
+            >{{ metrics.gpu.temperature_c }}°C</span
+          >
         </div>
       </div>
       <div v-else class="empty-state-margin">
@@ -77,23 +133,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import { formatPercent, formatMemory, memPercent, formatTokenRate, gpuTempClass } from '../utils/formatters'
-import type { SystemMetrics } from '../types/metrics'
-import type { ActiveModel } from '../types/model'
-
-const clampPercent = (v: number) => Math.min(Math.max(v, 0), 100)
-
-defineProps<{
-  activeModel: ActiveModel | undefined | null
-  metrics: SystemMetrics | null
-}>()
-
-defineEmits<{
-  (e: 'stopModel'): void
-}>()
-</script>
 
 <style scoped lang="postcss">
 .system-status-container {

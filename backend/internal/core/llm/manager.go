@@ -64,7 +64,7 @@ type RuntimeManager interface {
 	SetBinary(path string)
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider string) ([]string, error)
-	TestProviderConnection(ctx context.Context, provider string) error
+	TestProviderConnection(ctx context.Context, provider, apiKey string) error
 }
 
 type LLMRuntimeManager struct {
@@ -175,9 +175,15 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 	}
 }
 
-func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName string) error {
+func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey string) error {
 	m.mu.Lock()
-	p := m.createProviderLocked(models.ModelConfig{Provider: providerName})
+	cfg := models.ModelConfig{
+		Provider: providerName,
+		ProviderConfig: models.ProviderConfig{
+			APIKey: apiKey, // Caller-supplied key takes precedence; createProviderLocked only fills empty fields
+		},
+	}
+	p := m.createProviderLocked(cfg)
 	m.mu.Unlock()
 	return p.TestConnection(ctx)
 }

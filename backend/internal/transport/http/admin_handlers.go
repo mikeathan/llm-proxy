@@ -664,7 +664,11 @@ func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter
 		return
 	}
 
-	err := h.runtime.TestProviderConnection(r.Context(), provider)
+	// api_key is optional: when supplied by the caller it overrides the saved config,
+	// allowing the user to test a key before saving it.
+	apiKey := r.URL.Query().Get("api_key")
+
+	err := h.runtime.TestProviderConnection(r.Context(), provider, apiKey)
 	if err != nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "connection test failed: "+err.Error())
 		return

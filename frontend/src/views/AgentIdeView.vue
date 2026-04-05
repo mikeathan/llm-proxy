@@ -3,7 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useDispatcher } from '../composables/useDispatcher'
 import type { Automation } from '../types/dispatcher'
 import { DispatcherService } from '../services/dispatcherService'
-import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 
 import WorkspaceExplorer from '../components/AgentIde/WorkspaceExplorer.vue'
 import CreateAutomationForm from '../components/AgentIde/CreateAutomationForm.vue'

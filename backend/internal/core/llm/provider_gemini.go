@@ -48,7 +48,8 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("gemini API returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("gemini API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var data struct {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import AdminHeader from './components/AdminHeader.vue'
+import AdminHeader from './components/layout/AdminHeader.vue'
 import DashboardView from './views/DashboardView.vue'
 import SettingsView from './views/SettingsView.vue'
 import LogsView from './views/LogsView.vue'

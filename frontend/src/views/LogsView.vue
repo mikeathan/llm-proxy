@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from "vue";
-import LogLevelPanel from "../components/LogLevelPanel.vue";
+import LogLevelPanel from "../components/settings/LogLevelPanel.vue";
 import { useLogs } from "../composables/useLogs";
 import { useMetrics } from "../composables/useMetrics";
 

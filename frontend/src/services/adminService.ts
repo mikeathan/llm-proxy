@@ -70,6 +70,9 @@ export const AdminApiService = {
   fetchProviderModels: (provider: string): Promise<string[]> =>
     get<string[]>(`${API_ENDPOINTS.providerModels}?provider=${encodeURIComponent(provider)}`),
 
-  testConnection: (provider: string): Promise<{ status: string; message: string }> =>
-    get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?provider=${encodeURIComponent(provider)}`),
+  testConnection: (provider: string, apiKey?: string): Promise<{ status: string; message: string }> => {
+    const params = new URLSearchParams({ provider })
+    if (apiKey) params.set('api_key', apiKey)
+    return get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${params.toString()}`)
+  },
 }

@@ -1,10 +1,51 @@
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  mcpServers: any[];
+  newMcpServer: any;
+}>();
+
+const emit = defineEmits<{
+  (e: "update:newMcpServer", server: any): void;
+  (e: "addMCPServer"): void;
+  (e: "toggleMCPServer", server: any): void;
+  (e: "removeMCPServer", name: string): void;
+}>();
+
+const localName = computed({
+  get: () => props.newMcpServer.name,
+  set: (val) =>
+    emit("update:newMcpServer", { ...props.newMcpServer, name: val }),
+});
+
+const localUrl = computed({
+  get: () => props.newMcpServer.url,
+  set: (val) =>
+    emit("update:newMcpServer", { ...props.newMcpServer, url: val }),
+});
+
+function submitAddMCPServer() {
+  emit("addMCPServer");
+}
+</script>
 <template>
   <div class="mcp-container">
     <h2 class="mcp-title">MCP Servers</h2>
 
     <div class="mcp-form">
-      <input v-model="localName" type="text" placeholder="Server Name" class="mcp-input">
-      <input v-model="localUrl" type="text" placeholder="Server URL" class="mcp-input">
+      <input
+        v-model="localName"
+        type="text"
+        placeholder="Server Name"
+        class="mcp-input"
+      />
+      <input
+        v-model="localUrl"
+        type="text"
+        placeholder="Server URL"
+        class="mcp-input"
+      />
       <button @click="submitAddMCPServer" class="mcp-btn-add">Add</button>
     </div>
 
@@ -21,17 +62,37 @@
           <tr v-if="mcpServers.length === 0">
             <td colspan="3" class="mcp-td-empty">No MCP servers configured</td>
           </tr>
-          <tr v-for="server in mcpServers" :key="server.name" class="mcp-tr-body">
+          <tr
+            v-for="server in mcpServers"
+            :key="server.name"
+            class="mcp-tr-body"
+          >
             <td class="mcp-td-name">
-              <span :class="['mcp-status-dot', server.enabled ? 'mcp-toggle-on' : 'mcp-toggle-off']"></span>
+              <span
+                :class="[
+                  'mcp-status-dot',
+                  server.enabled ? 'mcp-toggle-on' : 'mcp-toggle-off',
+                ]"
+              ></span>
               {{ server.name }}
             </td>
             <td class="mcp-td-url">{{ server.url }}</td>
             <td class="mcp-td-actions">
-              <button @click="$emit('toggleMCPServer', server)" :class="['mcp-btn-toggle', server.enabled ? 'btn-disable' : 'btn-enable']">
-                {{ server.enabled ? 'Disable' : 'Enable' }}
+              <button
+                @click="$emit('toggleMCPServer', server)"
+                :class="[
+                  'mcp-btn-toggle',
+                  server.enabled ? 'btn-disable' : 'btn-enable',
+                ]"
+              >
+                {{ server.enabled ? "Disable" : "Enable" }}
               </button>
-              <button @click="$emit('removeMCPServer', server.name)" class="mcp-btn-delete">Delete</button>
+              <button
+                @click="$emit('removeMCPServer', server.name)"
+                class="mcp-btn-delete"
+              >
+                Delete
+              </button>
             </td>
           </tr>
         </tbody>
@@ -39,36 +100,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import { computed } from 'vue'
-
-const props = defineProps<{
-  mcpServers: any[]
-  newMcpServer: any
-}>()
-
-const emit = defineEmits<{
-  (e: 'update:newMcpServer', server: any): void
-  (e: 'addMCPServer'): void
-  (e: 'toggleMCPServer', server: any): void
-  (e: 'removeMCPServer', name: string): void
-}>()
-
-const localName = computed({
-  get: () => props.newMcpServer.name,
-  set: (val) => emit('update:newMcpServer', { ...props.newMcpServer, name: val })
-})
-
-const localUrl = computed({
-  get: () => props.newMcpServer.url,
-  set: (val) => emit('update:newMcpServer', { ...props.newMcpServer, url: val })
-})
-
-function submitAddMCPServer() {
-  emit('addMCPServer')
-}
-</script>
 
 <style scoped lang="postcss">
 .mcp-container {

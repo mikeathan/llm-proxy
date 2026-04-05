@@ -1,3 +1,12 @@
+<script setup lang="ts">
+import { LOG_LEVELS } from "../../constants/api";
+
+defineProps<{ modelValue: string }>();
+defineEmits<{ (e: "update", level: string): void }>();
+
+const levels = LOG_LEVELS;
+</script>
+
 <template>
   <div class="log-level-panel">
     <span class="llp-label">Log Level</span>
@@ -7,21 +16,16 @@
         :key="lvl"
         type="button"
         @click="$emit('update', lvl)"
-        :class="['llp-btn', modelValue === lvl ? 'llp-btn-active' : 'llp-btn-inactive']"
-      >{{ lvl }}</button>
+        :class="[
+          'llp-btn',
+          modelValue === lvl ? 'llp-btn-active' : 'llp-btn-inactive',
+        ]"
+      >
+        {{ lvl }}
+      </button>
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import { LOG_LEVELS } from '../constants/api'
-
-defineProps<{ modelValue: string }>()
-defineEmits<{ (e: 'update', level: string): void }>()
-
-const levels = LOG_LEVELS
-</script>
-
 <style scoped lang="postcss">
 .log-level-panel {
   @apply flex items-center gap-3 flex-wrap;

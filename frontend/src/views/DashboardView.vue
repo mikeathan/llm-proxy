@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import SystemStatus from '../components/SystemStatus.vue'
+import SystemStatus from '../components/dashboard/SystemStatus.vue'
 import ModelManager from '../components/ModelManager.vue'
 import { useModels } from '../composables/useModels'
 import { useMetrics } from '../composables/useMetrics'
-import type { NewModelForm } from '../types/model'
+import { normaliseFormArgs } from '../utils/models'
 
 const {
   state,
@@ -21,32 +21,12 @@ const { metrics } = useMetrics()
 
 const activeTab = ref<'local' | 'cloud'>('local')
 
-const newModel = ref<NewModelForm>({
-  name: '',
-  provider: 'local',
-  filename: '',
-  port: 0,
-  args: ''
-})
-
 const handleAddModel = (model: any): void => {
   if (!model.name) return
   if (model.provider === 'local' && !model.filename) return
   if (model.provider !== 'local' && !model.model_id) return
 
-  addModel({
-    ...model,
-    args: (model.args || '').split(' ').filter(Boolean),
-  })
-  
-  newModel.value = { 
-    name: '', 
-    provider: model.provider, 
-    filename: '', 
-    model_id: '',
-    port: 0, 
-    args: '' 
-  }
+  addModel({ ...model, args: normaliseFormArgs(model.args) })
 }
 
 const localModelsCount = computed(() => state.value?.models.filter(m => m.provider === 'local').length || 0)
@@ -116,7 +96,6 @@ const cloudModelsCount = computed(() => state.value?.models.filter(m => m.provid
             :state="state"
             :filterProvider="activeTab === 'local' ? 'local' : 'cloud'"
             :availableModels="availableModels"
-            v-model:newModel="newModel"
             @startModel="startModel"
             @stopModel="stopModel"
             @removeModel="removeModel"

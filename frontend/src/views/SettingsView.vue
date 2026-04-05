@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import GlobalSettings from '../components/GlobalSettings.vue'
-import McpServers from '../components/McpServers.vue'
+import GlobalSettings from '../components/settings/GlobalSettings.vue'
+import McpServers from '../components/settings/McpServers.vue'
 import { useConfig } from '../composables/useConfig'
 import { useMcpServers } from '../composables/useMcpServers'
 import { useMetrics } from '../composables/useMetrics'
@@ -21,7 +21,13 @@ const testStatus = ref<{ [key: string]: { loading: boolean, error?: string, succ
 const testProvider = async (type: string) => {
   testStatus.value[type] = { loading: true }
   try {
-    const res = await AdminApiService.testConnection(type)
+    // Pass the currently-typed API key so the user can test before saving
+    const apiKeyMap: Record<string, string | undefined> = {
+      gemini: geminiProvider.value?.api_key,
+      openai: openaiProvider.value?.api_key,
+      openrouter: openrouterProvider.value?.api_key,
+    }
+    const res = await AdminApiService.testConnection(type, apiKeyMap[type])
     testStatus.value[type] = { loading: false, success: res.message }
     setTimeout(() => {
       if (testStatus.value[type]?.success === res.message) {

@@ -9,7 +9,9 @@
   },
   "providers": {
     "gemini": {
-      "type": "gemini"
+      "type": "gemini",
+      "api_key": "AIzaSyCtD--IRlk3_l-AiBNCRLqTfhTHWVL2Xx0",
+      "project_id": "free-tier"
     },
     "local": {
       "type": "local",

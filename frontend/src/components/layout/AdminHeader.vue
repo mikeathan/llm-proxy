@@ -1,3 +1,12 @@
+<script setup lang="ts">
+defineProps<{
+  activeTab: string;
+}>();
+
+defineEmits<{
+  (e: "update:activeTab", tab: string): void;
+}>();
+</script>
 <template>
   <header class="header-container">
     <div class="header-inner">
@@ -21,25 +30,43 @@
       <nav class="nav-links">
         <button
           @click="$emit('update:activeTab', 'dashboard')"
-          :class="['nav-button', activeTab === 'dashboard' ? 'nav-button-active' : 'nav-button-inactive']"
+          :class="[
+            'nav-button',
+            activeTab === 'dashboard'
+              ? 'nav-button-active'
+              : 'nav-button-inactive',
+          ]"
         >
           Dashboard
         </button>
         <button
           @click="$emit('update:activeTab', 'settings')"
-          :class="['nav-button', activeTab === 'settings' ? 'nav-button-active' : 'nav-button-inactive']"
+          :class="[
+            'nav-button',
+            activeTab === 'settings'
+              ? 'nav-button-active'
+              : 'nav-button-inactive',
+          ]"
         >
           Settings
         </button>
         <button
           @click="$emit('update:activeTab', 'logs')"
-          :class="['nav-button', activeTab === 'logs' ? 'nav-button-active' : 'nav-button-inactive']"
+          :class="[
+            'nav-button',
+            activeTab === 'logs' ? 'nav-button-active' : 'nav-button-inactive',
+          ]"
         >
           Process Logs
         </button>
         <button
           @click="$emit('update:activeTab', 'agent-ide')"
-          :class="['nav-button', activeTab === 'agent-ide' ? 'nav-button-active' : 'nav-button-inactive']"
+          :class="[
+            'nav-button',
+            activeTab === 'agent-ide'
+              ? 'nav-button-active'
+              : 'nav-button-inactive',
+          ]"
         >
           Agent IDE
         </button>
@@ -47,16 +74,6 @@
     </div>
   </header>
 </template>
-
-<script setup lang="ts">
-defineProps<{
-  activeTab: string;
-}>();
-
-defineEmits<{
-  (e: "update:activeTab", tab: string): void;
-}>();
-</script>
 
 <style scoped lang="postcss">
 .header-container {
