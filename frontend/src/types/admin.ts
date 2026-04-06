@@ -1,9 +1,16 @@
 // Global configuration types
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex'
 
+export interface APIKeyItem {
+  id: string
+  name: string
+  key: string
+}
+
 export interface ProviderItem {
   type: ProviderType
-  api_key?: string
+  api_key?: string // Legacy/Default key
+  api_keys?: APIKeyItem[] // Multiple named keys
   base_url?: string
   project_id?: string
   region?: string

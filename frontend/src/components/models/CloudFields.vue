@@ -6,11 +6,13 @@ import type { AdminState } from '../../types'
 const props = defineProps<{
   provider: string
   modelId: string
+  apiKeyName: string
   state: AdminState | null
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelId', value: string): void
+  (e: 'update:apiKeyName', value: string): void
 }>()
 
 const { fetchProviderModels } = useModels()
@@ -23,7 +25,12 @@ const isProviderConfigured = computed(() => {
   if (!cfg) return false
 
   if (props.provider === 'vertex') return !!cfg.project_id
-  return !!cfg.api_key
+  return !!cfg.api_key || (cfg.api_keys && cfg.api_keys.length > 0)
+})
+
+const availableKeys = computed(() => {
+  const cfg = props.state?.config?.providers?.[props.provider]
+  return cfg?.api_keys || []
 })
 
 async function loadProviderModels() {
@@ -61,6 +68,14 @@ watch(() => props.provider, (newProv, oldProv) => {
         <span class="text-base">⚠️</span> Configuration Required
       </span>
       <router-link to="/settings" class="text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all">Settings</router-link>
+    </div>
+
+    <div v-if="availableKeys.length > 0" class="mb-3">
+      <label class="form-label">API Key Name</label>
+      <select :value="apiKeyName" @change="emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)" class="form-input">
+        <option value="">Default Provider Key</option>
+        <option v-for="k in availableKeys" :key="k.name" :value="k.name">{{ k.name }}</option>
+      </select>
     </div>
 
     <div class="flex justify-between items-center mb-1.5">

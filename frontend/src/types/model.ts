@@ -8,6 +8,14 @@ export interface ActiveModel {
   last_used_at: string
 }
 
+export interface ProviderConfig {
+  api_key?: string
+  api_key_name?: string
+  base_url?: string
+  project_id?: string
+  region?: string
+}
+
 export interface Model {
   name: string
   provider: import('./admin').ProviderType
@@ -19,6 +27,7 @@ export interface Model {
   endpoint: string
   active: boolean
   ready: boolean
+  provider_config?: ProviderConfig
 }
 
 export interface AvailableModel {
@@ -34,4 +43,5 @@ export interface NewModelForm {
   filename?: string
   port?: number
   args?: string
+  provider_config?: ProviderConfig
 }

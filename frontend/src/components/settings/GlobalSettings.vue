@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { computed } from "vue";
 import LogLevelPanel from "./LogLevelPanel.vue";
 import {
   argsToString,
@@ -20,52 +20,44 @@ const emit = defineEmits<{
   (e: "updateLogLevel", level: string): void;
 }>();
 
-const localConfig = ref({ ...props.editConfig });
-
-// Dynamic access to providers.local
-const localProvider = computed(() => {
-  if (!localConfig.value.providers) localConfig.value.providers = {};
-  if (!localConfig.value.providers.local) {
-    localConfig.value.providers.local = {
-      type: "local",
-      model_dir: "",
-      llama_server_binary: "",
-      default_args: [],
-      environment: {},
-    };
+// Dynamic access to local provider. 
+// Note: We use a computed for read/write so it stays in sync with the prop
+const localProvider = computed({
+  get: () => {
+    if (!props.editConfig.providers?.local) {
+      return {
+        type: "local" as const,
+        model_dir: "",
+        llama_server_binary: "",
+        default_args: [],
+        environment: {},
+      };
+    }
+    return props.editConfig.providers.local;
+  },
+  set: (val) => {
+    const clone = JSON.parse(JSON.stringify(props.editConfig));
+    if (!clone.providers) clone.providers = {};
+    clone.providers.local = val;
+    emit("update:editConfig", clone);
   }
-  return localConfig.value.providers.local;
 });
 
 const defaultArgsStr = computed({
   get: () => argsToString(localProvider.value.default_args),
   set: (val: string) => {
-    localProvider.value.default_args = stringToArgs(val);
+    const provider = { ...localProvider.value, default_args: stringToArgs(val) };
+    localProvider.value = provider;
   },
 });
 
 const environmentStr = computed({
   get: () => envMapToString(localProvider.value.environment),
   set: (val: string) => {
-    localProvider.value.environment = stringToEnvMap(val);
+    const provider = { ...localProvider.value, environment: stringToEnvMap(val) };
+    localProvider.value = provider;
   },
 });
-
-watch(
-  () => props.editConfig,
-  (newVal) => {
-    localConfig.value = JSON.parse(JSON.stringify(newVal));
-  },
-  { deep: true },
-);
-
-watch(
-  localConfig,
-  (newVal) => {
-    emit("update:editConfig", newVal);
-  },
-  { deep: true },
-);
 
 function submitConfig() {
   emit("updateConfig");
@@ -96,7 +88,7 @@ function submitConfig() {
           &lt;repo&gt;/workspaces
         </div>
         <input
-          v-model="localConfig.workspaces_dir"
+          v-model="editConfig.workspaces_dir"
           type="text"
           class="form-input"
         />
@@ -119,7 +111,7 @@ function submitConfig() {
           IP address the underlying server binds to (default: 127.0.0.1)
         </div>
         <input
-          v-model="localConfig.model_host"
+          v-model="editConfig.model_host"
           type="text"
           class="form-input"
         />

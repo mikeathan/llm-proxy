@@ -19,9 +19,16 @@ type AgentDefinition struct {
 	Tools        []string `json:"tools"`
 }
 
+type APIKeyItem struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
 type ProviderItem struct {
 	Type              string            `json:"type"` // local, openai, gemini, etc.
 	APIKey            string            `json:"api_key,omitempty"`
+	APIKeys           []APIKeyItem      `json:"api_keys,omitempty"` // Support for multiple named API keys
 	BaseURL           string            `json:"base_url,omitempty"`
 	ProjectID         string            `json:"project_id,omitempty"`
 	Region            string            `json:"region,omitempty"`
@@ -58,10 +65,11 @@ type ModelConfig struct {
 }
 
 type ProviderConfig struct {
-	APIKey    string `json:"api_key,omitempty"`
-	BaseURL   string `json:"base_url,omitempty"`
-	ProjectID string `json:"project_id,omitempty"`
-	Region    string `json:"region,omitempty"`
+	APIKey     string `json:"api_key,omitempty"`
+	APIKeyName string `json:"api_key_name,omitempty"` // Look up by name in ProviderItem.APIKeys
+	BaseURL    string `json:"base_url,omitempty"`
+	ProjectID  string `json:"project_id,omitempty"`
+	Region     string `json:"region,omitempty"`
 }
 
 type MetricsConfig struct {

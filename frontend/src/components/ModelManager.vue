@@ -79,6 +79,7 @@ function handleUpdateModel(model: Model) {
             v-for="model in filteredModels"
             :key="model.name"
             :model="model"
+            :state="state"
             :is-editing="editingModelName === model.name"
             @start-model="$emit('startModel', $event)"
             @stop-model="$emit('stopModel')"
@@ -129,6 +130,7 @@ function handleUpdateModel(model: Model) {
             v-else
             :provider="form.provider"
             v-model:model-id="form.model_id!"
+            v-model:api-key-name="form.provider_config!.api_key_name!"
             :state="state"
           />
         </div>

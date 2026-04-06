@@ -679,14 +679,20 @@ func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter
 
 func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string   `json:"name"`
-		Filename string   `json:"filename"`
-		Path     string   `json:"path"`
-		Args     []string `json:"args"`
-		Port     int      `json:"port"`
+		Name           string                `json:"name"`
+		Provider       string                `json:"provider"`
+		Filename       string                `json:"filename"` // or model_id
+		Path           string                `json:"path"`
+		Args           []string              `json:"args"`
+		Port           int                   `json:"port"`
+		ProviderConfig models.ProviderConfig `json:"provider_config"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
+	}
+
+	if req.Provider == "" {
+		req.Provider = "local"
 	}
 
 	filename := strings.TrimSpace(req.Filename)
@@ -694,7 +700,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		filename = filepath.Base(req.Path)
 	}
 	if filename == "" {
-		writeJSONError(w, http.StatusBadRequest, "missing model filename")
+		writeJSONError(w, http.StatusBadRequest, "missing model identifier (filename or model_id)")
 		return
 	}
 
@@ -703,13 +709,16 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		req.Name = strings.TrimSuffix(filename, ext)
 	}
 
-	fullPath := h.admin.ResolveModelPath(filename, req.Path)
-	if _, err := os.Stat(fullPath); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
-		return
+	fullPath := ""
+	if req.Provider == "local" {
+		fullPath = h.admin.ResolveModelPath(filename, req.Path)
+		if _, err := os.Stat(fullPath); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
+			return
+		}
 	}
 
-	if req.Port == 0 {
+	if req.Port == 0 && req.Provider == "local" {
 		active := h.runtime.ActiveInfo()
 		activePort := 0
 		if active != nil {
@@ -727,12 +736,14 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runtimeCfg := models.ModelConfig{
-		Name:        req.Name,
-		Filename:    filename,
-		Path:        fullPath,
-		Args:        runtimeArgs,
-		Port:        req.Port,
-		Environment: h.admin.Environment(),
+		Name:           req.Name,
+		Provider:       req.Provider,
+		Filename:       filename,
+		Path:           fullPath,
+		Args:           runtimeArgs,
+		Port:           req.Port,
+		Environment:    h.admin.Environment(),
+		ProviderConfig: req.ProviderConfig,
 	}
 
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
@@ -745,10 +756,12 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	persistCfg := models.ModelConfig{
-		Name:     req.Name,
-		Filename: filename,
-		Args:     append([]string{}, req.Args...),
-		Port:     req.Port,
+		Name:           req.Name,
+		Provider:       req.Provider,
+		Filename:       filename,
+		Args:           append([]string{}, req.Args...),
+		Port:           req.Port,
+		ProviderConfig: req.ProviderConfig,
 	}
 
 	if err := h.admin.PersistModel(persistCfg); err != nil {
@@ -761,11 +774,13 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string   `json:"name"`
-		Filename string   `json:"filename"`
-		Path     string   `json:"path"`
-		Args     []string `json:"args"`
-		Port     int      `json:"port"`
+		Name           string                `json:"name"`
+		Provider       string                `json:"provider"`
+		Filename       string                `json:"filename"`
+		Path           string                `json:"path"`
+		Args           []string              `json:"args"`
+		Port           int                   `json:"port"`
+		ProviderConfig models.ProviderConfig `json:"provider_config"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -790,13 +805,16 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if req.Provider == "" {
+		req.Provider = existing.Provider
+	}
 	if req.Filename == "" && req.Path != "" {
 		req.Filename = filepath.Base(req.Path)
 	}
 	if req.Filename == "" {
 		req.Filename = existing.Filename
 	}
-	if req.Port == 0 {
+	if req.Port == 0 && req.Provider == "local" {
 		req.Port = existing.Port
 	}
 	if len(req.Args) == 0 {
@@ -810,10 +828,14 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	} else {
 		runtimeArgs = append([]string(nil), req.Args...)
 	}
-	fullPath := h.admin.ResolveModelPath(req.Filename, req.Path)
-	if _, err := os.Stat(fullPath); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
-		return
+
+	fullPath := ""
+	if req.Provider == "local" {
+		fullPath = h.admin.ResolveModelPath(req.Filename, req.Path)
+		if _, err := os.Stat(fullPath); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "model file not found: "+err.Error())
+			return
+		}
 	}
 
 	env := make(map[string]string)
@@ -831,12 +853,14 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	runtimeCfg := models.ModelConfig{
-		Name:        req.Name,
-		Filename:    req.Filename,
-		Path:        fullPath,
-		Args:        runtimeArgs,
-		Port:        req.Port,
-		Environment: env,
+		Name:           req.Name,
+		Provider:       req.Provider,
+		Filename:       req.Filename,
+		Path:           fullPath,
+		Args:           runtimeArgs,
+		Port:           req.Port,
+		Environment:    env,
+		ProviderConfig: req.ProviderConfig,
 	}
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
@@ -848,10 +872,12 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	persistCfg := models.ModelConfig{
-		Name:     req.Name,
-		Filename: req.Filename,
-		Args:     append([]string{}, req.Args...),
-		Port:     req.Port,
+		Name:           req.Name,
+		Provider:       req.Provider,
+		Filename:       req.Filename,
+		Args:           append([]string{}, req.Args...),
+		Port:           req.Port,
+		ProviderConfig: req.ProviderConfig,
 	}
 
 	if err := h.admin.PersistReplaceModel(persistCfg); err != nil {

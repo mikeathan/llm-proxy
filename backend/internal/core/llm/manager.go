@@ -139,7 +139,18 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 	if provider, ok := m.providers[cfg.Provider]; ok {
 		// Merge provider settings into model config for the provider implementation
 		if pCfg.ProviderConfig.APIKey == "" {
-			pCfg.ProviderConfig.APIKey = provider.APIKey
+			if pCfg.ProviderConfig.APIKeyName != "" {
+				for _, kInfo := range provider.APIKeys {
+					if kInfo.Name == pCfg.ProviderConfig.APIKeyName {
+						pCfg.ProviderConfig.APIKey = kInfo.Key
+						break
+					}
+				}
+			}
+			// Fallback to provider-level default APIKey if still empty
+			if pCfg.ProviderConfig.APIKey == "" {
+				pCfg.ProviderConfig.APIKey = provider.APIKey
+			}
 		}
 		if pCfg.ProviderConfig.BaseURL == "" {
 			pCfg.ProviderConfig.BaseURL = provider.BaseURL

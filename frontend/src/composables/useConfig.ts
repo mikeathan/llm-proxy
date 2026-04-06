@@ -12,52 +12,71 @@ const DEFAULT_CONFIG: GlobalConfig = {
       environment: {},
     },
   },
-  model_host: '',
+  model_host: '127.0.0.1',
   idle_timeout_seconds: 1800,
 }
 
-const editConfig = ref<GlobalConfig>({ ...DEFAULT_CONFIG })
+// Global state to share across components
+const config = ref<GlobalConfig>({ ...DEFAULT_CONFIG })
 const isSaving = ref(false)
-let seeded = false
+const isLoading = ref(false)
+const error = ref<string | null>(null)
 
-const seedFromState = (config: GlobalConfig): void => {
-  if (!seeded) {
-    const raw = JSON.parse(JSON.stringify(config))
-    // Ensure structure
-    if (!raw.providers) raw.providers = {}
-    if (!raw.providers.local) {
-      raw.providers.local = {
-        type: 'local',
-        model_dir: '',
-        llama_server_binary: '',
-        default_args: [],
-        environment: {},
-      }
+/**
+ * Fetches the latest config from the backend.
+ */
+const fetchConfig = async (): Promise<void> => {
+  isLoading.value = true
+  error.value = null
+  try {
+    const state = await AdminApiService.fetchState()
+    if (state.config) {
+      config.value = JSON.parse(JSON.stringify(state.config))
     }
-    editConfig.value = raw
-    seeded = true
+  } catch (err: any) {
+    error.value = err.message || 'Failed to fetch configuration'
+    console.error('[useConfig] fetch failed:', err)
+  } finally {
+    isLoading.value = false
   }
 }
 
-const updateConfig = async (onSaved?: () => void): Promise<void> => {
+/**
+ * Updates the global config.
+ */
+const updateConfig = async (payload?: GlobalConfig): Promise<void> => {
   isSaving.value = true
+  error.value = null
+  const data = payload || config.value
   try {
-    await AdminApiService.updateConfig(editConfig.value)
-    alert('Configuration saved')
-    onSaved?.()
-  } catch (e: any) {
-    console.error(e)
-    alert(`Error saving configuration: ${e.message}`)
+    await AdminApiService.updateConfig(data)
+  } catch (err: any) {
+    error.value = err.message || 'Failed to save configuration'
+    throw err
   } finally {
     isSaving.value = false
   }
 }
 
-export function useConfig(onSaved?: () => void) {
+/**
+ * Helper to ensure a specific provider exists in the config.
+ */
+const ensureProvider = (type: string) => {
+  if (!config.value.providers) config.value.providers = {}
+  if (!config.value.providers[type]) {
+    config.value.providers[type] = { type: type as any, api_keys: [] }
+  }
+  return config.value.providers[type]
+}
+
+export function useConfig() {
   return {
-    editConfig,
+    config,
+    isLoading,
     isSaving,
-    seedFromState,
-    updateConfig: () => updateConfig(onSaved),
+    error,
+    fetchConfig,
+    updateConfig,
+    ensureProvider
   }
 }

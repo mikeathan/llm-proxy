@@ -28,6 +28,7 @@ export function makeEmptyForm(provider: ProviderType): NewModelForm {
     port: 0,
     args: '',
     model_id: '',
+    provider_config: { api_key_name: '' }
   }
 }
 

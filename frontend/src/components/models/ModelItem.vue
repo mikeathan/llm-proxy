@@ -5,6 +5,7 @@ import type { Model } from '../../types'
 
 const props = defineProps<{
   model: Model
+  state: import('../../types/admin').AdminState | null
   isEditing: boolean
 }>()
 
@@ -21,6 +22,9 @@ const editingModel = ref<any>(null)
 
 function initializeEdit() {
   editingModel.value = JSON.parse(JSON.stringify(props.model))
+  if (!editingModel.value.provider_config) {
+    editingModel.value.provider_config = { api_key_name: '' }
+  }
 }
 
 const editingArgsStr = computed({
@@ -28,6 +32,12 @@ const editingArgsStr = computed({
   set: (val: string) => {
     if (editingModel.value) editingModel.value.args = stringToArgs(val)
   }
+})
+
+const availableKeys = computed(() => {
+  if (!props.state || !editingModel.value) return []
+  const cfg = props.state.config?.providers?.[editingModel.value.provider]
+  return cfg?.api_keys || []
 })
 
 function saveEdit() {
@@ -53,7 +63,7 @@ function saveEdit() {
             Port: {{ model.port }} &bull; File: {{ model.filename }}
           </template>
           <template v-else>
-            Model ID: {{ model.model_id }}
+            Model ID: {{ model.model_id || model.filename }}
           </template>
         </div>
         <div class="model-details mt-1 truncate" v-if="model.args && model.args.length" :title="model.args.join(' ')">
@@ -87,9 +97,16 @@ function saveEdit() {
           </div>
         </template>
         <template v-else>
-          <div class="sm:col-span-4">
+          <div class="sm:col-span-2">
             <label class="form-label">Model ID</label>
             <input v-model="editingModel.model_id" type="text" class="form-input">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="form-label">API Key Name</label>
+            <select v-model="editingModel.provider_config.api_key_name" class="form-input">
+              <option value="">Default Key</option>
+              <option v-for="k in availableKeys" :key="k.name" :value="k.name">{{ k.name }}</option>
+            </select>
           </div>
         </template>
       </div>
@@ -156,6 +173,9 @@ function saveEdit() {
 }
 .form-input {
   @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all;
+}
+select.form-input {
+  @apply appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[position:right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat pr-10;
 }
 .form-col-1-edit {
   @apply sm:col-span-1;
