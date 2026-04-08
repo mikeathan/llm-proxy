@@ -56,7 +56,8 @@ function saveEdit() {
         <div class="model-name truncate" :title="model.name">
           <span :class="['provider-badge', `badge-${model.provider}`]">{{ model.provider }}</span>
           {{ model.name }}
-          <span v-if="model.active" class="model-badge-active">Online</span>
+          <span v-if="model.active && model.provider === 'local'" class="model-badge-active">Online</span>
+          <span v-else-if="model.active" class="model-badge-active !bg-purple-600">Selected</span>
         </div>
         <div class="model-details truncate">
           <template v-if="model.provider === 'local'">
@@ -75,6 +76,10 @@ function saveEdit() {
         <template v-if="model.provider === 'local'">
           <button v-if="!model.active" @click="$emit('start-model', model.name)" class="btn-start">Start</button>
           <button v-else @click="$emit('stop-model')" class="btn-stop-local">Stop</button>
+        </template>
+        <!-- Deactivate for cloud when active -->
+        <template v-else-if="model.active">
+          <button @click="$emit('stop-model')" class="btn-stop-local !bg-gray-700 hover:!bg-gray-600">Deselect</button>
         </template>
         
         <button @click="initializeEdit(); $emit('start-edit', model)" class="btn-edit">Edit</button>

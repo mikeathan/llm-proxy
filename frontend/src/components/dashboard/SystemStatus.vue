@@ -25,7 +25,9 @@ defineEmits<{
   <div class="system-status-container">
     <!-- Active Model Status -->
     <div class="status-card">
-      <h3 class="card-title">Active Model</h3>
+      <h3 class="card-title">
+        {{ activeModel?.provider === 'local' ? 'Active Model' : 'Selected Model' }}
+      </h3>
       <div v-if="activeModel" class="active-model-info">
         <div class="model-header">
           <span
@@ -34,12 +36,14 @@ defineEmits<{
               activeModel.ready ? 'indicator-ready' : 'indicator-loading',
             ]"
           ></span>
-          <span class="model-name" :title="activeModel.name">{{
-            activeModel.name
-          }}</span>
+          <span class="model-name" :title="activeModel.name">
+            {{ activeModel.name }}
+          </span>
         </div>
-        <div class="model-endpoint">{{ activeModel.endpoint }}</div>
-        <button @click="$emit('stopModel')" class="btn-stop">Stop Model</button>
+        <div class="model-endpoint">{{ activeModel.provider === 'local' ? activeModel.endpoint : 'Cloud API Endpoint' }}</div>
+        <button @click="$emit('stopModel')" class="btn-stop">
+          {{ activeModel.provider === 'local' ? 'Stop Model' : 'Deselect Model' }}
+        </button>
       </div>
       <div v-else class="empty-state">No active model running</div>
     </div>

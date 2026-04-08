@@ -5,12 +5,19 @@
     "idle_timeout_seconds": 1800,
     "llama_server_binary": "",
     "default_args": null,
-    "environment": {}
+    "environment": {},
+    "default_model": "qwen2.5-3b-instruct"
   },
   "providers": {
     "gemini": {
       "type": "gemini",
-      "api_key": "AIzaSyCtD--IRlk3_l-AiBNCRLqTfhTHWVL2Xx0",
+      "api_keys": [
+        {
+          "id": "24d99d50-a8ec-469a-b80f-ea2d42fcb692",
+          "name": "test-1",
+          "key": "AIzaSyCtD--IRlk3_l-AiBNCRLqTfhTHWVL2Xx0"
+        }
+      ],
       "project_id": "free-tier"
     },
     "local": {
@@ -41,7 +48,14 @@
       "type": "openai"
     },
     "openrouter": {
-      "type": "openrouter"
+      "type": "openrouter",
+      "api_keys": [
+        {
+          "id": "0cd5332a-cf55-4caa-9368-fc54df914229",
+          "name": "test-1",
+          "key": "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"
+        }
+      ]
     }
   },
   "models": [
@@ -50,6 +64,26 @@
       "provider": "local",
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "port": 9002,
+      "provider_config": {}
+    },
+    {
+      "name": "gemma-4-26b-a4b-it:free",
+      "provider": "openrouter",
+      "filename": "google/gemma-4-26b-a4b-it:free",
+      "provider_config": {
+        "api_key_name": "test-1"
+      }
+    },
+    {
+      "name": "gemma-4-31b-it:free",
+      "provider": "openrouter",
+      "filename": "google/gemma-4-31b-it:free",
+      "provider_config": {}
+    },
+    {
+      "name": "gemma-3n-e2b-it:free",
+      "provider": "openrouter",
+      "filename": "google/gemma-3n-e2b-it:free",
       "provider_config": {}
     }
   ],

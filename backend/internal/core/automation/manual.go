@@ -23,3 +23,7 @@ func (t *ManualTrigger) NextRun(now time.Time) time.Time {
 func (t *ManualTrigger) Type() models.TriggerType {
 	return models.TriggerManual
 }
+
+func (t *ManualTrigger) Value() string {
+	return ""
+}

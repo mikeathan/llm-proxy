@@ -38,12 +38,9 @@ type Container struct {
 	Dispatcher *automation.Dispatcher
 }
 
-type AssistantService interface {
-	NodeHerder() nodeherder.MCPService
-	ClientProvider() proxy.LLMClientProvider
-	Limiter() ratelimiter.Limiter
-	Logger() logging.Logger
-	DefaultModel() (string, error)
+// Building automation task executor
+func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskExecutor {
+	return automation.NewLLMTaskExecutor(svc)
 }
 
 func (c *Container) BuildAppServices() AppServices {
@@ -55,8 +52,8 @@ func (c *Container) BuildAppServices() AppServices {
 		Clock:      c.Infra.Clock,
 	}
 
-	factory := func(baseURL string, headers http.Header) proxy.Client {
-		return proxy.NewLLMClient(baseURL, nil, headers)
+	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
+		return proxy.NewLLMClient(baseURL, model, nil, headers)
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
@@ -73,6 +70,10 @@ type AppServices struct {
 	engine         assistant.Engine
 	logger         logging.Logger
 	Clock          utils.Clock
+}
+
+func (s AppServices) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
+	return s.clientProvider.GetClientForModel(ctx, modelName)
 }
 
 func (s AppServices) NodeHerder() nodeherder.MCPService {
@@ -133,7 +134,7 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
-func (c *Container) BuildDispatcher(svc AssistantService) (*automation.Dispatcher, error) {
+func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispatcher, error) {
 	// Use workspaces_dir from config, or default to {rootDir}/workspaces
 	baseDir := c.Core.AppCtx.WorkspacesDir()
 	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
@@ -237,14 +238,18 @@ func buildRouter(
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/activity", dispatcherHandlers.GetGlobalActivity, jsonMethodNotAllowed)
 
 		router.Get("/admin/api/dispatcher/workspaces", dispatcherHandlers.ListWorkspaces, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/workspaces", dispatcherHandlers.CreateWorkspace, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/workspaces/{workspace}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}", dispatcherHandlers.UpdateAutomation, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}", dispatcherHandlers.DeleteAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
 		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{workspace}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{workspace}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
 	}
 

@@ -1,6 +1,7 @@
 package mocks
 
 import (
+	"context"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/core/nodeherder"
@@ -53,6 +54,10 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 		return m.EngineRef
 	}
 	return assistant.NewEngine(m.Herder, m.LoggerRef)
+}
+
+func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
+	return m.Client.GetClientForModel(ctx, modelName)
 }
 
 func NewMockAssistantService(

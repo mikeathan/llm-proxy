@@ -58,7 +58,7 @@ func TestClientChatSuccess(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test/", httpClient, nil)
+	client := proxy.NewLLMClient("http://example.test/", "test-model", httpClient, nil)
 	out, err := client.Chat(context.Background(), proxy.ChatRequest{
 		Model: "test",
 		Messages: []proxy.Message{
@@ -89,7 +89,7 @@ func TestClientChatHTTPErrorIncludesBody(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test", httpClient, nil)
+	client := proxy.NewLLMClient("http://example.test", "test-model", httpClient, nil)
 	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -106,7 +106,7 @@ func TestClientChatInvalidJSONResponse(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test", httpClient, nil)
+	client := proxy.NewLLMClient("http://example.test", "test-model", httpClient, nil)
 	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")

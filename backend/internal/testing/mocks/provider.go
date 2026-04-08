@@ -114,6 +114,10 @@ func (m *MockLLMClientProvider) GetClient(ctx context.Context) (proxy.Client, er
 	return nil, errors.New("not implemented")
 }
 
+func (m *MockLLMClientProvider) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
+	return m.GetClient(ctx)
+}
+
 // Mock LLMClient
 type MockLLMClient struct {
 	Response  proxy.ChatResponse

@@ -13,6 +13,7 @@ type MockAdminService struct {
 	CurrentBinaryFunc         func() string
 	CurrentIdleTimeoutFunc    func() int
 	DefaultArgsFunc           func() []string
+	ConfiguredDefaultModelFunc func() string
 	UpdateConfigFunc          func(func(*models.Config)) error
 	PersistModelFunc          func(models.ModelConfig) error
 	PersistReplaceModelFunc   func(models.ModelConfig) error
@@ -90,6 +91,13 @@ func (m *MockAdminService) DefaultArgs() []string {
 		return m.DefaultArgsFunc()
 	}
 	return nil
+}
+
+func (m *MockAdminService) ConfiguredDefaultModel() string {
+	if m.ConfiguredDefaultModelFunc != nil {
+		return m.ConfiguredDefaultModelFunc()
+	}
+	return ""
 }
 
 func (m *MockAdminService) UpdateConfig(fn func(*models.Config)) error {

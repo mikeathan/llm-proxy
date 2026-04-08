@@ -16,12 +16,12 @@ type TriggerConfig struct {
 	Value string `yaml:"value" json:"value"` // "*/5 * * * *" | "15m" | ""
 }
 
-// Automation binds a Trigger to a Task file with an execution strategy.
 type Automation struct {
 	Name     string        `yaml:"name"      json:"name"`
 	Trigger  TriggerConfig `yaml:"trigger"   json:"trigger"`
 	TaskFile string        `yaml:"task_file" json:"task_file"`
 	Strategy string        `yaml:"strategy"  json:"strategy"` // "isolated" | "persistent"
+	Model    string        `yaml:"model,omitempty" json:"model,omitempty"` // Model override for this automation
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml
@@ -34,6 +34,18 @@ type WorkspaceConfig struct {
 	Automations []*Automation `yaml:"automations" json:"automations"`
 }
 
+// AutomationRun represents a single execution of an automation.
+type AutomationRun struct {
+	ID             string    `json:"id"`
+	WorkspaceID    string    `json:"workspace_id"`
+	AutomationName string    `json:"automation_name"`
+	Timestamp      time.Time `json:"timestamp"`
+	Output         string    `json:"output"`
+	Error          string    `json:"error"`
+	DurationMs     int64     `json:"duration_ms"`
+	Model          string    `json:"model"`
+}
+
 // AgentState represents the execution history and state from workspaces/{id}/state.json
 type AgentState struct {
 	LastOutput string    `json:"last_output"`
@@ -41,6 +53,10 @@ type AgentState struct {
 	NextRunAt  time.Time `json:"next_run_at"`
 	IsRunning  bool      `json:"is_running"`
 	LastPulse  time.Time `json:"last_pulse"` // For HEARTBEAT_OK suppression
+
+	// History and per-automation state
+	History  []AutomationRun           `json:"history"`
+	LastRuns map[string]*AutomationRun `json:"last_runs"`
 }
 
 // Workspace represents an entire workspace object

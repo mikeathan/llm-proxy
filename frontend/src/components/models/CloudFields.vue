@@ -1,85 +1,118 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { useModels } from '../../composables/useModels'
-import type { AdminState } from '../../types'
+import { ref, computed, watch } from "vue";
+import { useModels } from "../../composables/useModels";
+import type { AdminState } from "../../types";
 
 const props = defineProps<{
-  provider: string
-  modelId: string
-  apiKeyName: string
-  state: AdminState | null
-}>()
+  provider: string;
+  modelId: string;
+  apiKeyName: string;
+  state: AdminState | null;
+}>();
 
 const emit = defineEmits<{
-  (e: 'update:modelId', value: string): void
-  (e: 'update:apiKeyName', value: string): void
-}>()
+  (e: "update:modelId", value: string): void;
+  (e: "update:apiKeyName", value: string): void;
+}>();
 
-const { fetchProviderModels } = useModels()
-const providerModels = ref<string[]>([])
-const isLoadingModels = ref(false)
+const { fetchProviderModels } = useModels();
+const providerModels = ref<string[]>([]);
+const isLoadingModels = ref(false);
+const filterText = ref("");
+
+const filteredProviderModels = computed(() => {
+  if (!filterText.value) return providerModels.value;
+  const search = filterText.value.toLowerCase();
+  return providerModels.value.filter((m) => m.toLowerCase().includes(search));
+});
 
 const isProviderConfigured = computed(() => {
-  if (props.provider === 'local') return true
-  const cfg = props.state?.config?.providers?.[props.provider]
-  if (!cfg) return false
+  if (props.provider === "local") return true;
+  const cfg = props.state?.config?.providers?.[props.provider];
+  if (!cfg) return false;
 
-  if (props.provider === 'vertex') return !!cfg.project_id
-  return !!cfg.api_key || (cfg.api_keys && cfg.api_keys.length > 0)
-})
+  if (props.provider === "vertex") return !!cfg.project_id;
+  return !!cfg.api_key || (cfg.api_keys && cfg.api_keys.length > 0);
+});
 
 const availableKeys = computed(() => {
-  const cfg = props.state?.config?.providers?.[props.provider]
-  return cfg?.api_keys || []
-})
+  const cfg = props.state?.config?.providers?.[props.provider];
+  return cfg?.api_keys || [];
+});
 
 async function loadProviderModels() {
-  if (!props.provider || props.provider === 'local') return
+  if (!props.provider || props.provider === "local") return;
 
-  isLoadingModels.value = true
+  isLoadingModels.value = true;
   try {
-    const list = await fetchProviderModels(props.provider)
-    providerModels.value = list
+    const list = await fetchProviderModels(props.provider);
+    providerModels.value = list;
     if (list.length > 0 && !props.modelId) {
-      const firstModel = list[0]
+      const firstModel = list[0];
       if (firstModel) {
-        emit('update:modelId', firstModel)
+        emit("update:modelId", firstModel);
       }
     }
   } finally {
-    isLoadingModels.value = false
+    isLoadingModels.value = false;
   }
 }
 
-watch(() => props.provider, (newProv, oldProv) => {
-  if (newProv !== oldProv) {
-    providerModels.value = []
-    if (newProv !== 'local' && isProviderConfigured.value) {
-      loadProviderModels()
+watch(
+  () => props.provider,
+  (newProv, oldProv) => {
+    if (newProv !== oldProv) {
+      providerModels.value = [];
+      filterText.value = "";
+      if (newProv !== "local" && isProviderConfigured.value) {
+        loadProviderModels();
+      }
     }
-  }
-}, { immediate: true })
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
   <div class="grid grid-cols-1 gap-3">
-    <div v-if="!isProviderConfigured" class="mb-3 p-2.5 bg-yellow-900/20 border border-yellow-700/50 rounded-md flex justify-between items-center gap-2">
-      <span class="text-[11px] text-yellow-500 font-bold uppercase tracking-tight flex items-center gap-1.5">
+    <div
+      v-if="!isProviderConfigured"
+      class="mb-3 p-2.5 bg-yellow-900/20 border border-yellow-700/50 rounded-md flex justify-between items-center gap-2"
+    >
+      <span
+        class="text-[11px] text-yellow-500 font-bold uppercase tracking-tight flex items-center gap-1.5"
+      >
         <span class="text-base">⚠️</span> Configuration Required
       </span>
-      <router-link to="/settings" class="text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all">Settings</router-link>
+      <router-link
+        to="/settings"
+        class="text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all"
+        >Settings</router-link
+      >
     </div>
 
     <div v-if="availableKeys.length > 0" class="mb-3">
       <label class="form-label">API Key Name</label>
-      <select :value="apiKeyName" @change="emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)" class="form-input">
+      <select
+        :value="apiKeyName"
+        @change="
+          emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)
+        "
+        class="form-input"
+      >
         <option value="">Default Provider Key</option>
-        <option v-for="k in availableKeys" :key="k.name" :value="k.name">{{ k.name }}</option>
+        <option v-for="k in availableKeys" :key="k.name" :value="k.name">
+          {{ k.name }}
+        </option>
       </select>
     </div>
 
     <div class="flex justify-between items-center mb-1.5">
-      <label class="form-label mb-0" :class="!isProviderConfigured ? 'opacity-50' : ''">Model ID</label>
+      <label
+        class="form-label mb-0"
+        :class="!isProviderConfigured ? 'opacity-50' : ''"
+        >Model ID</label
+      >
       <button
         v-if="['gemini', 'openai', 'openrouter', 'vertex'].includes(provider)"
         type="button"
@@ -87,16 +120,74 @@ watch(() => props.provider, (newProv, oldProv) => {
         class="text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1 disabled:opacity-20"
         :disabled="isLoadingModels || !isProviderConfigured"
       >
-        <span v-if="isLoadingModels" class="animate-spin h-2 w-2 border-b border-current rounded-full"></span>
-        {{ isLoadingModels ? 'Loading...' : 'Refresh List' }}
+        <span
+          v-if="isLoadingModels"
+          class="animate-spin h-2 w-2 border-b border-current rounded-full"
+        ></span>
+        {{ isLoadingModels ? "Loading..." : "Refresh List" }}
       </button>
     </div>
 
-    <select v-if="providerModels.length > 0" :value="modelId" @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)" class="form-input" required :disabled="!isProviderConfigured">
-      <option value="" disabled>Select a model...</option>
-      <option v-for="m in providerModels" :key="m" :value="m">{{ m }}</option>
-    </select>
-    <input v-else :value="modelId" @input="emit('update:modelId', ($event.target as HTMLInputElement).value)" type="text" required placeholder="e.g. gpt-4o or gemini-1.5-pro" class="form-input" :disabled="!isProviderConfigured">
+    <div v-if="providerModels.length > 10" class="mb-2 relative">
+      <input
+        v-model="filterText"
+        type="text"
+        placeholder="Search models..."
+        class="form-input text-xs py-1.5 pl-8 bg-gray-900/50"
+        :disabled="!isProviderConfigured"
+      />
+      <span
+        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+      </span>
+    </div>
+
+    <template v-if="providerModels.length > 0">
+      <select
+        :value="modelId"
+        @change="
+          emit('update:modelId', ($event.target as HTMLSelectElement).value)
+        "
+        class="form-input"
+        required
+        :disabled="!isProviderConfigured"
+      >
+        <option value="" disabled>Select a model...</option>
+        <option v-for="m in filteredProviderModels" :key="m" :value="m">
+          {{ m }}
+        </option>
+      </select>
+      <div
+        v-if="filteredProviderModels.length === 0"
+        class="mt-1 text-[10px] text-gray-500 italic"
+      >
+        No models match "{{ filterText }}"
+      </div>
+    </template>
+    <input
+      v-else
+      :value="modelId"
+      @input="emit('update:modelId', ($event.target as HTMLInputElement).value)"
+      type="text"
+      required
+      placeholder="e.g. gpt-4o or gemini-1.5-pro"
+      class="form-input"
+      :disabled="!isProviderConfigured"
+    />
   </div>
 </template>
 

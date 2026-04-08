@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/robfig/cron/v3"
 	"golang.org/x/sync/errgroup"
 )
+
+const MaxHistorySize = 100
 
 // Dispatcher manages automation execution via a cron scheduler.
 type Dispatcher struct {
@@ -30,6 +33,9 @@ type Dispatcher struct {
 	jobs    map[string]cron.EntryID // automationID -> cron.EntryID
 	stopCh  chan struct{}
 	metrics *DispatcherMetrics
+
+	historyMu     sync.RWMutex
+	globalHistory []models.AutomationRun
 }
 
 func NewDispatcher(
@@ -94,6 +100,9 @@ func (m *DispatcherMetrics) RecordExecution(success, skipped bool, latency time.
 
 func (d *Dispatcher) Start(ctx context.Context) error {
 	d.logger.Info("Starting dispatcher")
+
+	// Load historical runs from all workspaces to populate global ledger
+	d.LoadHistory()
 
 	workspaces, err := d.persistence.ListWorkspaces()
 	if err != nil {
@@ -197,6 +206,64 @@ func (d *Dispatcher) ListAll() []*AutomationEntry {
 
 func (d *Dispatcher) Metrics() *DispatcherMetrics {
 	return d.metrics
+}
+
+// GlobalActivity returns the rolling global ledger of recent events.
+func (d *Dispatcher) GlobalActivity() []models.AutomationRun {
+	d.historyMu.RLock()
+	defer d.historyMu.RUnlock()
+
+	// Return a copy to avoid data races
+	res := make([]models.AutomationRun, len(d.globalHistory))
+	copy(res, d.globalHistory)
+	return res
+}
+
+func (d *Dispatcher) RecordActivity(run models.AutomationRun) {
+	d.historyMu.Lock()
+	defer d.historyMu.Unlock()
+
+	d.globalHistory = append(d.globalHistory, run)
+	if len(d.globalHistory) > MaxHistorySize {
+		d.globalHistory = d.globalHistory[len(d.globalHistory)-MaxHistorySize:]
+	}
+}
+
+// LoadHistory populates the global history from persistent workspace states.
+func (d *Dispatcher) LoadHistory() {
+	workspaces, err := d.persistence.ListWorkspaces()
+	if err != nil {
+		d.logger.Error("Failed to list workspaces for history load", "error", err)
+		return
+	}
+
+	var allRuns []models.AutomationRun
+	for _, ws := range workspaces {
+		state, err := d.persistence.ReadState(ws.ID)
+		if err == nil {
+			// Ensure WorkspaceID is set even for legacy records
+			for i := range state.History {
+				if state.History[i].WorkspaceID == "" {
+					state.History[i].WorkspaceID = ws.ID
+				}
+			}
+			allRuns = append(allRuns, state.History...)
+		}
+	}
+
+	// Sort chronologically (oldest to newest)
+	sort.Slice(allRuns, func(i, j int) bool {
+		return allRuns[i].Timestamp.Before(allRuns[j].Timestamp)
+	})
+
+	d.historyMu.Lock()
+	defer d.historyMu.Unlock()
+	
+	if len(allRuns) > MaxHistorySize {
+		allRuns = allRuns[len(allRuns)-MaxHistorySize:]
+	}
+	d.globalHistory = allRuns
+	d.logger.Info("Loaded global history", "count", len(d.globalHistory))
 }
 
 func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {
@@ -322,8 +389,10 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		WorkspaceID:    entry.Workspace,
 		AutomationName: entry.Name,
 		TaskFile:       entry.TaskFile,
+		TaskContent:    taskContent,
 		Strategy:       entry.Strategy,
 		State:          state,
+		Model:          entry.Model,
 	}
 
 	resp, err := d.executor.Execute(execCtx, req)
@@ -338,6 +407,9 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	}
 
 	if resp != nil && resp.State != nil {
+		// Successful execution, clear old error immediately
+		state.LastError = ""
+
 		if resp.Output != "" && resp.State != nil {
 			ApplyPulseLogic(resp)
 		}
@@ -345,12 +417,18 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		state.IsRunning = false
 		if resp.Output != "" {
 			state.LastOutput = resp.Output
-			state.LastError = ""
 		}
 		if !resp.State.LastPulse.IsZero() {
 			state.LastPulse = resp.State.LastPulse
 		}
 		d.persistence.WriteState(entry.Workspace, state)
+
+		// Also record in global history
+		if len(state.History) > 0 {
+			d.RecordActivity(state.History[len(state.History)-1])
+		}
+	} else if err != nil {
+		// Recorded in error path above
 	}
 
 	d.metrics.RecordExecution(true, false, elapsed)

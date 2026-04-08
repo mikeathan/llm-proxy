@@ -19,17 +19,21 @@ type LLMClient struct {
 	httpClient         *http.Client
 	chatCompletionsURL string
 	headers            http.Header
+	model              string
 }
 
-func NewLLMClient(baseURL string, httpClient *http.Client, headers http.Header) Client {
+func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 	chatCompletionsURL := utils.SanitiseUrl(baseURL) + "/v1/chat/completions"
-	return &LLMClient{chatCompletionsURL: chatCompletionsURL, httpClient: httpClient, headers: headers}
+	return &LLMClient{chatCompletionsURL: chatCompletionsURL, model: model, httpClient: httpClient, headers: headers}
 }
 
 func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	if req.Model == "" {
+		req.Model = c.model
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("LLM chat serialisation error: %s", err.Error())

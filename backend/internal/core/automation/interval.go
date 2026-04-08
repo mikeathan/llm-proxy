@@ -37,3 +37,7 @@ func (t *IntervalTrigger) NextRun(now time.Time) time.Time {
 func (t *IntervalTrigger) Type() models.TriggerType {
 	return models.TriggerInterval
 }
+
+func (t *IntervalTrigger) Value() string {
+	return t.interval.String()
+}

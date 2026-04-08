@@ -1,96 +1,117 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import GlobalSettings from '../components/settings/GlobalSettings.vue'
-import McpServers from '../components/settings/McpServers.vue'
-import ApiKeySettings from '../components/settings/ApiKeySettings.vue'
-import { useConfig } from '../composables/useConfig'
-import { useMcpServers } from '../composables/useMcpServers'
-import { useMetrics } from '../composables/useMetrics'
-import { useModels } from '../composables/useModels'
-import { AdminApiService } from '../services/adminService'
-import type { NewMcpServerForm } from '../types/mcp'
-import type { ProviderType, APIKeyItem } from '../types/admin'
+import { ref, computed, onMounted } from "vue";
+import GlobalSettings from "../components/settings/GlobalSettings.vue";
+import McpServers from "../components/settings/McpServers.vue";
+import ApiKeySettings from "../components/settings/ApiKeySettings.vue";
+import { useConfig } from "../composables/useConfig";
+import { useMcpServers } from "../composables/useMcpServers";
+import { useMetrics } from "../composables/useMetrics";
+import { useModels } from "../composables/useModels";
+import { AdminApiService } from "../services/adminService";
+import type { NewMcpServerForm } from "../types/mcp";
+import type { ProviderType, APIKeyItem } from "../types/admin";
 
-const { config, updateConfig, fetchConfig, isSaving, isLoading, ensureProvider } = useConfig()
-const { refresh: refreshModels } = useModels()
-const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } = useMcpServers()
-const { logLevel, updateLogLevel } = useMetrics()
+const {
+  config,
+  updateConfig,
+  fetchConfig,
+  isSaving,
+  isLoading,
+  ensureProvider,
+} = useConfig();
+const { state: adminModelsState, refresh: refreshModels } = useModels();
+const modelsList = computed(() => adminModelsState.value?.models || []);
+const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
+  useMcpServers();
+const { logLevel, updateLogLevel } = useMetrics();
 
-type Tab = 'local' | 'gemini' | 'openai' | 'openrouter' | 'mcp'
-const activeTab = ref<Tab>('local')
-const testStatus = ref<{ [key: string]: { loading: boolean; error?: string; success?: string } }>({})
+type Tab = "local" | "gemini" | "openai" | "openrouter" | "mcp";
+const activeTab = ref<Tab>("local");
+const testStatus = ref<{
+  [key: string]: { loading: boolean; error?: string; success?: string };
+}>({});
 
 // Pre-process key lists as computed to avoid creating new arrays on every render
-const geminiKeys = computed<APIKeyItem[]>(() => ensureIds(config.value.providers?.gemini?.api_keys ?? []))
-const openaiKeys = computed<APIKeyItem[]>(() => ensureIds(config.value.providers?.openai?.api_keys ?? []))
-const openrouterKeys = computed<APIKeyItem[]>(() => ensureIds(config.value.providers?.openrouter?.api_keys ?? []))
+const geminiKeys = computed<APIKeyItem[]>(() =>
+  ensureIds(config.value.providers?.gemini?.api_keys ?? []),
+);
+const openaiKeys = computed<APIKeyItem[]>(() =>
+  ensureIds(config.value.providers?.openai?.api_keys ?? []),
+);
+const openrouterKeys = computed<APIKeyItem[]>(() =>
+  ensureIds(config.value.providers?.openrouter?.api_keys ?? []),
+);
 
 function setTab(tab: Tab) {
-  activeTab.value = tab
+  activeTab.value = tab;
 }
 
 function ensureIds(keys: any[]): APIKeyItem[] {
-  return keys.map(k => {
-    if (k.id) return k
+  return keys.map((k) => {
+    if (k.id) return k;
     return {
       ...k,
-      id: typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : Math.random().toString(36).substring(2, 11)
-    }
-  })
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Math.random().toString(36).substring(2, 11),
+    };
+  });
 }
 
 async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
-  const provider = ensureProvider(type)
-  provider.api_keys = ensureIds(keys)
+  const provider = ensureProvider(type);
+  provider.api_keys = ensureIds(keys);
   try {
-    await AdminApiService.updateConfig(JSON.parse(JSON.stringify(config.value)))
-    await refreshModels()
+    await AdminApiService.updateConfig(
+      JSON.parse(JSON.stringify(config.value)),
+    );
+    await refreshModels();
   } catch (e: any) {
-    console.error(`[Settings] Failed to auto-save ${type} API keys:`, e)
+    console.error(`[Settings] Failed to auto-save ${type} API keys:`, e);
   }
 }
 
 async function handleSaveConfig() {
   try {
-    await updateConfig()
-    alert('Configuration saved successfully')
-    await refreshModels()
+    await updateConfig();
+    alert("Configuration saved successfully");
+    await refreshModels();
   } catch (e: any) {
-    alert(`Error saving configuration: ${e.message}`)
+    alert(`Error saving configuration: ${e.message}`);
   }
 }
 
 const testProvider = async (type: string, apiKey?: string) => {
-  testStatus.value[type] = { loading: true }
+  testStatus.value[type] = { loading: true };
   try {
-    const res = await AdminApiService.testConnection(type, apiKey)
-    testStatus.value[type] = { loading: false, success: res.message }
+    const res = await AdminApiService.testConnection(type, apiKey);
+    testStatus.value[type] = { loading: false, success: res.message };
     setTimeout(() => {
       if (testStatus.value[type]?.success === res.message) {
-        testStatus.value[type] = { loading: false }
+        testStatus.value[type] = { loading: false };
       }
-    }, 5000)
+    }, 5000);
   } catch (e: any) {
-    testStatus.value[type] = { loading: false, error: e.message }
+    testStatus.value[type] = { loading: false, error: e.message };
   }
-}
+};
 
 function clearTestStatus(type: string) {
-  testStatus.value[type] = { loading: false }
+  testStatus.value[type] = { loading: false };
 }
 
-const newMcpServer = ref<NewMcpServerForm>({ name: '', url: '' })
+const newMcpServer = ref<NewMcpServerForm>({ name: "", url: "" });
 const handleAddMCPServer = (): void => {
-  if (!newMcpServer.value.name || !newMcpServer.value.url) return
-  addMCPServer(newMcpServer.value)
-  newMcpServer.value = { name: '', url: '' }
-}
+  if (!newMcpServer.value.name || !newMcpServer.value.url) return;
+  addMCPServer(newMcpServer.value);
+  newMcpServer.value = { name: "", url: "" };
+};
 
 onMounted(() => {
-  fetchConfig()
-})
+  fetchConfig();
+  refreshModels();
+});
 </script>
 
 <template>
@@ -99,12 +120,37 @@ onMounted(() => {
     <div class="settings-sidebar">
       <h2 class="sidebar-title">Settings</h2>
       <nav class="sidebar-nav">
-        <button @click="setTab('local')"      :class="['nav-item', activeTab === 'local'      ? 'nav-active' : '']"><span class="nav-icon">💻</span> Local Engine</button>
-        <button @click="setTab('gemini')"     :class="['nav-item', activeTab === 'gemini'     ? 'nav-active' : '']"><span class="nav-icon">✨</span> Gemini</button>
-        <button @click="setTab('openai')"     :class="['nav-item', activeTab === 'openai'     ? 'nav-active' : '']"><span class="nav-icon">🤖</span> OpenAI</button>
-        <button @click="setTab('openrouter')" :class="['nav-item', activeTab === 'openrouter' ? 'nav-active' : '']"><span class="nav-icon">🚀</span> OpenRouter</button>
+        <button
+          @click="setTab('local')"
+          :class="['nav-item', activeTab === 'local' ? 'nav-active' : '']"
+        >
+          <span class="nav-icon">💻</span> Local Engine
+        </button>
+        <button
+          @click="setTab('gemini')"
+          :class="['nav-item', activeTab === 'gemini' ? 'nav-active' : '']"
+        >
+          <span class="nav-icon">✨</span> Gemini
+        </button>
+        <button
+          @click="setTab('openai')"
+          :class="['nav-item', activeTab === 'openai' ? 'nav-active' : '']"
+        >
+          <span class="nav-icon">🤖</span> OpenAI
+        </button>
+        <button
+          @click="setTab('openrouter')"
+          :class="['nav-item', activeTab === 'openrouter' ? 'nav-active' : '']"
+        >
+          <span class="nav-icon">🚀</span> OpenRouter
+        </button>
         <div class="sidebar-divider"></div>
-        <button @click="setTab('mcp')"        :class="['nav-item', activeTab === 'mcp'        ? 'nav-active' : '']"><span class="nav-icon">🔌</span> MCP Servers</button>
+        <button
+          @click="setTab('mcp')"
+          :class="['nav-item', activeTab === 'mcp' ? 'nav-active' : '']"
+        >
+          <span class="nav-icon">🔌</span> MCP Servers
+        </button>
       </nav>
     </div>
 
@@ -112,7 +158,9 @@ onMounted(() => {
     <div class="settings-detail">
       <!-- Loading -->
       <div v-if="isLoading" class="detail-card flex justify-center py-20">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div
+          class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"
+        ></div>
       </div>
 
       <template v-else>
@@ -121,6 +169,7 @@ onMounted(() => {
           <GlobalSettings
             v-model:editConfig="config"
             :logLevel="logLevel"
+            :models="modelsList"
             @updateConfig="handleSaveConfig"
             @updateLogLevel="updateLogLevel"
           />
@@ -144,18 +193,33 @@ onMounted(() => {
               />
               <div class="sidebar-divider op-10"></div>
               <div v-if="config.providers?.gemini" class="form-group">
-                <label class="form-label">Project ID <span class="form-optional">(Optional)</span></label>
+                <label class="form-label"
+                  >Project ID
+                  <span class="form-optional">(Optional)</span></label
+                >
                 <div class="form-helper">Required for Vertex AI</div>
-                <input v-model="config.providers.gemini.project_id" type="text" class="form-input">
+                <input
+                  v-model="config.providers.gemini.project_id"
+                  type="text"
+                  class="form-input"
+                />
               </div>
               <div v-if="config.providers?.gemini" class="form-group">
-                <label class="form-label">Region <span class="form-optional">(Optional)</span></label>
-                <div class="form-helper">Region for Vertex AI (e.g. us-central1)</div>
-                <input v-model="config.providers.gemini.region" type="text" class="form-input">
+                <label class="form-label"
+                  >Region <span class="form-optional">(Optional)</span></label
+                >
+                <div class="form-helper">
+                  Region for Vertex AI (e.g. us-central1)
+                </div>
+                <input
+                  v-model="config.providers.gemini.region"
+                  type="text"
+                  class="form-input"
+                />
               </div>
               <div class="form-actions">
                 <button type="submit" class="btn-submit" :disabled="isSaving">
-                  {{ isSaving ? 'Saving...' : 'Save Gemini Config' }}
+                  {{ isSaving ? "Saving..." : "Save Gemini Config" }}
                 </button>
               </div>
             </form>
@@ -180,13 +244,22 @@ onMounted(() => {
               />
               <div class="sidebar-divider op-10"></div>
               <div v-if="config.providers?.openai" class="form-group">
-                <label class="form-label">Base URL <span class="form-optional">(Optional)</span></label>
-                <div class="form-helper">Override for localized proxies or self-hosted engines</div>
-                <input v-model="config.providers.openai.base_url" type="text" placeholder="https://api.openai.com/v1" class="form-input">
+                <label class="form-label"
+                  >Base URL <span class="form-optional">(Optional)</span></label
+                >
+                <div class="form-helper">
+                  Override for localized proxies or self-hosted engines
+                </div>
+                <input
+                  v-model="config.providers.openai.base_url"
+                  type="text"
+                  placeholder="https://api.openai.com/v1"
+                  class="form-input"
+                />
               </div>
               <div class="form-actions">
                 <button type="submit" class="btn-submit" :disabled="isSaving">
-                  {{ isSaving ? 'Saving...' : 'Save OpenAI Config' }}
+                  {{ isSaving ? "Saving..." : "Save OpenAI Config" }}
                 </button>
               </div>
             </form>
@@ -211,7 +284,7 @@ onMounted(() => {
               />
               <div class="form-actions">
                 <button type="submit" class="btn-submit" :disabled="isSaving">
-                  {{ isSaving ? 'Saving...' : 'Save OpenRouter Config' }}
+                  {{ isSaving ? "Saving..." : "Save OpenRouter Config" }}
                 </button>
               </div>
             </form>

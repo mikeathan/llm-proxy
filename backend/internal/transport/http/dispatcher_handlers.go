@@ -16,22 +16,59 @@ func NewDispatcherHandlers(d *automation.Dispatcher) *DispatcherHandlers {
 	return &DispatcherHandlers{dispatcher: d}
 }
 
-func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Request) {
-	automations := h.dispatcher.ListAll()
+type AutomationInfo struct {
+	ID           string                 `json:"id"`
+	Workspace    string                 `json:"workspace"`
+	Name         string                 `json:"name"`
+	TaskFile     string                 `json:"task_file"`
+	Strategy     string                 `json:"strategy"`
+	Trigger      string                 `json:"trigger"`
+	TriggerValue string                 `json:"trigger_value,omitempty"`
+	Model        string                 `json:"model,omitempty"`
+	LastOutput   string                 `json:"last_output,omitempty"`
+	LastError    string                 `json:"last_error,omitempty"`
+	History      []models.AutomationRun `json:"history,omitempty"`
+}
 
-	result := make([]AutomationInfo, 0, len(automations))
-	for _, a := range automations {
-		result = append(result, AutomationInfo{
-			ID:        a.ID,
-			Workspace: a.Workspace,
-			Name:      a.Name,
-			TaskFile:  a.TaskFile,
-			Strategy:  a.Strategy.Name(),
-			Trigger:   a.Trigger.Type(),
-		})
+func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Request) {
+	entries := h.dispatcher.ListAll()
+	infos := make([]AutomationInfo, 0, len(entries))
+
+	for _, entry := range entries {
+		info := AutomationInfo{
+			ID:           entry.ID,
+			Workspace:    entry.Workspace,
+			Name:         entry.Name,
+			Trigger:      string(entry.Trigger.Type()),
+			TriggerValue: entry.Trigger.Value(),
+			TaskFile:     entry.TaskFile,
+			Strategy:     entry.Strategy.Name(),
+			Model:        entry.Model,
+		}
+
+		// Try to fetch state for last output and history
+		if state, err := h.dispatcher.Persistence().ReadState(entry.Workspace); err == nil {
+			// Get specific history for this automation
+			for _, run := range state.History {
+				if run.AutomationName == entry.Name {
+					info.History = append(info.History, run)
+				}
+			}
+
+			// Use per-automation latest if available, otherwise fallback to global last
+			if last, ok := state.LastRuns[entry.Name]; ok {
+				info.LastOutput = last.Output
+				info.LastError = last.Error
+			} else {
+				info.LastOutput = state.LastOutput
+				info.LastError = state.LastError
+			}
+		}
+
+		infos = append(infos, info)
 	}
 
-	respondJSON(w, result)
+	respondJSON(w, infos)
 }
 
 // TriggerAutomation manually triggers an automation by workspace ID and name.
@@ -68,13 +105,19 @@ func (h *DispatcherHandlers) GetDispatcherMetrics(w http.ResponseWriter, r *http
 	})
 }
 
-type AutomationInfo struct {
-	ID        string             `json:"id"`
-	Workspace string             `json:"workspace"`
-	Name      string             `json:"name"`
-	TaskFile  string             `json:"task_file"`
-	Strategy  string             `json:"strategy"`
-	Trigger   models.TriggerType `json:"trigger"`
+func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	state, err := h.dispatcher.Persistence().ReadState(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, state)
+}
+
+func (h *DispatcherHandlers) GetGlobalActivity(w http.ResponseWriter, r *http.Request) {
+	history := h.dispatcher.GlobalActivity()
+	respondJSON(w, history)
 }
 
 func respondError(w http.ResponseWriter, status int, msg string) {
@@ -179,6 +222,62 @@ func (h *DispatcherHandlers) WriteWorkspaceFile(w http.ResponseWriter, r *http.R
 	respondJSON(w, map[string]string{"status": "saved"})
 }
 
+func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	automationName := r.PathValue("automation")
+
+	var auto models.Automation
+	if err := json.NewDecoder(r.Body).Decode(&auto); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	lock, err := h.dispatcher.Persistence().AcquireLock(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer h.dispatcher.Persistence().ReleaseLock(lock)
+
+	cfg, err := h.dispatcher.Persistence().ReadConfig(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	found := false
+	for i, a := range cfg.Automations {
+		if a.Name == automationName {
+			cfg.Automations[i] = &auto
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		respondError(w, http.StatusNotFound, "automation not found")
+		return
+	}
+
+	if err := h.dispatcher.Persistence().WriteConfig(workspaceID, cfg); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// If name changed, unregister old name
+	if automationName != auto.Name {
+		h.dispatcher.Unregister(workspaceID, automationName)
+	}
+
+	// Re-register (or register new name)
+	if err := h.dispatcher.Register(workspaceID, &auto); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]string{"status": "updated"})
+}
+
 func (h *DispatcherHandlers) CreateAutomation(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue("workspace")
 
@@ -234,5 +333,48 @@ func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Requ
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	respondJSON(w, map[string]string{"status": "deleted"})
+}
+func (h *DispatcherHandlers) DeleteAutomation(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	automationName := r.PathValue("automation")
+
+	lock, err := h.dispatcher.Persistence().AcquireLock(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer h.dispatcher.Persistence().ReleaseLock(lock)
+
+	cfg, err := h.dispatcher.Persistence().ReadConfig(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	found := false
+	for i, a := range cfg.Automations {
+		if a.Name == automationName {
+			cfg.Automations = append(cfg.Automations[:i], cfg.Automations[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	// Always try to unregister from dispatcher (handles "ghost" entries)
+	h.dispatcher.Unregister(workspaceID, automationName)
+
+	if !found {
+		// If not in config AND wasn't registered, then it's truly not found
+		// But usually we just want to signal success if we cleaned up the dispatcher
+		respondJSON(w, map[string]string{"status": "deleted/cleaned"})
+		return
+	}
+
+	if err := h.dispatcher.Persistence().WriteConfig(workspaceID, cfg); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	respondJSON(w, map[string]string{"status": "deleted"})
 }

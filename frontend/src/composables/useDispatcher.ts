@@ -1,9 +1,9 @@
 import { ref } from 'vue'
-import type { Automation, DispatcherMetrics } from '../types/dispatcher'
+import type { Automation, DispatcherMetrics, AgentState, AutomationRun } from '../types/dispatcher'
 
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
-const workspaces = ref<{id: string}[]>([])
+const workspaces = ref<{ id: string }[]>([])
 const workspaceFiles = ref<Record<string, string[]>>({})
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -47,11 +47,24 @@ async function fetchWorkspaceFiles(workspace: string) {
     if (!res.ok) {
       throw new Error(`Server error: ${res.status} - ${text}`)
     }
-    workspaceFiles.value[workspace] = JSON.parse(text)
+    // Update ref object with new key in a reactive way
+    workspaceFiles.value = { 
+      ...workspaceFiles.value, 
+      [workspace]: JSON.parse(text) 
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to fetch workspace files'
     console.error('fetchWorkspaceFiles error:', e)
   }
+}
+
+async function fetchWorkspaceState(workspace: string): Promise<AgentState> {
+  const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/state`)
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(`Server error: ${res.status} - ${text}`)
+  }
+  return JSON.parse(text)
 }
 
 async function createWorkspace(id: string) {
@@ -91,6 +104,8 @@ async function triggerAutomation(workspace: string, automation: string) {
     if (!res.ok) {
       throw new Error(`Server error: ${res.status} - ${text}`)
     }
+    // Refresh automations to get current output
+    await fetchAutomations()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to trigger automation'
     console.error('triggerAutomation error:', e)
@@ -98,23 +113,43 @@ async function triggerAutomation(workspace: string, automation: string) {
   }
 }
 
-export function useDispatcher() {
-  return {
-    automations,
-    metrics,
-    workspaces,
-    workspaceFiles,
-    loading,
-    error,
-    fetchAutomations,
-    fetchMetrics,
-    triggerAutomation,
-    fetchWorkspaces,
-    fetchWorkspaceFiles,
-    createWorkspace,
-    deleteWorkspaceFile,
-    deleteWorkspace,
-    createAutomation,
+async function updateAutomation(workspace: string, oldName: string, automation: Automation) {
+  try {
+    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations/${oldName}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(automation)
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchAutomations()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to update automation'
+    console.error('updateAutomation error:', e)
+    throw e
+  }
+}
+
+function clearError() {
+  error.value = null
+}
+
+async function deleteAutomation(workspace: string, automation: string) {
+  try {
+    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations/${automation}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchAutomations()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to delete automation'
+    console.error('deleteAutomation error:', e)
+    throw e
   }
 }
 
@@ -168,5 +203,39 @@ async function deleteWorkspace(workspace: string) {
     error.value = e instanceof Error ? e.message : 'Failed to delete workspace'
     console.error('deleteWorkspace error:', e)
     throw e
+  }
+}
+
+async function fetchGlobalActivity(): Promise<AutomationRun[]> {
+  const res = await fetch('/admin/api/dispatcher/activity')
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(`Server error: ${res.status} - ${text}`)
+  }
+  return JSON.parse(text)
+}
+
+export function useDispatcher() {
+  return {
+    automations,
+    metrics,
+    workspaces,
+    workspaceFiles,
+    loading,
+    error,
+    clearError,
+    fetchAutomations,
+    fetchMetrics,
+    triggerAutomation,
+    fetchWorkspaces,
+    fetchWorkspaceFiles,
+    fetchWorkspaceState,
+    fetchGlobalActivity,
+    createWorkspace,
+    deleteWorkspaceFile,
+    deleteWorkspace,
+    createAutomation,
+    deleteAutomation,
+    updateAutomation,
   }
 }

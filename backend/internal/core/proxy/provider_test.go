@@ -40,7 +40,7 @@ func TestRuntimeClientProvider_DefaultModelError(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, headers http.Header) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header) proxy.Client {
 		return &dummyClient{baseURL: baseURL}
 	})
 
@@ -57,7 +57,7 @@ func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, headers http.Header) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header) proxy.Client {
 		return &dummyClient{baseURL: baseURL}
 	})
 
@@ -76,9 +76,9 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
 			switch name {
 			case "alpha":
-				return llm.ModelInstance{Name: name, Host: "127.0.0.1", Port: 1234}, nil
+				return llm.ModelInstance{Name: name, ModelID: "alpha-id", Host: "127.0.0.1", Port: 1234}, nil
 			case "beta":
-				return llm.ModelInstance{Name: name, Host: "127.0.0.1", Port: 5678}, nil
+				return llm.ModelInstance{Name: name, ModelID: "beta-id", Host: "127.0.0.1", Port: 5678}, nil
 			default:
 				return llm.ModelInstance{}, errors.New("unexpected model")
 			}
@@ -88,7 +88,7 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, headers http.Header) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header) proxy.Client {
 		calls++
 		lastURL = baseURL
 		return &dummyClient{baseURL: baseURL}

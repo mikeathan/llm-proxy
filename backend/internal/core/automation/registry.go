@@ -15,6 +15,7 @@ type AutomationEntry struct {
 	Trigger    Trigger
 	TaskFile  string
 	Strategy  ExecutionStrategy
+	Model     string
 }
 
 // AutomationRegistry manages registered automations.
@@ -50,6 +51,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		Trigger:   tr,
 		TaskFile:  auto.TaskFile,
 		Strategy:  strategy,
+		Model:     auto.Model,
 	}
 
 	r.mu.Lock()

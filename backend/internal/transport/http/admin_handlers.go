@@ -64,6 +64,7 @@ type adminModelView struct {
 
 type adminActiveModel struct {
 	Name      string    `json:"name"`
+	Provider  string    `json:"provider"`
 	Endpoint  string    `json:"endpoint"`
 	Port      int       `json:"port"`
 	Ready     bool      `json:"ready"`
@@ -95,6 +96,7 @@ type adminConfigView struct {
 	ServiceClientSecret string                          `json:"service_client_secret,omitempty"`
 	Environment         map[string]string               `json:"environment"`
 	DefaultArgs         []string                        `json:"default_args"`
+	DefaultModel        string                          `json:"default_model"`
 	Providers           map[string]models.ProviderItem `json:"providers"`
 }
 
@@ -159,6 +161,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		activeName = ai.Name
 		activeDetails = &adminActiveModel{
 			Name:      ai.Name,
+			Provider:  ai.Provider,
 			Endpoint:  fmt.Sprintf("http://%s:%d", host, ai.Port),
 			Port:      ai.Port,
 			Ready:     ai.Ready,
@@ -191,6 +194,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			ServiceClientSecret: serviceClientSecret,
 			Environment:         h.admin.Environment(),
 			DefaultArgs:         h.admin.DefaultArgs(),
+			DefaultModel:        h.admin.ConfiguredDefaultModel(),
 			Providers:           h.admin.Providers(),
 		},
 	}
@@ -287,6 +291,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		ServiceClientSecret: serviceClientSecret,
 		Environment:         h.admin.Environment(),
 		DefaultArgs:         h.admin.DefaultArgs(),
+		DefaultModel:        h.admin.ConfiguredDefaultModel(),
 		Providers:           h.admin.Providers(),
 	}
 	respondJSON(w, cfg)
@@ -492,6 +497,7 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		ServiceClientSecret string                          `json:"service_client_secret"`
 		Environment         map[string]string               `json:"environment"`
 		DefaultArgs         []string                        `json:"default_args"`
+		DefaultModel        string                          `json:"default_model"`
 		Providers           map[string]models.ProviderItem `json:"providers"`
 	}
 	if !decodeJSONBody(w, r, &req) {
@@ -557,6 +563,9 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		}
 		if req.DefaultArgs != nil {
 			cfg.Server.DefaultArgs = req.DefaultArgs
+		}
+		if req.DefaultModel != "" {
+			cfg.Server.DefaultModel = req.DefaultModel
 		}
 		if req.Providers != nil {
 			if cfg.Providers == nil {
@@ -681,7 +690,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name           string                `json:"name"`
 		Provider       string                `json:"provider"`
-		Filename       string                `json:"filename"` // or model_id
+		Filename       string                `json:"filename"`
+		ModelID        string                `json:"model_id"`
 		Path           string                `json:"path"`
 		Args           []string              `json:"args"`
 		Port           int                   `json:"port"`
@@ -698,6 +708,10 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	filename := strings.TrimSpace(req.Filename)
 	if filename == "" && req.Path != "" {
 		filename = filepath.Base(req.Path)
+	}
+	// For cloud providers, model_id serves as the identifier
+	if filename == "" && req.ModelID != "" {
+		filename = strings.TrimSpace(req.ModelID)
 	}
 	if filename == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing model identifier (filename or model_id)")
@@ -777,6 +791,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Name           string                `json:"name"`
 		Provider       string                `json:"provider"`
 		Filename       string                `json:"filename"`
+		ModelID        string                `json:"model_id"`
 		Path           string                `json:"path"`
 		Args           []string              `json:"args"`
 		Port           int                   `json:"port"`
@@ -810,6 +825,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 	if req.Filename == "" && req.Path != "" {
 		req.Filename = filepath.Base(req.Path)
+	}
+	if req.Filename == "" && req.ModelID != "" {
+		req.Filename = strings.TrimSpace(req.ModelID)
 	}
 	if req.Filename == "" {
 		req.Filename = existing.Filename

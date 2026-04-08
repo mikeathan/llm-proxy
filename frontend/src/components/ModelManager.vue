@@ -4,7 +4,7 @@ import ModelItem from "./models/ModelItem.vue";
 import LocalFields from "./models/LocalFields.vue";
 import CloudFields from "./models/CloudFields.vue";
 import DiscoveredList from "./models/DiscoveredList.vue";
-import { makeEmptyForm, tabToDefaultProvider, filterModelsByTab } from "../utils/models";
+import { makeEmptyForm, tabToDefaultProvider, filterModelsByTab, deriveFriendlyName } from "../utils/models";
 import type { AdminState, AvailableModel, NewModelForm, Model } from "../types";
 
 const props = defineProps<{
@@ -28,6 +28,23 @@ watch(
   () => props.filterProvider,
   (tab) => { form.value = makeEmptyForm(tabToDefaultProvider(tab)); },
   { immediate: true }
+);
+
+// Auto-default model name from ID when selected
+const lastDerivedName = ref("");
+watch(
+  () => form.value.model_id,
+  (newId) => {
+    if (!newId || form.value.provider === 'local') return;
+    
+    const derived = deriveFriendlyName(newId);
+    
+    // Update if empty OR if the user hasn't changed it since the last auto-default
+    if (!form.value.name || form.value.name === lastDerivedName.value) {
+      form.value.name = derived;
+      lastDerivedName.value = derived;
+    }
+  }
 );
 
 const filteredModels = computed(() =>

@@ -1,6 +1,7 @@
 // LLM Model related types
 export interface ActiveModel {
   name: string
+  provider: import('./admin').ProviderType
   endpoint: string
   port: number
   ready: boolean

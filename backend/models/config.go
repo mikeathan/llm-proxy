@@ -27,7 +27,6 @@ type APIKeyItem struct {
 
 type ProviderItem struct {
 	Type              string            `json:"type"` // local, openai, gemini, etc.
-	APIKey            string            `json:"api_key,omitempty"`
 	APIKeys           []APIKeyItem      `json:"api_keys,omitempty"` // Support for multiple named API keys
 	BaseURL           string            `json:"base_url,omitempty"`
 	ProjectID         string            `json:"project_id,omitempty"`
@@ -51,6 +50,7 @@ type ServerConfig struct {
 	LlamaServerBinary string            `json:"llama_server_binary"`
 	DefaultArgs       []string          `json:"default_args"`
 	Environment       map[string]string `json:"environment"`
+	DefaultModel      string            `json:"default_model,omitempty"`
 }
 
 type ModelConfig struct {

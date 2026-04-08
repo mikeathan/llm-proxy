@@ -1,10 +1,3 @@
-/**
- * Model domain utilities — pure, stateless functions.
- *
- * Follows the Single Responsibility Principle:
- * all model-form and provider-mapping logic lives here,
- * keeping components free of business-logic noise.
- */
 import type { ProviderType } from '../types/admin'
 import type { NewModelForm, Model } from '../types/model'
 
@@ -42,4 +35,11 @@ export function filterModelsByTab(models: Model[], tab: 'local' | 'cloud'): Mode
 /** Normalises a raw form's args string into a string[] ready for the API. */
 export function normaliseFormArgs(args: string | undefined): string[] {
   return (args || '').split(' ').filter(Boolean)
+}
+
+/** Extracts a friendly default name from a model ID (e.g., "gemini/pro" -> "pro"). */
+export function deriveFriendlyName(modelId: string): string {
+  if (!modelId) return "";
+  const parts = modelId.split('/');
+  return parts[parts.length - 1] || "";
 }

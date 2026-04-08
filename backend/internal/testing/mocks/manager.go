@@ -9,6 +9,7 @@ import (
 
 type MockManager struct {
 	EnsureModelFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
+	GetInstanceFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
 	RecordActivityFunc      func(name string)
 	ListModelsFunc          func() []models.ModelConfig
 	AddModelFunc            func(models.ModelConfig) error
@@ -24,6 +25,14 @@ type MockManager struct {
 	SetModelHostFunc        func(string)
 	ListProviderModelsFunc  func(ctx context.Context, provider string) ([]string, error)
 	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey string) error
+	DefaultModelFunc        func() (string, error)
+}
+
+func (m *MockManager) DefaultModel() (string, error) {
+	if m.DefaultModelFunc != nil {
+		return m.DefaultModelFunc()
+	}
+	return "", nil
 }
 
 func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey string) error {
@@ -41,6 +50,14 @@ func (m *MockManager) ListProviderModels(ctx context.Context, provider string) (
 }
 
 func (m *MockManager) EnsureModel(ctx context.Context, name string) (llm.ModelInstance, error) {
+	return m.EnsureModelFunc(ctx, name)
+}
+
+func (m *MockManager) GetInstance(ctx context.Context, name string) (llm.ModelInstance, error) {
+	if m.GetInstanceFunc != nil {
+		return m.GetInstanceFunc(ctx, name)
+	}
+	// Default to EnsureModel behavior in mocks unless specified
 	return m.EnsureModelFunc(ctx, name)
 }
 

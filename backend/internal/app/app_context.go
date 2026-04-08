@@ -63,11 +63,18 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 }
 
 func (a *AppContext) DefaultModel() (string, error) {
+	if a.config.Server.DefaultModel != "" {
+		return a.config.Server.DefaultModel, nil
+	}
 	models := a.Runtime().ListModels()
 	if len(models) == 0 {
 		return "", errors.New("no models configured")
 	}
 	return models[0].Name, nil
+}
+
+func (a *AppContext) ConfiguredDefaultModel() string {
+	return a.config.Server.DefaultModel
 }
 
 func (s *AppContext) Runtime() llm.RuntimeManager {

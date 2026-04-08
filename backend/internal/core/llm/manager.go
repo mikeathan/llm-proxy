@@ -31,6 +31,7 @@ var ErrModelStarting = errors.New("model is starting")
 
 type ModelInstance struct {
 	Name    string
+	ModelID string
 	Host    string
 	Port    int
 	Path    string
@@ -41,6 +42,7 @@ type ModelInstance struct {
 
 type ActiveModelInfo struct {
 	Name     string
+	Provider string
 	Host     string
 	Port     int
 	Started  time.Time
@@ -50,6 +52,7 @@ type ActiveModelInfo struct {
 
 type RuntimeManager interface {
 	EnsureModel(ctx context.Context, name string) (ModelInstance, error)
+	GetInstance(ctx context.Context, name string) (ModelInstance, error)
 	RecordActivity(name string)
 	ListModels() []models.ModelConfig
 	AddModel(models.ModelConfig) error
@@ -65,6 +68,7 @@ type RuntimeManager interface {
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider string) ([]string, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey string) error
+	DefaultModel() (string, error)
 }
 
 type LLMRuntimeManager struct {
@@ -147,9 +151,9 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 					}
 				}
 			}
-			// Fallback to provider-level default APIKey if still empty
-			if pCfg.ProviderConfig.APIKey == "" {
-				pCfg.ProviderConfig.APIKey = provider.APIKey
+			// Fallback: If no name is provided, take the first one if available.
+			if pCfg.ProviderConfig.APIKey == "" && len(provider.APIKeys) > 0 {
+				pCfg.ProviderConfig.APIKey = provider.APIKeys[0].Key
 			}
 		}
 		if pCfg.ProviderConfig.BaseURL == "" {
@@ -207,6 +211,38 @@ func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName
 }
 
 func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (ModelInstance, error) {
+	inst, err := m.GetInstance(ctx, name)
+	if err != nil {
+		return inst, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cfg, ok := m.models[name]
+	if !ok {
+		// Should not happen as GetInstance succeeded
+		return inst, nil
+	}
+
+	if cfg.Provider != "" && cfg.Provider != "local" {
+		// For cloud, set as persistent active provider
+		p := m.createProviderLocked(cfg) // p is already ready from GetInstance
+		m.activeProvider = p
+		m.activeCloudConfig = &cfg
+	}
+	// Local models are already set in activeModel by startModelLocked called by GetInstance
+
+	return inst, nil
+}
+
+func (m *LLMRuntimeManager) DefaultModel() (string, error) {
+	// Not used directly on manager, but part of interface. 
+	// The app context usually handles the default model selection logic.
+	return "", nil
+}
+
+func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (ModelInstance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -222,6 +258,7 @@ func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (Model
 		for {
 			cfg = m.syncPortWithActiveLocked(cfg)
 			if inst, ok := m.readyInstanceLocked(name, cfg); ok {
+				inst.ModelID = cfg.Filename
 				return inst, nil
 			}
 
@@ -273,11 +310,12 @@ func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (Model
 		return ModelInstance{}, err
 	}
 
-	m.activeProvider = provider
-	m.activeCloudConfig = &cfg
+	// For cloud providers, GetInstance does NOT update m.activeProvider
+	// to avoid hijacking the global system state during ad-hoc usage (like automations).
 
 	return ModelInstance{
 		Name:    name,
+		ModelID: cfg.Filename,
 		URL:     url,
 		Headers: headers,
 	}, nil
@@ -410,6 +448,7 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 		cfg := m.activeModel.cfg
 		return &ActiveModelInfo{
 			Name:     cfg.Name,
+			Provider: cfg.Provider,
 			Host:     m.modelHost,
 			Port:     cfg.Port,
 			Started:  m.activeModel.started,
@@ -420,8 +459,9 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 
 	if m.activeProvider != nil && m.activeCloudConfig != nil {
 		return &ActiveModelInfo{
-			Name:  m.activeCloudConfig.Name,
-			Ready: true,
+			Name:     m.activeCloudConfig.Name,
+			Provider: m.activeCloudConfig.Provider,
+			Ready:    true,
 		}
 	}
 
@@ -450,6 +490,8 @@ func (m *LLMRuntimeManager) LastTokensPerSecond() (float64, time.Time) {
 
 func (m *LLMRuntimeManager) signalStopLocked() func() {
 	if m.activeModel == nil {
+		m.activeProvider = nil
+		m.activeCloudConfig = nil
 		return nil
 	}
 
@@ -468,6 +510,8 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	}
 
 	m.activeModel = nil
+	m.activeProvider = nil
+	m.activeCloudConfig = nil
 
 	return func() {
 		done := make(chan struct{})

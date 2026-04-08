@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"llm-proxy/internal/core/llm"
 	"net/http"
@@ -15,6 +14,7 @@ type ModelSelector interface {
 
 type LLMClientProvider interface {
 	GetClient(ctx context.Context) (Client, error)
+	GetClientForModel(ctx context.Context, modelName string) (Client, error)
 }
 
 type RuntimeClientProvider struct {
@@ -27,13 +27,13 @@ type RuntimeClientProvider struct {
 	model   string
 	headers http.Header
 
-	newClient func(baseURL string, headers http.Header) Client
+	newClient func(baseURL string, model string, headers http.Header) Client
 }
 
 func NewRuntimeClientProvider(
 	selector ModelSelector,
 	runtime llm.RuntimeManager,
-	newClient func(baseURL string, headers http.Header) Client) LLMClientProvider {
+	newClient func(baseURL string, model string, headers http.Header) Client) LLMClientProvider {
 
 	return &RuntimeClientProvider{
 		selector:  selector,
@@ -43,24 +43,23 @@ func NewRuntimeClientProvider(
 }
 
 func (p *RuntimeClientProvider) GetClient(ctx context.Context) (Client, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	modelName, err := p.selector.DefaultModel()
 	if err != nil {
 		return nil, err
 	}
+	return p.GetClientForModel(ctx, modelName)
+}
 
-	inst, err := p.runtime.EnsureModel(ctx, modelName)
+func (p *RuntimeClientProvider) GetClientForModel(ctx context.Context, modelName string) (Client, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	inst, err := p.runtime.GetInstance(ctx, modelName)
 	if err != nil {
-		if errors.Is(err, llm.ErrModelStarting) {
-			return nil, err
-		}
 		return nil, err
 	}
 
 	p.ensureClient(inst, modelName)
-
 	p.runtime.RecordActivity(modelName)
 
 	return p.client, nil
@@ -78,7 +77,7 @@ func (p *RuntimeClientProvider) ensureClient(inst llm.ModelInstance, modelName s
 	// - URL changed (port/host changed)
 	// - headers changed
 	if p.client == nil || p.model != modelName || p.url != baseURL || !compareHeaders(p.headers, inst.Headers) {
-		p.client = p.newClient(baseURL, inst.Headers)
+		p.client = p.newClient(baseURL, inst.ModelID, inst.Headers)
 		p.model = modelName
 		p.url = baseURL
 		p.headers = inst.Headers

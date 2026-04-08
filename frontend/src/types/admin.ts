@@ -32,6 +32,8 @@ export interface GlobalConfig {
   gpu_index?: number
   service_client_id?: string
   service_client_secret?: string
+  default_model?: string
+  default_args?: string[]
 }
 
 export interface AgentDefinition {

@@ -30,6 +30,7 @@ type RuntimeService interface {
 	SetModelHost(string)
 	ListProviderModels(context.Context, string) ([]string, error)
 	TestProviderConnection(context.Context, string, string) error
+	DefaultModel() (string, error)
 }
 
 type AdminService interface {
@@ -42,6 +43,7 @@ type AdminService interface {
 	CurrentBinary() string
 	CurrentIdleTimeout() int
 	DefaultArgs() []string
+	ConfiguredDefaultModel() string
 	Environment() map[string]string
 	SetEnvironment(map[string]string) error
 	Models() []models.ModelConfig
@@ -67,4 +69,6 @@ type AssistantService interface {
 	DefaultModel() (string, error)
 
 	Engine() assistant.Engine
+	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 }
+

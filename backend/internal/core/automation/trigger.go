@@ -12,6 +12,7 @@ type Trigger interface {
 	ShouldRun(lastRun, now time.Time) bool
 	NextRun(now time.Time) time.Time
 	Type() models.TriggerType
+	Value() string
 }
 
 // Factory creates a Trigger from a TriggerConfig.

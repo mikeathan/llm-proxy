@@ -12,6 +12,7 @@ import (
 type CronTrigger struct {
 	schedule cron.Schedule
 	parser   cron.Parser
+	expr     string
 }
 
 // NewCronTrigger creates a CronTrigger from a standard cron expression.
@@ -22,7 +23,7 @@ func NewCronTrigger(expr string) (*CronTrigger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid cron expression %q: %w", expr, err)
 	}
-	return &CronTrigger{schedule: schedule, parser: parser}, nil
+	return &CronTrigger{schedule: schedule, parser: parser, expr: expr}, nil
 }
 
 func (t *CronTrigger) ShouldRun(lastRun, now time.Time) bool {
@@ -38,4 +39,8 @@ func (t *CronTrigger) NextRun(now time.Time) time.Time {
 
 func (t *CronTrigger) Type() models.TriggerType {
 	return models.TriggerCron
+}
+
+func (t *CronTrigger) Value() string {
+	return t.expr
 }

@@ -28,7 +28,9 @@ func (p *GeminiProvider) GetStatus() ProviderStatus {
 
 func (p *GeminiProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
 	header := make(http.Header)
-	header.Set("x-goog-api-key", p.cfg.ProviderConfig.APIKey)
+	key := p.cfg.ProviderConfig.APIKey
+	header.Set("x-goog-api-key", key)
+	header.Set("Authorization", "Bearer "+key)
 	return "https://generativelanguage.googleapis.com/v1beta/openai", header, nil
 }
 
