@@ -21,56 +21,36 @@ const htmlContent = computed(() => {
   <div class="markdown-body" v-html="htmlContent"></div>
 </template>
 
-<style scoped>
+<style scoped lang="postcss">
 .markdown-body {
-  color: #e5e7eb;
-  font-size: 0.875rem;
-  line-height: 1.6;
+  @apply text-gray-200 text-sm leading-relaxed;
 }
 
 .markdown-body :deep(pre) {
-  background-color: #030712;
-  border: 1px solid #1f2937;
-  border-radius: 0.5rem;
-  padding: 1.25rem;
-  overflow-x: auto;
-  margin-bottom: 1.5rem;
+  @apply bg-gray-950 border border-gray-800 rounded-lg p-5 overflow-x-auto mb-6 font-mono shadow-inner;
   white-space: pre !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
 }
 
 .markdown-body :deep(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.8rem;
-  color: #d1d5db;
+  @apply font-mono text-[0.8rem] text-gray-300;
 }
 
 .markdown-body :deep(pre code) {
-  display: block;
-  padding: 0;
-  background-color: transparent;
-  border: 0;
+  @apply block p-0 bg-transparent border-0 leading-tight;
   white-space: pre !important;
-  line-height: 1.25;
 }
 
 .markdown-body :deep(p) {
-  margin-bottom: 1rem;
+  @apply mb-4;
 }
 
 .markdown-body :deep(strong) {
-  color: #f3f4f6;
-  font-weight: 700;
+  @apply text-gray-100 font-bold;
 }
 
 .markdown-body :deep(h1), 
 .markdown-body :deep(h2), 
 .markdown-body :deep(h3) {
-  color: #f9fafb;
-  font-weight: 800;
-  margin-top: 1.5rem;
-  margin-bottom: 0.75rem;
-  letter-spacing: -0.025em;
+  @apply text-gray-50 font-black mt-6 mb-3 tracking-tight;
 }
 </style>

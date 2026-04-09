@@ -16,6 +16,7 @@ You are an expert Frontend Architect with 15 years of experience. You specialize
 - Extract reusable logic into Composables (`/composables` directory).
 - Use `defineProps` and `defineEmits` with explicit type definitions.
 - Favor `provide/inject` for dependency injection or Pinia for global state management.
+- Always include `<style scoped lang="postcss">` block for component styling unless styling is entirely structural and done with Tailwind classes.
 
 ### JavaScript & Code Quality
 
@@ -27,6 +28,8 @@ You are an expert Frontend Architect with 15 years of experience. You specialize
 ### Performance & Architecture
 
 - Follow a strict component hierarchy: Base/UI components, Feature components, and Page views.
+- **Component Grouping**: When adding new components within a feature (e.g., AgentIde), group them into self-explaining subdirectories (e.g., `automation/`, `system/`, `workspace/`) to maintain readability. Avoid over-categorization.
+- **PostCSS Restrictions**: Never use the `group` utility within an `@apply` directive (PostCSS build error). Apply the `group` class directly in the HTML template.
 - Optimize for performance: use `v-show` vs `v-if` appropriately, implement lazy loading for routes, and use `v-memo` for heavy lists.
 - Ensure all code is accessible (A11Y) and follows semantic HTML standards.
 

@@ -77,16 +77,14 @@ watch(
   <div class="grid grid-cols-1 gap-3">
     <div
       v-if="!isProviderConfigured"
-      class="mb-3 p-2.5 bg-yellow-900/20 border border-yellow-700/50 rounded-md flex justify-between items-center gap-2"
+      class="config-warning"
     >
-      <span
-        class="text-[11px] text-yellow-500 font-bold uppercase tracking-tight flex items-center gap-1.5"
-      >
+      <span class="config-warning-text">
         <span class="text-base">⚠️</span> Configuration Required
       </span>
       <router-link
         to="/settings"
-        class="text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all"
+        class="btn-settings-link"
         >Settings</router-link
       >
     </div>
@@ -95,9 +93,7 @@ watch(
       <label class="form-label">API Key Name</label>
       <select
         :value="apiKeyName"
-        @change="
-          emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)
-        "
+        @change="emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)"
         class="form-input"
       >
         <option value="">Default Provider Key</option>
@@ -107,7 +103,7 @@ watch(
       </select>
     </div>
 
-    <div class="flex justify-between items-center mb-1.5">
+    <div class="field-header">
       <label
         class="form-label mb-0"
         :class="!isProviderConfigured ? 'opacity-50' : ''"
@@ -117,7 +113,7 @@ watch(
         v-if="['gemini', 'openai', 'openrouter', 'vertex'].includes(provider)"
         type="button"
         @click="loadProviderModels"
-        class="text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1 disabled:opacity-20"
+        class="btn-refresh"
         :disabled="isLoadingModels || !isProviderConfigured"
       >
         <span
@@ -128,17 +124,15 @@ watch(
       </button>
     </div>
 
-    <div v-if="providerModels.length > 10" class="mb-2 relative">
+    <div v-if="providerModels.length > 10" class="search-wrapper">
       <input
         v-model="filterText"
         type="text"
         placeholder="Search models..."
-        class="form-input text-xs py-1.5 pl-8 bg-gray-900/50"
+        class="form-input form-input--search"
         :disabled="!isProviderConfigured"
       />
-      <span
-        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none"
-      >
+      <span class="search-icon">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="12"
@@ -159,9 +153,7 @@ watch(
     <template v-if="providerModels.length > 0">
       <select
         :value="modelId"
-        @change="
-          emit('update:modelId', ($event.target as HTMLSelectElement).value)
-        "
+        @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)"
         class="form-input"
         required
         :disabled="!isProviderConfigured"
@@ -173,7 +165,7 @@ watch(
       </select>
       <div
         v-if="filteredProviderModels.length === 0"
-        class="mt-1 text-[10px] text-gray-500 italic"
+        class="helper-text"
       >
         No models match "{{ filterText }}"
       </div>
@@ -195,10 +187,52 @@ watch(
 .form-label {
   @apply block text-[10px] uppercase font-bold text-gray-500 mb-1.5 tracking-wider;
 }
+
 .form-input {
-  @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all;
+  @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white 
+         focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all;
 }
+
 select.form-input {
-  @apply appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[position:right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat pr-10;
+  @apply appearance-none bg-no-repeat pr-10
+         bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] 
+         bg-[position:right_0.5rem_center] bg-[length:1.25rem_1.25rem];
+}
+
+.config-warning {
+  @apply mb-3 p-2.5 bg-yellow-900/20 border border-yellow-700/50 rounded-md flex justify-between items-center gap-2;
+}
+
+.config-warning-text {
+  @apply text-[11px] text-yellow-500 font-bold uppercase tracking-tight flex items-center gap-1.5;
+}
+
+.btn-settings-link {
+  @apply text-[10px] bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded border border-yellow-600/30 font-bold transition-all;
+}
+
+.field-header {
+  @apply flex justify-between items-center mb-1.5;
+}
+
+.btn-refresh {
+  @apply text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold 
+         tracking-tighter flex items-center gap-1 disabled:opacity-20;
+}
+
+.search-wrapper {
+  @apply mb-2 relative;
+}
+
+.form-input--search {
+  @apply text-xs py-1.5 pl-8 bg-gray-900/50;
+}
+
+.search-icon {
+  @apply absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none;
+}
+
+.helper-text {
+  @apply mt-1 text-[10px] text-gray-500 italic;
 }
 </style>

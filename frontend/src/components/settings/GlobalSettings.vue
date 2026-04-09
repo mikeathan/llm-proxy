@@ -141,7 +141,7 @@ function submitConfig() {
         </div>
         <textarea
           v-model="defaultArgsStr"
-          class="form-input font-mono text-xs"
+          class="form-input form-input--mono"
           rows="2"
           placeholder="--ctx-size 4096"
         ></textarea>
@@ -154,7 +154,7 @@ function submitConfig() {
         </div>
         <textarea
           v-model="environmentStr"
-          class="form-input font-mono text-xs"
+          class="form-input form-input--mono"
           rows="3"
           placeholder="HSA_OVERRIDE_GFX_VERSION=11.0.0&#10;AMD_SERIALIZE_KERNEL=1"
         ></textarea>
@@ -203,7 +203,11 @@ function submitConfig() {
   @apply mb-2;
 }
 .form-input {
-  @apply w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2.5 text-white transition-all focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 outline-none;
+  @apply w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2.5 text-white transition-all 
+         focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 outline-none;
+}
+.form-input--mono {
+  @apply font-mono text-xs;
 }
 .form-section {
   @apply pt-4 border-t border-gray-700 mt-4;
@@ -212,6 +216,7 @@ function submitConfig() {
   @apply pt-6 border-t border-gray-700 flex justify-end;
 }
 .btn-submit {
-  @apply bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-md font-bold transition-all shadow-lg hover:shadow-blue-600/20 active:scale-95;
+  @apply bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-md font-bold transition-all shadow-lg 
+         hover:shadow-blue-600/20 active:scale-95;
 }
 </style>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import SystemStatus from '../components/dashboard/SystemStatus.vue'
-import ModelManager from '../components/ModelManager.vue'
-import { useModels } from '../composables/useModels'
-import { useMetrics } from '../composables/useMetrics'
-import { normaliseFormArgs } from '../utils/models'
+import SystemStatus from './SystemStatus.vue'
+import ModelManager from '../ModelManager.vue'
+import { useModels } from '../../composables/useModels'
+import { useMetrics } from '../../composables/useMetrics'
+import { normaliseFormArgs } from '../../utils/models'
 
 const {
   state,
@@ -34,55 +34,67 @@ const cloudModelsCount = computed(() => state.value?.models.filter(m => m.provid
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="dashboard-shell">
     <!-- Top System Metrics (Host/GPU) -->
     <SystemStatus
       v-if="activeTab === 'local'"
       :activeModel="activeModel"
       :metrics="metrics"
       @stopModel="stopModel"
-      class="animate-in fade-in slide-in-from-top-4 duration-500"
+      class="system-status-wrapper"
     />
 
     <!-- Cloud Metrics Placeholder -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
+    <div v-else class="metric-grid">
       <div class="stat-card">
         <h3 class="stat-label">Cloud Provider Status</h3>
-        <div class="flex items-center gap-2 mt-1">
-          <div class="h-2.5 w-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
-          <span class="text-xl font-bold text-white">All Systems Operational</span>
+        <div class="status-row">
+          <div class="status-dot status-dot--active"></div>
+          <span class="status-text">All Systems Operational</span>
         </div>
       </div>
       <div class="stat-card">
         <h3 class="stat-label">API Latency (avg)</h3>
-        <span class="text-2xl font-bold text-white">124ms</span>
+        <span class="stat-value">124ms</span>
       </div>
       <div class="stat-card">
         <h3 class="stat-label">Cloud Models Active</h3>
-        <span class="text-2xl font-bold text-white">{{ cloudModelsCount }}</span>
+        <span class="stat-value">{{ cloudModelsCount }}</span>
       </div>
     </div>
 
     <!-- Provider Tab Switcher -->
-    <div class="flex items-center gap-1 bg-gray-800 p-1 rounded-lg w-fit border border-gray-700">
+    <div class="tab-switcher">
       <button
         @click="activeTab = 'local'"
-        :class="['tab-btn', activeTab === 'local' ? 'tab-active' : '']"
+        class="tab-btn"
+        :class="activeTab === 'local' ? 'tab-btn--active' : 'tab-btn--inactive'"
       >
         Local Instances
-        <span class="tab-count">{{ localModelsCount }}</span>
+        <span
+          class="tab-count"
+          :class="activeTab === 'local' ? 'tab-count--active' : 'tab-count--inactive'"
+        >
+          {{ localModelsCount }}
+        </span>
       </button>
       <button
         @click="activeTab = 'cloud'"
-        :class="['tab-btn', activeTab === 'cloud' ? 'tab-active' : '']"
+        class="tab-btn"
+        :class="activeTab === 'cloud' ? 'tab-btn--active' : 'tab-btn--inactive'"
       >
         Cloud Providers
-        <span class="tab-count">{{ cloudModelsCount }}</span>
+        <span
+          class="tab-count"
+          :class="activeTab === 'cloud' ? 'tab-count--active' : 'tab-count--inactive'"
+        >
+          {{ cloudModelsCount }}
+        </span>
       </button>
     </div>
 
     <!-- Main Content Area -->
-    <div class="relative min-h-[400px]">
+    <div class="content-area">
       <transition
         enter-active-class="transition duration-300 ease-out"
         enter-from-class="transform translate-y-4 opacity-0"
@@ -109,20 +121,24 @@ const cloudModelsCount = computed(() => state.value?.models.filter(m => m.provid
 </template>
 
 <style scoped lang="postcss">
-.tab-btn {
-  @apply px-4 py-2 rounded-md text-sm font-medium transition-all text-gray-400 hover:text-white flex items-center gap-2;
+.dashboard-shell {
+  @apply space-y-6;
 }
 
-.tab-active {
-  @apply bg-gray-700 text-white shadow-sm;
+.system-status-wrapper {
+  @apply animate-in fade-in slide-in-from-top-4 duration-500;
 }
 
-.tab-count {
-  @apply text-[10px] bg-gray-900 border border-gray-700 text-gray-400 px-1.5 py-0.5 rounded-full;
+.metric-grid {
+  @apply grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500;
 }
 
-.tab-active .tab-count {
-  @apply text-blue-400 border-blue-900/50;
+.status-row {
+  @apply flex items-center gap-2 mt-1;
+}
+
+.status-text {
+  @apply text-xl font-bold text-white;
 }
 
 .stat-card {
@@ -131,5 +147,49 @@ const cloudModelsCount = computed(() => state.value?.models.filter(m => m.provid
 
 .stat-label {
   @apply text-xs font-bold text-gray-500 uppercase tracking-wider mb-1;
+}
+
+.stat-value {
+  @apply text-2xl font-bold text-white;
+}
+
+.status-dot {
+  @apply h-2.5 w-2.5 rounded-full;
+}
+
+.status-dot--active {
+  @apply bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)];
+}
+
+.tab-switcher {
+  @apply flex items-center gap-1 bg-gray-800 p-1 rounded-lg w-fit border border-gray-700;
+}
+
+.tab-btn {
+  @apply px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2;
+}
+
+.tab-btn--active {
+  @apply bg-gray-700 text-white shadow-sm;
+}
+
+.tab-btn--inactive {
+  @apply text-gray-400 hover:text-white;
+}
+
+.tab-count {
+  @apply text-[10px] bg-gray-900 border px-1.5 py-0.5 rounded-full;
+}
+
+.tab-count--active {
+  @apply text-blue-400 border-blue-900/50;
+}
+
+.tab-count--inactive {
+  @apply text-gray-400 border-gray-700;
+}
+
+.content-area {
+  @apply relative min-h-[400px];
 }
 </style>

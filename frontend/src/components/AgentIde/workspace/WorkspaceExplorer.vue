@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import InlineConfirm from '../ui/InlineConfirm.vue'
+import InlineConfirm from '../../ui/InlineConfirm.vue'
 
 const props = defineProps<{
   workspaces: { id: string }[]
@@ -49,45 +49,45 @@ const handleCreateFile = (workspace: string) => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-900/20">
+  <div class="explorer-shell">
     <!-- New Workspace Action Bar -->
-    <div class="p-4 border-b border-white/5 bg-gray-900/40">
-      <div class="relative group">
+    <div class="action-bar">
+      <div class="input-wrapper group">
         <input 
           v-model="newWorkspaceName" 
           placeholder="Create new workspace..." 
-          class="w-full bg-black/40 text-[11px] text-gray-200 pl-3 pr-10 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all placeholder:text-gray-600" 
+          class="action-input" 
           @keyup.enter="handleCreateWorkspace" 
         />
         <button 
           @click="handleCreateWorkspace" 
-          class="absolute right-1 top-1 bottom-1 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors flex items-center justify-center shadow-lg active:scale-95"
+          class="btn-add-action"
           title="Create Workspace"
         >
-          <span class="text-sm font-bold">+</span>
+          <span class="btn-plus-icon">+</span>
         </button>
       </div>
     </div>
     
-    <div v-if="loading" class="p-4 text-gray-500 text-sm">Loading...</div>
+    <div v-if="loading" class="loading-state">Loading...</div>
     <div v-else>
-      <div v-for="ws in workspaces" :key="ws.id" class="border-b border-gray-750">
+      <div v-for="ws in workspaces" :key="ws.id" class="workspace-item">
         <div class="group">
           <button
             @click="emit('select-workspace', ws.id)"
-            class="w-full px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-750 flex justify-between items-center"
+            class="workspace-row"
           >
-            <span class="font-medium">📁 {{ ws.id }}</span>
-            <div class="flex items-center gap-2">
+            <span class="workspace-name">📁 {{ ws.id }}</span>
+            <div class="row-controls">
               <button
                 v-if="confirmingDeleteWs !== ws.id"
                 @click.stop="confirmingDeleteWs = ws.id"
-                class="text-red-400 hover:text-red-300 text-xs opacity-0 group-hover:opacity-100"
+                class="btn-delete-row"
                 title="Delete workspace"
               >
                 🗑️
               </button>
-              <span class="text-xs text-gray-500">{{ selectedWorkspace === ws.id ? '▼' : '▶' }}</span>
+              <span class="row-arrow">{{ selectedWorkspace === ws.id ? '▼' : '▶' }}</span>
             </div>
           </button>
         </div>
@@ -101,38 +101,32 @@ const handleCreateFile = (workspace: string) => {
           />
         </div>
         
-        <div v-if="selectedWorkspace === ws.id && confirmingDeleteWs !== ws.id" class="bg-gray-900/50 pb-2">
+        <div v-if="selectedWorkspace === ws.id && confirmingDeleteWs !== ws.id" class="file-section">
           <!-- New File Action Bar -->
-          <div class="px-4 py-3">
-            <div class="relative group">
+          <div class="file-action-bar">
+            <div class="input-wrapper group">
               <input 
                 v-model="newFileName" 
                 placeholder="Create new file..." 
-                class="w-full bg-black/40 text-[10px] text-gray-300 pl-3 pr-8 py-1.5 rounded-md border border-white/5 focus:outline-none focus:border-blue-500/50 transition-all placeholder:text-gray-700 font-mono" 
+                class="action-input action-input--file" 
                 @keyup.enter="handleCreateFile(ws.id)" 
               />
               <button 
                 @click="handleCreateFile(ws.id)" 
-                class="absolute right-0.5 top-0.5 bottom-0.5 px-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-sm transition-colors flex items-center justify-center shadow-lg active:scale-95"
+                class="btn-add-action btn-add-action--file"
                 title="Create File"
               >
-                <span class="text-xs font-bold">+</span>
+                <span class="btn-plus-icon btn-plus-icon--file">+</span>
               </button>
             </div>
           </div>
           
           <div v-for="file in workspaceFiles[ws.id]" :key="file">
-            <div
-              class="group w-full px-8 py-1.5 text-left text-xs transition-colors flex items-center justify-between"
-            >
+            <div class="file-row group">
               <button
                 @click="emit('open-file', ws.id, file)"
-                :class="[
-                  'flex-1 flex items-center gap-2',
-                  selectedFile?.workspace === ws.id && selectedFile?.filename === file
-                    ? 'text-white'
-                    : 'text-gray-400 hover:text-gray-200'
-                ]"
+                class="btn-file-open"
+                :class="{ 'btn-file-open--selected': selectedFile?.workspace === ws.id && selectedFile?.filename === file }"
               >
                 <span>{{ file.endsWith('.md') ? '📝' : '📄' }}</span>
                 {{ file }}
@@ -140,7 +134,7 @@ const handleCreateFile = (workspace: string) => {
               <button
                 v-if="confirmingDeleteFile?.file !== file || confirmingDeleteFile?.ws !== ws.id"
                 @click.stop="confirmingDeleteFile = { ws: ws.id, file }"
-                class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1"
+                class="btn-file-delete"
                 title="Delete file"
               >
                 ×
@@ -161,3 +155,95 @@ const handleCreateFile = (workspace: string) => {
     </div>
   </div>
 </template>
+
+<style scoped lang="postcss">
+.explorer-shell {
+  @apply flex flex-col h-full bg-gray-900/20;
+}
+
+.action-bar {
+  @apply p-4 border-b border-white/5 bg-gray-900/40;
+}
+
+.input-wrapper {
+  @apply relative;
+}
+
+.action-input {
+  @apply w-full bg-black/40 text-[11px] text-gray-200 pl-3 pr-10 py-2 rounded-lg border border-white/10 
+         focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all placeholder:text-gray-600;
+}
+
+.action-input--file {
+  @apply text-[10px] text-gray-300 pr-8 py-1.5 rounded-md border-white/5 placeholder:text-gray-700 font-mono;
+}
+
+.btn-add-action {
+  @apply absolute right-1 top-1 bottom-1 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-md 
+         transition-colors flex items-center justify-center shadow-lg active:scale-95;
+}
+
+.btn-add-action--file {
+  @apply right-0.5 top-0.5 bottom-0.5 px-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-sm;
+}
+
+.btn-plus-icon {
+  @apply text-sm font-bold;
+}
+
+.btn-plus-icon--file {
+  @apply text-xs flex items-center justify-center;
+}
+
+.loading-state {
+  @apply p-4 text-gray-500 text-sm;
+}
+
+.workspace-item {
+  @apply border-b border-gray-700;
+}
+
+.workspace-row {
+  @apply w-full px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-700 flex justify-between items-center;
+}
+
+.workspace-name {
+  @apply font-medium;
+}
+
+.row-controls {
+  @apply flex items-center gap-2;
+}
+
+.btn-delete-row {
+  @apply text-red-400 hover:text-red-300 text-xs opacity-0 group-hover:opacity-100;
+}
+
+.row-arrow {
+  @apply text-xs text-gray-500;
+}
+
+.file-section {
+  @apply bg-gray-900/50 pb-2;
+}
+
+.file-action-bar {
+  @apply px-4 py-3;
+}
+
+.file-row {
+  @apply w-full px-8 py-1.5 text-left text-xs transition-colors flex items-center justify-between;
+}
+
+.btn-file-open {
+  @apply flex-1 flex items-center gap-2 text-gray-400 hover:text-gray-200;
+}
+
+.btn-file-open--selected {
+  @apply text-white;
+}
+
+.btn-file-delete {
+  @apply opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1;
+}
+</style>

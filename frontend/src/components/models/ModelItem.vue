@@ -51,15 +51,15 @@ function saveEdit() {
   <div :class="['model-item', model.active ? 'model-active' : 'model-inactive', isEditing ? 'model-editing' : '']">
     
     <!-- Normal View -->
-    <div v-if="!isEditing" class="w-full flex justify-between items-center gap-4">
-      <div class="min-w-0 flex-1">
-        <div class="model-name truncate" :title="model.name">
+    <div v-if="!isEditing" class="normal-view">
+      <div class="content-left">
+        <div class="model-name-group truncate" :title="model.name">
           <span :class="['provider-badge', `badge-${model.provider}`]">{{ model.provider }}</span>
           {{ model.name }}
-          <span v-if="model.active && model.provider === 'local'" class="model-badge-active">Online</span>
-          <span v-else-if="model.active" class="model-badge-active !bg-purple-600">Selected</span>
+          <span v-if="model.active && model.provider === 'local'" class="status-badge status-badge--online">Online</span>
+          <span v-else-if="model.active" class="status-badge status-badge--selected">Selected</span>
         </div>
-        <div class="model-details truncate">
+        <div class="model-meta truncate">
           <template v-if="model.provider === 'local'">
             Port: {{ model.port }} &bull; File: {{ model.filename }}
           </template>
@@ -67,30 +67,38 @@ function saveEdit() {
             Model ID: {{ model.model_id || model.filename }}
           </template>
         </div>
-        <div class="model-details mt-1 truncate" v-if="model.args && model.args.length" :title="model.args.join(' ')">
-          Args: <span class="font-mono text-[10px] text-gray-400">{{ model.args.join(' ') }}</span>
+        <div class="model-meta mt-1 truncate" v-if="model.args && model.args.length" :title="model.args.join(' ')">
+          Args: <span class="args-text">{{ model.args.join(' ') }}</span>
         </div>
       </div>
-      <div class="model-actions shrink-0">
+      <div class="model-actions">
         <!-- Start/Stop only for local -->
         <template v-if="model.provider === 'local'">
-          <button v-if="!model.active" @click="$emit('start-model', model.name)" class="btn-start">Start</button>
-          <button v-else @click="$emit('stop-model')" class="btn-stop-local">Stop</button>
+          <button v-if="!model.active" @click="$emit('start-model', model.name)" class="btn-action-primary">Start</button>
+          <button v-else @click="$emit('stop-model')" class="btn-action-stop">Stop</button>
         </template>
         <!-- Deactivate for cloud when active -->
         <template v-else-if="model.active">
-          <button @click="$emit('stop-model')" class="btn-stop-local !bg-gray-700 hover:!bg-gray-600">Deselect</button>
+          <button @click="$emit('stop-model')" class="btn-action-deselect">Deselect</button>
         </template>
         
-        <button @click="initializeEdit(); $emit('start-edit', model)" class="btn-edit">Edit</button>
-        <button @click="$emit('remove-model', model.name)" :class="['btn-remove', model.active ? 'btn-remove-disabled' : '']" :disabled="model.active">Remove</button>
+        <button @click="initializeEdit(); $emit('start-edit', model)" class="btn-action-edit">Edit</button>
+        <button 
+          @click="$emit('remove-model', model.name)" 
+          class="btn-action-remove"
+          :class="{ 'btn-action-remove--disabled': model.active }"
+          :disabled="model.active"
+          title="Remove configuration"
+        >
+          Remove
+        </button>
       </div>
     </div>
 
     <!-- Edit View -->
-    <div v-else class="w-full flex flex-col gap-3">
-      <div class="font-medium text-white mb-1">Edit {{ model.name }}</div>
-      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+    <div v-else class="edit-view">
+      <div class="edit-header">Edit {{ model.name }}</div>
+      <div class="edit-grid">
         <template v-if="model.provider === 'local'">
           <div class="form-col-1-edit">
             <label class="form-label">Port</label>
@@ -115,9 +123,9 @@ function saveEdit() {
           </div>
         </template>
       </div>
-      <div class="flex justify-end gap-2 mt-2">
-        <button @click="$emit('cancel-edit')" class="btn-remove">Cancel</button>
-        <button @click="saveEdit" class="btn-start !bg-blue-600 hover:!bg-blue-500">Save Changes</button>
+      <div class="edit-actions">
+        <button @click="$emit('cancel-edit')" class="btn-action-remove">Cancel</button>
+        <button @click="saveEdit" class="btn-action-save">Save Changes</button>
       </div>
     </div>
   </div>
@@ -127,64 +135,128 @@ function saveEdit() {
 .model-item {
   @apply p-4 rounded-lg border transition-all;
 }
+
 .model-active {
   @apply bg-blue-900/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.05)];
 }
+
 .model-inactive {
   @apply bg-gray-900/50 border-gray-700 hover:border-gray-600;
 }
+
 .model-editing {
   @apply bg-gray-800 border-blue-500 ring-2 ring-blue-600/20 translate-x-1;
 }
-.model-name {
+
+.normal-view {
+  @apply w-full flex justify-between items-center gap-4;
+}
+
+.content-left {
+  @apply min-w-0 flex-1;
+}
+
+.model-name-group {
   @apply font-semibold text-white flex items-center gap-2;
 }
+
 .provider-badge {
   @apply px-1.5 py-0.5 rounded text-[9px] uppercase font-bold tracking-tight border;
 }
+
 .badge-local { @apply bg-blue-900/30 text-blue-400 border-blue-500/30; }
 .badge-gemini { @apply bg-purple-900/30 text-purple-400 border-purple-500/30; }
 .badge-openai { @apply bg-green-900/30 text-green-400 border-green-500/30; }
 .badge-openrouter { @apply bg-orange-900/30 text-orange-400 border-orange-500/30; }
 .badge-vertex { @apply bg-red-900/30 text-red-400 border-red-500/30; }
 
-.model-badge-active {
-  @apply px-1.5 py-0.5 text-[9px] uppercase font-black rounded-full bg-green-500 text-gray-950 shadow-[0_0_8px_rgba(34,197,94,0.4)];
+.status-badge {
+  @apply px-1.5 py-0.5 text-[9px] uppercase font-black rounded-full text-gray-950;
 }
-.model-details {
+
+.status-badge--online {
+  @apply bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)];
+}
+
+.status-badge--selected {
+  @apply bg-purple-600 text-white shadow-[0_0_8px_rgba(147,51,234,0.4)];
+}
+
+.model-meta {
   @apply text-[11px] text-gray-500 mt-1;
 }
+
+.args-text {
+  @apply font-mono text-[10px] text-gray-400;
+}
+
 .model-actions {
   @apply flex gap-2 items-center flex-wrap justify-end shrink-0;
 }
-.btn-start {
+
+.btn-action-primary {
   @apply px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded shadow-lg transition-all active:scale-95;
 }
-.btn-stop-local {
+
+.btn-action-stop {
   @apply px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded shadow-lg transition-all active:scale-95;
 }
-.btn-edit {
+
+.btn-action-deselect {
+  @apply px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-[11px] font-bold rounded shadow-lg transition-all active:scale-95;
+}
+
+.btn-action-edit {
   @apply text-[11px] px-2 py-1.5 text-gray-400 hover:text-white transition-colors;
 }
-.btn-remove {
+
+.btn-action-remove {
   @apply px-2 py-1.5 text-[11px] text-gray-500 hover:text-red-400 transition-colors;
 }
-.btn-remove-disabled {
+
+.btn-action-remove--disabled {
   @apply opacity-20 cursor-not-allowed grayscale;
+}
+
+.edit-view {
+  @apply w-full flex flex-col gap-3;
+}
+
+.edit-header {
+  @apply font-medium text-white mb-1;
+}
+
+.edit-grid {
+  @apply grid grid-cols-1 sm:grid-cols-4 gap-3;
+}
+
+.edit-actions {
+  @apply flex justify-end gap-2 mt-2;
+}
+
+.btn-action-save {
+  @apply px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded shadow-lg transition-all active:scale-95;
 }
 
 .form-label {
   @apply block text-[10px] uppercase font-bold text-gray-500 mb-1.5 tracking-wider;
 }
+
 .form-input {
-  @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all;
+  @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white 
+         focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all;
 }
+
 select.form-input {
-  @apply appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[position:right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat pr-10;
+  @apply appearance-none bg-no-repeat pr-10
+         bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] 
+         bg-[position:right_0.5rem_center] bg-[length:1.25rem_1.25rem];
 }
+
 .form-col-1-edit {
   @apply sm:col-span-1;
 }
+
 .form-col-3-edit {
   @apply sm:col-span-3;
 }

@@ -85,6 +85,20 @@
       "provider": "openrouter",
       "filename": "google/gemma-3n-e2b-it:free",
       "provider_config": {}
+    },
+    {
+      "name": "qwen3-coder:free",
+      "provider": "openrouter",
+      "filename": "qwen/qwen3-coder:free",
+      "provider_config": {
+        "api_key_name": "test-1"
+      }
+    },
+    {
+      "name": "minimax-m2.5:free",
+      "provider": "openrouter",
+      "filename": "minimax/minimax-m2.5:free",
+      "provider_config": {}
     }
   ],
   "metrics": {

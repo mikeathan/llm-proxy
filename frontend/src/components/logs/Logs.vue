@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from "vue";
-import LogLevelPanel from "../components/settings/LogLevelPanel.vue";
-import { useLogs } from "../composables/useLogs";
-import { useMetrics } from "../composables/useMetrics";
+import LogLevelPanel from "../settings/LogLevelPanel.vue";
+import { useLogs } from "../../composables/useLogs";
+import { useMetrics } from "../../composables/useMetrics";
 
 type LogTab = "app" | "process";
 const activeTab = ref<LogTab>("app");
@@ -58,7 +58,8 @@ const handleClear = () => {
       <nav class="logs-tabs">
         <button
           id="tab-app-logs"
-          :class="['tab-btn', isActive('app') ? 'tab-active' : 'tab-inactive']"
+          class="tab-btn"
+          :class="isActive('app') ? 'tab-btn--active' : 'tab-btn--inactive'"
           @click="activeTab = 'app'"
         >
           <span class="tab-icon">📋</span>
@@ -66,7 +67,8 @@ const handleClear = () => {
         </button>
         <button
           id="tab-process-logs"
-          :class="['tab-btn', isActive('process') ? 'tab-active' : 'tab-inactive']"
+          class="tab-btn"
+          :class="isActive('process') ? 'tab-btn--active' : 'tab-btn--inactive'"
           @click="activeTab = 'process'"
         >
           <span class="tab-icon">⚙️</span>
@@ -116,7 +118,6 @@ const handleClear = () => {
   min-height: 400px;
 }
 
-/* ── Header ── */
 .logs-header {
   @apply flex items-center justify-between gap-3 px-4 py-2.5 border-b border-gray-700 bg-gray-800 flex-wrap;
 }
@@ -129,21 +130,26 @@ const handleClear = () => {
   @apply flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all;
 }
 
-.tab-active {
+.tab-btn--active {
   @apply bg-gray-700 text-white shadow-inner;
 }
 
-.tab-inactive {
+.tab-btn--inactive {
   @apply text-gray-400 hover:text-gray-200 hover:bg-gray-700/50;
 }
 
-/* Indicators */
+.tab-icon {
+  @apply text-xs;
+}
+
 .running-dot {
   @apply relative flex h-2 w-2 ml-1;
 }
+
 .running-ping {
   @apply animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75;
 }
+
 .running-inner {
   @apply relative inline-flex rounded-full h-2 w-2 bg-green-500;
 }
@@ -168,7 +174,6 @@ const handleClear = () => {
   @apply px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white text-xs rounded transition-colors border border-gray-600;
 }
 
-/* ── Log View Area ── */
 .logs-content {
   @apply flex-1 relative overflow-hidden;
 }
