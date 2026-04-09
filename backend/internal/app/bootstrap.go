@@ -96,6 +96,14 @@ func (s AppServices) DefaultModel() (string, error) {
 	return s.AppCtx.DefaultModel()
 }
 
+func (s AppServices) PrimaryModel() string {
+	return s.AppCtx.PrimaryModel()
+}
+
+func (s AppServices) FallbackModel() string {
+	return s.AppCtx.FallbackModel()
+}
+
 func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }

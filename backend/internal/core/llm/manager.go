@@ -3,15 +3,9 @@ package llm
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
-	"log"
 	"net/http"
-	"os"
-	"runtime"
-	"sort"
+	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
 	"llm-proxy/internal/platform/logging"
@@ -25,9 +19,24 @@ const (
 	defaultPortStart   = 8081
 	defaultReapPeriod  = 10 * time.Second
 	shutdownTimeout    = 10 * time.Second
+	logBufferSize      = 10000
 )
 
-var ErrModelStarting = errors.New("model is starting")
+var (
+	ErrModelStarting = errors.New("model is starting")
+	ErrUnknownModel  = errors.New("unknown model")
+	ErrModelExists   = errors.New("model already exists")
+)
+
+type activeModelInfo struct {
+	Name     string
+	Provider string
+	Host     string
+	Port     int
+	Started  time.Time
+	LastUsed time.Time
+	Ready    bool
+}
 
 type ModelInstance struct {
 	Name    string
@@ -84,8 +93,23 @@ type LLMRuntimeManager struct {
 	stopCh            chan struct{}
 }
 
-var ErrUnknownModel = errors.New("unknown model")
-var ErrModelExists = errors.New("model already exists")
+type runningModel struct {
+	cfg        models.ModelConfig
+	cmd        *exec.Cmd
+	cancel     context.CancelFunc
+	started    time.Time
+	lastUsed   time.Time
+	logs       *logging.BufferLogger
+	throughput *metrics.TokenTracker
+}
+
+func (r *runningModel) Cfg() models.ModelConfig {
+	return r.cfg
+}
+
+func (r *runningModel) LastUsed() time.Time {
+	return r.lastUsed
+}
 
 func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMRuntimeManager {
 	return NewWithReapInterval(modelConfigs, modelHost, idleTimeout, defaultReapPeriod)
@@ -99,13 +123,13 @@ func NewManagerFromConfig(cfg *models.Config) *LLMRuntimeManager {
 
 	manager := New(modelsOut, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
 	manager.providers = cfg.Providers
-	
+
 	if local, ok := cfg.Providers["local"]; ok && local.LlamaServerBinary != "" {
 		manager.llamaBinary = local.LlamaServerBinary
 	} else if cfg.Server.LlamaServerBinary != "" {
 		manager.llamaBinary = cfg.Server.LlamaServerBinary
 	}
-	
+
 	return manager
 }
 
@@ -137,11 +161,9 @@ func hostFromConfig(host string) string {
 }
 
 func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provider {
-	// For cloud providers, we look up the credentials in the providers map
 	pCfg := cfg
 	var modelDir string
 	if provider, ok := m.providers[cfg.Provider]; ok {
-		// Merge provider settings into model config for the provider implementation
 		if pCfg.ProviderConfig.APIKey == "" {
 			if pCfg.ProviderConfig.APIKeyName != "" {
 				for _, kInfo := range provider.APIKeys {
@@ -151,7 +173,6 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 					}
 				}
 			}
-			// Fallback: If no name is provided, take the first one if available.
 			if pCfg.ProviderConfig.APIKey == "" && len(provider.APIKeys) > 0 {
 				pCfg.ProviderConfig.APIKey = provider.APIKeys[0].Key
 			}
@@ -178,7 +199,6 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 	case "openai":
 		return NewOpenAIProvider(pCfg)
 	default:
-		// Fallback to local
 		binary := m.llamaBinary
 		if local, ok := m.providers["local"]; ok && local.LlamaServerBinary != "" {
 			binary = local.LlamaServerBinary
@@ -195,7 +215,7 @@ func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, provider
 	cfg := models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: models.ProviderConfig{
-			APIKey: apiKey, // Caller-supplied key takes precedence; createProviderLocked only fills empty fields
+			APIKey: apiKey,
 		},
 	}
 	p := m.createProviderLocked(cfg)
@@ -221,24 +241,19 @@ func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (Model
 
 	cfg, ok := m.models[name]
 	if !ok {
-		// Should not happen as GetInstance succeeded
 		return inst, nil
 	}
 
 	if cfg.Provider != "" && cfg.Provider != "local" {
-		// For cloud, set as persistent active provider
-		p := m.createProviderLocked(cfg) // p is already ready from GetInstance
+		p := m.createProviderLocked(cfg)
 		m.activeProvider = p
 		m.activeCloudConfig = &cfg
 	}
-	// Local models are already set in activeModel by startModelLocked called by GetInstance
 
 	return inst, nil
 }
 
 func (m *LLMRuntimeManager) DefaultModel() (string, error) {
-	// Not used directly on manager, but part of interface. 
-	// The app context usually handles the default model selection logic.
 	return "", nil
 }
 
@@ -251,10 +266,7 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		return ModelInstance{}, ErrUnknownModel
 	}
 
-	// If it's a local model, we use the existing management logic for now
-	// but we could also refactor it to use the Provider interface fully.
 	if cfg.Provider == "" || cfg.Provider == "local" {
-		// Existing local logic (simplified for now but preserving behavior)
 		for {
 			cfg = m.syncPortWithActiveLocked(cfg)
 			if inst, ok := m.readyInstanceLocked(name, cfg); ok {
@@ -286,20 +298,6 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		}
 	}
 
-	// For cloud providers
-	if m.activeProvider == nil {
-		// For now, we only support one active provider at a time
-		// If switching, shutdown the old one
-		if m.activeModel != nil {
-			waiter := m.signalStopLocked()
-			if waiter != nil {
-				m.mu.Unlock()
-				waiter()
-				m.mu.Lock()
-			}
-		}
-	}
-
 	provider := m.createProviderLocked(cfg)
 	if err := provider.EnsureReady(ctx); err != nil {
 		return ModelInstance{}, err
@@ -310,28 +308,12 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		return ModelInstance{}, err
 	}
 
-	// For cloud providers, GetInstance does NOT update m.activeProvider
-	// to avoid hijacking the global system state during ad-hoc usage (like automations).
-
 	return ModelInstance{
 		Name:    name,
 		ModelID: cfg.Filename,
 		URL:     url,
 		Headers: headers,
 	}, nil
-}
-
-func (m *LLMRuntimeManager) RecordActivity(model string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.activeModel != nil && m.activeModel.cfg.Name == model {
-		m.activeModel.lastUsed = time.Now()
-	}
-
-	if m.activeCloudConfig != nil && m.activeCloudConfig.Name == model {
-		// Just tracking it exists for now
-	}
 }
 
 func (m *LLMRuntimeManager) StopActive() error {
@@ -353,93 +335,6 @@ func (m *LLMRuntimeManager) ClearLogs() error {
 	return nil
 }
 
-func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.models[cfg.Name]; ok {
-		return ErrModelExists
-	}
-
-	m.models[cfg.Name] = cfg
-	return nil
-}
-
-func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
-	m.mu.Lock()
-
-	if _, ok := m.models[cfg.Name]; !ok {
-		m.mu.Unlock()
-		return ErrUnknownModel
-	}
-
-	m.models[cfg.Name] = cfg
-
-	var waiter func()
-	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
-		waiter = m.signalStopLocked()
-	}
-	m.mu.Unlock()
-
-	if waiter != nil {
-		waiter()
-	}
-
-	return nil
-}
-
-func (m *LLMRuntimeManager) RemoveModel(name string) error {
-	m.mu.Lock()
-
-	cfg, ok := m.models[name]
-	if !ok {
-		m.mu.Unlock()
-		return ErrUnknownModel
-	}
-
-	var waiter func()
-	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
-		waiter = m.signalStopLocked()
-	}
-
-	delete(m.models, name)
-	m.mu.Unlock()
-
-	if waiter != nil {
-		waiter()
-	}
-	return nil
-}
-
-func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	names := make([]string, 0, len(m.models))
-	for name := range m.models {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	modelsOut := make([]models.ModelConfig, 0, len(names))
-	for _, name := range names {
-		cfg := m.models[name]
-		argsCopy := append([]string(nil), cfg.Args...)
-
-		envCopy := make(map[string]string)
-		for k, v := range cfg.Environment {
-			envCopy[k] = v
-		}
-
-		out := cfg
-		out.Args = argsCopy
-		out.Environment = envCopy
-		modelsOut = append(modelsOut, out)
-	}
-
-	return modelsOut
-}
-
 func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -453,7 +348,7 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 			Port:     cfg.Port,
 			Started:  m.activeModel.started,
 			LastUsed: m.activeModel.lastUsed,
-			Ready:    utils.PortReady(cfg.Port),
+			Ready:    portReady(cfg.Port),
 		}
 	}
 
@@ -466,78 +361,6 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 	}
 
 	return nil
-}
-
-// ActiveLogs returns the buffered stdout/stderr for the active model.
-func (m *LLMRuntimeManager) ActiveLogs() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.activeModel == nil || m.activeModel.logs == nil {
-		return ""
-	}
-	return m.activeModel.logs.String()
-}
-
-// LastTokensPerSecond returns the most recent throughput reported by llama-server output.
-func (m *LLMRuntimeManager) LastTokensPerSecond() (float64, time.Time) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.activeModel != nil && m.activeModel.throughput != nil {
-		return m.activeModel.throughput.LastTokensPerSecond()
-	}
-	return 0, time.Time{}
-}
-
-func (m *LLMRuntimeManager) signalStopLocked() func() {
-	if m.activeModel == nil {
-		m.activeProvider = nil
-		m.activeCloudConfig = nil
-		return nil
-	}
-
-	cmd := m.activeModel.cmd
-	if m.activeModel.cancel != nil {
-		m.activeModel.cancel()
-	}
-
-	// Try graceful stop
-	if cmd.Process != nil {
-		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
-			_ = syscall.Kill(-pgid, syscall.SIGTERM)
-		} else {
-			_ = cmd.Process.Signal(syscall.SIGTERM)
-		}
-	}
-
-	m.activeModel = nil
-	m.activeProvider = nil
-	m.activeCloudConfig = nil
-
-	return func() {
-		done := make(chan struct{})
-		go func() {
-			cmd.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-		case <-time.After(shutdownTimeout):
-			if cmd.Process != nil {
-				if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
-					_ = syscall.Kill(-pgid, syscall.SIGKILL)
-				} else {
-					_ = cmd.Process.Kill()
-				}
-			}
-		}
-	}
-}
-
-func (m *LLMRuntimeManager) ActiveModel() *runningModel {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.activeModel
 }
 
 func (m *LLMRuntimeManager) ModelHost() string {
@@ -578,35 +401,6 @@ func (m *LLMRuntimeManager) defaultPortLocked(cfg models.ModelConfig, activePort
 	return port
 }
 
-func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
-	t := time.NewTicker(reapInterval)
-	defer t.Stop()
-
-	for {
-		select {
-		case <-m.stopCh:
-			return
-		case <-t.C:
-			m.mu.Lock()
-
-			if m.activeModel != nil {
-				if time.Since(m.activeModel.lastUsed) > m.idleTimeout {
-					log.Printf("Idle timeout on model %s → stopping", m.activeModel.cfg.Name)
-					waiter := m.signalStopLocked()
-					m.mu.Unlock()
-					if waiter != nil {
-						waiter()
-					}
-					continue
-				}
-			}
-
-			m.mu.Unlock()
-		}
-	}
-}
-
-// Shutdown stops the background reaper and any active model.
 func (m *LLMRuntimeManager) Shutdown() {
 	close(m.stopCh)
 	m.mu.Lock()
@@ -625,7 +419,7 @@ func (m *LLMRuntimeManager) syncPortWithActiveLocked(cfg models.ModelConfig) mod
 }
 
 func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelConfig) (ModelInstance, bool) {
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && utils.PortReady(m.activeModel.cfg.Port) {
+	if m.activeModel != nil && m.activeModel.cfg.Name == name && portReady(m.activeModel.cfg.Port) {
 		return ModelInstance{
 			Name: name,
 			Host: m.modelHost,
@@ -642,39 +436,12 @@ func (m *LLMRuntimeManager) activePortLocked() int {
 	return 0
 }
 
-func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.ModelConfig) error {
-	logBuf := logging.NewBufferLogger(logBufferSize)
-	tokens := metrics.NewTokenTracker()
-	procCtx, cancel := context.WithCancel(context.Background())
+func (m *LLMRuntimeManager) ActiveModel() *runningModel {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeModel
+}
 
-	cmd := utils.ExecCommandContext(procCtx, m.llamaBinary, buildLaunchArgs(cfg)...)
-	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
-	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
-	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)
-
-	if len(cfg.Environment) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range cfg.Environment {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return fmt.Errorf("model start failed: %w", err)
-	}
-
-	m.activeModel = &runningModel{
-		cfg:        cfg,
-		cmd:        cmd,
-		cancel:     cancel,
-		started:    time.Now(),
-		lastUsed:   time.Now(),
-		logs:       logBuf,
-		throughput: tokens,
-	}
-
-	return nil
+func portReady(port int) bool {
+	return utils.PortReady(port)
 }

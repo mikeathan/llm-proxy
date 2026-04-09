@@ -20,12 +20,16 @@ Apply these standards to all Go-related tasks:
 - **Exponential Backoff**: Implement retries with `minDelay=5s`, `maxDelay=5m`, and a doubling multiplier.
 - **Log Management**: Mute failure logs after 3 attempts to prevent log-spam. Transition to "Background Heartbeat" mode once the max delay is reached.
 - **Atomic Initialization**: Handshake with external dependencies (like MCP or DBs) fully _before_ setting `initialized = true`.
+- **Failover-First Design**: When implementing model hierarchies (Primary/Fallback), strictly distinguish between "Transitional States" (e.g., loading weights) and "Terminal Errors" (e.g., OOM, 401, 503). Never fallback during a normal startup.
+
 
 ## 3. Clean Architecture & Patterns
 
 - **Interfaces**: Define interfaces at the point of use (consumer-side), not producer-side.
 - **Error Handling**: Use early returns ("Happy Path" to the left). Wrap errors with context: `fmt.Errorf("action failed: %w", err)`.
 - **Dependency Injection**: Use constructor functions (`NewService`) to inject all dependencies. No global variables or `init()` magic.
+- **Logical Modularization**: Avoid single-file bloat (e.g., >500 lines). Extract lifecycle management, registration, and provider-specific logic into scoped files (e.g., `lifecycle.go`, `registry.go`, `providers.go`) while maintaining package-level visibility.
+
 
 ## 4. Performance & Resource Safety
 
@@ -36,3 +40,5 @@ Apply these standards to all Go-related tasks:
 
 - **Table-Driven Tests**: Use the sub-test pattern (`t.Run`) and anonymous structs for test cases.
 - **Mocks**: Generate or manually implement interfaces to isolate unit tests from external I/O.
+- **Validation**: Include tests for failover scenarios, ensuring the system recovers gracefully from provider outages.
+

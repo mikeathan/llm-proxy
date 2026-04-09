@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"llm-proxy/internal/core/llm"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 
 type ModelSelector interface {
 	DefaultModel() (string, error)
+	PrimaryModel() string
+	FallbackModel() string
 }
 
 type LLMClientProvider interface {
@@ -43,6 +46,30 @@ func NewRuntimeClientProvider(
 }
 
 func (p *RuntimeClientProvider) GetClient(ctx context.Context) (Client, error) {
+	primary := p.selector.PrimaryModel()
+	fallback := p.selector.FallbackModel()
+
+	// 1. If we have a Primary, try it first
+	if primary != "" {
+		client, err := p.GetClientForModel(ctx, primary)
+		if err == nil {
+			return client, nil
+		}
+
+		// Strictly honor the "Starting" state - do not fallback if it's just a cold start
+		if errors.Is(err, llm.ErrModelStarting) {
+			return nil, err
+		}
+
+		// For any other "Terminal" error, try to use the fallback if available
+		if fallback != "" {
+			return p.GetClientForModel(ctx, fallback)
+		}
+
+		return nil, err
+	}
+
+	// 2. Legacy/Fallback: Use DefaultModel if no Primary is configured
 	modelName, err := p.selector.DefaultModel()
 	if err != nil {
 		return nil, err

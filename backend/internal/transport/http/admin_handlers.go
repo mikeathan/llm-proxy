@@ -823,6 +823,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	if req.Provider == "" {
 		req.Provider = existing.Provider
 	}
+	if req.Provider == "" {
+		req.Provider = "local"
+	}
 	if req.Filename == "" && req.Path != "" {
 		req.Filename = filepath.Base(req.Path)
 	}

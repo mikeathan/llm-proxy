@@ -77,6 +77,14 @@ func (a *AppContext) ConfiguredDefaultModel() string {
 	return a.config.Server.DefaultModel
 }
 
+func (a *AppContext) PrimaryModel() string {
+	return a.config.Server.PrimaryModel
+}
+
+func (a *AppContext) FallbackModel() string {
+	return a.config.Server.FallbackModel
+}
+
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
 }

@@ -51,6 +51,8 @@ type ServerConfig struct {
 	DefaultArgs       []string          `json:"default_args"`
 	Environment       map[string]string `json:"environment"`
 	DefaultModel      string            `json:"default_model,omitempty"`
+	PrimaryModel      string            `json:"primary_model,omitempty"`
+	FallbackModel     string            `json:"fallback_model,omitempty"`
 }
 
 type ModelConfig struct {

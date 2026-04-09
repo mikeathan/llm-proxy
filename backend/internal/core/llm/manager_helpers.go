@@ -1,11 +1,11 @@
 package llm
 
 import (
-	"llm-proxy/models"
+	"fmt"
 	"path/filepath"
-)
 
-// Common helper functions for configuration and resolution.
+	"llm-proxy/models"
+)
 
 func resolveModelFile(baseDir string, m models.ModelConfig) string {
 	if m.Path != "" && filepath.IsAbs(m.Path) {
@@ -62,6 +62,29 @@ func normalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelCo
 	}
 	if out.Filename == "" && out.Path != "" {
 		out.Filename = filepath.Base(out.Path)
+	}
+	return out
+}
+
+func buildLaunchArgs(cfg models.ModelConfig) []string {
+	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
+	return append(args, sanitizeArgs(cfg.Args)...)
+}
+
+func sanitizeArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	skipNext := false
+	for i := 0; i < len(args); i++ {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		arg := args[i]
+		if arg == "--n-batch" {
+			skipNext = true
+			continue
+		}
+		out = append(out, arg)
 	}
 	return out
 }

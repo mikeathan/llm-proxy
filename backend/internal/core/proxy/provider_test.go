@@ -23,6 +23,9 @@ func (m *mockSelector) DefaultModel() (string, error) {
 	return m.model, nil
 }
 
+func (m *mockSelector) PrimaryModel() string  { return "" }
+func (m *mockSelector) FallbackModel() string { return "" }
+
 type dummyClient struct {
 	baseURL string
 }

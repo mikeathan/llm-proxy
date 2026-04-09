@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
@@ -18,31 +17,11 @@ import (
 	"llm-proxy/models"
 )
 
-const logBufferSize = 64 * 1024
-
 type LocalProvider struct {
 	cfg         models.ModelConfig
 	llamaBinary string
 	modelDir    string
 	activeModel *runningModel
-}
-
-type runningModel struct {
-	cfg        models.ModelConfig
-	cmd        *exec.Cmd
-	cancel     context.CancelFunc
-	started    time.Time
-	lastUsed   time.Time
-	logs       *logging.BufferLogger
-	throughput *metrics.TokenTracker
-}
-
-func (r *runningModel) Cfg() models.ModelConfig {
-	return r.cfg
-}
-
-func (r *runningModel) LastUsed() time.Time {
-	return r.lastUsed
 }
 
 func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir string) *LocalProvider {
@@ -95,7 +74,7 @@ func (p *LocalProvider) GetStatus() ProviderStatus {
 		}
 		return ProviderStatusRunning
 	}
-	return ProviderStatusReady // Ready for use, even if not running
+	return ProviderStatusReady 
 }
 
 func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
@@ -127,7 +106,6 @@ func (p *LocalProvider) Shutdown() error {
 		p.activeModel.cancel()
 	}
 
-	// Try graceful stop
 	if cmd.Process != nil {
 		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
 			_ = syscall.Kill(-pgid, syscall.SIGTERM)
@@ -136,7 +114,6 @@ func (p *LocalProvider) Shutdown() error {
 		}
 	}
 
-	// Wait with timeout
 	done := make(chan struct{})
 	go func() {
 		cmd.Wait()
@@ -193,27 +170,4 @@ func (p *LocalProvider) startModel(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func buildLaunchArgs(cfg models.ModelConfig) []string {
-	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
-	return append(args, sanitizeArgs(cfg.Args)...)
-}
-
-func sanitizeArgs(args []string) []string {
-	out := make([]string, 0, len(args))
-	skipNext := false
-	for i := 0; i < len(args); i++ {
-		if skipNext {
-			skipNext = false
-			continue
-		}
-		arg := args[i]
-		if arg == "--n-batch" {
-			skipNext = true
-			continue
-		}
-		out = append(out, arg)
-	}
-	return out
 }
