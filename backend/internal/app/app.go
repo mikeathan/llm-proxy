@@ -5,12 +5,15 @@ import (
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 )
 
 type App struct {
-	server *http.Server
+	server     *http.Server
+	services   AppServices
+	dispatcher *automation.Dispatcher
 }
 
 func (a *App) Handler() http.Handler {
@@ -19,6 +22,26 @@ func (a *App) Handler() http.Handler {
 
 func (a *App) ListenAndServe() error {
 	return a.server.ListenAndServe()
+}
+
+func (a *App) Shutdown(ctx context.Context) error {
+	logging.Info("Shutting down application...")
+
+	// 1. Shutdown HTTP server
+	if err := a.server.Shutdown(ctx); err != nil {
+		logging.Error("HTTP server shutdown error", "error", err)
+	}
+
+	// 2. Stop dispatcher
+	if a.dispatcher != nil {
+		logging.Info("Stopping automation dispatcher...")
+		a.dispatcher.Stop()
+	}
+
+	// 3. Cleanup services (kills local models)
+	a.services.Shutdown()
+
+	return nil
 }
 
 func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
@@ -46,5 +69,7 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 			Addr:    cfg.Server.Bind,
 			Handler: router,
 		},
+		services:   svc,
+		dispatcher: container.Dispatcher,
 	}
 }

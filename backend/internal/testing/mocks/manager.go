@@ -26,6 +26,13 @@ type MockManager struct {
 	ListProviderModelsFunc  func(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey string) error
 	DefaultModelFunc        func() (string, error)
+	ShutdownFunc            func()
+}
+
+func (m *MockManager) Shutdown() {
+	if m.ShutdownFunc != nil {
+		m.ShutdownFunc()
+	}
 }
 
 func (m *MockManager) DefaultModel() (string, error) {

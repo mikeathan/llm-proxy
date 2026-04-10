@@ -71,11 +71,14 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	}
 
 	cmd := m.activeModel.cmd
+	name := m.activeModel.cfg.Name
+	logging.Info("Signaling stop to local model", "model", name)
+
 	if m.activeModel.cancel != nil {
 		m.activeModel.cancel()
 	}
 
-	// Try graceful stop
+	// Try graceful stop (SIGTERM) to the process group
 	if cmd.Process != nil {
 		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
 			_ = syscall.Kill(-pgid, syscall.SIGTERM)
@@ -91,20 +94,23 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	return func() {
 		done := make(chan struct{})
 		go func() {
-			cmd.Wait()
+			_ = cmd.Wait()
 			close(done)
 		}()
 
 		select {
 		case <-done:
+			logging.Info("Local model exited gracefully", "model", name)
 		case <-time.After(shutdownTimeout):
 			if cmd.Process != nil {
+				logging.Warn("Local model graceful shutdown timed out; forcing kill", "model", name)
 				if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
 					_ = syscall.Kill(-pgid, syscall.SIGKILL)
 				} else {
 					_ = cmd.Process.Kill()
 				}
 			}
+			<-done // Ensure wait is complete
 		}
 	}
 }

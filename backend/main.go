@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
@@ -54,10 +59,28 @@ func main() {
 	cfg := cfgMgr.GetConfig()
 	logStartup(logger, buildInfo, cfg.Server.Bind)
 
-	if err := proxyApp.ListenAndServe(); err != nil {
-		logging.Error("server exited", "error", err)
-		os.Exit(1)
+	// Setup Graceful Shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		if err := proxyApp.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logging.Error("server exited", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-stop
+	logging.Info("Shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := proxyApp.Shutdown(shutdownCtx); err != nil {
+		logging.Error("shutdown error", "error", err)
 	}
+
+	logging.Info("Exit complete")
 }
 
 func buildInfo() *buildinfo.Info {

@@ -72,6 +72,13 @@ type AppServices struct {
 	Clock          utils.Clock
 }
 
+func (s AppServices) Shutdown() {
+	if s.Runtime != nil {
+		logging.Info("Shutting down LLM runtime...")
+		s.Runtime.Shutdown()
+	}
+}
+
 func (s AppServices) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
 	return s.clientProvider.GetClientForModel(ctx, modelName)
 }

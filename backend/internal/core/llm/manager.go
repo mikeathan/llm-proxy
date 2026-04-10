@@ -78,6 +78,7 @@ type RuntimeManager interface {
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey string) error
 	DefaultModel() (string, error)
+	Shutdown()
 }
 
 type LLMRuntimeManager struct {
