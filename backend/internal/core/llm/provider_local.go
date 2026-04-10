@@ -85,9 +85,13 @@ func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, e
 }
 
 func (p *LocalProvider) EnsureReady(ctx context.Context) error {
-	if p.activeModel != nil && utils.PortReady(p.cfg.Port) {
-		p.activeModel.lastUsed = time.Now()
-		return nil
+	if p.activeModel != nil {
+		if utils.PortReady(p.cfg.Port) {
+			p.activeModel.lastUsed = time.Now()
+			return nil
+		}
+		// Model is still warming up, do not start another one!
+		return ErrModelStarting
 	}
 
 	if err := p.startModel(ctx); err != nil {

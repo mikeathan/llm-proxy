@@ -133,58 +133,60 @@ onMounted(() => {
     <div class="models-box">
       <h2 class="add-title">Add New Model</h2>
 
-      <form @submit.prevent="submitModel" class="add-form">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-          <div>
-            <label class="form-label">Provider</label>
-            <select v-model="form.provider" class="form-input">
-              <template v-if="filterProvider === 'local'">
-                <option value="local">Local Engine (Llama.cpp)</option>
-              </template>
-              <template v-else>
-                <option v-for="p in cloudProviders" :key="p" :value="p">
-                  {{ getLabel(p) }}
-                </option>
-              </template>
-            </select>
+      <div class="add-content-wrapper">
+        <form @submit.prevent="submitModel" class="add-form">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+            <div>
+              <label class="form-label">Provider</label>
+              <select v-model="form.provider" class="form-input">
+                <template v-if="filterProvider === 'local'">
+                  <option value="local">Local Engine (Llama.cpp)</option>
+                </template>
+                <template v-else>
+                  <option v-for="p in cloudProviders" :key="p" :value="p">
+                    {{ getLabel(p) }}
+                  </option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Friendly Name</label>
+              <input
+                v-model="form.name"
+                type="text"
+                required
+                placeholder="e.g. My-Model"
+                class="form-input"
+              />
+            </div>
           </div>
-          <div>
-            <label class="form-label">Friendly Name</label>
-            <input
-              v-model="form.name"
-              type="text"
-              required
-              placeholder="e.g. My-Model"
-              class="form-input"
+
+          <div class="provider-fields-container">
+            <LocalFields v-if="form.provider === 'local'" v-model="form" />
+            <CloudFields
+              v-else
+              :provider="form.provider"
+              v-model:model-id="form.model_id!"
+              v-model:api-key-name="form.provider_config!.api_key_name!"
+              :state="state"
             />
           </div>
-        </div>
 
-        <div class="provider-fields-container">
-          <LocalFields v-if="form.provider === 'local'" v-model="form" />
-          <CloudFields
-            v-else
-            :provider="form.provider"
-            v-model:model-id="form.model_id!"
-            v-model:api-key-name="form.provider_config!.api_key_name!"
-            :state="state"
-          />
-        </div>
+          <button
+            type="submit"
+            class="btn-add"
+            :disabled="form.provider !== 'local' && !form.model_id"
+          >
+            Add to Configuration
+          </button>
+        </form>
 
-        <button
-          type="submit"
-          class="btn-add"
-          :disabled="form.provider !== 'local' && !form.model_id"
-        >
-          Add to Configuration
-        </button>
-      </form>
-
-      <DiscoveredList
-        v-if="filterProvider === 'local'"
-        :available-models="availableModels"
-        @select="selectAvailableModel"
-      />
+        <DiscoveredList
+          v-if="filterProvider === 'local'"
+          :available-models="availableModels"
+          @select="selectAvailableModel"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -213,6 +215,9 @@ onMounted(() => {
 }
 .models-list {
   @apply space-y-3;
+}
+.add-content-wrapper {
+  @apply overflow-y-auto flex-1 pr-2;
 }
 .add-title {
   @apply text-lg font-semibold text-white mb-4;
