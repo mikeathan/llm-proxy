@@ -17,9 +17,9 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
-	"llm-proxy/internal/testing/mocks"
 )
 
 type mockProxy struct {

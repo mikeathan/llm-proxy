@@ -9,17 +9,6 @@
     "default_model": "qwen2.5-3b-instruct"
   },
   "providers": {
-    "gemini": {
-      "type": "gemini",
-      "api_keys": [
-        {
-          "id": "24d99d50-a8ec-469a-b80f-ea2d42fcb692",
-          "name": "test-1",
-          "key": "AIzaSyCtD--IRlk3_l-AiBNCRLqTfhTHWVL2Xx0"
-        }
-      ],
-      "project_id": "free-tier"
-    },
     "local": {
       "type": "local",
       "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
@@ -43,39 +32,6 @@
         "GGML_HIP_UMA": "1",
         "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
       }
-    },
-    "mulerouter": {
-      "type": "mulerouter",
-      "api_keys": [
-        {
-          "id": "008c66be-94c0-46fb-8d79-59e4f3e7c430",
-          "name": "key-1",
-          "key": "sk-mr-4da90b3335c71925843b2820b2016e63a53da365f088d2df1a850c3f1daf9f50"
-        }
-      ]
-    },
-    "nvidia": {
-      "type": "nvidia",
-      "api_keys": [
-        {
-          "id": "367c8321-7bb4-459d-affc-17a3092611f4",
-          "name": "test-1",
-          "key": "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"
-        }
-      ]
-    },
-    "openai": {
-      "type": "openai"
-    },
-    "openrouter": {
-      "type": "openrouter",
-      "api_keys": [
-        {
-          "id": "0cd5332a-cf55-4caa-9368-fc54df914229",
-          "name": "test-1",
-          "key": "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"
-        }
-      ]
     }
   },
   "models": [
@@ -85,66 +41,6 @@
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "port": 9002,
       "provider_config": {}
-    },
-    {
-      "name": "gemma-4-26b-a4b-it:free",
-      "provider": "openrouter",
-      "filename": "google/gemma-4-26b-a4b-it:free",
-      "provider_config": {
-        "api_key_name": "test-1"
-      }
-    },
-    {
-      "name": "gemma-4-31b-it:free",
-      "provider": "openrouter",
-      "filename": "google/gemma-4-31b-it:free",
-      "provider_config": {}
-    },
-    {
-      "name": "qwen3-coder:free",
-      "provider": "openrouter",
-      "filename": "qwen/qwen3-coder:free",
-      "provider_config": {
-        "api_key_name": "test-1"
-      }
-    },
-    {
-      "name": "minimax-m2.5:free",
-      "provider": "openrouter",
-      "filename": "minimax/minimax-m2.5:free",
-      "provider_config": {}
-    },
-    {
-      "name": "qwen-flash",
-      "provider": "mulerouter",
-      "filename": "qwen-flash",
-      "provider_config": {
-        "api_key_name": "key-1"
-      }
-    },
-    {
-      "name": "qwen2.5-7b-instruct",
-      "provider": "nvidia",
-      "filename": "qwen/qwen2.5-7b-instruct",
-      "provider_config": {
-        "api_key_name": "test-1"
-      }
-    },
-    {
-      "name": "kimi-k2-instruct",
-      "provider": "nvidia",
-      "filename": "moonshotai/kimi-k2-instruct",
-      "provider_config": {
-        "api_key_name": "test-1"
-      }
-    },
-    {
-      "name": "gemma-3n-e4b-it",
-      "provider": "nvidia",
-      "filename": "google/gemma-3n-e4b-it",
-      "provider_config": {
-        "api_key_name": "test-1"
-      }
     }
   ],
   "metrics": {
