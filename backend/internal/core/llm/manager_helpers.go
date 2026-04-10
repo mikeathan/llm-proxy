@@ -100,3 +100,29 @@ func sanitizeArgs(args []string) []string {
 	}
 	return out
 }
+
+func (m *LLMRuntimeManager) enrichModelLocked(cfg models.ModelConfig) models.ModelConfig {
+	env := make(map[string]string)
+	for k, v := range m.serverEnv {
+		env[k] = v
+	}
+
+	pName := cfg.Provider
+	if pName == "" {
+		pName = "local"
+	}
+
+	if p, ok := m.providers[pName]; ok {
+		for k, v := range p.Environment {
+			env[k] = v
+		}
+	}
+
+	for k, v := range cfg.Environment {
+		env[k] = v
+	}
+
+	out := cfg
+	out.Environment = env
+	return out
+}

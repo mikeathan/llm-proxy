@@ -146,7 +146,11 @@ func (p *LocalProvider) startModel(ctx context.Context) error {
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
 	args := buildLaunchArgs(p.cfg)
-	logging.Info("Starting local model", "model", p.cfg.Name, "binary", p.llamaBinary, "args", args)
+	logging.Info("Starting local model (discovery)", 
+		"model", p.cfg.Name, 
+		"binary", p.llamaBinary, 
+		"args", args, 
+		"env", p.cfg.Environment)
 
 	cmd := utils.ExecCommandContext(procCtx, p.llamaBinary, args...)
 	if runtime.GOOS != "windows" {

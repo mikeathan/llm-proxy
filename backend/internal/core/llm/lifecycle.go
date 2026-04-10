@@ -22,7 +22,11 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 	procCtx, cancel := context.WithCancel(context.Background())
 
 	args := buildLaunchArgs(cfg)
-	logging.Info("Starting local model (runtime)", "model", cfg.Name, "binary", m.llamaBinary, "args", args)
+	logging.Info("Starting local model (runtime)", 
+		"model", cfg.Name, 
+		"binary", m.llamaBinary, 
+		"args", args, 
+		"env", cfg.Environment)
 
 	cmd := utils.ExecCommandContext(procCtx, m.llamaBinary, args...)
 	if runtime.GOOS != "windows" {

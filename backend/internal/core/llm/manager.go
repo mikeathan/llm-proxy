@@ -87,6 +87,7 @@ type LLMRuntimeManager struct {
 	activeCloudConfig *models.ModelConfig
 	models            map[string]models.ModelConfig
 	providers         map[string]models.ProviderItem
+	serverEnv         map[string]string
 	idleTimeout       time.Duration
 	modelHost         string
 	llamaBinary       string
@@ -123,6 +124,7 @@ func NewManagerFromConfig(cfg *models.Config) *LLMRuntimeManager {
 
 	manager := New(modelsOut, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
 	manager.providers = cfg.Providers
+	manager.serverEnv = cfg.Server.Environment
 
 	if local, ok := cfg.Providers["local"]; ok && local.LlamaServerBinary != "" {
 		manager.llamaBinary = local.LlamaServerBinary
@@ -137,6 +139,7 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 	m := &LLMRuntimeManager{
 		models:      make(map[string]models.ModelConfig),
 		providers:   make(map[string]models.ProviderItem),
+		serverEnv:   make(map[string]string),
 		idleTimeout: idleTimeout,
 		modelHost:   hostFromConfig(modelHost),
 		llamaBinary: defaultLlamaBinary,
@@ -297,7 +300,9 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 			cfg.Port = m.defaultPortLocked(cfg, activePort)
 			m.models[name] = cfg
 
-			err := m.startModelLocked(ctx, cfg)
+			// Apply latest environment triggers (ROCm, UMA, etc.)
+			startingCfg := m.enrichModelLocked(cfg)
+			err := m.startModelLocked(ctx, startingCfg)
 			if err != nil {
 				return ModelInstance{}, err
 			}
