@@ -39,6 +39,18 @@ func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.
 	for k, v := range cfg.Server.Environment {
 		env[k] = v
 	}
+
+	pName := model.Provider
+	if pName == "" {
+		pName = "local"
+	}
+
+	if p, ok := cfg.Providers[pName]; ok {
+		for k, v := range p.Environment {
+			env[k] = v
+		}
+	}
+
 	for k, v := range model.Environment {
 		env[k] = v
 	}
