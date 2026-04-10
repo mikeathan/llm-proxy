@@ -69,7 +69,7 @@ watch(
 
       // Auto-select first key if none selected and keys exist
       if (availableKeys.value.length > 0 && !props.apiKeyName) {
-        emit("update:apiKeyName", availableKeys.value[0].name);
+        emit("update:apiKeyName", availableKeys.value[0]?.name || "");
       }
 
       if (newProv !== "local" && isProviderConfigured.value) {
