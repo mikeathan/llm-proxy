@@ -72,9 +72,10 @@ func (p *LocalProvider) GetStatus() ProviderStatus {
 		if utils.PortReady(p.cfg.Port) {
 			return ProviderStatusReady
 		}
+		logging.Debug("Local model port not yet ready", "model", p.cfg.Name, "port", p.cfg.Port)
 		return ProviderStatusRunning
 	}
-	return ProviderStatusReady 
+	return ProviderStatusReady
 }
 
 func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
@@ -144,7 +145,10 @@ func (p *LocalProvider) startModel(ctx context.Context) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
-	cmd := utils.ExecCommandContext(procCtx, p.llamaBinary, buildLaunchArgs(p.cfg)...)
+	args := buildLaunchArgs(p.cfg)
+	logging.Info("Starting local model", "model", p.cfg.Name, "binary", p.llamaBinary, "args", args)
+
+	cmd := utils.ExecCommandContext(procCtx, p.llamaBinary, args...)
 	if runtime.GOOS != "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
@@ -154,12 +158,14 @@ func (p *LocalProvider) startModel(ctx context.Context) error {
 	if len(p.cfg.Environment) > 0 {
 		cmd.Env = os.Environ()
 		for k, v := range p.cfg.Environment {
+			logging.Debug("Injecting env var", "model", p.cfg.Name, "key", k)
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		logging.Error("Failed to start local model", "model", p.cfg.Name, "error", err)
 		return fmt.Errorf("model start failed: %w", err)
 	}
 

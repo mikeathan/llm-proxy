@@ -16,13 +16,15 @@ import (
 	"llm-proxy/models"
 )
 
-// startModelLocked spawns a new local model process.
 func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.ModelConfig) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
 
-	cmd := utils.ExecCommandContext(procCtx, m.llamaBinary, buildLaunchArgs(cfg)...)
+	args := buildLaunchArgs(cfg)
+	logging.Info("Starting local model (runtime)", "model", cfg.Name, "binary", m.llamaBinary, "args", args)
+
+	cmd := utils.ExecCommandContext(procCtx, m.llamaBinary, args...)
 	if runtime.GOOS != "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
@@ -32,12 +34,14 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 	if len(cfg.Environment) > 0 {
 		cmd.Env = os.Environ()
 		for k, v := range cfg.Environment {
+			logging.Debug("Injecting env var", "model", cfg.Name, "key", k)
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		logging.Error("Failed to start local model (runtime)", "model", cfg.Name, "error", err)
 		return fmt.Errorf("model start failed: %w", err)
 	}
 
