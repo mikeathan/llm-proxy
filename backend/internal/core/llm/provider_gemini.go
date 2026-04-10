@@ -31,7 +31,7 @@ func (p *GeminiProvider) GetEndpoint(ctx context.Context) (string, http.Header, 
 	key := p.cfg.ProviderConfig.APIKey
 	header.Set("x-goog-api-key", key)
 	header.Set("Authorization", "Bearer "+key)
-	return "https://generativelanguage.googleapis.com/v1beta/openai", header, nil
+	return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", header, nil
 }
 
 func (p *GeminiProvider) EnsureReady(ctx context.Context) error {

@@ -68,9 +68,9 @@ const removeModel = async (name: string): Promise<void> => {
   }
 }
 
-const fetchProviderModels = async (provider: string): Promise<string[]> => {
+const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<string[]> => {
   try {
-    return await AdminApiService.fetchProviderModels(provider)
+    return await AdminApiService.fetchProviderModels(provider, apiKeyName)
   } catch (e: any) {
     console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)
     return []

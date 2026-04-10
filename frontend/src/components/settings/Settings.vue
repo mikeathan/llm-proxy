@@ -8,8 +8,9 @@ import { useMcpServers } from "../../composables/useMcpServers";
 import { useMetrics } from "../../composables/useMetrics";
 import { useModels } from "../../composables/useModels";
 import { AdminApiService } from "../../services/adminService";
+import { useProviders } from "../../composables/useProviders";
 import type { NewMcpServerForm } from "../../types/mcp";
-import type { ProviderType, APIKeyItem } from "../../types/admin";
+import type { ProviderType, APIKeyItem, SettingsTab } from "../../types/admin";
 
 const {
   config,
@@ -23,27 +24,30 @@ const { state: adminModelsState, refresh: refreshModels } = useModels();
 const modelsList = computed(() => adminModelsState.value?.models || []);
 const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
   useMcpServers();
+const { settingsTabs, getIcon, getLabel, fetchManifests, cloudProviders } =
+  useProviders();
 const { logLevel, updateLogLevel } = useMetrics();
 
-type Tab = "local" | "gemini" | "openai" | "openrouter" | "mcp";
-const activeTab = ref<Tab>("local");
+const activeTab = ref<SettingsTab>("local");
 const testStatus = ref<{
   [key: string]: { loading: boolean; error?: string; success?: string };
 }>({});
 
-// Pre-process key lists as computed to avoid creating new arrays on every render
-const geminiKeys = computed<APIKeyItem[]>(() =>
-  ensureIds(config.value.providers?.gemini?.api_keys ?? []),
-);
-const openaiKeys = computed<APIKeyItem[]>(() =>
-  ensureIds(config.value.providers?.openai?.api_keys ?? []),
-);
-const openrouterKeys = computed<APIKeyItem[]>(() =>
-  ensureIds(config.value.providers?.openrouter?.api_keys ?? []),
-);
+// Dynamic key list computed mapping
+const providerKeys = computed(() => {
+  const map: Record<string, APIKeyItem[]> = {};
+  cloudProviders.value.forEach((p) => {
+    map[p] = ensureIds(config.value.providers?.[p]?.api_keys ?? []);
+  });
+  return map;
+});
 
-function setTab(tab: Tab) {
+function setTab(tab: SettingsTab) {
   activeTab.value = tab;
+  // Ensure provider exists so fields can bind to config.providers[type]
+  if (tab !== "local" && tab !== "mcp") {
+    ensureProvider(tab);
+  }
 }
 
 function ensureIds(keys: any[]): APIKeyItem[] {
@@ -109,6 +113,7 @@ const handleAddMCPServer = (): void => {
 };
 
 onMounted(() => {
+  fetchManifests();
   fetchConfig();
   refreshModels();
 });
@@ -121,7 +126,7 @@ onMounted(() => {
       <h2 class="sidebar-title">Settings</h2>
       <nav class="nav-list">
         <button
-          v-for="tab in (['local', 'gemini', 'openai', 'openrouter', 'mcp'] as const)"
+          v-for="tab in settingsTabs"
           :key="tab"
           @click="setTab(tab)"
           class="nav-item"
@@ -129,11 +134,13 @@ onMounted(() => {
         >
           <span
             class="nav-icon"
-            :class="activeTab === tab ? 'nav-icon--active' : 'nav-icon--inactive'"
+            :class="
+              activeTab === tab ? 'nav-icon--active' : 'nav-icon--inactive'
+            "
           >
-            {{ tab === 'local' ? '💻' : tab === 'gemini' ? '✨' : tab === 'openai' ? '🤖' : tab === 'openrouter' ? '🚀' : '🔌' }}
+            {{ getIcon(tab) }}
           </span>
-          <span class="tab-label">{{ tab === 'mcp' ? 'MCP Servers' : tab }}</span>
+          <span class="tab-label">{{ getLabel(tab) }}</span>
         </button>
       </nav>
     </div>
@@ -158,12 +165,20 @@ onMounted(() => {
         </div>
 
         <!-- Provider Configs -->
-        <div v-for="provider in (['gemini', 'openai', 'openrouter'] as const)" :key="provider" v-show="activeTab === provider">
+        <div
+          v-for="provider in settingsTabs.filter(
+            (t) => t !== 'local' && t !== 'mcp',
+          ) as ProviderType[]"
+          :key="provider"
+          v-show="activeTab === provider"
+        >
           <div class="config-card">
-            <h2 class="config-header">{{ provider }} Configuration</h2>
+            <h2 class="config-header">
+              {{ getLabel(provider) }} Configuration
+            </h2>
             <form @submit.prevent="handleSaveConfig" class="form-section">
               <ApiKeySettings
-                :apiKeys="provider === 'gemini' ? geminiKeys : provider === 'openai' ? openaiKeys : openrouterKeys"
+                :apiKeys="providerKeys[provider] || []"
                 title="API Keys"
                 helperText="Select a key to test or edit it. Changes are saved automatically."
                 :testLoading="!!testStatus[provider]?.loading"
@@ -173,27 +188,121 @@ onMounted(() => {
                 @testKey="testProvider(provider, $event)"
                 @clearTest="clearTestStatus(provider)"
               />
-              
+
               <div class="form-divider"></div>
-              
-              <template v-if="provider === 'gemini' && config.providers?.gemini">
+
+              <template
+                v-if="provider === 'gemini' && config.providers?.gemini"
+              >
                 <div class="form-group">
-                  <label class="form-label">Project ID <span class="form-optional">(Optional)</span></label>
+                  <label class="form-label"
+                    >Project ID
+                    <span class="form-optional">(Optional)</span></label
+                  >
                   <div class="form-helper">Required for Vertex AI</div>
-                  <input v-model="config.providers.gemini.project_id" type="text" class="form-input" />
+                  <input
+                    v-model="config.providers.gemini.project_id"
+                    type="text"
+                    class="form-input"
+                  />
                 </div>
                 <div class="form-group">
-                  <label class="form-label">Region <span class="form-optional">(Optional)</span></label>
-                  <div class="form-helper">Region for Vertex AI (e.g. us-central1)</div>
-                  <input v-model="config.providers.gemini.region" type="text" class="form-input" />
+                  <label class="form-label"
+                    >Region <span class="form-optional">(Optional)</span></label
+                  >
+                  <div class="form-helper">
+                    Region for Vertex AI (e.g. us-central1)
+                  </div>
+                  <input
+                    v-model="config.providers.gemini.region"
+                    type="text"
+                    class="form-input"
+                  />
                 </div>
               </template>
 
-              <template v-if="provider === 'openai' && config.providers?.openai">
+              <template
+                v-if="provider === 'vertex' && config.providers?.vertex"
+              >
                 <div class="form-group">
-                  <label class="form-label">Base URL <span class="form-optional">(Optional)</span></label>
-                  <div class="form-helper">Override for localized proxies or self-hosted engines</div>
-                  <input v-model="config.providers.openai.base_url" type="text" placeholder="https://api.openai.com/v1" class="form-input" />
+                  <label class="form-label">Project ID</label>
+                  <div class="form-helper">GCP Project ID</div>
+                  <input
+                    v-model="config.providers.vertex.project_id"
+                    type="text"
+                    class="form-input"
+                    required
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Region</label>
+                  <div class="form-helper">GCP Region (e.g. us-central1)</div>
+                  <input
+                    v-model="config.providers.vertex.region"
+                    type="text"
+                    class="form-input"
+                    required
+                  />
+                </div>
+              </template>
+
+              <template
+                v-if="provider === 'openai' && config.providers?.openai"
+              >
+                <div class="form-group">
+                  <label class="form-label"
+                    >Base URL
+                    <span class="form-optional">(Optional)</span></label
+                  >
+                  <div class="form-helper">
+                    Override for localized proxies or self-hosted engines
+                  </div>
+                  <input
+                    v-model="config.providers.openai.base_url"
+                    type="text"
+                    placeholder="https://api.openai.com/v1"
+                    class="form-input"
+                  />
+                </div>
+              </template>
+
+              <template
+                v-if="provider === 'mulerouter' && config.providers?.mulerouter"
+              >
+                <div class="form-group">
+                  <label class="form-label"
+                    >Base URL
+                    <span class="form-optional">(Optional)</span></label
+                  >
+                  <div class="form-helper">
+                    Default: https://api.mulerouter.ai/v1
+                  </div>
+                  <input
+                    v-model="config.providers.mulerouter.base_url"
+                    type="text"
+                    placeholder="https://api.mulerouter.ai/v1"
+                    class="form-input"
+                  />
+                </div>
+              </template>
+
+              <template
+                v-if="provider === 'nvidia' && config.providers?.nvidia"
+              >
+                <div class="form-group">
+                  <label class="form-label"
+                    >Base URL
+                    <span class="form-optional">(Optional)</span></label
+                  >
+                  <div class="form-helper">
+                    Default: https://integrate.api.nvidia.com/v1
+                  </div>
+                  <input
+                    v-model="config.providers.nvidia.base_url"
+                    type="text"
+                    placeholder="https://integrate.api.nvidia.com/v1"
+                    class="form-input"
+                  />
                 </div>
               </template>
 

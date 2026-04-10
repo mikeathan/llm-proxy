@@ -44,6 +44,26 @@
         "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
       }
     },
+    "mulerouter": {
+      "type": "mulerouter",
+      "api_keys": [
+        {
+          "id": "008c66be-94c0-46fb-8d79-59e4f3e7c430",
+          "name": "key-1",
+          "key": "sk-mr-4da90b3335c71925843b2820b2016e63a53da365f088d2df1a850c3f1daf9f50"
+        }
+      ]
+    },
+    "nvidia": {
+      "type": "nvidia",
+      "api_keys": [
+        {
+          "id": "367c8321-7bb4-459d-affc-17a3092611f4",
+          "name": "test-1",
+          "key": "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"
+        }
+      ]
+    },
     "openai": {
       "type": "openai"
     },
@@ -81,12 +101,6 @@
       "provider_config": {}
     },
     {
-      "name": "gemma-3n-e2b-it:free",
-      "provider": "openrouter",
-      "filename": "google/gemma-3n-e2b-it:free",
-      "provider_config": {}
-    },
-    {
       "name": "qwen3-coder:free",
       "provider": "openrouter",
       "filename": "qwen/qwen3-coder:free",
@@ -99,6 +113,38 @@
       "provider": "openrouter",
       "filename": "minimax/minimax-m2.5:free",
       "provider_config": {}
+    },
+    {
+      "name": "qwen-flash",
+      "provider": "mulerouter",
+      "filename": "qwen-flash",
+      "provider_config": {
+        "api_key_name": "key-1"
+      }
+    },
+    {
+      "name": "qwen2.5-7b-instruct",
+      "provider": "nvidia",
+      "filename": "qwen/qwen2.5-7b-instruct",
+      "provider_config": {
+        "api_key_name": "test-1"
+      }
+    },
+    {
+      "name": "kimi-k2-instruct",
+      "provider": "nvidia",
+      "filename": "moonshotai/kimi-k2-instruct",
+      "provider_config": {
+        "api_key_name": "test-1"
+      }
+    },
+    {
+      "name": "gemma-3n-e4b-it",
+      "provider": "nvidia",
+      "filename": "google/gemma-3n-e4b-it",
+      "provider_config": {
+        "api_key_name": "test-1"
+      }
     }
   ],
   "metrics": {

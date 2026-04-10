@@ -1,0 +1,17 @@
+{
+  "id": "mulerouter",
+  "name": "MuleRouter",
+  "default_base_url": "https://api.mulerouter.ai/vendors/openai/v1",
+  "archetype": "openai-compatible",
+  "auth": {
+    "type": "bearer",
+    "header_name": "Authorization",
+    "header_prefix": "Bearer",
+    "placeholder": "sk-..."
+  },
+  "endpoints": {
+    "models": "/models",
+    "chat": "/chat/completions"
+  },
+  "icon": "🐎"
+}

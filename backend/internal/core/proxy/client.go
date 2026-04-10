@@ -8,6 +8,7 @@ import (
 	"io"
 	"llm-proxy/utils"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -26,8 +27,11 @@ func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
-	chatCompletionsURL := utils.SanitiseUrl(baseURL) + "/v1/chat/completions"
-	return &LLMClient{chatCompletionsURL: chatCompletionsURL, model: model, httpClient: httpClient, headers: headers}
+	chatURL := utils.SanitiseUrl(baseURL)
+	if !strings.HasSuffix(chatURL, "/v1/chat/completions") && !strings.HasSuffix(chatURL, "/chat/completions") {
+		chatURL += "/v1/chat/completions"
+	}
+	return &LLMClient{chatCompletionsURL: chatURL, model: model, httpClient: httpClient, headers: headers}
 }
 
 func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {

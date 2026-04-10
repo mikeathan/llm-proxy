@@ -1,109 +1,90 @@
 package llm
 
 import (
-	"sort"
-	"time"
-
+	"embed"
+	"encoding/json"
+	"fmt"
 	"llm-proxy/models"
+	"path/filepath"
+	"strings"
+	"sync"
 )
 
-// AddModel adds a new model configuration.
-func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+//go:embed definitions/*.json
+var manifestFS embed.FS
 
-	if _, ok := m.models[cfg.Name]; ok {
-		return ErrModelExists
-	}
-
-	m.models[cfg.Name] = cfg
-	return nil
+// ProviderRegistry manages the dynamic loading of provider metadata.
+type ProviderRegistry struct {
+	mu        sync.RWMutex
+	manifests map[string]models.ProviderManifest
 }
 
-// UpdateModel updates an existing model. If the model is active, it will be restarted.
-func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
-	m.mu.Lock()
+var (
+	registry *ProviderRegistry
+	once     sync.Once
+)
 
-	if _, ok := m.models[cfg.Name]; !ok {
-		m.mu.Unlock()
-		return ErrUnknownModel
-	}
-
-	m.models[cfg.Name] = cfg
-
-	var waiter func()
-	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
-		waiter = m.signalStopLocked()
-	}
-	m.mu.Unlock()
-
-	if waiter != nil {
-		waiter()
-	}
-
-	return nil
+// GetRegistry returns the singleton provider registry.
+func GetRegistry() *ProviderRegistry {
+	once.Do(func() {
+		registry = &ProviderRegistry{
+			manifests: make(map[string]models.ProviderManifest),
+		}
+		registry.loadEmbedded()
+	})
+	return registry
 }
 
-// RemoveModel deletes a model. If active, it stops the model.
-func (m *LLMRuntimeManager) RemoveModel(name string) error {
-	m.mu.Lock()
-
-	cfg, ok := m.models[name]
-	if !ok {
-		m.mu.Unlock()
-		return ErrUnknownModel
+func (r *ProviderRegistry) loadEmbedded() {
+	entries, err := manifestFS.ReadDir("definitions")
+	if err != nil {
+		fmt.Printf("registry: failed to read embedded definitions: %v\n", err)
+		return
 	}
 
-	var waiter func()
-	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
-		waiter = m.signalStopLocked()
-	}
-
-	delete(m.models, name)
-	m.mu.Unlock()
-
-	if waiter != nil {
-		waiter()
-	}
-	return nil
-}
-
-// ListModels returns all configured models.
-func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	names := make([]string, 0, len(m.models))
-	for name := range m.models {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	modelsOut := make([]models.ModelConfig, 0, len(names))
-	for _, name := range names {
-		cfg := m.models[name]
-		argsCopy := append([]string(nil), cfg.Args...)
-
-		envCopy := make(map[string]string)
-		for k, v := range cfg.Environment {
-			envCopy[k] = v
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
 		}
 
-		out := cfg
-		out.Args = argsCopy
-		out.Environment = envCopy
-		modelsOut = append(modelsOut, out)
-	}
+		data, err := manifestFS.ReadFile(filepath.Join("definitions", entry.Name()))
+		if err != nil {
+			fmt.Printf("registry: failed to read %s: %v\n", entry.Name(), err)
+			continue
+		}
 
-	return modelsOut
+		var manifest models.ProviderManifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			fmt.Printf("registry: failed to parse %s: %v\n", entry.Name(), err)
+			continue
+		}
+
+		r.Register(manifest)
+	}
 }
 
-// RecordActivity tracks the last usage time for a model.
-func (m *LLMRuntimeManager) RecordActivity(model string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// Register adds or updates a provider manifest.
+func (r *ProviderRegistry) Register(m models.ProviderManifest) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.manifests[m.ID] = m
+}
 
-	if m.activeModel != nil && m.activeModel.cfg.Name == model {
-		m.activeModel.lastUsed = time.Now()
+// Get finds a provider manifest by ID.
+func (r *ProviderRegistry) Get(id string) (models.ProviderManifest, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.manifests[id]
+	return m, ok
+}
+
+// List returns all registered provider IDs.
+func (r *ProviderRegistry) List() []models.ProviderManifest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	list := make([]models.ProviderManifest, 0, len(r.manifests))
+	for _, m := range r.manifests {
+		list = append(list, m)
 	}
+	return list
 }

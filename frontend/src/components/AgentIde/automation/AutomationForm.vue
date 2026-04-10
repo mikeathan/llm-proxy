@@ -152,16 +152,21 @@ const cloudProvidersWithKeys = computed(() => {
   for (const [name, p] of Object.entries(props.providers)) {
     if (name === "local") continue;
     
-    // Always add the default key option
-    const keys = [{ name: "Default Provider Key", id: "default", keyVal: "" }];
+    const keys: { name: string; id: string; keyVal: string }[] = [];
     
     // Add named keys if they exist
     if (p.api_keys && p.api_keys.length > 0) {
       p.api_keys.forEach(k => {
         keys.push({ name: k.name, id: k.id, keyVal: k.name });
       });
+    } else if (p.api_key) {
+      // Only show Default if there's actually a key value in the legacy field
+      keys.push({ name: "Default Provider Key", id: "default", keyVal: "" });
     }
     
+    // Skip providers with no credentials at all
+    if (keys.length === 0) continue;
+
     result.push({
       providerName: name,
       keys: keys.map(k => ({ name: k.name, id: k.id, keyVal: k.keyVal }))

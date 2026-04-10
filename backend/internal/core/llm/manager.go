@@ -75,7 +75,7 @@ type RuntimeManager interface {
 	ModelHost() string
 	SetBinary(path string)
 	SetModelHost(host string)
-	ListProviderModels(ctx context.Context, provider string) ([]string, error)
+	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey string) error
 	DefaultModel() (string, error)
 }
@@ -189,16 +189,8 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 		modelDir = provider.ModelDir
 	}
 
-	switch cfg.Provider {
-	case "gemini":
-		return NewGeminiProvider(pCfg)
-	case "vertex":
-		return NewVertexProvider(pCfg)
-	case "openrouter":
-		return NewOpenRouterProvider(pCfg)
-	case "openai":
-		return NewOpenAIProvider(pCfg)
-	default:
+	// Local engine is fundamentally different (binary process)
+	if cfg.Provider == "local" {
 		binary := m.llamaBinary
 		if local, ok := m.providers["local"]; ok && local.LlamaServerBinary != "" {
 			binary = local.LlamaServerBinary
@@ -208,6 +200,16 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provide
 		}
 		return NewLocalProvider(pCfg, binary, modelDir)
 	}
+
+	// Dynamic Resolution via Manifest Registry 
+	if manifest, ok := GetRegistry().Get(cfg.Provider); ok {
+		if factory, ok := GetProviderFactory(manifest.Archetype); ok {
+			return factory(pCfg, manifest)
+		}
+	}
+
+	// Fallback/Default to local for unknown providers (keeps system resilient)
+	return NewLocalProvider(pCfg, m.llamaBinary, modelDir)
 }
 
 func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey string) error {
@@ -223,9 +225,14 @@ func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, provider
 	return p.TestConnection(ctx)
 }
 
-func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName string) ([]string, error) {
+func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]string, error) {
 	m.mu.Lock()
-	p := m.createProviderLocked(models.ModelConfig{Provider: providerName})
+	p := m.createProviderLocked(models.ModelConfig{
+		Provider: providerName,
+		ProviderConfig: models.ProviderConfig{
+			APIKeyName: apiKeyName,
+		},
+	})
 	m.mu.Unlock()
 	return p.ListModels(ctx)
 }
@@ -440,6 +447,60 @@ func (m *LLMRuntimeManager) ActiveModel() *runningModel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.activeModel
+}
+
+func (m *LLMRuntimeManager) RecordActivity(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeModel != nil && m.activeModel.cfg.Name == name {
+		m.activeModel.lastUsed = time.Now()
+	}
+}
+
+func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := make([]models.ModelConfig, 0, len(m.models))
+	for _, mc := range m.models {
+		list = append(list, mc)
+	}
+	return list
+}
+
+func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.models[cfg.Name]; ok {
+		return ErrModelExists
+	}
+	m.models[cfg.Name] = normalizeModelConfig("", cfg)
+	return nil
+}
+
+func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.models[cfg.Name] = normalizeModelConfig("", cfg)
+	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
+		waiter := m.signalStopLocked()
+		if waiter != nil {
+			go waiter()
+		}
+	}
+	return nil
+}
+
+func (m *LLMRuntimeManager) RemoveModel(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.models, name)
+	if m.activeModel != nil && m.activeModel.cfg.Name == name {
+		waiter := m.signalStopLocked()
+		if waiter != nil {
+			go waiter()
+		}
+	}
+	return nil
 }
 
 func portReady(port int) bool {

@@ -59,7 +59,8 @@ type adminModelView struct {
 	Port         int      `json:"port"`
 	Endpoint     string   `json:"endpoint"`
 	Active       bool     `json:"active"`
-	Ready        bool     `json:"ready"`
+	Ready        bool                  `json:"ready"`
+	ProviderConfig models.ProviderConfig `json:"provider_config,omitempty"`
 }
 
 type adminActiveModel struct {
@@ -227,6 +228,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Endpoint:     fmt.Sprintf("http://%s:%d", host, mc.Port),
 			Active:       mc.Name == activeName,
 			Ready:        mc.Name == activeName && activeDetails != nil && activeDetails.Ready,
+			ProviderConfig: mc.ProviderConfig,
 		})
 	}
 
@@ -650,6 +652,11 @@ func (h *AdminHandlers) AdminMCPRemoveHandler(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AdminHandlers) AdminListProviderManifestsHandler(w http.ResponseWriter, r *http.Request) {
+	manifests := llm.GetRegistry().List()
+	respondJSON(w, manifests)
+}
+
 func (h *AdminHandlers) AdminListProviderModelsHandler(w http.ResponseWriter, r *http.Request) {
 	provider := r.URL.Query().Get("provider")
 	if provider == "" {
@@ -657,7 +664,8 @@ func (h *AdminHandlers) AdminListProviderModelsHandler(w http.ResponseWriter, r 
 		return
 	}
 
-	models, err := h.runtime.ListProviderModels(r.Context(), provider)
+	apiKeyName := r.URL.Query().Get("api_key_name")
+	models, err := h.runtime.ListProviderModels(r.Context(), provider, apiKeyName)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to list models: "+err.Error())
 		return

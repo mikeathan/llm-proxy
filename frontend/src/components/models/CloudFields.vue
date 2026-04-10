@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { useModels } from "../../composables/useModels";
+import { useProviders } from "../../composables/useProviders";
 import type { AdminState } from "../../types";
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   (e: "update:apiKeyName", value: string): void;
 }>();
 
+const { cloudProviders } = useProviders();
 const { fetchProviderModels } = useModels();
 const providerModels = ref<string[]>([]);
 const isLoadingModels = ref(false);
@@ -42,10 +44,10 @@ const availableKeys = computed(() => {
 
 async function loadProviderModels() {
   if (!props.provider || props.provider === "local") return;
-
+ 
   isLoadingModels.value = true;
   try {
-    const list = await fetchProviderModels(props.provider);
+    const list = await fetchProviderModels(props.provider, props.apiKeyName);
     providerModels.value = list;
     if (list.length > 0 && !props.modelId) {
       const firstModel = list[0];
@@ -64,6 +66,12 @@ watch(
     if (newProv !== oldProv) {
       providerModels.value = [];
       filterText.value = "";
+
+      // Auto-select first key if none selected and keys exist
+      if (availableKeys.value.length > 0 && !props.apiKeyName) {
+        emit("update:apiKeyName", availableKeys.value[0].name);
+      }
+
       if (newProv !== "local" && isProviderConfigured.value) {
         loadProviderModels();
       }
@@ -71,20 +79,25 @@ watch(
   },
   { immediate: true },
 );
+
+// Reload models when API key changes
+watch(
+  () => props.apiKeyName,
+  (newKey, oldKey) => {
+    if (newKey !== oldKey && props.provider !== "local") {
+      loadProviderModels();
+    }
+  }
+);
 </script>
 
 <template>
   <div class="grid grid-cols-1 gap-3">
-    <div
-      v-if="!isProviderConfigured"
-      class="config-warning"
-    >
+    <div v-if="!isProviderConfigured" class="config-warning">
       <span class="config-warning-text">
         <span class="text-base">⚠️</span> Configuration Required
       </span>
-      <router-link
-        to="/settings"
-        class="btn-settings-link"
+      <router-link to="/settings" class="btn-settings-link"
         >Settings</router-link
       >
     </div>
@@ -95,8 +108,9 @@ watch(
         :value="apiKeyName"
         @change="emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)"
         class="form-input"
+        required
       >
-        <option value="">Default Provider Key</option>
+        <option v-if="availableKeys.length === 0" value="">Default Provider Key</option>
         <option v-for="k in availableKeys" :key="k.name" :value="k.name">
           {{ k.name }}
         </option>
@@ -110,7 +124,7 @@ watch(
         >Model ID</label
       >
       <button
-        v-if="['gemini', 'openai', 'openrouter', 'vertex'].includes(provider)"
+        v-if="cloudProviders.includes(provider as any)"
         type="button"
         @click="loadProviderModels"
         class="btn-refresh"
@@ -153,7 +167,9 @@ watch(
     <template v-if="providerModels.length > 0">
       <select
         :value="modelId"
-        @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)"
+        @change="
+          emit('update:modelId', ($event.target as HTMLSelectElement).value)
+        "
         class="form-input"
         required
         :disabled="!isProviderConfigured"
@@ -163,10 +179,7 @@ watch(
           {{ m }}
         </option>
       </select>
-      <div
-        v-if="filteredProviderModels.length === 0"
-        class="helper-text"
-      >
+      <div v-if="filteredProviderModels.length === 0" class="helper-text">
         No models match "{{ filterText }}"
       </div>
     </template>

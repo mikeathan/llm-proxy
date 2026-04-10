@@ -13,6 +13,7 @@ export const API_ENDPOINTS = {
   config: `${API_BASE}/config`,
   mcp: `${API_BASE}/mcp`,
   providerModels: `${API_BASE}/providers/models`,
+  providerManifests: `${API_BASE}/providers/manifests`,
   testConnection: `${API_BASE}/providers/test`,
 } as const
 

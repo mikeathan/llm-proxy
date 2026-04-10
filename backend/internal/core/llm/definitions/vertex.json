@@ -1,0 +1,14 @@
+{
+  "id": "vertex",
+  "name": "Google Vertex AI",
+  "default_base_url": "https://{region}-aiplatform.googleapis.com/v1",
+  "archetype": "vertex",
+  "auth": {
+    "type": "adc",
+    "placeholder": "GCP Project ID"
+  },
+  "endpoints": {
+    "models": "/publishers/google/models"
+  },
+  "icon": "⛰️"
+}

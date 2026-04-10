@@ -67,8 +67,14 @@ export const AdminApiService = {
   updateConfig: (payload: Partial<GlobalConfig>): Promise<void> =>
     put<void>(API_ENDPOINTS.config, payload),
   
-  fetchProviderModels: (provider: string): Promise<string[]> =>
-    get<string[]>(`${API_ENDPOINTS.providerModels}?provider=${encodeURIComponent(provider)}`),
+  fetchProviderModels: (provider: string, apiKeyName?: string): Promise<string[]> => {
+    const params = new URLSearchParams({ provider })
+    if (apiKeyName) params.set('api_key_name', apiKeyName)
+    return get<string[]>(`${API_ENDPOINTS.providerModels}?${params.toString()}`)
+  },
+
+  fetchProviderManifests: (): Promise<any[]> =>
+    get<any[]>(API_ENDPOINTS.providerManifests),
 
   testConnection: (provider: string, apiKey?: string): Promise<{ status: string; message: string }> => {
     const params = new URLSearchParams({ provider })

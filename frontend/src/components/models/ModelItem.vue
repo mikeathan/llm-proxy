@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { argsToString, stringToArgs } from '../../utils/config'
+import { PROVIDER_STYLES } from '../../constants/providers'
 import type { Model } from '../../types'
 
 const props = defineProps<{
@@ -54,7 +55,7 @@ function saveEdit() {
     <div v-if="!isEditing" class="normal-view">
       <div class="content-left">
         <div class="model-name-group truncate" :title="model.name">
-          <span :class="['provider-badge', `badge-${model.provider}`]">{{ model.provider }}</span>
+          <span :class="['provider-badge', PROVIDER_STYLES[model.provider as keyof typeof PROVIDER_STYLES]]">{{ model.provider }}</span>
           {{ model.name }}
           <span v-if="model.active && model.provider === 'local'" class="status-badge status-badge--online">Online</span>
           <span v-else-if="model.active" class="status-badge status-badge--selected">Selected</span>
@@ -163,12 +164,6 @@ function saveEdit() {
 .provider-badge {
   @apply px-1.5 py-0.5 rounded text-[9px] uppercase font-bold tracking-tight border;
 }
-
-.badge-local { @apply bg-blue-900/30 text-blue-400 border-blue-500/30; }
-.badge-gemini { @apply bg-purple-900/30 text-purple-400 border-purple-500/30; }
-.badge-openai { @apply bg-green-900/30 text-green-400 border-green-500/30; }
-.badge-openrouter { @apply bg-orange-900/30 text-orange-400 border-orange-500/30; }
-.badge-vertex { @apply bg-red-900/30 text-red-400 border-red-500/30; }
 
 .status-badge {
   @apply px-1.5 py-0.5 text-[9px] uppercase font-black rounded-full text-gray-950;

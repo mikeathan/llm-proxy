@@ -1,5 +1,6 @@
 // Global configuration types
-export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex'
+export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
+export type SettingsTab = ProviderType | 'mcp'
 
 export interface APIKeyItem {
   id: string

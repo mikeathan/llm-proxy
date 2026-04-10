@@ -53,15 +53,26 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 	h.runtime.RecordActivity(model)
 	
 	target := mi.URL
+	isCloud := true
 	if target == "" {
 		target = fmt.Sprintf("http://%s:%d", mi.Host, mi.Port)
+		isCloud = false
 	}
-	
+
 	rp := reverseProxyFactory(target)
-	
+
 	// If we have custom headers (e.g. for cloud providers), we need to inject them.
 	inner := rp
 	rp = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For cloud providers, the mi.URL now contains the FULL endpoint (e.g. .../v1/chat/completions).
+		// We must override the incoming path (/v1/chat/completions) with the target's path.
+		if isCloud {
+			// For cloud providers, the target already contains the full path (e.g., /v1/chat/completions).
+			// We MUST clear the request path so the ReverseProxy doesn't double it.
+			r.URL.Path = ""
+			r.URL.RawPath = ""
+		}
+
 		for k, vv := range mi.Headers {
 			for _, v := range vv {
 				r.Header.Set(k, v)

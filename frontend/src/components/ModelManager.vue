@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import ModelItem from "./models/ModelItem.vue";
 import LocalFields from "./models/LocalFields.vue";
 import CloudFields from "./models/CloudFields.vue";
 import DiscoveredList from "./models/DiscoveredList.vue";
-import { makeEmptyForm, tabToDefaultProvider, filterModelsByTab, deriveFriendlyName } from "../utils/models";
+import { useProviders } from "../composables/useProviders";
+import {
+  makeEmptyForm,
+  tabToDefaultProvider,
+  filterModelsByTab,
+  deriveFriendlyName,
+} from "../utils/models";
 import type { AdminState, AvailableModel, NewModelForm, Model } from "../types";
 
 const props = defineProps<{
@@ -21,13 +27,19 @@ const emit = defineEmits<{
   (e: "addModel", model: NewModelForm): void;
 }>();
 
+const { cloudProviders, getLabel, fetchManifests } = useProviders();
+
 // Form state lives entirely here — no prop sync, no watcher loop.
-const form = ref<NewModelForm>(makeEmptyForm(tabToDefaultProvider(props.filterProvider)));
+const form = ref<NewModelForm>(
+  makeEmptyForm(tabToDefaultProvider(props.filterProvider)),
+);
 
 watch(
   () => props.filterProvider,
-  (tab) => { form.value = makeEmptyForm(tabToDefaultProvider(tab)); },
-  { immediate: true }
+  (tab) => {
+    form.value = makeEmptyForm(tabToDefaultProvider(tab));
+  },
+  { immediate: true },
 );
 
 // Auto-default model name from ID when selected
@@ -35,20 +47,20 @@ const lastDerivedName = ref("");
 watch(
   () => form.value.model_id,
   (newId) => {
-    if (!newId || form.value.provider === 'local') return;
-    
+    if (!newId || form.value.provider === "local") return;
+
     const derived = deriveFriendlyName(newId);
-    
+
     // Update if empty OR if the user hasn't changed it since the last auto-default
     if (!form.value.name || form.value.name === lastDerivedName.value) {
       form.value.name = derived;
       lastDerivedName.value = derived;
     }
-  }
+  },
 );
 
 const filteredModels = computed(() =>
-  filterModelsByTab(props.state?.models ?? [], props.filterProvider)
+  filterModelsByTab(props.state?.models ?? [], props.filterProvider),
 );
 
 function submitModel() {
@@ -68,12 +80,20 @@ function selectAvailableModel(model: AvailableModel) {
 }
 
 const editingModelName = ref<string | null>(null);
-function handleStartEdit(model: Model) { editingModelName.value = model.name; }
-function handleCancelEdit() { editingModelName.value = null; }
+function handleStartEdit(model: Model) {
+  editingModelName.value = model.name;
+}
+function handleCancelEdit() {
+  editingModelName.value = null;
+}
 function handleUpdateModel(model: Model) {
   emit("updateModel", model);
   editingModelName.value = null;
 }
+
+onMounted(() => {
+  fetchManifests();
+});
 </script>
 
 <template>
@@ -122,10 +142,9 @@ function handleUpdateModel(model: Model) {
                 <option value="local">Local Engine (Llama.cpp)</option>
               </template>
               <template v-else>
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI / Compatible</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="vertex">Google Vertex AI</option>
+                <option v-for="p in cloudProviders" :key="p" :value="p">
+                  {{ getLabel(p) }}
+                </option>
               </template>
             </select>
           </div>

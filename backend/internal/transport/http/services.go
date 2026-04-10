@@ -28,7 +28,7 @@ type RuntimeService interface {
 	ModelHost() string
 	SetBinary(string)
 	SetModelHost(string)
-	ListProviderModels(context.Context, string) ([]string, error)
+	ListProviderModels(context.Context, string, string) ([]string, error)
 	TestProviderConnection(context.Context, string, string) error
 	DefaultModel() (string, error)
 }
