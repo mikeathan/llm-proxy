@@ -5,37 +5,55 @@ import (
 	"path/filepath"
 	"sync"
 
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/llm"
-	"llm-proxy/internal/system_metrics"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/models"
 )
 
 type AppContext struct {
-	manager   llm.RuntimeManager
-	config    models.Config
-	configMgr *config.ConfigManager
-	modelDir  string
-	gpuConfig models.GPUConfig
-	metrics   *system_metrics.MetricsService
-	configMu  sync.Mutex // Kept for other fields if needed, but configMgr handles config
+	manager       llm.RuntimeManager
+	config        models.Config
+	configMgr     *config.ConfigManager
+	modelDir      string
+	workspacesDir string
+	rootDir       string
+	gpuConfig     models.GPUConfig
+	metrics       *metrics.MetricsService
+	configMu      sync.Mutex // Kept for other fields if needed, but configMgr handles config
 }
 
 func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext {
 	cfg := cfgMgr.GetConfig()
+
+	// Compute rootDir from config directory (backend/config -> repo root)
+	rootDir := filepath.Dir(filepath.Dir(cfgMgr.ConfigDir()))
+
+	local := cfg.Providers["local"]
 	s := &AppContext{
-		manager:   mgr,
-		config:    cfg,
-		configMgr: cfgMgr,
-		modelDir:  cfg.ModelDir,
-		gpuConfig: cfg.Metrics.GPU,
+		manager:       mgr,
+		config:        cfg,
+		configMgr:     cfgMgr,
+		modelDir:      local.ModelDir,
+		workspacesDir: cfg.WorkspacesDir,
+		rootDir:       rootDir,
+		gpuConfig:     cfg.Metrics.GPU,
+	}
+
+	// If workspaces_dir not set, default to {rootDir}/workspaces
+	if s.workspacesDir == "" {
+		s.workspacesDir = filepath.Join(rootDir, "workspaces")
 	}
 
 	cfgMgr.OnChange(func(newCfg models.Config) {
 		s.configMu.Lock()
 		s.config = newCfg
-		s.modelDir = newCfg.ModelDir
+		local := newCfg.Providers["local"]
+		s.modelDir = local.ModelDir
 		s.gpuConfig = newCfg.Metrics.GPU
+		if newCfg.WorkspacesDir != "" {
+			s.workspacesDir = newCfg.WorkspacesDir
+		}
 		s.configMu.Unlock()
 		s.refreshMetricsService()
 	})
@@ -45,6 +63,9 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 }
 
 func (a *AppContext) DefaultModel() (string, error) {
+	if a.config.Server.DefaultModel != "" {
+		return a.config.Server.DefaultModel, nil
+	}
 	models := a.Runtime().ListModels()
 	if len(models) == 0 {
 		return "", errors.New("no models configured")
@@ -52,12 +73,24 @@ func (a *AppContext) DefaultModel() (string, error) {
 	return models[0].Name, nil
 }
 
+func (a *AppContext) ConfiguredDefaultModel() string {
+	return a.config.Server.DefaultModel
+}
+
+func (a *AppContext) PrimaryModel() string {
+	return a.config.Server.PrimaryModel
+}
+
+func (a *AppContext) FallbackModel() string {
+	return a.config.Server.FallbackModel
+}
+
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
 }
 
 func (s *AppContext) refreshMetricsService() {
-	s.metrics = system_metrics.NewMetricsService(&models.Config{
+	s.metrics = metrics.NewMetricsService(&models.Config{
 		Metrics: models.MetricsConfig{
 			GPU: s.gpuConfig,
 		},
@@ -73,8 +106,20 @@ func (s *AppContext) ModelDir() string {
 	return s.modelDir
 }
 
+func (s *AppContext) RootDir() string {
+	return s.rootDir
+}
+
+func (s *AppContext) WorkspacesDir() string {
+	return s.workspacesDir
+}
+
 func (s *AppContext) SetModelDir(dir string) {
 	s.modelDir = dir
+}
+
+func (s *AppContext) SetWorkspacesDir(dir string) {
+	s.workspacesDir = dir
 }
 
 func (s *AppContext) GPUConfig() models.GPUConfig {
@@ -114,6 +159,17 @@ func (s *AppContext) Models() []models.ModelConfig {
 	// return a copy
 	out := make([]models.ModelConfig, len(s.config.Models))
 	copy(out, s.config.Models)
+	return out
+}
+
+func (s *AppContext) Providers() map[string]models.ProviderItem {
+	if s.config.Providers == nil {
+		return map[string]models.ProviderItem{}
+	}
+	out := make(map[string]models.ProviderItem, len(s.config.Providers))
+	for k, v := range s.config.Providers {
+		out[k] = v
+	}
 	return out
 }
 
@@ -192,7 +248,7 @@ func (s *AppContext) RefreshMetricsService() {
 	s.refreshMetricsService()
 }
 
-func (s *AppContext) MetricsSnapshot() system_metrics.MetricsSnapshot {
+func (s *AppContext) MetricsSnapshot() metrics.MetricsSnapshot {
 	if s.metrics == nil {
 		s.refreshMetricsService()
 	}

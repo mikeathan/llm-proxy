@@ -6,15 +6,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/mocks"
-	"llm-proxy/internal/proxy"
-	"llm-proxy/internal/testutils"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/testing/mocks"
+	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
 
 func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
-	testutils.SetRequiredEnv(t)
+	utils.SetRequiredEnv(t)
 
 	logger := &mocks.MockLogger{}
 	cfgMgr := minimalConfig(t)
@@ -35,7 +35,6 @@ func minimalConfig(t *testing.T) *config.ConfigManager {
 			IdleTimeoutSecs: 10,
 		},
 		Models:   []models.ModelConfig{},
-		ModelDir: "",
 		Metrics: models.MetricsConfig{
 			GPU: models.GPUConfig{
 				Provider: "none",

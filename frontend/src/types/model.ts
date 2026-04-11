@@ -1,6 +1,7 @@
 // LLM Model related types
 export interface ActiveModel {
   name: string
+  provider: import('./admin').ProviderType
   endpoint: string
   port: number
   ready: boolean
@@ -8,15 +9,26 @@ export interface ActiveModel {
   last_used_at: string
 }
 
+export interface ProviderConfig {
+  api_key?: string
+  api_key_name?: string
+  base_url?: string
+  project_id?: string
+  region?: string
+}
+
 export interface Model {
   name: string
-  filename: string
-  resolved_path: string
-  args: string[]
-  port: number
+  provider: import('./admin').ProviderType
+  model_id?: string
+  filename?: string
+  resolved_path?: string
+  args?: string[]
+  port?: number
   endpoint: string
   active: boolean
   ready: boolean
+  provider_config?: ProviderConfig
 }
 
 export interface AvailableModel {
@@ -27,7 +39,10 @@ export interface AvailableModel {
 
 export interface NewModelForm {
   name: string
-  filename: string
-  port: number
-  args: string
+  provider: import('./admin').ProviderType
+  model_id?: string
+  filename?: string
+  port?: number
+  args?: string
+  provider_config?: ProviderConfig
 }
