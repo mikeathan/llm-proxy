@@ -1,15 +1,19 @@
 package app
 
 import (
+	"context"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/logging"
+	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/logging"
 )
 
 type App struct {
-	server *http.Server
+	server     *http.Server
+	services   AppServices
+	dispatcher *automation.Dispatcher
 }
 
 func (a *App) Handler() http.Handler {
@@ -20,10 +24,42 @@ func (a *App) ListenAndServe() error {
 	return a.server.ListenAndServe()
 }
 
+func (a *App) Shutdown(ctx context.Context) error {
+	logging.Info("Shutting down application...")
+
+	// 1. Shutdown HTTP server
+	if err := a.server.Shutdown(ctx); err != nil {
+		logging.Error("HTTP server shutdown error", "error", err)
+	}
+
+	// 2. Stop dispatcher
+	if a.dispatcher != nil {
+		logging.Info("Stopping automation dispatcher...")
+		a.dispatcher.Stop()
+	}
+
+	// 3. Cleanup services (kills local models)
+	a.services.Shutdown()
+
+	return nil
+}
+
 func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
 
 	container := bootstrap(cfgMgr, logger)
-	router := buildHTTP(container.BuildAppServices(), buildInfo)
+	svc := container.BuildAppServices()
+
+	// Build new dispatcher with AssistantService for LLM execution
+	disp, err := container.BuildDispatcher(svc)
+	if err != nil {
+		logging.Error("Failed to build dispatcher", "error", err)
+	} else {
+		container.Dispatcher = disp
+		// Start dispatcher in background
+		go disp.Start(context.Background())
+	}
+
+	router := buildHTTP(svc, container.Dispatcher, buildInfo)
 
 	// Get initial config for binding
 	cfg := cfgMgr.GetConfig()
@@ -33,5 +69,7 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 			Addr:    cfg.Server.Bind,
 			Handler: router,
 		},
+		services:   svc,
+		dispatcher: container.Dispatcher,
 	}
 }

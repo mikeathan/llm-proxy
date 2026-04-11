@@ -1,0 +1,17 @@
+{
+  "id": "nvidia",
+  "name": "NVIDIA NIM",
+  "default_base_url": "https://integrate.api.nvidia.com/v1",
+  "archetype": "openai-compatible",
+  "auth": {
+    "type": "bearer",
+    "header_name": "Authorization",
+    "header_prefix": "Bearer",
+    "placeholder": "nvapi-..."
+  },
+  "endpoints": {
+    "models": "/models",
+    "chat": "/chat/completions"
+  },
+  "icon": "🟢"
+}

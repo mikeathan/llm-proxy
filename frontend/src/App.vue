@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import AdminHeader from './components/AdminHeader.vue'
-import DashboardView from './views/DashboardView.vue'
-import SettingsView from './views/SettingsView.vue'
-import LogsView from './views/LogsView.vue'
+import AdminHeader from './components/layout/AdminHeader.vue'
+import Dashboard from './components/dashboard/Dashboard.vue'
+import Settings from './components/settings/Settings.vue'
+import Logs from './components/logs/Logs.vue'
+import AgentIde from './components/AgentIde/AgentIde.vue'
 import { useModels } from './composables/useModels'
 import { useMcpServers } from './composables/useMcpServers'
 
-type Tab = 'dashboard' | 'settings' | 'logs'
+type Tab = 'dashboard' | 'settings' | 'logs' | 'agent-ide'
 
 const activeTab = ref<Tab>('dashboard')
 
@@ -29,9 +30,10 @@ onMounted(() => {
       </div>
 
       <template v-else>
-        <DashboardView v-if="activeTab === 'dashboard'" />
-        <SettingsView  v-else-if="activeTab === 'settings'" />
-        <LogsView      v-else-if="activeTab === 'logs'" />
+        <Dashboard v-if="activeTab === 'dashboard'" />
+        <Settings  v-else-if="activeTab === 'settings'" />
+        <Logs      v-else-if="activeTab === 'logs'" />
+        <AgentIde v-else-if="activeTab === 'agent-ide'" />
       </template>
     </main>
   </div>

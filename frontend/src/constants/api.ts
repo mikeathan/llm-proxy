@@ -12,6 +12,9 @@ export const API_ENDPOINTS = {
   stop: `${API_BASE}/stop`,
   config: `${API_BASE}/config`,
   mcp: `${API_BASE}/mcp`,
+  providerModels: `${API_BASE}/providers/models`,
+  providerManifests: `${API_BASE}/providers/manifests`,
+  testConnection: `${API_BASE}/providers/test`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

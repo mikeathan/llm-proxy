@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/api"
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/llm"
-	"llm-proxy/internal/mocks"
+	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/testing/mocks"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
 
@@ -325,8 +325,10 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	cfg := &models.Config{
-		Server:   models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
-		ModelDir: filepath.Dir(tmpFile.Name()),
+		Server: models.ServerConfig{DefaultArgs: []string{"--gpu-layers", "2"}},
+		Providers: map[string]models.ProviderItem{
+			"local": {ModelDir: filepath.Dir(tmpFile.Name())},
+		},
 	}
 
 	srv := createTestServer(t, mgr, cfg)
@@ -383,7 +385,11 @@ func TestAppContextDefaultModel_FirstModel(t *testing.T) {
 }
 
 func TestAppContextResolveModelPath(t *testing.T) {
-	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{ModelDir: "/models"})
+	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{
+		Providers: map[string]models.ProviderItem{
+			"local": {ModelDir: "/models"},
+		},
+	})
 
 	cases := []struct {
 		name     string

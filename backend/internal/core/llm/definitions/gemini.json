@@ -1,0 +1,15 @@
+{
+  "id": "gemini",
+  "name": "Google Gemini",
+  "default_base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "archetype": "gemini",
+  "auth": {
+    "type": "header",
+    "header_name": "x-goog-api-key",
+    "placeholder": "AIza..."
+  },
+  "endpoints": {
+    "models": "/models"
+  },
+  "icon": "✨"
+}

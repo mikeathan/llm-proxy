@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/config"
-	"llm-proxy/internal/logging"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/logging"
 )
 
 var (
@@ -31,6 +36,7 @@ func main() {
 	}
 
 	logger := initLogger()
+	logging.SetGlobalLogger(logger)
 
 	configPath := *configFlag
 	if configPath == "" {
@@ -44,15 +50,8 @@ func main() {
 	// Load configuration using ConfigManager
 	cfgMgr := config.NewConfigManager(configPath)
 	if err := cfgMgr.Load(); err != nil {
-		logger.Error("failed to load config", "error", err)
-		// Fallback or exit? Exit is safer if config is broken
-		if config.GetAppEnv() != "test" { // Allow test to proceed?
-			// return // or continue with defaults?
-			// For now, let's log and try to proceed if possible or exit.
-			// Existing code exited on load fail.
-			// However ConfigManager Load handles missing file? No.
-			// So exit.
-		}
+		logging.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
 	proxyApp := app.New(cfgMgr, logger, buildInfo)
@@ -60,10 +59,28 @@ func main() {
 	cfg := cfgMgr.GetConfig()
 	logStartup(logger, buildInfo, cfg.Server.Bind)
 
-	if err := proxyApp.ListenAndServe(); err != nil {
-		logger.Error("server exited", "error", err)
-		os.Exit(1)
+	// Setup Graceful Shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		if err := proxyApp.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logging.Error("server exited", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-stop
+	logging.Info("Shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := proxyApp.Shutdown(shutdownCtx); err != nil {
+		logging.Error("shutdown error", "error", err)
 	}
+
+	logging.Info("Exit complete")
 }
 
 func buildInfo() *buildinfo.Info {
@@ -85,7 +102,7 @@ func printVersion(info *buildinfo.Info) {
 
 func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
 	//print version info
-	logger.Info(
+	logging.Info(
 		"LLM proxy version",
 		"version", info.Version,
 		"commit", info.Commit,
@@ -93,7 +110,7 @@ func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
 	)
 
 	// print bind address
-	logger.Info("LLM proxy listening", "bind", bind)
+	logging.Info("LLM proxy listening", "bind", bind)
 }
 
 func initLogger() logging.Logger {
