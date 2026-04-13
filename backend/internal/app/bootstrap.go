@@ -45,11 +45,12 @@ func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskE
 
 func (c *Container) BuildAppServices() AppServices {
 	s := AppServices{
-		Runtime:    c.Core.Runtime,
-		AppCtx:     c.Core.AppCtx,
-		nodeHerder: c.Infra.NodeHerder,
-		logger:     c.Infra.Logger,
-		Clock:      c.Infra.Clock,
+		Runtime:     c.Core.Runtime,
+		AppCtx:      c.Core.AppCtx,
+		nodeHerder:  c.Infra.NodeHerder,
+		logger:      c.Infra.Logger,
+		Clock:       c.Infra.Clock,
+		persistence: persistence.NewWorkspaceManager(c.Core.AppCtx.WorkspacesDir()),
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -65,15 +66,16 @@ func (c *Container) BuildAppServices() AppServices {
 }
 
 type AppServices struct {
-	Runtime        llm.RuntimeManager
-	AppCtx         *AppContext
-	nodeHerder     nodeherder.MCPService
+	Runtime         llm.RuntimeManager
+	AppCtx          *AppContext
+	nodeHerder      nodeherder.MCPService
 	toolProvider    assistant.ToolProvider
 	clientProvider  proxy.LLMClientProvider
 	engine          assistant.Engine
 	guardrailEngine *assistant.GuardrailEngine
+	persistence     *persistence.WorkspaceManager
 	logger          logging.Logger
-	Clock          utils.Clock
+	Clock           utils.Clock
 }
 
 func (s AppServices) Shutdown() {
@@ -107,16 +109,8 @@ func (s AppServices) Limiter() ratelimiter.Limiter {
 	return ratelimiter.NewLimiter(s.Clock)
 }
 
-func (s AppServices) DefaultModel() (string, error) {
-	return s.AppCtx.DefaultModel()
-}
-
-func (s AppServices) PrimaryModel() string {
-	return s.AppCtx.PrimaryModel()
-}
-
-func (s AppServices) FallbackModel() string {
-	return s.AppCtx.FallbackModel()
+func (s AppServices) SelectModels() (string, string) {
+	return s.AppCtx.SelectModels()
 }
 
 func (s AppServices) Engine() assistant.Engine {
@@ -129,6 +123,14 @@ func (s AppServices) Config() *models.Config {
 
 func (s AppServices) GuardrailEngine() *assistant.GuardrailEngine {
 	return s.guardrailEngine
+}
+
+func (s AppServices) Persistence() *persistence.WorkspaceManager {
+	return s.persistence
+}
+
+func (s AppServices) ProcessLogger(workspaceID string) logging.Logger {
+	return s.AppCtx.ProcessLogger(workspaceID)
 }
 
 func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
@@ -166,13 +168,12 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
 func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispatcher, error) {
-	// Use workspaces_dir from config, or default to {rootDir}/workspaces
-	baseDir := c.Core.AppCtx.WorkspacesDir()
-	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
+	persistenceMgr := svc.Persistence()
 
 	exec := automation.NewLLMTaskExecutor(svc)
 
 	d, err := automation.NewDispatcher(persistenceMgr, exec, c.Infra.Logger,
+
 		automation.WithWorkerCount(1),
 	)
 	if err != nil {
@@ -228,7 +229,7 @@ func buildHTTP(s AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.
 func buildRouter(
 	admin *api.AdminHandlers,
 	proxyHandlers *api.ProxyHandlers,
-	assistant http.Handler,
+	assistant *api.AssistantMessageHandler,
 	dispatcherHandlers *api.DispatcherHandlers,
 ) http.Handler {
 
@@ -282,6 +283,7 @@ func buildRouter(
 		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{workspace}/processlogs", admin.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{workspace}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
 	}
 
@@ -291,7 +293,10 @@ func buildRouter(
 	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.EnsureModelProxyHandler))
 
 	// Conversation API
-	router.Any("/api/conversation/message", assistant)
+	router.Any("/admin/api/conversation/message", assistant)
+	router.Get("/admin/api/conversation/sessions/{workspace}", assistant.ListSessions, jsonMethodNotAllowed)
+	router.Get("/admin/api/conversation/sessions/{workspace}/{session}", assistant.GetSession, jsonMethodNotAllowed)
+	router.Delete("/admin/api/conversation/sessions/{workspace}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
 
 	return router
 }

@@ -144,7 +144,7 @@ const formatDate = (ts: string) => {
 }
 
 .item-name {
-  @apply text-[11px] font-bold text-gray-200 truncate max-w-[120px];
+  @apply text-[11px] font-bold text-gray-200 truncate flex-1 min-w-0;
 }
 
 .item-time {

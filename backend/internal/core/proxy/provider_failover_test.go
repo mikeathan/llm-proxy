@@ -16,9 +16,13 @@ type mockFailoverSelector struct {
 	def      string
 }
 
-func (m *mockFailoverSelector) DefaultModel() (string, error) { return m.def, nil }
-func (m *mockFailoverSelector) PrimaryModel() string           { return m.primary }
-func (m *mockFailoverSelector) FallbackModel() string          { return m.fallback }
+func (m *mockFailoverSelector) SelectModels() (string, string) {
+	p := m.primary
+	if p == "" {
+		p = m.def
+	}
+	return p, m.fallback
+}
 
 type mockRuntime struct {
 	llm.RuntimeManager

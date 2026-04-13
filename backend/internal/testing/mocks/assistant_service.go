@@ -6,6 +6,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
 )
@@ -28,6 +29,7 @@ type MockAssistantService struct {
 	LoggerRef   logging.Logger
 	Model       string
 	EngineRef   assistant.Engine
+	PersistenceMgr *persistence.WorkspaceManager
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -46,8 +48,8 @@ func (m *MockAssistantService) Logger() logging.Logger {
 	return m.LoggerRef
 }
 
-func (m *MockAssistantService) DefaultModel() (string, error) {
-	return m.Model, nil
+func (m *MockAssistantService) SelectModels() (string, string) {
+	return "", ""
 }
 
 func (m *MockAssistantService) Engine() assistant.Engine {
@@ -89,6 +91,10 @@ func (p *mockToolProvider) GetSystemPrompt() (string, error) {
 
 func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
 	return &mockToolProvider{herder: m.Herder}
+}
+
+func (m *MockAssistantService) Persistence() *persistence.WorkspaceManager {
+	return m.PersistenceMgr
 }
 
 func NewMockAssistantService(

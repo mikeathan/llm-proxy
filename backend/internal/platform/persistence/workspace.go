@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+
 
 	"llm-proxy/models"
 
@@ -19,6 +21,9 @@ var workspaceFiles = []string{
 	"state.json",
 	"config.yaml",
 }
+
+const sessionsDir = "sessions"
+
 
 // WorkspaceManager handles atomic file I/O for workspaces with flock locking.
 type WorkspaceManager struct {
@@ -383,3 +388,130 @@ func (m *WorkspaceManager) DeleteWorkspace(workspaceID string) error {
 	path := filepath.Join(m.baseDir, workspaceID)
 	return os.RemoveAll(path)
 }
+
+// ============================================================================
+// Assistant Sessions
+// ============================================================================
+
+// ReadSession reads a specific assistant session JSON file.
+func (m *WorkspaceManager) ReadSession(workspaceID, sessionID string) (*models.AssistantSession, error) {
+	path := filepath.Join(m.baseDir, workspaceID, sessionsDir, sessionID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // Not found is not an error
+		}
+		return nil, fmt.Errorf("failed to read session %s: %w", sessionID, err)
+	}
+
+	session := &models.AssistantSession{}
+	if err := json.Unmarshal(data, session); err != nil {
+		return nil, fmt.Errorf("failed to decode session %s: %w", sessionID, err)
+	}
+	return session, nil
+}
+
+// WriteSession writes an assistant session JSON file atomically.
+func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.AssistantSession) error {
+	dirPath := filepath.Join(m.baseDir, workspaceID, sessionsDir)
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create sessions dir: %w", err)
+	}
+
+	filename := session.ID + ".json"
+	tmpFile, err := os.CreateTemp(dirPath, "session-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp session file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	session.UpdatedAt = time.Now()
+	data, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to encode session: %w", err)
+	}
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write temp session file: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to sync temp session file: %w", err)
+	}
+	tmpFile.Close()
+
+	destPath := filepath.Join(dirPath, filename)
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("failed to rename temp session file: %w", err)
+	}
+	return nil
+}
+
+// DeleteSession deletes an assistant session JSON file.
+func (m *WorkspaceManager) DeleteSession(workspaceID, sessionID string) error {
+	path := filepath.Join(m.baseDir, workspaceID, sessionsDir, sessionID+".json")
+	return os.Remove(path)
+}
+
+// ListSessions returns a list of session summaries for a workspace.
+func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {
+	dirPath := filepath.Join(m.baseDir, workspaceID, sessionsDir)
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []models.SessionBrief{}, nil
+		}
+		return nil, err
+	}
+
+	var briefs []models.SessionBrief
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+
+		sessionID := strings.TrimSuffix(entry.Name(), ".json")
+		// We could optimize by only reading the first few bytes, but sessions are usually small.
+		session, err := m.ReadSession(workspaceID, sessionID)
+		if err != nil || session == nil {
+			continue
+		}
+
+		snippet := ""
+		if len(session.History) > 0 {
+			// Find the last user message or assistant reply for the snippet
+			for i := len(session.History) - 1; i >= 0; i-- {
+				if session.History[i].Content != "" {
+					snippet = session.History[i].Content
+					if len(snippet) > 80 {
+						snippet = snippet[:77] + "..."
+					}
+					break
+				}
+			}
+		}
+
+		briefs = append(briefs, models.SessionBrief{
+			ID:        session.ID,
+			Snippet:   snippet,
+			UpdatedAt: session.UpdatedAt,
+		})
+	}
+
+	// Sort by updated at descending
+	slices.SortFunc(briefs, func(a, b models.SessionBrief) int {
+		if b.UpdatedAt.After(a.UpdatedAt) {
+			return 1
+		}
+		if a.UpdatedAt.After(b.UpdatedAt) {
+			return -1
+		}
+		return 0
+	})
+
+	return briefs, nil
+}
+

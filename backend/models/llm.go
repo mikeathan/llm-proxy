@@ -20,21 +20,9 @@ const (
 	ProviderStatusError   ProviderStatus = "error"
 )
 
-type ChatRequest struct {
-	Model    string          `json:"model"`
-	Messages []ChatMessage   `json:"messages"`
-}
-
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ChatResponse struct {
-	Content string `json:"content"`
-}
-
 type Provider interface {
+
+
 	Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 	GetStatus() ProviderStatus
 	Shutdown() error

@@ -167,7 +167,8 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 
 	// Create default files
 	defaultFiles := map[string]string{
-		"heartbeat.md": "# Heartbeat\n\nWorkspace initialized.",
+		"heartbeat.md": "# Heartbeat\n\nWorkspace background jobs initialized.",
+		"agent.md":     "# Workspace Agent\n\nYou are the interactive assistant for this workspace. Use the available tools to help the user.",
 		"config.yaml":  "model: gpt-4o\ntemperature: 0.7\nautomations: []",
 	}
 

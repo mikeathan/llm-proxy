@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"llm-proxy/models"
 )
 
 //go:embed manifests/*.json
@@ -35,4 +36,17 @@ func LoadManifest(toolKey string, target any) error {
 	}
 
 	return nil
+}
+
+// GetDefaultGuardrails loads all guardrail configurations from their respective manifests.
+func GetDefaultGuardrails() models.AgentGuardrailsConfig {
+	var cfg models.AgentGuardrailsConfig
+	cfg.Global.BlockSecrets = true
+
+	_ = LoadManifest("terminal", &cfg.Terminal)
+	_ = LoadManifest("search", &cfg.Search)
+	_ = LoadManifest("communication", &cfg.Communication)
+	_ = LoadManifest("filesystem", &cfg.FileSystem)
+
+	return cfg
 }

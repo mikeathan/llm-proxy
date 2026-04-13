@@ -11,6 +11,8 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/persistence"
+	"os"
 )
 
 // noopLogger for testing
@@ -57,6 +59,11 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 		mockMCP,
 	)
 
+	// Setup Persistence
+	tmpWorkspaces := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(tmpWorkspaces)
+	defer os.RemoveAll(tmpWorkspaces)
+
 	handler := NewAssistantMessageHandler(service)
 
 	// Mock LLM Response to call tool
@@ -96,7 +103,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	mockMCP.SetCallToolResult(map[string]any{"state": "on"}, nil)
 
 	// Request
-	reqBody := `{"conversation_id": "conv1", "message": "check lamp"}`
+	reqBody := `{"conversation_id": "conv1", "workspace_id": "test-ws", "message": "check lamp"}`
 	req := httptest.NewRequest("POST", "/api/conversation/message", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

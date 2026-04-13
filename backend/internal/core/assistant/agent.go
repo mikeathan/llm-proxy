@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
+	"strings"
 )
 
 // Agent represents a unified, stateful assistant that can use tools.
@@ -70,7 +71,17 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			Tools:    tools,
 		})
 		if err != nil {
-			return "", nil, fmt.Errorf("llm completion failed: %w", err)
+			// If the model or API doesn't support tools, retry once without them
+			if isToolSupportError(err) {
+				a.logger.Warn("model does not support tools, retrying without them", "error", err)
+				resp, err = a.client.Chat(ctx, proxy.ChatRequest{
+					Messages: currentHistory,
+				})
+			}
+
+			if err != nil {
+				return "", nil, fmt.Errorf("llm completion failed: %w", err)
+			}
 		}
 
 		msg := resp.Choices[0].Message
@@ -121,4 +132,15 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 		Content:    string(raw),
 		ToolCallID: tc.ID,
 	})
+}
+
+func isToolSupportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lowErr := strings.ToLower(err.Error())
+	return strings.Contains(lowErr, "tools is not currently supported") ||
+		strings.Contains(lowErr, "tool_choice is not supported") ||
+		strings.Contains(lowErr, "auto tool choice requires") ||
+		strings.Contains(lowErr, "parameter `tools`")
 }

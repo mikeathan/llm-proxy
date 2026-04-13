@@ -50,14 +50,29 @@ func InitializeAgentStack(
 ) (ToolProvider, Engine, *GuardrailEngine) {
 	cfg := appCtx.Config()
 
-	// 1. Initialize local machine capabilities
+	// 1. Load defaults from manifests
+	defaultGuardrails := tools.GetDefaultGuardrails()
+
+	// 2. Initialize local machine capabilities
 	terminal := tools.NewTerminalTools(func() models.TerminalGuardrailsConfig {
-		return cfg.Guardrails.Terminal
+		tc := appCtx.Config().Guardrails.Terminal
+		if !tc.Enabled && len(tc.AllowedCommands) == 0 {
+			return defaultGuardrails.Terminal
+		}
+		return tc
 	})
 
-	// 2. Initialize Guardrail Engine
+	// 3. Initialize Guardrail Engine with defaults from manifests
+	// config.json now only needs to contain overrides (if any)
 	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
-		return cfg.Guardrails
+		current := appCtx.Config().Guardrails
+		// Merge logic: if a category is disabled in config, we keep it as is.
+		// If it's empty, we might use the defaults.
+		// For now, let's keep it simple: use defaults if config is empty.
+		if !current.Terminal.Enabled && !current.FileSystem.Enabled && !current.Search.Enabled {
+			return defaultGuardrails
+		}
+		return current
 	})
 
 	// 3. Initialize Communications
@@ -81,7 +96,11 @@ func InitializeAgentStack(
 
 	// 5. Initialize FileSystem
 	fsTools := tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig {
-		return appCtx.Config().Guardrails.FileSystem
+		fc := appCtx.Config().Guardrails.FileSystem
+		if !fc.Enabled && len(fc.AllowedPaths) == 0 {
+			return defaultGuardrails.FileSystem
+		}
+		return fc
 	})
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools)

@@ -8,6 +8,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
 	"time"
@@ -30,7 +31,7 @@ type RuntimeService interface {
 	SetModelHost(string)
 	ListProviderModels(context.Context, string, string) ([]string, error)
 	TestProviderConnection(context.Context, string, string) error
-	DefaultModel() (string, error)
+	SelectModels() (string, string)
 }
 
 type AdminService interface {
@@ -43,7 +44,6 @@ type AdminService interface {
 	CurrentBinary() string
 	CurrentIdleTimeout() int
 	DefaultArgs() []string
-	ConfiguredDefaultModel() string
 	Environment() map[string]string
 	SetEnvironment(map[string]string) error
 	Models() []models.ModelConfig
@@ -60,6 +60,7 @@ type AdminService interface {
 	UpdateMCPServer(models.MCPServerConfig) error
 	RemoveMCPServer(string) error
 	Config() *models.Config
+	ProcessLogger(workspaceID string) logging.Logger
 }
 
 type AssistantService interface {
@@ -67,11 +68,13 @@ type AssistantService interface {
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
-	DefaultModel() (string, error)
+	SelectModels() (string, string)
 
 	Engine() assistant.Engine
 	ToolProvider() assistant.ToolProvider
 	GuardrailEngine() *assistant.GuardrailEngine
+	Persistence() *persistence.WorkspaceManager
 	Config() *models.Config
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
+	ProcessLogger(workspaceID string) logging.Logger
 }

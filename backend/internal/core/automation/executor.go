@@ -42,6 +42,7 @@ type LLMServiceProvider interface {
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
 	GuardrailEngine() *assistant.GuardrailEngine
+	ProcessLogger(workspaceID string) logging.Logger
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -108,8 +109,11 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 
 	// Initialize the unified Agent
+	procLog := e.svc.ProcessLogger(req.WorkspaceID)
+	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
+
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
-		Logger:   e.svc.Logger(),
+		Logger:   procLog,
 		MaxSteps: 10,
 		Guardrails: e.svc.GuardrailEngine(),
 	})

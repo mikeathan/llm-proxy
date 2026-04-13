@@ -226,7 +226,7 @@ const emit = defineEmits<{
 }
 
 .entry-header {
-  @apply flex items-start justify-between mb-6;
+  @apply flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4 sm:mb-6;
 }
 
 .entry-info {
@@ -250,11 +250,11 @@ const emit = defineEmits<{
 }
 
 .entry-meta {
-  @apply flex flex-col items-end gap-1;
+  @apply flex flex-row sm:flex-col items-center sm:items-end gap-2 sm:gap-1 text-gray-500 overflow-hidden;
 }
 
 .entry-model {
-  @apply text-[10px] font-bold text-gray-400 tracking-widest uppercase;
+  @apply text-[10px] font-bold text-gray-400 tracking-widest uppercase truncate max-w-full;
 }
 
 .entry-duration {

@@ -58,8 +58,8 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	return app.NewServer(mgr, cfgMgr)
 }
 
-func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
-	srv := createTestServer(t, nil, nil)
+func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
+	srv := createTestServer(t, &mocks.MockManager{}, nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
@@ -70,7 +70,7 @@ func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "missing X-Model-Name") {
+	if !strings.Contains(w.Body.String(), "missing model name and no default configured") {
 		t.Fatalf("unexpected body: %s", w.Body.String())
 	}
 }
@@ -356,18 +356,19 @@ func TestAdminAddModelHandler(t *testing.T) {
 
 // --- AppContext behavior tests ---
 
-func TestAppContextDefaultModel_NoModels(t *testing.T) {
+func TestAppContextSelectModels_NoModels(t *testing.T) {
 	mgr := &mocks.MockManager{
 		ListModelsFunc: func() []models.ModelConfig { return nil },
 	}
 	ctx := createTestServer(t, mgr, nil)
 
-	if _, err := ctx.DefaultModel(); err == nil {
-		t.Fatalf("expected error when no models configured")
+	p, f := ctx.SelectModels()
+	if p != "" || f != "" {
+		t.Fatalf("expected empty models when none configured")
 	}
 }
 
-func TestAppContextDefaultModel_FirstModel(t *testing.T) {
+func TestAppContextSelectModels_FirstModel(t *testing.T) {
 	mgr := &mocks.MockManager{
 		ListModelsFunc: func() []models.ModelConfig {
 			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
@@ -375,12 +376,12 @@ func TestAppContextDefaultModel_FirstModel(t *testing.T) {
 	}
 	ctx := createTestServer(t, mgr, nil)
 
-	name, err := ctx.DefaultModel()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	p, f := ctx.SelectModels()
+	if p != "alpha" {
+		t.Fatalf("expected alpha, got %s", p)
 	}
-	if name != "alpha" {
-		t.Fatalf("expected alpha, got %s", name)
+	if f != "" {
+		t.Fatalf("expected empty fallback, got %s", f)
 	}
 }
 

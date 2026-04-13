@@ -75,10 +75,26 @@ function submitConfig() {
           The default model to use for the proxy and general requests if not specified.
         </div>
         <select
-          v-model="editConfig.default_model"
+          v-model="editConfig.primary_model"
           class="form-input"
         >
           <option value="">(Auto: First available)</option>
+          <option v-for="m in models" :key="m.name" :value="m.name">
+            {{ m.name }} ({{ m.provider }})
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Fallback System Model</label>
+        <div class="form-helper">
+          The fallback model to use if the primary model goes offline or throws an error.
+        </div>
+        <select
+          v-model="editConfig.fallback_model"
+          class="form-input"
+        >
+          <option value="">(None: No fallback)</option>
           <option v-for="m in models" :key="m.name" :value="m.name">
             {{ m.name }} ({{ m.provider }})
           </option>

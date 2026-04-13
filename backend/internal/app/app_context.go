@@ -1,12 +1,12 @@
 package app
 
 import (
-	"errors"
 	"path/filepath"
 	"sync"
 
-	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/models"
 )
@@ -62,27 +62,19 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 	return s
 }
 
-func (a *AppContext) DefaultModel() (string, error) {
-	if a.config.Server.DefaultModel != "" {
-		return a.config.Server.DefaultModel, nil
+func (a *AppContext) SelectModels() (string, string) {
+	p := a.config.Server.PrimaryModel
+	f := a.config.Server.FallbackModel
+
+	// If no primary is set, auto-select first available local model
+	if p == "" {
+		models := a.Runtime().ListModels()
+		if len(models) > 0 {
+			p = models[0].Name
+		}
 	}
-	models := a.Runtime().ListModels()
-	if len(models) == 0 {
-		return "", errors.New("no models configured")
-	}
-	return models[0].Name, nil
-}
 
-func (a *AppContext) ConfiguredDefaultModel() string {
-	return a.config.Server.DefaultModel
-}
-
-func (a *AppContext) PrimaryModel() string {
-	return a.config.Server.PrimaryModel
-}
-
-func (a *AppContext) FallbackModel() string {
-	return a.config.Server.FallbackModel
+	return p, f
 }
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
@@ -299,4 +291,25 @@ func (s *AppContext) Config() *models.Config {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	return &s.config
+}
+
+func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
+	if workspaceID == "" {
+		return logging.GetGlobalLogger()
+	}
+	dir := s.workspacesDir
+	if dir == "" {
+		dir = "workspaces"
+	}
+	logFile := filepath.Join(dir, workspaceID, ".internal", "process.log")
+	// Note: logging.NewFileLogger handles directory creation
+	l, err := logging.NewFileLogger(logging.Options{
+		File:   logFile,
+		Stdout: true,
+		Level:  logging.LevelInfo,
+	})
+	if err != nil {
+		return logging.GetGlobalLogger()
+	}
+	return l
 }

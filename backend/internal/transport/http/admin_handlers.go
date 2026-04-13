@@ -96,7 +96,8 @@ type adminConfigView struct {
 	ServiceClientID     string                         `json:"service_client_id,omitempty"`
 	ServiceClientSecret string                         `json:"service_client_secret,omitempty"`
 	DefaultArgs         []string                       `json:"default_args"`
-	DefaultModel        string                         `json:"default_model"`
+	PrimaryModel        string                         `json:"primary_model"`
+	FallbackModel       string                         `json:"fallback_model"`
 	Providers           map[string]models.ProviderItem `json:"providers"`
 	Guardrails          models.AgentGuardrailsConfig   `json:"guardrails"`
 	Communication       models.CommunicationConfig     `json:"communication"`
@@ -190,7 +191,8 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Binary:        h.admin.CurrentBinary(),
 			IdleTimeout:   h.admin.CurrentIdleTimeout(),
 			DefaultArgs:   h.admin.DefaultArgs(),
-			DefaultModel:  h.admin.ConfiguredDefaultModel(),
+			PrimaryModel:  h.admin.Config().Server.PrimaryModel,
+			FallbackModel: h.admin.Config().Server.FallbackModel,
 			Providers:     h.admin.Providers(),
 			Guardrails:    h.admin.Config().Guardrails,
 			Communication: h.admin.Config().Communication,
@@ -289,7 +291,8 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		ServiceClientID:     serviceClientID,
 		ServiceClientSecret: serviceClientSecret,
 		DefaultArgs:         h.admin.DefaultArgs(),
-		DefaultModel:        h.admin.ConfiguredDefaultModel(),
+		PrimaryModel:        h.admin.Config().Server.PrimaryModel,
+		FallbackModel:       h.admin.Config().Server.FallbackModel,
 		Providers:           h.admin.Providers(),
 		Guardrails:          h.admin.Config().Guardrails,
 		Communication:       h.admin.Config().Communication,
@@ -498,7 +501,8 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		ServiceClientSecret string                         `json:"service_client_secret"`
 		Environment         map[string]string              `json:"environment"`
 		DefaultArgs         []string                       `json:"default_args"`
-		DefaultModel        string                         `json:"default_model"`
+		PrimaryModel        string                         `json:"primary_model"`
+		FallbackModel       string                         `json:"fallback_model"`
 		Providers           map[string]models.ProviderItem `json:"providers"`
 		Guardrails          *models.AgentGuardrailsConfig  `json:"guardrails,omitempty"`
 		Communication       *models.CommunicationConfig    `json:"communication,omitempty"`
@@ -568,8 +572,11 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		if req.DefaultArgs != nil {
 			cfg.Server.DefaultArgs = req.DefaultArgs
 		}
-		if req.DefaultModel != "" {
-			cfg.Server.DefaultModel = req.DefaultModel
+		if req.PrimaryModel != "" {
+			cfg.Server.PrimaryModel = req.PrimaryModel
+		}
+		if req.FallbackModel != "" {
+			cfg.Server.FallbackModel = req.FallbackModel
 		}
 		if req.Providers != nil {
 			if cfg.Providers == nil {
@@ -1057,4 +1064,32 @@ func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	http.FileServer(http.FS(fsys)).ServeHTTP(w, r)
+}
+func (h *AdminHandlers) AdminWorkspaceProcessLogsHandler(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+		return
+	}
+
+	logger := h.admin.ProcessLogger(workspaceID)
+	lp, ok := logger.(interface{ LogPath() string })
+	if !ok {
+		writeJSONError(w, http.StatusInternalServerError, "logger does not support file reading")
+		return
+	}
+
+	path := lp.LogPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Write([]byte(""))
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to read process log: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write(data)
 }

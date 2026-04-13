@@ -76,7 +76,7 @@ type RuntimeManager interface {
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey string) error
-	DefaultModel() (string, error)
+	SelectModels() (string, string)
 	Shutdown()
 }
 
@@ -263,8 +263,8 @@ func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (Model
 	return inst, nil
 }
 
-func (m *LLMRuntimeManager) DefaultModel() (string, error) {
-	return "", nil
+func (m *LLMRuntimeManager) SelectModels() (string, string) {
+	return "", ""
 }
 
 func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (ModelInstance, error) {

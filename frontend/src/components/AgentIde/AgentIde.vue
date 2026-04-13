@@ -14,6 +14,7 @@ import SystemMetricsPanel from "./system/SystemMetricsPanel.vue";
 import SystemPulseDashboard from "./system/SystemPulseDashboard.vue";
 import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
+import AssistantChat from "./assistant/AssistantChat.vue";
 
 import type { AutomationRun } from "../../types/dispatcher";
 
@@ -51,7 +52,10 @@ const selectedRun = ref<AutomationRun | null>(null);
 
 const selectedAutomation = computed(() => {
   if (!selectedAutomationId.value) return null;
-  return automations.value.find((a: any) => a.id === selectedAutomationId.value) || null;
+  return (
+    automations.value.find((a: any) => a.id === selectedAutomationId.value) ||
+    null
+  );
 });
 const editAutomation = ref<Automation | null>(null);
 const selectedWorkspace = ref<string | null>(null);
@@ -63,6 +67,13 @@ const savingFile = ref(false);
 const triggering = ref(false);
 const lastTriggerResult = ref<string | null>(null);
 const workspaceHistory = ref<AutomationRun[]>([]);
+
+const mobilePanel = ref<'explorer' | 'workspace' | 'monitor'>('workspace');
+const isMobile = ref(false);
+
+const updateLayout = () => {
+  isMobile.value = window.innerWidth < 1024;
+};
 
 const refreshHistory = async () => {
   try {
@@ -86,13 +97,17 @@ onMounted(() => {
   fetchWorkspaces();
   refreshModels();
   refreshHistory();
-  
+
+  updateLayout();
+  window.addEventListener('resize', updateLayout);
+
   // Start background polling for history to keep the "Pulse" alive
   historyInterval = setInterval(refreshHistory, 10000);
 });
 
 onUnmounted(() => {
   if (historyInterval) clearInterval(historyInterval);
+  window.removeEventListener('resize', updateLayout);
 });
 
 const groupedByWorkspace = computed(() => {
@@ -264,20 +279,60 @@ const handleUpdateAutomation = async (
 
 <template>
   <div class="ide-shell">
+    <!-- Mobile Tab Bar -->
+    <div class="mobile-tabs">
+      <button
+        @click="mobilePanel = 'explorer'"
+        :class="['mobile-tab', mobilePanel === 'explorer' ? 'mobile-tab--active' : '']"
+      >Explorer</button>
+      <button
+        @click="mobilePanel = 'workspace'"
+        :class="['mobile-tab', mobilePanel === 'workspace' ? 'mobile-tab--active' : '']"
+      >Workspace</button>
+      <button
+        @click="mobilePanel = 'monitor'"
+        :class="['mobile-tab', mobilePanel === 'monitor' ? 'mobile-tab--active' : '']"
+      >Monitor</button>
+    </div>
+
     <!-- Left Pane: Sidebar -->
-    <div class="sidebar">
-      <!-- Global Error Banner -->
+    <div
+      v-show="!isMobile || mobilePanel === 'explorer'"
+      class="sidebar"
+    >
       <div v-if="error" class="error-banner">
         <div class="error-content">
           <div class="error-message-row">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4 shrink-0 mt-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <span class="error-text">{{ error }}</span>
           </div>
           <button @click="clearError" class="btn-dismiss" title="Dismiss error">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-3.5 w-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -288,14 +343,22 @@ const handleUpdateAutomation = async (
           <button
             @click="leftTab = 'explorer'"
             class="sidebar-tab"
-            :class="leftTab === 'explorer' ? 'sidebar-tab--active' : 'sidebar-tab--inactive'"
+            :class="
+              leftTab === 'explorer'
+                ? 'sidebar-tab--active'
+                : 'sidebar-tab--inactive'
+            "
           >
             Explorer
           </button>
           <button
             @click="leftTab = 'automations'"
             class="sidebar-tab"
-            :class="leftTab === 'automations' ? 'sidebar-tab--active' : 'sidebar-tab--inactive'"
+            :class="
+              leftTab === 'automations'
+                ? 'sidebar-tab--active'
+                : 'sidebar-tab--inactive'
+            "
           >
             Automations
           </button>
@@ -348,10 +411,29 @@ const handleUpdateAutomation = async (
     </div>
 
     <!-- Middle Pane: Details / Editor / Dashboard -->
-    <div class="main-pane">
+    <div
+      v-show="!isMobile || mobilePanel === 'workspace'"
+      class="main-pane"
+    >
+
+      <AssistantChat
+        v-if="
+          !selectedAutomation &&
+          !selectedFile &&
+          !selectedRun &&
+          selectedWorkspace
+        "
+        :workspaceId="selectedWorkspace"
+      />
+
       <!-- Default Dashboard View (Flat Timeline) -->
       <SystemPulseDashboard
-        v-if="!selectedAutomation && !selectedFile && !selectedRun"
+        v-else-if="
+          !selectedAutomation &&
+          !selectedFile &&
+          !selectedRun &&
+          !selectedWorkspace
+        "
         :selected-workspace="selectedWorkspace"
         :loading="loading"
         :workspace-history="workspaceHistory"
@@ -370,11 +452,27 @@ const handleUpdateAutomation = async (
       <div v-else-if="selectedFile" class="editor-shell">
         <div class="editor-header">
           <h2 class="editor-title">
-            <span class="title-prefix">editing /</span> {{ selectedFile.filename }}
+            <span class="title-prefix">editing /</span>
+            {{ selectedFile.filename }}
           </h2>
-          <button @click="handleCloseDetails" class="btn-icon-round group" title="Close editor and return to dashboard">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          <button
+            @click="handleCloseDetails"
+            class="btn-icon-round group"
+            title="Close editor and return to dashboard"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -398,7 +496,10 @@ const handleUpdateAutomation = async (
     </div>
 
     <!-- Right Pane: Monitor & Activity -->
-    <div class="right-pane">
+    <div
+      v-show="!isMobile || mobilePanel === 'monitor'"
+      class="right-pane"
+    >
       <!-- Trigger Control -->
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
@@ -434,13 +535,27 @@ const handleUpdateAutomation = async (
 
 <style scoped lang="postcss">
 .ide-shell {
-  @apply h-[calc(100vh-8rem)] flex gap-4;
+  @apply h-[calc(100vh-10rem)] flex flex-col lg:flex-row lg:h-[calc(100vh-8rem)] gap-4;
+}
+
+/* Mobile tab bar - only shown on small screens */
+.mobile-tabs {
+  @apply flex lg:hidden gap-1 bg-gray-800/50 rounded-xl p-1 shrink-0 border border-white/5;
+}
+
+.mobile-tab {
+  @apply flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-colors text-gray-400;
+}
+
+.mobile-tab--active {
+  @apply bg-blue-600 text-white shadow-md;
 }
 
 /* ── Sidebar ── */
 .sidebar {
-  @apply w-80 flex flex-col bg-gray-800 rounded-lg overflow-hidden relative;
+  @apply w-full lg:w-72 flex flex-col bg-gray-800 rounded-lg overflow-hidden relative shadow-lg shrink-0 min-h-0;
 }
+
 
 .error-banner {
   @apply absolute top-0 left-0 right-0 z-50 p-3 bg-red-900/90 backdrop-blur-sm 
@@ -464,7 +579,7 @@ const handleUpdateAutomation = async (
 }
 
 .sidebar-header {
-  @apply p-4 border-b border-gray-700 flex flex-col gap-3;
+  @apply p-3 px-4 border-b border-gray-700 flex flex-col gap-2.5;
 }
 
 .sidebar-tabs {
@@ -493,7 +608,7 @@ const handleUpdateAutomation = async (
 
 /* ── Main Pane ── */
 .main-pane {
-  @apply flex-1 flex flex-col bg-gray-800 rounded-lg overflow-hidden border border-white/5 shadow-2xl;
+  @apply flex-1 flex flex-col bg-gray-800 rounded-lg overflow-hidden border border-white/5 shadow-2xl min-h-0;
 }
 
 .editor-shell {
@@ -519,19 +634,19 @@ const handleUpdateAutomation = async (
 
 /* ── Right Pane ── */
 .right-pane {
-  @apply w-80 flex flex-col gap-4 overflow-hidden;
+  @apply w-full lg:w-72 flex flex-col gap-4 overflow-y-auto relative shrink-0 min-h-0;
 }
 
 .action-card {
-  @apply bg-gray-800 rounded-lg p-4 shrink-0 border border-white/5 shadow-lg;
+  @apply bg-gray-800 rounded-lg p-3 shrink-0 border border-white/5 shadow-lg flex flex-col gap-2;
 }
 
 .action-title {
-  @apply font-bold text-xs text-gray-400 uppercase tracking-widest mb-4;
+  @apply font-bold text-[10px] text-gray-500 uppercase tracking-widest;
 }
 
 .btn-action {
-  @apply w-full py-2.5 px-4 rounded font-bold text-xs uppercase tracking-widest 
+  @apply w-full py-2 px-4 rounded font-bold text-[10px] uppercase tracking-widest 
          transition-all duration-200 shadow-sm bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/30;
 }
 

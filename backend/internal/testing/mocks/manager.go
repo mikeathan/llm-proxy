@@ -25,7 +25,7 @@ type MockManager struct {
 	SetModelHostFunc        func(string)
 	ListProviderModelsFunc  func(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey string) error
-	DefaultModelFunc        func() (string, error)
+	SelectModelsFunc        func() (string, string)
 	ShutdownFunc            func()
 }
 
@@ -35,11 +35,11 @@ func (m *MockManager) Shutdown() {
 	}
 }
 
-func (m *MockManager) DefaultModel() (string, error) {
-	if m.DefaultModelFunc != nil {
-		return m.DefaultModelFunc()
+func (m *MockManager) SelectModels() (string, string) {
+	if m.SelectModelsFunc != nil {
+		return m.SelectModelsFunc()
 	}
-	return "", nil
+	return "", ""
 }
 
 func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey string) error {
