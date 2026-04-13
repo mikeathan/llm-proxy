@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/testing/mocks"
+	"llm-proxy/models"
 )
 
 type mockSelector struct {
@@ -56,7 +57,7 @@ func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 	selector := &mockSelector{model: "alpha"}
 	manager := &mocks.MockManager{
 		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
-			return llm.ModelInstance{}, llm.ErrModelStarting
+			return llm.ModelInstance{}, models.ErrModelStarting
 		},
 	}
 
@@ -64,7 +65,7 @@ func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 		return &dummyClient{baseURL: baseURL}
 	})
 
-	if _, err := provider.GetClient(context.Background()); !errors.Is(err, llm.ErrModelStarting) {
+	if _, err := provider.GetClient(context.Background()); !errors.Is(err, models.ErrModelStarting) {
 		t.Fatalf("expected ErrModelStarting, got %v", err)
 	}
 }

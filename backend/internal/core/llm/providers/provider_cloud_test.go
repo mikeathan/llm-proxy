@@ -1,4 +1,4 @@
-package llm
+package providers_test
 
 import (
 	"context"
@@ -6,11 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 )
 
 func TestDynamicProviderRegistry(t *testing.T) {
-	registry := GetRegistry()
+	registry := llm.GetRegistry()
 	
 	// Test that mulerouter is loaded
 	m, ok := registry.Get("mulerouter")
@@ -28,15 +30,15 @@ func TestDynamicProviderRegistry(t *testing.T) {
 		},
 	}
 	
-	p := NewOpenAICompatibleProvider(cfg, m)
+	p := providers.NewOpenAICompatibleProvider(cfg, m)
 
 	// Test GetEndpoint
 	url, header, err := p.GetEndpoint(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if url != "https://api.mulerouter.ai/vendors/openai/v1" {
-		t.Errorf("expected URL https://api.mulerouter.ai/vendors/openai/v1, got %s", url)
+	if url != "https://api.mulerouter.ai/vendors/openai/v1/chat/completions" {
+		t.Errorf("expected URL https://api.mulerouter.ai/vendors/openai/v1/chat/completions, got %s", url)
 	}
 	if header.Get("Authorization") != "Bearer test-key" {
 		t.Errorf("expected Authorization header Bearer test-key, got %s", header.Get("Authorization"))
@@ -57,7 +59,7 @@ func TestDynamicProviderRegistry(t *testing.T) {
 
 	// Override base URL for test
 	cfg.ProviderConfig.BaseURL = server.URL
-	p = NewOpenAICompatibleProvider(cfg, m)
+	p = providers.NewOpenAICompatibleProvider(cfg, m)
 
 	models, err := p.ListModels(context.Background())
 	if err != nil {
@@ -69,22 +71,22 @@ func TestDynamicProviderRegistry(t *testing.T) {
 }
 
 func TestNvidiaProvider_Manifest(t *testing.T) {
-	m, _ := GetRegistry().Get("nvidia")
+	m, _ := llm.GetRegistry().Get("nvidia")
 	cfg := models.ModelConfig{
 		Provider: "nvidia",
 		ProviderConfig: models.ProviderConfig{
 			APIKey: "nvapi-test",
 		},
 	}
-	p := NewOpenAICompatibleProvider(cfg, m)
+	p := providers.NewOpenAICompatibleProvider(cfg, m)
 
 	// Test GetEndpoint
 	url, header, err := p.GetEndpoint(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if url != "https://integrate.api.nvidia.com/v1" {
-		t.Errorf("expected URL https://integrate.api.nvidia.com/v1, got %s", url)
+	if url != "https://integrate.api.nvidia.com/v1/chat/completions" {
+		t.Errorf("expected URL https://integrate.api.nvidia.com/v1/chat/completions, got %s", url)
 	}
 	if header.Get("Authorization") != "Bearer nvapi-test" {
 		t.Errorf("expected Authorization header Bearer nvapi-test, got %s", header.Get("Authorization"))

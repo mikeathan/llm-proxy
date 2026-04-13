@@ -1,8 +1,15 @@
-package llm
+package models
 
 import (
 	"context"
+	"errors"
 	"net/http"
+)
+
+var (
+	ErrModelStarting = errors.New("model is starting")
+	ErrUnknownModel  = errors.New("unknown model")
+	ErrModelExists   = errors.New("model already exists")
 )
 
 type ProviderStatus string

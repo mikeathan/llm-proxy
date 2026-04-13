@@ -294,3 +294,9 @@ func (s *AppContext) RemoveMCPServer(name string) error {
 		c.MCPServers = out
 	})
 }
+
+func (s *AppContext) Config() *models.Config {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	return &s.config
+}

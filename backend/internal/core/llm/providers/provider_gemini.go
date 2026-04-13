@@ -1,4 +1,4 @@
-package llm
+package providers
 
 import (
 	"context"
@@ -18,12 +18,12 @@ func NewGeminiProvider(cfg models.ModelConfig) *GeminiProvider {
 	return &GeminiProvider{cfg: cfg}
 }
 
-func (p *GeminiProvider) Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+func (p *GeminiProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
 	return nil, fmt.Errorf("gemini provider Chat endpoint is not yet implemented natively; use standard model host proxying")
 }
 
-func (p *GeminiProvider) GetStatus() ProviderStatus {
-	return ProviderStatusReady
+func (p *GeminiProvider) GetStatus() models.ProviderStatus {
+	return models.ProviderStatusReady
 }
 
 func (p *GeminiProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {

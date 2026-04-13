@@ -1,0 +1,13 @@
+{
+  "tool_name": "internet_search",
+  "version": "1.0",
+  "description": "Search the internet for real-time information and documentation.",
+  "guardrails": {
+    "enabled": false,
+    "max_query_len": 500,
+    "blocked_sites": [
+      "darkweb.com",
+      "malware-db.net"
+    ]
+  }
+}

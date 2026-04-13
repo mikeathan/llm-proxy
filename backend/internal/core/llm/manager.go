@@ -23,7 +23,6 @@ const (
 )
 
 var (
-	ErrModelStarting = errors.New("model is starting")
 	ErrUnknownModel  = errors.New("unknown model")
 	ErrModelExists   = errors.New("model already exists")
 )
@@ -84,7 +83,7 @@ type RuntimeManager interface {
 type LLMRuntimeManager struct {
 	mu                sync.Mutex
 	activeModel       *runningModel
-	activeProvider    Provider
+	activeProvider    models.Provider
 	activeCloudConfig *models.ModelConfig
 	models            map[string]models.ModelConfig
 	providers         map[string]models.ProviderItem
@@ -164,7 +163,7 @@ func hostFromConfig(host string) string {
 	return host
 }
 
-func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) Provider {
+func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) models.Provider {
 	pCfg := cfg
 	var modelDir string
 	if provider, ok := m.providers[cfg.Provider]; ok {
@@ -286,7 +285,7 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 			}
 
 			if m.activeModel != nil && m.activeModel.cfg.Name == name {
-				return ModelInstance{}, ErrModelStarting
+				return ModelInstance{}, models.ErrModelStarting
 			}
 
 			activePort := m.activePortLocked()
@@ -307,7 +306,7 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 			if err != nil {
 				return ModelInstance{}, err
 			}
-			return ModelInstance{}, ErrModelStarting
+			return ModelInstance{}, models.ErrModelStarting
 		}
 	}
 

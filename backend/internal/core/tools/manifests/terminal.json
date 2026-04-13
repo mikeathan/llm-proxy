@@ -1,0 +1,20 @@
+{
+  "tool_name": "execute_terminal_command",
+  "version": "1.1",
+  "description": "Execute a shell command on the host terminal and return the output.",
+  "guardrails": {
+    "enabled": false,
+    "allowed_commands": [
+      "ls", "pwd", "whoami", "uname", "nmap", "ping", "df", "uptime", "curl", "cat", "grep"
+    ],
+    "blocked_patterns": [
+      "rm\\s+", "mv\\s+", "chmod\\s+", "sudo\\s+", ">\\s*/", ";", "&&", "\\|\\|", "\\|", "&", "\\$", "ssh\\s+", "passwd"
+    ],
+    "timeout_seconds": 30,
+    "max_output_size_chars": 50000
+  },
+  "runtime": {
+    "timeout_seconds": 30,
+    "default_shell": "sh"
+  }
+}

@@ -78,7 +78,7 @@ func TestEnsureModelProxyHandler_MissingHeader(t *testing.T) {
 func TestEnsureModelProxyHandler_ModelStarting(t *testing.T) {
 	mgr := &mocks.MockManager{
 		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
-			return llm.ModelInstance{}, llm.ErrModelStarting
+			return llm.ModelInstance{}, models.ErrModelStarting
 		},
 	}
 

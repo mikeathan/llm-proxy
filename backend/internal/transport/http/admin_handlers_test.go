@@ -35,7 +35,7 @@ func TestAdminStartHandler_MissingName(t *testing.T) {
 func TestAdminStartHandler_ModelStarting(t *testing.T) {
 	manager := &mocks.MockManager{
 		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
-			return llm.ModelInstance{}, llm.ErrModelStarting
+			return llm.ModelInstance{}, models.ErrModelStarting
 		},
 	}
 	handler := newAdminHandlers(manager, &mocks.MockAdminService{})

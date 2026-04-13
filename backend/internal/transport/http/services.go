@@ -4,11 +4,11 @@ import (
 	"context"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
 	"time"
 )
@@ -59,6 +59,7 @@ type AdminService interface {
 	AddMCPServer(models.MCPServerConfig) error
 	UpdateMCPServer(models.MCPServerConfig) error
 	RemoveMCPServer(string) error
+	Config() *models.Config
 }
 
 type AssistantService interface {
@@ -69,6 +70,8 @@ type AssistantService interface {
 	DefaultModel() (string, error)
 
 	Engine() assistant.Engine
+	ToolProvider() assistant.ToolProvider
+	GuardrailEngine() *assistant.GuardrailEngine
+	Config() *models.Config
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 }
-

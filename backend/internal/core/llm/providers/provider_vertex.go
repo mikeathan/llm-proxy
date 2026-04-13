@@ -1,4 +1,4 @@
-package llm
+package providers
 
 import (
 	"context"
@@ -15,12 +15,12 @@ func NewVertexProvider(cfg models.ModelConfig) *VertexProvider {
 	return &VertexProvider{cfg: cfg}
 }
 
-func (p *VertexProvider) Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+func (p *VertexProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
 	return nil, fmt.Errorf("vertex provider Chat endpoint is not yet implemented natively; use standard model host proxying")
 }
 
-func (p *VertexProvider) GetStatus() ProviderStatus {
-	return ProviderStatusReady
+func (p *VertexProvider) GetStatus() models.ProviderStatus {
+	return models.ProviderStatusReady
 }
 
 func (p *VertexProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {

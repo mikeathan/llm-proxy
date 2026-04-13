@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
 )
 
@@ -56,6 +57,8 @@ func (chk *ConfigManager) Load() error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
+
+	chk.setupDefaults(&cfg)
 
 	chk.config = &cfg
 	return nil
@@ -149,4 +152,30 @@ func (chk *ConfigManager) atomicSave() error {
 	return nil
 }
 
-// Helper functions
+// setupDefaults ensures that essential configuration fields have sane defaults.
+func (chk *ConfigManager) setupDefaults(cfg *models.Config) {
+	// 1. Terminal Guardrails (Manifest Driven)
+	if cfg.Guardrails.Terminal.AllowedCommands == nil {
+		_ = tools.LoadManifest("terminal", &cfg.Guardrails.Terminal)
+	}
+
+	// 2. Search Guardrails (Manifest Driven)
+	if cfg.Guardrails.Search.BlockedSites == nil {
+		_ = tools.LoadManifest("search", &cfg.Guardrails.Search)
+	}
+
+	// 3. Communication Guardrails (Manifest Driven)
+	if cfg.Guardrails.Communication.MaxMessages == 0 {
+		_ = tools.LoadManifest("communication", &cfg.Guardrails.Communication)
+	}
+
+	// 4. FileSystem Guardrails (Manifest Driven)
+	if cfg.Guardrails.FileSystem.AllowedPaths == nil {
+		_ = tools.LoadManifest("filesystem", &cfg.Guardrails.FileSystem)
+	}
+
+	// 5. Global Guardrails Defaults (Secrets check should always be on by default)
+	if !cfg.Guardrails.Global.BlockSecrets && len(cfg.Guardrails.Global.UserBlocked) == 0 {
+		cfg.Guardrails.Global.BlockSecrets = true
+	}
+}

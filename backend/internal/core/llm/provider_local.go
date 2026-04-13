@@ -63,19 +63,19 @@ func (p *LocalProvider) TestConnection(ctx context.Context) error {
 	return nil
 }
 
-func (p *LocalProvider) Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+func (p *LocalProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
 	return nil, fmt.Errorf("local provider Chat endpoint is not yet implemented natively; use standard model host proxying")
 }
 
-func (p *LocalProvider) GetStatus() ProviderStatus {
+func (p *LocalProvider) GetStatus() models.ProviderStatus {
 	if p.activeModel != nil {
 		if utils.PortReady(p.cfg.Port) {
-			return ProviderStatusReady
+			return models.ProviderStatusReady
 		}
 		logging.Debug("Local model port not yet ready", "model", p.cfg.Name, "port", p.cfg.Port)
-		return ProviderStatusRunning
+		return models.ProviderStatusRunning
 	}
-	return ProviderStatusReady
+	return models.ProviderStatusReady
 }
 
 func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
@@ -92,13 +92,13 @@ func (p *LocalProvider) EnsureReady(ctx context.Context) error {
 			return nil
 		}
 		// Model is still warming up, do not start another one!
-		return ErrModelStarting
+		return models.ErrModelStarting
 	}
 
 	if err := p.startModel(ctx); err != nil {
 		return err
 	}
-	return ErrModelStarting
+	return models.ErrModelStarting
 }
 
 func (p *LocalProvider) Shutdown() error {

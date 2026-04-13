@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 )
 
@@ -38,6 +39,9 @@ type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	Logger() logging.Logger
+	ToolProvider() assistant.ToolProvider
+	Engine() assistant.Engine
+	GuardrailEngine() *assistant.GuardrailEngine
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -94,7 +98,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		clientProvider := e.svc.ClientProvider()
 		client, err = clientProvider.GetClient(ctx)
 	}
-	
+
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.LastError = errStr
@@ -103,68 +107,59 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		return resp, fmt.Errorf("failed to get llm client: %w", err)
 	}
 
-	// Build messages - simple user prompt for automation execution
-	var history []proxy.Message
+	// Initialize the unified Agent
+	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
+		Logger:   e.svc.Logger(),
+		MaxSteps: 10,
+		Guardrails: e.svc.GuardrailEngine(),
+	})
 
 	// Build task prompt from automation info
 	prompt := e.buildPrompt(req)
-	history = append(history, proxy.Message{Role: "user", Content: prompt})
-
-	// Make LLM call (no tools for dispatcher automations)
-	chatReq := proxy.ChatRequest{
-		Messages: history,
+	history := []proxy.Message{
+		{Role: "user", Content: prompt},
 	}
 
-	chatResp, err := client.Chat(ctx, chatReq)
-	if err != nil {
-		errStr := fmt.Sprintf("llm chat failed: %v", err)
+	// Execute via Agent Loop
+	finalReply, fullHistory, agErr := agent.Execute(ctx, history)
+	if agErr != nil {
+		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
 		resp.State.IsRunning = false
 		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
-		return resp, fmt.Errorf("llm chat failed: %w", err)
+		return resp, fmt.Errorf("agent execution failed: %w", agErr)
 	}
 
-	if len(chatResp.Choices) == 0 {
-		errStr := "no response choices"
-		resp.State.LastError = errStr
-		resp.State.IsRunning = false
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
-		return resp, fmt.Errorf("no response choices")
-	}
-
-	choice := chatResp.Choices[0]
-	var runResult string
+	var runResult = finalReply
 	var runError string
 
-	if choice.Message.Content != "" {
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
-		header := fmt.Sprintf("[%s] ▶ Executing automation `%s` in workspace `%s`...\nReading task file: `%s`\n\n",
-			timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
-
-		output := strings.TrimSpace(choice.Message.Content)
-
-		// If output already includes a code block, don't wrap it again
-		formattedOutput := output
-		if !strings.Contains(output, "```") {
-			formattedOutput = fmt.Sprintf("```text\n%s\n```", output)
+	// Collect any tool calls for result summary if no final reply content (rare but possible)
+	if finalReply == "" && len(fullHistory) > 1 {
+		lastMsg := fullHistory[len(fullHistory)-1]
+		if len(lastMsg.ToolCalls) > 0 {
+			runResult = fmt.Sprintf("Completed with %d tool interactions.", len(lastMsg.ToolCalls))
 		}
-
-		fullOutput := fmt.Sprintf("%s**Output:**\n\n%s",
-			header, formattedOutput)
-
-		resp.Output = fullOutput
-		resp.State.LastOutput = fullOutput
-		runResult = fullOutput
 	}
 
-	if len(choice.Message.ToolCalls) > 0 {
-		resp.Output = fmt.Sprintf("Called %d tools (e.g., %s)", len(choice.Message.ToolCalls), choice.Message.ToolCalls[0].Function.Name)
-		resp.State.LastOutput = resp.Output
-		runResult = resp.Output
+	// Prepare formatted output
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	header := fmt.Sprintf("[%s] ▶ Executing automation `%s` in workspace `%s`...\nReading task file: `%s`\n\n",
+		timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
+
+	output := strings.TrimSpace(runResult)
+	formattedOutput := output
+	if !strings.Contains(output, "```") && output != "" {
+		formattedOutput = fmt.Sprintf("```text\n%s\n```", output)
 	}
+
+	fullOutput := fmt.Sprintf("%s**Output:**\n\n%s", header, formattedOutput)
+
+	resp.Output = fullOutput
+	resp.State.LastOutput = fullOutput
+	runResult = fullOutput
 
 	resp.State.IsRunning = false
-	
+
 	// Record to history
 	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime))
 
@@ -202,7 +197,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 
 func generateRunID() string {
 	// Simple unique-ish ID without importing full UUID package if not strictly needed
-	// but I checked go.mod and it's there. 
+	// but I checked go.mod and it's there.
 	// For now, use timestamp + nano for simplicity if I want to avoid adding the import
 	// but let's just use UUID if I can.
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())

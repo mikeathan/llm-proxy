@@ -7,8 +7,8 @@ import (
 	"io"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"mime"
@@ -51,15 +51,15 @@ func NewAdminHandlers(
 }
 
 type adminModelView struct {
-	Name         string   `json:"name"`
-	Provider     string   `json:"provider"`
-	Filename     string   `json:"filename"`
-	ResolvedPath string   `json:"resolved_path"`
-	Args         []string `json:"args"`
-	Port         int      `json:"port"`
-	Endpoint     string   `json:"endpoint"`
-	Active       bool     `json:"active"`
-	Ready        bool                  `json:"ready"`
+	Name           string                `json:"name"`
+	Provider       string                `json:"provider"`
+	Filename       string                `json:"filename"`
+	ResolvedPath   string                `json:"resolved_path"`
+	Args           []string              `json:"args"`
+	Port           int                   `json:"port"`
+	Endpoint       string                `json:"endpoint"`
+	Active         bool                  `json:"active"`
+	Ready          bool                  `json:"ready"`
 	ProviderConfig models.ProviderConfig `json:"provider_config,omitempty"`
 }
 
@@ -88,17 +88,19 @@ type adminStateResponse struct {
 }
 
 type adminConfigView struct {
-	ModelHost           string                          `json:"model_host"`
-	IdleTimeoutS        int                             `json:"idle_timeout_seconds"`
-	GPUProvider         string                          `json:"gpu_provider,omitempty"`
-	GPUBinary           string                          `json:"gpu_binary,omitempty"`
-	GPUIndex            int                             `json:"gpu_index,omitempty"`
-	ServiceClientID     string                          `json:"service_client_id,omitempty"`
-	ServiceClientSecret string                          `json:"service_client_secret,omitempty"`
-	Environment         map[string]string               `json:"environment"`
-	DefaultArgs         []string                        `json:"default_args"`
-	DefaultModel        string                          `json:"default_model"`
+	ModelDir            string                         `json:"model_dir"`
+	WorkspacesDir       string                         `json:"workspaces_dir"`
+	GPU                 models.GPUConfig               `json:"gpu"`
+	Binary              string                         `json:"binary"`
+	IdleTimeout         int                            `json:"idle_timeout_seconds"`
+	ServiceClientID     string                         `json:"service_client_id,omitempty"`
+	ServiceClientSecret string                         `json:"service_client_secret,omitempty"`
+	DefaultArgs         []string                       `json:"default_args"`
+	DefaultModel        string                         `json:"default_model"`
 	Providers           map[string]models.ProviderItem `json:"providers"`
+	Guardrails          models.AgentGuardrailsConfig   `json:"guardrails"`
+	Communication       models.CommunicationConfig     `json:"communication"`
+	Search              models.SearchConfig            `json:"search"`
 }
 
 type adminStartResponse struct {
@@ -176,27 +178,23 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		activePort = activeDetails.Port
 	}
 	nextPort := nextAvailablePort(modelsList, activePort)
-	gpuCfg := h.admin.GPUConfig()
-
-	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
-
 	state := adminStateResponse{
 		Models:    make([]adminModelView, 0, len(modelsList)),
 		Available: available,
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			ModelHost:           host,
-			IdleTimeoutS:        h.admin.CurrentIdleTimeout(),
-			GPUProvider:         gpuCfg.Provider,
-			GPUBinary:           gpuCfg.Binary,
-			GPUIndex:            gpuCfg.Index,
-			ServiceClientID:     serviceClientID,
-			ServiceClientSecret: serviceClientSecret,
-			Environment:         h.admin.Environment(),
-			DefaultArgs:         h.admin.DefaultArgs(),
-			DefaultModel:        h.admin.ConfiguredDefaultModel(),
-			Providers:           h.admin.Providers(),
+			ModelDir:      h.admin.ModelDir(),
+			WorkspacesDir: h.admin.WorkspacesDir(),
+			GPU:           h.admin.GPUConfig(),
+			Binary:        h.admin.CurrentBinary(),
+			IdleTimeout:   h.admin.CurrentIdleTimeout(),
+			DefaultArgs:   h.admin.DefaultArgs(),
+			DefaultModel:  h.admin.ConfiguredDefaultModel(),
+			Providers:     h.admin.Providers(),
+			Guardrails:    h.admin.Config().Guardrails,
+			Communication: h.admin.Config().Communication,
+			Search:        h.admin.Config().Search,
 		},
 	}
 
@@ -219,15 +217,15 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		}
 
 		state.Models = append(state.Models, adminModelView{
-			Name:         mc.Name,
-			Provider:     mc.Provider,
-			Filename:     filename,
-			ResolvedPath: mc.Path,
-			Args:         args,
-			Port:         mc.Port,
-			Endpoint:     fmt.Sprintf("http://%s:%d", host, mc.Port),
-			Active:       mc.Name == activeName,
-			Ready:        mc.Name == activeName && activeDetails != nil && activeDetails.Ready,
+			Name:           mc.Name,
+			Provider:       mc.Provider,
+			Filename:       filename,
+			ResolvedPath:   mc.Path,
+			Args:           args,
+			Port:           mc.Port,
+			Endpoint:       fmt.Sprintf("http://%s:%d", host, mc.Port),
+			Active:         mc.Name == activeName,
+			Ready:          mc.Name == activeName && activeDetails != nil && activeDetails.Ready,
 			ProviderConfig: mc.ProviderConfig,
 		})
 	}
@@ -255,7 +253,7 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	mi, err := h.runtime.EnsureModel(r.Context(), req.Name)
-	if err == llm.ErrModelStarting {
+	if err == models.ErrModelStarting {
 		w.WriteHeader(http.StatusAccepted)
 		respondJSON(w, adminStartResponse{Status: "starting", Model: req.Name})
 		return
@@ -281,20 +279,21 @@ func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
-	gpuCfg := h.admin.GPUConfig()
 	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
 	cfg := adminConfigView{
-		ModelHost:           h.runtime.ModelHost(),
-		IdleTimeoutS:        h.admin.CurrentIdleTimeout(),
-		GPUProvider:         gpuCfg.Provider,
-		GPUBinary:           gpuCfg.Binary,
-		GPUIndex:            gpuCfg.Index,
+		ModelDir:            h.admin.ModelDir(),
+		WorkspacesDir:       h.admin.WorkspacesDir(),
+		GPU:                 h.admin.GPUConfig(),
+		Binary:              h.admin.CurrentBinary(),
+		IdleTimeout:         h.admin.CurrentIdleTimeout(),
 		ServiceClientID:     serviceClientID,
 		ServiceClientSecret: serviceClientSecret,
-		Environment:         h.admin.Environment(),
 		DefaultArgs:         h.admin.DefaultArgs(),
 		DefaultModel:        h.admin.ConfiguredDefaultModel(),
 		Providers:           h.admin.Providers(),
+		Guardrails:          h.admin.Config().Guardrails,
+		Communication:       h.admin.Config().Communication,
+		Search:              h.admin.Config().Search,
 	}
 	respondJSON(w, cfg)
 }
@@ -490,17 +489,20 @@ func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		WorkspacesDir       string                          `json:"workspaces_dir"`
-		ModelHost           string                          `json:"model_host"`
-		GPUProvider         string                          `json:"gpu_provider"`
-		GPUBinary           string                          `json:"gpu_binary"`
-		GPUIndex            *int                             `json:"gpu_index"`
-		ServiceClientID     string                          `json:"service_client_id"`
-		ServiceClientSecret string                          `json:"service_client_secret"`
-		Environment         map[string]string               `json:"environment"`
-		DefaultArgs         []string                        `json:"default_args"`
-		DefaultModel        string                          `json:"default_model"`
+		WorkspacesDir       string                         `json:"workspaces_dir"`
+		ModelHost           string                         `json:"model_host"`
+		GPUProvider         string                         `json:"gpu_provider"`
+		GPUBinary           string                         `json:"gpu_binary"`
+		GPUIndex            *int                           `json:"gpu_index"`
+		ServiceClientID     string                         `json:"service_client_id"`
+		ServiceClientSecret string                         `json:"service_client_secret"`
+		Environment         map[string]string              `json:"environment"`
+		DefaultArgs         []string                       `json:"default_args"`
+		DefaultModel        string                         `json:"default_model"`
 		Providers           map[string]models.ProviderItem `json:"providers"`
+		Guardrails          *models.AgentGuardrailsConfig  `json:"guardrails,omitempty"`
+		Communication       *models.CommunicationConfig    `json:"communication,omitempty"`
+		Search              *models.SearchConfig           `json:"search,omitempty"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -576,6 +578,15 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 			for k, v := range req.Providers {
 				cfg.Providers[k] = v
 			}
+		}
+		if req.Guardrails != nil {
+			cfg.Guardrails = *req.Guardrails
+		}
+		if req.Communication != nil {
+			cfg.Communication = *req.Communication
+		}
+		if req.Search != nil {
+			cfg.Search = *req.Search
 		}
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())

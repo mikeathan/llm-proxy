@@ -1,4 +1,4 @@
-package llm
+package providers
 
 import (
 	"context"
@@ -22,12 +22,12 @@ func NewOpenAICompatibleProvider(cfg models.ModelConfig, manifest models.Provide
 	}
 }
 
-func (p *OpenAICompatibleProvider) Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+func (p *OpenAICompatibleProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
 	return nil, fmt.Errorf("%s provider Chat endpoint is not yet implemented natively; use standard model host proxying", p.manifest.Name)
 }
 
-func (p *OpenAICompatibleProvider) GetStatus() ProviderStatus {
-	return ProviderStatusReady
+func (p *OpenAICompatibleProvider) GetStatus() models.ProviderStatus {
+	return models.ProviderStatusReady
 }
 
 func (p *OpenAICompatibleProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {

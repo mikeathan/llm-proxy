@@ -1,0 +1,20 @@
+{
+  "tool_name": "filesystem_tools",
+  "version": "1.1",
+  "description": "Securely read from and write to authorized workspace directories.",
+  "guardrails": {
+    "enabled": false,
+    "allowed_paths": [
+      "./workspaces",
+      "./reports"
+    ],
+    "read_only": false,
+    "max_file_size_kb": 1024,
+    "allowed_extensions": [
+      ".txt", ".md", ".json", ".log", ".csv", ".xml", ".yaml", ".yml"
+    ],
+    "blocked_filenames": [
+      ".env", "id_rsa", "id_ed25519", ".ssh", "config.json", ".pem"
+    ]
+  }
+}

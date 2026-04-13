@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/models"
 )
 
 // noopLogger for testing
@@ -58,6 +59,36 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 
 func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
 	return m.Client.GetClientForModel(ctx, modelName)
+}
+
+func (m *MockAssistantService) GuardrailEngine() *assistant.GuardrailEngine {
+	return assistant.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{}
+	})
+}
+
+func (m *MockAssistantService) Config() *models.Config {
+	return &models.Config{}
+}
+
+type mockToolProvider struct {
+	herder nodeherder.MCPService
+}
+
+func (p *mockToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
+	return p.herder.ListTools(ctx)
+}
+
+func (p *mockToolProvider) CallTool(ctx context.Context, call proxy.ToolCall) (any, error) {
+	return nil, nil
+}
+
+func (p *mockToolProvider) GetSystemPrompt() (string, error) {
+	return p.herder.GetSystemPrompt()
+}
+
+func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
+	return &mockToolProvider{herder: m.Herder}
 }
 
 func NewMockAssistantService(

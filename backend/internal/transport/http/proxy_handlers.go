@@ -6,7 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"llm-proxy/internal/core/llm"
+	"llm-proxy/models"
 )
 
 type ProxyHandlers struct {
@@ -37,7 +37,7 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 	}
 
 	mi, err := h.runtime.EnsureModel(r.Context(), model)
-	if err == llm.ErrModelStarting {
+	if err == models.ErrModelStarting {
 		w.Header().Set("Retry-After", "1")
 		w.Header().Set("X-LLM-Status", "starting")
 		w.WriteHeader(http.StatusAccepted)

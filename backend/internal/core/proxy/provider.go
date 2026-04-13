@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/models"
 	"net/http"
 	"sync"
 )
@@ -57,7 +58,7 @@ func (p *RuntimeClientProvider) GetClient(ctx context.Context) (Client, error) {
 		}
 
 		// Strictly honor the "Starting" state - do not fallback if it's just a cold start
-		if errors.Is(err, llm.ErrModelStarting) {
+		if errors.Is(err, models.ErrModelStarting) {
 			return nil, err
 		}
 

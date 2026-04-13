@@ -57,7 +57,9 @@ func (c *Container) BuildAppServices() AppServices {
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
-	s.engine = assistant.NewEngine(s.nodeHerder, s.logger)
+
+	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
+	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.nodeHerder, s.logger)
 
 	return s
 }
@@ -66,9 +68,11 @@ type AppServices struct {
 	Runtime        llm.RuntimeManager
 	AppCtx         *AppContext
 	nodeHerder     nodeherder.MCPService
-	clientProvider proxy.LLMClientProvider
-	engine         assistant.Engine
-	logger         logging.Logger
+	toolProvider    assistant.ToolProvider
+	clientProvider  proxy.LLMClientProvider
+	engine          assistant.Engine
+	guardrailEngine *assistant.GuardrailEngine
+	logger          logging.Logger
 	Clock          utils.Clock
 }
 
@@ -85,6 +89,10 @@ func (s AppServices) GetClientForModel(ctx context.Context, modelName string) (p
 
 func (s AppServices) NodeHerder() nodeherder.MCPService {
 	return s.nodeHerder
+}
+
+func (s AppServices) ToolProvider() assistant.ToolProvider {
+	return s.toolProvider
 }
 
 func (s AppServices) ClientProvider() proxy.LLMClientProvider {
@@ -113,6 +121,14 @@ func (s AppServices) FallbackModel() string {
 
 func (s AppServices) Engine() assistant.Engine {
 	return s.engine
+}
+
+func (s AppServices) Config() *models.Config {
+	return s.AppCtx.Config()
+}
+
+func (s AppServices) GuardrailEngine() *assistant.GuardrailEngine {
+	return s.guardrailEngine
 }
 
 func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {

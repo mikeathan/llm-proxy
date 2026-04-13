@@ -72,7 +72,7 @@ func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
 
 	_, err := manager.EnsureModel(context.Background(), "test")
-	if !errors.Is(err, llm.ErrModelStarting) {
+	if !errors.Is(err, models.ErrModelStarting) {
 		t.Fatalf("expected ErrModelStarting, got %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 	if mi.Port != 0 {
 		t.Fatalf("expected empty ModelInstance (Port=0) while starting, got: %+v", mi)
 	}
-	if !errors.Is(err, llm.ErrModelStarting) {
+	if !errors.Is(err, models.ErrModelStarting) {
 		t.Fatalf("expected ErrModelStarting, got: %v", err)
 	}
 

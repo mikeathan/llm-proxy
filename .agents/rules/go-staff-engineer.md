@@ -42,3 +42,5 @@ Apply these standards to all Go-related tasks:
 - **Mocks**: Generate or manually implement interfaces to isolate unit tests from external I/O.
 - **Validation**: Include tests for failover scenarios, ensuring the system recovers gracefully from provider outages.
 
+## 6. Build & Verification
+- **Continuous Compilation**: Always run `go build ./...` across the backend after attempting refactoring, interface changes, or file structure updates to proactively identify broken package imports or undefined type dependencies.

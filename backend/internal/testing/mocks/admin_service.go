@@ -31,6 +31,7 @@ type MockAdminService struct {
 	ProvidersFunc             func() map[string]models.ProviderItem
 	WorkspacesDirFunc         func() string
 	SetWorkspacesDirFunc      func(string)
+	ConfigFunc                func() *models.Config
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -201,4 +202,11 @@ func (m *MockAdminService) Providers() map[string]models.ProviderItem {
 		return m.ProvidersFunc()
 	}
 	return nil
+}
+
+func (m *MockAdminService) Config() *models.Config {
+	if m.ConfigFunc != nil {
+		return m.ConfigFunc()
+	}
+	return &models.Config{}
 }
