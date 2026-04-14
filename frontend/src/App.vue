@@ -7,6 +7,7 @@ import Logs from './components/logs/Logs.vue'
 import AgentIde from './components/AgentIde/AgentIde.vue'
 import { useModels } from './composables/useModels'
 import { useMcpServers } from './composables/useMcpServers'
+import Toast from './components/ui/Toast.vue'
 
 type Tab = 'dashboard' | 'settings' | 'logs' | 'agent-ide'
 
@@ -36,5 +37,6 @@ onMounted(() => {
         <AgentIde v-else-if="activeTab === 'agent-ide'" />
       </template>
     </main>
+    <Toast />
   </div>
 </template>

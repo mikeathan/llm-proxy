@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
@@ -60,7 +61,9 @@ type AdminService interface {
 	UpdateMCPServer(models.MCPServerConfig) error
 	RemoveMCPServer(string) error
 	Config() *models.Config
+	SyncGuardrails(models.AgentGuardrailsConfig) error
 	ProcessLogger(workspaceID string) logging.Logger
+	RootDir() string
 }
 
 type AssistantService interface {
@@ -77,4 +80,6 @@ type AssistantService interface {
 	Config() *models.Config
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ProcessLogger(workspaceID string) logging.Logger
+	RootDir() string
+	Events() *automation.EventBus
 }

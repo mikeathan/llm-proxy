@@ -59,6 +59,20 @@ func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalG
 			}
 		}
 	}
+
+	// Check manual user-defined patterns
+	for _, p := range cfg.UserBlocked {
+		if p == "" {
+			continue
+		}
+		re, err := regexp.Compile(p)
+		if err != nil {
+			continue // Skip invalid regex
+		}
+		if re.MatchString(call.Function.Arguments) {
+			return fmt.Errorf("guardrail violation: blocked pattern detected (%s)", p)
+		}
+	}
 	return nil
 }
 

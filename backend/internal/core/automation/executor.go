@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
 
@@ -43,6 +44,8 @@ type LLMServiceProvider interface {
 	Engine() assistant.Engine
 	GuardrailEngine() *assistant.GuardrailEngine
 	ProcessLogger(workspaceID string) logging.Logger
+	Persistence() *persistence.WorkspaceManager
+	Events() *EventBus
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -104,7 +107,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.LastError = errStr
 		resp.State.IsRunning = false
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
 		return resp, fmt.Errorf("failed to get llm client: %w", err)
 	}
 
@@ -112,14 +115,20 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	procLog := e.svc.ProcessLogger(req.WorkspaceID)
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
+	var capturedEvents []any
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
-		Logger:   procLog,
-		MaxSteps: 10,
+		Logger:     procLog,
+		MaxSteps:   20,
 		Guardrails: e.svc.GuardrailEngine(),
+		Observer: func(ev assistant.AgentEvent) {
+			capturedEvents = append(capturedEvents, ev)
+			e.svc.Events().Publish(req.WorkspaceID, ev)
+		},
 	})
 
 	// Build task prompt from automation info
 	prompt := e.buildPrompt(req)
+
 	history := []proxy.Message{
 		{Role: "user", Content: prompt},
 	}
@@ -130,7 +139,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
 		resp.State.IsRunning = false
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
 		return resp, fmt.Errorf("agent execution failed: %w", agErr)
 	}
 
@@ -165,12 +174,12 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	resp.State.IsRunning = false
 
 	// Record to history
-	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime))
+	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
 
 	return resp, nil
 }
 
-func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration) {
+func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any) {
 	if state == nil {
 		return
 	}
@@ -184,6 +193,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		Error:          errStr,
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
+		Events:         events,
 	}
 
 	// Add to full history (capped to last 50 for performance)
@@ -209,8 +219,21 @@ func generateRunID() string {
 
 // buildPrompt constructs the user prompt from automation details.
 func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
-	return fmt.Sprintf("TASK: Execute automation '%s' in workspace '%s'.\nFILE: %s\n\nCONTENT:\n%s\n\nINSTRUCTION: Finalize this task. Respond ONLY with the result. Do not repeat this header or mirror the task details.",
-		req.AutomationName, req.WorkspaceID, req.TaskFile, req.TaskContent)
+	// Try to load custom workspace rules if they exist
+	rules, err := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
+	if err != nil || rules == "" {
+		rules = fmt.Sprintf(assistant.DefaultRules, req.WorkspaceID)
+	}
+
+	return fmt.Sprintf(`%s
+
+TASK: Execute the following instructions found in '%s':
+---
+%s
+---
+
+Finalize this task. Respond ONLY with a concise markdown summary of your work.`,
+		rules, req.TaskFile, req.TaskContent)
 }
 
 // ============================================================================

@@ -3,14 +3,19 @@ import { ref, computed, onMounted } from "vue";
 import GlobalSettings from "./GlobalSettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
+import GuardrailSettings from "./GuardrailSettings.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
 import { useMetrics } from "../../composables/useMetrics";
 import { useModels } from "../../composables/useModels";
 import { AdminApiService } from "../../services/adminService";
 import { useProviders } from "../../composables/useProviders";
+import { useToast } from "../../composables/useToast";
 import type { NewMcpServerForm } from "../../types/mcp";
 import type { ProviderType, APIKeyItem, SettingsTab } from "../../types/admin";
+import { generateId } from "../../utils/crypto";
+import { isProviderTab, getSettingsGroups } from "../../domain/settings";
+
 
 const {
   config,
@@ -27,6 +32,7 @@ const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
 const { settingsTabs, getIcon, getLabel, fetchManifests, cloudProviders } =
   useProviders();
 const { logLevel, updateLogLevel } = useMetrics();
+const toast = useToast();
 
 const activeTab = ref<SettingsTab>("local");
 const testStatus = ref<{
@@ -45,23 +51,22 @@ const providerKeys = computed(() => {
 function setTab(tab: SettingsTab) {
   activeTab.value = tab;
   // Ensure provider exists so fields can bind to config.providers[type]
-  if (tab !== "local" && tab !== "mcp") {
+  if (isProviderTab(tab)) {
     ensureProvider(tab);
   }
 }
+
 
 function ensureIds(keys: any[]): APIKeyItem[] {
   return keys.map((k) => {
     if (k.id) return k;
     return {
       ...k,
-      id:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : Math.random().toString(36).substring(2, 11),
+      id: generateId(),
     };
   });
 }
+
 
 async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
   const provider = ensureProvider(type);
@@ -79,10 +84,10 @@ async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
 async function handleSaveConfig() {
   try {
     await updateConfig();
-    alert("Configuration saved successfully");
+    toast.success("Configuration saved successfully");
     await refreshModels();
   } catch (e: any) {
-    alert(`Error saving configuration: ${e.message}`);
+    toast.error(`Error saving configuration: ${e.message}`);
   }
 }
 
@@ -117,32 +122,38 @@ onMounted(() => {
   fetchConfig();
   refreshModels();
 });
+
+const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
+
 </script>
 
 <template>
   <div class="settings-shell">
     <!-- Sidebar -->
     <div class="settings-sidebar">
-      <h2 class="sidebar-title">Settings</h2>
-      <nav class="nav-list">
-        <button
-          v-for="tab in settingsTabs"
-          :key="tab"
-          @click="setTab(tab)"
-          class="nav-item"
-          :class="activeTab === tab ? 'nav-item--active' : 'nav-item--inactive'"
-        >
-          <span
-            class="nav-icon"
-            :class="
-              activeTab === tab ? 'nav-icon--active' : 'nav-icon--inactive'
-            "
+      <h2 class="sidebar-header">Preferences</h2>
+      <div v-for="group in settingsGroups" :key="group.name" class="nav-group">
+        <h3 v-if="group.tabs.length > 0" class="group-title">{{ group.name }}</h3>
+        <nav class="nav-list">
+          <button
+            v-for="tab in group.tabs"
+            :key="tab"
+            @click="setTab(tab)"
+            class="nav-item"
+            :class="activeTab === tab ? 'nav-item--active' : 'nav-item--inactive'"
           >
-            {{ getIcon(tab) }}
-          </span>
-          <span class="tab-label">{{ getLabel(tab) }}</span>
-        </button>
-      </nav>
+            <span
+              class="nav-icon"
+              :class="
+                activeTab === tab ? 'nav-icon--active' : 'nav-icon--inactive'
+              "
+            >
+              {{ getIcon(tab) }}
+            </span>
+            <span class="tab-label">{{ getLabel(tab) }}</span>
+          </button>
+        </nav>
+      </div>
     </div>
 
     <!-- Main Content -->
@@ -164,14 +175,21 @@ onMounted(() => {
           />
         </div>
 
+        <!-- Guardrails -->
+        <div v-show="activeTab === 'guardrails'">
+          <GuardrailSettings
+            v-model:config="config"
+            @save="handleSaveConfig"
+          />
+        </div>
+
         <!-- Provider Configs -->
         <div
-          v-for="provider in settingsTabs.filter(
-            (t) => t !== 'local' && t !== 'mcp',
-          ) as ProviderType[]"
+          v-for="provider in settingsTabs.filter(isProviderTab) as ProviderType[]"
           :key="provider"
           v-show="activeTab === provider"
         >
+
           <div class="config-card">
             <h2 class="config-header">
               {{ getLabel(provider) }} Configuration
@@ -339,12 +357,20 @@ onMounted(() => {
   @apply w-full lg:w-64 bg-gray-800 rounded-lg border border-gray-700 p-4 shrink-0 h-fit;
 }
 
-.sidebar-title {
-  @apply text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 px-3;
+.sidebar-header {
+  @apply text-lg font-black text-white px-3 mb-6 tracking-tight;
+}
+
+.nav-group {
+  @apply mb-6;
+}
+
+.group-title {
+  @apply text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-3 px-3;
 }
 
 .nav-list {
-  @apply space-y-1;
+  @apply space-y-0.5;
 }
 
 .nav-item {

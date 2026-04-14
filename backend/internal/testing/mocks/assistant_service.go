@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
+	"llm-proxy/internal/core/automation"
 )
 
 // noopLogger for testing
@@ -30,6 +31,7 @@ type MockAssistantService struct {
 	Model       string
 	EngineRef   assistant.Engine
 	PersistenceMgr *persistence.WorkspaceManager
+	EventBusRef *automation.EventBus
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -95,6 +97,21 @@ func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
 
 func (m *MockAssistantService) Persistence() *persistence.WorkspaceManager {
 	return m.PersistenceMgr
+}
+
+func (m *MockAssistantService) ProcessLogger(workspaceID string) logging.Logger {
+	return m.LoggerRef
+}
+
+func (m *MockAssistantService) RootDir() string {
+	return ""
+}
+
+func (m *MockAssistantService) Events() *automation.EventBus {
+	if m.EventBusRef != nil {
+		return m.EventBusRef
+	}
+	return automation.NewEventBus()
 }
 
 func NewMockAssistantService(

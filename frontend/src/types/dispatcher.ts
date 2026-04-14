@@ -7,7 +7,9 @@ export interface AutomationRun {
   error: string
   duration_ms: number
   model: string
+  events?: AgentEvent[]
 }
+
 
 export interface Automation {
   id: string
@@ -16,11 +18,15 @@ export interface Automation {
   task_file: string
   strategy: string
   trigger: string
+  trigger_value?: string
+  trigger_type?: string
   model?: string
   last_output?: string
   last_error?: string
+  is_running?: boolean
   history?: AutomationRun[]
 }
+
 
 export interface AgentState {
   last_output: string
@@ -45,3 +51,33 @@ export interface TriggerResponse {
   workspace: string
   automation: string
 }
+
+export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result'
+
+export interface AgentStepStartPayload {
+  step: number
+}
+
+export interface AgentMessagePayload {
+  role: 'assistant' | 'system'
+  content: string
+}
+
+export interface AgentToolCallPayload {
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+export interface AgentToolResultPayload {
+  name: string
+  result: any
+  error?: string
+}
+
+export interface AgentEvent {
+  type: AgentEventType
+  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload
+}
+

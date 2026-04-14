@@ -8,7 +8,7 @@ type Config struct {
 	WorkspacesDir string                  `json:"workspaces_dir,omitempty"`
 	Metrics       MetricsConfig           `json:"metrics,omitempty"`
 	MCPServers    []MCPServerConfig       `json:"mcp_servers,omitempty"`
-	Guardrails    AgentGuardrailsConfig   `json:"guardrails,omitempty"`
+	Guardrails    *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
 	Communication CommunicationConfig     `json:"communication,omitempty"`
 	Search        SearchConfig            `json:"search,omitempty"`
 }
@@ -53,6 +53,47 @@ type TerminalGuardrailsConfig struct {
 	BlockedPatterns []string `json:"blocked_patterns,omitempty"`
 	TimeoutSeconds  int      `json:"timeout_seconds"`
 	MaxOutputSize   int      `json:"max_output_size_chars"`
+}
+
+func (c TerminalGuardrailsConfig) IsActive() bool {
+	return c.Enabled || len(c.AllowedCommands) > 0
+}
+
+func (c FileSystemGuardrailsConfig) IsActive() bool {
+	return c.Enabled || len(c.AllowedPaths) > 0
+}
+
+func (c SearchGuardrailsConfig) IsActive() bool {
+	return c.Enabled || c.MaxQueryLen > 0
+}
+
+func (c CommunicationGuardrailsConfig) IsActive() bool {
+	return c.Enabled || c.MaxMessages > 0
+}
+
+func (c GlobalGuardrailsConfig) IsActive() bool {
+	return c.BlockSecrets || len(c.UserBlocked) > 0
+}
+
+func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
+	if other == nil {
+		return
+	}
+	if other.Terminal.IsActive() {
+		c.Terminal = other.Terminal
+	}
+	if other.FileSystem.IsActive() {
+		c.FileSystem = other.FileSystem
+	}
+	if other.Search.IsActive() {
+		c.Search = other.Search
+	}
+	if other.Communication.IsActive() {
+		c.Communication = other.Communication
+	}
+	if other.Global.IsActive() {
+		c.Global = other.Global
+	}
 }
 
 type CommunicationConfig struct {

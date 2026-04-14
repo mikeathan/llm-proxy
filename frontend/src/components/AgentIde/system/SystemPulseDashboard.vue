@@ -1,16 +1,27 @@
 <script setup lang="ts">
+import { ref, computed } from "vue";
 import type { AutomationRun } from "../../../types/dispatcher";
 
-defineProps<{
+const props = defineProps<{
   selectedWorkspace?: string | null;
   loading?: boolean;
   workspaceHistory: AutomationRun[];
 }>();
 
 const emit = defineEmits<{
-  (e: 'select-run', run: AutomationRun): void;
-  (e: 'clear-workspace'): void;
+  (e: "select-run", run: AutomationRun): void;
+  (e: "clear-workspace"): void;
+  (e: "open-chat"): void;
 }>();
+
+const filterMode = ref<"all" | "errors">("all");
+
+const filteredHistory = computed(() => {
+  if (filterMode.value === "errors") {
+    return props.workspaceHistory.filter((run) => run.error);
+  }
+  return props.workspaceHistory;
+});
 </script>
 
 <template>
@@ -23,16 +34,28 @@ const emit = defineEmits<{
               System Pulse
               <span v-if="selectedWorkspace" class="workspace-tag">
                 {{ selectedWorkspace }}
-                <button @click="emit('clear-workspace')" class="btn-tag-close">✕</button>
+                <button @click="emit('clear-workspace')" class="btn-tag-close">
+                  ✕
+                </button>
               </span>
             </h1>
             <p class="dashboard-subtitle">
-              {{ selectedWorkspace ? 'Filtered Operational Stream' : 'Global Real-time Operational Timeline' }}
+              {{
+                selectedWorkspace
+                  ? "Filtered Operational Stream"
+                  : "Global Real-time Operational Timeline"
+              }}
             </p>
           </div>
           <!-- Mini Stats / Filter -->
           <div class="header-right">
-            <div class="health-box">
+            <div v-if="selectedWorkspace" class="action-box">
+              <button @click="emit('open-chat')" class="btn-assistant">
+                <span class="btn-assistant-icon">💬</span>
+                Open Assistant
+              </button>
+            </div>
+            <div v-else class="health-box">
               <span class="health-label">Health</span>
               <div class="health-bar">
                 <div v-for="i in 5" :key="i" class="health-tick"></div>
@@ -43,30 +66,50 @@ const emit = defineEmits<{
 
         <!-- Filter Bar -->
         <div class="filter-bar">
-          <button class="btn-filter btn-filter--active">All Activity</button>
-          <button class="btn-filter">Errors Only</button>
+          <button
+            @click="filterMode = 'all'"
+            class="btn-filter"
+            :class="{ 'btn-filter--active': filterMode === 'all' }"
+          >
+            All Activity
+          </button>
+          <button
+            @click="filterMode = 'errors'"
+            class="btn-filter"
+            :class="{ 'btn-filter--active': filterMode === 'errors' }"
+          >
+            Errors Only
+          </button>
           <div class="spacer"></div>
           <div v-if="loading" class="loader-spinner"></div>
         </div>
       </header>
 
-      <div v-if="workspaceHistory.length === 0" class="empty-state">
-        <p class="empty-state-text">No operational history found. Your fleet is waiting for instructions.</p>
+      <div v-if="filteredHistory.length === 0" class="empty-state">
+        <p class="empty-state-text">
+          <span v-if="filterMode === 'errors'"
+            >No errors found in this operational stream.</span
+          >
+          <span v-else
+            >No operational history found. Your fleet is waiting for
+            instructions.</span
+          >
+        </p>
       </div>
 
       <div v-else class="timeline-stream">
         <!-- Chronological Rail -->
         <div class="timeline-rail"></div>
 
-        <div 
-          v-for="run in [...workspaceHistory].reverse()" 
+        <div
+          v-for="run in [...filteredHistory].reverse()"
           :key="run.id"
           @click="emit('select-run', run)"
           class="timeline-entry group"
         >
           <!-- Timeline Marker -->
-          <div 
-            class="entry-marker" 
+          <div
+            class="entry-marker"
             :class="run.error ? 'entry-marker--error' : 'entry-marker--success'"
           ></div>
 
@@ -76,33 +119,44 @@ const emit = defineEmits<{
                 <div class="entry-label-row">
                   <span class="entry-name">{{ run.automation_name }}</span>
                   <span v-if="!selectedWorkspace" class="entry-workspace-tag">
-                    {{ run.workspace_id || 'Global' }}
+                    {{ run.workspace_id || "Global" }}
                   </span>
                 </div>
-                <span class="entry-timestamp">{{ new Date(run.timestamp).toLocaleString() }}</span>
+                <span class="entry-timestamp">{{
+                  new Date(run.timestamp).toLocaleString()
+                }}</span>
               </div>
               <div class="entry-meta">
-                <span class="entry-model">{{ run.model || 'System Default' }}</span>
-                <span class="entry-duration">{{ run.duration_ms }}ms execution</span>
+                <span class="entry-model">{{
+                  run.model || "System Default"
+                }}</span>
+                <span class="entry-duration"
+                  >{{ run.duration_ms }}ms execution</span
+                >
               </div>
             </div>
-            
+
             <!-- Preview Area -->
             <div class="entry-preview-area">
               <div v-if="run.error" class="error-preview">
                 <span class="error-badge">[Fail]</span> {{ run.error }}
               </div>
-              
+
               <div v-if="run.output" class="output-preview">
                 <div class="output-text">
-                  {{ run.output.replace(/\[\d{4}-\d{2}-\d{2}.*?\].*?\n/g, '').replace(/\*\*Output:\*\*\n\n```(text)?\n/, '').replace(/\n```$/, '') }}
+                  {{
+                    run.output
+                      .replace(/\[\d{4}-\d{2}-\d{2}.*?\].*?\n/g, "")
+                      .replace(/\*\*Output:\*\*\n\n```(text)?\n/, "")
+                      .replace(/\n```$/, "")
+                  }}
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      
+
       <div class="ledger-footer">
         <span class="footer-text">End of operational ledger</span>
       </div>
@@ -165,6 +219,19 @@ const emit = defineEmits<{
 
 .health-tick {
   @apply w-1.5 h-3 bg-green-500/40 rounded-sm;
+}
+
+.action-box {
+  @apply flex gap-3;
+}
+
+.btn-assistant {
+  @apply px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-lg shadow-blue-900/40 
+         transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-wider active:scale-95;
+}
+
+.btn-assistant-icon {
+  @apply text-sm;
 }
 
 .filter-bar {

@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
 	"sync"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
@@ -26,8 +28,9 @@ type AppContext struct {
 func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext {
 	cfg := cfgMgr.GetConfig()
 
-	// Compute rootDir from config directory (backend/config -> repo root)
-	rootDir := filepath.Dir(filepath.Dir(cfgMgr.ConfigDir()))
+	// Compute absolute rootDir from config directory (backend/config -> repo root)
+	configDir, _ := filepath.Abs(cfgMgr.ConfigDir())
+	rootDir := filepath.Dir(filepath.Dir(configDir))
 
 	local := cfg.Providers["local"]
 	s := &AppContext{
@@ -169,6 +172,30 @@ func (s *AppContext) SetEnvironment(env map[string]string) error {
 	return s.UpdateConfig(func(cfg *models.Config) {
 		cfg.Server.Environment = env
 	})
+}
+
+func (s *AppContext) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
+	var errs []error
+	if err := tools.SaveManifest(s.rootDir, "terminal", cfg.Terminal); err != nil {
+		errs = append(errs, fmt.Errorf("terminal: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, "filesystem", cfg.FileSystem); err != nil {
+		errs = append(errs, fmt.Errorf("filesystem: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, "search", cfg.Search); err != nil {
+		errs = append(errs, fmt.Errorf("search: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, "communication", cfg.Communication); err != nil {
+		errs = append(errs, fmt.Errorf("communication: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, "security", cfg.Global); err != nil {
+		errs = append(errs, fmt.Errorf("security: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("sync failed: %v", errs)
+	}
+	return nil
 }
 
 func (s *AppContext) UpdateConfig(update func(cfg *models.Config)) error {

@@ -43,8 +43,8 @@ func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskE
 	return automation.NewLLMTaskExecutor(svc)
 }
 
-func (c *Container) BuildAppServices() AppServices {
-	s := AppServices{
+func (c *Container) BuildAppServices() *AppServices {
+	s := &AppServices{
 		Runtime:     c.Core.Runtime,
 		AppCtx:      c.Core.AppCtx,
 		nodeHerder:  c.Infra.NodeHerder,
@@ -58,6 +58,7 @@ func (c *Container) BuildAppServices() AppServices {
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
+	s.dispatcher = c.Dispatcher
 
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
 	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.nodeHerder, s.logger)
@@ -76,6 +77,7 @@ type AppServices struct {
 	persistence     *persistence.WorkspaceManager
 	logger          logging.Logger
 	Clock           utils.Clock
+	dispatcher      *automation.Dispatcher
 }
 
 func (s AppServices) Shutdown() {
@@ -131,6 +133,21 @@ func (s AppServices) Persistence() *persistence.WorkspaceManager {
 
 func (s AppServices) ProcessLogger(workspaceID string) logging.Logger {
 	return s.AppCtx.ProcessLogger(workspaceID)
+}
+
+func (s AppServices) RootDir() string {
+	return s.AppCtx.RootDir()
+}
+
+func (s *AppServices) Events() *automation.EventBus {
+	if s.dispatcher == nil {
+		return nil
+	}
+	return s.dispatcher.Events()
+}
+
+func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
+	s.dispatcher = d
 }
 
 func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
@@ -212,7 +229,7 @@ func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherd
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
-func buildHTTP(s AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
+func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
@@ -283,6 +300,7 @@ func buildRouter(
 		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{workspace}/live", dispatcherHandlers.StreamWorkspaceEvents, textMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{workspace}/processlogs", admin.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{workspace}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
 	}

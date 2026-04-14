@@ -44,35 +44,37 @@ type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 func InitializeAgentStack(
 	appCtx interface {
 		Config() *models.Config
+		RootDir() string
 	},
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
 ) (ToolProvider, Engine, *GuardrailEngine) {
 	cfg := appCtx.Config()
+	rootDir := appCtx.RootDir()
 
-	// 1. Load defaults from manifests
-	defaultGuardrails := tools.GetDefaultGuardrails()
+	// 1. Load defaults from manifests (prefer disk if in dev)
+	defaultGuardrails := tools.GetDefaultGuardrails(rootDir)
 
 	// 2. Initialize local machine capabilities
 	terminal := tools.NewTerminalTools(func() models.TerminalGuardrailsConfig {
-		tc := appCtx.Config().Guardrails.Terminal
-		if !tc.Enabled && len(tc.AllowedCommands) == 0 {
+		current := appCtx.Config().Guardrails
+		if current == nil || !current.Terminal.IsActive() {
 			return defaultGuardrails.Terminal
 		}
-		return tc
+		return current.Terminal
 	})
 
-	// 3. Initialize Guardrail Engine with defaults from manifests
-	// config.json now only needs to contain overrides (if any)
+	// 3. Initialize Guardrail Engine with granular merging
+	// We want to use config.json values if they exist, otherwise fallback to defaults.
 	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		current := appCtx.Config().Guardrails
-		// Merge logic: if a category is disabled in config, we keep it as is.
-		// If it's empty, we might use the defaults.
-		// For now, let's keep it simple: use defaults if config is empty.
-		if !current.Terminal.Enabled && !current.FileSystem.Enabled && !current.Search.Enabled {
-			return defaultGuardrails
+		merged := defaultGuardrails
+
+		if current != nil {
+			merged.MergeWith(current)
 		}
-		return current
+
+		return merged
 	})
 
 	// 3. Initialize Communications
@@ -96,11 +98,11 @@ func InitializeAgentStack(
 
 	// 5. Initialize FileSystem
 	fsTools := tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig {
-		fc := appCtx.Config().Guardrails.FileSystem
-		if !fc.Enabled && len(fc.AllowedPaths) == 0 {
+		current := appCtx.Config().Guardrails
+		if current == nil || (!current.FileSystem.Enabled && len(current.FileSystem.AllowedPaths) == 0) {
 			return defaultGuardrails.FileSystem
 		}
-		return fc
+		return current.FileSystem
 	})
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools)
@@ -123,11 +125,13 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 	return "You are a helpful assistant with access to local system tools and remote MCP services.", nil
 }
 
+var ErrToolNotInternal = fmt.Errorf("tool not found in local registry")
+
 // ExecuteTool satisfies the Engine interface for local tools.
 func (r *LocalToolRegistry) ExecuteTool(ctx context.Context, call proxy.ToolCall) (any, error) {
 	handler, ok := r.handlers[call.Function.Name]
 	if !ok {
-		return nil, fmt.Errorf("tool %s not found in local registry", call.Function.Name)
+		return nil, ErrToolNotInternal
 	}
 	return handler(ctx, call.Function.Arguments)
 }

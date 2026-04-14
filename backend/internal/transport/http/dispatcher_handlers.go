@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/models"
 	"net/http"
@@ -27,6 +29,7 @@ type AutomationInfo struct {
 	Model        string                 `json:"model,omitempty"`
 	LastOutput   string                 `json:"last_output,omitempty"`
 	LastError    string                 `json:"last_error,omitempty"`
+	IsRunning    bool                   `json:"is_running"`
 	History      []models.AutomationRun `json:"history,omitempty"`
 }
 
@@ -63,6 +66,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 				info.LastOutput = state.LastOutput
 				info.LastError = state.LastError
 			}
+			info.IsRunning = state.IsRunning
 		}
 
 		infos = append(infos, info)
@@ -113,6 +117,54 @@ func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Re
 		return
 	}
 	respondJSON(w, state)
+}
+
+func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	if workspaceID == "" {
+		respondError(w, http.StatusBadRequest, "workspace is required")
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		respondError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	// Subscribe to events
+	ch := h.dispatcher.Events().Subscribe(workspaceID)
+	defer h.dispatcher.Events().Unsubscribe(workspaceID, ch)
+
+	// Context for cancellation
+	ctx := r.Context()
+
+	// Initial ping
+	fmt.Fprintf(w, "event: ping\ndata: {\"status\":\"connected\"}\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: agent_update\ndata: %s\n\n", string(data))
+			flusher.Flush()
+		}
+	}
 }
 
 func (h *DispatcherHandlers) GetGlobalActivity(w http.ResponseWriter, r *http.Request) {
@@ -167,9 +219,10 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 
 	// Create default files
 	defaultFiles := map[string]string{
-		"heartbeat.md": "# Heartbeat\n\nWorkspace background jobs initialized.",
-		"agent.md":     "# Workspace Agent\n\nYou are the interactive assistant for this workspace. Use the available tools to help the user.",
-		"config.yaml":  "model: gpt-4o\ntemperature: 0.7\nautomations: []",
+		"heartbeat.md": assistant.DefaultHeartbeat,
+		"agent.md":     assistant.DefaultAgentPrompt,
+		"config.yaml":  assistant.DefaultWorkspaceConfig,
+		"rules.md":     fmt.Sprintf(assistant.DefaultRules, req.ID),
 	}
 
 	for filename, content := range defaultFiles {
@@ -329,6 +382,10 @@ func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.
 
 func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue("workspace")
+
+	// Clear from memory first
+	h.dispatcher.UnregisterWorkspace(workspaceID)
+	h.dispatcher.ClearWorkspaceHistory(workspaceID)
 
 	if err := h.dispatcher.Persistence().DeleteWorkspace(workspaceID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())

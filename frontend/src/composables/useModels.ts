@@ -1,6 +1,9 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../services/adminService'
+import { useToast } from './useToast'
 import type { AdminState } from '../types/admin'
+
+const { error: toastError, success: toastSuccess } = useToast()
 
 const state = ref<AdminState | null>(null)
 
@@ -20,40 +23,44 @@ const refresh = async (): Promise<void> => {
 const startModel = async (name: string): Promise<void> => {
   try {
     await AdminApiService.startModel(name)
+    toastSuccess(`Model ${name} started`)
     await refresh()
   } catch (e: any) {
     console.error(e)
-    alert(`Error starting model: ${e.message}`)
+    toastError(`Error starting model: ${e.message}`)
   }
 }
 
 const stopModel = async (): Promise<void> => {
   try {
     await AdminApiService.stopModel()
+    toastSuccess("Model stopped")
     await refresh()
   } catch (e: any) {
     console.error(e)
-    alert(`Error stopping model: ${e.message}`)
+    toastError(`Error stopping model: ${e.message}`)
   }
 }
 
 const addModel = async (payload: any): Promise<void> => {
   try {
     await AdminApiService.addModel(payload)
+    toastSuccess(`Model ${payload.name} added`)
     await refresh()
   } catch (e: any) {
     console.error(e)
-    alert(`Error adding model: ${e.message}`)
+    toastError(`Error adding model: ${e.message}`)
   }
 }
 
 const updateModel = async (payload: any): Promise<void> => {
   try {
     await AdminApiService.updateModel(payload)
+    toastSuccess(`Model ${payload.name} updated`)
     await refresh()
   } catch (e: any) {
     console.error(e)
-    alert(`Error updating model: ${e.message}`)
+    toastError(`Error updating model: ${e.message}`)
   }
 }
 
@@ -61,10 +68,11 @@ const removeModel = async (name: string): Promise<void> => {
   if (!confirm(`Remove model "${name}"?`)) return
   try {
     await AdminApiService.removeModel(name)
+    toastSuccess(`Model ${name} removed`)
     await refresh()
   } catch (e: any) {
     console.error(e)
-    alert(`Error removing model: ${e.message}`)
+    toastError(`Error removing model: ${e.message}`)
   }
 }
 

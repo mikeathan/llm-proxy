@@ -66,6 +66,9 @@ type mockAppContext struct{}
 func (m *mockAppContext) Config() *models.Config {
 	return &models.Config{}
 }
+func (m *mockAppContext) RootDir() string {
+	return ""
+}
 
 func TestFileSystem_IsSecurePath(t *testing.T) {
 	allowed := []string{"/tmp/test_workspace"}

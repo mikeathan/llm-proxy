@@ -43,18 +43,21 @@ func (f *FileSystemTools) ValidatePath(path string, isWrite bool) (string, error
 		}
 	}
 
-	// 4. Check Allowed Extensions
+	// 4. Check Allowed Extensions (only for files)
 	if len(cfg.AllowedExtensions) > 0 {
-		ext := filepath.Ext(absPath)
-		allowed := false
-		for _, a := range cfg.AllowedExtensions {
-			if a == ext {
-				allowed = true
-				break
+		fi, err := os.Stat(absPath)
+		if err == nil && !fi.IsDir() {
+			ext := filepath.Ext(absPath)
+			allowed := false
+			for _, a := range cfg.AllowedExtensions {
+				if a == ext {
+					allowed = true
+					break
+				}
 			}
-		}
-		if !allowed {
-			return "", fmt.Errorf("file extension '%s' is not allowed", ext)
+			if !allowed {
+				return "", fmt.Errorf("file extension '%s' is not allowed", ext)
+			}
 		}
 	}
 

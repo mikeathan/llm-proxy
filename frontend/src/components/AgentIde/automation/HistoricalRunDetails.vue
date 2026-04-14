@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import type { AutomationRun } from "../../../types/dispatcher";
 import MarkdownViewer from "../../common/MarkdownViewer.vue";
+import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
+import { formatTime } from "../../../utils/time";
 
-defineProps<{
+const props = defineProps<{
   run: AutomationRun;
 }>();
 
 const emit = defineEmits<{
   (e: "close"): void;
 }>();
+
+
+
 </script>
 
 <template>
@@ -71,15 +76,19 @@ const emit = defineEmits<{
     </div>
 
     <div class="content-section">
+      <!-- Full Terminal Execution Log (Replay) -->
+      <ExecutionAuditTrail v-if="run.events?.length" :events="run.events" />
+
+
       <div v-if="run.error" class="error-section">
-        <h4 class="section-header section-header--error">Error Context</h4>
+        <h4 class="section-header section-header--error">Final Error</h4>
         <div class="error-box">
           {{ run.error }}
         </div>
       </div>
 
       <div v-if="run.output" class="output-section">
-        <h4 class="section-header section-header--info">Execution Output</h4>
+        <h4 class="section-header section-header--info">Final Summary Report</h4>
         <div class="output-box">
           <MarkdownViewer :content="run.output" />
         </div>
@@ -163,19 +172,7 @@ const emit = defineEmits<{
 }
 
 .content-section {
-  @apply flex-1 p-6 overflow-y-auto bg-gray-900/20;
-}
-
-.error-section {
-  @apply mb-8;
-}
-
-.section-header {
-  @apply text-xs font-black uppercase tracking-widest mb-3;
-}
-
-.section-header--error {
-  @apply text-red-500/80;
+  @apply flex-1 p-6 overflow-y-auto bg-gray-900/20 space-y-8;
 }
 
 .section-header--info {
@@ -183,11 +180,8 @@ const emit = defineEmits<{
 }
 
 .error-box {
-  @apply bg-red-900/10 border border-red-900/20 p-4 rounded-lg font-mono text-sm text-red-300 whitespace-pre-wrap;
-}
 
-.output-section {
-  @apply relative;
+  @apply bg-red-900/10 border border-red-900/20 p-4 rounded-lg font-mono text-sm text-red-300 whitespace-pre-wrap;
 }
 
 .output-box {

@@ -1,11 +1,53 @@
 // Global configuration types
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'mcp'
+export type SettingsTab = ProviderType | 'mcp' | 'guardrails'
 
 export interface APIKeyItem {
   id: string
   name: string
   key: string
+}
+
+export interface TerminalGuardrailsConfig {
+  enabled: boolean
+  allowed_commands: string[]
+  blocked_patterns?: string[]
+  timeout_seconds: number
+  max_output_size_chars: number
+}
+
+export interface FileSystemGuardrailsConfig {
+  enabled: boolean
+  allowed_paths: string[]
+  read_only: boolean
+  max_file_size_kb: number
+  allowed_extensions?: string[]
+  blocked_filenames?: string[]
+}
+
+export interface SearchGuardrailsConfig {
+  enabled: boolean
+  max_query_len: number
+  blocked_sites: string[]
+}
+
+export interface CommunicationGuardrailsConfig {
+  enabled: boolean
+  require_review: boolean
+  max_messages_per_task: number
+}
+
+export interface GlobalGuardrailsConfig {
+  block_secrets: boolean
+  user_blocked_patterns: string[]
+}
+
+export interface AgentGuardrailsConfig {
+  global: GlobalGuardrailsConfig
+  terminal: TerminalGuardrailsConfig
+  search: SearchGuardrailsConfig
+  communication: CommunicationGuardrailsConfig
+  filesystem: FileSystemGuardrailsConfig
 }
 
 export interface ProviderItem {
@@ -36,6 +78,7 @@ export interface GlobalConfig {
   primary_model?: string
   fallback_model?: string
   default_args?: string[]
+  guardrails: AgentGuardrailsConfig
 }
 
 export interface AgentDefinition {

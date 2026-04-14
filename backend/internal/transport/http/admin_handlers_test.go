@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/transport/http"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/testing/mocks"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
 

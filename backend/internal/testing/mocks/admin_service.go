@@ -1,6 +1,7 @@
 package mocks
 
 import (
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/models"
 )
@@ -31,6 +32,9 @@ type MockAdminService struct {
 	WorkspacesDirFunc         func() string
 	SetWorkspacesDirFunc      func(string)
 	ConfigFunc                func() *models.Config
+	SyncGuardrailsFunc        func(models.AgentGuardrailsConfig) error
+	ProcessLoggerFunc         func(string) logging.Logger
+	RootDirFunc               func() string
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -202,4 +206,25 @@ func (m *MockAdminService) Config() *models.Config {
 		return m.ConfigFunc()
 	}
 	return &models.Config{}
+}
+
+func (m *MockAdminService) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
+	if m.SyncGuardrailsFunc != nil {
+		return m.SyncGuardrailsFunc(cfg)
+	}
+	return nil
+}
+
+func (m *MockAdminService) ProcessLogger(workspaceID string) logging.Logger {
+	if m.ProcessLoggerFunc != nil {
+		return m.ProcessLoggerFunc(workspaceID)
+	}
+	return nil
+}
+
+func (m *MockAdminService) RootDir() string {
+	if m.RootDirFunc != nil {
+		return m.RootDirFunc()
+	}
+	return ""
 }

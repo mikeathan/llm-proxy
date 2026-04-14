@@ -1,4 +1,4 @@
-export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
+export type AssistantRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export interface ToolCall {
   id: string
@@ -10,7 +10,8 @@ export interface ToolCall {
 }
 
 export interface AssistantMessage {
-  role: ChatRole
+  role: AssistantRole
+
   content: string
   tool_calls?: ToolCall[]
   tool_call_id?: string

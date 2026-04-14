@@ -99,7 +99,8 @@ watch(
       form.value = {
         name: newVal.name,
         triggerType: newVal.trigger || "cron",
-        triggerValue: (newVal as any).trigger_value || "",
+        triggerValue: newVal.trigger_value || "",
+
         taskFile: newVal.task_file,
         strategy: newVal.strategy,
         model: newVal.model || "",

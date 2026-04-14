@@ -15,15 +15,33 @@ type Agent struct {
 	client     proxy.Client
 	provider   ToolProvider
 	engine     Engine
-	guardrails *GuardrailEngine // Renamed from safety
+	guardrails *GuardrailEngine
 	logger     logging.Logger
 	maxSteps   int
+	observer   Observer
 }
+
+type AgentEventType string
+
+const (
+	EventStepStart  AgentEventType = "step_start"
+	EventMessage    AgentEventType = "message"
+	EventToolCall   AgentEventType = "tool_call"
+	EventToolResult AgentEventType = "tool_result"
+)
+
+type AgentEvent struct {
+	Type    AgentEventType `json:"type"`
+	Payload any            `json:"payload"`
+}
+
+type Observer func(AgentEvent)
 
 type AgentOptions struct {
 	MaxSteps   int
 	Logger     logging.Logger
 	Guardrails *GuardrailEngine
+	Observer   Observer
 }
 
 // NewAgent creates a new unified agent.
@@ -47,6 +65,13 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		guardrails: guardrails,
 		logger:     opts.Logger,
 		maxSteps:   opts.MaxSteps,
+		observer:   opts.Observer,
+	}
+}
+
+func (a *Agent) notify(eventType AgentEventType, payload any) {
+	if a.observer != nil {
+		a.observer(AgentEvent{Type: eventType, Payload: payload})
 	}
 }
 
@@ -58,6 +83,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	for steps < a.maxSteps {
 		steps++
 		a.logger.Debug("agent loop step", "step", steps)
+		a.notify(EventStepStart, map[string]int{"step": steps})
 
 		// 1. Get LLM Tools
 		tools, err := a.provider.ListTools(ctx)
@@ -74,6 +100,12 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			// If the model or API doesn't support tools, retry once without them
 			if isToolSupportError(err) {
 				a.logger.Warn("model does not support tools, retrying without them", "error", err)
+				
+				a.notify(EventMessage, proxy.Message{
+					Role: "system",
+					Content: "⚠️ WARNING: The selected model does not support tool calling. Fallback mode engaged (tools disabled). " + err.Error(),
+				})
+
 				resp, err = a.client.Chat(ctx, proxy.ChatRequest{
 					Messages: currentHistory,
 				})
@@ -86,6 +118,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 		msg := resp.Choices[0].Message
 		currentHistory = append(currentHistory, msg)
+		a.notify(EventMessage, msg)
 
 		// 3. Termination Check
 		if len(msg.ToolCalls) == 0 {
@@ -106,6 +139,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		a.logger.Debug("executing tool", "name", tc.Function.Name)
 
 		// Guardrail check
+		a.notify(EventToolCall, tc)
 		if err := a.guardrails.ValidateToolCall(ctx, tc); err != nil {
 			a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 			a.appendToolResult(history, tc, map[string]string{"error": "Guardrail violation: " + err.Error()})
@@ -120,6 +154,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		}
 
 		a.appendToolResult(history, tc, result)
+		a.notify(EventToolResult, map[string]any{"id": tc.ID, "name": tc.Function.Name, "result": result})
 	}
 	return nil
 }

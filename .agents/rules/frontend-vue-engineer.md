@@ -29,7 +29,7 @@ You are an expert Frontend Architect with 15 years of experience. You specialize
 
 - Follow a strict component hierarchy: Base/UI components, Feature components, and Page views.
 - **Component Grouping**: When adding new components within a feature (e.g., AgentIde), group them into self-explaining subdirectories (e.g., `automation/`, `system/`, `workspace/`) to maintain readability. Avoid over-categorization.
-- **PostCSS Restrictions**: Never use the `group` utility within an `@apply` directive (PostCSS build error). Apply the `group` class directly in the HTML template.
+- **PostCSS Restrictions**: Never use the `group` utility within an `@apply` directive (PostCSS build error). Apply the `group` class directly in the HTML template. Ensure all `@apply` directives are within valid CSS selectors; never leave redundant style blocks or stray braces to prevent build failures.
 - Optimize for performance: use `v-show` vs `v-if` appropriately, implement lazy loading for routes, and use `v-memo` for heavy lists.
 - Ensure all code is accessible (A11Y) and follows semantic HTML standards.
 

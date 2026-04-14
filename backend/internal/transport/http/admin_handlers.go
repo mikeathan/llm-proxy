@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -194,7 +195,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			PrimaryModel:  h.admin.Config().Server.PrimaryModel,
 			FallbackModel: h.admin.Config().Server.FallbackModel,
 			Providers:     h.admin.Providers(),
-			Guardrails:    h.admin.Config().Guardrails,
+			Guardrails:    tools.GetDefaultGuardrails(h.admin.RootDir()),
 			Communication: h.admin.Config().Communication,
 			Search:        h.admin.Config().Search,
 		},
@@ -279,7 +280,6 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Request) {
 	h.handleAddModel(w, r)
 }
-
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
 	cfg := adminConfigView{
@@ -294,7 +294,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		PrimaryModel:        h.admin.Config().Server.PrimaryModel,
 		FallbackModel:       h.admin.Config().Server.FallbackModel,
 		Providers:           h.admin.Providers(),
-		Guardrails:          h.admin.Config().Guardrails,
+		Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
 		Communication:       h.admin.Config().Communication,
 		Search:              h.admin.Config().Search,
 	}
@@ -586,15 +586,18 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 				cfg.Providers[k] = v
 			}
 		}
-		if req.Guardrails != nil {
-			cfg.Guardrails = *req.Guardrails
-		}
+		// Guardrails are now handled exclusively via manifest sync and not stored in config.json
 		if req.Communication != nil {
 			cfg.Communication = *req.Communication
 		}
 		if req.Search != nil {
 			cfg.Search = *req.Search
 		}
+
+		// Guardrails are no longer stored in config.json.
+		// We explicitly nil it out to ensure it's removed from disk if it existed,
+		// as it's now handled by SyncGuardrails (manifest files).
+		cfg.Guardrails = nil
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
 		return
@@ -606,7 +609,12 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 			_ = h.runtime.UpdateModel(m)
 		}
 	}
-	h.admin.RefreshMetricsService()
+	if req.Guardrails != nil {
+		if err := h.admin.SyncGuardrails(*req.Guardrails); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to sync guardrails: "+err.Error())
+			return
+		}
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

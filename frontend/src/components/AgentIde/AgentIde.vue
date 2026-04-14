@@ -17,8 +17,10 @@ import AutomationDetails from "./automation/AutomationDetails.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
 
 import type { AutomationRun } from "../../types/dispatcher";
+import { useToast } from "../../composables/useToast";
 
 const { state: adminState, refresh: refreshModels } = useModels();
+const toast = useToast();
 
 const {
   automations,
@@ -67,8 +69,10 @@ const savingFile = ref(false);
 const triggering = ref(false);
 const lastTriggerResult = ref<string | null>(null);
 const workspaceHistory = ref<AutomationRun[]>([]);
+const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
 
-const mobilePanel = ref<'explorer' | 'workspace' | 'monitor'>('workspace');
+
+const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
 const isMobile = ref(false);
 
 const updateLayout = () => {
@@ -99,15 +103,16 @@ onMounted(() => {
   refreshHistory();
 
   updateLayout();
-  window.addEventListener('resize', updateLayout);
-
-  // Start background polling for history to keep the "Pulse" alive
-  historyInterval = setInterval(refreshHistory, 10000);
+  // Start background polling to keep the Pulse and Running States alive
+  historyInterval = setInterval(() => {
+    refreshHistory();
+    fetchAutomations();
+  }, 10000);
 });
 
 onUnmounted(() => {
   if (historyInterval) clearInterval(historyInterval);
-  window.removeEventListener('resize', updateLayout);
+  window.removeEventListener("resize", updateLayout);
 });
 
 const groupedByWorkspace = computed(() => {
@@ -129,9 +134,23 @@ const handleSelectAutomation = (auto: Automation) => {
 };
 
 const handleSelectRun = (run: AutomationRun) => {
-  selectedRun.value = run;
-  selectedAutomationId.value = null;
-  selectedFile.value = null;
+  // Find the automation this run belongs to
+  const auto = automations.value.find(
+    (a) => a.name === run.automation_name && a.workspace === run.workspace_id,
+  );
+  if (auto) {
+    selectedAutomationId.value = auto.id;
+    selectedRun.value = run;
+    selectedFile.value = null;
+    lastTriggerResult.value = null;
+    workspaceMiddleTab.value = "pulse";
+  } else {
+
+    // Fallback to the latest single run view if automation record is missing
+    selectedRun.value = run;
+    selectedAutomationId.value = null;
+    selectedFile.value = null;
+  }
 };
 
 const handleEditAutomation = (auto: Automation) => {
@@ -162,10 +181,19 @@ const handleCloseDetails = () => {
   selectedFile.value = null;
   selectedAutomationId.value = null;
   fileContent.value = "";
+  workspaceMiddleTab.value = "pulse";
 };
 
 const handleSelectWorkspace = async (wsId: string) => {
   selectedWorkspace.value = selectedWorkspace.value === wsId ? null : wsId;
+  
+  // Clear any active views when switching workspace context
+  selectedAutomationId.value = null;
+  selectedRun.value = null;
+  selectedFile.value = null;
+  workspaceMiddleTab.value = "pulse";
+
+
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId);
   }
@@ -205,7 +233,7 @@ const handleSaveFile = async () => {
     }
   } catch (err) {
     console.error("Error saving file", err);
-    alert("Error saving file");
+    toast.error("Error saving file: " + err);
   } finally {
     savingFile.value = false;
   }
@@ -221,7 +249,7 @@ const handleCreateFile = async (workspace: string, filename: string) => {
     await fetchWorkspaceFiles(workspace);
   } catch (err) {
     console.error("Error creating file", err);
-    alert("Error creating file");
+    toast.error("Error creating file: " + err);
   }
 };
 
@@ -250,6 +278,8 @@ const handleTrigger = async () => {
     lastTriggerResult.value = `Failed to trigger ${selectedAutomation.value.name}`;
   } finally {
     triggering.value = false;
+    await fetchAutomations();
+    await refreshHistory();
   }
 };
 
@@ -258,7 +288,7 @@ const handleCreateAutomation = async (workspace: string, data: any) => {
     await createAutomation(workspace, data);
   } catch (err) {
     console.error("Error creating automation", err);
-    alert("Error creating automation");
+    toast.error("Error creating automation: " + err);
   }
 };
 
@@ -272,7 +302,7 @@ const handleUpdateAutomation = async (
     editAutomation.value = null;
   } catch (err) {
     console.error("Error updating automation", err);
-    alert("Error updating automation");
+    toast.error("Error updating automation: " + err);
   }
 };
 </script>
@@ -283,23 +313,35 @@ const handleUpdateAutomation = async (
     <div class="mobile-tabs">
       <button
         @click="mobilePanel = 'explorer'"
-        :class="['mobile-tab', mobilePanel === 'explorer' ? 'mobile-tab--active' : '']"
-      >Explorer</button>
+        :class="[
+          'mobile-tab',
+          mobilePanel === 'explorer' ? 'mobile-tab--active' : '',
+        ]"
+      >
+        Explorer
+      </button>
       <button
         @click="mobilePanel = 'workspace'"
-        :class="['mobile-tab', mobilePanel === 'workspace' ? 'mobile-tab--active' : '']"
-      >Workspace</button>
+        :class="[
+          'mobile-tab',
+          mobilePanel === 'workspace' ? 'mobile-tab--active' : '',
+        ]"
+      >
+        Workspace
+      </button>
       <button
         @click="mobilePanel = 'monitor'"
-        :class="['mobile-tab', mobilePanel === 'monitor' ? 'mobile-tab--active' : '']"
-      >Monitor</button>
+        :class="[
+          'mobile-tab',
+          mobilePanel === 'monitor' ? 'mobile-tab--active' : '',
+        ]"
+      >
+        Monitor
+      </button>
     </div>
 
     <!-- Left Pane: Sidebar -->
-    <div
-      v-show="!isMobile || mobilePanel === 'explorer'"
-      class="sidebar"
-    >
+    <div v-show="!isMobile || mobilePanel === 'explorer'" class="sidebar">
       <div v-if="error" class="error-banner">
         <div class="error-content">
           <div class="error-message-row">
@@ -411,35 +453,36 @@ const handleUpdateAutomation = async (
     </div>
 
     <!-- Middle Pane: Details / Editor / Dashboard -->
-    <div
-      v-show="!isMobile || mobilePanel === 'workspace'"
-      class="main-pane"
-    >
-
+    <div v-show="!isMobile || mobilePanel === 'workspace'" class="main-pane">
+      <!-- Assistant View -->
       <AssistantChat
         v-if="
           !selectedAutomation &&
           !selectedFile &&
           !selectedRun &&
-          selectedWorkspace
+          selectedWorkspace &&
+          workspaceMiddleTab === 'chat'
         "
         :workspaceId="selectedWorkspace"
+        @close="workspaceMiddleTab = 'pulse'"
       />
 
-      <!-- Default Dashboard View (Flat Timeline) -->
+      <!-- Default Dashboard View (Flat Timeline) - Now used for both Global and Workspace Pulse -->
       <SystemPulseDashboard
         v-else-if="
           !selectedAutomation &&
           !selectedFile &&
           !selectedRun &&
-          !selectedWorkspace
+          (!selectedWorkspace || workspaceMiddleTab === 'pulse')
         "
         :selected-workspace="selectedWorkspace"
         :loading="loading"
         :workspace-history="workspaceHistory"
         @select-run="handleSelectRun"
         @clear-workspace="selectedWorkspace = null"
+        @open-chat="workspaceMiddleTab = 'chat'"
       />
+
 
       <!-- Historical Run View -->
       <HistoricalRunDetails
@@ -491,15 +534,13 @@ const handleUpdateAutomation = async (
         v-else-if="selectedAutomation"
         :automation="selectedAutomation"
         :last-trigger-result="lastTriggerResult"
+        :selectedRun="selectedRun"
         @close="handleCloseDetails"
       />
     </div>
 
     <!-- Right Pane: Monitor & Activity -->
-    <div
-      v-show="!isMobile || mobilePanel === 'monitor'"
-      class="right-pane"
-    >
+    <div v-show="!isMobile || mobilePanel === 'monitor'" class="right-pane">
       <!-- Trigger Control -->
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
@@ -555,7 +596,6 @@ const handleUpdateAutomation = async (
 .sidebar {
   @apply w-full lg:w-72 flex flex-col bg-gray-800 rounded-lg overflow-hidden relative shadow-lg shrink-0 min-h-0;
 }
-
 
 .error-banner {
   @apply absolute top-0 left-0 right-0 z-50 p-3 bg-red-900/90 backdrop-blur-sm 

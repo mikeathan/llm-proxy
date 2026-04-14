@@ -12,7 +12,7 @@ import (
 
 type App struct {
 	server     *http.Server
-	services   AppServices
+	services   *AppServices
 	dispatcher *automation.Dispatcher
 }
 
@@ -55,6 +55,7 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 		logging.Error("Failed to build dispatcher", "error", err)
 	} else {
 		container.Dispatcher = disp
+		svc.SetDispatcher(disp)
 		// Start dispatcher in background
 		go disp.Start(context.Background())
 	}

@@ -63,10 +63,16 @@ func NewCompositeEngine(primary, secondary Engine) *CompositeEngine {
 }
 
 func (e *CompositeEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (any, error) {
-	// Try primary first, then fallback to secondary
+	// Try primary first
 	res, err := e.primary.ExecuteTool(ctx, call)
 	if err == nil {
 		return res, nil
+	}
+
+	// Only fallback to secondary if the tool was NOT found in primary.
+	// If primary FOUND the tool but it failed (e.g. guardrail), return that error immediately.
+	if err != ErrToolNotInternal {
+		return nil, err
 	}
 
 	return e.secondary.ExecuteTool(ctx, call)

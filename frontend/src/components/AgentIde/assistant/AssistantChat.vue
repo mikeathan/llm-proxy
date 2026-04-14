@@ -2,9 +2,16 @@
 import { ref, onMounted, watch, computed } from "vue";
 import { useAssistant } from "../../../composables/useAssistant";
 import { marked } from "marked";
+import { formatTime } from "../../../utils/time";
+import { getRoleLabel } from "../../../domain/assistant";
+
 
 const props = defineProps<{
   workspaceId: string;
+}>();
+
+const emit = defineEmits<{
+  (e: "close"): void;
 }>();
 
 const {
@@ -20,6 +27,8 @@ const {
   deleteSession,
   activeWorkspaceId,
 } = useAssistant();
+
+
 
 const inputMessage = ref("");
 const messageContainer = ref<HTMLElement | null>(null);
@@ -85,12 +94,7 @@ const renderMarkdown = (content: string) => {
   return marked.parse(content) as string;
 };
 
-// Formatter for timestamps
-const formatTime = (isoString?: string) => {
-  if (!isoString) return "";
-  const d = new Date(isoString);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-};
+
 
 const isLastMessageUser = computed(() => {
   if (messages.value.length === 0) return false;
@@ -140,7 +144,8 @@ const isLastMessageUser = computed(() => {
             <div class="session-snippet">
               {{ session.snippet || "Empty conversation" }}
             </div>
-            <div class="session-time">{{ formatTime(session.updated_at) }}</div>
+            <div class="session-time">{{ formatTime(session.updated_at || '') }}</div>
+
           </button>
 
           <button
@@ -169,6 +174,18 @@ const isLastMessageUser = computed(() => {
 
     <!-- Main Chat Area -->
     <div class="chat-area">
+      <header class="chat-header">
+        <div class="chat-info">
+          <span class="chat-status">Agent Online</span>
+          <h2 class="chat-title">{{ workspaceId }}</h2>
+        </div>
+        <button @click="emit('close')" class="btn-chat-close" title="Exit Chat">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
       <!-- Error Banner -->
       <div v-if="error" class="chat-error">
         {{ error }}
@@ -195,8 +212,9 @@ const isLastMessageUser = computed(() => {
         >
           <div class="message-bubble" :class="`message-bubble--${msg.role}`">
             <div class="message-role">
-              {{ msg.role === "user" ? "You" : "Assistant" }}
+              {{ getRoleLabel(msg.role).replace(':', '') }}
             </div>
+
             <div
               class="message-content markdown-body"
               v-html="renderMarkdown(msg.content)"
@@ -321,7 +339,28 @@ const isLastMessageUser = computed(() => {
   @apply absolute top-0 left-0 right-0 z-10 bg-red-900/90 text-red-200 p-2 text-xs text-center font-medium;
 }
 
+.chat-header {
+  @apply px-4 py-3 border-b border-gray-700 bg-gray-800/80 flex items-center justify-between backdrop-blur-sm z-10;
+}
+
+.chat-info {
+  @apply flex flex-col;
+}
+
+.chat-status {
+  @apply text-[9px] font-bold text-green-500 uppercase tracking-widest leading-none mb-1;
+}
+
+.chat-title {
+  @apply text-xs font-bold text-gray-200 leading-none;
+}
+
+.btn-chat-close {
+  @apply p-1.5 rounded-md hover:bg-gray-700 text-gray-500 hover:text-white transition-all;
+}
+
 .message-container {
+
   @apply flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-5;
 }
 

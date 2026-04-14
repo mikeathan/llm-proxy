@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
@@ -36,6 +38,7 @@ type Dispatcher struct {
 
 	historyMu     sync.RWMutex
 	globalHistory []models.AutomationRun
+	events        *EventBus
 }
 
 func NewDispatcher(
@@ -56,6 +59,7 @@ func NewDispatcher(
 		jobs:        make(map[string]cron.EntryID),
 		stopCh:      make(chan struct{}),
 		metrics:     &DispatcherMetrics{},
+		events:      NewEventBus(),
 	}
 
 	for _, opt := range opts {
@@ -191,6 +195,20 @@ func (d *Dispatcher) Unregister(workspaceID, automationName string) error {
 	return nil
 }
 
+// UnregisterWorkspace removes all scheduled automations for a given workspace.
+func (d *Dispatcher) UnregisterWorkspace(workspaceID string) {
+	d.registry.UnregisterWorkspace(workspaceID)
+
+	d.mu.Lock()
+	for id, entryID := range d.jobs {
+		if hasPrefix(id, workspaceID+"/") {
+			d.cron.Remove(entryID)
+			delete(d.jobs, id)
+		}
+	}
+	d.mu.Unlock()
+}
+
 func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName string) error {
 	entry, ok := d.registry.Get(workspaceID, automationName)
 	if !ok {
@@ -198,6 +216,10 @@ func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName st
 	}
 
 	return d.executeAutomation(ctx, entry)
+}
+
+func (d *Dispatcher) Events() *EventBus {
+	return d.events
 }
 
 func (d *Dispatcher) ListAll() []*AutomationEntry {
@@ -229,6 +251,20 @@ func (d *Dispatcher) RecordActivity(run models.AutomationRun) {
 	}
 }
 
+// ClearWorkspaceHistory purges all runs for a specific workspace from the global history.
+func (d *Dispatcher) ClearWorkspaceHistory(workspaceID string) {
+	d.historyMu.Lock()
+	defer d.historyMu.Unlock()
+
+	var newHistory []models.AutomationRun
+	for _, run := range d.globalHistory {
+		if run.WorkspaceID != workspaceID {
+			newHistory = append(newHistory, run)
+		}
+	}
+	d.globalHistory = newHistory
+}
+
 // LoadHistory populates the global history from persistent workspace states.
 func (d *Dispatcher) LoadHistory() {
 	workspaces, err := d.persistence.ListWorkspaces()
@@ -258,7 +294,7 @@ func (d *Dispatcher) LoadHistory() {
 
 	d.historyMu.Lock()
 	defer d.historyMu.Unlock()
-	
+
 	if len(allRuns) > MaxHistorySize {
 		allRuns = allRuns[len(allRuns)-MaxHistorySize:]
 	}
@@ -377,6 +413,15 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		return fmt.Errorf("failed to write state: %w", err)
 	}
 
+	// Immediately notify UI that execution has actively started
+	d.events.Publish(entry.Workspace, assistant.AgentEvent{
+		Type: assistant.EventMessage,
+		Payload: proxy.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("▶ Booting automation: %s\nLoading task file: %s", entry.Name, entry.TaskFile),
+		},
+	})
+
 	execCtx, err := entry.Strategy.Prepare(ctx, entry.Workspace, entry.Name, state)
 	if err != nil {
 		state.IsRunning = false
@@ -402,6 +447,12 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		state.IsRunning = false
 		state.LastError = err.Error()
 		d.persistence.WriteState(entry.Workspace, state)
+		
+		// Ensure failed runs also propagate to the global ledger
+		if len(state.History) > 0 {
+			d.RecordActivity(state.History[len(state.History)-1])
+		}
+		
 		d.metrics.RecordExecution(false, false, elapsed)
 		return err
 	}
