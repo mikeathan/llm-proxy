@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 	"time"
 )
@@ -31,7 +32,7 @@ type RuntimeService interface {
 	SetBinary(string)
 	SetModelHost(string)
 	ListProviderModels(context.Context, string, string) ([]string, error)
-	TestProviderConnection(context.Context, string, string) error
+	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error
 	SelectModels() (string, string)
 }
 
@@ -64,6 +65,7 @@ type AdminService interface {
 	SyncGuardrails(models.AgentGuardrailsConfig) error
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
+	Secrets() secrets.Store
 }
 
 type AssistantService interface {

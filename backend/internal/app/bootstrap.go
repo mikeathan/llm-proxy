@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
+	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -166,7 +167,13 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 	cfg := cfgMgr.GetConfig()
 	manager := llm.NewManagerFromConfig(&cfg)
 
-	appCtx := NewServer(manager, cfgMgr)
+	secStore, err := secrets.NewFileStore(cfgMgr.ConfigDir())
+	if err != nil {
+		logging.Error("Failed to initialize secrets store", "error", err)
+		return nil
+	}
+
+	appCtx := NewServer(manager, cfgMgr, secStore)
 	runtime := appCtx.Manager()
 
 	return &Container{
@@ -272,7 +279,6 @@ func buildRouter(
 	router.Delete("/admin/api/app-logs", admin.AdminAppLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs/tail", admin.AdminAppLogsTailHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
 
 	// MCP
 	router.Get("/admin/api/mcp", admin.AdminMCPListHandler, jsonMethodNotAllowed)
@@ -282,6 +288,15 @@ func buildRouter(
 	router.Get("/admin/api/providers/models", admin.AdminListProviderModelsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/manifests", admin.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
+
+	// Secrets — provider API keys
+	router.Get("/admin/api/secrets/keys", admin.AdminProviderKeysHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/secrets/keys", admin.AdminProviderKeysPutHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/secrets/keys", admin.AdminProviderKeyDeleteHandler, jsonMethodNotAllowed)
+
+	// Secrets — tool secrets (search, communication, etc.)
+	router.Get("/admin/api/secrets/tools", admin.AdminToolSecretHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/secrets/tools", admin.AdminToolSecretPutHandler, jsonMethodNotAllowed)
 
 	// Dispatcher
 	if dispatcherHandlers != nil {

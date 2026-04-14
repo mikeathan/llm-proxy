@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
@@ -23,8 +25,8 @@ const (
 )
 
 var (
-	ErrUnknownModel  = errors.New("unknown model")
-	ErrModelExists   = errors.New("model already exists")
+	ErrUnknownModel = errors.New("unknown model")
+	ErrModelExists  = errors.New("model already exists")
 )
 
 type activeModelInfo struct {
@@ -75,8 +77,9 @@ type RuntimeManager interface {
 	SetBinary(path string)
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
-	TestProviderConnection(ctx context.Context, provider, apiKey string) error
+	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error
 	SelectModels() (string, string)
+	SetSecrets(secrets.Store)
 	Shutdown()
 }
 
@@ -92,6 +95,7 @@ type LLMRuntimeManager struct {
 	modelHost         string
 	llamaBinary       string
 	stopCh            chan struct{}
+	secrets           secrets.Store
 }
 
 type runningModel struct {
@@ -167,19 +171,6 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) models.
 	pCfg := cfg
 	var modelDir string
 	if provider, ok := m.providers[cfg.Provider]; ok {
-		if pCfg.ProviderConfig.APIKey == "" {
-			if pCfg.ProviderConfig.APIKeyName != "" {
-				for _, kInfo := range provider.APIKeys {
-					if kInfo.Name == pCfg.ProviderConfig.APIKeyName {
-						pCfg.ProviderConfig.APIKey = kInfo.Key
-						break
-					}
-				}
-			}
-			if pCfg.ProviderConfig.APIKey == "" && len(provider.APIKeys) > 0 {
-				pCfg.ProviderConfig.APIKey = provider.APIKeys[0].Key
-			}
-		}
 		if pCfg.ProviderConfig.BaseURL == "" {
 			pCfg.ProviderConfig.BaseURL = provider.BaseURL
 		}
@@ -190,6 +181,19 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) models.
 			pCfg.ProviderConfig.Region = provider.Region
 		}
 		modelDir = provider.ModelDir
+	}
+
+	// Resolve API key from secrets store if not explicitly provided in the request
+	// or if the provided key is a masked placeholder from the UI.
+	if m.secrets != nil && cfg.Provider != "local" {
+		isMasked := secrets.IsMasked(pCfg.ProviderConfig.APIKey)
+		if pCfg.ProviderConfig.APIKey == "" || isMasked {
+			keyName := pCfg.ProviderConfig.APIKeyName
+			key, err := m.secrets.GetResolvedProviderKey(cfg.Provider, keyName)
+			if err == nil {
+				pCfg.ProviderConfig.APIKey = key
+			}
+		}
 	}
 
 	// Local engine is fundamentally different (binary process)
@@ -204,7 +208,7 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) models.
 		return NewLocalProvider(pCfg, binary, modelDir)
 	}
 
-	// Dynamic Resolution via Manifest Registry 
+	// Dynamic Resolution via Manifest Registry
 	if manifest, ok := GetRegistry().Get(cfg.Provider); ok {
 		if factory, ok := GetProviderFactory(manifest.Archetype); ok {
 			return factory(pCfg, manifest)
@@ -215,16 +219,38 @@ func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) models.
 	return NewLocalProvider(pCfg, m.llamaBinary, modelDir)
 }
 
-func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey string) error {
+func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Hydrate if masked or empty
+	if m.secrets != nil && providerName != "local" {
+		if apiKey == "" || secrets.IsMasked(apiKey) {
+			// 1. Try resolving by name/ID
+			real, err := m.secrets.GetResolvedProviderKey(providerName, apiKeyName)
+			if err == nil {
+				apiKey = real
+			} else if secrets.IsMasked(apiKey) {
+				// 2. Fallback: try resolving by pattern matching the mask
+				if real, err := m.secrets.ResolveMaskedKey(providerName, apiKey); err == nil {
+					apiKey = real
+				} else {
+					return fmt.Errorf("could not resolve secret for %s: %w", providerName, err)
+				}
+			} else if apiKey == "" {
+				return fmt.Errorf("could not resolve secret for %s: %w", providerName, err)
+			}
+		}
+	}
+
 	cfg := models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: models.ProviderConfig{
-			APIKey: apiKey,
+			APIKey:     apiKey,
+			APIKeyName: apiKeyName,
 		},
 	}
 	p := m.createProviderLocked(cfg)
-	m.mu.Unlock()
 	return p.TestConnection(ctx)
 }
 
@@ -387,6 +413,12 @@ func (m *LLMRuntimeManager) SetBinary(path string) {
 	if path != "" {
 		m.llamaBinary = path
 	}
+}
+
+func (m *LLMRuntimeManager) SetSecrets(s secrets.Store) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.secrets = s
 }
 
 func (m *LLMRuntimeManager) SetModelHost(host string) {

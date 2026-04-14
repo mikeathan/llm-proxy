@@ -3,6 +3,7 @@ package mocks
 import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -35,6 +36,7 @@ type MockAdminService struct {
 	SyncGuardrailsFunc        func(models.AgentGuardrailsConfig) error
 	ProcessLoggerFunc         func(string) logging.Logger
 	RootDirFunc               func() string
+	SecretsFunc               func() secrets.Store
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -227,4 +229,11 @@ func (m *MockAdminService) RootDir() string {
 		return m.RootDirFunc()
 	}
 	return ""
+}
+
+func (m *MockAdminService) Secrets() secrets.Store {
+	if m.SecretsFunc != nil {
+		return m.SecretsFunc()
+	}
+	return nil
 }

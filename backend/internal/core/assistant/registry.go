@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -45,6 +46,7 @@ func InitializeAgentStack(
 	appCtx interface {
 		Config() *models.Config
 		RootDir() string
+		Secrets() secrets.Store
 	},
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
@@ -80,19 +82,20 @@ func InitializeAgentStack(
 	// 3. Initialize Communications
 	commCfg := cfg.Communication
 	comm := tools.NewCommunicationTools()
-	if commCfg.Telegram.Enabled {
+	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
+	if commCfg.Telegram.Enabled && telegramToken != "" {
 		comm.AddNotifier(&tools.TelegramNotifier{
-			Token:  commCfg.Telegram.Token,
+			Token:  telegramToken,
 			ChatID: commCfg.Telegram.ChatID,
 		})
 	}
 
 	// 4. Initialize Search
-	searchCfg := cfg.Search
 	var search *tools.InternetTools
-	if searchCfg.TavilyKey != "" {
+	tavilyKey := appCtx.Secrets().GetSecret("search", "tavily")
+	if tavilyKey != "" {
 		search = tools.NewInternetTools(&tools.TavilyProvider{
-			APIKey: searchCfg.TavilyKey,
+			APIKey: tavilyKey,
 		})
 	}
 

@@ -14,7 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:apiKeys", keys: APIKeyItem[]): void;
-  (e: "testKey", key: string): void;
+  (e: "testKey", payload: { key: string; name: string; id: string }): void;
   (e: "clearTest"): void;
 }>();
 
@@ -80,7 +80,7 @@ function confirmAndRemove() {
 
 function testSelected() {
   if (!selectedId.value) return;
-  emit("testKey", editValue.value);
+  emit("testKey", { key: editValue.value, name: editName.value, id: selectedId.value });
 }
 
 // ─────────────────────────────────────────────────────────────

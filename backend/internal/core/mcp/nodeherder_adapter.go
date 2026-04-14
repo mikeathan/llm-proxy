@@ -39,7 +39,7 @@ func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
 		content, err := n.orchestrator.ReadResource(context.Background(), "nodeherder://system-prompt")
 		if err != nil {
 			n.logger.Warn("System prompt not available, utilizing fallback", "error", err)
-			return "You are a helpful assistant.", nil
+			return "You are a helpful assistant. Note: IoT device context service is currently disconnected.", nil
 		}
 
 		n.mirror.SetSystemPrompt(content)

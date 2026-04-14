@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import GlobalSettings from "./GlobalSettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
@@ -13,9 +13,7 @@ import { useProviders } from "../../composables/useProviders";
 import { useToast } from "../../composables/useToast";
 import type { NewMcpServerForm } from "../../types/mcp";
 import type { ProviderType, APIKeyItem, SettingsTab } from "../../types/admin";
-import { generateId } from "../../utils/crypto";
 import { isProviderTab, getSettingsGroups } from "../../domain/settings";
-
 
 const {
   config,
@@ -39,45 +37,35 @@ const testStatus = ref<{
   [key: string]: { loading: boolean; error?: string; success?: string };
 }>({});
 
-// Dynamic key list computed mapping
-const providerKeys = computed(() => {
-  const map: Record<string, APIKeyItem[]> = {};
-  cloudProviders.value.forEach((p) => {
-    map[p] = ensureIds(config.value.providers?.[p]?.api_keys ?? []);
-  });
-  return map;
-});
+// Dynamic key list — loaded from secrets API per-provider on demand
+const providerKeys = ref<Record<string, APIKeyItem[]>>({});
 
-function setTab(tab: SettingsTab) {
-  activeTab.value = tab;
-  // Ensure provider exists so fields can bind to config.providers[type]
-  if (isProviderTab(tab)) {
-    ensureProvider(tab);
+async function fetchProviderKeysForTab(provider: ProviderType) {
+  try {
+    const keys = await AdminApiService.fetchProviderKeys(provider);
+    providerKeys.value = { ...providerKeys.value, [provider]: keys };
+  } catch (e) {
+    console.error(`[Settings] Failed to load keys for ${provider}:`, e);
   }
 }
 
-
-function ensureIds(keys: any[]): APIKeyItem[] {
-  return keys.map((k) => {
-    if (k.id) return k;
-    return {
-      ...k,
-      id: generateId(),
-    };
-  });
+function setTab(tab: SettingsTab) {
+  activeTab.value = tab;
+  if (isProviderTab(tab)) {
+    ensureProvider(tab);
+    fetchProviderKeysForTab(tab as ProviderType);
+  }
 }
 
-
 async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
-  const provider = ensureProvider(type);
-  provider.api_keys = ensureIds(keys);
   try {
-    await AdminApiService.updateConfig(
-      JSON.parse(JSON.stringify(config.value)),
-    );
+    const saved = await AdminApiService.saveProviderKeys(type, keys);
+    // Update local state with what the server returned (masked)
+    providerKeys.value = { ...providerKeys.value, [type]: saved };
     await refreshModels();
   } catch (e: any) {
-    console.error(`[Settings] Failed to auto-save ${type} API keys:`, e);
+    toast.error(`Failed to save API keys: ${e.message}`);
+    console.error(`[Settings] Failed to save ${type} API keys:`, e);
   }
 }
 
@@ -91,10 +79,10 @@ async function handleSaveConfig() {
   }
 }
 
-const testProvider = async (type: string, apiKey?: string) => {
+const testProvider = async (type: string, payload: { key: string; name: string; id: string }) => {
   testStatus.value[type] = { loading: true };
   try {
-    const res = await AdminApiService.testConnection(type, apiKey);
+    const res = await AdminApiService.testConnection(type, payload.key, payload.id);
     testStatus.value[type] = { loading: false, success: res.message };
     setTimeout(() => {
       if (testStatus.value[type]?.success === res.message) {
@@ -124,7 +112,6 @@ onMounted(() => {
 });
 
 const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
-
 </script>
 
 <template>
@@ -133,14 +120,18 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
     <div class="settings-sidebar">
       <h2 class="sidebar-header">Preferences</h2>
       <div v-for="group in settingsGroups" :key="group.name" class="nav-group">
-        <h3 v-if="group.tabs.length > 0" class="group-title">{{ group.name }}</h3>
+        <h3 v-if="group.tabs.length > 0" class="group-title">
+          {{ group.name }}
+        </h3>
         <nav class="nav-list">
           <button
             v-for="tab in group.tabs"
             :key="tab"
             @click="setTab(tab)"
             class="nav-item"
-            :class="activeTab === tab ? 'nav-item--active' : 'nav-item--inactive'"
+            :class="
+              activeTab === tab ? 'nav-item--active' : 'nav-item--inactive'
+            "
           >
             <span
               class="nav-icon"
@@ -177,19 +168,17 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
 
         <!-- Guardrails -->
         <div v-show="activeTab === 'guardrails'">
-          <GuardrailSettings
-            v-model:config="config"
-            @save="handleSaveConfig"
-          />
+          <GuardrailSettings v-model:config="config" @save="handleSaveConfig" />
         </div>
 
         <!-- Provider Configs -->
         <div
-          v-for="provider in settingsTabs.filter(isProviderTab) as ProviderType[]"
+          v-for="provider in settingsTabs.filter(
+            isProviderTab,
+          ) as ProviderType[]"
           :key="provider"
           v-show="activeTab === provider"
         >
-
           <div class="config-card">
             <h2 class="config-header">
               {{ getLabel(provider) }} Configuration

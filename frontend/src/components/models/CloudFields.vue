@@ -89,6 +89,13 @@ watch(
     }
   }
 );
+
+// Trigger load when provider becomes configured (e.g. after state refresh)
+watch(isProviderConfigured, (configured) => {
+  if (configured && props.provider !== "local" && providerModels.value.length === 0) {
+    loadProviderModels();
+  }
+});
 </script>
 
 <template>
@@ -138,7 +145,7 @@ watch(
       </button>
     </div>
 
-    <div v-if="providerModels.length > 10" class="search-wrapper">
+    <div v-if="providerModels.length > 0" class="search-wrapper">
       <input
         v-model="filterText"
         type="text"

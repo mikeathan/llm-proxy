@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -22,10 +23,11 @@ type AppContext struct {
 	rootDir       string
 	gpuConfig     models.GPUConfig
 	metrics       *metrics.MetricsService
+	secrets       secrets.Store
 	configMu      sync.Mutex // Kept for other fields if needed, but configMgr handles config
 }
 
-func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext {
+func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager, secStore secrets.Store) *AppContext {
 	cfg := cfgMgr.GetConfig()
 
 	// Compute absolute rootDir from config directory (backend/config -> repo root)
@@ -41,7 +43,11 @@ func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext
 		workspacesDir: cfg.WorkspacesDir,
 		rootDir:       rootDir,
 		gpuConfig:     cfg.Metrics.GPU,
+		secrets:       secStore,
 	}
+
+	// Link manager to secrets store for credential resolution
+	mgr.SetSecrets(secStore)
 
 	// If workspaces_dir not set, default to {rootDir}/workspaces
 	if s.workspacesDir == "" {
@@ -95,6 +101,10 @@ func (s *AppContext) refreshMetricsService() {
 
 func (s *AppContext) Manager() llm.RuntimeManager {
 	return s.manager
+}
+
+func (s *AppContext) Secrets() secrets.Store {
+	return s.secrets
 }
 
 func (s *AppContext) ModelDir() string {

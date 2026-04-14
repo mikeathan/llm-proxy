@@ -99,10 +99,15 @@ type adminConfigView struct {
 	DefaultArgs         []string                       `json:"default_args"`
 	PrimaryModel        string                         `json:"primary_model"`
 	FallbackModel       string                         `json:"fallback_model"`
-	Providers           map[string]models.ProviderItem `json:"providers"`
+	Providers           map[string]adminProviderView   `json:"providers"`
 	Guardrails          models.AgentGuardrailsConfig   `json:"guardrails"`
 	Communication       models.CommunicationConfig     `json:"communication"`
 	Search              models.SearchConfig            `json:"search"`
+}
+
+type adminProviderView struct {
+	models.ProviderItem
+	APIKeys []models.APIKeyItem `json:"api_keys,omitempty"`
 }
 
 type adminStartResponse struct {
@@ -194,7 +199,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			DefaultArgs:   h.admin.DefaultArgs(),
 			PrimaryModel:  h.admin.Config().Server.PrimaryModel,
 			FallbackModel: h.admin.Config().Server.FallbackModel,
-			Providers:     h.admin.Providers(),
+			Providers:     h.getProvidersView(),
 			Guardrails:    tools.GetDefaultGuardrails(h.admin.RootDir()),
 			Communication: h.admin.Config().Communication,
 			Search:        h.admin.Config().Search,
@@ -280,23 +285,33 @@ func (h *AdminHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request
 func (h *AdminHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Request) {
 	h.handleAddModel(w, r)
 }
+func (h *AdminHandlers) getProvidersView() map[string]adminProviderView {
+	providers := h.admin.Providers()
+	view := make(map[string]adminProviderView, len(providers))
+
+	for id, p := range providers {
+		view[id] = adminProviderView{
+			ProviderItem: p,
+			APIKeys:      h.admin.Secrets().MaskedProviderKeys(id),
+		}
+	}
+	return view
+}
+
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
-	serviceClientID, serviceClientSecret := config.GetServiceCredentials()
 	cfg := adminConfigView{
-		ModelDir:            h.admin.ModelDir(),
-		WorkspacesDir:       h.admin.WorkspacesDir(),
-		GPU:                 h.admin.GPUConfig(),
-		Binary:              h.admin.CurrentBinary(),
-		IdleTimeout:         h.admin.CurrentIdleTimeout(),
-		ServiceClientID:     serviceClientID,
-		ServiceClientSecret: serviceClientSecret,
-		DefaultArgs:         h.admin.DefaultArgs(),
-		PrimaryModel:        h.admin.Config().Server.PrimaryModel,
-		FallbackModel:       h.admin.Config().Server.FallbackModel,
-		Providers:           h.admin.Providers(),
-		Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
-		Communication:       h.admin.Config().Communication,
-		Search:              h.admin.Config().Search,
+		ModelDir:      h.admin.ModelDir(),
+		WorkspacesDir: h.admin.WorkspacesDir(),
+		GPU:           h.admin.GPUConfig(),
+		Binary:        h.admin.CurrentBinary(),
+		IdleTimeout:   h.admin.CurrentIdleTimeout(),
+		DefaultArgs:   h.admin.DefaultArgs(),
+		PrimaryModel:  h.admin.Config().Server.PrimaryModel,
+		FallbackModel: h.admin.Config().Server.FallbackModel,
+		Providers:     h.getProvidersView(),
+		Guardrails:    tools.GetDefaultGuardrails(h.admin.RootDir()),
+		Communication: h.admin.Config().Communication,
+		Search:        h.admin.Config().Search,
 	}
 	respondJSON(w, cfg)
 }
@@ -505,8 +520,6 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		FallbackModel       string                         `json:"fallback_model"`
 		Providers           map[string]models.ProviderItem `json:"providers"`
 		Guardrails          *models.AgentGuardrailsConfig  `json:"guardrails,omitempty"`
-		Communication       *models.CommunicationConfig    `json:"communication,omitempty"`
-		Search              *models.SearchConfig           `json:"search,omitempty"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -585,13 +598,6 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 			for k, v := range req.Providers {
 				cfg.Providers[k] = v
 			}
-		}
-		// Guardrails are now handled exclusively via manifest sync and not stored in config.json
-		if req.Communication != nil {
-			cfg.Communication = *req.Communication
-		}
-		if req.Search != nil {
-			cfg.Search = *req.Search
 		}
 
 		// Guardrails are no longer stored in config.json.
@@ -710,8 +716,9 @@ func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter
 	// api_key is optional: when supplied by the caller it overrides the saved config,
 	// allowing the user to test a key before saving it.
 	apiKey := r.URL.Query().Get("api_key")
+	apiKeyName := r.URL.Query().Get("api_key_name")
 
-	err := h.runtime.TestProviderConnection(r.Context(), provider, apiKey)
+	err := h.runtime.TestProviderConnection(r.Context(), provider, apiKey, apiKeyName)
 	if err != nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "connection test failed: "+err.Error())
 		return

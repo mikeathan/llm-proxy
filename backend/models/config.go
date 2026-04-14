@@ -99,13 +99,11 @@ func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 type CommunicationConfig struct {
 	Telegram struct {
 		Enabled bool   `json:"enabled"`
-		Token   string `json:"token"`
 		ChatID  string `json:"chat_id"`
 	} `json:"telegram"`
 }
 
 type SearchConfig struct {
-	TavilyKey string `json:"tavily_key"`
 }
 
 type AgentDefinition struct {
@@ -125,7 +123,6 @@ type APIKeyItem struct {
 
 type ProviderItem struct {
 	Type              string            `json:"type"`
-	APIKeys           []APIKeyItem      `json:"api_keys,omitempty"`
 	BaseURL           string            `json:"base_url,omitempty"`
 	ProjectID         string            `json:"project_id,omitempty"`
 	Region            string            `json:"region,omitempty"`
@@ -164,7 +161,7 @@ type ModelConfig struct {
 }
 
 type ProviderConfig struct {
-	APIKey     string `json:"api_key,omitempty"`
+	APIKey     string `json:"-"`
 	APIKeyName string `json:"api_key_name,omitempty"`
 	BaseURL    string `json:"base_url,omitempty"`
 	ProjectID  string `json:"project_id,omitempty"`

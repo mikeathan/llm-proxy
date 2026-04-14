@@ -4,9 +4,10 @@
     "model_host": "127.0.0.1",
     "idle_timeout_seconds": 1800,
     "llama_server_binary": "",
-    "default_args": null,
+    "default_args": [],
     "environment": {},
-    "default_model": "qwen2.5-3b-instruct"
+    "primary_model": "qwen2-7b-instruct",
+    "fallback_model": "qwen-flash"
   },
   "providers": {
     "local": {
@@ -32,6 +33,9 @@
         "GGML_HIP_UMA": "1",
         "HSA_OVERRIDE_GFX_VERSION": "11.0.0"
       }
+    },
+    "mulerouter": {
+      "type": "mulerouter"
     }
   },
   "models": [
@@ -43,6 +47,7 @@
       "provider_config": {}
     }
   ],
+  "workspaces_dir": "workspaces",
   "metrics": {
     "gpu": {
       "provider": "sysfs",
@@ -60,5 +65,12 @@
       "url": "http://nodeherder.local/api/mcp",
       "enabled": false
     }
-  ]
+  ],
+  "communication": {
+    "telegram": {
+      "enabled": false,
+      "chat_id": ""
+    }
+  },
+  "search": {}
 }

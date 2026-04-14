@@ -55,7 +55,9 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 		t.Fatalf("load config: %v", err)
 	}
 
-	return app.NewServer(mgr, cfgMgr)
+	secretsStore := &mocks.MockSecretsStore{}
+
+	return app.NewServer(mgr, cfgMgr, secretsStore)
 }
 
 func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
@@ -432,7 +434,7 @@ func TestAppContextUpdateConfig_Persists(t *testing.T) {
 	mgr := config.NewConfigManager(path)
 	mgr.Load()
 
-	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
 
 	if err := ctx.UpdateConfig(func(c *models.Config) {
 		c.Server.Bind = ":9999"
@@ -465,7 +467,7 @@ func TestAppContextPersistModel_AddsOnce(t *testing.T) {
 	mgr := config.NewConfigManager(path)
 	mgr.Load()
 
-	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
 
 	if err := ctx.PersistModel(models.ModelConfig{Name: "beta"}); err != nil {
 		t.Fatalf("persist model: %v", err)
@@ -495,7 +497,7 @@ func TestAppContextPersistReplaceModel(t *testing.T) {
 	mgr := config.NewConfigManager(path)
 	mgr.Load()
 
-	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
 
 	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Port: 9}); err != nil {
 		t.Fatalf("persist replace: %v", err)
@@ -529,7 +531,7 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 	mgr := config.NewConfigManager(path)
 	mgr.Load()
 
-	ctx := app.NewServer(&mocks.MockManager{}, mgr)
+	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
 
 	if err := ctx.PersistDeleteModel("alpha"); err != nil {
 		t.Fatalf("persist delete: %v", err)

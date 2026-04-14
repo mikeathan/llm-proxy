@@ -37,7 +37,7 @@ func TestRoutesExist(t *testing.T) {
 		"/admin",
 		"/admin/api/state",
 		"/v1/chat/completions",
-		"/api/conversation/message",
+		"/admin/api/conversation/message",
 	}
 
 	for _, path := range tests {

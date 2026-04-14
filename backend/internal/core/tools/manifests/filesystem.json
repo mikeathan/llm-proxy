@@ -4,7 +4,11 @@
   "description": "Securely read from and write to authorized workspace directories.",
   "guardrails": {
     "enabled": true,
-    "allowed_paths": ["./workspaces", "./reports", "./config"],
+    "allowed_paths": [
+      "./workspaces",
+      "./reports",
+      "./config"
+    ],
     "read_only": false,
     "max_file_size_kb": 1024,
     "allowed_extensions": [

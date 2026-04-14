@@ -1,15 +1,18 @@
-package assistant
+package assistant_test
 
 import (
 	"context"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/secrets"
+	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
 	"testing"
 )
 
 func TestLocalToolRegistry_Discovery(t *testing.T) {
-	r := NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
+	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
 	toolsList, err := r.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools failed: %v", err)
@@ -29,7 +32,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 		}
 	})
 	
-	r := NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
+	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
 	
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
@@ -50,13 +53,13 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
-	provider, engine, guardrails := InitializeAgentStack(&mockAppContext{}, nil, nil)
+	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil)
 	
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")
 	}
 	
-	_, ok := provider.(*MultiToolProvider)
+	_, ok := provider.(*assistant.MultiToolProvider)
 	if !ok {
 		t.Error("provider is not a MultiToolProvider")
 	}
@@ -68,6 +71,9 @@ func (m *mockAppContext) Config() *models.Config {
 }
 func (m *mockAppContext) RootDir() string {
 	return ""
+}
+func (m *mockAppContext) Secrets() secrets.Store {
+	return &mocks.MockSecretsStore{}
 }
 
 func TestFileSystem_IsSecurePath(t *testing.T) {
