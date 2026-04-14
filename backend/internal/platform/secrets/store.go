@@ -51,9 +51,9 @@ type Store interface {
 }
 
 type secretsFile struct {
-	Version      int                             `json:"version"`
-	ProviderKeys map[string][]models.APIKeyItem    `json:"provider_keys,omitempty"`
-	ToolSecrets  map[string]map[string]string      `json:"tool_secrets,omitempty"` // map[category][provider]value
+	Version      int                            `json:"version"`
+	ProviderKeys map[string][]models.APIKeyItem `json:"provider_keys,omitempty"`
+	ToolSecrets  map[string]map[string]string   `json:"tool_secrets,omitempty"` // map[category][provider]value
 }
 
 type fileStore struct {
@@ -317,8 +317,7 @@ func (s *fileStore) GetResolvedProviderKey(provider, name string) (string, error
 				return k.Key, nil
 			}
 		}
-		// If we asked for a specific name and it's NOT found, that's an error.
-		return "", fmt.Errorf("%w: key %q not found for provider %q", ErrNotFound, name, provider)
+		// If not found, fall through to first available.
 	}
 
 	// Default to first available key.
@@ -361,8 +360,8 @@ func MaskKey(key string) string {
 // IsMasked returns true if a key string appears to be a redacted placeholder
 // rather than a real credential.
 func IsMasked(key string) bool {
-	return strings.Contains(key, "...") || 
-	       strings.Contains(key, "***") || 
-	       strings.Contains(key, "•••") || 
-	       strings.Contains(key, "●●●")
+	return strings.Contains(key, "...") ||
+		strings.Contains(key, "***") ||
+		strings.Contains(key, "•••") ||
+		strings.Contains(key, "●●●")
 }

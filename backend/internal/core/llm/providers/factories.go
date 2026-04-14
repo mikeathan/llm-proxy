@@ -1,7 +1,6 @@
-package llm
+package providers
 
 import (
-	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 )
 
@@ -9,13 +8,13 @@ type ProviderFactory func(cfg models.ModelConfig, manifest models.ProviderManife
 
 var defaultFactories = map[models.ProviderArchetype]ProviderFactory{
 	models.ArchetypeOpenAICompatible: func(cfg models.ModelConfig, m models.ProviderManifest) models.Provider {
-		return providers.NewOpenAICompatibleProvider(cfg, m)
+		return NewOpenAICompatibleProvider(cfg, m)
 	},
 	models.ArchetypeGemini: func(cfg models.ModelConfig, m models.ProviderManifest) models.Provider {
-		return providers.NewGeminiProvider(cfg)
+		return NewGeminiProvider(cfg)
 	},
 	models.ArchetypeVertex: func(cfg models.ModelConfig, m models.ProviderManifest) models.Provider {
-		return providers.NewVertexProvider(cfg)
+		return NewVertexProvider(cfg)
 	},
 }
 

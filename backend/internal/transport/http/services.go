@@ -29,7 +29,6 @@ type RuntimeService interface {
 	StopActive() error
 	ClearLogs() error
 	ModelHost() string
-	SetBinary(string)
 	SetModelHost(string)
 	ListProviderModels(context.Context, string, string) ([]string, error)
 	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error

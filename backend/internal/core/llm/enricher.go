@@ -1,30 +1,12 @@
 package llm
 
 import (
-	"fmt"
-	"path/filepath"
-
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 )
 
 func resolveModelFile(baseDir string, m models.ModelConfig) string {
-	if m.Path != "" && filepath.IsAbs(m.Path) {
-		return m.Path
-	}
-	fname := m.Filename
-	if fname == "" && m.Path != "" {
-		fname = filepath.Base(m.Path)
-	}
-	if fname == "" {
-		return ""
-	}
-	if filepath.IsAbs(fname) {
-		return fname
-	}
-	if baseDir != "" {
-		return filepath.Join(baseDir, fname)
-	}
-	return fname
+	return providers.ResolveModelFile(baseDir, m)
 }
 
 func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
@@ -63,42 +45,20 @@ func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.
 	out := model
 	out.Args = args
 	out.Environment = env
-	out.Path = resolveModelFile(modelDir, model)
+	out.Path = providers.ResolveModelFile(modelDir, model)
 	return out
 }
 
 func normalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelConfig {
-	out := cfg
-	if out.Path == "" {
-		out.Path = resolveModelFile(baseDir, out)
-	}
-	if out.Filename == "" && out.Path != "" {
-		out.Filename = filepath.Base(out.Path)
-	}
-	return out
+	return providers.NormalizeModelConfig(baseDir, cfg)
 }
 
 func buildLaunchArgs(cfg models.ModelConfig) []string {
-	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
-	return append(args, sanitizeArgs(cfg.Args)...)
+	return providers.BuildLaunchArgs(cfg)
 }
 
 func sanitizeArgs(args []string) []string {
-	out := make([]string, 0, len(args))
-	skipNext := false
-	for i := 0; i < len(args); i++ {
-		if skipNext {
-			skipNext = false
-			continue
-		}
-		arg := args[i]
-		if arg == "--n-batch" {
-			skipNext = true
-			continue
-		}
-		out = append(out, arg)
-	}
-	return out
+	return providers.SanitizeArgs(args)
 }
 
 func (m *LLMRuntimeManager) enrichModelLocked(cfg models.ModelConfig) models.ModelConfig {
@@ -112,7 +72,7 @@ func (m *LLMRuntimeManager) enrichModelLocked(cfg models.ModelConfig) models.Mod
 		pName = "local"
 	}
 
-	if p, ok := m.providers[pName]; ok {
+	if p, ok := m.registrar.ListConfigs()[pName]; ok {
 		for k, v := range p.Environment {
 			env[k] = v
 		}

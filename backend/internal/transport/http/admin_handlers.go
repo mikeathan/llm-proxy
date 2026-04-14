@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
@@ -305,8 +306,10 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		GPU:           h.admin.GPUConfig(),
 		Binary:        h.admin.CurrentBinary(),
 		IdleTimeout:   h.admin.CurrentIdleTimeout(),
-		DefaultArgs:   h.admin.DefaultArgs(),
-		PrimaryModel:  h.admin.Config().Server.PrimaryModel,
+		DefaultArgs:         h.admin.DefaultArgs(),
+		ServiceClientID:     os.Getenv("SERVICE_CLIENT_ID"),
+		ServiceClientSecret: os.Getenv("SERVICE_CLIENT_SECRET"),
+		PrimaryModel:        h.admin.Config().Server.PrimaryModel,
 		FallbackModel: h.admin.Config().Server.FallbackModel,
 		Providers:     h.getProvidersView(),
 		Guardrails:    tools.GetDefaultGuardrails(h.admin.RootDir()),
@@ -685,7 +688,7 @@ func (h *AdminHandlers) AdminMCPRemoveHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (h *AdminHandlers) AdminListProviderManifestsHandler(w http.ResponseWriter, r *http.Request) {
-	manifests := llm.GetRegistry().List()
+	manifests := providers.GetRegistry().List()
 	respondJSON(w, manifests)
 }
 

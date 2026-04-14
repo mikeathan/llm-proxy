@@ -16,7 +16,7 @@ import (
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -35,29 +35,74 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Helper to create valid server with optional config overrides
 func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.Config) *app.AppContext {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.json")
 
-	if initialCfg == nil {
-		initialCfg = &models.Config{}
+	// 1. Create System Config (config.json)
+	sys := storage.SystemConfig{}
+	sys.Server.Bind = ":0"
+	sys.Server.ModelHost = "http://localhost"
+	sys.Server.IdleTimeoutSecs = 10
+	
+	if initialCfg != nil {
+		sys.Server.Bind = initialCfg.Server.Bind
+		sys.Server.ModelHost = initialCfg.Server.ModelHost
+		sys.Server.IdleTimeoutSecs = initialCfg.Server.IdleTimeoutSecs
+		sys.Server.PrimaryModel = initialCfg.Server.PrimaryModel
+		sys.Server.FallbackModel = initialCfg.Server.FallbackModel
+		
+		if local, ok := initialCfg.Providers["local"]; ok {
+			sys.Local.ModelDir = local.ModelDir
+			sys.Local.LlamaServerBinary = local.LlamaServerBinary
+			sys.Local.DefaultArgs = local.DefaultArgs
+		}
+		if sys.Local.DefaultArgs == nil && len(initialCfg.Server.DefaultArgs) > 0 {
+			sys.Local.DefaultArgs = initialCfg.Server.DefaultArgs
+		}
 	}
 
-	cfgMgr := config.NewConfigManager(configPath)
+	sysData, _ := json.Marshal(sys)
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), sysData, 0644)
 
-	data, err := json.Marshal(initialCfg)
+	// 2. Create Registry (registry.json)
+	reg := storage.RegistryData{
+		Providers: make(map[string]storage.ProviderRegistryEntry),
+		Catalogue: []storage.ModelRegistryEntry{},
+	}
+	if initialCfg != nil {
+		for id, p := range initialCfg.Providers {
+			reg.Providers[id] = storage.ProviderRegistryEntry{
+				Type:    p.Type,
+				BaseURL: p.BaseURL,
+			}
+		}
+		for _, m := range initialCfg.Models {
+			reg.Catalogue = append(reg.Catalogue, storage.ModelRegistryEntry{
+				Name:       m.Name,
+				ModelID:    m.Filename,
+				ProviderID: m.Provider,
+			})
+		}
+	}
+	regData, _ := json.Marshal(reg)
+	_ = os.WriteFile(filepath.Join(dir, "registry.json"), regData, 0644)
+
+	// 3. Create Secrets (secrets.json)
+	sec := storage.SecretData{
+		Version:      1,
+		ProviderKeys: make(map[string][]storage.SecretEntry),
+	}
+	secData, _ := json.Marshal(sec)
+	_ = os.WriteFile(filepath.Join(dir, "secrets.json"), secData, 0644)
+
+	dataMgr, err := storage.NewDataManager(dir)
 	if err != nil {
-		t.Fatalf("marshal config: %v", err)
-	}
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		t.Fatalf("write config: %v", err)
+		t.Fatalf("NewDataManager: %v", err)
 	}
 
-	if err := cfgMgr.Load(); err != nil {
-		t.Fatalf("load config: %v", err)
+	if err := dataMgr.LoadAll(); err != nil {
+		t.Fatalf("LoadAll: %v", err)
 	}
 
-	secretsStore := &mocks.MockSecretsStore{}
-
-	return app.NewServer(mgr, cfgMgr, secretsStore)
+	return app.NewServer(mgr, dataMgr)
 }
 
 func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
@@ -376,7 +421,11 @@ func TestAppContextSelectModels_FirstModel(t *testing.T) {
 			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
 		},
 	}
-	ctx := createTestServer(t, mgr, nil)
+	
+	initialCfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
+	}
+	ctx := createTestServer(t, mgr, initialCfg)
 
 	p, f := ctx.SelectModels()
 	if p != "alpha" {
@@ -431,10 +480,10 @@ func TestAppContextUpdateConfig_Persists(t *testing.T) {
 	_ = os.WriteFile(path, data, 0644)
 
 	// Create manager
-	mgr := config.NewConfigManager(path)
-	mgr.Load()
+	dataMgr, _ := storage.NewDataManager(dir)
+	dataMgr.LoadAll()
 
-	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
+	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
 
 	if err := ctx.UpdateConfig(func(c *models.Config) {
 		c.Server.Bind = ":9999"
@@ -443,12 +492,12 @@ func TestAppContextUpdateConfig_Persists(t *testing.T) {
 		t.Fatalf("update config: %v", err)
 	}
 
-	// Verify persistence via new manager (avoiding stale cache if any, though load reads file)
-	loadedMgr := config.NewConfigManager(path)
-	if err := loadedMgr.Load(); err != nil {
+	// Verify persistence via new manager
+	loadedMgr, _ := storage.NewDataManager(dir)
+	if err := loadedMgr.LoadAll(); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	loaded := loadedMgr.GetConfig()
+	loaded := loadedMgr.System().Get()
 
 	if loaded.Server.Bind != ":9999" || loaded.Server.IdleTimeoutSecs != 42 {
 		t.Fatalf("unexpected config: %+v", loaded.Server)
@@ -456,18 +505,11 @@ func TestAppContextUpdateConfig_Persists(t *testing.T) {
 }
 
 func TestAppContextPersistModel_AddsOnce(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}},
 	}
-	data, _ := json.Marshal(cfg)
-	_ = os.WriteFile(path, data, 0644)
-
-	mgr := config.NewConfigManager(path)
-	mgr.Load()
-
-	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
+	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	dir := ctx.RootDir()
 
 	if err := ctx.PersistModel(models.ModelConfig{Name: "beta"}); err != nil {
 		t.Fatalf("persist model: %v", err)
@@ -476,85 +518,72 @@ func TestAppContextPersistModel_AddsOnce(t *testing.T) {
 		t.Fatalf("persist model (duplicate): %v", err)
 	}
 
-	loadedMgr := config.NewConfigManager(path)
-	loadedMgr.Load()
-	loaded := loadedMgr.GetConfig()
+	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr.LoadAll()
+	loaded := loadedMgr.Registry().Get()
 
-	if len(loaded.Models) != 2 {
-		t.Fatalf("expected 2 models, got %d", len(loaded.Models))
+	if len(loaded.Catalogue) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(loaded.Catalogue))
 	}
 }
 
 func TestAppContextPersistReplaceModel(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
 	cfg := &models.Config{
-		Models: []models.ModelConfig{{Name: "alpha", Port: 1}},
+		Models: []models.ModelConfig{{Name: "alpha"}},
 	}
-	data, _ := json.Marshal(cfg)
-	_ = os.WriteFile(path, data, 0644)
+	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	dir := ctx.RootDir()
 
-	mgr := config.NewConfigManager(path)
-	mgr.Load()
-
-	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
-
-	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Port: 9}); err != nil {
+	// Port isn't actually in registry entry, but we can verify filename update
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Filename: "new.gguf"}); err != nil {
 		t.Fatalf("persist replace: %v", err)
 	}
-	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "beta", Port: 2}); err != nil {
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "beta", Filename: "beta.gguf"}); err != nil {
 		t.Fatalf("persist replace new: %v", err)
 	}
 
-	loadedMgr := config.NewConfigManager(path)
-	loadedMgr.Load()
-	loaded := loadedMgr.GetConfig()
+	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr.LoadAll()
+	loaded := loadedMgr.Registry().Get()
 
-	alpha, ok := findModel(loaded.Models, "alpha")
-	if !ok || alpha.Port != 9 {
-		t.Fatalf("expected alpha port 9, got %+v", alpha)
+	alpha, ok := findModel(loaded.Catalogue, "alpha")
+	if !ok || alpha.ModelID != "new.gguf" {
+		t.Fatalf("expected alpha ModelID new.gguf, got %+v", alpha)
 	}
-	if _, ok := findModel(loaded.Models, "beta"); !ok {
+	if _, ok := findModel(loaded.Catalogue, "beta"); !ok {
 		t.Fatalf("expected beta to be added")
 	}
 }
 
 func TestAppContextPersistDeleteModel(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
 	}
-	data, _ := json.Marshal(cfg)
-	_ = os.WriteFile(path, data, 0644)
-
-	mgr := config.NewConfigManager(path)
-	mgr.Load()
-
-	ctx := app.NewServer(&mocks.MockManager{}, mgr, &mocks.MockSecretsStore{})
+	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	dir := ctx.RootDir()
 
 	if err := ctx.PersistDeleteModel("alpha"); err != nil {
 		t.Fatalf("persist delete: %v", err)
 	}
 
-	loadedMgr := config.NewConfigManager(path)
-	loadedMgr.Load()
-	loaded := loadedMgr.GetConfig()
+	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr.LoadAll()
+	loaded := loadedMgr.Registry().Get()
 
-	if _, ok := findModel(loaded.Models, "alpha"); ok {
+	if _, ok := findModel(loaded.Catalogue, "alpha"); ok {
 		t.Fatalf("expected alpha to be removed")
 	}
-	if _, ok := findModel(loaded.Models, "beta"); !ok {
-		t.Fatalf("expected beta to remain")
+	if _, ok := findModel(loaded.Catalogue, "beta"); !ok {
+		t.Fatalf("expected beta to remain, got %d models", len(loaded.Catalogue))
 	}
 }
 
-func findModel(config []models.ModelConfig, name string) (models.ModelConfig, bool) {
+func findModel(config []storage.ModelRegistryEntry, name string) (storage.ModelRegistryEntry, bool) {
 	for _, m := range config {
 		if m.Name == name {
 			return m, true
 		}
 	}
 
-	return models.ModelConfig{}, false
+	return storage.ModelRegistryEntry{}, false
 }

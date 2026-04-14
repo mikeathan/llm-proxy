@@ -36,6 +36,12 @@
     },
     "mulerouter": {
       "type": "mulerouter"
+    },
+    "nvidia": {
+      "type": "nvidia"
+    },
+    "openrouter": {
+      "type": "openrouter"
     }
   },
   "models": [
@@ -45,6 +51,38 @@
       "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
       "port": 9002,
       "provider_config": {}
+    },
+    {
+      "name": "kimi-k2-instruct",
+      "provider": "nvidia",
+      "filename": "moonshotai/kimi-k2-instruct",
+      "provider_config": {
+        "api_key_name": "nvidia-free"
+      }
+    },
+    {
+      "name": "deepseek-v3.2",
+      "provider": "nvidia",
+      "filename": "deepseek-ai/deepseek-v3.2",
+      "provider_config": {
+        "api_key_name": "nvidia-free"
+      }
+    },
+    {
+      "name": "qwen-flash",
+      "provider": "mulerouter",
+      "filename": "qwen-flash",
+      "provider_config": {
+        "api_key_name": "mulerouter-free"
+      }
+    },
+    {
+      "name": "qwen3.6-plus",
+      "provider": "mulerouter",
+      "filename": "qwen3.6-plus",
+      "provider_config": {
+        "api_key_name": "mulerouter-free"
+      }
     }
   ],
   "workspaces_dir": "workspaces",

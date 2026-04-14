@@ -3,15 +3,14 @@ package llm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"os/exec"
 	"sync"
 	"time"
 
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/secrets"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
@@ -74,7 +73,6 @@ type RuntimeManager interface {
 	StopActive() error
 	ClearLogs() error
 	ModelHost() string
-	SetBinary(path string)
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error
@@ -85,35 +83,49 @@ type RuntimeManager interface {
 
 type LLMRuntimeManager struct {
 	mu                sync.Mutex
-	activeModel       *runningModel
+	activeModel       *providers.RunningModel
 	activeProvider    models.Provider
 	activeCloudConfig *models.ModelConfig
 	models            map[string]models.ModelConfig
-	providers         map[string]models.ProviderItem
+	registrar         *providers.ProviderRegistrar
 	serverEnv         map[string]string
 	idleTimeout       time.Duration
-	modelHost         string
-	llamaBinary       string
 	stopCh            chan struct{}
-	secrets           secrets.Store
 }
 
-type runningModel struct {
-	cfg        models.ModelConfig
-	cmd        *exec.Cmd
-	cancel     context.CancelFunc
-	started    time.Time
-	lastUsed   time.Time
-	logs       *logging.BufferLogger
-	throughput *metrics.TokenTracker
+func NewManagerFromRegistry(reg storage.RegistryData, sys storage.SystemConfig, secrets secrets.Store) *LLMRuntimeManager {
+	logging.Info("Initializing LLM Runtime Manager from registry", "models", len(reg.Catalogue))
+
+	registrar := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, sys.Server.ModelHost)
+	registrar.RegisterLocal(sys.Local.LlamaServerBinary, sys.Local.ModelDir, sys.Local.DefaultArgs)
+
+	m := &LLMRuntimeManager{
+		models:      make(map[string]models.ModelConfig),
+		registrar:   registrar,
+		serverEnv:   make(map[string]string),
+		idleTimeout: time.Duration(sys.Server.IdleTimeoutSecs) * time.Second,
+		stopCh:      make(chan struct{}),
+	}
+
+	// 1. Map Registry Catalogue to Runtime Models
+	for _, entry := range reg.Catalogue {
+		m.models[entry.Name] = models.ModelConfig{
+			Name:     entry.Name,
+			Provider: entry.ProviderID,
+			Filename: entry.ModelID, // Bridge: Filename is the identifier
+			ProviderConfig: models.ProviderConfig{
+				APIKeyName: entry.CredentialID,
+			},
+		}
+	}
+
+	go m.reapIdleModels(defaultReapPeriod)
+
+	return m
 }
 
-func (r *runningModel) Cfg() models.ModelConfig {
-	return r.cfg
-}
-
-func (r *runningModel) LastUsed() time.Time {
-	return r.lastUsed
+func (m *LLMRuntimeManager) Registrar() *providers.ProviderRegistrar {
+	return m.registrar
 }
 
 func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.Duration) *LLMRuntimeManager {
@@ -121,32 +133,36 @@ func New(modelConfigs []models.ModelConfig, modelHost string, idleTimeout time.D
 }
 
 func NewManagerFromConfig(cfg *models.Config) *LLMRuntimeManager {
+	logging.Debug("Initializing LLM Runtime Manager from legacy config")
 	modelsOut := make([]models.ModelConfig, 0, len(cfg.Models))
 	for _, m := range cfg.Models {
 		modelsOut = append(modelsOut, configModelFromConfig(cfg, m))
 	}
 
-	manager := New(modelsOut, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second)
-	manager.providers = cfg.Providers
-	manager.serverEnv = cfg.Server.Environment
+	m := NewWithReapInterval(modelsOut, cfg.Server.ModelHost, time.Duration(cfg.Server.IdleTimeoutSecs)*time.Second, defaultReapPeriod)
+	m.serverEnv = cfg.Server.Environment
 
-	if local, ok := cfg.Providers["local"]; ok && local.LlamaServerBinary != "" {
-		manager.llamaBinary = local.LlamaServerBinary
-	} else if cfg.Server.LlamaServerBinary != "" {
-		manager.llamaBinary = cfg.Server.LlamaServerBinary
+	// Configure Registrar
+	m.registrar.SetModelHost(cfg.Server.ModelHost)
+
+	// Register Providers
+	for id, p := range cfg.Providers {
+		if id == "local" {
+			m.registrar.RegisterLocal(p.LlamaServerBinary, p.ModelDir, p.DefaultArgs)
+		} else {
+			m.registrar.RegisterCloud(id, p)
+		}
 	}
 
-	return manager
+	return m
 }
 
 func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, idleTimeout, reapInterval time.Duration) *LLMRuntimeManager {
 	m := &LLMRuntimeManager{
 		models:      make(map[string]models.ModelConfig),
-		providers:   make(map[string]models.ProviderItem),
+		registrar:   providers.NewProviderRegistrar(providers.GetRegistry(), nil, modelHost),
 		serverEnv:   make(map[string]string),
 		idleTimeout: idleTimeout,
-		modelHost:   hostFromConfig(modelHost),
-		llamaBinary: defaultLlamaBinary,
 		stopCh:      make(chan struct{}),
 	}
 
@@ -167,82 +183,7 @@ func hostFromConfig(host string) string {
 	return host
 }
 
-func (m *LLMRuntimeManager) createProviderLocked(cfg models.ModelConfig) models.Provider {
-	pCfg := cfg
-	var modelDir string
-	if provider, ok := m.providers[cfg.Provider]; ok {
-		if pCfg.ProviderConfig.BaseURL == "" {
-			pCfg.ProviderConfig.BaseURL = provider.BaseURL
-		}
-		if pCfg.ProviderConfig.ProjectID == "" {
-			pCfg.ProviderConfig.ProjectID = provider.ProjectID
-		}
-		if pCfg.ProviderConfig.Region == "" {
-			pCfg.ProviderConfig.Region = provider.Region
-		}
-		modelDir = provider.ModelDir
-	}
-
-	// Resolve API key from secrets store if not explicitly provided in the request
-	// or if the provided key is a masked placeholder from the UI.
-	if m.secrets != nil && cfg.Provider != "local" {
-		isMasked := secrets.IsMasked(pCfg.ProviderConfig.APIKey)
-		if pCfg.ProviderConfig.APIKey == "" || isMasked {
-			keyName := pCfg.ProviderConfig.APIKeyName
-			key, err := m.secrets.GetResolvedProviderKey(cfg.Provider, keyName)
-			if err == nil {
-				pCfg.ProviderConfig.APIKey = key
-			}
-		}
-	}
-
-	// Local engine is fundamentally different (binary process)
-	if cfg.Provider == "local" {
-		binary := m.llamaBinary
-		if local, ok := m.providers["local"]; ok && local.LlamaServerBinary != "" {
-			binary = local.LlamaServerBinary
-			if modelDir == "" {
-				modelDir = local.ModelDir
-			}
-		}
-		return NewLocalProvider(pCfg, binary, modelDir)
-	}
-
-	// Dynamic Resolution via Manifest Registry
-	if manifest, ok := GetRegistry().Get(cfg.Provider); ok {
-		if factory, ok := GetProviderFactory(manifest.Archetype); ok {
-			return factory(pCfg, manifest)
-		}
-	}
-
-	// Fallback/Default to local for unknown providers (keeps system resilient)
-	return NewLocalProvider(pCfg, m.llamaBinary, modelDir)
-}
-
 func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Hydrate if masked or empty
-	if m.secrets != nil && providerName != "local" {
-		if apiKey == "" || secrets.IsMasked(apiKey) {
-			// 1. Try resolving by name/ID
-			real, err := m.secrets.GetResolvedProviderKey(providerName, apiKeyName)
-			if err == nil {
-				apiKey = real
-			} else if secrets.IsMasked(apiKey) {
-				// 2. Fallback: try resolving by pattern matching the mask
-				if real, err := m.secrets.ResolveMaskedKey(providerName, apiKey); err == nil {
-					apiKey = real
-				} else {
-					return fmt.Errorf("could not resolve secret for %s: %w", providerName, err)
-				}
-			} else if apiKey == "" {
-				return fmt.Errorf("could not resolve secret for %s: %w", providerName, err)
-			}
-		}
-	}
-
 	cfg := models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: models.ProviderConfig{
@@ -250,19 +191,23 @@ func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, provider
 			APIKeyName: apiKeyName,
 		},
 	}
-	p := m.createProviderLocked(cfg)
+	p, err := m.registrar.Build(cfg)
+	if err != nil {
+		return err
+	}
 	return p.TestConnection(ctx)
 }
 
 func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]string, error) {
-	m.mu.Lock()
-	p := m.createProviderLocked(models.ModelConfig{
+	p, err := m.registrar.Build(models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: models.ProviderConfig{
 			APIKeyName: apiKeyName,
 		},
 	})
-	m.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	return p.ListModels(ctx)
 }
 
@@ -281,9 +226,11 @@ func (m *LLMRuntimeManager) EnsureModel(ctx context.Context, name string) (Model
 	}
 
 	if cfg.Provider != "" && cfg.Provider != "local" {
-		p := m.createProviderLocked(cfg)
-		m.activeProvider = p
-		m.activeCloudConfig = &cfg
+		p, err := m.registrar.Build(cfg)
+		if err == nil {
+			m.activeProvider = p
+			m.activeCloudConfig = &cfg
+		}
 	}
 
 	return inst, nil
@@ -310,7 +257,7 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 				return inst, nil
 			}
 
-			if m.activeModel != nil && m.activeModel.cfg.Name == name {
+			if m.activeModel != nil && m.activeModel.Cfg.Name == name {
 				return ModelInstance{}, models.ErrModelStarting
 			}
 
@@ -336,7 +283,10 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		}
 	}
 
-	provider := m.createProviderLocked(cfg)
+	provider, err := m.registrar.Build(cfg)
+	if err != nil {
+		return ModelInstance{}, err
+	}
 	if err := provider.EnsureReady(ctx); err != nil {
 		return ModelInstance{}, err
 	}
@@ -367,8 +317,8 @@ func (m *LLMRuntimeManager) StopActive() error {
 func (m *LLMRuntimeManager) ClearLogs() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.activeModel != nil && m.activeModel.logs != nil {
-		m.activeModel.logs.Clear()
+	if m.activeModel != nil && m.activeModel.Logs != nil {
+		m.activeModel.Logs.Clear()
 	}
 	return nil
 }
@@ -378,14 +328,14 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 	defer m.mu.Unlock()
 
 	if m.activeModel != nil {
-		cfg := m.activeModel.cfg
+		cfg := m.activeModel.Cfg
 		return &ActiveModelInfo{
 			Name:     cfg.Name,
 			Provider: cfg.Provider,
-			Host:     m.modelHost,
+			Host:     m.registrar.ModelHost(),
 			Port:     cfg.Port,
-			Started:  m.activeModel.started,
-			LastUsed: m.activeModel.lastUsed,
+			Started:  m.activeModel.Started,
+			LastUsed: m.activeModel.LastUsed,
 			Ready:    portReady(cfg.Port),
 		}
 	}
@@ -402,31 +352,15 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 }
 
 func (m *LLMRuntimeManager) ModelHost() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.modelHost
-}
-
-func (m *LLMRuntimeManager) SetBinary(path string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if path != "" {
-		m.llamaBinary = path
-	}
+	return m.registrar.ModelHost()
 }
 
 func (m *LLMRuntimeManager) SetSecrets(s secrets.Store) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.secrets = s
+	m.registrar.SetSecrets(s)
 }
 
 func (m *LLMRuntimeManager) SetModelHost(host string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if host != "" {
-		m.modelHost = host
-	}
+	m.registrar.SetModelHost(host)
 }
 
 func (m *LLMRuntimeManager) defaultPortLocked(cfg models.ModelConfig, activePort int) int {
@@ -456,18 +390,18 @@ func (m *LLMRuntimeManager) Shutdown() {
 }
 
 func (m *LLMRuntimeManager) syncPortWithActiveLocked(cfg models.ModelConfig) models.ModelConfig {
-	if m.activeModel != nil && cfg.Name == m.activeModel.cfg.Name {
-		cfg.Port = m.activeModel.cfg.Port
+	if m.activeModel != nil && cfg.Name == m.activeModel.Cfg.Name {
+		cfg.Port = m.activeModel.Cfg.Port
 	}
 	return cfg
 }
 
 func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelConfig) (ModelInstance, bool) {
-	if m.activeModel != nil && m.activeModel.cfg.Name == name && portReady(m.activeModel.cfg.Port) {
+	if m.activeModel != nil && m.activeModel.Cfg.Name == name && portReady(m.activeModel.Cfg.Port) {
 		return ModelInstance{
 			Name: name,
-			Host: m.modelHost,
-			Port: m.activeModel.cfg.Port,
+			Host: m.registrar.ModelHost(),
+			Port: m.activeModel.Cfg.Port,
 		}, true
 	}
 	return ModelInstance{}, false
@@ -475,12 +409,12 @@ func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelCon
 
 func (m *LLMRuntimeManager) activePortLocked() int {
 	if m.activeModel != nil {
-		return m.activeModel.cfg.Port
+		return m.activeModel.Cfg.Port
 	}
 	return 0
 }
 
-func (m *LLMRuntimeManager) ActiveModel() *runningModel {
+func (m *LLMRuntimeManager) ActiveModel() *providers.RunningModel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.activeModel
@@ -489,8 +423,8 @@ func (m *LLMRuntimeManager) ActiveModel() *runningModel {
 func (m *LLMRuntimeManager) RecordActivity(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.activeModel != nil && m.activeModel.cfg.Name == name {
-		m.activeModel.lastUsed = time.Now()
+	if m.activeModel != nil && m.activeModel.Cfg.Name == name {
+		m.activeModel.LastUsed = time.Now()
 	}
 }
 
@@ -518,7 +452,7 @@ func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.models[cfg.Name] = normalizeModelConfig("", cfg)
-	if m.activeModel != nil && m.activeModel.cfg.Name == cfg.Name {
+	if m.activeModel != nil && m.activeModel.Cfg.Name == cfg.Name {
 		waiter := m.signalStopLocked()
 		if waiter != nil {
 			go waiter()
@@ -531,7 +465,7 @@ func (m *LLMRuntimeManager) RemoveModel(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.models, name)
-	if m.activeModel != nil && m.activeModel.cfg.Name == name {
+	if m.activeModel != nil && m.activeModel.Cfg.Name == name {
 		waiter := m.signalStopLocked()
 		if waiter != nil {
 			go waiter()

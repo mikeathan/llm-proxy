@@ -238,7 +238,7 @@ func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 		t.Fatalf("expected ErrModelStarting, got: %v", err)
 	}
 
-	if m.ActiveModel() == nil || m.ActiveModel().Cfg().Name != "test" {
+	if m.ActiveModel() == nil || m.ActiveModel().Cfg.Name != "test" {
 		t.Fatalf("model should be active")
 	}
 }
@@ -290,12 +290,12 @@ func TestRuntimeManager_RecordActivity(t *testing.T) {
 
 	_, _ = m.EnsureModel(context.Background(), "test")
 
-	old := m.ActiveModel().LastUsed()
+	old := m.ActiveModel().LastUsed
 	time.Sleep(10 * time.Millisecond)
 
 	m.RecordActivity("test")
 
-	if !m.ActiveModel().LastUsed().After(old) {
+	if !m.ActiveModel().LastUsed.After(old) {
 		t.Fatalf("RecordActivity should update lastUsed")
 	}
 }

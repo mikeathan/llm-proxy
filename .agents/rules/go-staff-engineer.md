@@ -29,6 +29,7 @@ Apply these standards to all Go-related tasks:
 - **Error Handling**: Use early returns ("Happy Path" to the left). Wrap errors with context: `fmt.Errorf("action failed: %w", err)`.
 - **Dependency Injection**: Use constructor functions (`NewService`) to inject all dependencies. No global variables or `init()` magic.
 - **Logical Modularization**: Avoid single-file bloat (e.g., >500 lines). Extract lifecycle management, registration, and provider-specific logic into scoped files (e.g., `lifecycle.go`, `registry.go`, `providers.go`) while maintaining package-level visibility.
+- **Structural Decoupling**: Avoid polluting core managers with complex `if type == "x"` conditionals or infrastructure discovery logic (e.g., binary paths, secret resolution). Extract these into dedicated `Registrars`, `Registries`, or `Factories`. The core manager should orchestrate lifecycles, while the registrar handles the "how" of configuration and instantiation.
 
 
 ## 4. Performance & Resource Safety

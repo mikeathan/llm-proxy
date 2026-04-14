@@ -6,13 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 )
 
 func TestDynamicProviderRegistry(t *testing.T) {
-	registry := llm.GetRegistry()
+	registry := providers.GetRegistry()
 	
 	// Test that mulerouter is loaded
 	m, ok := registry.Get("mulerouter")
@@ -71,7 +70,7 @@ func TestDynamicProviderRegistry(t *testing.T) {
 }
 
 func TestNvidiaProvider_Manifest(t *testing.T) {
-	m, _ := llm.GetRegistry().Get("nvidia")
+	m, _ := providers.GetRegistry().Get("nvidia")
 	cfg := models.ModelConfig{
 		Provider: "nvidia",
 		ProviderConfig: models.ProviderConfig{

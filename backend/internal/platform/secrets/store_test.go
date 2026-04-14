@@ -79,7 +79,7 @@ func TestFileStore_MaskedKeys(t *testing.T) {
 	if len(masked) != 1 {
 		t.Fatalf("expected 1 masked key, got %d", len(masked))
 	}
-	if !isMasked(masked[0].Key) {
+	if !IsMasked(masked[0].Key) {
 		t.Fatalf("expected masked key, got: %q", masked[0].Key)
 	}
 	if masked[0].Key == "sk-or-v1-reallylongsecretkey" {
@@ -143,13 +143,13 @@ func TestMaskKey(t *testing.T) {
 		input    string
 		wantMask bool
 	}{
-		{"sk-short", false}, // ≤ 8 chars → "***"
+		{"sk-short", true}, // ≤ 8 chars → "***"
 		{"sk-reallylongkey123456", true},
 	}
 
 	for _, tt := range tests {
 		masked := MaskKey(tt.input)
-		got := isMasked(masked)
+		got := IsMasked(masked)
 		if got != tt.wantMask {
 			t.Errorf("MaskKey(%q) = %q, isMasked=%v, want %v", tt.input, masked, got, tt.wantMask)
 		}
@@ -170,7 +170,7 @@ func TestFileStore_ToolSecrets(t *testing.T) {
 
 	// Test masking
 	masked := store.MaskedSecret("search", "tavily")
-	if !isMasked(masked) {
+	if !IsMasked(masked) {
 		t.Fatalf("expected masked secret, got %q", masked)
 	}
 

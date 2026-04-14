@@ -12,12 +12,11 @@ import (
 	"llm-proxy/internal/core/mcp"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/storage"
 	api "llm-proxy/internal/transport/http"
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -151,30 +150,35 @@ func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
 	s.dispatcher = d
 }
 
-func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
+func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
 	clock := utils.NewRealClock()
 
-	// Configure MCP Service
-	nodeHerder, err := configureMCP(cfgMgr, logger)
+	// 1. Load System Config for MCP/Runtime defaults
+	logging.Info("Loading system configuration...")
+	sys := dataMgr.System().Get()
+
+	// Configure MCP Service (Bridge logic: we still pass sys config parts)
+	logging.Info("Configuring MCP services...")
+	nodeHerder, err := configureMCP(dataMgr, logger)
 	if err != nil {
 		logging.Error("Failed to configure MCP service", "error", err)
 		return nil
 	}
 
-	cfg := cfgMgr.GetConfig()
-	manager := llm.NewManagerFromConfig(&cfg)
+	// 2. Initialize Runtime Manager from Registry
+	logging.Info("Initializing LLM runtime manager...")
+	registry := dataMgr.Registry().Get()
+	secretsBridge := storage.NewSecretsBridge(dataMgr.Secrets())
+	manager := llm.NewManagerFromRegistry(registry, sys, secretsBridge)
 
-	secStore, err := secrets.NewFileStore(cfgMgr.ConfigDir())
-	if err != nil {
-		logging.Error("Failed to initialize secrets store", "error", err)
-		return nil
-	}
-
-	appCtx := NewServer(manager, cfgMgr, secStore)
+	logging.Info("Creating server context...")
+	appCtx := NewServer(manager, dataMgr)
 	runtime := appCtx.Manager()
+
+	logging.Info("Bootstrap phase complete", "root", dataMgr.RootDir())
 
 	return &Container{
 		Core: Core{
@@ -207,33 +211,46 @@ func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispa
 	return d, nil
 }
 
-func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherder.MCPService, error) {
+func configureMCP(dataMgr *storage.DataManager, logger logging.Logger) (nodeherder.MCPService, error) {
 	// Initialize MCP Orchestrator
 	orchestrator := mcp.NewOrchestrator(logger)
 
 	// Initialize Resource Mirror
 	mirror := mcp.NewResourceMirror()
 
-	// Subscribe ConfigManager -> MCP Orchestrator
-	cfgMgr.OnChange(func(newCfg models.Config) {
-		orchestrator.Reload(context.Background(), newCfg.MCPServers, newCfg.Server.Bind)
+	// Subscribe Registry Updates -> MCP Orchestrator
+	dataMgr.Registry().OnChange(func(reg storage.RegistryData) {
+		sys := dataMgr.System().Get()
+		orchestrator.Reload(context.Background(), translateMCPServers(reg.MCPServers), sys.Server.Bind)
 	})
 
 	// Initial Load
-	currentCfg := cfgMgr.GetConfig()
-	orchestrator.Reload(context.Background(), currentCfg.MCPServers, currentCfg.Server.Bind)
+	currentReg := dataMgr.Registry().Get()
+	sys := dataMgr.System().Get()
+	orchestrator.Reload(context.Background(), translateMCPServers(currentReg.MCPServers), sys.Server.Bind)
 
 	// Register prompt updates handled by Orchestrator (which propagates to Clients)
-	// The Orchestrator's OnPromptUpdate is called when a client receives a notification.
 	orchestrator.OnPromptUpdate(func(prompt string) {
 		mirror.SetSystemPrompt(prompt)
 	})
 
 	// Subscribe to system prompt to receive updates
-	// This ensures we get notified when NodeHerder loads devices or updates context
 	orchestrator.Subscribe(context.Background(), "nodeherder://system-prompt")
 
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
+}
+
+// translateMCPServers converts registry servers to internal model configs (Bridge logic)
+func translateMCPServers(reg []storage.MCPServerRegistryEntry) []models.MCPServerConfig {
+	out := make([]models.MCPServerConfig, len(reg))
+	for i, s := range reg {
+		out[i] = models.MCPServerConfig{
+			Name:    s.Name,
+			URL:     s.URL,
+			Enabled: s.Enabled,
+		}
+	}
+	return out
 }
 
 func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {

@@ -1,4 +1,4 @@
-package llm
+package providers
 
 import (
 	"context"
@@ -17,11 +17,15 @@ import (
 	"llm-proxy/models"
 )
 
+const (
+	logBufferSize = 10000
+)
+
 type LocalProvider struct {
 	cfg         models.ModelConfig
 	llamaBinary string
 	modelDir    string
-	activeModel *runningModel
+	activeModel *RunningModel
 }
 
 func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir string) *LocalProvider {
@@ -88,14 +92,14 @@ func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, e
 func (p *LocalProvider) EnsureReady(ctx context.Context) error {
 	if p.activeModel != nil {
 		if utils.PortReady(p.cfg.Port) {
-			p.activeModel.lastUsed = time.Now()
+			p.activeModel.LastUsed = time.Now()
 			return nil
 		}
 		// Model is still warming up, do not start another one!
 		return models.ErrModelStarting
 	}
 
-	if err := p.startModel(ctx); err != nil {
+	if err := p.StartModel(ctx); err != nil {
 		return err
 	}
 	return models.ErrModelStarting
@@ -106,9 +110,9 @@ func (p *LocalProvider) Shutdown() error {
 		return nil
 	}
 
-	cmd := p.activeModel.cmd
-	if p.activeModel.cancel != nil {
-		p.activeModel.cancel()
+	cmd := p.activeModel.Cmd
+	if p.activeModel.Cancel != nil {
+		p.activeModel.Cancel()
 	}
 
 	if cmd.Process != nil {
@@ -141,11 +145,11 @@ func (p *LocalProvider) Shutdown() error {
 	return nil
 }
 
-func (p *LocalProvider) startModel(ctx context.Context) error {
+func (p *LocalProvider) StartModel(ctx context.Context) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
-	args := buildLaunchArgs(p.cfg)
+	args := BuildLaunchArgs(p.cfg)
 	logging.Info("Starting local model (discovery)", 
 		"model", p.cfg.Name, 
 		"binary", p.llamaBinary, 
@@ -173,14 +177,14 @@ func (p *LocalProvider) startModel(ctx context.Context) error {
 		return fmt.Errorf("model start failed: %w", err)
 	}
 
-	p.activeModel = &runningModel{
-		cfg:        p.cfg,
-		cmd:        cmd,
-		cancel:     cancel,
-		started:    time.Now(),
-		lastUsed:   time.Now(),
-		logs:       logBuf,
-		throughput: tokens,
+	p.activeModel = &RunningModel{
+		Cfg:        p.cfg,
+		Cmd:        cmd,
+		Cancel:     cancel,
+		Started:    time.Now(),
+		LastUsed:   time.Now(),
+		Logs:       logBuf,
+		Throughput: tokens,
 	}
 
 	return nil

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/testing/utils"
@@ -21,14 +22,15 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
 
-	args := buildLaunchArgs(cfg)
+	args := providers.BuildLaunchArgs(cfg)
+	binary := m.registrar.DefaultBinary()
 	logging.Info("Starting local model (runtime)", 
 		"model", cfg.Name, 
-		"binary", m.llamaBinary, 
+		"binary", binary, 
 		"args", args, 
 		"env", cfg.Environment)
 
-	cmd := utils.ExecCommandContext(procCtx, m.llamaBinary, args...)
+	cmd := utils.ExecCommandContext(procCtx, binary, args...)
 	if runtime.GOOS != "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
@@ -49,14 +51,14 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 		return fmt.Errorf("model start failed: %w", err)
 	}
 
-	m.activeModel = &runningModel{
-		cfg:        cfg,
-		cmd:        cmd,
-		cancel:     cancel,
-		started:    time.Now(),
-		lastUsed:   time.Now(),
-		logs:       logBuf,
-		throughput: tokens,
+	m.activeModel = &providers.RunningModel{
+		Cfg:        cfg,
+		Cmd:        cmd,
+		Cancel:     cancel,
+		Started:    time.Now(),
+		LastUsed:   time.Now(),
+		Logs:       logBuf,
+		Throughput: tokens,
 	}
 
 	return nil
@@ -70,12 +72,12 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 		return nil
 	}
 
-	cmd := m.activeModel.cmd
-	name := m.activeModel.cfg.Name
+	cmd := m.activeModel.Cmd
+	name := m.activeModel.Cfg.Name
 	logging.Info("Signaling stop to local model", "model", name)
 
-	if m.activeModel.cancel != nil {
-		m.activeModel.cancel()
+	if m.activeModel.Cancel != nil {
+		m.activeModel.Cancel()
 	}
 
 	// Try graceful stop (SIGTERM) to the process group
@@ -128,8 +130,8 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 			m.mu.Lock()
 
 			if m.activeModel != nil {
-				if time.Since(m.activeModel.lastUsed) > m.idleTimeout {
-					log.Printf("Idle timeout on model %s → stopping", m.activeModel.cfg.Name)
+				if time.Since(m.activeModel.LastUsed) > m.idleTimeout {
+					log.Printf("Idle timeout on model %s → stopping", m.activeModel.Cfg.Name)
 					waiter := m.signalStopLocked()
 					m.mu.Unlock()
 					if waiter != nil {
@@ -148,18 +150,18 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 func (m *LLMRuntimeManager) ActiveLogs() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.activeModel == nil || m.activeModel.logs == nil {
+	if m.activeModel == nil || m.activeModel.Logs == nil {
 		return ""
 	}
-	return m.activeModel.logs.String()
+	return m.activeModel.Logs.String()
 }
 
 // LastTokensPerSecond returns the throughput of the active model.
 func (m *LLMRuntimeManager) LastTokensPerSecond() (float64, time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.activeModel != nil && m.activeModel.throughput != nil {
-		return m.activeModel.throughput.LastTokensPerSecond()
+	if m.activeModel != nil && m.activeModel.Throughput != nil {
+		return m.activeModel.Throughput.LastTokensPerSecond()
 	}
 	return 0, time.Time{}
 }
