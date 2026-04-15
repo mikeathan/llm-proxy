@@ -3,7 +3,6 @@ package mocks
 import (
 	"context"
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 	"time"
 )
@@ -27,7 +26,7 @@ type MockManager struct {
 	ListProviderModelsFunc  func(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName string) error
 	SelectModelsFunc        func() (string, string)
-	SetSecretsFunc          func(secrets.Store)
+	SetSecretsFunc          func(models.SecretsStore)
 	ShutdownFunc            func()
 }
 
@@ -152,7 +151,7 @@ func (m *MockManager) SetBinary(path string) {
 	}
 }
 
-func (m *MockManager) SetSecrets(s secrets.Store) {
+func (m *MockManager) SetSecrets(s models.SecretsStore) {
 	if m.SetSecretsFunc != nil {
 		m.SetSecretsFunc(s)
 	}

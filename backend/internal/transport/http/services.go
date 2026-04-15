@@ -11,7 +11,6 @@ import (
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 	"time"
 )
@@ -36,35 +35,43 @@ type RuntimeService interface {
 }
 
 type AdminService interface {
+	// Tier 1: Infrastructure
+	GetSystem() models.SystemConfig
+	UpdateSystem(func(*models.SystemConfig)) error
+
+	// Tier 2: Registry
+	GetRegistry() models.RegistryData
+	UpdateRegistry(func(*models.RegistryData)) error
+
+	// Tier 3: Secrets
+	Secrets() models.SecretsStore
+
+	// Helper accessors for UI / Tools
 	ModelDir() string
-	SetModelDir(string)
 	WorkspacesDir() string
-	SetWorkspacesDir(string)
 	GPUConfig() models.GPUConfig
-	SetGPUConfig(models.GPUConfig)
-	CurrentBinary() string
-	CurrentIdleTimeout() int
-	DefaultArgs() []string
-	Environment() map[string]string
-	SetEnvironment(map[string]string) error
-	Models() []models.ModelConfig
-	Providers() map[string]models.ProviderItem
-	UpdateConfig(func(*models.Config)) error
+	MetricsSnapshot() metrics.MetricsSnapshot
+	ProcessLogger(workspaceID string) logging.Logger
+	RootDir() string
+
+	// Model/MCP management
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error
 	PersistDeleteModel(string) error
 	ResolveModelPath(string, string) string
-	RefreshMetricsService()
-	MetricsSnapshot() metrics.MetricsSnapshot
-	ListMCPServers() []models.MCPServerConfig
 	AddMCPServer(models.MCPServerConfig) error
 	UpdateMCPServer(models.MCPServerConfig) error
 	RemoveMCPServer(string) error
-	Config() *models.Config
+	ListMCPServers() []models.MCPServerConfig
+	Models() []models.ModelConfig
+	SetGPUConfig(models.GPUConfig)
+	SetWorkspacesDir(string)
+	DefaultArgs() []string
+	CurrentBinary() string
+	CurrentIdleTimeout() int
+	Environment() map[string]string
 	SyncGuardrails(models.AgentGuardrailsConfig) error
-	ProcessLogger(workspaceID string) logging.Logger
-	RootDir() string
-	Secrets() secrets.Store
+	UpdateSettings(context.Context, models.SystemUpdatePayload) error
 }
 
 type AssistantService interface {
@@ -78,7 +85,6 @@ type AssistantService interface {
 	ToolProvider() assistant.ToolProvider
 	GuardrailEngine() *assistant.GuardrailEngine
 	Persistence() *persistence.WorkspaceManager
-	Config() *models.Config
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string

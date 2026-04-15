@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"llm-proxy/models"
 	"os"
+	"path/filepath"
+	"runtime"
 )
 
 //go:embed manifests/*.json
@@ -27,13 +29,16 @@ func LoadManifest(root string, toolKey string, target any) error {
 	var err error
 
 	// 1. Try Disk first (for live dev updates)
-	if root != "" {
-		diskPath := fmt.Sprintf("%s/backend/internal/core/tools/manifests/%s.json", root, toolKey)
+	// We anchor this to the source file's location to be robust across different execution roots.
+	_, filename, _, ok := runtime.Caller(0)
+	if ok {
+		sourceDir := filepath.Dir(filename)
+		diskPath := filepath.Join(sourceDir, "manifests", toolKey+".json")
 		data, err = os.ReadFile(diskPath)
 	}
 
-	// 2. Fallback to Embedded FS
-	if err != nil || root == "" {
+	// 2. Fallback to Embedded FS (Production)
+	if err != nil || len(data) == 0 {
 		embedPath := fmt.Sprintf("manifests/%s.json", toolKey)
 		data, err = manifestFS.ReadFile(embedPath)
 		if err != nil {
@@ -70,7 +75,20 @@ func GetDefaultGuardrails(root string) models.AgentGuardrailsConfig {
 // SaveManifest updates the on-disk manifest file with new guardrails.
 // This is used for dev-syncing UI changes back to the source repository.
 func SaveManifest(root string, toolKey string, guardrails any) error {
-	path := fmt.Sprintf("%s/backend/internal/core/tools/manifests/%s.json", root, toolKey)
+	var path string
+	_, filename, _, ok := runtime.Caller(0)
+	if ok {
+		sourceDir := filepath.Dir(filename)
+		path = filepath.Join(sourceDir, "manifests", toolKey+".json")
+	}
+
+	if path == "" {
+		return fmt.Errorf("could not resolve source path for tool manifest: %s", toolKey)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("source manifest not found on disk for %s: %w", toolKey, err)
+	}
 	
 	// 1. Read existing manifest to preserve other fields (name, version, etc)
 	var manifest struct {

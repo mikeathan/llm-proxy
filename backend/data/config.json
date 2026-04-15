@@ -1,0 +1,35 @@
+{
+  "server": {
+    "bind": "0.0.0.0:4001",
+    "model_host": "127.0.0.1",
+    "idle_timeout_seconds": 1800,
+    "primary_model": "qwen2.5-3b-instruct",
+    "fallback_model": "qwen-flash"
+  },
+  "local": {
+    "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
+    "model_dir": "/home/mikeathan/dev/models",
+    "default_args": [
+      "--ctx-size",
+      "4096",
+      "--threads",
+      "8",
+      "--parallel",
+      "1",
+      "--gpu-layers",
+      "999",
+      "--flash-attn",
+      "on",
+      "--host",
+      "0.0.0.0"
+    ]
+  },
+  "workspaces_dir": "workspaces",
+  "communication": {
+    "telegram": {
+      "enabled": false,
+      "chat_id": ""
+    }
+  },
+  "search": {}
+}

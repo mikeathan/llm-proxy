@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -58,7 +57,7 @@ func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *
 	}
 
 	if err := h.admin.Secrets().DeleteProviderKey(provider, keyID); err != nil {
-		if err == secrets.ErrNotFound {
+		if err == models.ErrSecretNotFound {
 			writeJSONError(w, http.StatusNotFound, "key not found")
 			return
 		}

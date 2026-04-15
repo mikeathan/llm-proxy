@@ -14,6 +14,7 @@ import (
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 )
@@ -29,6 +30,9 @@ func main() {
 	configFlag := flag.String("config", "", "path to config file (legacy, will be moved to data/)")
 	dataFlag := flag.String("data", "data", "path to data directory containing config, secrets, and registry")
 	flag.Parse()
+
+	// Load Environment (.env files)
+	env.LoadEnv()
 
 	buildInfo := buildInfo()
 

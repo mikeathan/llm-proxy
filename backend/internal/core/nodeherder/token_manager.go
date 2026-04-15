@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/env"
 	"net/http"
 	"strings"
 	"sync"
@@ -39,7 +39,7 @@ func (m *ServiceTokenManager) Get(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	clientID, clientSecret, err := config.RequireServiceCredentials()
+	clientID, clientSecret, err := env.RequireServiceCredentials()
 	if err != nil {
 		return "", err
 	}

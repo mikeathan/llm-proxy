@@ -1,4 +1,4 @@
-package config
+package env
 
 import (
 	"fmt"
@@ -28,8 +28,18 @@ func GetAppEnv() string {
 	return env
 }
 
+// EnvFilePaths returns the path to the main .env file and the environment-specific .env file.
+func EnvFilePaths() (string, string) {
+	baseDir := envBaseDir()
+	env := GetAppEnv()
+
+	mainParams := filepath.Join(baseDir, ".env")
+	envParams := filepath.Join(baseDir, fmt.Sprintf(".env.%s", env))
+
+	return mainParams, envParams
+}
+
 // GetServiceCredentials returns the configured service client ID and secret.
-// Returns empty strings if not configured.
 func GetServiceCredentials() (string, string) {
 	return os.Getenv("SERVICE_CLIENT_ID"), os.Getenv("SERVICE_CLIENT_SECRET")
 }
@@ -41,18 +51,6 @@ func RequireServiceCredentials() (string, string, error) {
 		return "", "", fmt.Errorf("service credentials not configured")
 	}
 	return id, secret, nil
-}
-
-// EnvFilePaths returns the path to the main .env file and the environment-specific .env file.
-// It tries to locate the file in the executable directory or current working directory.
-func EnvFilePaths() (string, string) {
-	baseDir := envBaseDir()
-	env := GetAppEnv()
-
-	mainParams := filepath.Join(baseDir, ".env")
-	envParams := filepath.Join(baseDir, fmt.Sprintf(".env.%s", env))
-
-	return mainParams, envParams
 }
 
 // UpdateEnvFile updates the specified .env file with the given key-value pairs.
@@ -77,7 +75,6 @@ func UpdateEnvFile(path string, updates map[string]string) error {
 
 func envBaseDir() string {
 	if exe, err := os.Executable(); err == nil && exe != "" {
-		// Prepare for Symlinks
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
 			return filepath.Dir(resolved)
 		}

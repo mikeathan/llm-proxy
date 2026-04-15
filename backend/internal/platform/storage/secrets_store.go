@@ -3,22 +3,22 @@ package storage
 import (
 	"fmt"
 	"llm-proxy/models"
-	"llm-proxy/internal/platform/secrets"
 	"sync"
 )
 
-// SecretsBridge wraps the new Store[SecretData] into the legacy secrets.Store interface.
-type SecretsBridge struct {
-	store *Store[SecretData]
+// SecretStore implements models.SecretsStore using a technical Store[models.SecretData].
+// It handles high-level logic like masking, hydration, and credential resolution.
+type SecretStore struct {
+	store *Store[models.SecretData]
 	mu    sync.RWMutex
 }
 
-func NewSecretsBridge(store *Store[SecretData]) *SecretsBridge {
-	return &SecretsBridge{store: store}
+func NewSecretStore(store *Store[models.SecretData]) *SecretStore {
+	return &SecretStore{store: store}
 }
 
 // GetProviderKeys returns a copy of all API keys for the given provider.
-func (b *SecretsBridge) GetProviderKeys(provider string) []models.APIKeyItem {
+func (b *SecretStore) GetProviderKeys(provider string) []models.APIKeyItem {
 	data := b.store.Get()
 	entries, ok := data.ProviderKeys[provider]
 	if !ok {
@@ -36,27 +36,27 @@ func (b *SecretsBridge) GetProviderKeys(provider string) []models.APIKeyItem {
 }
 
 // SetProviderKeys replaces the full key set for a provider.
-func (b *SecretsBridge) SetProviderKeys(provider string, keys []models.APIKeyItem) error {
-	return b.store.Update(func(data *SecretData) {
+func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem) error {
+	return b.store.Update(func(data *models.SecretData) {
 		if data.ProviderKeys == nil {
-			data.ProviderKeys = make(map[string][]SecretEntry)
+			data.ProviderKeys = make(map[string][]models.SecretEntry)
 		}
-		
+
 		// Build lookup for hydration if needed
 		existingByID := make(map[string]string)
 		for _, e := range data.ProviderKeys[provider] {
 			existingByID[e.ID] = e.Key
 		}
 
-		newEntries := make([]SecretEntry, len(keys))
+		newEntries := make([]models.SecretEntry, len(keys))
 		for i, k := range keys {
 			keyVal := k.Key
-			if secrets.IsMasked(keyVal) {
+			if IsMasked(keyVal) {
 				if real, ok := existingByID[k.ID]; ok {
 					keyVal = real
 				}
 			}
-			newEntries[i] = SecretEntry{
+			newEntries[i] = models.SecretEntry{
 				ID:   k.ID,
 				Name: k.Name,
 				Key:  keyVal,
@@ -67,8 +67,8 @@ func (b *SecretsBridge) SetProviderKeys(provider string, keys []models.APIKeyIte
 }
 
 // DeleteProviderKey removes a single key by ID from a provider's key set.
-func (b *SecretsBridge) DeleteProviderKey(provider, keyID string) error {
-	return b.store.Update(func(data *SecretData) {
+func (b *SecretStore) DeleteProviderKey(provider, keyID string) error {
+	return b.store.Update(func(data *models.SecretData) {
 		entries, ok := data.ProviderKeys[provider]
 		if !ok {
 			return
@@ -84,16 +84,16 @@ func (b *SecretsBridge) DeleteProviderKey(provider, keyID string) error {
 }
 
 // MaskedProviderKeys returns the provider keys with their secret values redacted.
-func (b *SecretsBridge) MaskedProviderKeys(provider string) []models.APIKeyItem {
+func (b *SecretStore) MaskedProviderKeys(provider string) []models.APIKeyItem {
 	keys := b.GetProviderKeys(provider)
 	for i := range keys {
-		keys[i].Key = secrets.MaskKey(keys[i].Key)
+		keys[i].Key = MaskKey(keys[i].Key)
 	}
 	return keys
 }
 
 // GetSecret (Tool Secret) - for the bridge we map these to the "tools" provider group
-func (b *SecretsBridge) GetSecret(category, provider string) string {
+func (b *SecretStore) GetSecret(category, provider string) string {
 	data := b.store.Get()
 	key := category + ":" + provider
 	for _, entries := range data.ProviderKeys {
@@ -106,17 +106,17 @@ func (b *SecretsBridge) GetSecret(category, provider string) string {
 	return ""
 }
 
-func (b *SecretsBridge) SetSecret(category, provider, value string) error {
+func (b *SecretStore) SetSecret(category, provider, value string) error {
 	key := category + ":" + provider
-	return b.store.Update(func(data *SecretData) {
+	return b.store.Update(func(data *models.SecretData) {
 		if data.ProviderKeys == nil {
-			data.ProviderKeys = make(map[string][]SecretEntry)
+			data.ProviderKeys = make(map[string][]models.SecretEntry)
 		}
 		// Try to update existing
 		for p, entries := range data.ProviderKeys {
 			for i, e := range entries {
 				if e.ID == key {
-					if secrets.IsMasked(value) {
+					if IsMasked(value) {
 						value = e.Key
 					}
 					data.ProviderKeys[p][i].Key = value
@@ -125,7 +125,7 @@ func (b *SecretsBridge) SetSecret(category, provider, value string) error {
 			}
 		}
 		// If not found, add to "tools" provider
-		data.ProviderKeys["tools"] = append(data.ProviderKeys["tools"], SecretEntry{
+		data.ProviderKeys["tools"] = append(data.ProviderKeys["tools"], models.SecretEntry{
 			ID:   key,
 			Name: key,
 			Key:  value,
@@ -133,15 +133,15 @@ func (b *SecretsBridge) SetSecret(category, provider, value string) error {
 	})
 }
 
-func (b *SecretsBridge) MaskedSecret(category, provider string) string {
+func (b *SecretStore) MaskedSecret(category, provider string) string {
 	val := b.GetSecret(category, provider)
 	if val == "" {
 		return ""
 	}
-	return secrets.MaskKey(val)
+	return MaskKey(val)
 }
 
-func (b *SecretsBridge) GetResolvedProviderKey(provider, name string) (string, error) {
+func (b *SecretStore) GetResolvedProviderKey(provider, name string) (string, error) {
 	keys := b.GetProviderKeys(provider)
 	if len(keys) == 0 {
 		return "", fmt.Errorf("provider %q not found", provider)
@@ -159,18 +159,17 @@ func (b *SecretsBridge) GetResolvedProviderKey(provider, name string) (string, e
 	return keys[0].Key, nil
 }
 
-func (b *SecretsBridge) ResolveMaskedKey(provider, maskedKey string) (string, error) {
+func (b *SecretStore) ResolveMaskedKey(provider, maskedKey string) (string, error) {
 	keys := b.GetProviderKeys(provider)
-	if !secrets.IsMasked(maskedKey) {
+	if !IsMasked(maskedKey) {
 		return "", fmt.Errorf("provided key is not masked")
 	}
 
 	for _, k := range keys {
-		if secrets.MaskKey(k.Key) == maskedKey {
+		if MaskKey(k.Key) == maskedKey {
 			return k.Key, nil
 		}
 	}
 
 	return "", fmt.Errorf("no key matching mask found for %q", provider)
 }
-

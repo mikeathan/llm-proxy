@@ -1,7 +1,6 @@
 package mocks
 
 import (
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -81,4 +80,4 @@ func (m *MockSecretsStore) ResolveMaskedKey(provider, maskedKey string) (string,
 }
 
 // Ensure interface compliance
-var _ secrets.Store = (*MockSecretsStore)(nil)
+var _ models.SecretsStore = (*MockSecretsStore)(nil)

@@ -119,10 +119,6 @@ func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func (s AppServices) Config() *models.Config {
-	return s.AppCtx.Config()
-}
-
 func (s AppServices) GuardrailEngine() *assistant.GuardrailEngine {
 	return s.guardrailEngine
 }
@@ -171,8 +167,8 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	// 2. Initialize Runtime Manager from Registry
 	logging.Info("Initializing LLM runtime manager...")
 	registry := dataMgr.Registry().Get()
-	secretsBridge := storage.NewSecretsBridge(dataMgr.Secrets())
-	manager := llm.NewManagerFromRegistry(registry, sys, secretsBridge)
+	secretsStore := storage.NewSecretStore(dataMgr.Secrets())
+	manager := llm.NewManagerFromRegistry(registry, sys, secretsStore)
 
 	logging.Info("Creating server context...")
 	appCtx := NewServer(manager, dataMgr)
@@ -219,7 +215,7 @@ func configureMCP(dataMgr *storage.DataManager, logger logging.Logger) (nodeherd
 	mirror := mcp.NewResourceMirror()
 
 	// Subscribe Registry Updates -> MCP Orchestrator
-	dataMgr.Registry().OnChange(func(reg storage.RegistryData) {
+	dataMgr.Registry().OnChange(func(reg models.RegistryData) {
 		sys := dataMgr.System().Get()
 		orchestrator.Reload(context.Background(), translateMCPServers(reg.MCPServers), sys.Server.Bind)
 	})
@@ -241,7 +237,7 @@ func configureMCP(dataMgr *storage.DataManager, logger logging.Logger) (nodeherd
 }
 
 // translateMCPServers converts registry servers to internal model configs (Bridge logic)
-func translateMCPServers(reg []storage.MCPServerRegistryEntry) []models.MCPServerConfig {
+func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServerConfig {
 	out := make([]models.MCPServerConfig, len(reg))
 	for i, s := range reg {
 		out[i] = models.MCPServerConfig{

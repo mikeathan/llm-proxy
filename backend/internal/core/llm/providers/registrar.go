@@ -2,7 +2,7 @@ package providers
 
 import (
 	"fmt"
-	"llm-proxy/internal/platform/secrets"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"sync"
 )
@@ -13,7 +13,7 @@ type ProviderRegistrar struct {
 	mu        sync.RWMutex
 	registry  *ProviderRegistry
 	configs   map[string]models.ProviderItem
-	secrets   secrets.Store
+	secrets   models.SecretsStore
 	modelHost string
 
 	// System defaults
@@ -22,7 +22,7 @@ type ProviderRegistrar struct {
 }
 
 // NewProviderRegistrar creates a new registrar with the given dependencies.
-func NewProviderRegistrar(registry *ProviderRegistry, secrets secrets.Store, modelHost string) *ProviderRegistrar {
+func NewProviderRegistrar(registry *ProviderRegistry, secrets models.SecretsStore, modelHost string) *ProviderRegistrar {
 	return &ProviderRegistrar{
 		registry:  registry,
 		configs:   make(map[string]models.ProviderItem),
@@ -54,7 +54,7 @@ func (r *ProviderRegistrar) RegisterCloud(name string, item models.ProviderItem)
 }
 
 // SetSecrets updates the secrets store used for credential resolution.
-func (r *ProviderRegistrar) SetSecrets(s secrets.Store) {
+func (r *ProviderRegistrar) SetSecrets(s models.SecretsStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.secrets = s
@@ -96,7 +96,7 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 		apiKey := pCfg.ProviderConfig.APIKey
 		apiKeyName := pCfg.ProviderConfig.APIKeyName
 
-		if apiKey == "" || secrets.IsMasked(apiKey) {
+		if apiKey == "" || storage.IsMasked(apiKey) {
 			// Resolve by name or mask
 			realKey, err := r.resolveSecret(providerName, apiKey, apiKeyName)
 			if err == nil {
@@ -140,7 +140,7 @@ func (r *ProviderRegistrar) resolveSecret(provider, key, name string) (string, e
 	}
 
 	// 2. Fallback: try resolving by pattern matching the mask
-	if secrets.IsMasked(key) {
+	if storage.IsMasked(key) {
 		if real, err := r.secrets.ResolveMaskedKey(provider, key); err == nil {
 			return real, nil
 		}

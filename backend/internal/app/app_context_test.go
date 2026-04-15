@@ -37,18 +37,18 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	dir := t.TempDir()
 
 	// 1. Create System Config (config.json)
-	sys := storage.SystemConfig{}
+	sys := models.SystemConfig{}
 	sys.Server.Bind = ":0"
 	sys.Server.ModelHost = "http://localhost"
 	sys.Server.IdleTimeoutSecs = 10
-	
+
 	if initialCfg != nil {
 		sys.Server.Bind = initialCfg.Server.Bind
 		sys.Server.ModelHost = initialCfg.Server.ModelHost
 		sys.Server.IdleTimeoutSecs = initialCfg.Server.IdleTimeoutSecs
 		sys.Server.PrimaryModel = initialCfg.Server.PrimaryModel
 		sys.Server.FallbackModel = initialCfg.Server.FallbackModel
-		
+
 		if local, ok := initialCfg.Providers["local"]; ok {
 			sys.Local.ModelDir = local.ModelDir
 			sys.Local.LlamaServerBinary = local.LlamaServerBinary
@@ -63,19 +63,19 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), sysData, 0644)
 
 	// 2. Create Registry (registry.json)
-	reg := storage.RegistryData{
-		Providers: make(map[string]storage.ProviderRegistryEntry),
-		Catalogue: []storage.ModelRegistryEntry{},
+	reg := models.RegistryData{
+		Providers: make(map[string]models.ProviderRegistryEntry),
+		Catalogue: []models.ModelRegistryEntry{},
 	}
 	if initialCfg != nil {
 		for id, p := range initialCfg.Providers {
-			reg.Providers[id] = storage.ProviderRegistryEntry{
+			reg.Providers[id] = models.ProviderRegistryEntry{
 				Type:    p.Type,
 				BaseURL: p.BaseURL,
 			}
 		}
 		for _, m := range initialCfg.Models {
-			reg.Catalogue = append(reg.Catalogue, storage.ModelRegistryEntry{
+			reg.Catalogue = append(reg.Catalogue, models.ModelRegistryEntry{
 				Name:       m.Name,
 				ModelID:    m.Filename,
 				ProviderID: m.Provider,
@@ -86,9 +86,9 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	_ = os.WriteFile(filepath.Join(dir, "registry.json"), regData, 0644)
 
 	// 3. Create Secrets (secrets.json)
-	sec := storage.SecretData{
+	sec := models.SecretData{
 		Version:      1,
-		ProviderKeys: make(map[string][]storage.SecretEntry),
+		ProviderKeys: make(map[string][]models.SecretEntry),
 	}
 	secData, _ := json.Marshal(sec)
 	_ = os.WriteFile(filepath.Join(dir, "secrets.json"), secData, 0644)
@@ -421,7 +421,7 @@ func TestAppContextSelectModels_FirstModel(t *testing.T) {
 			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
 		},
 	}
-	
+
 	initialCfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
 	}
@@ -468,14 +468,13 @@ func TestAppContextResolveModelPath(t *testing.T) {
 	}
 }
 
-func TestAppContextUpdateConfig_Persists(t *testing.T) {
+func TestAppContextUpdateSystem_Persists(t *testing.T) {
 	// Setup
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
-	cfg := &models.Config{
-		Server: models.ServerConfig{Bind: ":0", IdleTimeoutSecs: 1},
-		Models: []models.ModelConfig{},
-	}
+	cfg := &models.SystemConfig{}
+	cfg.Server.Bind = ":0"
+	cfg.Server.IdleTimeoutSecs = 1
 	data, _ := json.Marshal(cfg)
 	_ = os.WriteFile(path, data, 0644)
 
@@ -485,11 +484,11 @@ func TestAppContextUpdateConfig_Persists(t *testing.T) {
 
 	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
 
-	if err := ctx.UpdateConfig(func(c *models.Config) {
+	if err := ctx.UpdateSystem(func(c *models.SystemConfig) {
 		c.Server.Bind = ":9999"
 		c.Server.IdleTimeoutSecs = 42
 	}); err != nil {
-		t.Fatalf("update config: %v", err)
+		t.Fatalf("update system: %v", err)
 	}
 
 	// Verify persistence via new manager
@@ -578,12 +577,12 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 	}
 }
 
-func findModel(config []storage.ModelRegistryEntry, name string) (storage.ModelRegistryEntry, bool) {
+func findModel(config []models.ModelRegistryEntry, name string) (models.ModelRegistryEntry, bool) {
 	for _, m := range config {
 		if m.Name == name {
 			return m, true
 		}
 	}
 
-	return storage.ModelRegistryEntry{}, false
+	return models.ModelRegistryEntry{}, false
 }

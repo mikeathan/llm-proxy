@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"llm-proxy/internal/core/assistant" // Kept for DefaultSummaryMaxLen if needed, or remove?
+	"llm-proxy/internal/core/assistant" 
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"

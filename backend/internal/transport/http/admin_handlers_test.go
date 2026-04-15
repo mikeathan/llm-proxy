@@ -84,9 +84,9 @@ func TestAdminConfigUpdateHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestAdminConfigUpdateHandler_UpdateConfigError(t *testing.T) {
+func TestAdminConfigUpdateHandler_UpdateSystemError(t *testing.T) {
 	admin := &mocks.MockAdminService{
-		UpdateConfigFunc: func(func(*models.Config)) error {
+		UpdateSystemFunc: func(func(*models.SystemConfig)) error {
 			return errors.New("save failed")
 		},
 	}
@@ -498,12 +498,24 @@ func newAdminHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService)
 	if runtime.ModelHostFunc == nil {
 		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
 	}
+	if admin.GetSystemFunc == nil {
+		admin.GetSystemFunc = func() models.SystemConfig { return models.SystemConfig{} }
+	}
+	if admin.GetRegistryFunc == nil {
+		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
+	}
 	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
 }
 
 func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger *mocks.MockLogger) *api.AdminHandlers {
 	if runtime.ModelHostFunc == nil {
 		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
+	}
+	if admin.GetSystemFunc == nil {
+		admin.GetSystemFunc = func() models.SystemConfig { return models.SystemConfig{} }
+	}
+	if admin.GetRegistryFunc == nil {
+		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
 	}
 	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
 }

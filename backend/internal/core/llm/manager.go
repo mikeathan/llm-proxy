@@ -9,8 +9,6 @@ import (
 
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/secrets"
-	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
@@ -77,7 +75,7 @@ type RuntimeManager interface {
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error
 	SelectModels() (string, string)
-	SetSecrets(secrets.Store)
+	SetSecrets(models.SecretsStore)
 	Shutdown()
 }
 
@@ -93,7 +91,7 @@ type LLMRuntimeManager struct {
 	stopCh            chan struct{}
 }
 
-func NewManagerFromRegistry(reg storage.RegistryData, sys storage.SystemConfig, secrets secrets.Store) *LLMRuntimeManager {
+func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, secrets models.SecretsStore) *LLMRuntimeManager {
 	logging.Info("Initializing LLM Runtime Manager from registry", "models", len(reg.Catalogue))
 
 	registrar := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, sys.Server.ModelHost)
@@ -355,7 +353,7 @@ func (m *LLMRuntimeManager) ModelHost() string {
 	return m.registrar.ModelHost()
 }
 
-func (m *LLMRuntimeManager) SetSecrets(s secrets.Store) {
+func (m *LLMRuntimeManager) SetSecrets(s models.SecretsStore) {
 	m.registrar.SetSecrets(s)
 }
 

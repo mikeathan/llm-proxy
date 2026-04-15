@@ -3,7 +3,6 @@ package mocks
 import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -15,7 +14,10 @@ type MockAdminService struct {
 	CurrentBinaryFunc         func() string
 	CurrentIdleTimeoutFunc    func() int
 	DefaultArgsFunc           func() []string
-	UpdateConfigFunc          func(func(*models.Config)) error
+	GetSystemFunc             func() models.SystemConfig
+	UpdateSystemFunc          func(func(*models.SystemConfig)) error
+	GetRegistryFunc           func() models.RegistryData
+	UpdateRegistryFunc        func(func(*models.RegistryData)) error
 	PersistModelFunc          func(models.ModelConfig) error
 	PersistReplaceModelFunc   func(models.ModelConfig) error
 	PersistDeleteModelFunc    func(string) error
@@ -32,11 +34,10 @@ type MockAdminService struct {
 	ProvidersFunc             func() map[string]models.ProviderItem
 	WorkspacesDirFunc         func() string
 	SetWorkspacesDirFunc      func(string)
-	ConfigFunc                func() *models.Config
 	SyncGuardrailsFunc        func(models.AgentGuardrailsConfig) error
 	ProcessLoggerFunc         func(string) logging.Logger
 	RootDirFunc               func() string
-	SecretsFunc               func() secrets.Store
+	SecretsFunc               func() models.SecretsStore
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -100,9 +101,30 @@ func (m *MockAdminService) DefaultArgs() []string {
 }
 
 
-func (m *MockAdminService) UpdateConfig(fn func(*models.Config)) error {
-	if m.UpdateConfigFunc != nil {
-		return m.UpdateConfigFunc(fn)
+func (m *MockAdminService) GetSystem() models.SystemConfig {
+	if m.GetSystemFunc != nil {
+		return m.GetSystemFunc()
+	}
+	return models.SystemConfig{}
+}
+
+func (m *MockAdminService) UpdateSystem(fn func(*models.SystemConfig)) error {
+	if m.UpdateSystemFunc != nil {
+		return m.UpdateSystemFunc(fn)
+	}
+	return nil
+}
+
+func (m *MockAdminService) GetRegistry() models.RegistryData {
+	if m.GetRegistryFunc != nil {
+		return m.GetRegistryFunc()
+	}
+	return models.RegistryData{}
+}
+
+func (m *MockAdminService) UpdateRegistry(fn func(*models.RegistryData)) error {
+	if m.UpdateRegistryFunc != nil {
+		return m.UpdateRegistryFunc(fn)
 	}
 	return nil
 }
@@ -203,13 +225,6 @@ func (m *MockAdminService) Providers() map[string]models.ProviderItem {
 	return nil
 }
 
-func (m *MockAdminService) Config() *models.Config {
-	if m.ConfigFunc != nil {
-		return m.ConfigFunc()
-	}
-	return &models.Config{}
-}
-
 func (m *MockAdminService) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
 	if m.SyncGuardrailsFunc != nil {
 		return m.SyncGuardrailsFunc(cfg)
@@ -231,7 +246,7 @@ func (m *MockAdminService) RootDir() string {
 	return ""
 }
 
-func (m *MockAdminService) Secrets() secrets.Store {
+func (m *MockAdminService) Secrets() models.SecretsStore {
 	if m.SecretsFunc != nil {
 		return m.SecretsFunc()
 	}

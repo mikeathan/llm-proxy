@@ -7,7 +7,6 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/models"
 )
 
@@ -44,14 +43,14 @@ type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 // InitializeAgentStack is a facade that wires up all tool providers and engines.
 func InitializeAgentStack(
 	appCtx interface {
-		Config() *models.Config
+		GetSystem() models.SystemConfig
 		RootDir() string
-		Secrets() secrets.Store
+		Secrets() models.SecretsStore
 	},
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
 ) (ToolProvider, Engine, *GuardrailEngine) {
-	cfg := appCtx.Config()
+	sys := appCtx.GetSystem()
 	rootDir := appCtx.RootDir()
 
 	// 1. Load defaults from manifests (prefer disk if in dev)
@@ -59,28 +58,19 @@ func InitializeAgentStack(
 
 	// 2. Initialize local machine capabilities
 	terminal := tools.NewTerminalTools(func() models.TerminalGuardrailsConfig {
-		current := appCtx.Config().Guardrails
-		if current == nil || !current.Terminal.IsActive() {
-			return defaultGuardrails.Terminal
-		}
-		return current.Terminal
+		// Guardrails are now primarily derived from manifest files, 
+		// with local defaults as fallback.
+		return defaultGuardrails.Terminal
 	})
 
 	// 3. Initialize Guardrail Engine with granular merging
 	// We want to use config.json values if they exist, otherwise fallback to defaults.
 	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
-		current := appCtx.Config().Guardrails
-		merged := defaultGuardrails
-
-		if current != nil {
-			merged.MergeWith(current)
-		}
-
-		return merged
+		return defaultGuardrails
 	})
 
 	// 3. Initialize Communications
-	commCfg := cfg.Communication
+	commCfg := sys.Communication
 	comm := tools.NewCommunicationTools()
 	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
 	if commCfg.Telegram.Enabled && telegramToken != "" {
@@ -101,11 +91,7 @@ func InitializeAgentStack(
 
 	// 5. Initialize FileSystem
 	fsTools := tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig {
-		current := appCtx.Config().Guardrails
-		if current == nil || (!current.FileSystem.Enabled && len(current.FileSystem.AllowedPaths) == 0) {
-			return defaultGuardrails.FileSystem
-		}
-		return current.FileSystem
+		return defaultGuardrails.FileSystem
 	})
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools)

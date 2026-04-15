@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"llm-proxy/models"
 	"path/filepath"
 )
 
@@ -10,73 +11,15 @@ type DataManager struct {
 	rootDir string
 
 	// Config (System/Infrastructure)
-	systemStore *Store[SystemConfig]
+	systemStore *Store[models.SystemConfig]
 
 	// Secrets (Credentials)
-	secretStore *Store[SecretData]
+	secretStore *Store[models.SecretData]
 
 	// Registry (Models/Providers State)
-	registryStore *Store[RegistryData]
+	registryStore *Store[models.RegistryData]
 }
 
-// SystemConfig represents the infrastructure-level settings (config.json)
-type SystemConfig struct {
-	Server struct {
-		Bind            string `json:"bind"`
-		ModelHost       string `json:"model_host"`
-		IdleTimeoutSecs int    `json:"idle_timeout_seconds"`
-		PrimaryModel    string `json:"primary_model,omitempty"`
-		FallbackModel   string `json:"fallback_model,omitempty"`
-	} `json:"server"`
-
-	// Local Infrastructure settings
-	Local struct {
-		LlamaServerBinary string   `json:"llama_server_binary"`
-		ModelDir          string   `json:"model_dir"`
-		DefaultArgs       []string `json:"default_args"`
-	} `json:"local"`
-
-	WorkspacesDir string `json:"workspaces_dir"`
-}
-
-// RegistryData represents the dynamic application state (registry.json)
-type RegistryData struct {
-	Providers map[string]ProviderRegistryEntry `json:"providers"`
-	Catalogue []ModelRegistryEntry             `json:"catalogue"`
-	MCPServers []MCPServerRegistryEntry        `json:"mcp_servers"`
-}
-
-type ProviderRegistryEntry struct {
-	Type                string `json:"type"`
-	DefaultCredentialID string `json:"default_credential_id,omitempty"`
-	BaseURL             string `json:"base_url,omitempty"`
-}
-
-type ModelRegistryEntry struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	ProviderID   string `json:"provider_id"`
-	ModelID      string `json:"model_id"` // Provider specific ID/Filename
-	CredentialID string `json:"credential_id,omitempty"`
-}
-
-type MCPServerRegistryEntry struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
-}
-
-// SecretData represents the encrypted/isolated vault (secrets.json)
-type SecretData struct {
-	Version      int                     `json:"version"`
-	ProviderKeys map[string][]SecretEntry `json:"provider_keys"`
-}
-
-type SecretEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Key  string `json:"key"`
-}
 
 // NewDataManager initializes the storage root and creates the 3-tier stores.
 func NewDataManager(rootDir string) (*DataManager, error) {
@@ -87,9 +30,9 @@ func NewDataManager(rootDir string) (*DataManager, error) {
 
 	return &DataManager{
 		rootDir: absRoot,
-		systemStore:   NewStore[SystemConfig](filepath.Join(absRoot, "config.json")),
-		secretStore:   NewStore[SecretData](filepath.Join(absRoot, "secrets.json")),
-		registryStore: NewStore[RegistryData](filepath.Join(absRoot, "registry.json")),
+		systemStore:   NewStore[models.SystemConfig](filepath.Join(absRoot, "config.json")),
+		secretStore:   NewStore[models.SecretData](filepath.Join(absRoot, "secrets.json")),
+		registryStore: NewStore[models.RegistryData](filepath.Join(absRoot, "registry.json")),
 	}, nil
 }
 
@@ -108,13 +51,13 @@ func (m *DataManager) LoadAll() error {
 }
 
 // System returns the system config store.
-func (m *DataManager) System() *Store[SystemConfig] { return m.systemStore }
+func (m *DataManager) System() *Store[models.SystemConfig] { return m.systemStore }
 
 // Secrets returns the secrets store.
-func (m *DataManager) Secrets() *Store[SecretData] { return m.secretStore }
+func (m *DataManager) Secrets() *Store[models.SecretData] { return m.secretStore }
 
 // Registry returns the registry store.
-func (m *DataManager) Registry() *Store[RegistryData] { return m.registryStore }
+func (m *DataManager) Registry() *Store[models.RegistryData] { return m.registryStore }
 
 // RootDir returns the absolute path to the data directory.
 func (m *DataManager) RootDir() string { return m.rootDir }

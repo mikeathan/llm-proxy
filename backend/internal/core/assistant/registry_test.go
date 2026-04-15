@@ -5,7 +5,6 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
-	"llm-proxy/internal/platform/secrets"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
 	"testing"
@@ -17,7 +16,7 @@ func TestLocalToolRegistry_Discovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools failed: %v", err)
 	}
-	
+
 	// Should have terminal, communication, search, and fs tools
 	if len(toolsList) < 6 {
 		t.Errorf("expected at least 6 tool definitions, got %d", len(toolsList))
@@ -27,13 +26,13 @@ func TestLocalToolRegistry_Discovery(t *testing.T) {
 func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 	term := tools.NewTerminalTools(func() models.TerminalGuardrailsConfig {
 		return models.TerminalGuardrailsConfig{
-			Enabled: true,
+			Enabled:         true,
 			AllowedCommands: []string{"echo"},
 		}
 	})
-	
+
 	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
-	
+
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
 			Name:      "execute_terminal_command",
@@ -54,11 +53,11 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
 	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil)
-	
+
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")
 	}
-	
+
 	_, ok := provider.(*assistant.MultiToolProvider)
 	if !ok {
 		t.Error("provider is not a MultiToolProvider")
@@ -66,19 +65,20 @@ func TestInitializeAgentStack_Structure(t *testing.T) {
 }
 
 type mockAppContext struct{}
-func (m *mockAppContext) Config() *models.Config {
-	return &models.Config{}
+
+func (m *mockAppContext) GetSystem() models.SystemConfig {
+	return models.SystemConfig{}
 }
 func (m *mockAppContext) RootDir() string {
 	return ""
 }
-func (m *mockAppContext) Secrets() secrets.Store {
+func (m *mockAppContext) Secrets() models.SecretsStore {
 	return &mocks.MockSecretsStore{}
 }
 
 func TestFileSystem_IsSecurePath(t *testing.T) {
 	allowed := []string{"/tmp/test_workspace"}
-	
+
 	tests := []struct {
 		name    string
 		path    string
