@@ -12,7 +12,6 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -118,9 +117,9 @@ type adminSystemView struct {
 }
 
 type adminRegistryView struct {
-	Catalogue  []models.ModelRegistryEntry             `json:"catalogue"`
-	Providers  map[string]models.ProviderRegistryEntry `json:"providers"`
-	MCPServers []models.MCPServerRegistryEntry         `json:"mcp_servers"`
+	Catalogue  []models.ModelRegistryEntry     `json:"catalogue"`
+	Providers  map[string]adminProviderView    `json:"providers"`
+	MCPServers []models.MCPServerRegistryEntry `json:"mcp_servers"`
 }
 
 type adminProviderView struct {
@@ -204,93 +203,32 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	}
 	nextPort := nextAvailablePort(modelsList, activePort)
 	sys := h.admin.GetSystem()
+	id, secret := h.admin.ServiceCredentials()
 	state := adminStateResponse{
-		Models:    make([]adminModelView, 0, len(modelsList)),
+		Models:    h.getModelsView(modelsList, activeName, activeDetails != nil && activeDetails.Ready),
 		Available: available,
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			WorkspacesDir:   sys.WorkspacesDir,
-			ModelHost:       h.admin.GetSystem().Server.ModelHost,
-			IdleTimeoutSecs: h.admin.CurrentIdleTimeout(),
-			GPUProvider:     h.admin.GPUConfig().Provider,
-			GPUBinary:       h.admin.GPUConfig().Binary,
-			GPUIndex:        h.admin.GPUConfig().Index,
-			DefaultArgs:     h.admin.DefaultArgs(),
-			PrimaryModel:    h.admin.GetSystem().Server.PrimaryModel,
-			FallbackModel:   h.admin.GetSystem().Server.FallbackModel,
-			Providers:       h.getProvidersView(),
-			Guardrails:      tools.GetDefaultGuardrails(h.admin.RootDir()),
-			Communication:   h.admin.GetSystem().Communication,
-			Search:          h.admin.GetSystem().Search,
+			WorkspacesDir:       sys.WorkspacesDir,
+			ModelHost:           h.admin.GetSystem().Server.ModelHost,
+			IdleTimeoutSecs:     h.admin.CurrentIdleTimeout(),
+			GPUProvider:         h.admin.GPUConfig().Provider,
+			GPUBinary:           h.admin.GPUConfig().Binary,
+			GPUIndex:            h.admin.GPUConfig().Index,
+			DefaultArgs:         h.admin.DefaultArgs(),
+			ServiceClientID:     id,
+			ServiceClientSecret: secret,
+			PrimaryModel:        h.admin.GetSystem().Server.PrimaryModel,
+			FallbackModel:       h.admin.GetSystem().Server.FallbackModel,
+			Providers:           h.getProvidersView(),
+			Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
+			Communication:       h.admin.GetSystem().Communication,
+			Search:              h.admin.GetSystem().Search,
 		},
 	}
 
-	rawModels := h.admin.Models()
-	rawArgs := map[string][]string{}
-	for _, raw := range rawModels {
-		rawArgs[raw.Name] = raw.Args
-	}
-
-	for _, mc := range modelsList {
-		filename := mc.Filename
-		if filename == "" && mc.Path != "" {
-			filename = filepath.Base(mc.Path)
-		}
-
-		args := rawArgs[mc.Name]
-		if args == nil {
-			args = mc.Args
-		}
-
-		state.Models = append(state.Models, adminModelView{
-			Name:           mc.Name,
-			Provider:       mc.Provider,
-			Filename:       filename,
-			ResolvedPath:   mc.Path,
-			Args:           args,
-			Port:           mc.Port,
-			Endpoint:       fmt.Sprintf("http://%s:%d", host, mc.Port),
-			Active:         mc.Name == activeName,
-			Ready:          mc.Name == activeName && activeDetails != nil && activeDetails.Ready,
-			ProviderConfig: mc.ProviderConfig,
-		})
-	}
-
 	respondJSON(w, state)
-}
-
-func (h *AdminHandlers) getProvidersView() map[string]adminProviderView {
-	reg := h.admin.GetRegistry()
-	sys := h.admin.GetSystem()
-	out := make(map[string]adminProviderView)
-
-	// 1. Populate from Registry (Source of Truth for User Config)
-	for id, p := range reg.Providers {
-		out[id] = adminProviderView{
-			ProviderItem: models.ProviderItem{
-				Type:    p.Type,
-				BaseURL: p.BaseURL,
-			},
-			APIKeys: h.admin.Secrets().MaskedProviderKeys(id),
-		}
-	}
-
-	// 2. Ensure 'local' infrastructure is always available and augmented
-	local, exists := out["local"]
-	if !exists {
-		local = adminProviderView{
-			ProviderItem: models.ProviderItem{Type: "local"},
-			APIKeys:      h.admin.Secrets().MaskedProviderKeys("local"),
-		}
-	}
-	// Always overlay system-level binary/args that are not in the registry
-	local.ProviderItem.LlamaServerBinary = sys.Local.LlamaServerBinary
-	local.ProviderItem.ModelDir = sys.Local.ModelDir
-	local.ProviderItem.DefaultArgs = sys.Local.DefaultArgs
-	out["local"] = local
-
-	return out
 }
 
 func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request) {

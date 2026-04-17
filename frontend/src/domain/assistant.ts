@@ -26,19 +26,25 @@ export const getRoleLabel = (role: string | AssistantRole): string => {
  * Determines CSS class for a role.
  */
 export const getRoleClass = (role: string | AssistantRole): string => {
-  return isSystemRole(role) ? 'role-error' : 'role-assistant';
+  if (isSystemRole(role)) return 'role-system';
+  if (role === 'user') return 'role-user';
+  return 'role-assistant';
 };
 
 /**
- * Determines CSS class for a message container based on role.
+ * Determines CSS class for a message container based on role and event type.
  */
-export const getMessageClass = (role: string | AssistantRole): string => {
-  return isSystemRole(role) ? 'system-error-msg' : '';
+export const getMessageClass = (role: string | AssistantRole, type?: string): string => {
+  if (isSystemRole(role)) {
+    if (type === 'error') return 'system-error-msg';
+    return 'system-msg';
+  }
+  return '';
 };
 
 /**
  * Determines CSS class for message content based on role.
  */
 export const getContentClass = (role: string | AssistantRole): string => {
-  return isSystemRole(role) ? 'content-error' : '';
+  return isSystemRole(role) ? 'content-system' : '';
 };

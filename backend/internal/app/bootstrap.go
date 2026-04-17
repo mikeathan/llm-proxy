@@ -315,6 +315,7 @@ func buildRouter(
 	if dispatcherHandlers != nil {
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/stop/{workspace}", dispatcherHandlers.StopAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/activity", dispatcherHandlers.GetGlobalActivity, jsonMethodNotAllowed)
 

@@ -143,7 +143,8 @@ func IsSecurePath(path string, allowedRoots []string) (string, error) {
 		if err != nil {
 			continue
 		}
-		if strings.HasPrefix(absLocal, absRoot) {
+		// Robust prefix check: handle same path or subpath correctly
+		if absLocal == absRoot || strings.HasPrefix(absLocal, absRoot+string(filepath.Separator)) {
 			return absLocal, nil
 		}
 	}

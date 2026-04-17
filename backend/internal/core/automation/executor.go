@@ -3,6 +3,8 @@ package automation
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -117,9 +119,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 
 	var capturedEvents []any
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
-		Logger:     procLog,
-		MaxSteps:   20,
-		Guardrails: e.svc.GuardrailEngine(),
+		Logger:      procLog,
+		MaxSteps:    20,
+		Guardrails:  e.svc.GuardrailEngine(),
+		WorkspaceID: req.WorkspaceID,
 		Observer: func(ev assistant.AgentEvent) {
 			capturedEvents = append(capturedEvents, ev)
 			e.svc.Events().Publish(req.WorkspaceID, ev)
@@ -148,9 +151,14 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 
 	// Collect any tool calls for result summary if no final reply content (rare but possible)
 	if finalReply == "" && len(fullHistory) > 1 {
-		lastMsg := fullHistory[len(fullHistory)-1]
-		if len(lastMsg.ToolCalls) > 0 {
-			runResult = fmt.Sprintf("Completed with %d tool interactions.", len(lastMsg.ToolCalls))
+		toolCount := 0
+		for _, msg := range fullHistory {
+			toolCount += len(msg.ToolCalls)
+		}
+		if toolCount > 0 {
+			runResult = fmt.Sprintf("Agent executed %d tool call(s) but returned no final summary.", toolCount)
+		} else {
+			runResult = "Agent completed the task but returned an empty response."
 		}
 	}
 
@@ -160,18 +168,34 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
 
 	output := strings.TrimSpace(runResult)
-	formattedOutput := output
-	if !strings.Contains(output, "```") && output != "" {
-		formattedOutput = fmt.Sprintf("```text\n%s\n```", output)
+	
+	// Smart Unwrapper: If the model wrapped the entire response in a markdown code block, 
+	// strip it so our UI can actually render the markdown structure (headers, tables).
+	if strings.HasPrefix(output, "```") && strings.HasSuffix(output, "```") {
+		lines := strings.Split(output, "\n")
+		if len(lines) >= 2 {
+			// Remove first and last lines (the backticks)
+			output = strings.Join(lines[1:len(lines)-1], "\n")
+			output = strings.TrimSpace(output)
+		}
 	}
 
-	fullOutput := fmt.Sprintf("%s**Output:**\n\n%s", header, formattedOutput)
+	fullOutput := fmt.Sprintf("%s### Final Report\n\n%s", header, output)
 
 	resp.Output = fullOutput
 	resp.State.LastOutput = fullOutput
 	runResult = fullOutput
 
 	resp.State.IsRunning = false
+
+	// Push a concluding message to the UI stream to clear "thinking..."
+	e.svc.Events().Publish(req.WorkspaceID, assistant.AgentEvent{
+		Type: assistant.EventMessage,
+		Payload: proxy.Message{
+			Role:    "system",
+			Content: "✔ Execution complete.",
+		},
+	})
 
 	// Record to history
 	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
@@ -217,23 +241,35 @@ func generateRunID() string {
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
-// buildPrompt constructs the user prompt from automation details.
 func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
+	procLog := e.svc.ProcessLogger(req.WorkspaceID)
+
 	// Try to load custom workspace rules if they exist
 	rules, err := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
 	if err != nil || rules == "" {
-		rules = fmt.Sprintf(assistant.DefaultRules, req.WorkspaceID)
+		rules = assistant.DefaultRules
 	}
 
-	return fmt.Sprintf(`%s
+	// Calculate robust relative path from Current Working Directory to Workspaces Dir
+	// This ensures the agent uses paths that the backend can resolve from its current execution root.
+	absWs := e.svc.Persistence().BaseDir()
+	cwd, _ := os.Getwd()
+	relWs, err := filepath.Rel(cwd, absWs)
+	if err != nil {
+		relWs = absWs
+	}
+	relWs = filepath.Clean(relWs)
 
-TASK: Execute the following instructions found in '%s':
----
-%s
----
+	procLog.Debug("Automation path resolution", "abs_ws", absWs, "cwd", cwd, "rel_ws", relWs)
 
-Finalize this task. Respond ONLY with a concise markdown summary of your work.`,
-		rules, req.TaskFile, req.TaskContent)
+	// Safely format rules to avoid %!(EXTRA) errors if the file doesn't contain verbs
+	formattedRules := rules
+	formattedRules = strings.ReplaceAll(formattedRules, "%[1]s", relWs)
+	formattedRules = strings.ReplaceAll(formattedRules, "%[2]s", req.WorkspaceID)
+
+	return fmt.Sprintf(assistant.AutomationTaskPrompt,
+		formattedRules,
+		req.WorkspaceID, relWs, req.WorkspaceID, req.TaskFile, req.TaskContent)
 }
 
 // ============================================================================

@@ -45,6 +45,7 @@ func InitializeAgentStack(
 	appCtx interface {
 		GetSystem() models.SystemConfig
 		RootDir() string
+		WorkspacesDir() string
 		Secrets() models.SecretsStore
 	},
 	mcp nodeherder.MCPService,
@@ -67,7 +68,7 @@ func InitializeAgentStack(
 	// We want to use config.json values if they exist, otherwise fallback to defaults.
 	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
-	})
+	}, appCtx.WorkspacesDir())
 
 	// 3. Initialize Communications
 	commCfg := sys.Communication
@@ -91,7 +92,11 @@ func InitializeAgentStack(
 
 	// 5. Initialize FileSystem
 	fsTools := tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig {
-		return defaultGuardrails.FileSystem
+		cfg := defaultGuardrails.FileSystem
+		// Ensure the underlying tool ALWAYS considers the active Workspaces root as an authorized path.
+		// The GuardrailEngine handles the granular per-workspace jailing before the tool is even called.
+		cfg.AllowedPaths = append(cfg.AllowedPaths, appCtx.WorkspacesDir())
+		return cfg
 	})
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools)

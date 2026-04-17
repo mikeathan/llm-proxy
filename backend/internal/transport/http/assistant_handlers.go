@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"llm-proxy/internal/core/assistant" 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -196,6 +196,10 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 		return nil, err
 	}
 
+	// Calculate robust relative path from Current Working Directory to Workspaces Dir
+	relWs := h.persistence.GetRelativeWorkspacePath()
+	jailPrompt := assistant.BuildJailPrompt(relWs, payload.WorkspaceID)
+
 	agentPrompt := ""
 	if payload.WorkspaceID != "" && h.persistence != nil {
 		agentPromptStr, err := h.persistence.ReadTaskFile(payload.WorkspaceID, "agent.md")
@@ -208,7 +212,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 		{
 			Role: proxy.SystemRole,
 			Content: assistant.BuildSystemMessage(
-				systemPrompt+agentPrompt,
+				systemPrompt+jailPrompt+agentPrompt,
 				payload.ConversationID,
 				payload.ContextVersion,
 				payload.Timezone,

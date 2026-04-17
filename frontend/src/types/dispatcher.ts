@@ -52,7 +52,7 @@ export interface TriggerResponse {
   automation: string
 }
 
-export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result'
+export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'error'
 
 export interface AgentStepStartPayload {
   step: number
@@ -76,8 +76,14 @@ export interface AgentToolResultPayload {
   error?: string
 }
 
+export interface AgentGuardrailViolationPayload {
+  tool: string
+  error: string
+}
+
 export interface AgentEvent {
   type: AgentEventType
-  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload
+  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload
+  timestamp?: string
 }
 

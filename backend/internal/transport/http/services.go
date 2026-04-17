@@ -64,6 +64,7 @@ type AdminService interface {
 	RemoveMCPServer(string) error
 	ListMCPServers() []models.MCPServerConfig
 	Models() []models.ModelConfig
+	Providers() map[string]models.ProviderItem
 	SetGPUConfig(models.GPUConfig)
 	SetWorkspacesDir(string)
 	DefaultArgs() []string
@@ -72,6 +73,7 @@ type AdminService interface {
 	Environment() map[string]string
 	SyncGuardrails(models.AgentGuardrailsConfig) error
 	UpdateSettings(context.Context, models.SystemUpdatePayload) error
+	ServiceCredentials() (id, secret string)
 }
 
 type AssistantService interface {

@@ -182,13 +182,27 @@ func (s *AppContext) Models() []models.ModelConfig {
 
 func (s *AppContext) Providers() map[string]models.ProviderItem {
 	reg := s.dataMgr.Registry().Get()
-	out := make(map[string]models.ProviderItem, len(reg.Providers))
+	sys := s.dataMgr.System().Get()
+	out := make(map[string]models.ProviderItem)
+
+	// 1. Populate from Registry
 	for k, v := range reg.Providers {
 		out[k] = models.ProviderItem{
 			Type:    v.Type,
 			BaseURL: v.BaseURL,
 		}
 	}
+
+	// 2. Ensure 'local' is present and enriched from system config
+	local := out["local"]
+	if local.Type == "" {
+		local.Type = "local"
+	}
+	local.LlamaServerBinary = sys.Local.LlamaServerBinary
+	local.ModelDir = sys.Local.ModelDir
+	local.DefaultArgs = sys.Local.DefaultArgs
+	out["local"] = local
+
 	return out
 }
 
@@ -343,6 +357,10 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 	}
 
 	return nil
+}
+
+func (s *AppContext) ServiceCredentials() (id, secret string) {
+	return os.Getenv("SERVICE_CLIENT_ID"), os.Getenv("SERVICE_CLIENT_SECRET")
 }
 
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {

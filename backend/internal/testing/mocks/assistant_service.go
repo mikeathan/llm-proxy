@@ -3,13 +3,13 @@ package mocks
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
-	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
-	"llm-proxy/internal/core/automation"
 )
 
 // noopLogger for testing
@@ -24,14 +24,14 @@ func (l *noopLogger) SetLevel(logging.Level)          {}
 func (l *noopLogger) Level() logging.Level            { return logging.LevelInfo }
 
 type MockAssistantService struct {
-	Herder      nodeherder.MCPService
-	Client      proxy.LLMClientProvider
-	RateLimiter ratelimiter.Limiter
-	LoggerRef   logging.Logger
-	Model       string
-	EngineRef   assistant.Engine
+	Herder         nodeherder.MCPService
+	Client         proxy.LLMClientProvider
+	RateLimiter    ratelimiter.Limiter
+	LoggerRef      logging.Logger
+	Model          string
+	EngineRef      assistant.Engine
 	PersistenceMgr *persistence.WorkspaceManager
-	EventBusRef *automation.EventBus
+	EventBusRef    *automation.EventBus
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -68,7 +68,7 @@ func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName 
 func (m *MockAssistantService) GuardrailEngine() *assistant.GuardrailEngine {
 	return assistant.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
-	})
+	}, m.WorkspacesDir())
 }
 
 func (m *MockAssistantService) Config() *models.Config {
@@ -104,6 +104,10 @@ func (m *MockAssistantService) ProcessLogger(workspaceID string) logging.Logger 
 }
 
 func (m *MockAssistantService) RootDir() string {
+	return ""
+}
+
+func (m *MockAssistantService) WorkspacesDir() string {
 	return ""
 }
 

@@ -1,6 +1,7 @@
 package mocks
 
 import (
+	"context"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/models"
@@ -38,6 +39,8 @@ type MockAdminService struct {
 	ProcessLoggerFunc         func(string) logging.Logger
 	RootDirFunc               func() string
 	SecretsFunc               func() models.SecretsStore
+	UpdateSettingsFunc        func(context.Context, models.SystemUpdatePayload) error
+	ServiceCredentialsFunc    func() (string, string)
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -99,7 +102,6 @@ func (m *MockAdminService) DefaultArgs() []string {
 	}
 	return nil
 }
-
 
 func (m *MockAdminService) GetSystem() models.SystemConfig {
 	if m.GetSystemFunc != nil {
@@ -252,3 +254,18 @@ func (m *MockAdminService) Secrets() models.SecretsStore {
 	}
 	return nil
 }
+
+func (m *MockAdminService) UpdateSettings(ctx context.Context, req models.SystemUpdatePayload) error {
+	if m.UpdateSettingsFunc != nil {
+		return m.UpdateSettingsFunc(ctx, req)
+	}
+	return nil
+}
+
+func (m *MockAdminService) ServiceCredentials() (string, string) {
+	if m.ServiceCredentialsFunc != nil {
+		return m.ServiceCredentialsFunc()
+	}
+	return "", ""
+}
+

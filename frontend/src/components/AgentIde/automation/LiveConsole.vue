@@ -12,7 +12,10 @@ import {
   getMsgPayload,
   getToolCallPayload,
   getToolResPayload,
+  getViolationPayload,
+  formatEventsToText,
 } from "../../../utils/dispatcher";
+import { marked } from "marked";
 import CopyButton from "../../common/CopyButton.vue";
 
 const props = defineProps<{
@@ -34,7 +37,7 @@ const displayEvents = computed(() => {
 const connect = () => {
   if (eventSource) eventSource.close();
 
-  const url = `http://localhost:4001/admin/api/dispatcher/workspaces/${props.workspaceId}/live`;
+  const url = `/admin/api/dispatcher/workspaces/${props.workspaceId}/live`;
   eventSource = new EventSource(url);
 
   eventSource.addEventListener("ping", () => {
@@ -71,9 +74,7 @@ watch(
   },
 );
 
-const clearLogs = () => {
-  liveEvents.value = [];
-};
+const fullTerminalText = computed(() => formatEventsToText(displayEvents.value));
 </script>
 
 <template>
@@ -87,7 +88,14 @@ const clearLogs = () => {
           <template v-else>Terminal</template>
         </span>
       </div>
-      <button @click="clearLogs" class="btn-clear-term">Clear</button>
+      <div class="flex items-center gap-4">
+        <CopyButton
+          v-if="displayEvents.length > 0"
+          :text="fullTerminalText"
+          iconSize="sm"
+          class="btn-clear-term"
+        />
+      </div>
     </div>
 
     <div class="terminal-body" id="terminal-scroll-area">
@@ -104,9 +112,9 @@ const clearLogs = () => {
 
           <!-- Message Block -->
           <div
-            v-else-if="ev.type === 'message' && getMsgPayload(ev).content"
+            v-else-if="(ev.type === 'message' || ev.type === 'error') && getMsgPayload(ev).content"
             class="line-msg"
-            :class="getMessageClass(getMsgPayload(ev).role)"
+            :class="getMessageClass(getMsgPayload(ev).role, ev.type)"
           >
             <span
               class="msg-role"
@@ -114,8 +122,14 @@ const clearLogs = () => {
             >
               {{ getRoleLabel(getMsgPayload(ev).role) }}
             </span>
+            <div
+              v-if="getMsgPayload(ev).role === 'assistant'"
+              class="msg-content prose prose-invert max-w-none text-[11px] leading-snug"
+              v-html="marked.parse(getMsgPayload(ev).content)"
+            ></div>
             <span
-              class="msg-content"
+              v-else
+              class="msg-content whitespace-pre-wrap"
               :class="getContentClass(getMsgPayload(ev).role)"
             >
               {{ getMsgPayload(ev).content }}
@@ -160,6 +174,15 @@ const clearLogs = () => {
                   : JSON.stringify(getToolResPayload(ev).result, null, 2)
               }}</pre>
             </details>
+          </div>
+
+          <!-- Guardrail Violation -->
+          <div v-else-if="ev.type === 'guardrail_violation'" class="line-violation">
+            <div class="violation-header">
+              <span class="violation-icon">🛑</span>
+              <span class="violation-title">Guardrail Blocked: {{ getViolationPayload(ev).tool }}</span>
+            </div>
+            <div class="violation-body">{{ getViolationPayload(ev).error }}</div>
           </div>
         </div>
       </div>
@@ -227,23 +250,60 @@ const clearLogs = () => {
 }
 
 .msg-role {
-  @apply text-purple-400 font-bold mr-2;
+  @apply mr-2;
+}
+
+.role-system {
+  @apply text-indigo-400 font-bold uppercase tracking-wider text-[10px];
+}
+
+.role-assistant {
+  @apply text-emerald-400 font-bold;
+}
+
+.role-user {
+  @apply text-amber-400 font-bold;
 }
 
 .msg-content {
-  @apply text-gray-300 whitespace-pre-wrap;
+  @apply text-gray-300 flex-1;
+}
+
+/* Compact Typography Overrides for Terminal */
+.msg-content :deep(p) {
+  @apply mb-1 mt-0;
+}
+.msg-content :deep(h1), 
+.msg-content :deep(h2), 
+.msg-content :deep(h3) {
+  @apply text-gray-100 font-bold mt-2 mb-1;
+}
+.msg-content :deep(h3) { @apply text-[11px]; }
+.msg-content :deep(h2) { @apply text-[12px]; }
+.msg-content :deep(h1) { @apply text-[14px]; }
+
+.msg-content :deep(ul), .msg-content :deep(ol) {
+  @apply mb-1 ml-4;
+}
+
+.msg-content :deep(table) {
+  @apply my-2 border-collapse text-[10px] w-full;
+}
+
+.msg-content :deep(th), .msg-content :deep(td) {
+  @apply p-1 border border-gray-800 text-left;
+}
+
+.system-msg {
+  @apply border-l-2 border-indigo-500/30 pl-2 bg-indigo-500/5 py-1 my-1;
 }
 
 .system-error-msg {
-  @apply border-l-2 border-red-500/50 pl-2 bg-red-900/10 py-1;
+  @apply border-l-2 border-red-500/30 pl-2 bg-red-500/10 py-1 my-1;
 }
 
-.role-error {
-  @apply text-red-500 font-black;
-}
-
-.content-error {
-  @apply text-red-400 font-bold;
+.content-system {
+  @apply text-indigo-200/60 italic;
 }
 
 /* Tool execution block */
@@ -302,5 +362,21 @@ const clearLogs = () => {
 
 .res-body {
   @apply bg-[#161b22] border border-gray-800 rounded p-3 mt-2 text-[11px] text-green-500/80 overflow-y-auto max-h-80 whitespace-pre-wrap;
+}
+
+.line-violation {
+  @apply mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg animate-in fade-in slide-in-from-left-2 backdrop-blur-sm;
+}
+
+.violation-header {
+  @apply flex items-center gap-2 mb-1.5;
+}
+
+.violation-title {
+  @apply text-red-400 font-bold text-xs uppercase tracking-widest;
+}
+
+.violation-body {
+  @apply text-[11px] text-red-100/70 pl-6 border-l border-red-500/30 py-1;
 }
 </style>

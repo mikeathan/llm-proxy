@@ -9,21 +9,28 @@ import (
 type EventBus struct {
 	mu          sync.RWMutex
 	subscribers map[string][]chan assistant.AgentEvent // workspaceID -> channels
+	recent      map[string][]assistant.AgentEvent      // workspaceID -> events in current run
 }
 
 func NewEventBus() *EventBus {
 	return &EventBus{
 		subscribers: make(map[string][]chan assistant.AgentEvent),
+		recent:      make(map[string][]assistant.AgentEvent),
 	}
 }
 
-func (b *EventBus) Subscribe(workspaceID string) chan assistant.AgentEvent {
+func (b *EventBus) Subscribe(workspaceID string) (chan assistant.AgentEvent, []assistant.AgentEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ch := make(chan assistant.AgentEvent, 10)
+	ch := make(chan assistant.AgentEvent, 50) // Increased buffer for safety
 	b.subscribers[workspaceID] = append(b.subscribers[workspaceID], ch)
-	return ch
+	
+	// Copy the recent events to avoid mutation issues
+	recent := make([]assistant.AgentEvent, len(b.recent[workspaceID]))
+	copy(recent, b.recent[workspaceID])
+	
+	return ch, recent
 }
 
 func (b *EventBus) Unsubscribe(workspaceID string, ch chan assistant.AgentEvent) {
@@ -41,6 +48,14 @@ func (b *EventBus) Unsubscribe(workspaceID string, ch chan assistant.AgentEvent)
 }
 
 func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
+	b.mu.Lock()
+	b.recent[workspaceID] = append(b.recent[workspaceID], event)
+	// Cap the buffer per workspace to prevent memory leaks if something misbehaves
+	if len(b.recent[workspaceID]) > 1000 {
+		b.recent[workspaceID] = b.recent[workspaceID][len(b.recent[workspaceID])-1000:]
+	}
+	b.mu.Unlock()
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -51,4 +66,10 @@ func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 			// Buffer full, skip this subscriber
 		}
 	}
+}
+
+func (b *EventBus) Clear(workspaceID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.recent, workspaceID)
 }

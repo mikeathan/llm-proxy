@@ -113,6 +113,24 @@ async function triggerAutomation(workspace: string, automation: string) {
   }
 }
 
+async function stopAutomation(workspace: string) {
+  error.value = null
+  try {
+    const res = await fetch(`/admin/api/dispatcher/stop/${workspace}`, {
+      method: 'POST'
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchAutomations()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to stop automation'
+    console.error('stopAutomation error:', e)
+    throw e
+  }
+}
+
 async function updateAutomation(workspace: string, oldName: string, automation: Automation) {
   try {
     const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations/${oldName}`, {
@@ -237,5 +255,6 @@ export function useDispatcher() {
     createAutomation,
     deleteAutomation,
     updateAutomation,
+    stopAutomation,
   }
 }

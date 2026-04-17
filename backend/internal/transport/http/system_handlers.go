@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"os"
 
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
@@ -10,6 +9,7 @@ import (
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	sys := h.admin.GetSystem()
+	id, secret := h.admin.ServiceCredentials()
 	cfg := adminConfigView{
 		WorkspacesDir:       sys.WorkspacesDir,
 		ModelHost:           sys.Server.ModelHost,
@@ -18,8 +18,8 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		GPUBinary:           h.admin.GPUConfig().Binary,
 		GPUIndex:            h.admin.GPUConfig().Index,
 		DefaultArgs:         sys.Local.DefaultArgs,
-		ServiceClientID:     os.Getenv("SERVICE_CLIENT_ID"),
-		ServiceClientSecret: os.Getenv("SERVICE_CLIENT_SECRET"),
+		ServiceClientID:     id,
+		ServiceClientSecret: secret,
 		PrimaryModel:        sys.Server.PrimaryModel,
 		FallbackModel:       sys.Server.FallbackModel,
 		Providers:           h.getProvidersView(),

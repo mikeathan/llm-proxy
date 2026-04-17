@@ -39,6 +39,9 @@ type Dispatcher struct {
 	historyMu     sync.RWMutex
 	globalHistory []models.AutomationRun
 	events        *EventBus
+
+	runMu      sync.RWMutex
+	activeRuns map[string]context.CancelFunc // workspaceID -> cancelFunc
 }
 
 func NewDispatcher(
@@ -60,6 +63,7 @@ func NewDispatcher(
 		stopCh:      make(chan struct{}),
 		metrics:     &DispatcherMetrics{},
 		events:      NewEventBus(),
+		activeRuns:  make(map[string]context.CancelFunc),
 	}
 
 	for _, opt := range opts {
@@ -384,6 +388,19 @@ func (d *Dispatcher) triggerToCron(tr Trigger) string {
 func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEntry) error {
 	start := time.Now()
 
+	// 0. Setup Cancellation
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	d.runMu.Lock()
+	d.activeRuns[entry.Workspace] = cancel
+	d.runMu.Unlock()
+	defer func() {
+		d.runMu.Lock()
+		delete(d.activeRuns, entry.Workspace)
+		d.runMu.Unlock()
+	}()
+
 	f, err := d.persistence.TryAcquireLock(entry.Workspace)
 	if err != nil {
 		d.metrics.RecordExecution(false, true, time.Since(start))
@@ -414,6 +431,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	}
 
 	// Immediately notify UI that execution has actively started
+	d.events.Clear(entry.Workspace)
 	d.events.Publish(entry.Workspace, assistant.AgentEvent{
 		Type: assistant.EventMessage,
 		Payload: proxy.Message{
@@ -422,7 +440,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		},
 	})
 
-	execCtx, err := entry.Strategy.Prepare(ctx, entry.Workspace, entry.Name, state)
+	stratCtx, err := entry.Strategy.Prepare(execCtx, entry.Workspace, entry.Name, state)
 	if err != nil {
 		state.IsRunning = false
 		d.persistence.WriteState(entry.Workspace, state)
@@ -440,7 +458,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		Model:          entry.Model,
 	}
 
-	resp, err := d.executor.Execute(execCtx, req)
+	resp, err := d.executor.Execute(stratCtx, req)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -448,6 +466,15 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		state.LastError = err.Error()
 		d.persistence.WriteState(entry.Workspace, state)
 		
+		// Un-hang the UI by publishing the error over the EventBus
+		d.events.Publish(entry.Workspace, assistant.AgentEvent{
+			Type: assistant.EventError,
+			Payload: proxy.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("Execution Error: %v", err),
+			},
+		})
+
 		// Ensure failed runs also propagate to the global ledger
 		if len(state.History) > 0 {
 			d.RecordActivity(state.History[len(state.History)-1])
@@ -580,6 +607,20 @@ func splitID(id string) []string {
 		}
 	}
 	return []string{id}
+}
+
+func (d *Dispatcher) StopAutomation(workspaceID string) error {
+	d.runMu.Lock()
+	cancel, ok := d.activeRuns[workspaceID]
+	d.runMu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("no active automation found for workspace %s", workspaceID)
+	}
+
+	cancel()
+	d.logger.Info("Automation stopped by user request", "workspace", workspaceID)
+	return nil
 }
 
 // Persistence returns the underlying WorkspaceManager.

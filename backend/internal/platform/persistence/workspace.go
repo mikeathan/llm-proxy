@@ -335,6 +335,16 @@ func (m *WorkspaceManager) BaseDir() string {
 	return m.baseDir
 }
 
+// GetRelativeWorkspacePath returns the relative path from the current working directory to the base workspace directory.
+func (m *WorkspaceManager) GetRelativeWorkspacePath() string {
+	cwd, _ := os.Getwd()
+	relWs, err := filepath.Rel(cwd, m.baseDir)
+	if err != nil {
+		return m.baseDir
+	}
+	return filepath.Clean(relWs)
+}
+
 func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 	path := filepath.Join(m.baseDir, workspaceID, "state.json")
 	info, err := os.Stat(path)

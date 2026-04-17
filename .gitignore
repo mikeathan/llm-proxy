@@ -42,3 +42,6 @@ llm-proxy.log
 backend/workspaces/*
 backend/internal/transport/http/frontend_dist/*
 backend/reports/*
+
+# Workspace data
+backend/data/workspaces/*

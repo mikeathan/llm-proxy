@@ -42,6 +42,7 @@ const {
   createAutomation,
   updateAutomation,
   deleteAutomation,
+  stopAutomation,
   clearError,
 } = useDispatcher();
 
@@ -71,6 +72,14 @@ const lastTriggerResult = ref<string | null>(null);
 const workspaceHistory = ref<AutomationRun[]>([]);
 const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
 
+const activeMainView = computed(() => {
+  if (selectedRun.value) return "history";
+  if (selectedFile.value) return "editor";
+  if (selectedAutomation.value) return "automation";
+  if (selectedWorkspace.value && workspaceMiddleTab.value === "chat")
+    return "assistant";
+  return "dashboard";
+});
 
 const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
 const isMobile = ref(false);
@@ -145,7 +154,6 @@ const handleSelectRun = (run: AutomationRun) => {
     lastTriggerResult.value = null;
     workspaceMiddleTab.value = "pulse";
   } else {
-
     // Fallback to the latest single run view if automation record is missing
     selectedRun.value = run;
     selectedAutomationId.value = null;
@@ -186,13 +194,12 @@ const handleCloseDetails = () => {
 
 const handleSelectWorkspace = async (wsId: string) => {
   selectedWorkspace.value = selectedWorkspace.value === wsId ? null : wsId;
-  
+
   // Clear any active views when switching workspace context
   selectedAutomationId.value = null;
   selectedRun.value = null;
   selectedFile.value = null;
   workspaceMiddleTab.value = "pulse";
-
 
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId);
@@ -280,6 +287,18 @@ const handleTrigger = async () => {
     triggering.value = false;
     await fetchAutomations();
     await refreshHistory();
+  }
+};
+
+const handleStop = async () => {
+  if (!selectedAutomation.value) return;
+  try {
+    await stopAutomation(selectedAutomation.value.workspace);
+    lastTriggerResult.value = `Stopped ${selectedAutomation.value.name}`;
+  } catch (err) {
+    console.error("Stop failed", err);
+  } finally {
+    await fetchAutomations();
   }
 };
 
@@ -439,7 +458,12 @@ const handleUpdateAutomation = async (
             @fetch-files="fetchWorkspaceFiles"
           />
 
-          <div v-if="loading" class="loading-message">Loading...</div>
+          <div
+            v-if="loading && automations.length === 0"
+            class="loading-message"
+          >
+            Loading automations...
+          </div>
 
           <AutomationsPanel
             :groupedAutomations="groupedByWorkspace"
@@ -456,25 +480,14 @@ const handleUpdateAutomation = async (
     <div v-show="!isMobile || mobilePanel === 'workspace'" class="main-pane">
       <!-- Assistant View -->
       <AssistantChat
-        v-if="
-          !selectedAutomation &&
-          !selectedFile &&
-          !selectedRun &&
-          selectedWorkspace &&
-          workspaceMiddleTab === 'chat'
-        "
-        :workspaceId="selectedWorkspace"
+        v-if="activeMainView === 'assistant'"
+        :workspaceId="selectedWorkspace!"
         @close="workspaceMiddleTab = 'pulse'"
       />
 
-      <!-- Default Dashboard View (Flat Timeline) - Now used for both Global and Workspace Pulse -->
+      <!-- Default Dashboard View -->
       <SystemPulseDashboard
-        v-else-if="
-          !selectedAutomation &&
-          !selectedFile &&
-          !selectedRun &&
-          (!selectedWorkspace || workspaceMiddleTab === 'pulse')
-        "
+        v-else-if="activeMainView === 'dashboard'"
         :selected-workspace="selectedWorkspace"
         :loading="loading"
         :workspace-history="workspaceHistory"
@@ -483,20 +496,19 @@ const handleUpdateAutomation = async (
         @open-chat="workspaceMiddleTab = 'chat'"
       />
 
-
       <!-- Historical Run View -->
       <HistoricalRunDetails
-        v-else-if="selectedRun"
-        :run="selectedRun"
+        v-else-if="activeMainView === 'history'"
+        :run="selectedRun!"
         @close="handleCloseDetails"
       />
 
       <!-- Editor View -->
-      <div v-else-if="selectedFile" class="editor-shell">
+      <div v-else-if="activeMainView === 'editor'" class="editor-shell">
         <div class="editor-header">
           <h2 class="editor-title">
             <span class="title-prefix">editing /</span>
-            {{ selectedFile.filename }}
+            {{ selectedFile?.filename }}
           </h2>
           <button
             @click="handleCloseDetails"
@@ -520,7 +532,7 @@ const handleUpdateAutomation = async (
           </button>
         </div>
         <FileEditor
-          :file="selectedFile"
+          :file="selectedFile!"
           :content="fileContent"
           :loading="loadingFile"
           :saving="savingFile"
@@ -531,8 +543,8 @@ const handleUpdateAutomation = async (
 
       <!-- Automation Details View -->
       <AutomationDetails
-        v-else-if="selectedAutomation"
-        :automation="selectedAutomation"
+        v-else-if="activeMainView === 'automation'"
+        :automation="selectedAutomation!"
         :last-trigger-result="lastTriggerResult"
         :selectedRun="selectedRun"
         @close="handleCloseDetails"
@@ -545,12 +557,16 @@ const handleUpdateAutomation = async (
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
         <button
+          v-if="!selectedAutomation?.is_running"
           @click="handleTrigger"
           :disabled="!selectedAutomation || triggering"
           class="btn-action"
           :class="{ 'btn-action--disabled': !selectedAutomation || triggering }"
         >
           {{ triggering ? "Executing..." : "Run Automation" }}
+        </button>
+        <button v-else @click="handleStop" class="btn-action btn-action--stop">
+          Stop Automation
         </button>
         <p v-if="!selectedAutomation" class="action-helper">
           Select an automation to enable execution
@@ -692,6 +708,10 @@ const handleUpdateAutomation = async (
 
 .btn-action--disabled {
   @apply bg-gray-700/50 text-gray-500 cursor-not-allowed border-transparent shadow-none;
+}
+
+.btn-action--stop {
+  @apply bg-red-600 hover:bg-red-500 border-red-400/30;
 }
 
 .action-helper {

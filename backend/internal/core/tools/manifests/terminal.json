@@ -15,7 +15,11 @@
       "uptime",
       "curl",
       "cat",
-      "grep"
+      "grep",
+      "ip",
+      "hostname",
+      "ifconfig",
+      "ping"
     ],
     "blocked_patterns": [
       "rm\\s+",

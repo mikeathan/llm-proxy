@@ -26,30 +26,12 @@ func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.R
 	h.handleDeleteModel(w, r)
 }
 
-func (h *AdminHandlers) getModelsView() []adminModelView {
-	models := h.admin.Models()
-	out := make([]adminModelView, 0, len(models))
-
-	for _, m := range models {
-		view := adminModelView{
-			Name:         m.Name,
-			Provider:     m.Provider,
-			Filename:     m.Filename,
-			ResolvedPath: h.admin.ResolveModelPath(m.Provider, m.Filename),
-			Args:         m.Args,
-			Port:         m.Port,
-		}
-		out = append(out, view)
-	}
-	return out
-}
-
 // AdminRegistryHandler handles GET /admin/api/registry
 func (h *AdminHandlers) AdminRegistryHandler(w http.ResponseWriter, r *http.Request) {
 	reg := h.admin.GetRegistry()
 	view := adminRegistryView{
 		Catalogue:  reg.Catalogue,
-		Providers:  reg.Providers,
+		Providers:  h.getProvidersView(),
 		MCPServers: reg.MCPServers,
 	}
 	respondJSON(w, view)
@@ -64,7 +46,7 @@ func (h *AdminHandlers) AdminRegistryPutHandler(w http.ResponseWriter, r *http.R
 
 	err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
 		reg.Catalogue = req.Catalogue
-		reg.Providers = req.Providers
+		reg.Providers = translateProvidersToRegistry(req.Providers)
 		reg.MCPServers = req.MCPServers
 	})
 

@@ -110,3 +110,13 @@ func TestWorkspaceManager_Sessions(t *testing.T) {
 		}
 	})
 }
+
+func TestWorkspaceManager_Paths(t *testing.T) {
+	tmpBase := t.TempDir()
+	mgr := NewWorkspaceManager(tmpBase)
+
+	rel := mgr.GetRelativeWorkspacePath()
+	if rel == "" {
+		t.Error("expected non-empty relative path")
+	}
+}

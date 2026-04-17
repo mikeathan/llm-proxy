@@ -93,7 +93,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 			Choices: []proxy.Choice{{
 				Message: proxy.Message{
 					Role:    proxy.AssistantRole,
-					Content: "The lamp is on.",
+					Content: "# Summary\nThe lamp is on. It's working perfectly.",
 				},
 			}},
 		},
@@ -119,7 +119,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	// Check response body
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if reply, ok := resp["reply"].(string); !ok || reply != "The lamp is on." {
+	if reply, ok := resp["reply"].(string); !ok || !strings.Contains(reply, "The lamp is on.") {
 		t.Errorf("expected reply 'The lamp is on.', got %v", resp)
 	}
 
@@ -166,5 +166,61 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 				t.Errorf("expected tool content state 'on', got %v", contentMap)
 			}
 		}
+	}
+}
+func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
+	tmpWorkspaces := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(tmpWorkspaces)
+	defer os.RemoveAll(tmpWorkspaces)
+
+	mockClient := &mocks.MockLLMClientProvider{
+		Client: &mocks.MockLLMClient{},
+	}
+	mockLimiter := &mocks.MockRateLimiter{}
+	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP.SetSystemPrompt("BASE_PROMPT")
+	mockMCP.SetToolsResult([]proxy.Tool{})
+	
+	engine := assistant.NewEngine(mockMCP, &noopLogger{})
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
+	service.PersistenceMgr = mgr
+
+	handler := NewAssistantMessageHandler(service)
+	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+	clientMock.Responses = []proxy.ChatResponse{
+		{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "# Initial Response\nHello workspace!"}}}},
+	}
+
+	reqBody := `{"conversation_id": "conv_init", "workspace_id": "test-jail", "message": "hi"}`
+	req := httptest.NewRequest("POST", "/api/v1/assistant", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	// Verify the request sent to LLM contains the jail prompt
+	if len(clientMock.Requests) == 0 {
+		t.Fatal("expected at least one request to LLM")
+	}
+
+	firstReq := clientMock.Requests[0]
+	if len(firstReq.Messages) == 0 || firstReq.Messages[0].Role != proxy.SystemRole {
+		t.Fatal("expected system message as first entry")
+	}
+
+	systemContent := firstReq.Messages[0].Content
+	if !strings.Contains(systemContent, "STRICT WORKSPACE RULES:") {
+		t.Errorf("system prompt missing jail rules: %s", systemContent)
+	}
+	
+	// Check that relative path was correctly injected
+	relWs := mgr.GetRelativeWorkspacePath()
+	expectedPath := relWs + "/test-jail/"
+	if !strings.Contains(systemContent, expectedPath) {
+		t.Errorf("system prompt missing expected relative path %s: %s", expectedPath, systemContent)
 	}
 }

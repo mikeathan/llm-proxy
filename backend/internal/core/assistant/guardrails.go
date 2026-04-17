@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -14,14 +15,18 @@ import (
 // GuardrailEngine evaluates tool calls against configured boundaries.
 type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
+	workspacesDir  string
 }
 
-func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig) *GuardrailEngine {
-	return &GuardrailEngine{configProvider: provider}
+func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, workspacesDir string) *GuardrailEngine {
+	return &GuardrailEngine{
+		configProvider: provider,
+		workspacesDir:  workspacesDir,
+	}
 }
 
 // ValidateToolCall checks a tool call against global and category-specific safety rules.
-func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolCall) error {
+func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolCall, workspaceID string) error {
 	cfg := e.configProvider()
 
 	// 1. Global Guardrails (Sensitive Data)
@@ -38,7 +43,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 	case "notify_user":
 		return e.validateCommunication(call, cfg.Communication)
 	case "list_directory", "read_file", "write_file":
-		return e.validateFileSystem(call, cfg.FileSystem)
+		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
 	}
 
 	return nil
@@ -116,7 +121,7 @@ func (e *GuardrailEngine) validateCommunication(call proxy.ToolCall, cfg models.
 	return nil
 }
 
-func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.FileSystemGuardrailsConfig) error {
+func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.FileSystemGuardrailsConfig, workspaceID string) error {
 	if !cfg.Enabled {
 		return fmt.Errorf("filesystem tools are disabled by guardrails policy")
 	}
@@ -128,6 +133,14 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 		return fmt.Errorf("failed to parse path: %w", err)
 	}
 
-	_, err := tools.IsSecurePath(args.Path, cfg.AllowedPaths)
+	// Dynamic Root: Ensure the specific workspace directory is always in the allowed roots
+	allowedRoots := append([]string{}, cfg.AllowedPaths...)
+	if workspaceID != "" {
+		// Use the correct workspaces directory (absolute or relative)
+		wsPath := filepath.Join(e.workspacesDir, workspaceID)
+		allowedRoots = append(allowedRoots, wsPath)
+	}
+
+	_, err := tools.IsSecurePath(args.Path, allowedRoots)
 	return err
 }

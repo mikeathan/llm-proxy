@@ -97,6 +97,25 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 	})
 }
 
+// StopAutomation stops any active automation for the specified workspace.
+func (h *DispatcherHandlers) StopAutomation(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	if workspaceID == "" {
+		respondError(w, http.StatusBadRequest, "workspace ID is required")
+		return
+	}
+
+	if err := h.dispatcher.StopAutomation(workspaceID); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]string{
+		"status":    "stopped",
+		"workspace": workspaceID,
+	})
+}
+
 func (h *DispatcherHandlers) GetDispatcherMetrics(w http.ResponseWriter, r *http.Request) {
 	metrics := h.dispatcher.Metrics()
 
@@ -139,7 +158,7 @@ func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *htt
 	}
 
 	// Subscribe to events
-	ch := h.dispatcher.Events().Subscribe(workspaceID)
+	ch, recent := h.dispatcher.Events().Subscribe(workspaceID)
 	defer h.dispatcher.Events().Unsubscribe(workspaceID, ch)
 
 	// Context for cancellation
@@ -147,6 +166,16 @@ func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *htt
 
 	// Initial ping
 	fmt.Fprintf(w, "event: ping\ndata: {\"status\":\"connected\"}\n\n")
+	flusher.Flush()
+
+	// Replay recent events for current run
+	for _, ev := range recent {
+		data, err := json.Marshal(ev)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "event: agent_update\ndata: %s\n\n", string(data))
+	}
 	flusher.Flush()
 
 	for {
@@ -222,7 +251,7 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 		"heartbeat.md": assistant.DefaultHeartbeat,
 		"agent.md":     assistant.DefaultAgentPrompt,
 		"config.yaml":  assistant.DefaultWorkspaceConfig,
-		"rules.md":     fmt.Sprintf(assistant.DefaultRules, req.ID),
+		"rules.md":     assistant.DefaultRules,
 	}
 
 	for filename, content := range defaultFiles {

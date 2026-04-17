@@ -75,6 +75,9 @@ func (m *mockAppContext) RootDir() string {
 func (m *mockAppContext) Secrets() models.SecretsStore {
 	return &mocks.MockSecretsStore{}
 }
+func (m *mockAppContext) WorkspacesDir() string {
+	return ""
+}
 
 func TestFileSystem_IsSecurePath(t *testing.T) {
 	allowed := []string{"/tmp/test_workspace"}

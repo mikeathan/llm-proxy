@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"llm-proxy/internal/core/proxy"
+	"strings"
 	"testing"
 )
 
@@ -50,7 +51,7 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "Hello world"}},
+				{Message: proxy.Message{Role: "assistant", Content: "# Summary\nHello world"}},
 			},
 		},
 	}
@@ -64,8 +65,8 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "Hello world" {
-		t.Errorf("Expected 'Hello world', got '%s'", reply)
+	if reply != "# Summary\nHello world" {
+		t.Errorf("Expected '# Summary\nHello world', got '%s'", reply)
 	}
 	if len(history) != 2 { // user + assistant
 		t.Errorf("Expected history length 2, got %d", len(history))
@@ -142,7 +143,7 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 		
 		return &proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "It is sunny in London."}},
+				{Message: proxy.Message{Role: "assistant", Content: "# Weather Report\nIt is sunny in London."}},
 			},
 		}, nil
 	}
@@ -152,7 +153,7 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "It is sunny in London." {
+	if reply != "# Weather Report\nIt is sunny in London." {
 		t.Errorf("Got unexpected reply: %s", reply)
 	}
 	if client.Calls != 2 {
@@ -160,5 +161,78 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	}
 	if len(history) != 4 { // user + assistant (tc) + tool result + assistant (final)
 		t.Errorf("Expected history length 4, got %d", len(history))
+	}
+}
+
+func TestNormalizeContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "clean string",
+			input:    "Hello world",
+			expected: "Hello world",
+		},
+		{
+			name:     "python empty block glitch",
+			input:    "[{'type': 'text', 'text': ''}] Hello",
+			expected: "Hello",
+		},
+		{
+			name:     "json empty block glitch",
+			input:    "[{\"type\": \"text\", \"text\": \"\"}] Hello",
+			expected: "Hello",
+		},
+		{
+			name:     "single object glitch",
+			input:    "{'type': 'text', 'text': ''} Hello",
+			expected: "Hello",
+		},
+		{
+			name:     "no space",
+			input:    "[{'type': 'text', 'text': ''}]<tools>call</tools>",
+			expected: "<tools>call</tools>",
+		},
+		{
+			name:     "embedded",
+			input:    "Thinking... [{'type': 'text', 'text': ''}]",
+			expected: "Thinking...", // Should trim the end too
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeContent(tt.input)
+			if got != tt.expected {
+				t.Errorf("normalizeContent(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestAgent_IsPrematureTermination(t *testing.T) {
+	agent := &Agent{}
+	tests := []struct {
+		name     string
+		content  string
+		expected bool
+	}{
+		{"empty", "", true},
+		{"too short", "Hello", true},
+		{"enough length", strings.Repeat("a", 60), false},
+		{"has header", "# Hi", false},
+		{"has code", "```js\n```", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := proxy.Message{Content: tt.content}
+			got := agent.isPrematureTermination(msg, nil)
+			if got != tt.expected {
+				t.Errorf("isPrematureTermination(%q) = %v, want %v", tt.content, got, tt.expected)
+			}
+		})
 	}
 }
