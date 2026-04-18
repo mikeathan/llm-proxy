@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, toRaw } from "vue";
 import { listToString, stringToList } from "../../utils/config";
 import type { GlobalConfig, AgentGuardrailsConfig } from "../../types/admin";
 
@@ -12,52 +12,88 @@ const emit = defineEmits<{
   (e: "save"): void;
 }>();
 
-// Local state to avoid direct prop mutation
-const localGuardrails = ref<AgentGuardrailsConfig>(JSON.parse(JSON.stringify(props.config.guardrails || {
-  global: { block_secrets: true, user_blocked_patterns: [] },
-  terminal: { enabled: false, allowed_commands: [], timeout_seconds: 30, max_output_size_chars: 10000 },
-  search: { enabled: false, max_query_len: 200, blocked_sites: [] },
-  communication: { enabled: false, require_review: true, max_messages_per_task: 10 },
-  filesystem: { enabled: false, allowed_paths: [], read_only: true, max_file_size_kb: 1024 }
-})));
+const localGuardrails = ref<AgentGuardrailsConfig>(
+  structuredClone(toRaw(props.config.guardrails)),
+);
 
-// Sync prop -> local
-watch(() => props.config.guardrails, (newVal) => {
-  if (newVal) {
-    localGuardrails.value = JSON.parse(JSON.stringify(newVal));
-  }
-}, { deep: true });
+watch(
+  () => props.config.guardrails,
+  (newVal) => {
+    if (newVal) {
+      const current = JSON.stringify(toRaw(localGuardrails.value));
+      const incoming = JSON.stringify(toRaw(newVal));
+      if (current !== incoming) {
+        localGuardrails.value = structuredClone(toRaw(newVal));
+      }
+    }
+  },
+  { deep: true },
+);
 
-// Sync local -> parent (emit)
-watch(localGuardrails, (newVal) => {
-  emit("update:config", { ...props.config, guardrails: newVal });
-}, { deep: true });
+watch(
+  localGuardrails,
+  (newVal) => {
+    // Only emit if data actually changed compared to the prop to avoid re-render loops.
+    // We use toRaw for stable comparison.
+    const current = JSON.stringify(toRaw(newVal));
+    const incoming = JSON.stringify(toRaw(props.config.guardrails));
+    if (current !== incoming) {
+      emit("update:config", { ...props.config, guardrails: newVal });
+    }
+  },
+  { deep: true },
+);
 
-// Helper for strings/lists
-const terminalAllowedStr = computed({
-  get: () => listToString(localGuardrails.value.terminal.allowed_commands),
-  set: (val) => { localGuardrails.value.terminal.allowed_commands = stringToList(val); }
+// Local state for raw strings to allow free typing
+const terminalAllowedRaw = ref(
+  listToString(localGuardrails.value.terminal.allowed_commands, "\n"),
+);
+const terminalBlockedRaw = ref(
+  listToString(localGuardrails.value.terminal.blocked_patterns, "\n"),
+);
+const fsAllowedPathsRaw = ref(
+  listToString(localGuardrails.value.filesystem.allowed_paths, "\n"),
+);
+const searchBlockedSitesRaw = ref(
+  listToString(localGuardrails.value.search.blocked_sites, "\n"),
+);
+const globalBlockedRaw = ref(
+  listToString(localGuardrails.value.global.user_blocked_patterns, "\n"),
+);
+
+watch(terminalAllowedRaw, (val) => {
+  localGuardrails.value.terminal.allowed_commands = stringToList(val, "\n");
+});
+watch(terminalBlockedRaw, (val) => {
+  localGuardrails.value.terminal.blocked_patterns = stringToList(val, "\n");
+});
+watch(fsAllowedPathsRaw, (val) => {
+  localGuardrails.value.filesystem.allowed_paths = stringToList(val, "\n");
+});
+watch(searchBlockedSitesRaw, (val) => {
+  localGuardrails.value.search.blocked_sites = stringToList(val, "\n");
+});
+watch(globalBlockedRaw, (val) => {
+  localGuardrails.value.global.user_blocked_patterns = stringToList(val, "\n");
 });
 
-const terminalBlockedStr = computed({
-  get: () => listToString(localGuardrails.value.terminal.blocked_patterns),
-  set: (val) => { localGuardrails.value.terminal.blocked_patterns = stringToList(val); }
-});
-
-const fsAllowedPathsStr = computed({
-  get: () => listToString(localGuardrails.value.filesystem.allowed_paths, '\n'),
-  set: (val) => { localGuardrails.value.filesystem.allowed_paths = stringToList(val, '\n'); }
-});
-
-const searchBlockedSitesStr = computed({
-  get: () => listToString(localGuardrails.value.search.blocked_sites),
-  set: (val) => { localGuardrails.value.search.blocked_sites = stringToList(val); }
-});
-
-const globalBlockedStr = computed({
-  get: () => listToString(localGuardrails.value.global.user_blocked_patterns),
-  set: (val) => { localGuardrails.value.global.user_blocked_patterns = stringToList(val); }
-});
+watch(
+  localGuardrails,
+  (newVal) => {
+    const sync = (rawRef: any, list: string[] | undefined) => {
+      const clean = listToString(list, "\n");
+      if (listToString(stringToList(rawRef.value, "\n"), "\n") !== clean) {
+        rawRef.value = clean;
+      }
+    };
+    sync(terminalAllowedRaw, newVal.terminal.allowed_commands);
+    sync(terminalBlockedRaw, newVal.terminal.blocked_patterns);
+    sync(fsAllowedPathsRaw, newVal.filesystem.allowed_paths);
+    sync(searchBlockedSitesRaw, newVal.search.blocked_sites);
+    sync(globalBlockedRaw, newVal.global.user_blocked_patterns);
+  },
+  { deep: true },
+);
 
 function handleSave() {
   emit("save");
@@ -77,14 +113,25 @@ function handleSave() {
         <h3 class="card-title">Global Security</h3>
         <div class="form-group mb-4">
           <label class="switch-row">
-            <input type="checkbox" v-model="localGuardrails.global.block_secrets" class="switch-input" />
+            <input
+              type="checkbox"
+              v-model="localGuardrails.global.block_secrets"
+              class="switch-input"
+            />
             <span class="switch-label">Block Secrets (PII Redaction)</span>
           </label>
         </div>
         <div class="form-group border-t border-gray-700/50 pt-4 mt-2">
           <label class="form-label">Global Blocked Patterns</label>
-          <div class="form-helper">Additional regex patterns to block globally across all tools.</div>
-          <textarea v-model="globalBlockedStr" class="form-input font-mono text-xs" rows="5" placeholder="e.g. [0-9]{3}-[0-9]{2}-[0-9]{4}"></textarea>
+          <div class="form-helper">
+            Additional regex patterns to block globally across all tools.
+          </div>
+          <textarea
+            v-model="globalBlockedRaw"
+            class="form-input font-mono text-xs"
+            rows="5"
+            placeholder="e.g. [0-9]{3}-[0-9]{2}-[0-9]{4}"
+          ></textarea>
         </div>
       </div>
 
@@ -93,31 +140,60 @@ function handleSave() {
         <div class="card-header">
           <h3 class="card-title">Terminal Tool</h3>
           <label class="switch-row p-0">
-             <input type="checkbox" v-model="localGuardrails.terminal.enabled" class="switch-input" />
-             <span class="text-xs uppercase font-bold tracking-widest text-gray-500">Enabled</span>
+            <input
+              type="checkbox"
+              v-model="localGuardrails.terminal.enabled"
+              class="switch-input"
+            />
+            <span
+              class="text-xs uppercase font-bold tracking-widest text-gray-500"
+              >Enabled</span
+            >
           </label>
         </div>
-        
+
         <div v-if="localGuardrails.terminal.enabled" class="card-body">
           <div class="form-group">
             <label class="form-label">Allowed Commands</label>
-            <div class="form-helper">Space or comma separated list of base commands (e.g. ls, nmap, ping)</div>
-            <textarea v-model="terminalAllowedStr" class="form-input font-mono text-xs" rows="5" placeholder="e.g. ls, pwd, cat"></textarea>
+            <div class="form-helper">
+              One base command per line (e.g. ls, nmap, ping)
+            </div>
+            <textarea
+              v-model="terminalAllowedRaw"
+              class="form-input font-mono text-xs"
+              rows="5"
+              placeholder="e.g. ls, pwd, cat"
+            ></textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Blocked Patterns</label>
-            <div class="form-helper">Regex patterns to block (e.g. rm\s+, sudo)</div>
-            <textarea v-model="terminalBlockedStr" class="form-input font-mono text-xs" rows="5" placeholder="e.g. rm -rf, sudo"></textarea>
+            <div class="form-helper">
+              Regex patterns to block (e.g. rm\s+, sudo)
+            </div>
+            <textarea
+              v-model="terminalBlockedRaw"
+              class="form-input font-mono text-xs"
+              rows="5"
+              placeholder="e.g. rm -rf, sudo"
+            ></textarea>
           </div>
           <div class="grid grid-cols-2 gap-4">
-             <div class="form-group">
-               <label class="form-label">Timeout (sec)</label>
-               <input type="number" v-model.number="localGuardrails.terminal.timeout_seconds" class="form-input" />
-             </div>
-             <div class="form-group">
-               <label class="form-label">Max Output (chars)</label>
-               <input type="number" v-model.number="localGuardrails.terminal.max_output_size_chars" class="form-input" />
-             </div>
+            <div class="form-group">
+              <label class="form-label">Timeout (sec)</label>
+              <input
+                type="number"
+                v-model.number="localGuardrails.terminal.timeout_seconds"
+                class="form-input"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Output (chars)</label>
+              <input
+                type="number"
+                v-model.number="localGuardrails.terminal.max_output_size_chars"
+                class="form-input"
+              />
+            </div>
           </div>
         </div>
         <div v-else class="card-disabled">Terminal execution is disabled.</div>
@@ -128,50 +204,88 @@ function handleSave() {
         <div class="card-header">
           <h3 class="card-title">FileSystem Tool</h3>
           <label class="switch-row p-0">
-             <input type="checkbox" v-model="localGuardrails.filesystem.enabled" class="switch-input" />
-             <span class="text-xs uppercase font-bold tracking-widest text-gray-500">Enabled</span>
+            <input
+              type="checkbox"
+              v-model="localGuardrails.filesystem.enabled"
+              class="switch-input"
+            />
+            <span
+              class="text-xs uppercase font-bold tracking-widest text-gray-500"
+              >Enabled</span
+            >
           </label>
         </div>
-        
+
         <div v-if="localGuardrails.filesystem.enabled" class="card-body">
           <div class="form-group">
             <label class="switch-row">
-              <input type="checkbox" v-model="localGuardrails.filesystem.read_only" class="switch-input" />
+              <input
+                type="checkbox"
+                v-model="localGuardrails.filesystem.read_only"
+                class="switch-input"
+              />
               <span class="switch-label">Read Only Access</span>
             </label>
           </div>
           <div class="form-group">
             <label class="form-label">Allowed Paths</label>
-            <div class="form-helper">One path per line. Defaults to workspace root.</div>
-            <textarea v-model="fsAllowedPathsStr" class="form-input font-mono text-xs" rows="3"></textarea>
+            <div class="form-helper">
+              One path per line. Defaults to workspace root.
+            </div>
+            <textarea
+              v-model="fsAllowedPathsRaw"
+              class="form-input font-mono text-xs"
+              rows="3"
+            ></textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Max File Size (KB)</label>
-            <input type="number" v-model.number="localGuardrails.filesystem.max_file_size_kb" class="form-input" />
+            <input
+              type="number"
+              v-model.number="localGuardrails.filesystem.max_file_size_kb"
+              class="form-input"
+            />
           </div>
         </div>
         <div v-else class="card-disabled">FileSystem access is disabled.</div>
       </div>
 
       <!-- Search & Communication Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 col-span-1 lg:col-span-2">
+      <div
+        class="grid grid-cols-1 md:grid-cols-2 gap-6 col-span-1 lg:col-span-2"
+      >
         <!-- Search -->
         <div class="config-card h-full">
           <div class="card-header">
             <h3 class="card-title">Internet Search</h3>
             <label class="switch-row p-0">
-               <input type="checkbox" v-model="localGuardrails.search.enabled" class="switch-input" />
-               <span class="text-xs uppercase font-bold tracking-widest text-gray-500">Enabled</span>
+              <input
+                type="checkbox"
+                v-model="localGuardrails.search.enabled"
+                class="switch-input"
+              />
+              <span
+                class="text-xs uppercase font-bold tracking-widest text-gray-500"
+                >Enabled</span
+              >
             </label>
           </div>
           <div v-if="localGuardrails.search.enabled" class="card-body">
             <div class="form-group">
               <label class="form-label">Max Query Length</label>
-              <input type="number" v-model.number="localGuardrails.search.max_query_len" class="form-input" />
+              <input
+                type="number"
+                v-model.number="localGuardrails.search.max_query_len"
+                class="form-input"
+              />
             </div>
             <div class="form-group">
               <label class="form-label">Blocked Sites</label>
-              <textarea v-model="searchBlockedSitesStr" class="form-input font-mono text-xs" rows="4"></textarea>
+              <textarea
+                v-model="searchBlockedSitesRaw"
+                class="form-input font-mono text-xs"
+                rows="4"
+              ></textarea>
             </div>
           </div>
         </div>
@@ -181,20 +295,37 @@ function handleSave() {
           <div class="card-header">
             <h3 class="card-title">Communication</h3>
             <label class="switch-row p-0">
-               <input type="checkbox" v-model="localGuardrails.communication.enabled" class="switch-input" />
-               <span class="text-xs uppercase font-bold tracking-widest text-gray-500">Enabled</span>
+              <input
+                type="checkbox"
+                v-model="localGuardrails.communication.enabled"
+                class="switch-input"
+              />
+              <span
+                class="text-xs uppercase font-bold tracking-widest text-gray-500"
+                >Enabled</span
+              >
             </label>
           </div>
           <div v-if="localGuardrails.communication.enabled" class="card-body">
             <div class="form-group">
               <label class="switch-row">
-                <input type="checkbox" v-model="localGuardrails.communication.require_review" class="switch-input" />
+                <input
+                  type="checkbox"
+                  v-model="localGuardrails.communication.require_review"
+                  class="switch-input"
+                />
                 <span class="switch-label">Require Human Review</span>
               </label>
             </div>
             <div class="form-group">
               <label class="form-label">Max Messages Per Task</label>
-              <input type="number" v-model.number="localGuardrails.communication.max_messages_per_task" class="form-input" />
+              <input
+                type="number"
+                v-model.number="
+                  localGuardrails.communication.max_messages_per_task
+                "
+                class="form-input"
+              />
             </div>
           </div>
         </div>
