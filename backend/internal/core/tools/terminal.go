@@ -12,16 +12,20 @@ import (
 
 // TerminalTools provides tools for executing local shell commands.
 type TerminalTools struct {
-	configProvider func() models.TerminalGuardrailsConfig
+	configProvider func(ctx context.Context) models.TerminalGuardrailsConfig
 }
 
-func NewTerminalTools(provider func() models.TerminalGuardrailsConfig) *TerminalTools {
+func NewTerminalTools(provider func(ctx context.Context) models.TerminalGuardrailsConfig) *TerminalTools {
 	return &TerminalTools{configProvider: provider}
 }
 
+func (t *TerminalTools) Config(ctx context.Context) models.TerminalGuardrailsConfig {
+	return t.configProvider(ctx)
+}
+
 // Validate checks if a command is allowed based on the provided configuration.
-func (t *TerminalTools) Validate(command string) error {
-	return ValidateTerminalCommand(command, t.configProvider())
+func (t *TerminalTools) Validate(ctx context.Context, command string) error {
+	return ValidateTerminalCommand(command, t.configProvider(ctx))
 }
 
 // ValidateTerminalCommand is a standalone validator that checks a command against guardrails.
@@ -65,8 +69,8 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 }
 
 func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string) (string, error) {
-	cfg := t.configProvider()
-	if err := t.Validate(command); err != nil {
+	cfg := t.configProvider(ctx)
+	if err := t.Validate(ctx, command); err != nil {
 		return "", err
 	}
 

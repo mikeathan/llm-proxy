@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"llm-proxy/models"
 	"os"
@@ -10,15 +11,19 @@ import (
 
 // FileSystemTools provides secure file operations.
 type FileSystemTools struct {
-	configProvider func() models.FileSystemGuardrailsConfig
+	configProvider func(ctx context.Context) models.FileSystemGuardrailsConfig
 }
 
-func NewFileSystemTools(provider func() models.FileSystemGuardrailsConfig) *FileSystemTools {
+func NewFileSystemTools(provider func(ctx context.Context) models.FileSystemGuardrailsConfig) *FileSystemTools {
 	return &FileSystemTools{configProvider: provider}
 }
 
-func (f *FileSystemTools) ValidatePath(path string, isWrite bool) (string, error) {
-	cfg := f.configProvider()
+func (f *FileSystemTools) Config(ctx context.Context) models.FileSystemGuardrailsConfig {
+	return f.configProvider(ctx)
+}
+
+func (f *FileSystemTools) ValidatePath(ctx context.Context, path string, isWrite bool) (string, error) {
+	cfg := f.configProvider(ctx)
 	if !cfg.Enabled {
 		return "", fmt.Errorf("filesystem tools are disabled in configuration")
 	}
@@ -64,8 +69,8 @@ func (f *FileSystemTools) ValidatePath(path string, isWrite bool) (string, error
 	return absPath, nil
 }
 
-func (f *FileSystemTools) ListDirectory(path string) ([]string, error) {
-	absPath, err := f.ValidatePath(path, false)
+func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) ([]string, error) {
+	absPath, err := f.ValidatePath(ctx, path, false)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +84,7 @@ func (f *FileSystemTools) ListDirectory(path string) ([]string, error) {
 		name := entry.Name()
 		// Filter out blocked files from listing too
 		isBlocked := false
-		for _, b := range f.configProvider().BlockedFilenames {
+		for _, b := range f.configProvider(ctx).BlockedFilenames {
 			if name == b {
 				isBlocked = true
 				break
@@ -97,8 +102,8 @@ func (f *FileSystemTools) ListDirectory(path string) ([]string, error) {
 	return names, nil
 }
 
-func (f *FileSystemTools) ReadFile(path string) (string, error) {
-	absPath, err := f.ValidatePath(path, false)
+func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, error) {
+	absPath, err := f.ValidatePath(ctx, path, false)
 	if err != nil {
 		return "", err
 	}
@@ -110,13 +115,13 @@ func (f *FileSystemTools) ReadFile(path string) (string, error) {
 	return string(content), nil
 }
 
-func (f *FileSystemTools) WriteFile(path string, content string) error {
-	absPath, err := f.ValidatePath(path, true)
+func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content string) error {
+	absPath, err := f.ValidatePath(ctx, path, true)
 	if err != nil {
 		return err
 	}
 
-	cfg := f.configProvider()
+	cfg := f.configProvider(ctx)
 
 	// Check File Size Quota
 	if cfg.MaxFileSizeKB > 0 && (len(content)/1024) > cfg.MaxFileSizeKB {

@@ -15,16 +15,16 @@ type ToolProvider interface {
 
 // MultiToolProvider aggregates tools from multiple providers.
 type MultiToolProvider struct {
-	providers []ToolProvider
+	Providers []ToolProvider
 }
 
 func NewMultiToolProvider(providers ...ToolProvider) *MultiToolProvider {
-	return &MultiToolProvider{providers: providers}
+	return &MultiToolProvider{Providers: providers}
 }
 
 func (p *MultiToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	var all []proxy.Tool
-	for _, provider := range p.providers {
+	for _, provider := range p.Providers {
 		tools, err := provider.ListTools(ctx)
 		if err != nil {
 			continue // Skip failing providers
@@ -36,7 +36,7 @@ func (p *MultiToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error)
 
 func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
 	var fullPrompt []string
-	for _, provider := range p.providers {
+	for _, provider := range p.Providers {
 		pStr, err := provider.GetSystemPrompt()
 		if err != nil || pStr == "" {
 			continue

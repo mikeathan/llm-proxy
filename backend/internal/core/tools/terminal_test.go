@@ -9,11 +9,11 @@ import (
 
 func TestTerminalTools_Guardrails(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        models.TerminalGuardrailsConfig
-		command       string
-		wantErr       bool
-		errContains   string
+		name        string
+		config      models.TerminalGuardrailsConfig
+		command     string
+		wantErr     bool
+		errContains string
 	}{
 		{
 			name: "Allowed command works",
@@ -30,8 +30,8 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 				Enabled:         true,
 				AllowedCommands: []string{"ls"},
 			},
-			command: "rm -rf /",
-			wantErr: true,
+			command:     "rm -rf /",
+			wantErr:     true,
 			errContains: "not in the allowed whitelist",
 		},
 		{
@@ -41,8 +41,8 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 				AllowedCommands: []string{"ls"},
 				BlockedPatterns: []string{";", "\\|"},
 			},
-			command: "ls; rm -rf /",
-			wantErr: true,
+			command:     "ls; rm -rf /",
+			wantErr:     true,
 			errContains: "blocked pattern",
 		},
 		{
@@ -50,8 +50,8 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			config: models.TerminalGuardrailsConfig{
 				Enabled: false,
 			},
-			command: "ls",
-			wantErr: true,
+			command:     "ls",
+			wantErr:     true,
 			errContains: "disabled",
 		},
 		{
@@ -59,8 +59,8 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			config: models.TerminalGuardrailsConfig{
 				Enabled: true,
 			},
-			command: "   ",
-			wantErr: true,
+			command:     "   ",
+			wantErr:     true,
 			errContains: "empty",
 		},
 	}
@@ -68,18 +68,18 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create tool with a provider that returns the test config
-			term := NewTerminalTools(func() models.TerminalGuardrailsConfig {
+			term := NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
 				return tt.config
 			})
 
 			ctx := context.Background()
-			
-			// For allowed commands that we don't actually want to run on the test machine, 
+
+			// For allowed commands that we don't actually want to run on the test machine,
 			// we skip the actual execution if it's not an error case.
 			// But since 'ls' is safe, we let it run check if it's expected to pass.
-			
+
 			res, err := term.ExecuteCommand(ctx, tt.command)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Expected error but got nil")

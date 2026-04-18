@@ -203,7 +203,9 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			continue
 		}
 
-		result, err := a.engine.ExecuteTool(ctx, tc)
+		// Inject workspace ID into context so tools can resolve contextual guardrails
+		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
+		result, err := a.engine.ExecuteTool(toolCtx, tc)
 		if err != nil {
 			a.logger.Warn("tool execution failed", "name", tc.Function.Name, "error", err)
 			result = formatToolError(err)

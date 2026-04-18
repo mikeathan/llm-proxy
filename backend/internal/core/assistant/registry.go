@@ -16,10 +16,10 @@ import (
 type LocalToolRegistry struct {
 	toolDefinitions []proxy.Tool
 	handlers        map[string]ToolHandler
-	terminal        *tools.TerminalTools
-	communication   *tools.CommunicationTools
-	search          *tools.InternetTools
-	fs              *tools.FileSystemTools
+	Terminal        *tools.TerminalTools
+	Communication   *tools.CommunicationTools
+	Search          *tools.InternetTools
+	FileSystem      *tools.FileSystemTools
 }
 
 func NewLocalToolRegistry(
@@ -30,10 +30,10 @@ func NewLocalToolRegistry(
 ) *LocalToolRegistry {
 	r := &LocalToolRegistry{
 		handlers:      make(map[string]ToolHandler),
-		terminal:      terminal,
-		communication: comm,
-		search:        search,
-		fs:            fsTools,
+		Terminal:      terminal,
+		Communication: comm,
+		Search:        search,
+		FileSystem:    fsTools,
 	}
 	r.registerAll()
 	return r
@@ -61,10 +61,15 @@ func InitializeAgentStack(
 	defaultGuardrails := tools.GetDefaultGuardrails(rootDir)
 
 	// 2. Initialize local machine capabilities
-	terminal := tools.NewTerminalTools(func() models.TerminalGuardrailsConfig {
-		// Guardrails are now primarily derived from manifest files,
-		// with local defaults as fallback.
-		return defaultGuardrails.Terminal
+	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
+		cfg := defaultGuardrails.Terminal
+		wsID := models.GetWorkspaceID(ctx)
+		if wsID != "" && persistence != nil {
+			if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
+				cfg = wsCfg.Guardrails.Terminal
+			}
+		}
+		return cfg
 	})
 
 	// 3. Initialize Guardrail Engine with granular merging
@@ -95,11 +100,20 @@ func InitializeAgentStack(
 	}
 
 	// 5. Initialize FileSystem
-	fsTools := tools.NewFileSystemTools(func() models.FileSystemGuardrailsConfig {
+	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		cfg := defaultGuardrails.FileSystem
-		// Ensure the underlying tool ALWAYS considers the active Workspaces root as an authorized path.
-		// The GuardrailEngine handles the granular per-workspace jailing before the tool is even called.
-		cfg.AllowedPaths = append(cfg.AllowedPaths, appCtx.WorkspacesDir())
+		wsID := models.GetWorkspaceID(ctx)
+		if wsID != "" {
+			// 1. Apply workspace-specific overrides if they exist
+			if persistence != nil {
+				if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
+					cfg = wsCfg.Guardrails.FileSystem
+				}
+			}
+			// 2. STAMP the physical jailing path. This ensures the tool itself
+			// considers its own workspace as an authorized path.
+			cfg.AllowedPaths = append(cfg.AllowedPaths, resolver.WorkspaceDir(wsID))
+		}
 		return cfg
 	})
 
@@ -171,7 +185,7 @@ func (r *LocalToolRegistry) registerTerminalTools() {
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
-		return r.terminal.ExecuteCommand(ctx, args.Command)
+		return r.Terminal.ExecuteCommand(ctx, args.Command)
 	}
 }
 
@@ -202,10 +216,10 @@ func (r *LocalToolRegistry) registerCommunicationTools() {
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
-		if r.communication == nil {
+		if r.Communication == nil {
 			return nil, fmt.Errorf("communication tools not configured")
 		}
-		return "Notification sent successfully", r.communication.NotifyAll(ctx, args.Message)
+		return "Notification sent successfully", r.Communication.NotifyAll(ctx, args.Message)
 	}
 }
 
@@ -236,10 +250,10 @@ func (r *LocalToolRegistry) registerSearchTools() {
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
-		if r.search == nil {
+		if r.Search == nil {
 			return nil, fmt.Errorf("search tools not configured")
 		}
-		return r.search.Search(ctx, args.Query)
+		return r.Search.Search(ctx, args.Query)
 	}
 }
 
@@ -267,7 +281,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
-		return r.fs.ListDirectory(args.Path)
+		return r.FileSystem.ListDirectory(ctx, args.Path)
 	}
 
 	// 2. Read File
@@ -293,7 +307,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
-		return r.fs.ReadFile(args.Path)
+		return r.FileSystem.ReadFile(ctx, args.Path)
 	}
 
 	// 3. Write File
@@ -321,6 +335,6 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
-		return "File written successfully", r.fs.WriteFile(args.Path, args.Content)
+		return "File written successfully", r.FileSystem.WriteFile(ctx, args.Path, args.Content)
 	}
 }

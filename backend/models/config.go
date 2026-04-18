@@ -1,5 +1,29 @@
 package models
 
+import (
+	"context"
+)
+
+type contextKey string
+
+const WorkspaceIDKey contextKey = "workspace_id"
+
+// GetWorkspaceID retrieves the workspace ID from the context.
+func GetWorkspaceID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(WorkspaceIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// WithWorkspaceID injects the workspace ID into the context.
+func WithWorkspaceID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, WorkspaceIDKey, id)
+}
+
 type Config struct {
 	Server        ServerConfig            `json:"server"`
 	Providers     map[string]ProviderItem `json:"providers"`
