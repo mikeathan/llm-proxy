@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"path/filepath"
 	"strings"
@@ -47,7 +48,7 @@ func TestGuardrailEngine_GlobalGuardrails(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{}
 			cfg.Global.BlockSecrets = tt.blockSecrets
 			
-			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, "")
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver(""), nil)
 			
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
@@ -110,11 +111,11 @@ func TestGuardrailEngine_SearchGuardrails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{Search: tt.config}
-			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, "")
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver(""), nil)
 			
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
-					Name:      "internet_search",
+					Name:      models.ToolInternetSearch,
 					Arguments: tt.query,
 				},
 			}
@@ -162,11 +163,11 @@ func TestGuardrailEngine_CommunicationGuardrails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{Communication: tt.config}
-			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, "")
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver(""), nil)
 			
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
-					Name: "notify_user",
+					Name: models.ToolNotifyUser,
 				},
 			}
 
@@ -182,19 +183,22 @@ func TestGuardrailEngine_CommunicationGuardrails(t *testing.T) {
 }
 
 func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
-	tmpDir := t.TempDir()
-	wsDir := filepath.Join(tmpDir, "data", "workspaces")
+	wsDir := "workspaces" // Constant for test env
 
 	cfg := models.AgentGuardrailsConfig{
 		FileSystem: models.FileSystemGuardrailsConfig{
 			Enabled:      true,
+			ReadOnly:     false,
 			AllowedPaths: []string{}, // No global paths
 		},
 	}
 
-	// Initialize with the data/workspaces root
-	engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, wsDir)
+	resolver := storage.NewPathResolver(wsDir)
+	engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return cfg
+	}, resolver, nil)
 
+	ctx := context.Background()
 	tests := []struct {
 		name        string
 		workspaceID string
@@ -214,9 +218,33 @@ func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			name:        "Reject outside access",
+			name:        "Protect system config in root",
 			workspaceID: "test-ws",
-			path:        filepath.Join(tmpDir, "outside.txt"),
+			path:        models.ConfigFilename,
+			wantErr:     true,
+		},
+		{
+			name:        "Protect hidden internal files (relative)",
+			workspaceID: "test-ws",
+			path:        filepath.Join(models.InternalDirName, "metadata.log"),
+			wantErr:     true,
+		},
+		{
+			name:        "Protect hidden internal files (absolute/full)",
+			workspaceID: "test-ws",
+			path:        filepath.Join(wsDir, "test-ws", models.InternalDirName, "state.json"),
+			wantErr:     true,
+		},
+		{
+			name:        "Block access to config.yaml inside .internal",
+			workspaceID: "test-ws",
+			path:        filepath.Join(wsDir, "test-ws", models.InternalDirName, models.ConfigFilename),
+			wantErr:     true,
+		},
+		{
+			name:        "Block hidden dotfiles in root",
+			workspaceID: "test-ws",
+			path:        filepath.Join(wsDir, "test-ws", ".env"),
 			wantErr:     true,
 		},
 	}
@@ -225,11 +253,11 @@ func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
-					Name:      "read_file",
+					Name:      models.ToolFileRead,
 					Arguments: `{"path": "` + strings.ReplaceAll(tt.path, `\`, `\\`) + `"}`,
 				},
 			}
-			err := engine.ValidateToolCall(context.Background(), call, tt.workspaceID)
+			err := engine.ValidateToolCall(ctx, call, tt.workspaceID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("%s: ValidateToolCall() error = %v, wantErr %v", tt.name, err, tt.wantErr)
 			}

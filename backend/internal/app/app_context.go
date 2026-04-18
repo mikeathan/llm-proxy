@@ -20,7 +20,7 @@ type AppContext struct {
 	manager       llm.RuntimeManager
 	dataMgr       *storage.DataManager
 	modelDir      string
-	workspacesDir string
+	resolver      *storage.PathResolver
 	rootDir       string
 	gpuConfig     models.GPUConfig
 	metrics       *metrics.MetricsService
@@ -34,11 +34,11 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 	rootDir := dataMgr.RootDir()
 
 	s := &AppContext{
-		manager:       mgr,
-		dataMgr:       dataMgr,
-		modelDir:      sys.Local.ModelDir,
-		workspacesDir: dataMgr.WorkspacesDir(),
-		rootDir:       rootDir,
+		manager:  mgr,
+		dataMgr:  dataMgr,
+		modelDir: sys.Local.ModelDir,
+		resolver: storage.NewPathResolver(dataMgr.WorkspacesDir()),
+		rootDir:  rootDir,
 	}
 
 	// Link manager to secrets
@@ -48,7 +48,7 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 
 	logging.Debug("State initialized",
 		"root", rootDir,
-		"workspaces", s.workspacesDir,
+		"workspaces", s.resolver.WorkspacesRoot(),
 		"model_dir", s.modelDir)
 
 	s.refreshMetricsService()
@@ -101,7 +101,7 @@ func (s *AppContext) RootDir() string {
 }
 
 func (s *AppContext) WorkspacesDir() string {
-	return s.workspacesDir
+	return s.resolver.WorkspacesRoot()
 }
 
 func (s *AppContext) SetModelDir(dir string) {
@@ -109,7 +109,7 @@ func (s *AppContext) SetModelDir(dir string) {
 }
 
 func (s *AppContext) SetWorkspacesDir(dir string) {
-	s.workspacesDir = dir
+	s.resolver = storage.NewPathResolver(dir)
 }
 
 // Tier 1: System
@@ -212,19 +212,19 @@ func (s *AppContext) SetEnvironment(env map[string]string) error {
 
 func (s *AppContext) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
 	var errs []error
-	if err := tools.SaveManifest(s.rootDir, "terminal", cfg.Terminal); err != nil {
+	if err := tools.SaveManifest(s.rootDir, models.CategoryTerminal, cfg.Terminal); err != nil {
 		errs = append(errs, fmt.Errorf("terminal: %w", err))
 	}
-	if err := tools.SaveManifest(s.rootDir, "filesystem", cfg.FileSystem); err != nil {
+	if err := tools.SaveManifest(s.rootDir, models.CategoryFileSystem, cfg.FileSystem); err != nil {
 		errs = append(errs, fmt.Errorf("filesystem: %w", err))
 	}
-	if err := tools.SaveManifest(s.rootDir, "search", cfg.Search); err != nil {
+	if err := tools.SaveManifest(s.rootDir, models.CategorySearch, cfg.Search); err != nil {
 		errs = append(errs, fmt.Errorf("search: %w", err))
 	}
-	if err := tools.SaveManifest(s.rootDir, "communication", cfg.Communication); err != nil {
+	if err := tools.SaveManifest(s.rootDir, models.CategoryCommunication, cfg.Communication); err != nil {
 		errs = append(errs, fmt.Errorf("communication: %w", err))
 	}
-	if err := tools.SaveManifest(s.rootDir, "security", cfg.Global); err != nil {
+	if err := tools.SaveManifest(s.rootDir, models.CategoryGlobal, cfg.Global); err != nil {
 		errs = append(errs, fmt.Errorf("security: %w", err))
 	}
 
@@ -242,7 +242,7 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 		}
 		if req.WorkspacesDir != "" {
 			sys.WorkspacesDir = req.WorkspacesDir
-			s.workspacesDir = req.WorkspacesDir
+			s.SetWorkspacesDir(req.WorkspacesDir)
 		}
 		if req.ModelHost != "" {
 			sys.Server.ModelHost = req.ModelHost
@@ -510,11 +510,8 @@ func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
 	if workspaceID == "" {
 		return logging.GetGlobalLogger()
 	}
-	dir := s.workspacesDir
-	if dir == "" {
-		dir = "workspaces"
-	}
-	logFile := filepath.Join(dir, workspaceID, ".internal", "process.log")
+
+	logFile := s.resolver.ProcessLog(workspaceID)
 	l, err := logging.NewFileLogger(logging.Options{
 		File:   logFile,
 		Stdout: true,

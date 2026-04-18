@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"path/filepath"
 	"regexp"
@@ -15,19 +17,28 @@ import (
 // GuardrailEngine evaluates tool calls against configured boundaries.
 type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
-	workspacesDir  string
+	resolver       *storage.PathResolver
+	persistence    *persistence.WorkspaceManager
 }
 
-func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, workspacesDir string) *GuardrailEngine {
+func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver *storage.PathResolver, persistence *persistence.WorkspaceManager) *GuardrailEngine {
 	return &GuardrailEngine{
 		configProvider: provider,
-		workspacesDir:  workspacesDir,
+		resolver:       resolver,
+		persistence:    persistence,
 	}
 }
 
 // ValidateToolCall checks a tool call against global and category-specific safety rules.
 func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolCall, workspaceID string) error {
 	cfg := e.configProvider()
+
+	// Load and merge workspace-specific overrides
+	if workspaceID != "" && e.persistence != nil {
+		if wsCfg, err := e.persistence.ReadConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
+			cfg.MergeWith(wsCfg.Guardrails)
+		}
+	}
 
 	// 1. Global Guardrails (Sensitive Data)
 	if err := e.validateGlobal(call, cfg.Global); err != nil {
@@ -36,13 +47,13 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 
 	// 2. Category-Specific Guardrails
 	switch call.Function.Name {
-	case "execute_terminal_command":
+	case models.ToolTerminalExecute:
 		return e.validateTerminal(call, cfg.Terminal)
-	case "internet_search":
+	case models.ToolInternetSearch:
 		return e.validateSearch(call, cfg.Search)
-	case "notify_user":
+	case models.ToolNotifyUser:
 		return e.validateCommunication(call, cfg.Communication)
-	case "list_directory", "read_file", "write_file":
+	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
 	}
 
@@ -133,11 +144,22 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 		return fmt.Errorf("failed to parse path: %w", err)
 	}
 
+	// 0. System Protection: Strictly block access to hidden files/folders and config files
+	// This prevents the agent from tampering with its own security configuration
+	base := filepath.Base(args.Path)
+	if strings.HasPrefix(base, ".") || strings.HasPrefix(args.Path, ".") ||
+		strings.Contains(args.Path, "/.") ||
+		base == models.ConfigFilename || base == models.StateFilename ||
+		base == models.LockFilename ||
+		strings.Contains(args.Path, models.InternalDirName) {
+		return fmt.Errorf("path access denied: restricted system file")
+	}
+
 	// Dynamic Root: Ensure the specific workspace directory is always in the allowed roots
 	allowedRoots := append([]string{}, cfg.AllowedPaths...)
 	if workspaceID != "" {
-		// Use the correct workspaces directory (absolute or relative)
-		wsPath := filepath.Join(e.workspacesDir, workspaceID)
+		// Use the correct workspaces directory (resolved via central resolver)
+		wsPath := e.resolver.WorkspaceDir(workspaceID)
 		allowedRoots = append(allowedRoots, wsPath)
 	}
 

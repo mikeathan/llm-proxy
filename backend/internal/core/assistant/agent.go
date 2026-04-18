@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"regexp"
 	"strings"
@@ -62,7 +63,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	// Default guardrail engine if none provided
 	guardrails := opts.Guardrails
 	if guardrails == nil {
-		guardrails = NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, "")
+		guardrails = NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver(""), nil)
 	}
 
 	return &Agent{
@@ -102,10 +103,10 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 		// Handle embedded tool calls in content (common with local models like Qwen)
 		a.handleContentToolCalls(&msg)
-		
+
 		// Content Normalization (Handle common model glitches)
 		msg.Content = normalizeContent(msg.Content)
-		
+
 		currentHistory = append(currentHistory, msg)
 		a.notify(EventMessage, msg)
 
@@ -222,8 +223,6 @@ func formatGuardrailError(err error) map[string]string {
 	return map[string]string{"error": "Guardrail violation: " + err.Error()}
 }
 
-
-
 // appendToolResult helper
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
 	raw, _ := json.Marshal(result)
@@ -308,7 +307,7 @@ func normalizeContent(content string) string {
 	// e.g. [{'type': 'text', 'text': ''}] or {"type": "text", "text": ""}
 	extractPattern := `\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]['"]\s*\}?\s*\]?`
 	re := regexp.MustCompile(extractPattern)
-	
+
 	// Remove the noise blocks entirely
 	content = re.ReplaceAllString(content, "")
 

@@ -433,7 +433,8 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	// Immediately notify UI that execution has actively started
 	d.events.Clear(entry.Workspace)
 	d.events.Publish(entry.Workspace, assistant.AgentEvent{
-		Type: assistant.EventMessage,
+		Type:      assistant.EventMessage,
+		Timestamp: time.Now(),
 		Payload: proxy.Message{
 			Role:    "system",
 			Content: fmt.Sprintf("▶ Booting automation: %s\nLoading task file: %s", entry.Name, entry.TaskFile),

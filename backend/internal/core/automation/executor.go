@@ -264,8 +264,8 @@ func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
 
 	// Safely format rules to avoid %!(EXTRA) errors if the file doesn't contain verbs
 	formattedRules := rules
-	formattedRules = strings.ReplaceAll(formattedRules, "%[1]s", relWs)
-	formattedRules = strings.ReplaceAll(formattedRules, "%[2]s", req.WorkspaceID)
+	formattedRules = strings.ReplaceAll(formattedRules, "{{REL_WS}}", relWs)
+	formattedRules = strings.ReplaceAll(formattedRules, "{{WORKSPACE_ID}}", req.WorkspaceID)
 
 	return fmt.Sprintf(assistant.AutomationTaskPrompt,
 		formattedRules,

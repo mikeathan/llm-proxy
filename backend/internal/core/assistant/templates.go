@@ -1,13 +1,18 @@
 package assistant
 
-import "fmt"
+import (
+	"strings"
+)
 
 // FileSystemRules defines the standard path jail instructions.
-const FileSystemRules = `1. FILESYSTEM: All file paths MUST be relative to the application root. To access files in your current workspace, you MUST prefix the path with '%[1]s/%[2]s/'. Example: to read 'task.md', use '%[1]s/%[2]s/task.md'.`
+const FileSystemRules = `1. FILESYSTEM: All file paths MUST be relative to the application root. To access files in your current workspace, you MUST prefix the path with '{{REL_WS}}/{{WORKSPACE_ID}}/'. Example: to read 'task.md', use '{{REL_WS}}/{{WORKSPACE_ID}}/task.md'.`
 
 // BuildJailPrompt constructs the strict workspace filesystem jail rules.
 func BuildJailPrompt(relWs, workspaceID string) string {
-	return "\n\nSTRICT WORKSPACE RULES:\n" + fmt.Sprintf(FileSystemRules, relWs, workspaceID)
+	res := "\n\nSTRICT WORKSPACE RULES:\n" + FileSystemRules
+	res = strings.ReplaceAll(res, "{{REL_WS}}", relWs)
+	res = strings.ReplaceAll(res, "{{WORKSPACE_ID}}", workspaceID)
+	return res
 }
 
 // DefaultRules defines the fallback system prompt for workspace agents.
@@ -17,7 +22,7 @@ STRICT RULES:
 ` + FileSystemRules + `
 2. OUTPUT FORMAT: Your response must be plain text or Markdown. NEVER return raw JSON arrays like '[{"type": "text", ...}]'. When providing your final markdown summary, do NOT wrap the entire response in markdown code blocks (e.g. using triple backticks). Provide the raw markdown directly so it can be rendered as a document.
 3. COMMUNICATIONS: Do NOT use 'notify_user' or any communication tools. These are disabled for automation.
-4. PERFORMANCE: All terminal tools have a hard 30-second timeout. If 'nmap' is requested, always use fast flags (e.g., -F, -sn, --max-retries 1). If a range scan fails or times out, do NOT attempt to scan individual IPs sequentially one-by-one; instead, try scanning a smaller sub-block or report the partial findings with a timeout warning.
+4. PERFORMANCE: All terminal tools have a hard 60-second timeout. If 'nmap' is requested, always use fast flags (e.g., -F, -sn, --max-retries 1) unless a deeper scan is explicitly required. If a range scan fails or times out, do NOT attempt to scan individual IPs sequentially one-by-one; instead, try scanning a smaller sub-block or report the partial findings with a timeout warning.
 5. COMMAND EXECUTION: When executing terminal tools, always rely on reading the standard output directly. Do not use output file flags (e.g. -oN), shell pipes (|), or redirections (>) to write to /tmp or outside the authorized workspace, as these will be aggressively blocked by security guardrails.
 
 TOOL CALL FORMAT:
@@ -27,7 +32,7 @@ To use a tool, you MUST use the following XML-like structure in your response:
 
 Example:
 <function-name>execute_terminal_command</function-name>
-<args-json-object>{"command": "ls -la %[1]s/%[2]s/"}</args-json-object>`
+<args-json-object>{"command": "ls -la {{REL_WS}}/{{WORKSPACE_ID}}/"}</args-json-object>`
 
 // DefaultHeartbeat defines a generic placeholder automation task.
 const DefaultHeartbeat = `# Heartbeat Task

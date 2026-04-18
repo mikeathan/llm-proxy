@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
 	"os"
 )
@@ -61,7 +62,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 
 	// Setup Persistence
 	tmpWorkspaces := t.TempDir()
-	service.PersistenceMgr = persistence.NewWorkspaceManager(tmpWorkspaces)
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
@@ -170,7 +171,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 }
 func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	tmpWorkspaces := t.TempDir()
-	mgr := persistence.NewWorkspaceManager(tmpWorkspaces)
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
 	mockClient := &mocks.MockLLMClientProvider{

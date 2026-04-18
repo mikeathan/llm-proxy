@@ -35,7 +35,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
-			Name:      "execute_terminal_command",
+			Name:      models.ToolTerminalExecute,
 			Arguments: `{"command": "echo hello"}`,
 		},
 	}
@@ -52,7 +52,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
-	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil)
+	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil, nil)
 
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")

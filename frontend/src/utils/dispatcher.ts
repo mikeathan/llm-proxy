@@ -45,7 +45,8 @@ export const formatEventsToText = (events: AgentEvent[]): string => {
   return events
     .map((ev) => {
       if (ev.type === "step_start") {
-        return `Step ${getStepPayload(ev).step}`;
+        const ts = ev.timestamp ? ` [${new Date(ev.timestamp).toLocaleTimeString([], { hour12: false })}]` : "";
+        return `Step ${getStepPayload(ev).step}${ts}`;
       }
       if (ev.type === "message") {
         const payload = getMsgPayload(ev);

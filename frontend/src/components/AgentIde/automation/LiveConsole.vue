@@ -47,6 +47,12 @@ const connect = () => {
   eventSource.addEventListener("agent_update", (e) => {
     try {
       const ev = JSON.parse(e.data) as AgentEvent;
+      
+      // Auto-clear old events if we detect a fresh automation start signal
+      if (ev.type === 'message' && getMsgPayload(ev).content?.includes('▶ Booting automation:')) {
+        liveEvents.value = [];
+      }
+      
       liveEvents.value.push(ev);
     } catch (err) {
       console.error("Failed to parse agent event", err);
@@ -75,6 +81,12 @@ watch(
 );
 
 const fullTerminalText = computed(() => formatEventsToText(displayEvents.value));
+
+const formatTime = (ts?: string) => {
+  if (!ts) return "";
+  const date = new Date(ts);
+  return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+};
 </script>
 
 <template>
@@ -108,6 +120,7 @@ const fullTerminalText = computed(() => formatEventsToText(displayEvents.value))
           <!-- Step Block -->
           <div v-if="ev.type === 'step_start'" class="line-step">
             <span class="step-label">Step {{ getStepPayload(ev).step }}</span>
+            <span v-if="ev.timestamp" class="step-ts">[{{ formatTime(ev.timestamp) }}]</span>
           </div>
 
           <!-- Message Block -->
@@ -242,6 +255,10 @@ const fullTerminalText = computed(() => formatEventsToText(displayEvents.value))
 
 .step-label {
   @apply text-blue-400 font-bold uppercase;
+}
+
+.step-ts {
+  @apply text-[10px] text-gray-600 ml-2 font-normal;
 }
 
 /* Message */

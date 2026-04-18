@@ -30,9 +30,9 @@ func NewDataManager(rootDir string) (*DataManager, error) {
 
 	return &DataManager{
 		rootDir: absRoot,
-		systemStore:   NewStore[models.SystemConfig](filepath.Join(absRoot, "config.json")),
-		secretStore:   NewStore[models.SecretData](filepath.Join(absRoot, "secrets.json")),
-		registryStore: NewStore[models.RegistryData](filepath.Join(absRoot, "registry.json")),
+		systemStore:   NewStore[models.SystemConfig](filepath.Join(absRoot, models.SystemConfigFilename)),
+		secretStore:   NewStore[models.SecretData](filepath.Join(absRoot, models.SecretsFilename)),
+		registryStore: NewStore[models.RegistryData](filepath.Join(absRoot, models.RegistryFilename)),
 	}, nil
 }
 
@@ -71,5 +71,5 @@ func (m *DataManager) WorkspacesDir() string {
 		}
 		return filepath.Join(m.rootDir, sys.WorkspacesDir)
 	}
-	return filepath.Join(m.rootDir, "workspaces")
+	return filepath.Join(m.rootDir, models.WorkspacesDirName)
 }

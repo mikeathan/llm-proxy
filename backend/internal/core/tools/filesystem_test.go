@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"llm-proxy/models"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,8 +11,8 @@ func TestIsSecurePath(t *testing.T) {
 	tmpDir := t.TempDir()
 	
 	// Create a simulated structure
-	ws1 := filepath.Join(tmpDir, "workspaces", "workspace-1")
-	ws11 := filepath.Join(tmpDir, "workspaces", "workspace-11")
+	ws1 := filepath.Join(tmpDir, models.WorkspacesDirName, "workspace-1")
+	ws11 := filepath.Join(tmpDir, models.WorkspacesDirName, "workspace-11")
 	other := filepath.Join(tmpDir, "outside")
 	
 	_ = os.MkdirAll(ws1, 0755)

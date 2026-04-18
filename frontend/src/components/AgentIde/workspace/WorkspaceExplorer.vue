@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: 'open-file', workspace: string, filename: string): void
   (e: 'create-file', workspace: string, filename: string): void
   (e: 'delete-file', workspace: string, filename: string): void
+  (e: 'manage-guardrails', id: string): void
 }>()
 
 const newWorkspaceName = ref('')
@@ -79,6 +80,13 @@ const handleCreateFile = (workspace: string) => {
           >
             <span class="workspace-name">📁 {{ ws.id }}</span>
             <div class="row-controls">
+              <button
+                @click.stop="emit('manage-guardrails', ws.id)"
+                class="btn-manage-row"
+                title="Manage Workspace Guardrails"
+              >
+                🛡️
+              </button>
               <button
                 v-if="confirmingDeleteWs !== ws.id"
                 @click.stop="confirmingDeleteWs = ws.id"

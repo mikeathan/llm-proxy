@@ -50,7 +50,7 @@ func (c *Container) BuildAppServices() *AppServices {
 		nodeHerder:  c.Infra.NodeHerder,
 		logger:      c.Infra.Logger,
 		Clock:       c.Infra.Clock,
-		persistence: persistence.NewWorkspaceManager(c.Core.AppCtx.WorkspacesDir()),
+		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.WorkspacesDir())),
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -61,7 +61,7 @@ func (c *Container) BuildAppServices() *AppServices {
 	s.dispatcher = c.Dispatcher
 
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
-	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.nodeHerder, s.logger)
+	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.persistence, s.nodeHerder, s.logger)
 
 	return s
 }
@@ -314,24 +314,26 @@ func buildRouter(
 	// Dispatcher
 	if dispatcherHandlers != nil {
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/stop/{workspace}", dispatcherHandlers.StopAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/trigger/{"+models.WorkspaceIDParam+"}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/stop/{"+models.WorkspaceIDParam+"}", dispatcherHandlers.StopAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/activity", dispatcherHandlers.GetGlobalActivity, jsonMethodNotAllowed)
 
 		router.Get("/admin/api/dispatcher/workspaces", dispatcherHandlers.ListWorkspaces, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/workspaces", dispatcherHandlers.CreateWorkspace, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/workspaces/{workspace}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}", dispatcherHandlers.UpdateAutomation, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}", dispatcherHandlers.DeleteAutomation, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/live", dispatcherHandlers.StreamWorkspaceEvents, textMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/processlogs", admin.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{workspace}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", dispatcherHandlers.UpdateAutomation, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", dispatcherHandlers.DeleteAutomation, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", dispatcherHandlers.GetWorkspaceConfig, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", dispatcherHandlers.UpdateWorkspaceConfig, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/live", dispatcherHandlers.StreamWorkspaceEvents, textMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/processlogs", admin.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
 	}
 
 	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)
@@ -341,9 +343,9 @@ func buildRouter(
 
 	// Conversation API
 	router.Any("/admin/api/conversation/message", assistant)
-	router.Get("/admin/api/conversation/sessions/{workspace}", assistant.ListSessions, jsonMethodNotAllowed)
-	router.Get("/admin/api/conversation/sessions/{workspace}/{session}", assistant.GetSession, jsonMethodNotAllowed)
-	router.Delete("/admin/api/conversation/sessions/{workspace}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
+	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
+	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
+	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
 
 	return router
 }

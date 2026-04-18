@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
@@ -66,9 +67,10 @@ func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName 
 }
 
 func (m *MockAssistantService) GuardrailEngine() *assistant.GuardrailEngine {
+	resolver := storage.NewPathResolver(m.WorkspacesDir())
 	return assistant.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
-	}, m.WorkspacesDir())
+	}, resolver, m.PersistenceMgr)
 }
 
 func (m *MockAssistantService) Config() *models.Config {

@@ -1,20 +1,36 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 	"net/http"
 )
 
+type Dispatcher interface {
+	Persistence() *persistence.WorkspaceManager
+	Register(workspaceID string, auto *models.Automation) error
+	Unregister(workspaceID string, automationName string) error
+	ListAll() []*automation.AutomationEntry
+	Trigger(ctx context.Context, workspaceID string, automationName string) error
+	StopAutomation(workspaceID string) error
+	Metrics() *automation.DispatcherMetrics
+	Events() *automation.EventBus
+	GlobalActivity() []models.AutomationRun
+	UnregisterWorkspace(workspaceID string)
+	ClearWorkspaceHistory(workspaceID string)
+}
+
 type DispatcherHandlers struct {
-	dispatcher *automation.Dispatcher
+	dispatcher Dispatcher
 }
 
 // NewDispatcherHandlers creates new dispatcher handlers.
-func NewDispatcherHandlers(d *automation.Dispatcher) *DispatcherHandlers {
+func NewDispatcherHandlers(d Dispatcher) *DispatcherHandlers {
 	return &DispatcherHandlers{dispatcher: d}
 }
 
@@ -77,7 +93,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 
 // TriggerAutomation manually triggers an automation by workspace ID and name.
 func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	automationName := r.PathValue("automation")
 
 	if workspaceID == "" || automationName == "" {
@@ -99,7 +115,7 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 
 // StopAutomation stops any active automation for the specified workspace.
 func (h *DispatcherHandlers) StopAutomation(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	if workspaceID == "" {
 		respondError(w, http.StatusBadRequest, "workspace ID is required")
 		return
@@ -129,7 +145,7 @@ func (h *DispatcherHandlers) GetDispatcherMetrics(w http.ResponseWriter, r *http
 }
 
 func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	state, err := h.dispatcher.Persistence().ReadState(workspaceID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -138,8 +154,46 @@ func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Re
 	respondJSON(w, state)
 }
 
+func (h *DispatcherHandlers) GetWorkspaceConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
+	cfg, err := h.dispatcher.Persistence().ReadConfig(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, cfg)
+}
+
+func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
+	var cfg models.WorkspaceConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	lock, err := h.dispatcher.Persistence().AcquireLock(workspaceID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer h.dispatcher.Persistence().ReleaseLock(lock)
+
+	if err := h.dispatcher.Persistence().WriteConfig(workspaceID, &cfg); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Re-register all automations to pick up new model/guardrail configs
+	for _, auto := range cfg.Automations {
+		h.dispatcher.Register(workspaceID, auto)
+	}
+
+	respondJSON(w, map[string]string{"status": "updated"})
+}
+
 func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	if workspaceID == "" {
 		respondError(w, http.StatusBadRequest, "workspace is required")
 		return
@@ -246,26 +300,33 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 	}
 	defer h.dispatcher.Persistence().ReleaseLock(lock)
 
-	// Create default files
-	defaultFiles := map[string]string{
-		"heartbeat.md": assistant.DefaultHeartbeat,
-		"agent.md":     assistant.DefaultAgentPrompt,
-		"config.yaml":  assistant.DefaultWorkspaceConfig,
-		"rules.md":     assistant.DefaultRules,
+	// Create default task files in root
+	defaultTaskFiles := map[string]string{
+		models.HeartbeatFilename:   assistant.DefaultHeartbeat,
+		models.AgentPromptFilename: assistant.DefaultAgentPrompt,
+		models.RulesFilename:       assistant.DefaultRules,
 	}
 
-	for filename, content := range defaultFiles {
+	for filename, content := range defaultTaskFiles {
 		if err := h.dispatcher.Persistence().WriteTaskFile(req.ID, filename, content); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to create default file "+filename+": "+err.Error())
 			return
 		}
 	}
 
+	// Create initial config in .internal
+	if err := h.dispatcher.Persistence().WriteConfig(req.ID, &models.WorkspaceConfig{
+		Temperature: 0.7,
+	}); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create config: "+err.Error())
+		return
+	}
+
 	respondJSON(w, map[string]string{"status": "created", "id": req.ID})
 }
 
 func (h *DispatcherHandlers) ListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	files, err := h.dispatcher.Persistence().ListFiles(workspaceID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -275,7 +336,7 @@ func (h *DispatcherHandlers) ListWorkspaceFiles(w http.ResponseWriter, r *http.R
 }
 
 func (h *DispatcherHandlers) ReadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	filename := r.PathValue("file")
 
 	content, err := h.dispatcher.Persistence().ReadTaskFile(workspaceID, filename)
@@ -287,7 +348,7 @@ func (h *DispatcherHandlers) ReadWorkspaceFile(w http.ResponseWriter, r *http.Re
 }
 
 func (h *DispatcherHandlers) WriteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	filename := r.PathValue("file")
 
 	var req struct {
@@ -306,7 +367,7 @@ func (h *DispatcherHandlers) WriteWorkspaceFile(w http.ResponseWriter, r *http.R
 }
 
 func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	automationName := r.PathValue("automation")
 
 	var auto models.Automation
@@ -362,7 +423,7 @@ func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Req
 }
 
 func (h *DispatcherHandlers) CreateAutomation(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 
 	var auto models.Automation
 	if err := json.NewDecoder(r.Body).Decode(&auto); err != nil {
@@ -399,7 +460,7 @@ func (h *DispatcherHandlers) CreateAutomation(w http.ResponseWriter, r *http.Req
 }
 
 func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	filename := r.PathValue("file")
 
 	if err := h.dispatcher.Persistence().DeleteTaskFile(workspaceID, filename); err != nil {
@@ -410,7 +471,7 @@ func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.
 }
 
 func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 
 	// Clear from memory first
 	h.dispatcher.UnregisterWorkspace(workspaceID)
@@ -423,7 +484,7 @@ func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, map[string]string{"status": "deleted"})
 }
 func (h *DispatcherHandlers) DeleteAutomation(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	automationName := r.PathValue("automation")
 
 	lock, err := h.dispatcher.Persistence().AcquireLock(workspaceID)

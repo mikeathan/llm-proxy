@@ -11,30 +11,29 @@ import (
 	"syscall"
 	"time"
 
-
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 
 	"gopkg.in/yaml.v3"
 )
 
 var workspaceFiles = []string{
-	"state.json",
-	"config.yaml",
+	models.StateFilename,
+	models.ConfigFilename,
 }
 
 const sessionsDir = "sessions"
 
-
 // WorkspaceManager handles atomic file I/O for workspaces with flock locking.
 type WorkspaceManager struct {
-	baseDir string
-	mu      sync.RWMutex
+	resolver *storage.PathResolver
+	mu       sync.RWMutex
 }
 
-// NewWorkspaceManager creates a WorkspaceManager at the given base directory.
-func NewWorkspaceManager(baseDir string) *WorkspaceManager {
-	os.MkdirAll(baseDir, 0755)
-	return &WorkspaceManager{baseDir: baseDir}
+// NewWorkspaceManager creates a WorkspaceManager with the given path resolver.
+func NewWorkspaceManager(r *storage.PathResolver) *WorkspaceManager {
+	os.MkdirAll(r.WorkspacesRoot(), 0755)
+	return &WorkspaceManager{resolver: r}
 }
 
 // ============================================================================
@@ -43,11 +42,14 @@ func NewWorkspaceManager(baseDir string) *WorkspaceManager {
 
 // AcquireLock acquires an exclusive flock on the workspace.
 func (m *WorkspaceManager) AcquireLock(workspaceID string) (*os.File, error) {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.WorkspaceDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace dir: %w", err)
 	}
-	lockPath := filepath.Join(dirPath, ".lock")
+	if err := os.MkdirAll(m.resolver.InternalDir(workspaceID), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create internal dir: %w", err)
+	}
+	lockPath := m.resolver.Lock(workspaceID)
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
@@ -61,11 +63,14 @@ func (m *WorkspaceManager) AcquireLock(workspaceID string) (*os.File, error) {
 
 // TryAcquireLock attempts a non-blocking exclusive flock.
 func (m *WorkspaceManager) TryAcquireLock(workspaceID string) (*os.File, error) {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.WorkspaceDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace dir: %w", err)
 	}
-	lockPath := filepath.Join(dirPath, ".lock")
+	if err := os.MkdirAll(m.resolver.InternalDir(workspaceID), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create internal dir: %w", err)
+	}
+	lockPath := m.resolver.Lock(workspaceID)
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
@@ -96,7 +101,7 @@ func (m *WorkspaceManager) ReleaseLock(f *os.File) error {
 // ReadState reads state.json for a workspace. Returns empty state if absent.
 func (m *WorkspaceManager) ReadState(workspaceID string) (*models.AgentState, error) {
 	state := &models.AgentState{}
-	path := filepath.Join(m.baseDir, workspaceID, "state.json")
+	path := m.resolver.State(workspaceID)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -113,7 +118,7 @@ func (m *WorkspaceManager) ReadState(workspaceID string) (*models.AgentState, er
 
 // WriteState writes state.json atomically (temp file + rename + sync).
 func (m *WorkspaceManager) WriteState(workspaceID string, state *models.AgentState) error {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.InternalDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
@@ -139,7 +144,7 @@ func (m *WorkspaceManager) WriteState(workspaceID string, state *models.AgentSta
 	}
 	tmpFile.Close()
 
-	destPath := filepath.Join(dirPath, "state.json")
+	destPath := m.resolver.State(workspaceID)
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		return fmt.Errorf("failed to rename temp state file to state.json: %w", err)
 	}
@@ -153,7 +158,7 @@ func (m *WorkspaceManager) WriteState(workspaceID string, state *models.AgentSta
 // ReadConfig reads config.yaml for a workspace. Returns empty config if absent.
 func (m *WorkspaceManager) ReadConfig(workspaceID string) (*models.WorkspaceConfig, error) {
 	cfg := &models.WorkspaceConfig{}
-	path := filepath.Join(m.baseDir, workspaceID, "config.yaml")
+	path := m.resolver.Config(workspaceID)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -170,7 +175,7 @@ func (m *WorkspaceManager) ReadConfig(workspaceID string) (*models.WorkspaceConf
 
 // WriteConfig writes config.yaml atomically.
 func (m *WorkspaceManager) WriteConfig(workspaceID string, cfg *models.WorkspaceConfig) error {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.InternalDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
@@ -196,7 +201,7 @@ func (m *WorkspaceManager) WriteConfig(workspaceID string, cfg *models.Workspace
 	}
 	tmpFile.Close()
 
-	destPath := filepath.Join(dirPath, "config.yaml")
+	destPath := m.resolver.Config(workspaceID)
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		return fmt.Errorf("failed to rename temp config file to config.yaml: %w", err)
 	}
@@ -209,7 +214,7 @@ func (m *WorkspaceManager) WriteConfig(workspaceID string, cfg *models.Workspace
 
 // ReadHeartbeat reads heartbeat.md. Returns empty string if absent.
 func (m *WorkspaceManager) ReadHeartbeat(workspaceID string) (string, error) {
-	path := filepath.Join(m.baseDir, workspaceID, "heartbeat.md")
+	path := m.resolver.Heartbeat(workspaceID)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -222,7 +227,7 @@ func (m *WorkspaceManager) ReadHeartbeat(workspaceID string) (string, error) {
 
 // WriteHeartbeat writes heartbeat.md atomically.
 func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) error {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.WorkspaceDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
@@ -243,7 +248,7 @@ func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) er
 	}
 	tmpFile.Close()
 
-	destPath := filepath.Join(dirPath, "heartbeat.md")
+	destPath := m.resolver.Heartbeat(workspaceID)
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		return fmt.Errorf("failed to rename temp heartbeat file to heartbeat.md: %w", err)
 	}
@@ -256,7 +261,7 @@ func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) er
 
 // ReadTaskFile reads an arbitrary task file from the workspace.
 func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, error) {
-	path := filepath.Join(m.baseDir, workspaceID, filename)
+	path := m.resolver.TaskFile(workspaceID, filename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -269,7 +274,7 @@ func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, e
 
 // WriteTaskFile writes an arbitrary task file atomically.
 func (m *WorkspaceManager) WriteTaskFile(workspaceID, filename, content string) error {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.WorkspaceDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
@@ -290,7 +295,7 @@ func (m *WorkspaceManager) WriteTaskFile(workspaceID, filename, content string) 
 	}
 	tmpFile.Close()
 
-	destPath := filepath.Join(dirPath, filename)
+	destPath := m.resolver.TaskFile(workspaceID, filename)
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		return fmt.Errorf("failed to rename temp file to %s: %w", filename, err)
 	}
@@ -301,7 +306,7 @@ func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	entries, err := os.ReadDir(m.baseDir)
+	entries, err := os.ReadDir(m.resolver.WorkspacesRoot())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []*models.Workspace{}, nil
@@ -332,21 +337,21 @@ func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 }
 
 func (m *WorkspaceManager) BaseDir() string {
-	return m.baseDir
+	return m.resolver.WorkspacesRoot()
 }
 
 // GetRelativeWorkspacePath returns the relative path from the current working directory to the base workspace directory.
 func (m *WorkspaceManager) GetRelativeWorkspacePath() string {
 	cwd, _ := os.Getwd()
-	relWs, err := filepath.Rel(cwd, m.baseDir)
+	relWs, err := filepath.Rel(cwd, m.resolver.WorkspacesRoot())
 	if err != nil {
-		return m.baseDir
+		return m.resolver.WorkspacesRoot()
 	}
 	return filepath.Clean(relWs)
 }
 
 func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
-	path := filepath.Join(m.baseDir, workspaceID, "state.json")
+	path := m.resolver.State(workspaceID)
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -358,7 +363,7 @@ func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 }
 
 func (m *WorkspaceManager) ListFiles(workspaceID string) ([]string, error) {
-	dirPath := filepath.Join(m.baseDir, workspaceID)
+	dirPath := m.resolver.WorkspaceDir(workspaceID)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -390,12 +395,12 @@ func (m *WorkspaceManager) ListFiles(workspaceID string) ([]string, error) {
 }
 
 func (m *WorkspaceManager) DeleteTaskFile(workspaceID, filename string) error {
-	path := filepath.Join(m.baseDir, workspaceID, filename)
+	path := m.resolver.TaskFile(workspaceID, filename)
 	return os.Remove(path)
 }
 
 func (m *WorkspaceManager) DeleteWorkspace(workspaceID string) error {
-	path := filepath.Join(m.baseDir, workspaceID)
+	path := m.resolver.WorkspaceDir(workspaceID)
 	return os.RemoveAll(path)
 }
 
@@ -405,7 +410,7 @@ func (m *WorkspaceManager) DeleteWorkspace(workspaceID string) error {
 
 // ReadSession reads a specific assistant session JSON file.
 func (m *WorkspaceManager) ReadSession(workspaceID, sessionID string) (*models.AssistantSession, error) {
-	path := filepath.Join(m.baseDir, workspaceID, sessionsDir, sessionID+".json")
+	path := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir, sessionID+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -423,7 +428,7 @@ func (m *WorkspaceManager) ReadSession(workspaceID, sessionID string) (*models.A
 
 // WriteSession writes an assistant session JSON file atomically.
 func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.AssistantSession) error {
-	dirPath := filepath.Join(m.baseDir, workspaceID, sessionsDir)
+	dirPath := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create sessions dir: %w", err)
 	}
@@ -462,13 +467,13 @@ func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.Assi
 
 // DeleteSession deletes an assistant session JSON file.
 func (m *WorkspaceManager) DeleteSession(workspaceID, sessionID string) error {
-	path := filepath.Join(m.baseDir, workspaceID, sessionsDir, sessionID+".json")
+	path := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir, sessionID+".json")
 	return os.Remove(path)
 }
 
 // ListSessions returns a list of session summaries for a workspace.
 func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {
-	dirPath := filepath.Join(m.baseDir, workspaceID, sessionsDir)
+	dirPath := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -524,4 +529,3 @@ func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBri
 
 	return briefs, nil
 }
-

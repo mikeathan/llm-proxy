@@ -15,6 +15,7 @@ import SystemPulseDashboard from "./system/SystemPulseDashboard.vue";
 import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
+import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
 
 import type { AutomationRun } from "../../types/dispatcher";
 import { useToast } from "../../composables/useToast";
@@ -71,8 +72,10 @@ const triggering = ref(false);
 const lastTriggerResult = ref<string | null>(null);
 const workspaceHistory = ref<AutomationRun[]>([]);
 const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
+const settingsWorkspaceId = ref<string | null>(null);
 
 const activeMainView = computed(() => {
+  if (settingsWorkspaceId.value) return "workspace-settings";
   if (selectedRun.value) return "history";
   if (selectedFile.value) return "editor";
   if (selectedAutomation.value) return "automation";
@@ -188,6 +191,7 @@ const handleCloseDetails = () => {
   selectedRun.value = null;
   selectedFile.value = null;
   selectedAutomationId.value = null;
+  settingsWorkspaceId.value = null;
   fileContent.value = "";
   workspaceMiddleTab.value = "pulse";
 };
@@ -199,12 +203,21 @@ const handleSelectWorkspace = async (wsId: string) => {
   selectedAutomationId.value = null;
   selectedRun.value = null;
   selectedFile.value = null;
+  settingsWorkspaceId.value = null;
   workspaceMiddleTab.value = "pulse";
 
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId);
   }
   await refreshHistory();
+};
+
+const handleManageGuardrails = (wsId: string) => {
+  settingsWorkspaceId.value = wsId;
+  selectedWorkspace.value = wsId;
+  selectedAutomationId.value = null;
+  selectedRun.value = null;
+  selectedFile.value = null;
 };
 
 const handleOpenFile = async (workspace: string, filename: string) => {
@@ -441,6 +454,7 @@ const handleUpdateAutomation = async (
           @open-file="handleOpenFile"
           @create-file="handleCreateFile"
           @delete-file="handleDeleteFile"
+          @manage-guardrails="handleManageGuardrails"
         />
 
         <!-- Automations Tab -->
@@ -500,6 +514,14 @@ const handleUpdateAutomation = async (
       <HistoricalRunDetails
         v-else-if="activeMainView === 'history'"
         :run="selectedRun!"
+        @close="handleCloseDetails"
+      />
+
+      <!-- Workspace Settings View -->
+      <WorkspaceSettings
+        v-else-if="activeMainView === 'workspace-settings'"
+        :workspaceId="settingsWorkspaceId!"
+        :globalGuardrails="adminState!.config.guardrails"
         @close="handleCloseDetails"
       />
 

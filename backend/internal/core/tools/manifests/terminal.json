@@ -14,12 +14,14 @@
       "df",
       "uptime",
       "curl",
+      "date",
       "cat",
       "grep",
+      "head",
+      "tail",
       "ip",
       "hostname",
-      "ifconfig",
-      "ping"
+      "ifconfig"
     ],
     "blocked_patterns": [
       "rm\\s+",

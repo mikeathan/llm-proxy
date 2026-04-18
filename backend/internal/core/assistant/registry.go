@@ -7,6 +7,8 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
@@ -48,6 +50,7 @@ func InitializeAgentStack(
 		WorkspacesDir() string
 		Secrets() models.SecretsStore
 	},
+	persistence *persistence.WorkspaceManager,
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
 ) (ToolProvider, Engine, *GuardrailEngine) {
@@ -59,16 +62,17 @@ func InitializeAgentStack(
 
 	// 2. Initialize local machine capabilities
 	terminal := tools.NewTerminalTools(func() models.TerminalGuardrailsConfig {
-		// Guardrails are now primarily derived from manifest files, 
+		// Guardrails are now primarily derived from manifest files,
 		// with local defaults as fallback.
 		return defaultGuardrails.Terminal
 	})
 
 	// 3. Initialize Guardrail Engine with granular merging
 	// We want to use config.json values if they exist, otherwise fallback to defaults.
+	resolver := storage.NewPathResolver(appCtx.WorkspacesDir())
 	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
-	}, appCtx.WorkspacesDir())
+	}, resolver, persistence)
 
 	// 3. Initialize Communications
 	commCfg := sys.Communication
@@ -138,8 +142,8 @@ func (r *LocalToolRegistry) registerAll() {
 }
 
 func (r *LocalToolRegistry) registerTerminalTools() {
-	name := "execute_terminal_command"
-	
+	name := models.ToolTerminalExecute
+
 	// 1. Define Schema
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
@@ -172,7 +176,7 @@ func (r *LocalToolRegistry) registerTerminalTools() {
 }
 
 func (r *LocalToolRegistry) registerCommunicationTools() {
-	name := "notify_user"
+	name := models.ToolNotifyUser
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
@@ -206,7 +210,7 @@ func (r *LocalToolRegistry) registerCommunicationTools() {
 }
 
 func (r *LocalToolRegistry) registerSearchTools() {
-	name := "internet_search"
+	name := models.ToolInternetSearch
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
@@ -244,7 +248,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
-			Name:        "list_directory",
+			Name:        models.ToolDirectoryList,
 			Description: "List files and subdirectories in a specific path.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -256,8 +260,10 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		},
 	})
 
-	r.handlers["list_directory"] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct{ Path string `json:"path"` }
+	r.handlers[models.ToolDirectoryList] = func(ctx context.Context, rawArgs string) (any, error) {
+		var args struct {
+			Path string `json:"path"`
+		}
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
@@ -268,7 +274,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
-			Name:        "read_file",
+			Name:        models.ToolFileRead,
 			Description: "Read the entire content of a file.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -280,8 +286,10 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		},
 	})
 
-	r.handlers["read_file"] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct{ Path string `json:"path"` }
+	r.handlers[models.ToolFileRead] = func(ctx context.Context, rawArgs string) (any, error) {
+		var args struct {
+			Path string `json:"path"`
+		}
 		if err := decodeArgs(rawArgs, &args); err != nil {
 			return nil, err
 		}
@@ -292,7 +300,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
-			Name:        "write_file",
+			Name:        models.ToolFileWrite,
 			Description: "Create or update a file with specific content.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -305,7 +313,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		},
 	})
 
-	r.handlers["write_file"] = func(ctx context.Context, rawArgs string) (any, error) {
+	r.handlers[models.ToolFileWrite] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args struct {
 			Path    string `json:"path"`
 			Content string `json:"content"`
@@ -316,5 +324,3 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		return "File written successfully", r.fs.WriteFile(args.Path, args.Content)
 	}
 }
-
-
