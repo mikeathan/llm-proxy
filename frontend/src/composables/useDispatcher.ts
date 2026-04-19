@@ -8,8 +8,8 @@ const workspaceFiles = ref<Record<string, string[]>>({})
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-async function fetchAutomations() {
-  loading.value = true
+async function fetchAutomations(silent = false) {
+  if (!silent) loading.value = true
   error.value = null
   try {
     const res = await fetch('/admin/api/dispatcher/automations')
@@ -22,7 +22,7 @@ async function fetchAutomations() {
     error.value = e instanceof Error ? e.message : 'Failed to fetch automations'
     console.error('fetchAutomations error:', e)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
@@ -25,14 +26,16 @@ type LocalProvider struct {
 	cfg         models.ModelConfig
 	llamaBinary string
 	modelDir    string
+	host        string
 	activeModel *RunningModel
 }
 
-func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir string) *LocalProvider {
+func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir string, host string) *LocalProvider {
 	return &LocalProvider{
 		cfg:         cfg,
 		llamaBinary: llamaBinary,
 		modelDir:    modelDir,
+		host:        host,
 	}
 }
 
@@ -86,7 +89,7 @@ func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, e
 	if p.activeModel == nil {
 		return "", nil, fmt.Errorf("model not running")
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d", p.cfg.Port), nil, nil
+	return network.FormatLocalURL(p.host, p.cfg.Port), nil, nil
 }
 
 func (p *LocalProvider) EnsureReady(ctx context.Context) error {

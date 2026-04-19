@@ -4,7 +4,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"llm-proxy/models"
+	"llm-proxy/internal/platform/network"
 )
+
+// ResolveHost is a bridge to the centralized network utility.
+func ResolveHost(host string) string {
+	return network.ResolveHost(host)
+}
 
 func ResolveModelFile(baseDir string, m models.ModelConfig) string {
 	if m.Path != "" && filepath.IsAbs(m.Path) {

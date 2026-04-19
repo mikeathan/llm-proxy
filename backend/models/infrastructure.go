@@ -1,5 +1,12 @@
 package models
 
+const (
+	AddrAllInterfaces = "0.0.0.0"
+	AddrLocalhost     = "127.0.0.1"
+	DefaultAppPort    = "4001"
+	DefaultModelPortStart = 8081
+)
+
 // SystemConfig represents the infrastructure-level settings (Tier 1: config.json)
 type SystemConfig struct {
 	Server struct {

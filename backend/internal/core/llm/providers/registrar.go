@@ -88,6 +88,9 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 		if pCfg.ProviderConfig.Region == "" {
 			pCfg.ProviderConfig.Region = provider.Region
 		}
+		if pCfg.Args == nil || len(pCfg.Args) == 0 {
+			pCfg.Args = provider.DefaultArgs
+		}
 		modelDir = provider.ModelDir
 	}
 
@@ -114,7 +117,7 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 				modelDir = local.ModelDir
 			}
 		}
-		return NewLocalProvider(pCfg, binary, modelDir), nil
+		return NewLocalProvider(pCfg, binary, modelDir, r.ModelHost()), nil
 	}
 
 	// Dynamic Resolution via Manifest Registry
@@ -125,7 +128,7 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 	}
 
 	// Resilient Fallback to local for unknown providers
-	return NewLocalProvider(pCfg, r.defaultBinary, modelDir), nil
+	return NewLocalProvider(pCfg, r.defaultBinary, modelDir, r.ModelHost()), nil
 }
 
 // resolveSecret handles the logic of finding the real key for a masked or empty input.
@@ -153,10 +156,7 @@ func (r *ProviderRegistrar) resolveSecret(provider, key, name string) (string, e
 func (r *ProviderRegistrar) ModelHost() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.modelHost == "" {
-		return "127.0.0.1"
-	}
-	return r.modelHost
+	return ResolveHost(r.modelHost)
 }
 
 // DefaultBinary returns the configured llama-server binary path.

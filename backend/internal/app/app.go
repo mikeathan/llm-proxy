@@ -7,7 +7,9 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 )
 
 type App struct {
@@ -65,7 +67,7 @@ func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildin
 	sys := dataMgr.System().Get()
 	bindAddr := sys.Server.Bind
 	if bindAddr == "" {
-		bindAddr = "0.0.0.0:4001"
+		bindAddr = network.JoinDefault(models.AddrAllInterfaces)
 	}
 
 	return &App{

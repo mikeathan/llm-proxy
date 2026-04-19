@@ -15,7 +15,7 @@ import (
 
 const (
 	defaultLlamaBinary = "llama-server"
-	defaultPortStart   = 8081
+	defaultPortStart   = models.DefaultModelPortStart
 	defaultReapPeriod  = 10 * time.Second
 	shutdownTimeout    = 10 * time.Second
 	logBufferSize      = 10000
@@ -172,13 +172,6 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 	go m.reapIdleModels(reapInterval)
 
 	return m
-}
-
-func hostFromConfig(host string) string {
-	if host == "" {
-		return "127.0.0.1"
-	}
-	return host
 }
 
 func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error {

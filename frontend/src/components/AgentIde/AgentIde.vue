@@ -118,7 +118,7 @@ onMounted(() => {
   // Start background polling to keep the Pulse and Running States alive
   historyInterval = setInterval(() => {
     refreshHistory();
-    fetchAutomations();
+    fetchAutomations(true);
   }, 10000);
 });
 

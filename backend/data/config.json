@@ -1,7 +1,7 @@
 {
   "server": {
     "bind": "0.0.0.0:4001",
-    "model_host": "127.0.0.1",
+    "model_host": "0.0.0.0",
     "idle_timeout_seconds": 1800,
     "primary_model": "qwen2.5-3b-instruct",
     "fallback_model": "qwen-flash"

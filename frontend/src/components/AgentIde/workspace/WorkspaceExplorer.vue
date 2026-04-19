@@ -56,7 +56,7 @@ const handleCreateFile = (workspace: string) => {
       <div class="input-wrapper group">
         <input 
           v-model="newWorkspaceName" 
-          placeholder="Create new workspace..." 
+          placeholder="New workspace name..." 
           class="action-input" 
           @keyup.enter="handleCreateWorkspace" 
         />
@@ -65,100 +65,130 @@ const handleCreateFile = (workspace: string) => {
           class="btn-add-action"
           title="Create Workspace"
         >
-          <span class="btn-plus-icon">+</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
       </div>
     </div>
     
-    <div v-if="loading" class="loading-state">Loading...</div>
-    <div v-else>
-      <div v-for="ws in workspaces" :key="ws.id" class="workspace-item">
-        <div class="group">
+    <!-- Loading Skeleton (Only if empty) -->
+    <div v-if="loading && workspaces.length === 0" class="loading-state">
+      <div class="skeleton-row animate-pulse" v-for="i in 3" :key="i"></div>
+    </div>
+    
+    <div v-else class="explorer-content" :class="{ 'opacity-60 pointer-events-none': loading }">
+      <div v-for="ws in workspaces" :key="ws.id" class="workspace-item" :class="{ 'workspace-item--active': selectedWorkspace === ws.id }">
+        <div class="group relative">
           <button
             @click="emit('select-workspace', ws.id)"
             class="workspace-row"
           >
-            <span class="workspace-name">📁 {{ ws.id }}</span>
+            <div class="flex items-center gap-2 overflow-hidden">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-400 shrink-0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span class="workspace-name truncate">{{ ws.id }}</span>
+            </div>
+            
             <div class="row-controls">
+              <!-- Guardrails Icon -->
               <button
                 @click.stop="emit('manage-guardrails', ws.id)"
-                class="btn-manage-row"
-                title="Manage Workspace Guardrails"
+                class="icon-btn icon-btn--guard"
+                title="Workspace Guardrails"
               >
-                🛡️
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
               </button>
+
+              <!-- Delete Workspace Icon -->
               <button
                 v-if="confirmingDeleteWs !== ws.id"
                 @click.stop="confirmingDeleteWs = ws.id"
-                class="btn-delete-row"
+                class="icon-btn icon-btn--danger"
                 title="Delete workspace"
               >
-                🗑️
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
               </button>
-              <span class="row-arrow">{{ selectedWorkspace === ws.id ? '▼' : '▶' }}</span>
+              
+              <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="12" height="12" 
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" 
+                class="text-gray-600 transition-transform duration-200"
+                :class="{ 'rotate-90': selectedWorkspace === ws.id }"
+              >
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
             </div>
           </button>
         </div>
         
-        <div v-if="confirmingDeleteWs === ws.id" class="px-2">
-          <InlineConfirm
-            :message="`Delete workspace '${ws.id}'?`"
-            @confirm="confirmDeleteWorkspace(ws.id)"
-            @cancel="confirmingDeleteWs = null"
-            class="!mx-0 !my-1"
-          />
-        </div>
-        
-        <div v-if="selectedWorkspace === ws.id && confirmingDeleteWs !== ws.id" class="file-section">
-          <!-- New File Action Bar -->
-          <div class="file-action-bar">
-            <div class="input-wrapper group">
-              <input 
-                v-model="newFileName" 
-                placeholder="Create new file..." 
-                class="action-input action-input--file" 
-                @keyup.enter="handleCreateFile(ws.id)" 
-              />
-              <button 
-                @click="handleCreateFile(ws.id)" 
-                class="btn-add-action btn-add-action--file"
-                title="Create File"
-              >
-                <span class="btn-plus-icon btn-plus-icon--file">+</span>
-              </button>
-            </div>
+        <!-- Delete Confirmation -->
+        <Transition name="fade-slide">
+          <div v-if="confirmingDeleteWs === ws.id" class="px-2">
+            <InlineConfirm
+              :message="`Delete workspace '${ws.id}'?`"
+              @confirm="confirmDeleteWorkspace(ws.id)"
+              @cancel="confirmingDeleteWs = null"
+              class="!mx-0 !my-1"
+            />
           </div>
-          
-          <div v-for="file in workspaceFiles[ws.id]" :key="file">
-            <div class="file-row group">
-              <button
-                @click="emit('open-file', ws.id, file)"
-                class="btn-file-open"
-                :class="{ 'btn-file-open--selected': selectedFile?.workspace === ws.id && selectedFile?.filename === file }"
-              >
-                <span>{{ file.endsWith('.md') ? '📝' : '📄' }}</span>
-                {{ file }}
-              </button>
-              <button
-                v-if="confirmingDeleteFile?.file !== file || confirmingDeleteFile?.ws !== ws.id"
-                @click.stop="confirmingDeleteFile = { ws: ws.id, file }"
-                class="btn-file-delete"
-                title="Delete file"
-              >
-                ×
-              </button>
+        </Transition>
+        
+        <!-- Files List -->
+        <Transition name="expand">
+          <div v-if="selectedWorkspace === ws.id && confirmingDeleteWs !== ws.id" class="file-section">
+            <div class="file-action-bar">
+              <div class="input-wrapper group">
+                <input 
+                  v-model="newFileName" 
+                  placeholder="New file (e.g. data.py)" 
+                  class="action-input action-input--file" 
+                  @keyup.enter="handleCreateFile(ws.id)" 
+                />
+                <button 
+                  @click="handleCreateFile(ws.id)" 
+                  class="btn-add-action btn-add-action--file"
+                  title="Create File"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+              </div>
             </div>
             
-            <div v-if="confirmingDeleteFile?.file === file && confirmingDeleteFile?.ws === ws.id" class="px-2 pr-4 ml-6">
-              <InlineConfirm
-                :message="`Delete '${file}'?`"
-                @confirm="confirmDeleteFile(ws.id, file)"
-                @cancel="confirmingDeleteFile = null"
-                class="!mx-0 !my-1"
-              />
+            <div class="files-container">
+              <div v-for="file in workspaceFiles[ws.id]" :key="file">
+                <div class="file-row group">
+                  <button
+                    @click="emit('open-file', ws.id, file)"
+                    class="btn-file-open"
+                    :class="{ 'btn-file-open--selected': selectedFile?.workspace === ws.id && selectedFile?.filename === file }"
+                  >
+                    <svg v-if="file.endsWith('.md')" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-300/60"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-500"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                    <span class="truncate">{{ file }}</span>
+                  </button>
+                  <button
+                    v-if="confirmingDeleteFile?.file !== file || confirmingDeleteFile?.ws !== ws.id"
+                    @click.stop="confirmingDeleteFile = { ws: ws.id, file }"
+                    class="btn-file-delete"
+                    title="Delete file"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </button>
+                </div>
+                
+                <Transition name="fade-slide">
+                  <div v-if="confirmingDeleteFile?.file === file && confirmingDeleteFile?.ws === ws.id" class="px-2 pr-4 ml-6">
+                    <InlineConfirm
+                      :message="`Delete '${file}'?`"
+                      @confirm="confirmDeleteFile(ws.id, file)"
+                      @cancel="confirmingDeleteFile = null"
+                      class="!mx-0 !my-1"
+                    />
+                  </div>
+                </Transition>
+              </div>
             </div>
           </div>
-        </div>
+        </Transition>
       </div>
     </div>
   </div>
@@ -166,11 +196,11 @@ const handleCreateFile = (workspace: string) => {
 
 <style scoped lang="postcss">
 .explorer-shell {
-  @apply flex flex-col h-full bg-gray-900/20;
+  @apply flex flex-col h-full bg-black/20 text-gray-400 select-none;
 }
 
 .action-bar {
-  @apply p-4 border-b border-white/5 bg-gray-900/40;
+  @apply p-4 border-b border-white/5 bg-white/[0.02];
 }
 
 .input-wrapper {
@@ -178,80 +208,111 @@ const handleCreateFile = (workspace: string) => {
 }
 
 .action-input {
-  @apply w-full bg-black/40 text-[11px] text-gray-200 pl-3 pr-10 py-2 rounded-lg border border-white/10 
-         focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all placeholder:text-gray-600;
+  @apply w-full bg-white/[0.03] text-[11px] text-gray-100 pl-3 pr-10 py-2.5 rounded-lg border border-white/5 
+         focus:outline-none focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/5 transition-all placeholder:text-gray-600;
 }
 
 .action-input--file {
-  @apply text-[10px] text-gray-300 pr-8 py-1.5 rounded-md border-white/5 placeholder:text-gray-700 font-mono;
+  @apply text-[10px] text-gray-200 pr-8 py-2 rounded-md border-white/10 placeholder:text-gray-700 font-mono;
 }
 
 .btn-add-action {
-  @apply absolute right-1 top-1 bottom-1 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-md 
-         transition-colors flex items-center justify-center shadow-lg active:scale-95;
+  @apply absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-blue-600/80 hover:bg-blue-600 text-white rounded-md 
+         transition-all flex items-center justify-center shadow-lg active:scale-95;
 }
 
 .btn-add-action--file {
-  @apply right-0.5 top-0.5 bottom-0.5 px-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-sm;
-}
-
-.btn-plus-icon {
-  @apply text-sm font-bold;
-}
-
-.btn-plus-icon--file {
-  @apply text-xs flex items-center justify-center;
+  @apply right-1 top-1 bottom-1 px-2.5 bg-white/10 hover:bg-white/20 text-gray-300 rounded-md;
 }
 
 .loading-state {
-  @apply p-4 text-gray-500 text-sm;
+  @apply p-4 space-y-3;
+}
+
+.skeleton-row {
+  @apply h-8 w-full bg-white/5 rounded-md;
+}
+
+.explorer-content {
+  @apply divide-y divide-white/5 transition-opacity duration-300;
 }
 
 .workspace-item {
-  @apply border-b border-gray-700;
+  @apply transition-colors duration-200 border-l-2 border-transparent;
+}
+
+.workspace-item--active {
+  @apply bg-white/[0.02] border-blue-500/50;
 }
 
 .workspace-row {
-  @apply w-full px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-700 flex justify-between items-center;
+  @apply w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-white/[0.03] flex justify-between items-center transition-all;
 }
 
 .workspace-name {
-  @apply font-medium;
+  @apply font-semibold text-[13px] tracking-tight;
 }
 
 .row-controls {
-  @apply flex items-center gap-2;
+  @apply flex items-center gap-1.5 ml-2;
 }
 
-.btn-delete-row {
-  @apply text-red-400 hover:text-red-300 text-xs opacity-0 group-hover:opacity-100;
+.icon-btn {
+  @apply p-1.5 rounded-md transition-all duration-200 opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 hover:bg-white/10;
 }
 
-.row-arrow {
-  @apply text-xs text-gray-500;
+.icon-btn--guard {
+  @apply text-blue-400/70 hover:text-blue-400;
+}
+
+.icon-btn--danger {
+  @apply text-red-400/50 hover:text-red-400 hover:bg-red-500/10;
 }
 
 .file-section {
-  @apply bg-gray-900/50 pb-2;
+  @apply bg-black/40 border-t border-white/5;
 }
 
 .file-action-bar {
   @apply px-4 py-3;
 }
 
+.files-container {
+  @apply pb-2;
+}
+
 .file-row {
-  @apply w-full px-8 py-1.5 text-left text-xs transition-colors flex items-center justify-between;
+  @apply w-full px-4 ml-2 pr-4 py-2 text-left text-[11px] transition-all flex items-center justify-between hover:bg-white/[0.02] rounded-l-md;
 }
 
 .btn-file-open {
-  @apply flex-1 flex items-center gap-2 text-gray-400 hover:text-gray-200;
+  @apply flex-1 flex items-center gap-2.5 text-gray-500 hover:text-gray-300 transition-colors min-w-0;
 }
 
 .btn-file-open--selected {
-  @apply text-white;
+  @apply text-blue-300 font-medium;
 }
 
 .btn-file-delete {
-  @apply opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1;
+  @apply opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 px-1.5 transition-all hover:scale-110;
+}
+
+/* Transitions */
+.fade-slide-enter-active, .fade-slide-leave-active {
+  transition: all 0.2s ease-out;
+}
+.fade-slide-enter-from, .fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.expand-enter-active, .expand-leave-active {
+  transition: all 0.25s ease-in-out;
+  max-height: 500px;
+  overflow: hidden;
+}
+.expand-enter-from, .expand-leave-to {
+  max-height: 0;
+  opacity: 0;
 }
 </style>
