@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { AssistantService } from '../services/assistantService'
-import type { AssistantMessage, SessionBrief, AssistantSession } from '../types/assistant'
+import type { AssistantMessage, SessionBrief } from '../types/assistant'
 
 const loading = ref(false)
 const error = ref<string | null>(null)

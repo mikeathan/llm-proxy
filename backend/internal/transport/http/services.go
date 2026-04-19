@@ -63,6 +63,8 @@ type AdminService interface {
 	UpdateMCPServer(models.MCPServerConfig) error
 	RemoveMCPServer(string) error
 	ListMCPServers() []models.MCPServerConfig
+	ListTemplates() ([]models.TemplateMetadata, error)
+	GetTemplate(id string) (models.Template, error)
 	Models() []models.ModelConfig
 	Providers() map[string]models.ProviderItem
 	SetGPUConfig(models.GPUConfig)

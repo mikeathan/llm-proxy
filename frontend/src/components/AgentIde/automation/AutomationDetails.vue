@@ -4,7 +4,6 @@ import type { Automation, AutomationRun } from "../../../types/dispatcher";
 import MarkdownViewer from "../../common/MarkdownViewer.vue";
 import LiveConsole from "./LiveConsole.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
-import { formatTime } from "../../../utils/time";
 
 const props = defineProps<{
   automation: Automation;
@@ -32,6 +31,10 @@ const activeRun = computed(() => {
 const toggleHistoryRun = (runId: string) => {
   expandedHistoryRuns.value[runId] = !expandedHistoryRuns.value[runId];
 };
+
+const isExecuting = computed(() => {
+  return props.automation.is_running || props.lastTriggerResult?.toLowerCase().includes("running") || false;
+});
 </script>
 
 <template>
@@ -69,26 +72,28 @@ const toggleHistoryRun = (runId: string) => {
     </div>
 
     <div class="details-content">
-      <div class="meta-grid">
-        <div class="meta-card">
-          <span class="meta-label">Trigger</span>
-          <span class="meta-value meta-value--primary">{{
-            automation.trigger
-          }}</span>
+      <template v-if="!isExecuting">
+        <div class="meta-grid">
+          <div class="meta-card">
+            <span class="meta-label">Trigger</span>
+            <span class="meta-value meta-value--primary">{{
+              automation.trigger
+            }}</span>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">Strategy</span>
+            <span class="meta-value meta-value--secondary">{{
+              automation.strategy
+            }}</span>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">Task File</span>
+            <span class="meta-value meta-value--mono">{{
+              automation.task_file
+            }}</span>
+          </div>
         </div>
-        <div class="meta-card">
-          <span class="meta-label">Strategy</span>
-          <span class="meta-value meta-value--secondary">{{
-            automation.strategy
-          }}</span>
-        </div>
-        <div class="meta-card">
-          <span class="meta-label">Task File</span>
-          <span class="meta-value meta-value--mono">{{
-            automation.task_file
-          }}</span>
-        </div>
-      </div>
+      </template>
 
       <div
         v-if="lastTriggerResult"
@@ -99,18 +104,25 @@ const toggleHistoryRun = (runId: string) => {
             : 'result-banner--success'
         "
       >
-        {{ lastTriggerResult }}
+        <div v-if="isExecuting" class="flex items-center gap-3">
+          <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
+          <span class="font-bold tracking-tight uppercase text-[10px]">{{ lastTriggerResult }}</span>
+        </div>
+        <span v-else>{{ lastTriggerResult }}</span>
       </div>
 
-      <div v-if="automation.last_error" class="error-section">
-        <h4 class="section-title section-title--error">Last Error</h4>
-        <div class="error-box">
-          {{ automation.last_error }}
+      <template v-if="!isExecuting">
+        <div v-if="automation.last_error" class="error-section">
+          <h4 class="section-title section-title--error">Last Error</h4>
+          <div class="error-box">
+            {{ automation.last_error }}
+          </div>
         </div>
-      </div>
+      </template>
 
       <!-- Execution Summary / Report Section -->
-      <div v-if="automation.last_output" class="output-section">
+      <template v-if="!isExecuting">
+        <div v-if="automation.last_output" class="output-section">
         <div class="output-header">
           <h4 class="section-title section-title--success">
             Latest Summary Report
@@ -207,9 +219,10 @@ const toggleHistoryRun = (runId: string) => {
           </div>
         </div>
       </div>
+    </template>
 
       <!-- HYBRID CONSOLE SECTION -->
-      <div class="console-section mt-12">
+      <div class="console-section" :class="{ 'mt-12': !isExecuting }">
         <h4 class="section-title section-title--accent">
           Operational Terminal
         </h4>

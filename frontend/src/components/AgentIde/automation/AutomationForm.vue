@@ -160,9 +160,6 @@ const cloudProvidersWithKeys = computed(() => {
       p.api_keys.forEach(k => {
         keys.push({ name: k.name, id: k.id, keyVal: k.name });
       });
-    } else if (p.api_key) {
-      // Only show Default if there's actually a key value in the legacy field
-      keys.push({ name: "Default Provider Key", id: "default", keyVal: "" });
     }
     
     // Skip providers with no credentials at all

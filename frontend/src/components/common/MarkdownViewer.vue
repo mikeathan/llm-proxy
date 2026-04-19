@@ -16,7 +16,7 @@ const htmlContent = computed(() => {
   // We look for a block that starts with ``` and ends with ```
   const trimmed = raw.trim();
   const match = trimmed.match(/^```(?:markdown|text)?\n([\s\S]*)\n```$/i);
-  if (match) {
+  if (match && match[1]) {
     raw = match[1];
   }
 

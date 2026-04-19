@@ -2,7 +2,6 @@
 import type { AutomationRun } from "../../../types/dispatcher";
 import MarkdownViewer from "../../common/MarkdownViewer.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
-import { formatTime } from "../../../utils/time";
 
 const props = defineProps<{
   run: AutomationRun;

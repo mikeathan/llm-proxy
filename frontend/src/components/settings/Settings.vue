@@ -27,7 +27,7 @@ const { state: adminModelsState, refresh: refreshModels } = useModels();
 const modelsList = computed(() => adminModelsState.value?.models || []);
 const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
   useMcpServers();
-const { settingsTabs, getIcon, getLabel, fetchManifests, cloudProviders } =
+const { settingsTabs, getIcon, getLabel, fetchManifests } =
   useProviders();
 const { logLevel, updateLogLevel } = useMetrics();
 const toast = useToast();

@@ -302,6 +302,10 @@ func buildRouter(
 	router.Get("/admin/api/providers/manifests", admin.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
 
+	// Templates
+	router.Get("/admin/api/templates", admin.ListTemplatesHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/templates/", admin.GetTemplateHandler, jsonMethodNotAllowed)
+
 	// Secrets — provider API keys
 	router.Get("/admin/api/secrets/keys", admin.AdminProviderKeysHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/secrets/keys", admin.AdminProviderKeysPutHandler, jsonMethodNotAllowed)

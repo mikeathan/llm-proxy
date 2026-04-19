@@ -18,6 +18,9 @@ type DataManager struct {
 
 	// Registry (Models/Providers State)
 	registryStore *Store[models.RegistryData]
+
+	// Templates (Reusable task playbooks)
+	templateStore *TemplateStore
 }
 
 
@@ -33,6 +36,7 @@ func NewDataManager(rootDir string) (*DataManager, error) {
 		systemStore:   NewStore[models.SystemConfig](filepath.Join(absRoot, models.SystemConfigFilename)),
 		secretStore:   NewStore[models.SecretData](filepath.Join(absRoot, models.SecretsFilename)),
 		registryStore: NewStore[models.RegistryData](filepath.Join(absRoot, models.RegistryFilename)),
+		templateStore: NewTemplateStore(filepath.Join(absRoot, "templates")),
 	}, nil
 }
 
@@ -58,6 +62,9 @@ func (m *DataManager) Secrets() *Store[models.SecretData] { return m.secretStore
 
 // Registry returns the registry store.
 func (m *DataManager) Registry() *Store[models.RegistryData] { return m.registryStore }
+
+// Templates returns the template store.
+func (m *DataManager) Templates() *TemplateStore { return m.templateStore }
 
 // RootDir returns the absolute path to the data directory.
 func (m *DataManager) RootDir() string { return m.rootDir }

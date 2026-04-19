@@ -34,7 +34,7 @@ const isProviderConfigured = computed(() => {
   if (!cfg) return false;
 
   if (props.provider === "vertex") return !!cfg.project_id;
-  return !!cfg.api_key || (cfg.api_keys && cfg.api_keys.length > 0);
+  return (cfg.api_keys && cfg.api_keys.length > 0);
 });
 
 const availableKeys = computed(() => {

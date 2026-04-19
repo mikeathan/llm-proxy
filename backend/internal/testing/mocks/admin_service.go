@@ -41,6 +41,8 @@ type MockAdminService struct {
 	SecretsFunc               func() models.SecretsStore
 	UpdateSettingsFunc        func(context.Context, models.SystemUpdatePayload) error
 	ServiceCredentialsFunc    func() (string, string)
+	ListTemplatesFunc         func() ([]models.TemplateMetadata, error)
+	GetTemplateFunc           func(string) (models.Template, error)
 }
 
 func (m *MockAdminService) ModelDir() string {
@@ -267,5 +269,19 @@ func (m *MockAdminService) ServiceCredentials() (string, string) {
 		return m.ServiceCredentialsFunc()
 	}
 	return "", ""
+}
+
+func (m *MockAdminService) ListTemplates() ([]models.TemplateMetadata, error) {
+	if m.ListTemplatesFunc != nil {
+		return m.ListTemplatesFunc()
+	}
+	return nil, nil
+}
+
+func (m *MockAdminService) GetTemplate(id string) (models.Template, error) {
+	if m.GetTemplateFunc != nil {
+		return m.GetTemplateFunc(id)
+	}
+	return models.Template{}, nil
 }
 

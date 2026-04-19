@@ -522,3 +522,10 @@ func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
 	}
 	return l
 }
+func (s *AppContext) ListTemplates() ([]models.TemplateMetadata, error) {
+	return s.dataMgr.Templates().List()
+}
+
+func (s *AppContext) GetTemplate(id string) (models.Template, error) {
+	return s.dataMgr.Templates().Get(id)
+}

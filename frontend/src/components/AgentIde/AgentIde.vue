@@ -16,10 +16,12 @@ import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
 import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
-
+import TemplateLibrary from "./system/TemplateLibrary.vue";
 import type { AutomationRun } from "../../types/dispatcher";
 import { useToast } from "../../composables/useToast";
+import { useTemplates } from "../../composables/useTemplates";
 
+/* ── Composables & Services ── */
 const { state: adminState, refresh: refreshModels } = useModels();
 const toast = useToast();
 
@@ -47,12 +49,31 @@ const {
   clearError,
 } = useDispatcher();
 
-const models = computed(() => adminState.value?.models || []);
-const providers = computed(() => adminState.value?.config.providers || {});
-
+/* ── UI & Selection State ── */
 const leftTab = ref<"explorer" | "automations" | "activity">("explorer");
 const selectedAutomationId = ref<string | null>(null);
 const selectedRun = ref<AutomationRun | null>(null);
+const selectedWorkspace = ref<string | null>(null);
+const selectedFile = ref<{ workspace: string; filename: string } | null>(null);
+const editAutomation = ref<Automation | null>(null);
+
+/* ── Content & Loading State ── */
+const fileContent = ref<string>("");
+const loadingFile = ref(false);
+const savingFile = ref(false);
+const triggering = ref(false);
+const lastTriggerResult = ref<string | null>(null);
+
+/* ── View & Layout State ── */
+const workspaceHistory = ref<AutomationRun[]>([]);
+const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
+const settingsWorkspaceId = ref<string | null>(null);
+const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
+const isMobile = ref(false);
+
+/* ── Computed Properties ── */
+const models = computed(() => adminState.value?.models || []);
+const providers = computed(() => adminState.value?.config.providers || {});
 
 const selectedAutomation = computed(() => {
   if (!selectedAutomationId.value) return null;
@@ -61,18 +82,6 @@ const selectedAutomation = computed(() => {
     null
   );
 });
-const editAutomation = ref<Automation | null>(null);
-const selectedWorkspace = ref<string | null>(null);
-const selectedFile = ref<{ workspace: string; filename: string } | null>(null);
-const fileContent = ref<string>("");
-const loadingFile = ref(false);
-const savingFile = ref(false);
-
-const triggering = ref(false);
-const lastTriggerResult = ref<string | null>(null);
-const workspaceHistory = ref<AutomationRun[]>([]);
-const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
-const settingsWorkspaceId = ref<string | null>(null);
 
 const activeMainView = computed(() => {
   if (settingsWorkspaceId.value) return "workspace-settings";
@@ -84,9 +93,7 @@ const activeMainView = computed(() => {
   return "dashboard";
 });
 
-const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
-const isMobile = ref(false);
-
+/* ── Methods & Handlers ── */
 const updateLayout = () => {
   isMobile.value = window.innerWidth < 1024;
 };
@@ -337,6 +344,14 @@ const handleUpdateAutomation = async (
     toast.error("Error updating automation: " + err);
   }
 };
+
+const { showTemplates, handleInjectTemplate } = useTemplates(
+  selectedWorkspace,
+  selectedFile,
+  fileContent,
+  fetchWorkspaceFiles,
+  handleOpenFile,
+);
 </script>
 
 <template>
@@ -437,6 +452,29 @@ const handleUpdateAutomation = async (
             Automations
           </button>
         </div>
+        <button
+          @click="showTemplates = true"
+          :disabled="!selectedWorkspace"
+          class="btn-template-trigger"
+          :class="{ 'btn-template-trigger--disabled': !selectedWorkspace }"
+          title="Open Task Playbook Library"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-3 w-3"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.232.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+            />
+          </svg>
+          <span>Library</span>
+        </button>
       </div>
 
       <div class="sidebar-content">
@@ -609,6 +647,13 @@ const handleUpdateAutomation = async (
         <SystemMetricsPanel :metrics="metrics" />
       </div>
     </div>
+
+    <!-- Modals & Overlays -->
+    <TemplateLibrary
+      :show="showTemplates"
+      @close="showTemplates = false"
+      @inject="handleInjectTemplate"
+    />
   </div>
 </template>
 
@@ -678,6 +723,16 @@ const handleUpdateAutomation = async (
 
 .sidebar-content {
   @apply flex-1 overflow-y-auto;
+}
+
+.btn-template-trigger {
+  @apply flex items-center justify-center gap-2 py-1.5 px-3 rounded bg-blue-600/10 
+         hover:bg-blue-600/20 text-blue-500 text-[10px] font-black uppercase tracking-wider 
+         transition-all border border-blue-500/20 active:scale-95;
+}
+
+.btn-template-trigger--disabled {
+  @apply opacity-30 grayscale cursor-not-allowed hover:bg-transparent;
 }
 
 .loading-message {
