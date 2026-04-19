@@ -4,6 +4,7 @@ import GlobalSettings from "./GlobalSettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
+import BaseButton from "../common/BaseButton.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
 import { useMetrics } from "../../composables/useMetrics";
@@ -314,9 +315,15 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
               </template>
 
               <div class="form-actions">
-                <button type="submit" class="btn-submit" :disabled="isSaving">
-                  {{ isSaving ? "Saving..." : `Save ${provider} Config` }}
-                </button>
+                <BaseButton 
+                  type="submit" 
+                  variant="primary" 
+                  :loading="isSaving" 
+                  icon="play"
+                  className="w-full"
+                >
+                  Save {{ provider }} Configuration
+                </BaseButton>
               </div>
             </form>
           </div>

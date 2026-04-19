@@ -2,6 +2,7 @@
 import { toRaw } from "vue";
 import type { GlobalConfig } from "../../types/admin";
 import GuardrailForm from "../AgentIde/system/GuardrailForm.vue";
+import BaseButton from "../common/BaseButton.vue";
 
 const props = defineProps<{
   config: GlobalConfig;
@@ -25,7 +26,9 @@ function handleSave() {
   <div class="guardrails-container">
     <div class="header-row">
       <h2 class="settings-title">System-Wide Guardrails</h2>
-      <button @click="handleSave" class="btn-save">Save Global Policy</button>
+      <BaseButton @click="handleSave" variant="primary" icon="play">
+        Save Global Policy
+      </BaseButton>
     </div>
 
     <GuardrailForm 

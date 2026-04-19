@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from "vue";
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from "vue";
 import type { AgentEvent } from "../../../types/dispatcher";
 import {
   getRoleLabel,
@@ -27,6 +27,16 @@ const props = defineProps<{
 const liveEvents = ref<AgentEvent[]>([]);
 const isConnected = ref(false);
 let eventSource: EventSource | null = null;
+const scrollContainer = ref<HTMLElement | null>(null);
+
+const scrollToBottom = () => {
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTo({
+      top: scrollContainer.value.scrollHeight,
+      behavior: "smooth",
+    });
+  }
+};
 
 const displayEvents = computed(() => {
   return liveEvents.value.length > 0
@@ -80,6 +90,16 @@ watch(
   },
 );
 
+watch(
+  displayEvents,
+  async () => {
+    await nextTick();
+    // Use a small timeout to ensure DOM is fully rendered
+    setTimeout(scrollToBottom, 50);
+  },
+  { deep: true },
+);
+
 const fullTerminalText = computed(() => formatEventsToText(displayEvents.value));
 
 const formatTime = (ts?: string) => {
@@ -110,7 +130,7 @@ const formatTime = (ts?: string) => {
       </div>
     </div>
 
-    <div class="terminal-body" id="terminal-scroll-area">
+    <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer">
       <div v-if="displayEvents.length === 0" class="term-empty">
         Waiting for activity in {{ workspaceId }}...
       </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import LogLevelPanel from "./LogLevelPanel.vue";
+import BaseButton from "../common/BaseButton.vue";
 import {
   argsToString,
   stringToArgs,
@@ -188,9 +189,9 @@ function submitConfig() {
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="btn-submit">
+        <BaseButton type="submit" variant="primary" icon="play">
           Save Local Engine Settings
-        </button>
+        </BaseButton>
       </div>
     </form>
   </div>

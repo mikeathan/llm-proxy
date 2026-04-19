@@ -2,6 +2,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { TemplateService } from '../../../services/templateService';
 import type { Template, TemplateMetadata } from '../../../types/templates';
+import UIIcon from '../../common/UIIcon.vue';
+import BaseButton from '../../common/BaseButton.vue';
 
 const props = defineProps<{
   show: boolean;
@@ -65,9 +67,7 @@ onMounted(fetchTemplates);
             <p class="text-xs text-gray-400 mt-1 italic">Inject expert-crafted automation steps</p>
           </div>
           <button @click="emit('close')" class="close-btn group">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <UIIcon name="close" size="sm" />
           </button>
         </div>
 
@@ -80,9 +80,7 @@ onMounted(fetchTemplates);
               placeholder="Search playbooks..." 
               class="search-input"
             />
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 absolute left-3 top-2.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <UIIcon name="search" size="xs" class="absolute left-3 top-3 text-gray-500" />
           </div>
 
           <div class="flex flex-wrap gap-2">
@@ -124,26 +122,24 @@ onMounted(fetchTemplates);
                 </div>
                 
                 <div class="template-actions">
-                  <button 
+                  <BaseButton 
+                    variant="secondary" 
+                    size="sm" 
+                    icon="plus" 
+                    className="!py-1.5"
                     @click="handleAction(t.id, 'append')"
-                    class="mini-action-btn append-btn"
-                    title="Append to selection"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span>Append</span>
-                  </button>
-                  <button 
+                    Append
+                  </BaseButton>
+                  <BaseButton 
+                    variant="primary" 
+                    size="sm" 
+                    icon="document" 
+                    className="!py-1.5 !bg-emerald-600/20 !text-emerald-400 !border-emerald-500/20 hover:!bg-emerald-600"
                     @click="handleAction(t.id, 'create')"
-                    class="mini-action-btn create-btn"
-                    title="Create new file"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <span>New</span>
-                  </button>
+                    New
+                  </BaseButton>
                 </div>
               </div>
             </div>

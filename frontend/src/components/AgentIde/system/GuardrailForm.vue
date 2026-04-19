@@ -2,6 +2,7 @@
 import { ref, watch, toRaw } from "vue";
 import { listToString, stringToList } from "../../../utils/config";
 import type { AgentGuardrailsConfig } from "../../../types/admin";
+import BaseToggle from "../../common/BaseToggle.vue";
 
 const props = defineProps<{
   modelValue: AgentGuardrailsConfig;
@@ -69,10 +70,10 @@ watch(local, (newVal) => {
       <div class="config-card">
         <h3 class="card-title">Global Security</h3>
         <div class="form-group mb-4">
-          <label class="switch-row">
-            <input type="checkbox" v-model="local.global.block_secrets" class="switch-input" />
-            <span class="switch-label">Block Secrets (PII Redaction)</span>
-          </label>
+          <BaseToggle 
+            v-model="local.global.block_secrets" 
+            label="Block Secrets (PII Redaction)" 
+          />
         </div>
         <div class="form-group border-t border-gray-700/50 pt-4 mt-2">
           <label class="form-label">Global Blocked Patterns</label>
@@ -84,10 +85,7 @@ watch(local, (newVal) => {
       <div class="config-card">
         <div class="card-header">
           <h3 class="card-title">Terminal Tool</h3>
-          <label class="switch-row p-0">
-            <input type="checkbox" v-model="local.terminal.enabled" class="switch-input" />
-            <span class="text-xs uppercase font-bold tracking-widest text-gray-500">Enabled</span>
-          </label>
+          <BaseToggle v-model="local.terminal.enabled" />
         </div>
         <div v-if="local.terminal.enabled" class="card-body">
           <div class="form-group">
@@ -111,17 +109,14 @@ watch(local, (newVal) => {
       <div class="config-card">
         <div class="card-header">
           <h3 class="card-title">FileSystem Tool</h3>
-          <label class="switch-row p-0">
-            <input type="checkbox" v-model="local.filesystem.enabled" class="switch-input" />
-            <span class="text-xs uppercase font-bold tracking-widest text-gray-500">Enabled</span>
-          </label>
+          <BaseToggle v-model="local.filesystem.enabled" />
         </div>
         <div v-if="local.filesystem.enabled" class="card-body">
           <div class="form-group">
-            <label class="switch-row">
-              <input type="checkbox" v-model="local.filesystem.read_only" class="switch-input" />
-              <span class="switch-label">Read Only Access</span>
-            </label>
+            <BaseToggle 
+              v-model="local.filesystem.read_only" 
+              label="Read Only Access" 
+            />
           </div>
           <div class="form-group">
             <label class="form-label">Allowed Paths</label>

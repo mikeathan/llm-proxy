@@ -4,6 +4,8 @@ import type { Automation, AutomationRun } from "../../../types/dispatcher";
 import MarkdownViewer from "../../common/MarkdownViewer.vue";
 import LiveConsole from "./LiveConsole.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
+import BaseButton from "../../common/BaseButton.vue";
+import UIIcon from "../../common/UIIcon.vue";
 
 const props = defineProps<{
   automation: Automation;
@@ -33,7 +35,8 @@ const toggleHistoryRun = (runId: string) => {
 };
 
 const isExecuting = computed(() => {
-  return props.automation.is_running || props.lastTriggerResult?.toLowerCase().includes("running") || false;
+  const res = props.lastTriggerResult?.toLowerCase() || "";
+  return props.automation.is_running || res.includes("running") || res.includes("triggered") || false;
 });
 </script>
 
@@ -49,26 +52,15 @@ const isExecuting = computed(() => {
           <span class="details-subtitle-text">{{ automation.workspace }}</span>
         </p>
       </div>
-      <button
+      <BaseButton
+        variant="ghost"
+        size="md"
+        icon="close"
+        iconOnly
         @click="emit('close')"
-        class="btn-close-round group"
+        className="!bg-gray-800 hover:!bg-gray-700 !text-gray-400 hover:!text-white"
         title="Close details and return to dashboard"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M6 18L18 6M6 6l12 12"
-          />
-        </svg>
-      </button>
+      />
     </div>
 
     <div class="details-content">
@@ -105,7 +97,7 @@ const isExecuting = computed(() => {
         "
       >
         <div v-if="isExecuting" class="flex items-center gap-3">
-          <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
+          <UIIcon name="spinner" size="xs" />
           <span class="font-bold tracking-tight uppercase text-[10px]">{{ lastTriggerResult }}</span>
         </div>
         <span v-else>{{ lastTriggerResult }}</span>

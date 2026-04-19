@@ -20,6 +20,8 @@ import TemplateLibrary from "./system/TemplateLibrary.vue";
 import type { AutomationRun } from "../../types/dispatcher";
 import { useToast } from "../../composables/useToast";
 import { useTemplates } from "../../composables/useTemplates";
+import BaseButton from "../common/BaseButton.vue";
+import UIIcon from "../common/UIIcon.vue";
 
 /* ── Composables & Services ── */
 const { state: adminState, refresh: refreshModels } = useModels();
@@ -293,7 +295,7 @@ const handleDeleteFile = async (wsId: string, file: string) => {
 const handleTrigger = async () => {
   if (!selectedAutomation.value) return;
   triggering.value = true;
-  lastTriggerResult.value = null;
+  lastTriggerResult.value = `Running ${selectedAutomation.value.name}...`;
   try {
     await triggerAutomation(
       selectedAutomation.value.workspace,
@@ -452,29 +454,17 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             Automations
           </button>
         </div>
-        <button
+        <BaseButton
           @click="showTemplates = true"
           :disabled="!selectedWorkspace"
-          class="btn-template-trigger"
-          :class="{ 'btn-template-trigger--disabled': !selectedWorkspace }"
+          variant="ghost"
+          icon="document"
+          size="sm"
+          className="!text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20"
           title="Open Task Playbook Library"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-3 w-3"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.232.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-            />
-          </svg>
-          <span>Library</span>
-        </button>
+          Playbooks
+        </BaseButton>
       </div>
 
       <div class="sidebar-content">
@@ -616,18 +606,26 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       <!-- Trigger Control -->
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
-        <button
+        <BaseButton
           v-if="!selectedAutomation?.is_running"
           @click="handleTrigger"
+          variant="primary"
+          icon="play"
+          :loading="triggering"
           :disabled="!selectedAutomation || triggering"
-          class="btn-action"
-          :class="{ 'btn-action--disabled': !selectedAutomation || triggering }"
+          className="w-full"
         >
-          {{ triggering ? "Executing..." : "Run Automation" }}
-        </button>
-        <button v-else @click="handleStop" class="btn-action btn-action--stop">
+          Run Automation
+        </BaseButton>
+        <BaseButton
+          v-else
+          @click="handleStop"
+          variant="danger"
+          icon="stop"
+          className="w-full"
+        >
           Stop Automation
-        </button>
+        </BaseButton>
         <p v-if="!selectedAutomation" class="action-helper">
           Select an automation to enable execution
         </p>
