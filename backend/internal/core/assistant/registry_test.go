@@ -202,6 +202,9 @@ type mockAppContext struct{}
 func (m *mockAppContext) GetSystem() models.SystemConfig {
 	return models.SystemConfig{}
 }
+func (m *mockAppContext) GetRegistry() models.RegistryData {
+	return models.RegistryData{}
+}
 func (m *mockAppContext) RootDir() string {
 	return ""
 }
@@ -216,6 +219,7 @@ type mockAppContextWithDirs struct {
 	workspacesDir string
 }
 func (m *mockAppContextWithDirs) GetSystem() models.SystemConfig { return models.SystemConfig{} }
+func (m *mockAppContextWithDirs) GetRegistry() models.RegistryData { return models.RegistryData{} }
 func (m *mockAppContextWithDirs) RootDir() string               { return "" }
 func (m *mockAppContextWithDirs) Secrets() models.SecretsStore  { return &mocks.MockSecretsStore{} }
 func (m *mockAppContextWithDirs) WorkspacesDir() string         { return m.workspacesDir }

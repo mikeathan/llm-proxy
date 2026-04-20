@@ -577,6 +577,45 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 	}
 }
 
+func TestAppContextUpdateSettings_Tools(t *testing.T) {
+	dir := t.TempDir()
+	dataMgr, _ := storage.NewDataManager(dir)
+	_ = dataMgr.LoadAll()
+
+	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
+
+	// Update communication settings
+	req := models.SystemUpdatePayload{
+		Communication: &models.CommunicationConfig{
+			Telegram: struct {
+				Enabled bool   `json:"enabled"`
+				ChatID  string `json:"chat_id"`
+			}{
+				Enabled: true,
+				ChatID:  "12345",
+			},
+		},
+	}
+
+	if err := ctx.UpdateSettings(context.Background(), req); err != nil {
+		t.Fatalf("UpdateSettings failed: %v", err)
+	}
+
+	// Verify it went to registry, NOT system
+	reg := ctx.GetRegistry()
+	if !reg.Communication.Telegram.Enabled || reg.Communication.Telegram.ChatID != "12345" {
+		t.Errorf("expected registry to have telegram config, got %+v", reg.Communication)
+	}
+
+	// Verify persistence
+	loadedMgr, _ := storage.NewDataManager(dir)
+	_ = loadedMgr.LoadAll()
+	loadedReg := loadedMgr.Registry().Get()
+	if !loadedReg.Communication.Telegram.Enabled || loadedReg.Communication.Telegram.ChatID != "12345" {
+		t.Errorf("persistence failed for registry tool config")
+	}
+}
+
 func findModel(config []models.ModelRegistryEntry, name string) (models.ModelRegistryEntry, bool) {
 	for _, m := range config {
 		if m.Name == name {

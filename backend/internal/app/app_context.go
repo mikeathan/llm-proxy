@@ -289,24 +289,33 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 				entry.BaseURL = p.BaseURL
 				reg.Providers[id] = entry
 			}
-			if req.PrimaryModel != "" {
-				reg.PrimaryModel = req.PrimaryModel
-			}
 			if req.FallbackModel != "" {
 				reg.FallbackModel = req.FallbackModel
+			}
+			if req.Communication != nil {
+				reg.Communication = *req.Communication
+			}
+			if req.Search != nil {
+				reg.Search = *req.Search
 			}
 		})
 		if err != nil {
 			return fmt.Errorf("failed to save registry: %w", err)
 		}
-	} else if req.PrimaryModel != "" || req.FallbackModel != "" {
-		// Just update models if providers weren't involved
+	} else if req.PrimaryModel != "" || req.FallbackModel != "" || req.Communication != nil || req.Search != nil {
+		// Just update registry items if providers weren't involved
 		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
 			if req.PrimaryModel != "" {
 				reg.PrimaryModel = req.PrimaryModel
 			}
 			if req.FallbackModel != "" {
 				reg.FallbackModel = req.FallbackModel
+			}
+			if req.Communication != nil {
+				reg.Communication = *req.Communication
+			}
+			if req.Search != nil {
+				reg.Search = *req.Search
 			}
 		})
 		if err != nil {

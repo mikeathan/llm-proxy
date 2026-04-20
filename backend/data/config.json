@@ -22,12 +22,5 @@
       "0.0.0.0"
     ]
   },
-  "workspaces_dir": "workspaces",
-  "communication": {
-    "telegram": {
-      "enabled": false,
-      "chat_id": ""
-    }
-  },
-  "search": {}
+  "workspaces_dir": "workspaces"
 }

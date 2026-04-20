@@ -224,8 +224,8 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			FallbackModel:       reg.FallbackModel,
 			Providers:           h.getProvidersView(),
 			Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
-			Communication:       h.admin.GetSystem().Communication,
-			Search:              h.admin.GetSystem().Search,
+			Communication:       reg.Communication,
+			Search:              reg.Search,
 		},
 	}
 

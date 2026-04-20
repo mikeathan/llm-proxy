@@ -46,6 +46,7 @@ type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 func InitializeAgentStack(
 	appCtx interface {
 		GetSystem() models.SystemConfig
+		GetRegistry() models.RegistryData
 		RootDir() string
 		WorkspacesDir() string
 		Secrets() models.SecretsStore
@@ -54,7 +55,6 @@ func InitializeAgentStack(
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
 ) (ToolProvider, Engine, *GuardrailEngine) {
-	sys := appCtx.GetSystem()
 	rootDir := appCtx.RootDir()
 
 	// 1. Load defaults from manifests (prefer disk if in dev)
@@ -80,7 +80,8 @@ func InitializeAgentStack(
 	}, resolver, persistence)
 
 	// 3. Initialize Communications
-	commCfg := sys.Communication
+	reg := appCtx.GetRegistry()
+	commCfg := reg.Communication
 	comm := tools.NewCommunicationTools()
 	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
 	if commCfg.Telegram.Enabled && telegramToken != "" {

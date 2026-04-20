@@ -25,8 +25,8 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		FallbackModel:       reg.FallbackModel,
 		Providers:           h.getProvidersView(),
 		Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
-		Communication:       sys.Communication,
-		Search:              sys.Search,
+		Communication:       reg.Communication,
+		Search:              reg.Search,
 	}
 	respondJSON(w, cfg)
 }

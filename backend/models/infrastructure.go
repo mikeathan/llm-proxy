@@ -24,8 +24,6 @@ type SystemConfig struct {
 	} `json:"local"`
 
 	WorkspacesDir string `json:"workspaces_dir"`
-	Communication CommunicationConfig `json:"communication"`
-	Search        SearchConfig        `json:"search"`
 }
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
@@ -42,6 +40,8 @@ type SystemUpdatePayload struct {
 	DefaultArgs         []string                       `json:"default_args,omitempty"`
 	PrimaryModel        string                         `json:"primary_model,omitempty"`
 	FallbackModel       string                         `json:"fallback_model,omitempty"`
+	Communication       *CommunicationConfig           `json:"communication,omitempty"`
+	Search              *SearchConfig                  `json:"search,omitempty"`
 	Providers           map[string]ProviderItem        `json:"providers,omitempty"`
 	Guardrails          *AgentGuardrailsConfig         `json:"guardrails,omitempty"`
 	Bind                string                         `json:"bind,omitempty"` // For AdminSystemHandler specifically

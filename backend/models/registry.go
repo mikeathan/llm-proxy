@@ -7,6 +7,8 @@ type RegistryData struct {
 	MCPServers    []MCPServerRegistryEntry         `json:"mcp_servers"`
 	PrimaryModel  string                           `json:"primary_model,omitempty"`
 	FallbackModel string                           `json:"fallback_model,omitempty"`
+	Communication CommunicationConfig              `json:"communication,omitempty"`
+	Search        SearchConfig                     `json:"search,omitempty"`
 }
 
 type ProviderRegistryEntry struct {
