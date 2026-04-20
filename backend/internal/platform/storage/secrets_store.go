@@ -1,25 +1,78 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	"llm-proxy/models"
 	"sync"
 )
 
-// SecretStore implements models.SecretsStore using a technical Store[models.SecretData].
-// It handles high-level logic like masking, hydration, and credential resolution.
+// SecretStore implements models.SecretsStore using a technical Store[models.EncryptedSecretData].
+// It handles high-level logic like masking, hydration, credential resolution, and AES encryption.
 type SecretStore struct {
-	store *Store[models.SecretData]
-	mu    sync.RWMutex
+	store     *Store[models.EncryptedSecretData]
+	masterKey []byte
+	mu        sync.RWMutex
 }
 
-func NewSecretStore(store *Store[models.SecretData]) *SecretStore {
-	return &SecretStore{store: store}
+func NewSecretStore(store *Store[models.EncryptedSecretData], masterKey []byte) *SecretStore {
+	return &SecretStore{store: store, masterKey: masterKey}
 }
 
-// GetProviderKeys returns a copy of all API keys for the given provider.
+func (b *SecretStore) getDecrypted() models.SecretData {
+	edata := b.store.Get()
+	if edata.Ciphertext == "" {
+		return models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+	}
+
+	plaintext, err := DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
+	if err != nil {
+		fmt.Printf("Warning: Failed to decrypt secrets json: %v\n", err)
+		return models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+	}
+
+	var data models.SecretData
+	if err := json.Unmarshal(plaintext, &data.ProviderKeys); err != nil {
+		fmt.Printf("Warning: Failed to unmarshal decrypted secrets: %v\n", err)
+		return models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+	}
+	data.Version = edata.Version
+	if data.ProviderKeys == nil {
+		data.ProviderKeys = make(map[string][]models.SecretEntry)
+	}
+	return data
+}
+
+func (b *SecretStore) updateEncrypted(fn func(data *models.SecretData)) error {
+	return b.store.Update(func(edata *models.EncryptedSecretData) {
+		var data models.SecretData
+		// Decrypt
+		if edata.Ciphertext != "" {
+			plaintext, err := DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
+			if err == nil {
+				_ = json.Unmarshal(plaintext, &data.ProviderKeys)
+			}
+		}
+
+		if data.ProviderKeys == nil {
+			data.ProviderKeys = make(map[string][]models.SecretEntry)
+		}
+
+		// Apply callback
+		fn(&data)
+
+		// Encrypt back
+		plaintext, _ := json.Marshal(data.ProviderKeys)
+		cipher, nonce, err := EncryptAES(b.masterKey, plaintext)
+		if err == nil {
+			edata.Ciphertext = cipher
+			edata.Nonce = nonce
+		}
+	})
+}
+
 func (b *SecretStore) GetProviderKeys(provider string) []models.APIKeyItem {
-	data := b.store.Get()
+	data := b.getDecrypted()
 	entries, ok := data.ProviderKeys[provider]
 	if !ok {
 		return []models.APIKeyItem{}
@@ -35,14 +88,13 @@ func (b *SecretStore) GetProviderKeys(provider string) []models.APIKeyItem {
 	return res
 }
 
-// SetProviderKeys replaces the full key set for a provider.
 func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem) error {
-	return b.store.Update(func(data *models.SecretData) {
+	return b.updateEncrypted(func(data *models.SecretData) {
 		if data.ProviderKeys == nil {
 			data.ProviderKeys = make(map[string][]models.SecretEntry)
 		}
 
-		// Build lookup for hydration if needed
+		// Build lookup
 		existingByID := make(map[string]string)
 		for _, e := range data.ProviderKeys[provider] {
 			existingByID[e.ID] = e.Key
@@ -66,9 +118,8 @@ func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem)
 	})
 }
 
-// DeleteProviderKey removes a single key by ID from a provider's key set.
 func (b *SecretStore) DeleteProviderKey(provider, keyID string) error {
-	return b.store.Update(func(data *models.SecretData) {
+	return b.updateEncrypted(func(data *models.SecretData) {
 		entries, ok := data.ProviderKeys[provider]
 		if !ok {
 			return
@@ -83,7 +134,6 @@ func (b *SecretStore) DeleteProviderKey(provider, keyID string) error {
 	})
 }
 
-// MaskedProviderKeys returns the provider keys with their secret values redacted.
 func (b *SecretStore) MaskedProviderKeys(provider string) []models.APIKeyItem {
 	keys := b.GetProviderKeys(provider)
 	for i := range keys {
@@ -94,7 +144,7 @@ func (b *SecretStore) MaskedProviderKeys(provider string) []models.APIKeyItem {
 
 // GetSecret (Tool Secret) - for the bridge we map these to the "tools" provider group
 func (b *SecretStore) GetSecret(category, provider string) string {
-	data := b.store.Get()
+	data := b.getDecrypted()
 	key := category + ":" + provider
 	for _, entries := range data.ProviderKeys {
 		for _, e := range entries {
@@ -108,7 +158,7 @@ func (b *SecretStore) GetSecret(category, provider string) string {
 
 func (b *SecretStore) SetSecret(category, provider, value string) error {
 	key := category + ":" + provider
-	return b.store.Update(func(data *models.SecretData) {
+	return b.updateEncrypted(func(data *models.SecretData) {
 		if data.ProviderKeys == nil {
 			data.ProviderKeys = make(map[string][]models.SecretEntry)
 		}

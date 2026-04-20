@@ -203,6 +203,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	}
 	nextPort := nextAvailablePort(modelsList, activePort)
 	sys := h.admin.GetSystem()
+	reg := h.admin.GetRegistry()
 	id, secret := h.admin.ServiceCredentials()
 	state := adminStateResponse{
 		Models:    h.getModelsView(modelsList, activeName, activeDetails != nil && activeDetails.Ready),
@@ -219,8 +220,8 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			DefaultArgs:         h.admin.DefaultArgs(),
 			ServiceClientID:     id,
 			ServiceClientSecret: secret,
-			PrimaryModel:        h.admin.GetSystem().Server.PrimaryModel,
-			FallbackModel:       h.admin.GetSystem().Server.FallbackModel,
+			PrimaryModel:        reg.PrimaryModel,
+			FallbackModel:       reg.FallbackModel,
 			Providers:           h.getProvidersView(),
 			Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
 			Communication:       h.admin.GetSystem().Communication,

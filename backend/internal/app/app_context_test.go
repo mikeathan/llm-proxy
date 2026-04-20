@@ -46,8 +46,6 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 		sys.Server.Bind = initialCfg.Server.Bind
 		sys.Server.ModelHost = initialCfg.Server.ModelHost
 		sys.Server.IdleTimeoutSecs = initialCfg.Server.IdleTimeoutSecs
-		sys.Server.PrimaryModel = initialCfg.Server.PrimaryModel
-		sys.Server.FallbackModel = initialCfg.Server.FallbackModel
 
 		if local, ok := initialCfg.Providers["local"]; ok {
 			sys.Local.ModelDir = local.ModelDir
@@ -81,6 +79,8 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 				ProviderID: m.Provider,
 			})
 		}
+		reg.PrimaryModel = initialCfg.Server.PrimaryModel
+		reg.FallbackModel = initialCfg.Server.FallbackModel
 	}
 	regData, _ := json.Marshal(reg)
 	_ = os.WriteFile(filepath.Join(dir, "registry.json"), regData, 0644)

@@ -42,7 +42,7 @@ func TestAdminTemplateHandlers(t *testing.T) {
 	handlers := &AdminHandlers{admin: mock}
 
 	t.Run("ListTemplates", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/admin/templates", nil)
+		req := httptest.NewRequest("GET", "/admin/api/templates", nil)
 		rr := httptest.NewRecorder()
 
 		handlers.ListTemplatesHandler(rr, req)
@@ -59,7 +59,7 @@ func TestAdminTemplateHandlers(t *testing.T) {
 	})
 
 	t.Run("GetTemplate", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/admin/templates/t1", nil)
+		req := httptest.NewRequest("GET", "/admin/api/templates/t1", nil)
 		rr := httptest.NewRecorder()
 
 		handlers.GetTemplateHandler(rr, req)
@@ -76,7 +76,7 @@ func TestAdminTemplateHandlers(t *testing.T) {
 	})
 
 	t.Run("GetTemplateNotFound", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/admin/templates/unknown", nil)
+		req := httptest.NewRequest("GET", "/admin/api/templates/unknown", nil)
 		rr := httptest.NewRecorder()
 
 		handlers.GetTemplateHandler(rr, req)

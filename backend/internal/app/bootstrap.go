@@ -167,7 +167,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	// 2. Initialize Runtime Manager from Registry
 	logging.Info("Initializing LLM runtime manager...")
 	registry := dataMgr.Registry().Get()
-	secretsStore := storage.NewSecretStore(dataMgr.Secrets())
+	secretsStore := dataMgr.Secrets()
 	manager := llm.NewManagerFromRegistry(registry, sys, secretsStore)
 
 	logging.Info("Creating server context...")

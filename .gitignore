@@ -45,3 +45,5 @@ backend/reports/*
 
 # Workspace data
 backend/data/workspaces/*
+backend/data/registry.json
+backend/data/secrets.json

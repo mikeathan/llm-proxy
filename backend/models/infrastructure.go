@@ -13,8 +13,6 @@ type SystemConfig struct {
 		Bind            string `json:"bind"`
 		ModelHost       string `json:"model_host"`
 		IdleTimeoutSecs int    `json:"idle_timeout_seconds"`
-		PrimaryModel    string            `json:"primary_model,omitempty"`
-		FallbackModel   string            `json:"fallback_model,omitempty"`
 		Environment     map[string]string `json:"environment,omitempty"`
 	} `json:"server"`
 

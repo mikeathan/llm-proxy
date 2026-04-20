@@ -2,9 +2,11 @@ package models
 
 // RegistryData represents the dynamic application state (Tier 3: registry.json)
 type RegistryData struct {
-	Providers  map[string]ProviderRegistryEntry `json:"providers"`
-	Catalogue  []ModelRegistryEntry             `json:"catalogue"`
-	MCPServers []MCPServerRegistryEntry         `json:"mcp_servers"`
+	Providers     map[string]ProviderRegistryEntry `json:"providers"`
+	Catalogue     []ModelRegistryEntry             `json:"catalogue"`
+	MCPServers    []MCPServerRegistryEntry         `json:"mcp_servers"`
+	PrimaryModel  string                           `json:"primary_model,omitempty"`
+	FallbackModel string                           `json:"fallback_model,omitempty"`
 }
 
 type ProviderRegistryEntry struct {

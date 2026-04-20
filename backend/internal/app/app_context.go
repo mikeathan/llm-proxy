@@ -43,7 +43,7 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 
 	// Link manager to secrets
 	if m, ok := mgr.(*llm.LLMRuntimeManager); ok {
-		m.SetSecrets(storage.NewSecretStore(dataMgr.Secrets()))
+		m.SetSecrets(dataMgr.Secrets())
 	}
 
 	logging.Debug("State initialized",
@@ -56,13 +56,12 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 }
 
 func (a *AppContext) SelectModels() (string, string) {
-	sys := a.dataMgr.System().Get()
-	p := sys.Server.PrimaryModel
-	f := sys.Server.FallbackModel
+	reg := a.dataMgr.Registry().Get()
+	p := reg.PrimaryModel
+	f := reg.FallbackModel
 
 	// If no primary is set, auto-select first available model from registry
 	if p == "" {
-		reg := a.dataMgr.Registry().Get()
 		if len(reg.Catalogue) > 0 {
 			p = reg.Catalogue[0].Name
 		}
@@ -89,7 +88,7 @@ func (s *AppContext) Manager() llm.RuntimeManager {
 }
 
 func (s *AppContext) Secrets() models.SecretsStore {
-	return storage.NewSecretStore(s.dataMgr.Secrets())
+	return s.dataMgr.Secrets()
 }
 
 func (s *AppContext) ModelDir() string {
@@ -256,12 +255,6 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 		if req.DefaultArgs != nil {
 			sys.Local.DefaultArgs = req.DefaultArgs
 		}
-		if req.PrimaryModel != "" {
-			sys.Server.PrimaryModel = req.PrimaryModel
-		}
-		if req.FallbackModel != "" {
-			sys.Server.FallbackModel = req.FallbackModel
-		}
 
 		// Sync 'local' infrastructure fields
 		if local, ok := req.Providers["local"]; ok {
@@ -295,6 +288,25 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 				entry.Type = p.Type
 				entry.BaseURL = p.BaseURL
 				reg.Providers[id] = entry
+			}
+			if req.PrimaryModel != "" {
+				reg.PrimaryModel = req.PrimaryModel
+			}
+			if req.FallbackModel != "" {
+				reg.FallbackModel = req.FallbackModel
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("failed to save registry: %w", err)
+		}
+	} else if req.PrimaryModel != "" || req.FallbackModel != "" {
+		// Just update models if providers weren't involved
+		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
+			if req.PrimaryModel != "" {
+				reg.PrimaryModel = req.PrimaryModel
+			}
+			if req.FallbackModel != "" {
+				reg.FallbackModel = req.FallbackModel
 			}
 		})
 		if err != nil {

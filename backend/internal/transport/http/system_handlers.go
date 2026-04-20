@@ -9,6 +9,7 @@ import (
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	sys := h.admin.GetSystem()
+	reg := h.admin.GetRegistry()
 	id, secret := h.admin.ServiceCredentials()
 	cfg := adminConfigView{
 		WorkspacesDir:       sys.WorkspacesDir,
@@ -20,8 +21,8 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		DefaultArgs:         sys.Local.DefaultArgs,
 		ServiceClientID:     id,
 		ServiceClientSecret: secret,
-		PrimaryModel:        sys.Server.PrimaryModel,
-		FallbackModel:       sys.Server.FallbackModel,
+		PrimaryModel:        reg.PrimaryModel,
+		FallbackModel:       reg.FallbackModel,
 		Providers:           h.getProvidersView(),
 		Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
 		Communication:       sys.Communication,
