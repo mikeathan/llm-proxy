@@ -21,6 +21,7 @@ import CopyButton from "../../common/CopyButton.vue";
 const props = defineProps<{
   workspaceId: string;
   isActive: boolean;
+  isExecuting?: boolean;
   historyEvents?: AgentEvent[];
 }>();
 
@@ -39,9 +40,14 @@ const scrollToBottom = () => {
 };
 
 const displayEvents = computed(() => {
-  return liveEvents.value.length > 0
-    ? liveEvents.value
-    : props.historyEvents || [];
+  // If we have live events, always show them
+  if (liveEvents.value.length > 0) return liveEvents.value;
+  
+  // If we are actively executing/running, we want a clean terminal, not old history
+  if (props.isExecuting) return [];
+  
+  // Otherwise fallback to history if provided
+  return props.historyEvents || [];
 });
 
 const connect = () => {

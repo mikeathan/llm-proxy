@@ -10,6 +10,7 @@ import UIIcon from "../../common/UIIcon.vue";
 const props = defineProps<{
   automation: Automation;
   lastTriggerResult?: string | null;
+  isExecuting?: boolean;
   selectedRun?: AutomationRun | null;
 }>();
 
@@ -34,10 +35,8 @@ const toggleHistoryRun = (runId: string) => {
   expandedHistoryRuns.value[runId] = !expandedHistoryRuns.value[runId];
 };
 
-const isExecuting = computed(() => {
-  const res = props.lastTriggerResult?.toLowerCase() || "";
-  return props.automation.is_running || res.includes("running") || res.includes("triggered") || false;
-});
+// Final consolidated running state
+const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_running));
 </script>
 
 <template>
@@ -64,7 +63,8 @@ const isExecuting = computed(() => {
     </div>
 
     <div class="details-content">
-      <template v-if="!isExecuting">
+      <!-- STATIC INFO & PREVIOUS RESULTS (Only shown when NOT running) -->
+      <div v-if="!showLiveUI" class="animate-in fade-in duration-500">
         <div class="meta-grid">
           <div class="meta-card">
             <span class="meta-label">Trigger</span>
@@ -85,150 +85,115 @@ const isExecuting = computed(() => {
             }}</span>
           </div>
         </div>
-      </template>
 
-      <div
-        v-if="lastTriggerResult"
-        class="result-banner"
-        :class="
-          lastTriggerResult.includes('Failed')
-            ? 'result-banner--error'
-            : 'result-banner--success'
-        "
-      >
-        <div v-if="isExecuting" class="flex items-center gap-3">
-          <UIIcon name="spinner" size="xs" />
-          <span class="font-bold tracking-tight uppercase text-[10px]">{{ lastTriggerResult }}</span>
-        </div>
-        <span v-else>{{ lastTriggerResult }}</span>
-      </div>
-
-      <template v-if="!isExecuting">
         <div v-if="automation.last_error" class="error-section">
           <h4 class="section-title section-title--error">Last Error</h4>
           <div class="error-box">
             {{ automation.last_error }}
           </div>
         </div>
-      </template>
 
-      <!-- Execution Summary / Report Section -->
-      <template v-if="!isExecuting">
         <div v-if="automation.last_output" class="output-section">
-        <div class="output-header">
-          <h4 class="section-title section-title--success">
-            Latest Summary Report
-          </h4>
-          <button
-            v-if="automation.history && automation.history.length > 0"
-            @click="showHistory = !showHistory"
-            class="btn-history-toggle"
-          >
-            {{ showHistory ? "Back to Latest" : "Full Timeline History" }}
-          </button>
-        </div>
+          <div class="output-header">
+            <h4 class="section-title section-title--success">
+              Latest Summary Report
+            </h4>
+            <button
+              v-if="automation.history && automation.history.length > 0"
+              @click="showHistory = !showHistory"
+              class="btn-history-toggle"
+            >
+              {{ showHistory ? "Back to Latest" : "Full Timeline History" }}
+            </button>
+          </div>
 
-        <div v-if="!showHistory" class="output-box">
-          <MarkdownViewer :content="automation.last_output" />
-        </div>
+          <div v-if="!showHistory" class="output-box">
+            <MarkdownViewer :content="automation.last_output" />
+          </div>
 
-        <!-- History Timeline -->
-        <div v-else class="history-timeline">
-          <div
-            v-for="run in [...(automation.history || [])].reverse()"
-            :key="run.id"
-            class="history-entry"
-            :class="{ 'history-entry--expanded': expandedHistoryRuns[run.id] }"
-          >
-            <div @click="toggleHistoryRun(run.id)" class="entry-header">
-              <div class="entry-meta">
-                <span
-                  class="entry-dot"
-                  :class="run.error ? 'bg-red-500' : 'bg-green-500'"
-                ></span>
-                <span class="entry-time">{{
-                  new Date(run.timestamp).toLocaleString()
-                }}</span>
+          <!-- History Timeline -->
+          <div v-else class="history-timeline">
+            <div
+              v-for="run in [...(automation.history || [])].reverse()"
+              :key="run.id"
+              class="history-entry"
+              :class="{
+                'history-entry--expanded': expandedHistoryRuns[run.id],
+              }"
+            >
+              <div @click="toggleHistoryRun(run.id)" class="entry-header">
+                <div class="entry-meta">
+                  <span
+                    class="entry-dot"
+                    :class="run.error ? 'bg-red-500' : 'bg-green-500'"
+                  ></span>
+                  <span class="entry-time">{{
+                    new Date(run.timestamp).toLocaleString()
+                  }}</span>
 
-                <span class="entry-model"
-                  >via {{ run.model || "Default" }}</span
-                >
-              </div>
-              <div class="entry-actions">
-                <span class="entry-duration">{{ run.duration_ms }}ms</span>
-                <svg
-                  v-if="!expandedHistoryRuns[run.id]"
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-3 w-3 text-gray-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 9l-7 7-7-7"
+                  <span class="entry-model"
+                    >via {{ run.model || "Default" }}</span
+                  >
+                </div>
+                <div class="entry-actions">
+                  <span class="entry-duration">{{ run.duration_ms }}ms</span>
+                  <UIIcon
+                    v-if="!expandedHistoryRuns[run.id]"
+                    name="close"
+                    size="xs"
+                    class="rotate-45"
                   />
-                </svg>
-                <svg
-                  v-else
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-3 w-3 text-blue-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M5 15l7-7 7 7"
-                  />
-                </svg>
-              </div>
-            </div>
-
-            <!-- Expanded Audit Trail -->
-            <div v-if="expandedHistoryRuns[run.id]" class="entry-details">
-              <!-- Replay terminal events using the centralized ExecutionAuditTrail -->
-              <ExecutionAuditTrail
-                v-if="run.events?.length"
-                :events="run.events"
-              />
-
-
-              <div v-if="run.error" class="entry-error">
-                <h5 class="sub-header">Final Error</h5>
-                <pre>{{ run.error }}</pre>
+                  <UIIcon v-else name="close" size="xs" class="text-blue-400" />
+                </div>
               </div>
 
-              <div v-if="run.output" class="entry-output">
-                <h5 class="sub-header">Final Report Output</h5>
-                <MarkdownViewer :content="run.output" />
+              <div v-if="expandedHistoryRuns[run.id]" class="entry-details">
+                <ExecutionAuditTrail
+                  v-if="run.events?.length"
+                  :events="run.events"
+                />
+
+                <div v-if="run.error" class="entry-error">
+                  <h5 class="sub-header">Final Error</h5>
+                  <pre>{{ run.error }}</pre>
+                </div>
+
+                <div v-if="run.output" class="entry-output">
+                  <h5 class="sub-header">Final Report Output</h5>
+                  <MarkdownViewer :content="run.output" />
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </template>
 
-      <!-- HYBRID CONSOLE SECTION -->
-      <div class="console-section" :class="{ 'mt-12': !isExecuting }">
+      <!-- LIVE EXECUTION STATUS (Shown during trigger and active runs) -->
+      <div v-if="showLiveUI" class="result-banner result-banner--success">
+        <div class="flex items-center gap-3">
+          <UIIcon name="spinner" size="xs" />
+          <span class="font-bold tracking-tight uppercase text-[10px]">
+            {{ lastTriggerResult || "Automation in progress..." }}
+          </span>
+        </div>
+      </div>
+
+      <!-- HYBRID CONSOLE SECTION (Always visible) -->
+      <div class="console-section" :class="{ 'mt-12': !showLiveUI }">
         <h4 class="section-title section-title--accent">
           Operational Terminal
         </h4>
 
-        <!-- Always mounted LiveConsole handles both live and history automatically -->
         <LiveConsole
           :workspaceId="automation.workspace"
           :isActive="true"
+          :isExecuting="showLiveUI"
           :historyEvents="activeRun?.events"
         />
       </div>
 
       <div
-        v-if="!automation.last_output && !automation.last_error"
+        v-if="!showLiveUI && !automation.last_output && !automation.last_error"
         class="empty-state"
       >
         <p>No execution history available for this automation.</p>
@@ -401,9 +366,6 @@ const isExecuting = computed(() => {
 .entry-details {
   @apply p-4 pt-0 border-t border-gray-800/50 bg-black/20 animate-in slide-in-from-top duration-200;
 }
-
-
-
 
 .sub-header {
   @apply text-[9px] uppercase font-bold text-gray-500 mb-2 tracking-widest;

@@ -21,7 +21,6 @@ import type { AutomationRun } from "../../types/dispatcher";
 import { useToast } from "../../composables/useToast";
 import { useTemplates } from "../../composables/useTemplates";
 import BaseButton from "../common/BaseButton.vue";
-import UIIcon from "../common/UIIcon.vue";
 
 /* ── Composables & Services ── */
 const { state: adminState, refresh: refreshModels } = useModels();
@@ -594,8 +593,10 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       <!-- Automation Details View -->
       <AutomationDetails
         v-else-if="activeMainView === 'automation'"
+        :key="`${selectedAutomation!.id}-${selectedAutomation!.is_running || triggering}`"
         :automation="selectedAutomation!"
         :last-trigger-result="lastTriggerResult"
+        :is-executing="triggering || (selectedAutomation?.is_running ?? false)"
         :selectedRun="selectedRun"
         @close="handleCloseDetails"
       />
