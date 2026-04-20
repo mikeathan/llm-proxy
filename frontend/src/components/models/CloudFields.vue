@@ -34,7 +34,7 @@ const isProviderConfigured = computed(() => {
   if (!cfg) return false;
 
   if (props.provider === "vertex") return !!cfg.project_id;
-  return !!cfg.api_key || (cfg.api_keys && cfg.api_keys.length > 0);
+  return cfg.api_keys && cfg.api_keys.length > 0;
 });
 
 const availableKeys = computed(() => {
@@ -44,17 +44,11 @@ const availableKeys = computed(() => {
 
 async function loadProviderModels() {
   if (!props.provider || props.provider === "local") return;
- 
+
   isLoadingModels.value = true;
   try {
     const list = await fetchProviderModels(props.provider, props.apiKeyName);
     providerModels.value = list;
-    if (list.length > 0 && !props.modelId) {
-      const firstModel = list[0];
-      if (firstModel) {
-        emit("update:modelId", firstModel);
-      }
-    }
   } finally {
     isLoadingModels.value = false;
   }
@@ -67,11 +61,6 @@ watch(
       providerModels.value = [];
       filterText.value = "";
 
-      // Auto-select first key if none selected and keys exist
-      if (availableKeys.value.length > 0 && !props.apiKeyName) {
-        emit("update:apiKeyName", availableKeys.value[0]?.name || "");
-      }
-
       if (newProv !== "local" && isProviderConfigured.value) {
         loadProviderModels();
       }
@@ -80,6 +69,28 @@ watch(
   { immediate: true },
 );
 
+// Auto-select first key if none selected OR current selection is invalid for this provider
+watch(
+  availableKeys,
+  (keys) => {
+    if (keys.length > 0) {
+      const currentValid = keys.find((k) => k.name === props.apiKeyName);
+      if (!props.apiKeyName || !currentValid) {
+        emit("update:apiKeyName", keys[0]?.name || "");
+      }
+    }
+  },
+  { immediate: true },
+);
+
+// Auto-select first model from FILTERED list if current selection is invalid or empty
+watch(filteredProviderModels, (newFiltered) => {
+  const first = newFiltered[0];
+  if (first && (!props.modelId || !newFiltered.includes(props.modelId))) {
+    emit("update:modelId", first);
+  }
+});
+
 // Reload models when API key changes
 watch(
   () => props.apiKeyName,
@@ -87,8 +98,19 @@ watch(
     if (newKey !== oldKey && props.provider !== "local") {
       loadProviderModels();
     }
-  }
+  },
 );
+
+// Trigger load when provider becomes configured (e.g. after state refresh)
+watch(isProviderConfigured, (configured) => {
+  if (
+    configured &&
+    props.provider !== "local" &&
+    providerModels.value.length === 0
+  ) {
+    loadProviderModels();
+  }
+});
 </script>
 
 <template>
@@ -106,11 +128,15 @@ watch(
       <label class="form-label">API Key Name</label>
       <select
         :value="apiKeyName"
-        @change="emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)"
+        @change="
+          emit('update:apiKeyName', ($event.target as HTMLSelectElement).value)
+        "
         class="form-input"
         required
       >
-        <option v-if="availableKeys.length === 0" value="">Default Provider Key</option>
+        <option v-if="availableKeys.length === 0" value="">
+          Default Provider Key
+        </option>
         <option v-for="k in availableKeys" :key="k.name" :value="k.name">
           {{ k.name }}
         </option>
@@ -138,7 +164,7 @@ watch(
       </button>
     </div>
 
-    <div v-if="providerModels.length > 10" class="search-wrapper">
+    <div v-if="providerModels.length > 0" class="search-wrapper">
       <input
         v-model="filterText"
         type="text"

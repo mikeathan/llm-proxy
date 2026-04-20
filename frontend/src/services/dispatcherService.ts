@@ -74,12 +74,27 @@ export const DispatcherService = {
     if (!res.ok) throw new Error('Failed to delete workspace')
   },
 
-  async createAutomation(workspace: string, automation: Automation): Promise<void> {
+  async createAutomation(workspace: string, automation: any): Promise<void> {
     const res = await fetch(`${BASE_URL}/workspaces/${workspace}/automations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(automation)
     })
     if (!res.ok) throw new Error('Failed to create automation')
+  },
+
+  async getWorkspaceConfig(workspace: string): Promise<any> {
+    const res = await fetch(`${BASE_URL}/workspaces/${workspace}/config`)
+    if (!res.ok) throw new Error('Failed to fetch workspace config')
+    return res.json()
+  },
+
+  async updateWorkspaceConfig(workspace: string, config: any): Promise<void> {
+    const res = await fetch(`${BASE_URL}/workspaces/${workspace}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config)
+    })
+    if (!res.ok) throw new Error('Failed to update workspace config')
   }
 }

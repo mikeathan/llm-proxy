@@ -8,13 +8,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/storage"
 )
 
 var (
@@ -25,8 +27,12 @@ var (
 
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
-	configFlag := flag.String("config", "", "path to config file")
+	configFlag := flag.String("config", "", "path to config file (legacy, will be moved to data/)")
+	dataFlag := flag.String("data", "data", "path to data directory containing config, secrets, and registry")
 	flag.Parse()
+
+	// Load Environment (.env files)
+	env.LoadEnv()
 
 	buildInfo := buildInfo()
 
@@ -38,26 +44,35 @@ func main() {
 	logger := initLogger()
 	logging.SetGlobalLogger(logger)
 
-	configPath := *configFlag
-	if configPath == "" {
-		if _, err := os.Stat("backend/config/config.json"); err == nil {
-			configPath = "backend/config/config.json"
-		} else {
-			configPath = "config/config.json"
-		}
-	}
-
-	// Load configuration using ConfigManager
-	cfgMgr := config.NewConfigManager(configPath)
-	if err := cfgMgr.Load(); err != nil {
-		logging.Error("failed to load config", "error", err)
+	// Initialize new Storage/Data Manager
+	dataMgr, err := storage.NewDataManager(*dataFlag)
+	if err != nil {
+		logging.Error("failed to initialize data manager", "error", err)
 		os.Exit(1)
 	}
 
-	proxyApp := app.New(cfgMgr, logger, buildInfo)
+	// For Phase 1, we still might need the legacy config path if it exists outside data/
+	configPath := *configFlag
+	if configPath == "" {
+		configPath = filepath.Join(dataMgr.RootDir(), "config.json")
+	}
 
-	cfg := cfgMgr.GetConfig()
-	logStartup(logger, buildInfo, cfg.Server.Bind)
+	// Load all data (3-tier)
+	if err := dataMgr.LoadAll(); err != nil {
+		logging.Warn("could not load existing data stores (expected on first run)", "error", err)
+	}
+
+	// Bootstrap using the new DataManager
+	proxyApp := app.New(dataMgr, logger, buildInfo)
+
+	// Get system bind from the new storage
+	sys := dataMgr.System().Get()
+	bindAddr := sys.Server.Bind
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0:4001" // Safe default
+	}
+
+	logStartup(logger, buildInfo, bindAddr)
 
 	// Setup Graceful Shutdown
 	stop := make(chan os.Signal, 1)

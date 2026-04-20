@@ -14,10 +14,17 @@ import SystemMetricsPanel from "./system/SystemMetricsPanel.vue";
 import SystemPulseDashboard from "./system/SystemPulseDashboard.vue";
 import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
-
+import AssistantChat from "./assistant/AssistantChat.vue";
+import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
+import TemplateLibrary from "./system/TemplateLibrary.vue";
 import type { AutomationRun } from "../../types/dispatcher";
+import { useToast } from "../../composables/useToast";
+import { useTemplates } from "../../composables/useTemplates";
+import BaseButton from "../common/BaseButton.vue";
 
+/* ── Composables & Services ── */
 const { state: adminState, refresh: refreshModels } = useModels();
+const toast = useToast();
 
 const {
   automations,
@@ -39,30 +46,58 @@ const {
   createAutomation,
   updateAutomation,
   deleteAutomation,
+  stopAutomation,
   clearError,
 } = useDispatcher();
 
-const models = computed(() => adminState.value?.models || []);
-const providers = computed(() => adminState.value?.config.providers || {});
-
+/* ── UI & Selection State ── */
 const leftTab = ref<"explorer" | "automations" | "activity">("explorer");
 const selectedAutomationId = ref<string | null>(null);
 const selectedRun = ref<AutomationRun | null>(null);
-
-const selectedAutomation = computed(() => {
-  if (!selectedAutomationId.value) return null;
-  return automations.value.find((a: any) => a.id === selectedAutomationId.value) || null;
-});
-const editAutomation = ref<Automation | null>(null);
 const selectedWorkspace = ref<string | null>(null);
 const selectedFile = ref<{ workspace: string; filename: string } | null>(null);
+const editAutomation = ref<Automation | null>(null);
+
+/* ── Content & Loading State ── */
 const fileContent = ref<string>("");
 const loadingFile = ref(false);
 const savingFile = ref(false);
-
 const triggering = ref(false);
 const lastTriggerResult = ref<string | null>(null);
+
+/* ── View & Layout State ── */
 const workspaceHistory = ref<AutomationRun[]>([]);
+const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
+const settingsWorkspaceId = ref<string | null>(null);
+const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
+const isMobile = ref(false);
+
+/* ── Computed Properties ── */
+const models = computed(() => adminState.value?.models || []);
+const providers = computed(() => adminState.value?.config.providers || {});
+
+const selectedAutomation = computed(() => {
+  if (!selectedAutomationId.value) return null;
+  return (
+    automations.value.find((a: any) => a.id === selectedAutomationId.value) ||
+    null
+  );
+});
+
+const activeMainView = computed(() => {
+  if (settingsWorkspaceId.value) return "workspace-settings";
+  if (selectedRun.value) return "history";
+  if (selectedFile.value) return "editor";
+  if (selectedAutomation.value) return "automation";
+  if (selectedWorkspace.value && workspaceMiddleTab.value === "chat")
+    return "assistant";
+  return "dashboard";
+});
+
+/* ── Methods & Handlers ── */
+const updateLayout = () => {
+  isMobile.value = window.innerWidth < 1024;
+};
 
 const refreshHistory = async () => {
   try {
@@ -86,13 +121,18 @@ onMounted(() => {
   fetchWorkspaces();
   refreshModels();
   refreshHistory();
-  
-  // Start background polling for history to keep the "Pulse" alive
-  historyInterval = setInterval(refreshHistory, 10000);
+
+  updateLayout();
+  // Start background polling to keep the Pulse and Running States alive
+  historyInterval = setInterval(() => {
+    refreshHistory();
+    fetchAutomations(true);
+  }, 10000);
 });
 
 onUnmounted(() => {
   if (historyInterval) clearInterval(historyInterval);
+  window.removeEventListener("resize", updateLayout);
 });
 
 const groupedByWorkspace = computed(() => {
@@ -114,9 +154,22 @@ const handleSelectAutomation = (auto: Automation) => {
 };
 
 const handleSelectRun = (run: AutomationRun) => {
-  selectedRun.value = run;
-  selectedAutomationId.value = null;
-  selectedFile.value = null;
+  // Find the automation this run belongs to
+  const auto = automations.value.find(
+    (a) => a.name === run.automation_name && a.workspace === run.workspace_id,
+  );
+  if (auto) {
+    selectedAutomationId.value = auto.id;
+    selectedRun.value = run;
+    selectedFile.value = null;
+    lastTriggerResult.value = null;
+    workspaceMiddleTab.value = "pulse";
+  } else {
+    // Fallback to the latest single run view if automation record is missing
+    selectedRun.value = run;
+    selectedAutomationId.value = null;
+    selectedFile.value = null;
+  }
 };
 
 const handleEditAutomation = (auto: Automation) => {
@@ -146,15 +199,33 @@ const handleCloseDetails = () => {
   selectedRun.value = null;
   selectedFile.value = null;
   selectedAutomationId.value = null;
+  settingsWorkspaceId.value = null;
   fileContent.value = "";
+  workspaceMiddleTab.value = "pulse";
 };
 
 const handleSelectWorkspace = async (wsId: string) => {
   selectedWorkspace.value = selectedWorkspace.value === wsId ? null : wsId;
+
+  // Clear any active views when switching workspace context
+  selectedAutomationId.value = null;
+  selectedRun.value = null;
+  selectedFile.value = null;
+  settingsWorkspaceId.value = null;
+  workspaceMiddleTab.value = "pulse";
+
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId);
   }
   await refreshHistory();
+};
+
+const handleManageGuardrails = (wsId: string) => {
+  settingsWorkspaceId.value = wsId;
+  selectedWorkspace.value = wsId;
+  selectedAutomationId.value = null;
+  selectedRun.value = null;
+  selectedFile.value = null;
 };
 
 const handleOpenFile = async (workspace: string, filename: string) => {
@@ -190,7 +261,7 @@ const handleSaveFile = async () => {
     }
   } catch (err) {
     console.error("Error saving file", err);
-    alert("Error saving file");
+    toast.error("Error saving file: " + err);
   } finally {
     savingFile.value = false;
   }
@@ -206,7 +277,7 @@ const handleCreateFile = async (workspace: string, filename: string) => {
     await fetchWorkspaceFiles(workspace);
   } catch (err) {
     console.error("Error creating file", err);
-    alert("Error creating file");
+    toast.error("Error creating file: " + err);
   }
 };
 
@@ -223,7 +294,7 @@ const handleDeleteFile = async (wsId: string, file: string) => {
 const handleTrigger = async () => {
   if (!selectedAutomation.value) return;
   triggering.value = true;
-  lastTriggerResult.value = null;
+  lastTriggerResult.value = `Running ${selectedAutomation.value.name}...`;
   try {
     await triggerAutomation(
       selectedAutomation.value.workspace,
@@ -235,6 +306,20 @@ const handleTrigger = async () => {
     lastTriggerResult.value = `Failed to trigger ${selectedAutomation.value.name}`;
   } finally {
     triggering.value = false;
+    await fetchAutomations();
+    await refreshHistory();
+  }
+};
+
+const handleStop = async () => {
+  if (!selectedAutomation.value) return;
+  try {
+    await stopAutomation(selectedAutomation.value.workspace);
+    lastTriggerResult.value = `Stopped ${selectedAutomation.value.name}`;
+  } catch (err) {
+    console.error("Stop failed", err);
+  } finally {
+    await fetchAutomations();
   }
 };
 
@@ -243,7 +328,7 @@ const handleCreateAutomation = async (workspace: string, data: any) => {
     await createAutomation(workspace, data);
   } catch (err) {
     console.error("Error creating automation", err);
-    alert("Error creating automation");
+    toast.error("Error creating automation: " + err);
   }
 };
 
@@ -257,27 +342,87 @@ const handleUpdateAutomation = async (
     editAutomation.value = null;
   } catch (err) {
     console.error("Error updating automation", err);
-    alert("Error updating automation");
+    toast.error("Error updating automation: " + err);
   }
 };
+
+const { showTemplates, handleInjectTemplate } = useTemplates(
+  selectedWorkspace,
+  selectedFile,
+  fileContent,
+  fetchWorkspaceFiles,
+  handleOpenFile,
+);
 </script>
 
 <template>
   <div class="ide-shell">
+    <!-- Mobile Tab Bar -->
+    <div class="mobile-tabs">
+      <button
+        @click="mobilePanel = 'explorer'"
+        :class="[
+          'mobile-tab',
+          mobilePanel === 'explorer' ? 'mobile-tab--active' : '',
+        ]"
+      >
+        Explorer
+      </button>
+      <button
+        @click="mobilePanel = 'workspace'"
+        :class="[
+          'mobile-tab',
+          mobilePanel === 'workspace' ? 'mobile-tab--active' : '',
+        ]"
+      >
+        Workspace
+      </button>
+      <button
+        @click="mobilePanel = 'monitor'"
+        :class="[
+          'mobile-tab',
+          mobilePanel === 'monitor' ? 'mobile-tab--active' : '',
+        ]"
+      >
+        Monitor
+      </button>
+    </div>
+
     <!-- Left Pane: Sidebar -->
-    <div class="sidebar">
-      <!-- Global Error Banner -->
+    <div v-show="!isMobile || mobilePanel === 'explorer'" class="sidebar">
       <div v-if="error" class="error-banner">
         <div class="error-content">
           <div class="error-message-row">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4 shrink-0 mt-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <span class="error-text">{{ error }}</span>
           </div>
           <button @click="clearError" class="btn-dismiss" title="Dismiss error">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-3.5 w-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -288,18 +433,37 @@ const handleUpdateAutomation = async (
           <button
             @click="leftTab = 'explorer'"
             class="sidebar-tab"
-            :class="leftTab === 'explorer' ? 'sidebar-tab--active' : 'sidebar-tab--inactive'"
+            :class="
+              leftTab === 'explorer'
+                ? 'sidebar-tab--active'
+                : 'sidebar-tab--inactive'
+            "
           >
             Explorer
           </button>
           <button
             @click="leftTab = 'automations'"
             class="sidebar-tab"
-            :class="leftTab === 'automations' ? 'sidebar-tab--active' : 'sidebar-tab--inactive'"
+            :class="
+              leftTab === 'automations'
+                ? 'sidebar-tab--active'
+                : 'sidebar-tab--inactive'
+            "
           >
             Automations
           </button>
         </div>
+        <BaseButton
+          @click="showTemplates = true"
+          :disabled="!selectedWorkspace"
+          variant="ghost"
+          icon="document"
+          size="sm"
+          className="!text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20"
+          title="Open Task Playbook Library"
+        >
+          Playbooks
+        </BaseButton>
       </div>
 
       <div class="sidebar-content">
@@ -317,6 +481,7 @@ const handleUpdateAutomation = async (
           @open-file="handleOpenFile"
           @create-file="handleCreateFile"
           @delete-file="handleDeleteFile"
+          @manage-guardrails="handleManageGuardrails"
         />
 
         <!-- Automations Tab -->
@@ -334,7 +499,12 @@ const handleUpdateAutomation = async (
             @fetch-files="fetchWorkspaceFiles"
           />
 
-          <div v-if="loading" class="loading-message">Loading...</div>
+          <div
+            v-if="loading && automations.length === 0"
+            class="loading-message"
+          >
+            Loading automations...
+          </div>
 
           <AutomationsPanel
             :groupedAutomations="groupedByWorkspace"
@@ -348,38 +518,70 @@ const handleUpdateAutomation = async (
     </div>
 
     <!-- Middle Pane: Details / Editor / Dashboard -->
-    <div class="main-pane">
-      <!-- Default Dashboard View (Flat Timeline) -->
+    <div v-show="!isMobile || mobilePanel === 'workspace'" class="main-pane">
+      <!-- Assistant View -->
+      <AssistantChat
+        v-if="activeMainView === 'assistant'"
+        :workspaceId="selectedWorkspace!"
+        @close="workspaceMiddleTab = 'pulse'"
+      />
+
+      <!-- Default Dashboard View -->
       <SystemPulseDashboard
-        v-if="!selectedAutomation && !selectedFile && !selectedRun"
+        v-else-if="activeMainView === 'dashboard'"
         :selected-workspace="selectedWorkspace"
         :loading="loading"
         :workspace-history="workspaceHistory"
         @select-run="handleSelectRun"
         @clear-workspace="selectedWorkspace = null"
+        @open-chat="workspaceMiddleTab = 'chat'"
       />
 
       <!-- Historical Run View -->
       <HistoricalRunDetails
-        v-else-if="selectedRun"
-        :run="selectedRun"
+        v-else-if="activeMainView === 'history'"
+        :run="selectedRun!"
+        @close="handleCloseDetails"
+      />
+
+      <!-- Workspace Settings View -->
+      <WorkspaceSettings
+        v-else-if="activeMainView === 'workspace-settings'"
+        :workspaceId="settingsWorkspaceId!"
+        :globalGuardrails="adminState!.config.guardrails"
         @close="handleCloseDetails"
       />
 
       <!-- Editor View -->
-      <div v-else-if="selectedFile" class="editor-shell">
+      <div v-else-if="activeMainView === 'editor'" class="editor-shell">
         <div class="editor-header">
           <h2 class="editor-title">
-            <span class="title-prefix">editing /</span> {{ selectedFile.filename }}
+            <span class="title-prefix">editing /</span>
+            {{ selectedFile?.filename }}
           </h2>
-          <button @click="handleCloseDetails" class="btn-icon-round group" title="Close editor and return to dashboard">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          <button
+            @click="handleCloseDetails"
+            class="btn-icon-round group"
+            title="Close editor and return to dashboard"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
         <FileEditor
-          :file="selectedFile"
+          :file="selectedFile!"
           :content="fileContent"
           :loading="loadingFile"
           :saving="savingFile"
@@ -390,26 +592,41 @@ const handleUpdateAutomation = async (
 
       <!-- Automation Details View -->
       <AutomationDetails
-        v-else-if="selectedAutomation"
-        :automation="selectedAutomation"
+        v-else-if="activeMainView === 'automation'"
+        :key="`${selectedAutomation!.id}-${selectedAutomation!.is_running || triggering}`"
+        :automation="selectedAutomation!"
         :last-trigger-result="lastTriggerResult"
+        :is-executing="triggering || (selectedAutomation?.is_running ?? false)"
+        :selectedRun="selectedRun"
         @close="handleCloseDetails"
       />
     </div>
 
     <!-- Right Pane: Monitor & Activity -->
-    <div class="right-pane">
+    <div v-show="!isMobile || mobilePanel === 'monitor'" class="right-pane">
       <!-- Trigger Control -->
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
-        <button
+        <BaseButton
+          v-if="!selectedAutomation?.is_running"
           @click="handleTrigger"
+          variant="primary"
+          icon="play"
+          :loading="triggering"
           :disabled="!selectedAutomation || triggering"
-          class="btn-action"
-          :class="{ 'btn-action--disabled': !selectedAutomation || triggering }"
+          className="w-full"
         >
-          {{ triggering ? "Executing..." : "Run Automation" }}
-        </button>
+          Run Automation
+        </BaseButton>
+        <BaseButton
+          v-else
+          @click="handleStop"
+          variant="danger"
+          icon="stop"
+          className="w-full"
+        >
+          Stop Automation
+        </BaseButton>
         <p v-if="!selectedAutomation" class="action-helper">
           Select an automation to enable execution
         </p>
@@ -429,17 +646,37 @@ const handleUpdateAutomation = async (
         <SystemMetricsPanel :metrics="metrics" />
       </div>
     </div>
+
+    <!-- Modals & Overlays -->
+    <TemplateLibrary
+      :show="showTemplates"
+      @close="showTemplates = false"
+      @inject="handleInjectTemplate"
+    />
   </div>
 </template>
 
 <style scoped lang="postcss">
 .ide-shell {
-  @apply h-[calc(100vh-8rem)] flex gap-4;
+  @apply h-[calc(100vh-10rem)] flex flex-col lg:flex-row lg:h-[calc(100vh-8rem)] gap-4;
+}
+
+/* Mobile tab bar - only shown on small screens */
+.mobile-tabs {
+  @apply flex lg:hidden gap-1 bg-gray-800/50 rounded-xl p-1 shrink-0 border border-white/5;
+}
+
+.mobile-tab {
+  @apply flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-colors text-gray-400;
+}
+
+.mobile-tab--active {
+  @apply bg-blue-600 text-white shadow-md;
 }
 
 /* ── Sidebar ── */
 .sidebar {
-  @apply w-80 flex flex-col bg-gray-800 rounded-lg overflow-hidden relative;
+  @apply w-full lg:w-72 flex flex-col bg-gray-800 rounded-lg overflow-hidden relative shadow-lg shrink-0 min-h-0;
 }
 
 .error-banner {
@@ -464,7 +701,7 @@ const handleUpdateAutomation = async (
 }
 
 .sidebar-header {
-  @apply p-4 border-b border-gray-700 flex flex-col gap-3;
+  @apply p-3 px-4 border-b border-gray-700 flex flex-col gap-2.5;
 }
 
 .sidebar-tabs {
@@ -487,13 +724,23 @@ const handleUpdateAutomation = async (
   @apply flex-1 overflow-y-auto;
 }
 
+.btn-template-trigger {
+  @apply flex items-center justify-center gap-2 py-1.5 px-3 rounded bg-blue-600/10 
+         hover:bg-blue-600/20 text-blue-500 text-[10px] font-black uppercase tracking-wider 
+         transition-all border border-blue-500/20 active:scale-95;
+}
+
+.btn-template-trigger--disabled {
+  @apply opacity-30 grayscale cursor-not-allowed hover:bg-transparent;
+}
+
 .loading-message {
   @apply p-4 text-gray-500 text-sm;
 }
 
 /* ── Main Pane ── */
 .main-pane {
-  @apply flex-1 flex flex-col bg-gray-800 rounded-lg overflow-hidden border border-white/5 shadow-2xl;
+  @apply flex-1 flex flex-col bg-gray-800 rounded-lg overflow-hidden border border-white/5 shadow-2xl min-h-0;
 }
 
 .editor-shell {
@@ -519,24 +766,28 @@ const handleUpdateAutomation = async (
 
 /* ── Right Pane ── */
 .right-pane {
-  @apply w-80 flex flex-col gap-4 overflow-hidden;
+  @apply w-full lg:w-72 flex flex-col gap-4 overflow-y-auto relative shrink-0 min-h-0;
 }
 
 .action-card {
-  @apply bg-gray-800 rounded-lg p-4 shrink-0 border border-white/5 shadow-lg;
+  @apply bg-gray-800 rounded-lg p-3 shrink-0 border border-white/5 shadow-lg flex flex-col gap-2;
 }
 
 .action-title {
-  @apply font-bold text-xs text-gray-400 uppercase tracking-widest mb-4;
+  @apply font-bold text-[10px] text-gray-500 uppercase tracking-widest;
 }
 
 .btn-action {
-  @apply w-full py-2.5 px-4 rounded font-bold text-xs uppercase tracking-widest 
+  @apply w-full py-2 px-4 rounded font-bold text-[10px] uppercase tracking-widest 
          transition-all duration-200 shadow-sm bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/30;
 }
 
 .btn-action--disabled {
   @apply bg-gray-700/50 text-gray-500 cursor-not-allowed border-transparent shadow-none;
+}
+
+.btn-action--stop {
+  @apply bg-red-600 hover:bg-red-500 border-red-400/30;
 }
 
 .action-helper {

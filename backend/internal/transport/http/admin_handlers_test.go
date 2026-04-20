@@ -11,15 +11,16 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/transport/http"
+	"fmt"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/testing/mocks"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
 
 func TestAdminStartHandler_MissingName(t *testing.T) {
-	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{ServiceCredentialsFunc: func() (string, string) { return "client-id", "client-secret" }})
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/start", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -35,7 +36,7 @@ func TestAdminStartHandler_MissingName(t *testing.T) {
 func TestAdminStartHandler_ModelStarting(t *testing.T) {
 	manager := &mocks.MockManager{
 		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
-			return llm.ModelInstance{}, llm.ErrModelStarting
+			return llm.ModelInstance{}, models.ErrModelStarting
 		},
 	}
 	handler := newAdminHandlers(manager, &mocks.MockAdminService{})
@@ -71,7 +72,7 @@ func TestAdminStartHandler_ModelError(t *testing.T) {
 }
 
 func TestAdminConfigUpdateHandler_InvalidJSON(t *testing.T) {
-	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{ServiceCredentialsFunc: func() (string, string) { return "client-id", "client-secret" }})
 
 	req := httptest.NewRequest(http.MethodPut, "/admin/api/config", strings.NewReader("{bad"))
 	req.Header.Set("Content-Type", "application/json")
@@ -84,9 +85,9 @@ func TestAdminConfigUpdateHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestAdminConfigUpdateHandler_UpdateConfigError(t *testing.T) {
+func TestAdminConfigUpdateHandler_UpdateSystemError(t *testing.T) {
 	admin := &mocks.MockAdminService{
-		UpdateConfigFunc: func(func(*models.Config)) error {
+		UpdateSettingsFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
 			return errors.New("save failed")
 		},
 	}
@@ -107,7 +108,7 @@ func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
 	t.Setenv("SERVICE_CLIENT_ID", "client-id")
 	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
 
-	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{ServiceCredentialsFunc: func() (string, string) { return "client-id", "client-secret" }})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/config", nil)
 	rr := httptest.NewRecorder()
@@ -134,7 +135,37 @@ func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
 	t.Setenv("SERVICE_CLIENT_ID", "")
 	t.Setenv("SERVICE_CLIENT_SECRET", "")
 
-	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+	admin := &mocks.MockAdminService{
+		UpdateSettingsFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
+			if req.ServiceClientID != "" {
+				os.Setenv("SERVICE_CLIENT_ID", req.ServiceClientID)
+			}
+			if req.ServiceClientSecret != "" {
+				os.Setenv("SERVICE_CLIENT_SECRET", req.ServiceClientSecret)
+			}
+
+			envUpdates := map[string]string{}
+			if req.ServiceClientID != "" {
+				envUpdates["SERVICE_CLIENT_ID"] = req.ServiceClientID
+			}
+			if req.ServiceClientSecret != "" {
+				envUpdates["SERVICE_CLIENT_SECRET"] = req.ServiceClientSecret
+			}
+
+			if len(envUpdates) > 0 {
+				exe, _ := os.Executable()
+				exe, _ = filepath.EvalSymlinks(exe)
+				envPath := filepath.Join(filepath.Dir(exe), ".env")
+				data := ""
+				for k, v := range envUpdates {
+					data += fmt.Sprintf("%s=%q\n", k, v)
+				}
+				_ = os.WriteFile(envPath, []byte(data), 0644)
+			}
+			return nil
+		},
+	}
+	handler := newAdminHandlers(&mocks.MockManager{}, admin)
 
 	body := `{"service_client_id":"new-id","service_client_secret":"new-secret"}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/api/config", strings.NewReader(body))
@@ -261,7 +292,7 @@ func TestAdminAddModelHandler_PersistError(t *testing.T) {
 }
 
 func TestAdminUpdateModelHandler_MissingName(t *testing.T) {
-	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{ServiceCredentialsFunc: func() (string, string) { return "client-id", "client-secret" }})
 
 	req := httptest.NewRequest(http.MethodPut, "/admin/api/models", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -387,7 +418,7 @@ func TestAdminUpdateModelHandler_PersistError(t *testing.T) {
 }
 
 func TestAdminDeleteModelHandler_MissingName(t *testing.T) {
-	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{ServiceCredentialsFunc: func() (string, string) { return "client-id", "client-secret" }})
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/api/models", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -498,12 +529,24 @@ func newAdminHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService)
 	if runtime.ModelHostFunc == nil {
 		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
 	}
+	if admin.GetSystemFunc == nil {
+		admin.GetSystemFunc = func() models.SystemConfig { return models.SystemConfig{} }
+	}
+	if admin.GetRegistryFunc == nil {
+		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
+	}
 	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
 }
 
 func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger *mocks.MockLogger) *api.AdminHandlers {
 	if runtime.ModelHostFunc == nil {
 		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
+	}
+	if admin.GetSystemFunc == nil {
+		admin.GetSystemFunc = func() models.SystemConfig { return models.SystemConfig{} }
+	}
+	if admin.GetRegistryFunc == nil {
+		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
 	}
 	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
 }

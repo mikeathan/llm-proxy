@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { AutomationRun } from '../../../types/dispatcher';
+import { computed } from "vue";
+import type { AutomationRun } from "../../../types/dispatcher";
 
 const props = defineProps<{
   history: AutomationRun[];
@@ -8,73 +8,63 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'select-run', run: AutomationRun): void;
+  (e: "select-run", run: AutomationRun): void;
 }>();
 
+// Flat list of runs, sorted by most recent first
 const sortedHistory = computed(() => {
-  return [...props.history].sort((a, b) => 
-    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  return [...props.history].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
   );
 });
 
-const formatTime = (ts: string) => {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-};
+import { formatTime, formatDate } from "../../../utils/time";
 
-const formatDate = (ts: string) => {
-  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+const getStatusClass = (run: AutomationRun) => {
+  return run.error ? "border-l-red-500" : "border-l-green-500";
 };
 </script>
 
 <template>
   <div class="activity-shell">
     <div class="activity-header">
-      <h3 class="header-title">Workspace Activity</h3>
+      <div class="header-left">
+        <h3 class="header-title">Live Pulse</h3>
+        <span class="pulse-count">{{ sortedHistory.length }} total logs</span>
+      </div>
       <div v-if="loading" class="loader-spinner"></div>
     </div>
 
     <div class="activity-content">
       <div v-if="sortedHistory.length === 0" class="empty-activity">
-        <svg xmlns="http://www.w3.org/2000/svg" class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <p class="empty-text">No activity recorded yet</p>
+        <p class="empty-text">No execution history</p>
       </div>
 
       <div class="activity-list">
-        <div 
-          v-for="run in sortedHistory" 
+        <div
+          v-for="run in sortedHistory"
           :key="run.id"
           @click="emit('select-run', run)"
-          class="activity-item group"
+          class="automation-card"
+          :class="getStatusClass(run)"
         >
-          <div class="item-top-row">
-            <div class="item-status-group">
-              <div 
-                class="status-dot shadow-sm" 
-                :class="run.error ? 'status-dot--error' : 'status-dot--success'"
-              ></div>
-              <span class="item-name">
-                {{ run.automation_name }}
-              </span>
-            </div>
-            <span class="item-time">
-              {{ formatTime(run.timestamp) }}
-            </span>
-          </div>
-
-          <div class="item-bottom-row">
-             <span class="item-date">
-               {{ formatDate(run.timestamp) }}
-             </span>
-             <span class="item-duration">
-               {{ run.duration_ms }}ms
-             </span>
+          <div class="card-main">
+            <span class="auto-name">{{ run.automation_name }}</span>
+            <span class="latest-time">{{ formatTime(run.timestamp) }}</span>
           </div>
           
-          <div v-if="run.error" class="item-error-msg">
-            {{ run.error }}
+          <div class="card-footer">
+            <div class="meta-item">
+              <span class="meta-label">ID:</span>
+              <span class="meta-val">{{ run.id.slice(-6) }}</span>
+            </div>
+            <span class="latest-date">{{ formatDate(run.timestamp) }}</span>
           </div>
+
+          <!-- Simple status indicator if it was a failure -->
+          <div v-if="run.error" class="fail-tag">Failed</div>
+          <div v-else class="success-tag">Success</div>
         </div>
       </div>
     </div>
@@ -83,87 +73,82 @@ const formatDate = (ts: string) => {
 
 <style scoped lang="postcss">
 .activity-shell {
-  @apply flex flex-col h-full bg-gray-900/20;
+  @apply flex flex-col h-full bg-gray-900/40;
 }
 
 .activity-header {
-  @apply p-4 border-b border-gray-700/50 flex justify-between items-center;
+  @apply p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/60;
+}
+
+.header-left {
+  @apply flex items-center gap-3;
 }
 
 .header-title {
-  @apply text-sm font-bold text-gray-400 uppercase tracking-widest;
+  @apply text-[10px] font-bold text-gray-400 uppercase tracking-widest;
+}
+
+.pulse-count {
+  @apply text-[8px] bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded font-mono;
 }
 
 .loader-spinner {
-  @apply animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full;
+  @apply animate-spin h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full;
 }
 
 .activity-content {
-  @apply flex-1 overflow-y-auto p-2;
+  @apply flex-1 overflow-y-auto p-4;
 }
 
 .empty-activity {
-  @apply flex flex-col items-center justify-center h-40 text-gray-600;
-}
-
-.empty-icon {
-  @apply h-8 w-8 mb-2 opacity-20;
-}
-
-.empty-text {
-  @apply text-xs italic;
+  @apply flex items-center justify-center py-10 opacity-30 italic text-[10px];
 }
 
 .activity-list {
-  @apply space-y-1;
+  @apply space-y-4;
 }
 
-.activity-item {
-  @apply flex flex-col p-3 rounded-md hover:bg-gray-700/40 cursor-pointer border border-transparent 
-         hover:border-gray-600/30 transition-all;
+.automation-card {
+  @apply p-4 border-l-2 rounded-lg bg-gray-800/10 cursor-pointer hover:bg-gray-800/40 transition-all border-gray-800/50 hover:border-gray-600;
 }
 
-.item-top-row {
-  @apply flex items-center justify-between mb-1;
+.card-main {
+  @apply flex justify-between items-start mb-3;
 }
 
-.item-status-group {
-  @apply flex items-center gap-2;
+.auto-name {
+  @apply text-xs font-black text-gray-100 uppercase tracking-tight;
 }
 
-.status-dot {
-  @apply w-2 h-2 rounded-full;
+.latest-time {
+  @apply text-[10px] font-mono text-gray-500;
 }
 
-.status-dot--error {
-  @apply bg-red-500 shadow-red-900/50;
+.card-footer {
+  @apply flex justify-between items-center;
 }
 
-.status-dot--success {
-  @apply bg-green-500 shadow-green-900/50;
+.meta-item {
+  @apply flex items-center gap-1.5;
 }
 
-.item-name {
-  @apply text-[11px] font-bold text-gray-200 truncate max-w-[120px];
+.meta-label {
+  @apply text-[9px] text-gray-600 uppercase font-bold;
 }
 
-.item-time {
-  @apply text-[10px] font-mono text-gray-500 group-hover:text-gray-400;
+.meta-val {
+  @apply text-[9px] text-gray-500 font-mono;
 }
 
-.item-bottom-row {
-  @apply flex items-center justify-between pl-4;
+.latest-date {
+  @apply text-[9px] text-gray-500 opacity-60;
 }
 
-.item-date {
-  @apply text-[10px] text-gray-500;
+.fail-tag {
+  @apply mt-3 text-[8px] bg-red-900/20 text-red-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-red-500/20 inline-block;
 }
 
-.item-duration {
-  @apply text-[9px] font-mono text-gray-600 group-hover:text-gray-500;
-}
-
-.item-error-msg {
-  @apply mt-2 text-[10px] text-red-400/80 line-clamp-1 italic pl-4 border-l border-red-900/30;
+.success-tag {
+  @apply mt-3 text-[8px] bg-green-900/20 text-green-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-green-500/20 inline-block;
 }
 </style>

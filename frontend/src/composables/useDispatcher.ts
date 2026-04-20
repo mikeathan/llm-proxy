@@ -8,8 +8,8 @@ const workspaceFiles = ref<Record<string, string[]>>({})
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-async function fetchAutomations() {
-  loading.value = true
+async function fetchAutomations(silent = false) {
+  if (!silent) loading.value = true
   error.value = null
   try {
     const res = await fetch('/admin/api/dispatcher/automations')
@@ -22,7 +22,7 @@ async function fetchAutomations() {
     error.value = e instanceof Error ? e.message : 'Failed to fetch automations'
     console.error('fetchAutomations error:', e)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -109,6 +109,24 @@ async function triggerAutomation(workspace: string, automation: string) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to trigger automation'
     console.error('triggerAutomation error:', e)
+    throw e
+  }
+}
+
+async function stopAutomation(workspace: string) {
+  error.value = null
+  try {
+    const res = await fetch(`/admin/api/dispatcher/stop/${workspace}`, {
+      method: 'POST'
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`Server error: ${res.status} - ${text}`)
+    }
+    await fetchAutomations()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to stop automation'
+    console.error('stopAutomation error:', e)
     throw e
   }
 }
@@ -237,5 +255,6 @@ export function useDispatcher() {
     createAutomation,
     deleteAutomation,
     updateAutomation,
+    stopAutomation,
   }
 }

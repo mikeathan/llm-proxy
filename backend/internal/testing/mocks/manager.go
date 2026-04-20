@@ -24,8 +24,9 @@ type MockManager struct {
 	SetBinaryFunc           func(string)
 	SetModelHostFunc        func(string)
 	ListProviderModelsFunc  func(ctx context.Context, provider, apiKeyName string) ([]string, error)
-	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey string) error
-	DefaultModelFunc        func() (string, error)
+	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName string) error
+	SelectModelsFunc        func() (string, string)
+	SetSecretsFunc          func(models.SecretsStore)
 	ShutdownFunc            func()
 }
 
@@ -35,16 +36,16 @@ func (m *MockManager) Shutdown() {
 	}
 }
 
-func (m *MockManager) DefaultModel() (string, error) {
-	if m.DefaultModelFunc != nil {
-		return m.DefaultModelFunc()
+func (m *MockManager) SelectModels() (string, string) {
+	if m.SelectModelsFunc != nil {
+		return m.SelectModelsFunc()
 	}
-	return "", nil
+	return "", ""
 }
 
-func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey string) error {
+func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error {
 	if m.TestProviderConnectionFunc != nil {
-		return m.TestProviderConnectionFunc(ctx, provider, apiKey)
+		return m.TestProviderConnectionFunc(ctx, provider, apiKey, apiKeyName)
 	}
 	return nil
 }
@@ -147,6 +148,12 @@ func (m *MockManager) ModelHost() string {
 func (m *MockManager) SetBinary(path string) {
 	if m.SetBinaryFunc != nil {
 		m.SetBinaryFunc(path)
+	}
+}
+
+func (m *MockManager) SetSecrets(s models.SecretsStore) {
+	if m.SetSecretsFunc != nil {
+		m.SetSecretsFunc(s)
 	}
 }
 

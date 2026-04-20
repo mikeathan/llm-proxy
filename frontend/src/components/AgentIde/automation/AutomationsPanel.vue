@@ -41,6 +41,10 @@ const confirmAndEmit = (auto: Automation) => {
             <div class="automation-name">{{ auto.name }}</div>
             <div class="automation-meta">
               {{ auto.trigger }} · {{ auto.strategy }}
+              <span v-if="auto.is_running" class="status-running">
+                <span class="pulse-dot"></span>
+                Running
+              </span>
             </div>
           </button>
           
@@ -110,7 +114,15 @@ const confirmAndEmit = (auto: Automation) => {
 }
 
 .automation-meta {
-  @apply text-xs opacity-70 mt-0.5;
+  @apply text-xs opacity-70 mt-0.5 flex items-center gap-2;
+}
+
+.status-running {
+  @apply flex items-center gap-1.5 text-[10px] text-green-400 font-bold uppercase tracking-wider ml-auto;
+}
+
+.pulse-dot {
+  @apply w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse;
 }
 
 .row-actions {

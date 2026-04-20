@@ -1,0 +1,13 @@
+{
+  "tool_name": "security_guardrails",
+  "version": "1.0",
+  "description": "Global safety boundaries applied across all tools.",
+  "guardrails": {
+    "block_secrets": true,
+    "user_blocked_patterns": [
+      "\\b(?:\\d[ -]*?){13,16}\\b",
+      "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+      "(?i)-----BEGIN\\s+([A-Z\\s]+)\\s+PRIVATE\\s+KEY-----"
+    ]
+  }
+}

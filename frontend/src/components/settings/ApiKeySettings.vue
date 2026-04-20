@@ -2,6 +2,8 @@
 import { ref } from "vue";
 import type { APIKeyItem } from "../../types/admin";
 import InlineConfirm from "../ui/InlineConfirm.vue"
+import BaseButton from "../common/BaseButton.vue"
+import UIIcon from "../common/UIIcon.vue"
 
 const props = defineProps<{
   apiKeys: APIKeyItem[];
@@ -14,7 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:apiKeys", keys: APIKeyItem[]): void;
-  (e: "testKey", key: string): void;
+  (e: "testKey", payload: { key: string; name: string; id: string }): void;
   (e: "clearTest"): void;
 }>();
 
@@ -80,7 +82,7 @@ function confirmAndRemove() {
 
 function testSelected() {
   if (!selectedId.value) return;
-  emit("testKey", editValue.value);
+  emit("testKey", { key: editValue.value, name: editName.value, id: selectedId.value });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -151,14 +153,14 @@ function addKey() {
     <div v-show="selectedId !== null" class="edit-panel">
       <div class="edit-panel-header">
         <span class="edit-panel-title">Edit: {{ editName }}</span>
-        <button
-          type="button"
-          class="btn-close"
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          icon="close"
+          iconOnly
           @click.stop="closePanel"
           title="Close"
-        >
-          ✕
-        </button>
+        />
       </div>
 
       <div class="edit-panel-body">
@@ -184,13 +186,14 @@ function addKey() {
               placeholder="Paste new key to update"
               autocomplete="new-password"
             />
-            <button
-              type="button"
-              class="btn-icon"
+            <BaseButton
+              variant="secondary"
+              size="sm"
+              :icon="showValue ? 'spinner' : 'document'"
+              iconOnly
               @click.stop="showValue = !showValue"
-            >
-              {{ showValue ? "🙈" : "👁️" }}
-            </button>
+              title="Toggle Visibility"
+            />
           </div>
         </div>
 
@@ -200,12 +203,14 @@ function addKey() {
           class="test-feedback"
         >
           <div v-if="testLoading" class="test-loading">
-            <span class="spinner"></span> Verifying…
+            <UIIcon name="spinner" size="xs" /> Verifying…
           </div>
           <div v-else-if="testSuccess" class="test-success">
-            ✓ {{ testSuccess }}
+            <UIIcon name="check" size="xs" class="inline" /> {{ testSuccess }}
           </div>
-          <div v-else-if="testError" class="test-error">✗ {{ testError }}</div>
+          <div v-else-if="testError" class="test-error">
+            <UIIcon name="close" size="xs" class="inline" /> {{ testError }}
+          </div>
         </div>
 
         <!-- Inline remove confirmation — no window.confirm, no dialog, no event issues -->
@@ -218,27 +223,32 @@ function addKey() {
 
         <!-- Action bar -->
         <div class="panel-actions">
-          <button
-            type="button"
-            class="btn-test"
-            :disabled="testLoading"
+          <BaseButton
+            variant="secondary"
+            size="sm"
+            icon="search"
+            :loading="testLoading"
             @click.stop="testSelected"
           >
-            <span v-if="testLoading" class="spinner-sm"></span>
-            <span v-else>🧪</span>
             Test Connection
-          </button>
+          </BaseButton>
           <div class="action-row">
-            <button
-              type="button"
-              class="btn-danger"
+            <BaseButton
+              variant="danger"
+              size="sm"
+              icon="trash"
               @click.stop="confirmRemove = true"
             >
-              🗑 Remove
-            </button>
-            <button type="button" class="btn-save" @click.stop="saveEdit">
+              Remove
+            </BaseButton>
+            <BaseButton
+              variant="primary"
+              size="sm"
+              icon="check"
+              @click.stop="saveEdit"
+            >
               Save Changes
-            </button>
+            </BaseButton>
           </div>
         </div>
       </div>
@@ -263,14 +273,15 @@ function addKey() {
             placeholder="API Key value"
             autocomplete="new-password"
           />
-          <button
-            type="button"
-            class="btn-add"
+          <BaseButton
+            variant="primary"
+            size="sm"
+            icon="plus"
             :disabled="!newKeyValue"
             @click.stop="addKey"
           >
             Add
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>

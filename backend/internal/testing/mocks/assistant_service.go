@@ -3,10 +3,14 @@ package mocks
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
-	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 )
 
 // noopLogger for testing
@@ -21,12 +25,14 @@ func (l *noopLogger) SetLevel(logging.Level)          {}
 func (l *noopLogger) Level() logging.Level            { return logging.LevelInfo }
 
 type MockAssistantService struct {
-	Herder      nodeherder.MCPService
-	Client      proxy.LLMClientProvider
-	RateLimiter ratelimiter.Limiter
-	LoggerRef   logging.Logger
-	Model       string
-	EngineRef   assistant.Engine
+	Herder         nodeherder.MCPService
+	Client         proxy.LLMClientProvider
+	RateLimiter    ratelimiter.Limiter
+	LoggerRef      logging.Logger
+	Model          string
+	EngineRef      assistant.Engine
+	PersistenceMgr *persistence.WorkspaceManager
+	EventBusRef    *automation.EventBus
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -45,8 +51,8 @@ func (m *MockAssistantService) Logger() logging.Logger {
 	return m.LoggerRef
 }
 
-func (m *MockAssistantService) DefaultModel() (string, error) {
-	return m.Model, nil
+func (m *MockAssistantService) SelectModels() (string, string) {
+	return "", ""
 }
 
 func (m *MockAssistantService) Engine() assistant.Engine {
@@ -58,6 +64,60 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 
 func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
 	return m.Client.GetClientForModel(ctx, modelName)
+}
+
+func (m *MockAssistantService) GuardrailEngine() *assistant.GuardrailEngine {
+	resolver := storage.NewPathResolver(m.WorkspacesDir())
+	return assistant.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{}
+	}, resolver, m.PersistenceMgr)
+}
+
+func (m *MockAssistantService) Config() *models.Config {
+	return &models.Config{}
+}
+
+type mockToolProvider struct {
+	herder nodeherder.MCPService
+}
+
+func (p *mockToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
+	return p.herder.ListTools(ctx)
+}
+
+func (p *mockToolProvider) CallTool(ctx context.Context, call proxy.ToolCall) (any, error) {
+	return nil, nil
+}
+
+func (p *mockToolProvider) GetSystemPrompt() (string, error) {
+	return p.herder.GetSystemPrompt()
+}
+
+func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
+	return &mockToolProvider{herder: m.Herder}
+}
+
+func (m *MockAssistantService) Persistence() *persistence.WorkspaceManager {
+	return m.PersistenceMgr
+}
+
+func (m *MockAssistantService) ProcessLogger(workspaceID string) logging.Logger {
+	return m.LoggerRef
+}
+
+func (m *MockAssistantService) RootDir() string {
+	return ""
+}
+
+func (m *MockAssistantService) WorkspacesDir() string {
+	return ""
+}
+
+func (m *MockAssistantService) Events() *automation.EventBus {
+	if m.EventBusRef != nil {
+		return m.EventBusRef
+	}
+	return automation.NewEventBus()
 }
 
 func NewMockAssistantService(

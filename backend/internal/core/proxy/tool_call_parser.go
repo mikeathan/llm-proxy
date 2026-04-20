@@ -27,19 +27,21 @@ var (
 )
 
 // ParseContentToolCalls inspects a message's Content for embedded tool call
-// markup. If found, it returns a synthesised ToolCall slice and true. The
-// caller should then treat the message as if it had proper ToolCalls and clear
-// the Content field to avoid returning it as a final answer.
-func ParseContentToolCalls(content string) ([]ToolCall, bool) {
+// markup. If found, it returns a synthesised ToolCall slice and true, along
+// with a cleaned version of the content that strips the tool call markup.
+func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
 	// Try format 1: <function-name> / <args-json-object>
 	if calls, ok := parseFunctionNameFormat(content); ok {
-		return calls, true
+		cleaned := reToolName.ReplaceAllString(content, "")
+		cleaned = reToolArgs.ReplaceAllString(cleaned, "")
+		return cleaned, calls, true
 	}
 	// Try format 2: <tools> wrapping a JSON object
 	if calls, ok := parseToolsTagFormat(content); ok {
-		return calls, true
+		cleaned := reToolsTag.ReplaceAllString(content, "")
+		return cleaned, calls, true
 	}
-	return nil, false
+	return content, nil, false
 }
 
 // parseFunctionNameFormat handles the <function-name>/<args-json-object> style.

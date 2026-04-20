@@ -1,82 +1,36 @@
 package proxy
 
-import "encoding/json"
+import "llm-proxy/models"
 
-type ChatRole string
-type ToolChoice string
+type ChatRole = models.ChatRole
+type ToolChoice = models.ToolChoice
 
 const (
-	SystemRole    ChatRole = "system"
-	UserRole      ChatRole = "user"
-	AssistantRole ChatRole = "assistant"
-	ToolRole      ChatRole = "tool"
+	SystemRole    = models.SystemRole
+	UserRole      = models.UserRole
+	AssistantRole = models.AssistantRole
+	ToolRole      = models.ToolRole
 
-	ToolChoiceAuto     ToolChoice = "auto"
-	ToolChoiceRequired ToolChoice = "required"
-	ToolChoiceNone     ToolChoice = "none"
+	ToolChoiceAuto     = models.ToolChoiceAuto
+	ToolChoiceRequired = models.ToolChoiceRequired
+	ToolChoiceNone     = models.ToolChoiceNone
 )
 
-type ExecutionHistory = []Message
+type ExecutionHistory = models.ExecutionHistory
 
 // Message
-type Message struct {
-	Role       ChatRole   `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-}
+type Message = models.Message
 
 // Chat Request
-type ChatRequest struct {
-	Model      string     `json:"model"`
-	Messages   []Message  `json:"messages"`
-	Tools      []Tool     `json:"tools,omitempty"`
-	ToolChoice ToolChoice `json:"tool_choice,omitempty"`
-}
+type ChatRequest = models.ChatRequest
 
-type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function FunctionCall `json:"function"`
-}
+type ToolCall = models.ToolCall
+type FunctionCall = models.FunctionCall
 
-type FunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-func (f *FunctionCall) UnmarshalJSON(data []byte) error {
-	type Alias FunctionCall
-	aux := &struct {
-		Arguments json.RawMessage `json:"arguments"`
-		*Alias
-	}{
-		Alias: (*Alias)(f),
-	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	if len(aux.Arguments) > 0 {
-		if aux.Arguments[0] == '"' {
-			var s string
-			if err := json.Unmarshal(aux.Arguments, &s); err != nil {
-				return err
-			}
-			f.Arguments = s
-		} else if aux.Arguments[0] == 'n' && string(aux.Arguments) == "null" {
-			f.Arguments = ""
-		} else {
-			f.Arguments = string(aux.Arguments)
-		}
-	}
-	return nil
-}
-
-type Choice struct {
-	Message Message `json:"message"`
-}
+type Choice = models.Choice
 
 // Chat Response
-type ChatResponse struct {
-	Choices []Choice `json:"choices"`
-}
+type ChatResponse = models.ChatResponse
+
+type Tool = models.Tool
+type FunctionSchema = models.FunctionSchema

@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
 	"time"
 )
@@ -26,39 +28,54 @@ type RuntimeService interface {
 	StopActive() error
 	ClearLogs() error
 	ModelHost() string
-	SetBinary(string)
 	SetModelHost(string)
 	ListProviderModels(context.Context, string, string) ([]string, error)
-	TestProviderConnection(context.Context, string, string) error
-	DefaultModel() (string, error)
+	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error
+	SelectModels() (string, string)
 }
 
 type AdminService interface {
+	// Tier 1: Infrastructure
+	GetSystem() models.SystemConfig
+	UpdateSystem(func(*models.SystemConfig)) error
+
+	// Tier 2: Registry
+	GetRegistry() models.RegistryData
+	UpdateRegistry(func(*models.RegistryData)) error
+
+	// Tier 3: Secrets
+	Secrets() models.SecretsStore
+
+	// Helper accessors for UI / Tools
 	ModelDir() string
-	SetModelDir(string)
 	WorkspacesDir() string
-	SetWorkspacesDir(string)
 	GPUConfig() models.GPUConfig
-	SetGPUConfig(models.GPUConfig)
-	CurrentBinary() string
-	CurrentIdleTimeout() int
-	DefaultArgs() []string
-	ConfiguredDefaultModel() string
-	Environment() map[string]string
-	SetEnvironment(map[string]string) error
-	Models() []models.ModelConfig
-	Providers() map[string]models.ProviderItem
-	UpdateConfig(func(*models.Config)) error
+	MetricsSnapshot() metrics.MetricsSnapshot
+	ProcessLogger(workspaceID string) logging.Logger
+	RootDir() string
+
+	// Model/MCP management
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error
 	PersistDeleteModel(string) error
 	ResolveModelPath(string, string) string
-	RefreshMetricsService()
-	MetricsSnapshot() metrics.MetricsSnapshot
-	ListMCPServers() []models.MCPServerConfig
 	AddMCPServer(models.MCPServerConfig) error
 	UpdateMCPServer(models.MCPServerConfig) error
 	RemoveMCPServer(string) error
+	ListMCPServers() []models.MCPServerConfig
+	ListTemplates() ([]models.TemplateMetadata, error)
+	GetTemplate(id string) (models.Template, error)
+	Models() []models.ModelConfig
+	Providers() map[string]models.ProviderItem
+	SetGPUConfig(models.GPUConfig)
+	SetWorkspacesDir(string)
+	DefaultArgs() []string
+	CurrentBinary() string
+	CurrentIdleTimeout() int
+	Environment() map[string]string
+	SyncGuardrails(models.AgentGuardrailsConfig) error
+	UpdateSettings(context.Context, models.SystemUpdatePayload) error
+	ServiceCredentials() (id, secret string)
 }
 
 type AssistantService interface {
@@ -66,9 +83,14 @@ type AssistantService interface {
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
-	DefaultModel() (string, error)
+	SelectModels() (string, string)
 
 	Engine() assistant.Engine
+	ToolProvider() assistant.ToolProvider
+	GuardrailEngine() *assistant.GuardrailEngine
+	Persistence() *persistence.WorkspaceManager
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
+	ProcessLogger(workspaceID string) logging.Logger
+	RootDir() string
+	Events() *automation.EventBus
 }
-

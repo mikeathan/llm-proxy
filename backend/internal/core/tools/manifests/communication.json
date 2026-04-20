@@ -1,0 +1,10 @@
+{
+  "tool_name": "notify_user",
+  "version": "1.0",
+  "description": "Send notifications and reports to the user via external platforms.",
+  "guardrails": {
+    "enabled": false,
+    "require_review": true,
+    "max_messages_per_task": 5
+  }
+}

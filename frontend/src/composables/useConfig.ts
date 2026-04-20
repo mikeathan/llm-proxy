@@ -14,6 +14,33 @@ const DEFAULT_CONFIG: GlobalConfig = {
   },
   model_host: '127.0.0.1',
   idle_timeout_seconds: 1800,
+  guardrails: {
+    global: { block_secrets: true, user_blocked_patterns: [] },
+    terminal: {
+      enabled: false,
+      allowed_commands: [],
+      timeout_seconds: 30,
+      max_output_size_chars: 10000,
+    },
+    search: { enabled: false, max_query_len: 200, blocked_sites: [] },
+    communication: {
+      enabled: false,
+      require_review: true,
+      max_messages_per_task: 10,
+    },
+    filesystem: {
+      enabled: false,
+      allowed_paths: [],
+      read_only: true,
+      max_file_size_kb: 1024,
+    },
+  },
+  communication: {
+    telegram: {
+      enabled: false,
+      chat_id: '',
+    },
+  },
 }
 
 // Global state to share across components
@@ -31,7 +58,7 @@ const fetchConfig = async (): Promise<void> => {
   try {
     const state = await AdminApiService.fetchState()
     if (state.config) {
-      config.value = JSON.parse(JSON.stringify(state.config))
+      config.value = structuredClone(state.config)
     }
   } catch (err: any) {
     error.value = err.message || 'Failed to fetch configuration'

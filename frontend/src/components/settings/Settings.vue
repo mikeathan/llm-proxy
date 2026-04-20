@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import GlobalSettings from "./GlobalSettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
+import GuardrailSettings from "./GuardrailSettings.vue";
+import BaseButton from "../common/BaseButton.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
 import { useMetrics } from "../../composables/useMetrics";
 import { useModels } from "../../composables/useModels";
 import { AdminApiService } from "../../services/adminService";
 import { useProviders } from "../../composables/useProviders";
+import { useToast } from "../../composables/useToast";
 import type { NewMcpServerForm } from "../../types/mcp";
 import type { ProviderType, APIKeyItem, SettingsTab } from "../../types/admin";
+import { isProviderTab, getSettingsGroups } from "../../domain/settings";
 
 const {
   config,
@@ -24,72 +28,62 @@ const { state: adminModelsState, refresh: refreshModels } = useModels();
 const modelsList = computed(() => adminModelsState.value?.models || []);
 const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
   useMcpServers();
-const { settingsTabs, getIcon, getLabel, fetchManifests, cloudProviders } =
+const { settingsTabs, getIcon, getLabel, fetchManifests } =
   useProviders();
 const { logLevel, updateLogLevel } = useMetrics();
+const toast = useToast();
 
 const activeTab = ref<SettingsTab>("local");
 const testStatus = ref<{
   [key: string]: { loading: boolean; error?: string; success?: string };
 }>({});
 
-// Dynamic key list computed mapping
-const providerKeys = computed(() => {
-  const map: Record<string, APIKeyItem[]> = {};
-  cloudProviders.value.forEach((p) => {
-    map[p] = ensureIds(config.value.providers?.[p]?.api_keys ?? []);
-  });
-  return map;
-});
+// Dynamic key list — loaded from secrets API per-provider on demand
+const providerKeys = ref<Record<string, APIKeyItem[]>>({});
 
-function setTab(tab: SettingsTab) {
-  activeTab.value = tab;
-  // Ensure provider exists so fields can bind to config.providers[type]
-  if (tab !== "local" && tab !== "mcp") {
-    ensureProvider(tab);
+async function fetchProviderKeysForTab(provider: ProviderType) {
+  try {
+    const keys = await AdminApiService.fetchProviderKeys(provider);
+    providerKeys.value = { ...providerKeys.value, [provider]: keys };
+  } catch (e) {
+    console.error(`[Settings] Failed to load keys for ${provider}:`, e);
   }
 }
 
-function ensureIds(keys: any[]): APIKeyItem[] {
-  return keys.map((k) => {
-    if (k.id) return k;
-    return {
-      ...k,
-      id:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : Math.random().toString(36).substring(2, 11),
-    };
-  });
+function setTab(tab: SettingsTab) {
+  activeTab.value = tab;
+  if (isProviderTab(tab)) {
+    ensureProvider(tab);
+    fetchProviderKeysForTab(tab as ProviderType);
+  }
 }
 
 async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
-  const provider = ensureProvider(type);
-  provider.api_keys = ensureIds(keys);
   try {
-    await AdminApiService.updateConfig(
-      JSON.parse(JSON.stringify(config.value)),
-    );
+    const saved = await AdminApiService.saveProviderKeys(type, keys);
+    // Update local state with what the server returned (masked)
+    providerKeys.value = { ...providerKeys.value, [type]: saved };
     await refreshModels();
   } catch (e: any) {
-    console.error(`[Settings] Failed to auto-save ${type} API keys:`, e);
+    toast.error(`Failed to save API keys: ${e.message}`);
+    console.error(`[Settings] Failed to save ${type} API keys:`, e);
   }
 }
 
 async function handleSaveConfig() {
   try {
     await updateConfig();
-    alert("Configuration saved successfully");
+    toast.success("Configuration saved successfully");
     await refreshModels();
   } catch (e: any) {
-    alert(`Error saving configuration: ${e.message}`);
+    toast.error(`Error saving configuration: ${e.message}`);
   }
 }
 
-const testProvider = async (type: string, apiKey?: string) => {
+const testProvider = async (type: string, payload: { key: string; name: string; id: string }) => {
   testStatus.value[type] = { loading: true };
   try {
-    const res = await AdminApiService.testConnection(type, apiKey);
+    const res = await AdminApiService.testConnection(type, payload.key, payload.id);
     testStatus.value[type] = { loading: false, success: res.message };
     setTimeout(() => {
       if (testStatus.value[type]?.success === res.message) {
@@ -117,32 +111,41 @@ onMounted(() => {
   fetchConfig();
   refreshModels();
 });
+
+const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
 </script>
 
 <template>
   <div class="settings-shell">
     <!-- Sidebar -->
     <div class="settings-sidebar">
-      <h2 class="sidebar-title">Settings</h2>
-      <nav class="nav-list">
-        <button
-          v-for="tab in settingsTabs"
-          :key="tab"
-          @click="setTab(tab)"
-          class="nav-item"
-          :class="activeTab === tab ? 'nav-item--active' : 'nav-item--inactive'"
-        >
-          <span
-            class="nav-icon"
+      <h2 class="sidebar-header">Preferences</h2>
+      <div v-for="group in settingsGroups" :key="group.name" class="nav-group">
+        <h3 v-if="group.tabs.length > 0" class="group-title">
+          {{ group.name }}
+        </h3>
+        <nav class="nav-list">
+          <button
+            v-for="tab in group.tabs"
+            :key="tab"
+            @click="setTab(tab)"
+            class="nav-item"
             :class="
-              activeTab === tab ? 'nav-icon--active' : 'nav-icon--inactive'
+              activeTab === tab ? 'nav-item--active' : 'nav-item--inactive'
             "
           >
-            {{ getIcon(tab) }}
-          </span>
-          <span class="tab-label">{{ getLabel(tab) }}</span>
-        </button>
-      </nav>
+            <span
+              class="nav-icon"
+              :class="
+                activeTab === tab ? 'nav-icon--active' : 'nav-icon--inactive'
+              "
+            >
+              {{ getIcon(tab) }}
+            </span>
+            <span class="tab-label">{{ getLabel(tab) }}</span>
+          </button>
+        </nav>
+      </div>
     </div>
 
     <!-- Main Content -->
@@ -164,10 +167,15 @@ onMounted(() => {
           />
         </div>
 
+        <!-- Guardrails -->
+        <div v-show="activeTab === 'guardrails'">
+          <GuardrailSettings v-model:config="config" @save="handleSaveConfig" />
+        </div>
+
         <!-- Provider Configs -->
         <div
           v-for="provider in settingsTabs.filter(
-            (t) => t !== 'local' && t !== 'mcp',
+            isProviderTab,
           ) as ProviderType[]"
           :key="provider"
           v-show="activeTab === provider"
@@ -307,9 +315,15 @@ onMounted(() => {
               </template>
 
               <div class="form-actions">
-                <button type="submit" class="btn-submit" :disabled="isSaving">
-                  {{ isSaving ? "Saving..." : `Save ${provider} Config` }}
-                </button>
+                <BaseButton 
+                  type="submit" 
+                  variant="primary" 
+                  :loading="isSaving" 
+                  icon="play"
+                  className="w-full"
+                >
+                  Save {{ provider }} Configuration
+                </BaseButton>
               </div>
             </form>
           </div>
@@ -339,12 +353,20 @@ onMounted(() => {
   @apply w-full lg:w-64 bg-gray-800 rounded-lg border border-gray-700 p-4 shrink-0 h-fit;
 }
 
-.sidebar-title {
-  @apply text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 px-3;
+.sidebar-header {
+  @apply text-lg font-black text-white px-3 mb-6 tracking-tight;
+}
+
+.nav-group {
+  @apply mb-6;
+}
+
+.group-title {
+  @apply text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-3 px-3;
 }
 
 .nav-list {
-  @apply space-y-1;
+  @apply space-y-0.5;
 }
 
 .nav-item {

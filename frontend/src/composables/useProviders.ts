@@ -39,7 +39,10 @@ export function useProviders() {
   const allProviders = computed(() => ['local' as ProviderType, ...cloudProviders.value])
 
   const settingsTabs = computed<SettingsTab[]>(() => {
-    return ['local', ...cloudProviders.value, 'mcp']
+    // We want to preserve the order from SETTINGS_TABS while ensuring 
+    // any dynamically discovered cloud providers are also included.
+    const base = ['local', 'guardrails', ...cloudProviders.value, 'mcp']
+    return Array.from(new Set(base)) as SettingsTab[]
   })
 
   const getIcon = (type: string) => {

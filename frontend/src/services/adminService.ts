@@ -76,9 +76,21 @@ export const AdminApiService = {
   fetchProviderManifests: (): Promise<any[]> =>
     get<any[]>(API_ENDPOINTS.providerManifests),
 
-  testConnection: (provider: string, apiKey?: string): Promise<{ status: string; message: string }> => {
+  testConnection: (provider: string, apiKey?: string, apiKeyName?: string): Promise<{ status: string; message: string }> => {
     const params = new URLSearchParams({ provider })
     if (apiKey) params.set('api_key', apiKey)
+    if (apiKeyName) params.set('api_key_name', apiKeyName)
     return get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${params.toString()}`)
   },
+
+  fetchProviderKeys: (provider: string): Promise<import('../types/admin').APIKeyItem[]> => {
+    return get(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`)
+  },
+
+  saveProviderKeys: (provider: string, keys: import('../types/admin').APIKeyItem[]): Promise<import('../types/admin').APIKeyItem[]> => {
+    return put(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`, keys)
+  },
+
+  deleteProviderKey: (provider: string, keyId: string): Promise<void> =>
+    del(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}&key_id=${encodeURIComponent(keyId)}`),
 }

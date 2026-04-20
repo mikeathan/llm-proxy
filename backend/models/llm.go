@@ -1,0 +1,35 @@
+package models
+
+import (
+	"context"
+	"errors"
+	"net/http"
+)
+
+var (
+	ErrModelStarting = errors.New("model is starting")
+	ErrUnknownModel  = errors.New("unknown model")
+	ErrModelExists   = errors.New("model already exists")
+)
+
+type ProviderStatus string
+
+const (
+	ProviderStatusRunning ProviderStatus = "running"
+	ProviderStatusReady   ProviderStatus = "ready"
+	ProviderStatusError   ProviderStatus = "error"
+)
+
+type Provider interface {
+
+
+	Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+	GetStatus() ProviderStatus
+	Shutdown() error
+
+	// For administrative and proxy management
+	EnsureReady(ctx context.Context) error
+	GetEndpoint(ctx context.Context) (string, http.Header, error)
+	ListModels(ctx context.Context) ([]string, error)
+	TestConnection(ctx context.Context) error
+}
