@@ -10,7 +10,7 @@ import (
 
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/platform/config"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
@@ -19,8 +19,8 @@ import (
 func TestAppBoots(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
-	cfg := minimalTestConfig(t)
-	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
+	dataMgr := minimalTestDataManager(t)
+	a := app.New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	if a == nil {
 		t.Fatal("app not initialized")
@@ -30,14 +30,14 @@ func TestAppBoots(t *testing.T) {
 func TestRoutesExist(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
-	cfg := minimalTestConfig(t)
-	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
+	dataMgr := minimalTestDataManager(t)
+	a := app.New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	tests := []string{
-		"/admin",
+		"/admin/",
 		"/admin/api/state",
 		"/v1/chat/completions",
-		"/api/conversation/message",
+		"/admin/api/conversation/message",
 	}
 
 	for _, path := range tests {
@@ -55,8 +55,8 @@ func TestRoutesExist(t *testing.T) {
 func TestMethodEnforcement(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
-	cfg := minimalTestConfig(t)
-	a := app.New(cfg, &mocks.MockLogger{}, &buildinfo.Info{})
+	dataMgr := minimalTestDataManager(t)
+	a := app.New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
 	rec := httptest.NewRecorder()
@@ -68,39 +68,26 @@ func TestMethodEnforcement(t *testing.T) {
 	}
 }
 
-func minimalTestConfig(t *testing.T) *config.ConfigManager {
+func minimalTestDataManager(t *testing.T) *storage.DataManager {
+	dir := t.TempDir()
+	
 	cfg := &models.Config{
 		Server: models.ServerConfig{
 			Bind:            ":0",
 			ModelHost:       "http://localhost",
 			IdleTimeoutSecs: 10,
 		},
-		Models:   []models.ModelConfig{},
-		Metrics: models.MetricsConfig{
-			GPU: models.GPUConfig{
-				Provider: "none",
-			},
-		},
+		Models: []models.ModelConfig{},
 	}
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
+	data, _ := json.Marshal(cfg)
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
 
-	// Create manager
-	mgr := config.NewConfigManager(path)
-
-	// Write initial config
-	data, err := json.Marshal(cfg)
+	mgr, err := storage.NewDataManager(dir)
 	if err != nil {
-		t.Fatalf("marshal config: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatalf("write config: %v", err)
+		t.Fatalf("NewDataManager: %v", err)
 	}
 
-	if err := mgr.Load(); err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
+	_ = mgr.LoadAll()
 	return mgr
 }

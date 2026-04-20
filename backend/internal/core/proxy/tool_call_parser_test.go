@@ -17,7 +17,7 @@ func TestParseContentToolCalls_StandardToolCall(t *testing.T) {
 }
 </args-json-object>`
 
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
 		t.Fatal("expected ok=true, got false")
 	}
@@ -42,7 +42,7 @@ func TestParseContentToolCalls_StandardToolCall(t *testing.T) {
 
 func TestParseContentToolCalls_NoToolCall(t *testing.T) {
 	content := "The temperature in the living room is 22°C."
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if ok {
 		t.Error("expected ok=false for plain text, got true")
 	}
@@ -52,7 +52,7 @@ func TestParseContentToolCalls_NoToolCall(t *testing.T) {
 }
 
 func TestParseContentToolCalls_EmptyContent(t *testing.T) {
-	calls, ok := proxy.ParseContentToolCalls("")
+	_, calls, ok := proxy.ParseContentToolCalls("")
 	if ok {
 		t.Error("expected ok=false for empty content")
 	}
@@ -67,7 +67,7 @@ func TestParseContentToolCalls_MultipleToolCalls(t *testing.T) {
 <function-name>get_temperature</function-name>
 <args-json-object>{"room": "basement"}</args-json-object>`
 
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -90,7 +90,7 @@ func TestParseContentToolCalls_MissingArgs(t *testing.T) {
 	// Function name present but no args block — should still parse with default
 	content := `<function-name>list_devices</function-name>`
 
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
 		t.Fatal("expected ok=true when function-name is present")
 	}
@@ -108,7 +108,7 @@ func TestParseContentToolCalls_MissingArgs(t *testing.T) {
 
 func TestParseContentToolCalls_FunctionNameTrimmed(t *testing.T) {
 	content := "<function-name>  declare_intent  </function-name>\n<args-json-object>{}</args-json-object>"
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -122,7 +122,7 @@ func TestParseContentToolCalls_FunctionNameTrimmed(t *testing.T) {
 func TestParseContentToolCalls_ToolsTagFormat(t *testing.T) {
 	content := "<tools>\n{\"name\": \"query_device\", \"arguments\": {\"target_name\": \"Living Room Light\", \"metrics\": [\"state\"], \"time_scope\": \"today\", \"aggregation\": \"last\"}}\n</tools>"
 
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
 		t.Fatal("expected ok=true for <tools> format")
 	}
@@ -149,7 +149,7 @@ func TestParseContentToolCalls_ToolsTagMultiple(t *testing.T) {
 {"name": "get_state", "arguments": {"room": "hallway"}}
 </tools>`
 
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -164,7 +164,7 @@ func TestParseContentToolCalls_ToolsTagMultiple(t *testing.T) {
 func TestParseContentToolCalls_ToolsTagMalformedJSON(t *testing.T) {
 	// Malformed JSON inside <tools> should be silently skipped
 	content := "<tools>\nnot-json\n</tools>"
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if ok {
 		t.Error("expected ok=false for malformed JSON in <tools>")
 	}
@@ -176,7 +176,7 @@ func TestParseContentToolCalls_ToolsTagMalformedJSON(t *testing.T) {
 func TestParseContentToolCalls_ToolsTagMissingName(t *testing.T) {
 	// Valid JSON but missing "name" key - should be rejected
 	content := `<tools>{"arguments": {"foo": "bar"}}</tools>`
-	calls, ok := proxy.ParseContentToolCalls(content)
+	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if ok {
 		t.Error("expected ok=false when name is missing")
 	}
@@ -184,4 +184,3 @@ func TestParseContentToolCalls_ToolsTagMissingName(t *testing.T) {
 		t.Errorf("expected 0 calls, got %d", len(calls))
 	}
 }
-

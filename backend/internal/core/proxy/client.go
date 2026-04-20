@@ -25,7 +25,7 @@ type LLMClient struct {
 
 func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 60 * time.Second}
+		httpClient = &http.Client{Timeout: 180 * time.Second}
 	}
 	chatURL := utils.SanitiseUrl(baseURL)
 	if !strings.HasSuffix(chatURL, "/v1/chat/completions") && !strings.HasSuffix(chatURL, "/chat/completions") {
@@ -43,7 +43,7 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 		return nil, fmt.Errorf("LLM chat serialisation error: %s", err.Error())
 	}
 
-	httpReq, _ := http.NewRequest("POST", c.chatCompletionsURL, bytes.NewReader(body))
+	httpReq, _ := http.NewRequestWithContext(ctx, "POST", c.chatCompletionsURL, bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	for k, vv := range c.headers {
 		for _, v := range vv {

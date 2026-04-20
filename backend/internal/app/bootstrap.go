@@ -12,10 +12,10 @@ import (
 	"llm-proxy/internal/core/mcp"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/storage"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 	"llm-proxy/utils"
@@ -43,13 +43,14 @@ func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskE
 	return automation.NewLLMTaskExecutor(svc)
 }
 
-func (c *Container) BuildAppServices() AppServices {
-	s := AppServices{
-		Runtime:    c.Core.Runtime,
-		AppCtx:     c.Core.AppCtx,
-		nodeHerder: c.Infra.NodeHerder,
-		logger:     c.Infra.Logger,
-		Clock:      c.Infra.Clock,
+func (c *Container) BuildAppServices() *AppServices {
+	s := &AppServices{
+		Runtime:     c.Core.Runtime,
+		AppCtx:      c.Core.AppCtx,
+		nodeHerder:  c.Infra.NodeHerder,
+		logger:      c.Infra.Logger,
+		Clock:       c.Infra.Clock,
+		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.WorkspacesDir())),
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -57,19 +58,26 @@ func (c *Container) BuildAppServices() AppServices {
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
-	s.engine = assistant.NewEngine(s.nodeHerder, s.logger)
+	s.dispatcher = c.Dispatcher
+
+	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
+	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.persistence, s.nodeHerder, s.logger)
 
 	return s
 }
 
 type AppServices struct {
-	Runtime        llm.RuntimeManager
-	AppCtx         *AppContext
-	nodeHerder     nodeherder.MCPService
-	clientProvider proxy.LLMClientProvider
-	engine         assistant.Engine
-	logger         logging.Logger
-	Clock          utils.Clock
+	Runtime         llm.RuntimeManager
+	AppCtx          *AppContext
+	nodeHerder      nodeherder.MCPService
+	toolProvider    assistant.ToolProvider
+	clientProvider  proxy.LLMClientProvider
+	engine          assistant.Engine
+	guardrailEngine *assistant.GuardrailEngine
+	persistence     *persistence.WorkspaceManager
+	logger          logging.Logger
+	Clock           utils.Clock
+	dispatcher      *automation.Dispatcher
 }
 
 func (s AppServices) Shutdown() {
@@ -87,6 +95,10 @@ func (s AppServices) NodeHerder() nodeherder.MCPService {
 	return s.nodeHerder
 }
 
+func (s AppServices) ToolProvider() assistant.ToolProvider {
+	return s.toolProvider
+}
+
 func (s AppServices) ClientProvider() proxy.LLMClientProvider {
 	return s.clientProvider
 }
@@ -99,40 +111,70 @@ func (s AppServices) Limiter() ratelimiter.Limiter {
 	return ratelimiter.NewLimiter(s.Clock)
 }
 
-func (s AppServices) DefaultModel() (string, error) {
-	return s.AppCtx.DefaultModel()
-}
-
-func (s AppServices) PrimaryModel() string {
-	return s.AppCtx.PrimaryModel()
-}
-
-func (s AppServices) FallbackModel() string {
-	return s.AppCtx.FallbackModel()
+func (s AppServices) SelectModels() (string, string) {
+	return s.AppCtx.SelectModels()
 }
 
 func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
+func (s AppServices) GuardrailEngine() *assistant.GuardrailEngine {
+	return s.guardrailEngine
+}
+
+func (s AppServices) Persistence() *persistence.WorkspaceManager {
+	return s.persistence
+}
+
+func (s AppServices) ProcessLogger(workspaceID string) logging.Logger {
+	return s.AppCtx.ProcessLogger(workspaceID)
+}
+
+func (s AppServices) RootDir() string {
+	return s.AppCtx.RootDir()
+}
+
+func (s *AppServices) Events() *automation.EventBus {
+	if s.dispatcher == nil {
+		return nil
+	}
+	return s.dispatcher.Events()
+}
+
+func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
+	s.dispatcher = d
+}
+
+func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
 	clock := utils.NewRealClock()
 
-	// Configure MCP Service
-	nodeHerder, err := configureMCP(cfgMgr, logger)
+	// 1. Load System Config for MCP/Runtime defaults
+	logging.Info("Loading system configuration...")
+	sys := dataMgr.System().Get()
+
+	// Configure MCP Service (Bridge logic: we still pass sys config parts)
+	logging.Info("Configuring MCP services...")
+	nodeHerder, err := configureMCP(dataMgr, logger)
 	if err != nil {
 		logging.Error("Failed to configure MCP service", "error", err)
 		return nil
 	}
 
-	cfg := cfgMgr.GetConfig()
-	manager := llm.NewManagerFromConfig(&cfg)
+	// 2. Initialize Runtime Manager from Registry
+	logging.Info("Initializing LLM runtime manager...")
+	registry := dataMgr.Registry().Get()
+	secretsStore := dataMgr.Secrets()
+	manager := llm.NewManagerFromRegistry(registry, sys, secretsStore)
 
-	appCtx := NewServer(manager, cfgMgr)
+	logging.Info("Creating server context...")
+	appCtx := NewServer(manager, dataMgr)
 	runtime := appCtx.Manager()
+
+	logging.Info("Bootstrap phase complete", "root", dataMgr.RootDir())
 
 	return &Container{
 		Core: Core{
@@ -150,13 +192,12 @@ func bootstrap(cfgMgr *config.ConfigManager, logger logging.Logger) *Container {
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
 func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispatcher, error) {
-	// Use workspaces_dir from config, or default to {rootDir}/workspaces
-	baseDir := c.Core.AppCtx.WorkspacesDir()
-	persistenceMgr := persistence.NewWorkspaceManager(baseDir)
+	persistenceMgr := svc.Persistence()
 
 	exec := automation.NewLLMTaskExecutor(svc)
 
 	d, err := automation.NewDispatcher(persistenceMgr, exec, c.Infra.Logger,
+
 		automation.WithWorkerCount(1),
 	)
 	if err != nil {
@@ -166,36 +207,49 @@ func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispa
 	return d, nil
 }
 
-func configureMCP(cfgMgr *config.ConfigManager, logger logging.Logger) (nodeherder.MCPService, error) {
+func configureMCP(dataMgr *storage.DataManager, logger logging.Logger) (nodeherder.MCPService, error) {
 	// Initialize MCP Orchestrator
 	orchestrator := mcp.NewOrchestrator(logger)
 
 	// Initialize Resource Mirror
 	mirror := mcp.NewResourceMirror()
 
-	// Subscribe ConfigManager -> MCP Orchestrator
-	cfgMgr.OnChange(func(newCfg models.Config) {
-		orchestrator.Reload(context.Background(), newCfg.MCPServers, newCfg.Server.Bind)
+	// Subscribe Registry Updates -> MCP Orchestrator
+	dataMgr.Registry().OnChange(func(reg models.RegistryData) {
+		sys := dataMgr.System().Get()
+		orchestrator.Reload(context.Background(), translateMCPServers(reg.MCPServers), sys.Server.Bind)
 	})
 
 	// Initial Load
-	currentCfg := cfgMgr.GetConfig()
-	orchestrator.Reload(context.Background(), currentCfg.MCPServers, currentCfg.Server.Bind)
+	currentReg := dataMgr.Registry().Get()
+	sys := dataMgr.System().Get()
+	orchestrator.Reload(context.Background(), translateMCPServers(currentReg.MCPServers), sys.Server.Bind)
 
 	// Register prompt updates handled by Orchestrator (which propagates to Clients)
-	// The Orchestrator's OnPromptUpdate is called when a client receives a notification.
 	orchestrator.OnPromptUpdate(func(prompt string) {
 		mirror.SetSystemPrompt(prompt)
 	})
 
 	// Subscribe to system prompt to receive updates
-	// This ensures we get notified when NodeHerder loads devices or updates context
 	orchestrator.Subscribe(context.Background(), "nodeherder://system-prompt")
 
 	return mcp.NewMCPNodeHerder(orchestrator, mirror, logger), nil
 }
 
-func buildHTTP(s AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
+// translateMCPServers converts registry servers to internal model configs (Bridge logic)
+func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServerConfig {
+	out := make([]models.MCPServerConfig, len(reg))
+	for i, s := range reg {
+		out[i] = models.MCPServerConfig{
+			Name:    s.Name,
+			URL:     s.URL,
+			Enabled: s.Enabled,
+		}
+	}
+	return out
+}
+
+func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
 	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
@@ -212,7 +266,7 @@ func buildHTTP(s AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.
 func buildRouter(
 	admin *api.AdminHandlers,
 	proxyHandlers *api.ProxyHandlers,
-	assistant http.Handler,
+	assistant *api.AssistantMessageHandler,
 	dispatcherHandlers *api.DispatcherHandlers,
 ) http.Handler {
 
@@ -238,7 +292,6 @@ func buildRouter(
 	router.Delete("/admin/api/app-logs", admin.AdminAppLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs/tail", admin.AdminAppLogsTailHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
 
 	// MCP
 	router.Get("/admin/api/mcp", admin.AdminMCPListHandler, jsonMethodNotAllowed)
@@ -249,24 +302,42 @@ func buildRouter(
 	router.Get("/admin/api/providers/manifests", admin.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
 
+	// Templates
+	router.Get("/admin/api/templates", admin.ListTemplatesHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/templates/", admin.GetTemplateHandler, jsonMethodNotAllowed)
+
+	// Secrets — provider API keys
+	router.Get("/admin/api/secrets/keys", admin.AdminProviderKeysHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/secrets/keys", admin.AdminProviderKeysPutHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/secrets/keys", admin.AdminProviderKeyDeleteHandler, jsonMethodNotAllowed)
+
+	// Secrets — tool secrets (search, communication, etc.)
+	router.Get("/admin/api/secrets/tools", admin.AdminToolSecretHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/secrets/tools", admin.AdminToolSecretPutHandler, jsonMethodNotAllowed)
+
 	// Dispatcher
 	if dispatcherHandlers != nil {
 		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/trigger/{workspace}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/trigger/{"+models.WorkspaceIDParam+"}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/stop/{"+models.WorkspaceIDParam+"}", dispatcherHandlers.StopAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/activity", dispatcherHandlers.GetGlobalActivity, jsonMethodNotAllowed)
 
 		router.Get("/admin/api/dispatcher/workspaces", dispatcherHandlers.ListWorkspaces, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/workspaces", dispatcherHandlers.CreateWorkspace, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/workspaces/{workspace}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}", dispatcherHandlers.UpdateAutomation, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}", dispatcherHandlers.DeleteAutomation, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{workspace}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{workspace}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{workspace}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", dispatcherHandlers.UpdateAutomation, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", dispatcherHandlers.DeleteAutomation, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", dispatcherHandlers.GetWorkspaceConfig, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", dispatcherHandlers.UpdateWorkspaceConfig, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/live", dispatcherHandlers.StreamWorkspaceEvents, textMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/processlogs", admin.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
 	}
 
 	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)
@@ -275,7 +346,10 @@ func buildRouter(
 	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.EnsureModelProxyHandler))
 
 	// Conversation API
-	router.Any("/api/conversation/message", assistant)
+	router.Any("/admin/api/conversation/message", assistant)
+	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
+	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
+	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
 
 	return router
 }

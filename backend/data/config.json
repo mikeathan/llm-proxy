@@ -1,0 +1,26 @@
+{
+  "server": {
+    "bind": "0.0.0.0:4001",
+    "model_host": "0.0.0.0",
+    "idle_timeout_seconds": 1800
+  },
+  "local": {
+    "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
+    "model_dir": "/home/mikeathan/dev/models",
+    "default_args": [
+      "--ctx-size",
+      "4096",
+      "--threads",
+      "8",
+      "--parallel",
+      "1",
+      "--gpu-layers",
+      "999",
+      "--flash-attn",
+      "on",
+      "--host",
+      "0.0.0.0"
+    ]
+  },
+  "workspaces_dir": "workspaces"
+}

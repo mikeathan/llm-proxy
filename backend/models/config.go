@@ -1,13 +1,133 @@
 package models
 
+import (
+	"context"
+)
+
+type contextKey string
+
+const WorkspaceIDKey contextKey = "workspace_id"
+
+// GetWorkspaceID retrieves the workspace ID from the context.
+func GetWorkspaceID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(WorkspaceIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// WithWorkspaceID injects the workspace ID into the context.
+func WithWorkspaceID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, WorkspaceIDKey, id)
+}
+
 type Config struct {
 	Server        ServerConfig            `json:"server"`
-	Providers     map[string]ProviderItem `json:"providers"` // Refactored Providers map
+	Providers     map[string]ProviderItem `json:"providers"`
 	Models        []ModelConfig           `json:"models"`
-	Agents        []AgentDefinition       `json:"agents,omitempty"` // New Agents Registry
+	Agents        []AgentDefinition       `json:"agents,omitempty"`
 	WorkspacesDir string                  `json:"workspaces_dir,omitempty"`
 	Metrics       MetricsConfig           `json:"metrics,omitempty"`
 	MCPServers    []MCPServerConfig       `json:"mcp_servers,omitempty"`
+	Guardrails    *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
+	Communication CommunicationConfig     `json:"communication,omitempty"`
+	Search        SearchConfig            `json:"search,omitempty"`
+}
+
+type AgentGuardrailsConfig struct {
+	Global        GlobalGuardrailsConfig        `json:"global"`
+	Terminal      TerminalGuardrailsConfig      `json:"terminal"`
+	Search        SearchGuardrailsConfig        `json:"search"`
+	Communication CommunicationGuardrailsConfig `json:"communication"`
+	FileSystem    FileSystemGuardrailsConfig    `json:"filesystem"`
+}
+
+type GlobalGuardrailsConfig struct {
+	BlockSecrets bool     `json:"block_secrets"`
+	UserBlocked  []string `json:"user_blocked_patterns"`
+}
+
+type SearchGuardrailsConfig struct {
+	Enabled      bool     `json:"enabled"`
+	MaxQueryLen  int      `json:"max_query_len"`
+	BlockedSites []string `json:"blocked_sites"`
+}
+
+type CommunicationGuardrailsConfig struct {
+	Enabled       bool `json:"enabled"`
+	RequireReview bool `json:"require_review"`
+	MaxMessages   int  `json:"max_messages_per_task"`
+}
+
+type FileSystemGuardrailsConfig struct {
+	Enabled           bool     `json:"enabled"`
+	AllowedPaths      []string `json:"allowed_paths"`
+	ReadOnly          bool     `json:"read_only"`
+	MaxFileSizeKB     int      `json:"max_file_size_kb"`
+	AllowedExtensions []string `json:"allowed_extensions,omitempty"`
+	BlockedFilenames  []string `json:"blocked_filenames,omitempty"`
+}
+
+type TerminalGuardrailsConfig struct {
+	Enabled         bool     `json:"enabled"`
+	AllowedCommands []string `json:"allowed_commands"`
+	BlockedPatterns []string `json:"blocked_patterns,omitempty"`
+	TimeoutSeconds  int      `json:"timeout_seconds"`
+	MaxOutputSize   int      `json:"max_output_size_chars"`
+}
+
+func (c TerminalGuardrailsConfig) IsActive() bool {
+	return c.Enabled || len(c.AllowedCommands) > 0
+}
+
+func (c FileSystemGuardrailsConfig) IsActive() bool {
+	return c.Enabled || len(c.AllowedPaths) > 0
+}
+
+func (c SearchGuardrailsConfig) IsActive() bool {
+	return c.Enabled || c.MaxQueryLen > 0
+}
+
+func (c CommunicationGuardrailsConfig) IsActive() bool {
+	return c.Enabled || c.MaxMessages > 0
+}
+
+func (c GlobalGuardrailsConfig) IsActive() bool {
+	return c.BlockSecrets || len(c.UserBlocked) > 0
+}
+
+func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
+	if other == nil {
+		return
+	}
+	if other.Terminal.IsActive() {
+		c.Terminal = other.Terminal
+	}
+	if other.FileSystem.IsActive() {
+		c.FileSystem = other.FileSystem
+	}
+	if other.Search.IsActive() {
+		c.Search = other.Search
+	}
+	if other.Communication.IsActive() {
+		c.Communication = other.Communication
+	}
+	if other.Global.IsActive() {
+		c.Global = other.Global
+	}
+}
+
+type CommunicationConfig struct {
+	Telegram struct {
+		Enabled bool   `json:"enabled"`
+		ChatID  string `json:"chat_id"`
+	} `json:"telegram"`
+}
+
+type SearchConfig struct {
 }
 
 type AgentDefinition struct {
@@ -26,8 +146,7 @@ type APIKeyItem struct {
 }
 
 type ProviderItem struct {
-	Type              string            `json:"type"` // local, openai, gemini, etc.
-	APIKeys           []APIKeyItem      `json:"api_keys,omitempty"` // Support for multiple named API keys
+	Type              string            `json:"type"`
 	BaseURL           string            `json:"base_url,omitempty"`
 	ProjectID         string            `json:"project_id,omitempty"`
 	Region            string            `json:"region,omitempty"`
@@ -50,25 +169,24 @@ type ServerConfig struct {
 	LlamaServerBinary string            `json:"llama_server_binary"`
 	DefaultArgs       []string          `json:"default_args"`
 	Environment       map[string]string `json:"environment"`
-	DefaultModel      string            `json:"default_model,omitempty"`
 	PrimaryModel      string            `json:"primary_model,omitempty"`
 	FallbackModel     string            `json:"fallback_model,omitempty"`
 }
 
 type ModelConfig struct {
 	Name           string            `json:"name"`
-	Provider       string            `json:"provider"` // local, openai, vertex, gemini, openrouter, nim
+	Provider       string            `json:"provider"`
 	Filename       string            `json:"filename,omitempty"`
 	Args           []string          `json:"args,omitempty"`
 	Port           int               `json:"port,omitempty"`
-	Path           string            `json:"-"` // resolved absolute path, not persisted
+	Path           string            `json:"-"`
 	Environment    map[string]string `json:"environment,omitempty"`
 	ProviderConfig ProviderConfig    `json:"provider_config,omitempty"`
 }
 
 type ProviderConfig struct {
-	APIKey     string `json:"api_key,omitempty"`
-	APIKeyName string `json:"api_key_name,omitempty"` // Look up by name in ProviderItem.APIKeys
+	APIKey     string `json:"-"`
+	APIKeyName string `json:"api_key_name,omitempty"`
 	BaseURL    string `json:"base_url,omitempty"`
 	ProjectID  string `json:"project_id,omitempty"`
 	Region     string `json:"region,omitempty"`
@@ -79,8 +197,8 @@ type MetricsConfig struct {
 }
 
 type GPUConfig struct {
-	Provider  string `json:"provider,omitempty"`   // auto, nvidia-smi, rocm-smi, amdgpu_top, sysfs, none
-	Binary    string `json:"binary,omitempty"`     // optional override path
-	Index     int    `json:"index,omitempty"`      // GPU index to query (0-based)
-	SysfsPath string `json:"sysfs_path,omitempty"` // optional override for sysfs device folder
+	Provider  string `json:"provider,omitempty"`
+	Binary    string `json:"binary,omitempty"`
+	Index     int    `json:"index,omitempty"`
+	SysfsPath string `json:"sysfs_path,omitempty"`
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/models"
 )
 
 type mockFailoverSelector struct {
@@ -15,9 +16,13 @@ type mockFailoverSelector struct {
 	def      string
 }
 
-func (m *mockFailoverSelector) DefaultModel() (string, error) { return m.def, nil }
-func (m *mockFailoverSelector) PrimaryModel() string           { return m.primary }
-func (m *mockFailoverSelector) FallbackModel() string          { return m.fallback }
+func (m *mockFailoverSelector) SelectModels() (string, string) {
+	p := m.primary
+	if p == "" {
+		p = m.def
+	}
+	return p, m.fallback
+}
 
 type mockRuntime struct {
 	llm.RuntimeManager
@@ -62,13 +67,13 @@ func TestRuntimeClientProvider_Failover(t *testing.T) {
 		sel := &mockFailoverSelector{primary: "primary", fallback: "fallback"}
 		run := &mockRuntime{
 			errors: map[string]error{
-				"primary": llm.ErrModelStarting,
+				"primary": models.ErrModelStarting,
 			},
 		}
 		p := NewRuntimeClientProvider(sel, run, newClient)
 
 		_, err := p.GetClient(context.Background())
-		if !errors.Is(err, llm.ErrModelStarting) {
+		if !errors.Is(err, models.ErrModelStarting) {
 			t.Errorf("expected ErrModelStarting, got %v", err)
 		}
 	})

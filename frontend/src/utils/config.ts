@@ -41,3 +41,17 @@ export function stringToEnvMap(str: string): Record<string, string> {
   }
   return env
 }
+
+/**
+ * Converts a list to a string with a given separator (default: newline).
+ */
+export function listToString(list: string[] | undefined | null, sep = '\n'): string {
+  return (list ?? []).join(sep)
+}
+
+/**
+ * Parses a string back into a list based on a separator pattern (default: any whitespace or comma).
+ */
+export function stringToList(str: string, sep: string | RegExp = /[\s,]+/): string[] {
+  return str.split(sep).map(s => s.trim()).filter(s => s !== '')
+}

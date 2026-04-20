@@ -6,13 +6,15 @@ import (
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
-	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
+	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 )
 
 type App struct {
 	server     *http.Server
-	services   AppServices
+	services   *AppServices
 	dispatcher *automation.Dispatcher
 }
 
@@ -44,9 +46,8 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
-
-	container := bootstrap(cfgMgr, logger)
+func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
+	container := bootstrap(dataMgr, logger)
 	svc := container.BuildAppServices()
 
 	// Build new dispatcher with AssistantService for LLM execution
@@ -55,18 +56,23 @@ func New(cfgMgr *config.ConfigManager, logger logging.Logger, buildInfo *buildin
 		logging.Error("Failed to build dispatcher", "error", err)
 	} else {
 		container.Dispatcher = disp
+		svc.SetDispatcher(disp)
 		// Start dispatcher in background
 		go disp.Start(context.Background())
 	}
 
 	router := buildHTTP(svc, container.Dispatcher, buildInfo)
 
-	// Get initial config for binding
-	cfg := cfgMgr.GetConfig()
+	// Get bind address from system storage
+	sys := dataMgr.System().Get()
+	bindAddr := sys.Server.Bind
+	if bindAddr == "" {
+		bindAddr = network.JoinDefault(models.AddrAllInterfaces)
+	}
 
 	return &App{
 		server: &http.Server{
-			Addr:    cfg.Server.Bind,
+			Addr:    bindAddr,
 			Handler: router,
 		},
 		services:   svc,

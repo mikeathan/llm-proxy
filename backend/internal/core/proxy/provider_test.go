@@ -4,27 +4,24 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/testing/mocks"
+	"llm-proxy/models"
 )
 
 type mockSelector struct {
-	model string
-	err   error
+	def      string
+	fallback string
+	err      error
 }
 
-func (m *mockSelector) DefaultModel() (string, error) {
-	if m.err != nil {
-		return "", m.err
-	}
-	return m.model, nil
+func (m *mockSelector) SelectModels() (string, string) {
+	return m.def, m.fallback
 }
-
-func (m *mockSelector) PrimaryModel() string  { return "" }
-func (m *mockSelector) FallbackModel() string { return "" }
 
 type dummyClient struct {
 	baseURL string
@@ -34,29 +31,25 @@ func (d *dummyClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.C
 	return &proxy.ChatResponse{}, nil
 }
 
-func TestRuntimeClientProvider_DefaultModelError(t *testing.T) {
-	selector := &mockSelector{err: errors.New("no default")}
-	manager := &mocks.MockManager{
-		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
-			t.Fatalf("EnsureModel should not be called")
-			return llm.ModelInstance{}, nil
-		},
+func TestRuntimeClientProvider_NoModelError(t *testing.T) {
+	runtime := &mocks.MockManager{}
+	selector := &mockSelector{def: ""}
+	provider := proxy.NewRuntimeClientProvider(selector, runtime, nil)
+
+	_, err := provider.GetClient(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
 	}
-
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header) proxy.Client {
-		return &dummyClient{baseURL: baseURL}
-	})
-
-	if _, err := provider.GetClient(context.Background()); err == nil {
-		t.Fatalf("expected error when default model fails")
+	if !strings.Contains(err.Error(), "no target model available") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
 
 func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
-	selector := &mockSelector{model: "alpha"}
+	selector := &mockSelector{def: "alpha"}
 	manager := &mocks.MockManager{
 		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
-			return llm.ModelInstance{}, llm.ErrModelStarting
+			return llm.ModelInstance{}, models.ErrModelStarting
 		},
 	}
 
@@ -64,13 +57,13 @@ func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 		return &dummyClient{baseURL: baseURL}
 	})
 
-	if _, err := provider.GetClient(context.Background()); !errors.Is(err, llm.ErrModelStarting) {
+	if _, err := provider.GetClient(context.Background()); !errors.Is(err, models.ErrModelStarting) {
 		t.Fatalf("expected ErrModelStarting, got %v", err)
 	}
 }
 
 func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
-	selector := &mockSelector{model: "alpha"}
+	selector := &mockSelector{def: "alpha"}
 	calls := 0
 	var lastURL string
 	activity := 0
@@ -119,7 +112,7 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 		t.Fatalf("expected same client instance to be reused")
 	}
 
-	selector.model = "beta"
+	selector.def = "beta"
 	client3, err := provider.GetClient(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

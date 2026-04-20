@@ -1,0 +1,30 @@
+package models
+
+// Tool Names
+const (
+	// Terminal
+	ToolTerminalExecute = "execute_terminal_command"
+
+	// Search
+	ToolInternetSearch = "internet_search"
+
+	// Communication
+	ToolNotifyUser = "notify_user"
+
+	// FileSystem
+	ToolFileRead      = "read_file"
+	ToolFileWrite     = "write_file"
+	ToolDirectoryList = "list_directory"
+
+	// Security/Admin
+	ToolApplyGuardrails = "security_guardrails"
+)
+
+// Tool Categories
+const (
+	CategoryTerminal      = "terminal"
+	CategorySearch        = "search"
+	CategoryCommunication = "communication"
+	CategoryFileSystem    = "filesystem"
+	CategoryGlobal        = "security"
+)

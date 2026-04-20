@@ -3,11 +3,15 @@ package automation
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
 
@@ -38,6 +42,12 @@ type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	Logger() logging.Logger
+	ToolProvider() assistant.ToolProvider
+	Engine() assistant.Engine
+	GuardrailEngine() *assistant.GuardrailEngine
+	ProcessLogger(workspaceID string) logging.Logger
+	Persistence() *persistence.WorkspaceManager
+	Events() *EventBus
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -94,84 +104,106 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		clientProvider := e.svc.ClientProvider()
 		client, err = clientProvider.GetClient(ctx)
 	}
-	
+
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.LastError = errStr
 		resp.State.IsRunning = false
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
 		return resp, fmt.Errorf("failed to get llm client: %w", err)
 	}
 
-	// Build messages - simple user prompt for automation execution
-	var history []proxy.Message
+	// Initialize the unified Agent
+	procLog := e.svc.ProcessLogger(req.WorkspaceID)
+	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
+
+	var capturedEvents []any
+	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
+		Logger:      procLog,
+		MaxSteps:    20,
+		Guardrails:  e.svc.GuardrailEngine(),
+		WorkspaceID: req.WorkspaceID,
+		Observer: func(ev assistant.AgentEvent) {
+			capturedEvents = append(capturedEvents, ev)
+			e.svc.Events().Publish(req.WorkspaceID, ev)
+		},
+	})
 
 	// Build task prompt from automation info
 	prompt := e.buildPrompt(req)
-	history = append(history, proxy.Message{Role: "user", Content: prompt})
 
-	// Make LLM call (no tools for dispatcher automations)
-	chatReq := proxy.ChatRequest{
-		Messages: history,
+	history := []proxy.Message{
+		{Role: "user", Content: prompt},
 	}
 
-	chatResp, err := client.Chat(ctx, chatReq)
-	if err != nil {
-		errStr := fmt.Sprintf("llm chat failed: %v", err)
+	// Execute via Agent Loop
+	finalReply, fullHistory, agErr := agent.Execute(ctx, history)
+	if agErr != nil {
+		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
 		resp.State.IsRunning = false
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
-		return resp, fmt.Errorf("llm chat failed: %w", err)
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
+		return resp, fmt.Errorf("agent execution failed: %w", agErr)
 	}
 
-	if len(chatResp.Choices) == 0 {
-		errStr := "no response choices"
-		resp.State.LastError = errStr
-		resp.State.IsRunning = false
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime))
-		return resp, fmt.Errorf("no response choices")
-	}
-
-	choice := chatResp.Choices[0]
-	var runResult string
+	var runResult = finalReply
 	var runError string
 
-	if choice.Message.Content != "" {
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
-		header := fmt.Sprintf("[%s] ▶ Executing automation `%s` in workspace `%s`...\nReading task file: `%s`\n\n",
-			timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
-
-		output := strings.TrimSpace(choice.Message.Content)
-
-		// If output already includes a code block, don't wrap it again
-		formattedOutput := output
-		if !strings.Contains(output, "```") {
-			formattedOutput = fmt.Sprintf("```text\n%s\n```", output)
+	// Collect any tool calls for result summary if no final reply content (rare but possible)
+	if finalReply == "" && len(fullHistory) > 1 {
+		toolCount := 0
+		for _, msg := range fullHistory {
+			toolCount += len(msg.ToolCalls)
 		}
-
-		fullOutput := fmt.Sprintf("%s**Output:**\n\n%s",
-			header, formattedOutput)
-
-		resp.Output = fullOutput
-		resp.State.LastOutput = fullOutput
-		runResult = fullOutput
+		if toolCount > 0 {
+			runResult = fmt.Sprintf("Agent executed %d tool call(s) but returned no final summary.", toolCount)
+		} else {
+			runResult = "Agent completed the task but returned an empty response."
+		}
 	}
 
-	if len(choice.Message.ToolCalls) > 0 {
-		resp.Output = fmt.Sprintf("Called %d tools (e.g., %s)", len(choice.Message.ToolCalls), choice.Message.ToolCalls[0].Function.Name)
-		resp.State.LastOutput = resp.Output
-		runResult = resp.Output
+	// Prepare formatted output
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	header := fmt.Sprintf("[%s] ▶ Executing automation `%s` in workspace `%s`...\nReading task file: `%s`\n\n",
+		timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
+
+	output := strings.TrimSpace(runResult)
+	
+	// Smart Unwrapper: If the model wrapped the entire response in a markdown code block, 
+	// strip it so our UI can actually render the markdown structure (headers, tables).
+	if strings.HasPrefix(output, "```") && strings.HasSuffix(output, "```") {
+		lines := strings.Split(output, "\n")
+		if len(lines) >= 2 {
+			// Remove first and last lines (the backticks)
+			output = strings.Join(lines[1:len(lines)-1], "\n")
+			output = strings.TrimSpace(output)
+		}
 	}
+
+	fullOutput := fmt.Sprintf("%s### Final Report\n\n%s", header, output)
+
+	resp.Output = fullOutput
+	resp.State.LastOutput = fullOutput
+	runResult = fullOutput
 
 	resp.State.IsRunning = false
-	
+
+	// Push a concluding message to the UI stream to clear "thinking..."
+	e.svc.Events().Publish(req.WorkspaceID, assistant.AgentEvent{
+		Type: assistant.EventMessage,
+		Payload: proxy.Message{
+			Role:    "system",
+			Content: "✔ Execution complete.",
+		},
+	})
+
 	// Record to history
-	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime))
+	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
 
 	return resp, nil
 }
 
-func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration) {
+func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any) {
 	if state == nil {
 		return
 	}
@@ -185,6 +217,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		Error:          errStr,
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
+		Events:         events,
 	}
 
 	// Add to full history (capped to last 50 for performance)
@@ -202,16 +235,41 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 
 func generateRunID() string {
 	// Simple unique-ish ID without importing full UUID package if not strictly needed
-	// but I checked go.mod and it's there. 
+	// but I checked go.mod and it's there.
 	// For now, use timestamp + nano for simplicity if I want to avoid adding the import
 	// but let's just use UUID if I can.
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
-// buildPrompt constructs the user prompt from automation details.
 func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
-	return fmt.Sprintf("TASK: Execute automation '%s' in workspace '%s'.\nFILE: %s\n\nCONTENT:\n%s\n\nINSTRUCTION: Finalize this task. Respond ONLY with the result. Do not repeat this header or mirror the task details.",
-		req.AutomationName, req.WorkspaceID, req.TaskFile, req.TaskContent)
+	procLog := e.svc.ProcessLogger(req.WorkspaceID)
+
+	// Try to load custom workspace rules if they exist
+	rules, err := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
+	if err != nil || rules == "" {
+		rules = assistant.DefaultRules
+	}
+
+	// Calculate robust relative path from Current Working Directory to Workspaces Dir
+	// This ensures the agent uses paths that the backend can resolve from its current execution root.
+	absWs := e.svc.Persistence().BaseDir()
+	cwd, _ := os.Getwd()
+	relWs, err := filepath.Rel(cwd, absWs)
+	if err != nil {
+		relWs = absWs
+	}
+	relWs = filepath.Clean(relWs)
+
+	procLog.Debug("Automation path resolution", "abs_ws", absWs, "cwd", cwd, "rel_ws", relWs)
+
+	// Safely format rules to avoid %!(EXTRA) errors if the file doesn't contain verbs
+	formattedRules := rules
+	formattedRules = strings.ReplaceAll(formattedRules, "{{REL_WS}}", relWs)
+	formattedRules = strings.ReplaceAll(formattedRules, "{{WORKSPACE_ID}}", req.WorkspaceID)
+
+	return fmt.Sprintf(assistant.AutomationTaskPrompt,
+		formattedRules,
+		req.WorkspaceID, relWs, req.WorkspaceID, req.TaskFile, req.TaskContent)
 }
 
 // ============================================================================

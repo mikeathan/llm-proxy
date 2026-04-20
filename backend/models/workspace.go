@@ -10,6 +10,27 @@ const (
 	TriggerManual   TriggerType = "manual"
 )
 
+// Workspace File and Directory Constants 
+const (
+	ConfigFilename     = "config.yaml"
+	StateFilename      = "state.json"
+	HeartbeatFilename  = "heartbeat.md"
+	AgentPromptFilename = "agent.md"
+	RulesFilename      = "rules.md"
+	InternalDirName    = ".internal"
+	LockFilename       = ".lock"
+	WorkspacesDirName  = "workspaces"
+
+	// System root files
+	SystemConfigFilename = "config.json"
+	SecretsFilename      = "secrets.json"
+	RegistryFilename     = "registry.json"
+	ProcessLogFilename   = "process.log"
+
+	// API Parameter Names
+	WorkspaceIDParam = "workspace"
+)
+
 // TriggerConfig describes a trigger for an automation.
 type TriggerConfig struct {
 	Type  TriggerType `yaml:"type"  json:"type"`  // "cron" | "interval" | "manual"
@@ -30,8 +51,10 @@ type WorkspaceConfig struct {
 	CronSchedule string  `yaml:"cron_schedule" json:"cron_schedule"`
 	Model        string  `yaml:"model" json:"model"`
 	Temperature  float64 `yaml:"temperature" json:"temperature"`
-	// New: automations array (N:M model)
+	// automations array (N:M model)
 	Automations []*Automation `yaml:"automations" json:"automations"`
+	// per-workspace guardrail overrides
+	Guardrails *AgentGuardrailsConfig `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 }
 
 // AutomationRun represents a single execution of an automation.
@@ -44,6 +67,7 @@ type AutomationRun struct {
 	Error          string    `json:"error"`
 	DurationMs     int64     `json:"duration_ms"`
 	Model          string    `json:"model"`
+	Events         []any     `json:"events"` // Full event log for "Live Console" reconstruction
 }
 
 // AgentState represents the execution history and state from workspaces/{id}/state.json

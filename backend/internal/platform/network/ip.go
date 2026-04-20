@@ -1,7 +1,7 @@
 package network
 
 import (
-	"fmt"
+	"llm-proxy/models"
 	"net"
 )
 
@@ -11,27 +11,27 @@ import (
 func ResolveOrigin(bindAddr string) string {
 
 	if bindAddr == "" {
-		bindAddr = ":8080"
+		bindAddr = ":" + models.DefaultAppPort
 	}
 
 	host, port, err := net.SplitHostPort(bindAddr)
 	if err != nil {
 		// Fallback for malformed bind address
-		return "http://localhost:8080"
+		return FormatURL(models.AddrLocalhost, models.DefaultAppPort)
 	}
 
 	// If host is specific (e.g. 192.168.1.50), use it
-	if host != "" && host != "0.0.0.0" {
-		return fmt.Sprintf("http://%s:%s", host, port)
+	if host != "" && host != models.AddrAllInterfaces {
+		return FormatURL(host, port)
 	}
 
 	// If generic, find outbound IP
 	ip := getOutboundIP()
 	if ip == "" {
-		return fmt.Sprintf("http://localhost:%s", port)
+		return FormatURL(models.AddrLocalhost, port)
 	}
 
-	return fmt.Sprintf("http://%s:%s", ip, port)
+	return FormatURL(ip, port)
 }
 
 // getOutboundIP gets the preferred outbound ip of this machine

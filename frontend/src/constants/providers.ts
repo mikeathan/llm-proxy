@@ -13,6 +13,7 @@ export const ALL_PROVIDERS: ProviderType[] = ["local", ...CLOUD_PROVIDERS];
 
 export const SETTINGS_TABS: SettingsTab[] = [
   "local",
+  "guardrails",
   "gemini",
   "openai",
   "openrouter",
@@ -22,8 +23,9 @@ export const SETTINGS_TABS: SettingsTab[] = [
   "mcp",
 ];
 
-export const PROVIDER_ICONS: Record<ProviderType | "mcp", string> = {
+export const PROVIDER_ICONS: Record<SettingsTab, string> = {
   local: "💻",
+  guardrails: "🛡️",
   gemini: "✨",
   openai: "🤖",
   openrouter: "🚀",
@@ -33,8 +35,9 @@ export const PROVIDER_ICONS: Record<ProviderType | "mcp", string> = {
   mcp: "🔌",
 };
 
-export const PROVIDER_LABELS: Record<ProviderType | "mcp", string> = {
+export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   local: "Local Engine",
+  guardrails: "Agent Guardrails",
   gemini: "Google Gemini",
   openai: "OpenAI / Compatible",
   openrouter: "OpenRouter",

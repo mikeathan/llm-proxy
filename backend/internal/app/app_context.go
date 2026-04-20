@@ -1,88 +1,73 @@
 package app
 
 import (
-	"errors"
+	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
-	"llm-proxy/internal/platform/config"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/env"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
 type AppContext struct {
 	manager       llm.RuntimeManager
-	config        models.Config
-	configMgr     *config.ConfigManager
+	dataMgr       *storage.DataManager
 	modelDir      string
-	workspacesDir string
+	resolver      *storage.PathResolver
 	rootDir       string
 	gpuConfig     models.GPUConfig
 	metrics       *metrics.MetricsService
-	configMu      sync.Mutex // Kept for other fields if needed, but configMgr handles config
+	configMu      sync.RWMutex
 }
 
-func NewServer(mgr llm.RuntimeManager, cfgMgr *config.ConfigManager) *AppContext {
-	cfg := cfgMgr.GetConfig()
+func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
+	logging.Info("Initializing AppContext server state")
 
-	// Compute rootDir from config directory (backend/config -> repo root)
-	rootDir := filepath.Dir(filepath.Dir(cfgMgr.ConfigDir()))
+	sys := dataMgr.System().Get()
+	rootDir := dataMgr.RootDir()
 
-	local := cfg.Providers["local"]
 	s := &AppContext{
-		manager:       mgr,
-		config:        cfg,
-		configMgr:     cfgMgr,
-		modelDir:      local.ModelDir,
-		workspacesDir: cfg.WorkspacesDir,
-		rootDir:       rootDir,
-		gpuConfig:     cfg.Metrics.GPU,
+		manager:  mgr,
+		dataMgr:  dataMgr,
+		modelDir: sys.Local.ModelDir,
+		resolver: storage.NewPathResolver(dataMgr.WorkspacesDir()),
+		rootDir:  rootDir,
 	}
 
-	// If workspaces_dir not set, default to {rootDir}/workspaces
-	if s.workspacesDir == "" {
-		s.workspacesDir = filepath.Join(rootDir, "workspaces")
+	// Link manager to secrets
+	if m, ok := mgr.(*llm.LLMRuntimeManager); ok {
+		m.SetSecrets(dataMgr.Secrets())
 	}
 
-	cfgMgr.OnChange(func(newCfg models.Config) {
-		s.configMu.Lock()
-		s.config = newCfg
-		local := newCfg.Providers["local"]
-		s.modelDir = local.ModelDir
-		s.gpuConfig = newCfg.Metrics.GPU
-		if newCfg.WorkspacesDir != "" {
-			s.workspacesDir = newCfg.WorkspacesDir
-		}
-		s.configMu.Unlock()
-		s.refreshMetricsService()
-	})
+	logging.Debug("State initialized",
+		"root", rootDir,
+		"workspaces", s.resolver.WorkspacesRoot(),
+		"model_dir", s.modelDir)
 
 	s.refreshMetricsService()
 	return s
 }
 
-func (a *AppContext) DefaultModel() (string, error) {
-	if a.config.Server.DefaultModel != "" {
-		return a.config.Server.DefaultModel, nil
+func (a *AppContext) SelectModels() (string, string) {
+	reg := a.dataMgr.Registry().Get()
+	p := reg.PrimaryModel
+	f := reg.FallbackModel
+
+	// If no primary is set, auto-select first available model from registry
+	if p == "" {
+		if len(reg.Catalogue) > 0 {
+			p = reg.Catalogue[0].Name
+		}
 	}
-	models := a.Runtime().ListModels()
-	if len(models) == 0 {
-		return "", errors.New("no models configured")
-	}
-	return models[0].Name, nil
-}
 
-func (a *AppContext) ConfiguredDefaultModel() string {
-	return a.config.Server.DefaultModel
-}
-
-func (a *AppContext) PrimaryModel() string {
-	return a.config.Server.PrimaryModel
-}
-
-func (a *AppContext) FallbackModel() string {
-	return a.config.Server.FallbackModel
+	return p, f
 }
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
@@ -102,6 +87,10 @@ func (s *AppContext) Manager() llm.RuntimeManager {
 	return s.manager
 }
 
+func (s *AppContext) Secrets() models.SecretsStore {
+	return s.dataMgr.Secrets()
+}
+
 func (s *AppContext) ModelDir() string {
 	return s.modelDir
 }
@@ -111,7 +100,7 @@ func (s *AppContext) RootDir() string {
 }
 
 func (s *AppContext) WorkspacesDir() string {
-	return s.workspacesDir
+	return s.resolver.WorkspacesRoot()
 }
 
 func (s *AppContext) SetModelDir(dir string) {
@@ -119,7 +108,25 @@ func (s *AppContext) SetModelDir(dir string) {
 }
 
 func (s *AppContext) SetWorkspacesDir(dir string) {
-	s.workspacesDir = dir
+	s.resolver = storage.NewPathResolver(dir)
+}
+
+// Tier 1: System
+func (s *AppContext) GetSystem() models.SystemConfig {
+	return s.dataMgr.System().Get()
+}
+
+func (s *AppContext) UpdateSystem(fn func(*models.SystemConfig)) error {
+	return s.dataMgr.System().Update(fn)
+}
+
+// Tier 2: Registry
+func (s *AppContext) GetRegistry() models.RegistryData {
+	return s.dataMgr.Registry().Get()
+}
+
+func (s *AppContext) UpdateRegistry(fn func(*models.RegistryData)) error {
+	return s.dataMgr.Registry().Update(fn)
 }
 
 func (s *AppContext) GPUConfig() models.GPUConfig {
@@ -128,100 +135,307 @@ func (s *AppContext) GPUConfig() models.GPUConfig {
 
 func (s *AppContext) SetGPUConfig(cfg models.GPUConfig) {
 	s.gpuConfig = cfg
+	s.refreshMetricsService()
 }
 
 func (s *AppContext) CurrentBinary() string {
-	if s.config.Server.LlamaServerBinary != "" {
-		return s.config.Server.LlamaServerBinary
+	sys := s.dataMgr.System().Get()
+	if sys.Local.LlamaServerBinary != "" {
+		return sys.Local.LlamaServerBinary
 	}
 	return "llama-server"
 }
 
 func (s *AppContext) CurrentIdleTimeout() int {
-	return s.config.Server.IdleTimeoutSecs
+	sys := s.dataMgr.System().Get()
+	return sys.Server.IdleTimeoutSecs
 }
 
 func (s *AppContext) DefaultArgs() []string {
-	if len(s.config.Server.DefaultArgs) == 0 {
+	sys := s.dataMgr.System().Get()
+	if len(sys.Local.DefaultArgs) == 0 {
 		return nil
 	}
-	return append([]string{}, s.config.Server.DefaultArgs...)
+	return append([]string{}, sys.Local.DefaultArgs...)
 }
 
 func (s *AppContext) Environment() map[string]string {
-	if s.config.Server.Environment == nil {
-		return map[string]string{}
-	}
-	return s.config.Server.Environment
+	return map[string]string{}
 }
 
 func (s *AppContext) Models() []models.ModelConfig {
-	// return a copy
-	out := make([]models.ModelConfig, len(s.config.Models))
-	copy(out, s.config.Models)
+	reg := s.dataMgr.Registry().Get()
+	out := make([]models.ModelConfig, len(reg.Catalogue))
+	for i, m := range reg.Catalogue {
+		out[i] = models.ModelConfig{
+			Name:     m.Name,
+			Provider: m.ProviderID,
+			Filename: m.ModelID,
+			ProviderConfig: models.ProviderConfig{
+				APIKeyName: m.CredentialID,
+			},
+		}
+	}
 	return out
 }
 
 func (s *AppContext) Providers() map[string]models.ProviderItem {
-	if s.config.Providers == nil {
-		return map[string]models.ProviderItem{}
+	reg := s.dataMgr.Registry().Get()
+	sys := s.dataMgr.System().Get()
+	out := make(map[string]models.ProviderItem)
+
+	// 1. Populate from Registry
+	for k, v := range reg.Providers {
+		out[k] = models.ProviderItem{
+			Type:    v.Type,
+			BaseURL: v.BaseURL,
+		}
 	}
-	out := make(map[string]models.ProviderItem, len(s.config.Providers))
-	for k, v := range s.config.Providers {
-		out[k] = v
+
+	// 2. Ensure 'local' is present and enriched from system config
+	local := out["local"]
+	if local.Type == "" {
+		local.Type = "local"
 	}
+	local.LlamaServerBinary = sys.Local.LlamaServerBinary
+	local.ModelDir = sys.Local.ModelDir
+	local.DefaultArgs = sys.Local.DefaultArgs
+	out["local"] = local
+
 	return out
 }
 
 func (s *AppContext) SetEnvironment(env map[string]string) error {
-	return s.UpdateConfig(func(cfg *models.Config) {
-		cfg.Server.Environment = env
-	})
+	return nil
 }
 
-func (s *AppContext) UpdateConfig(update func(cfg *models.Config)) error {
-	if s.configMgr == nil {
-		return nil
+func (s *AppContext) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
+	var errs []error
+	if err := tools.SaveManifest(s.rootDir, models.CategoryTerminal, cfg.Terminal); err != nil {
+		errs = append(errs, fmt.Errorf("terminal: %w", err))
 	}
-	return s.configMgr.Update(update)
+	if err := tools.SaveManifest(s.rootDir, models.CategoryFileSystem, cfg.FileSystem); err != nil {
+		errs = append(errs, fmt.Errorf("filesystem: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, models.CategorySearch, cfg.Search); err != nil {
+		errs = append(errs, fmt.Errorf("search: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, models.CategoryCommunication, cfg.Communication); err != nil {
+		errs = append(errs, fmt.Errorf("communication: %w", err))
+	}
+	if err := tools.SaveManifest(s.rootDir, models.CategoryGlobal, cfg.Global); err != nil {
+		errs = append(errs, fmt.Errorf("security: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("sync failed: %v", errs)
+	}
+	return nil
+}
+
+func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdatePayload) error {
+	// 1. Update Infrastructure (SystemConfig)
+	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) {
+		if req.Bind != "" {
+			sys.Server.Bind = req.Bind
+		}
+		if req.WorkspacesDir != "" {
+			sys.WorkspacesDir = req.WorkspacesDir
+			s.SetWorkspacesDir(req.WorkspacesDir)
+		}
+		if req.ModelHost != "" {
+			sys.Server.ModelHost = req.ModelHost
+		}
+		if req.IdleTimeoutSecs > 0 {
+			sys.Server.IdleTimeoutSecs = req.IdleTimeoutSecs
+		}
+		if req.Environment != nil {
+			sys.Server.Environment = req.Environment
+		}
+		if req.DefaultArgs != nil {
+			sys.Local.DefaultArgs = req.DefaultArgs
+		}
+
+		// Sync 'local' infrastructure fields
+		if local, ok := req.Providers["local"]; ok {
+			if local.LlamaServerBinary != "" {
+				sys.Local.LlamaServerBinary = local.LlamaServerBinary
+			}
+			if local.ModelDir != "" {
+				sys.Local.ModelDir = local.ModelDir
+				s.modelDir = local.ModelDir
+			}
+			if local.DefaultArgs != nil {
+				sys.Local.DefaultArgs = local.DefaultArgs
+			}
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to save system config: %w", err)
+	}
+
+	// 2. Update Registry Providers
+	if req.Providers != nil {
+		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
+			if reg.Providers == nil {
+				reg.Providers = make(map[string]models.ProviderRegistryEntry)
+			}
+			for id, p := range req.Providers {
+				if id == "local" {
+					continue // Infrastructure-only
+				}
+				entry := reg.Providers[id]
+				entry.Type = p.Type
+				entry.BaseURL = p.BaseURL
+				reg.Providers[id] = entry
+			}
+			if req.FallbackModel != "" {
+				reg.FallbackModel = req.FallbackModel
+			}
+			if req.Communication != nil {
+				reg.Communication = *req.Communication
+			}
+			if req.Search != nil {
+				reg.Search = *req.Search
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("failed to save registry: %w", err)
+		}
+	} else if req.PrimaryModel != "" || req.FallbackModel != "" || req.Communication != nil || req.Search != nil {
+		// Just update registry items if providers weren't involved
+		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
+			if req.PrimaryModel != "" {
+				reg.PrimaryModel = req.PrimaryModel
+			}
+			if req.FallbackModel != "" {
+				reg.FallbackModel = req.FallbackModel
+			}
+			if req.Communication != nil {
+				reg.Communication = *req.Communication
+			}
+			if req.Search != nil {
+				reg.Search = *req.Search
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("failed to save registry: %w", err)
+		}
+	}
+
+	// 3. Update GPU Configuration
+	gpuCfg := s.GPUConfig()
+	gpuUpdated := false
+	if req.GPUProvider != "" {
+		gpuCfg.Provider = req.GPUProvider
+		gpuUpdated = true
+	}
+	if req.GPUBinary != "" {
+		gpuCfg.Binary = req.GPUBinary
+		gpuUpdated = true
+	}
+	if req.GPUIndex != nil {
+		gpuCfg.Index = *req.GPUIndex
+		gpuUpdated = true
+	}
+	if gpuUpdated {
+		s.SetGPUConfig(gpuCfg)
+	}
+
+	// 4. Update Runtime (ModelHost)
+	if req.ModelHost != "" {
+		s.manager.SetModelHost(req.ModelHost)
+	}
+
+	// 5. Update Environment Variables (.env)
+	envUpdates := map[string]string{}
+	if req.ServiceClientID != "" {
+		os.Setenv("SERVICE_CLIENT_ID", req.ServiceClientID)
+		envUpdates["SERVICE_CLIENT_ID"] = req.ServiceClientID
+	}
+	if req.ServiceClientSecret != "" {
+		os.Setenv("SERVICE_CLIENT_SECRET", req.ServiceClientSecret)
+		envUpdates["SERVICE_CLIENT_SECRET"] = req.ServiceClientSecret
+	}
+	if len(envUpdates) > 0 {
+		envPath, _ := env.EnvFilePaths()
+		_ = env.UpdateEnvFile(envPath, envUpdates)
+	}
+
+	// 6. Push env to active models
+	if req.Environment != nil {
+		for _, m := range s.manager.ListModels() {
+			m.Environment = req.Environment
+			_ = s.manager.UpdateModel(m)
+		}
+	}
+
+	// 7. Sync Guardrails
+	if req.Guardrails != nil {
+		if err := s.SyncGuardrails(*req.Guardrails); err != nil {
+			return fmt.Errorf("failed to sync guardrails: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *AppContext) ServiceCredentials() (id, secret string) {
+	return os.Getenv("SERVICE_CLIENT_ID"), os.Getenv("SERVICE_CLIENT_SECRET")
 }
 
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
-	return s.UpdateConfig(func(c *models.Config) {
-		for _, existing := range c.Models {
+	logging.Info("Persisting new model to registry", "name", cfg.Name)
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+		for _, existing := range c.Catalogue {
 			if existing.Name == cfg.Name {
 				return
 			}
 		}
-		c.Models = append(c.Models, cfg)
+		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
+			ID:           cfg.Name,
+			Name:         cfg.Name,
+			ProviderID:   cfg.Provider,
+			ModelID:      cfg.Filename,
+			CredentialID: cfg.ProviderConfig.APIKeyName,
+		})
 	})
 }
 
 func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
-	return s.UpdateConfig(func(c *models.Config) {
+	logging.Info("Replacing model in registry", "name", cfg.Name)
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
 		replaced := false
-		for i, m := range c.Models {
+		newEntry := models.ModelRegistryEntry{
+			ID:           cfg.Name,
+			Name:         cfg.Name,
+			ProviderID:   cfg.Provider,
+			ModelID:      cfg.Filename,
+			CredentialID: cfg.ProviderConfig.APIKeyName,
+		}
+		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {
-				c.Models[i] = cfg
+				c.Catalogue[i] = newEntry
 				replaced = true
 				break
 			}
 		}
 		if !replaced {
-			c.Models = append(c.Models, cfg)
+			c.Catalogue = append(c.Catalogue, newEntry)
 		}
 	})
 }
 
 func (s *AppContext) PersistDeleteModel(name string) error {
-	return s.UpdateConfig(func(c *models.Config) {
-		out := c.Models[:0]
-		for _, m := range c.Models {
+	logging.Info("Deleting model from registry", "name", name)
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+		out := c.Catalogue[:0]
+		for _, m := range c.Catalogue {
 			if m.Name != name {
 				out = append(out, m)
 			}
 		}
-		c.Models = out
+		c.Catalogue = out
 	})
 }
 
@@ -256,27 +470,44 @@ func (s *AppContext) MetricsSnapshot() metrics.MetricsSnapshot {
 }
 
 func (s *AppContext) ListMCPServers() []models.MCPServerConfig {
-	// Return copy
-	return append([]models.MCPServerConfig{}, s.config.MCPServers...)
+	reg := s.dataMgr.Registry().Get()
+	out := make([]models.MCPServerConfig, len(reg.MCPServers))
+	for i, s := range reg.MCPServers {
+		out[i] = models.MCPServerConfig{
+			Name:    s.Name,
+			URL:     s.URL,
+			Enabled: s.Enabled,
+		}
+	}
+	return out
 }
 
 func (s *AppContext) AddMCPServer(cfg models.MCPServerConfig) error {
-	return s.UpdateConfig(func(c *models.Config) {
+	logging.Info("Adding new MCP server to registry", "name", cfg.Name)
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
 		for _, existing := range c.MCPServers {
 			if existing.Name == cfg.Name {
-				// Already exists
 				return
 			}
 		}
-		c.MCPServers = append(c.MCPServers, cfg)
+		c.MCPServers = append(c.MCPServers, models.MCPServerRegistryEntry{
+			Name:    cfg.Name,
+			URL:     cfg.URL,
+			Enabled: cfg.Enabled,
+		})
 	})
 }
 
 func (s *AppContext) UpdateMCPServer(cfg models.MCPServerConfig) error {
-	return s.UpdateConfig(func(c *models.Config) {
+	logging.Info("Updating MCP server in registry", "name", cfg.Name)
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
 		for i, m := range c.MCPServers {
 			if m.Name == cfg.Name {
-				c.MCPServers[i] = cfg
+				c.MCPServers[i] = models.MCPServerRegistryEntry{
+					Name:    cfg.Name,
+					URL:     cfg.URL,
+					Enabled: cfg.Enabled,
+				}
 				return
 			}
 		}
@@ -284,7 +515,8 @@ func (s *AppContext) UpdateMCPServer(cfg models.MCPServerConfig) error {
 }
 
 func (s *AppContext) RemoveMCPServer(name string) error {
-	return s.UpdateConfig(func(c *models.Config) {
+	logging.Info("Removing MCP server from registry", "name", name)
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
 		out := c.MCPServers[:0]
 		for _, m := range c.MCPServers {
 			if m.Name != name {
@@ -293,4 +525,28 @@ func (s *AppContext) RemoveMCPServer(name string) error {
 		}
 		c.MCPServers = out
 	})
+}
+
+func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
+	if workspaceID == "" {
+		return logging.GetGlobalLogger()
+	}
+
+	logFile := s.resolver.ProcessLog(workspaceID)
+	l, err := logging.NewFileLogger(logging.Options{
+		File:   logFile,
+		Stdout: true,
+		Level:  logging.LevelInfo,
+	})
+	if err != nil {
+		return logging.GetGlobalLogger()
+	}
+	return l
+}
+func (s *AppContext) ListTemplates() ([]models.TemplateMetadata, error) {
+	return s.dataMgr.Templates().List()
+}
+
+func (s *AppContext) GetTemplate(id string) (models.Template, error) {
+	return s.dataMgr.Templates().Get(id)
 }

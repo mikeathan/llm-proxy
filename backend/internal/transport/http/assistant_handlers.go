@@ -2,20 +2,20 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
-	"llm-proxy/internal/core/assistant" // Kept for DefaultSummaryMaxLen if needed, or remove?
-	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/models"
 )
 
 type AssistantMessage struct {
+	WorkspaceID    string `json:"workspace_id"`
 	ConversationID string `json:"conversation_id"`
 	ContextVersion string `json:"context_version,omitempty"`
 	Message        string `json:"message"`
@@ -23,20 +23,26 @@ type AssistantMessage struct {
 }
 
 type AssistantMessageHandler struct {
-	provider nodeherder.MCPService
-	client   proxy.LLMClientProvider
-	limiter  ratelimiter.Limiter
-	logger   logging.Logger
-	engine   assistant.Engine
+	provider    assistant.ToolProvider
+	client      proxy.LLMClientProvider
+	limiter     ratelimiter.Limiter
+	logger      logging.Logger
+	engine      assistant.Engine
+	guardrails  *assistant.GuardrailEngine
+	persistence *persistence.WorkspaceManager
+	svc         AssistantService
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
 	return &AssistantMessageHandler{
-		provider: service.NodeHerder(),
-		client:   service.ClientProvider(),
-		limiter:  service.Limiter(),
-		logger:   service.Logger(),
-		engine:   service.Engine(),
+		provider:    service.ToolProvider(),
+		client:      service.ClientProvider(),
+		limiter:     service.Limiter(),
+		logger:      service.Logger(),
+		engine:      service.Engine(),
+		guardrails:  service.GuardrailEngine(),
+		persistence: service.Persistence(),
+		svc:         service,
 	}
 }
 
@@ -86,138 +92,80 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 	return &payload, log, true
 }
 
-// handleAssistant executes a single agent cycle.
+// handleAssistant executes a stateful agent cycle.
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
+	if payload.WorkspaceID == "" {
+		payload.WorkspaceID = "default"
+	}
 
 	client, err := h.getLLMClient(ctx, log)
 	if err != nil {
 		return nil, err
 	}
 
-	history, histErr := h.buildInitialHistory(payload)
-	if histErr != nil {
-		return nil, &handlerError{Status: http.StatusInternalServerError, Message: "failed to build history"}
+	// 1. Load or Create Session
+	session, sErr := h.persistence.ReadSession(payload.WorkspaceID, payload.ConversationID)
+	if sErr != nil {
+		log.Error("failed to load session", "error", sErr)
+		return nil, &handlerError{Status: http.StatusInternalServerError, Message: "persistence error"}
 	}
 
-	return h.runAgentLoop(ctx, client, history, log)
-}
-
-// runAgentLoop drives the agent execution model→tool→model iteration.
-func (h *AssistantMessageHandler) runAgentLoop(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger) (any, *handlerError) {
-	const maxSteps = 10
-	const maxModelRetries = 3
-
-	for step := 0; step < maxSteps; step++ {
-		var msg proxy.Message
-		var err *handlerError
-
-		for attempt := 0; attempt < maxModelRetries; attempt++ {
-			msg, err = h.callModel(ctx, client, history, log)
-			if err == nil {
-				break
-			}
-			log.Warn("llm retry", "attempt", attempt+1, "error", err.Message)
+	if session == nil {
+		if payload.ConversationID == "" {
+			payload.ConversationID = "conv_" + time.Now().Format("20060102150405")
 		}
-		if err != nil {
-			return nil, err
-		}
-
-		// Append Assistant's response to history immediately
-		history = append(history, msg)
-
-		if len(msg.ToolCalls) == 0 {
-			return map[string]any{"reply": msg.Content}, nil
-		}
-
-		if err := h.processToolCall(ctx, msg, &history, log); err != nil {
-			log.Error("tool execution failed", "error", err.Message)
-			return nil, err
+		session = &models.AssistantSession{
+			ID:             payload.ConversationID,
+			WorkspaceID:    payload.WorkspaceID,
+			ContextVersion: payload.ContextVersion,
+			Timezone:       payload.Timezone,
+			History:        []proxy.Message{},
 		}
 	}
 
-	return nil, &handlerError{Status: 500, Message: "agent exceeded step limit"}
-}
-
-func (h *AssistantMessageHandler) callModel(ctx context.Context, client proxy.Client, history []proxy.Message, log logging.Logger) (proxy.Message, *handlerError) {
-	// Dynamic Tool Discovery
-	availableTools, toolErr := h.provider.ListTools(ctx)
-	if toolErr != nil {
-		log.Error("failed to list tools", "error", toolErr)
-		return proxy.Message{}, &handlerError{Status: http.StatusInternalServerError, Message: "failed to discover tools"}
-	}
-
-	req := proxy.ChatRequest{
-		Messages:   history,
-		Tools:      availableTools,
-		ToolChoice: proxy.ToolChoiceAuto,
-	}
-
-	resp, err := client.Chat(ctx, req)
-	if err != nil {
-		log.Error("LLM chat failed", "error", err)
-		return proxy.Message{}, &handlerError{Status: http.StatusBadGateway, Message: "LLM request failed"}
-	}
-
-	if len(resp.Choices) == 0 {
-		return proxy.Message{}, &handlerError{Status: http.StatusBadGateway, Message: "empty response from model"}
-	}
-
-	msg := resp.Choices[0].Message
-	log.Debug("llm step", "tool_calls", len(msg.ToolCalls), "content_len", len(msg.Content))
-
-	// Some local models (e.g. qwen2.5-coder) embed tool calls as XML markup in
-	// Content instead of using the standard tool_calls JSON field.
-	// Detect and normalise this so the agent loop behaves identically.
-	if len(msg.ToolCalls) == 0 && msg.Content != "" {
-		if parsed, ok := proxy.ParseContentToolCalls(msg.Content); ok {
-			log.Debug("detected content-embedded tool calls, normalising", "count", len(parsed))
-			msg.ToolCalls = parsed
-			msg.Content = ""
+	// 2. Build or Update History
+	if len(session.History) == 0 {
+		initial, bErr := h.buildInitialHistory(payload)
+		if bErr != nil {
+			return nil, &handlerError{Status: http.StatusInternalServerError, Message: "failed to build history"}
 		}
+		session.History = initial
+	} else {
+		// Just append user message to existing history
+		session.History = append(session.History, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: payload.Message,
+		})
 	}
 
-	return msg, nil
-}
+	// 3. Initialize and Execute Agent
+	procLog := h.svc.ProcessLogger(payload.WorkspaceID)
+	procLog.Info("Assistant request started", "conversation", payload.ConversationID, "message", payload.Message)
 
-func (h *AssistantMessageHandler) processToolCall(
-	ctx context.Context,
-	msg proxy.Message,
-	history *[]proxy.Message,
-	log logging.Logger,
-) *handlerError {
-
-	for _, tc := range msg.ToolCalls {
-		log.Debug("llm tool call", "name", tc.Function.Name, "args", truncate(tc.Function.Arguments, 500))
-
-		result, err := h.engine.ExecuteTool(ctx, tc)
-		if err != nil {
-			// In standard MCP/LLM flows, a tool failure should ideally be fed back to the LLM
-			// so it can retry or apologize. For now, we log and return error to break loop,
-			// or we could append the error as tool result?
-			// Let's append error as result to allow LLM to recover.
-			log.Warn("tool execution error (feeding back to llm)", "name", tc.Function.Name, "error", err)
-			h.appendToolResult(history, tc, map[string]string{"error": err.Error()})
-			continue
-		}
-
-		h.appendToolResult(history, tc, result)
-	}
-	return nil
-}
-
-func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, toolCall proxy.ToolCall, result any) {
-	// Serialize result to JSON
-	jsonResult, err := json.Marshal(result)
-	if err != nil {
-		h.logger.Error("failed to marshal tool result", "error", err)
-		jsonResult = []byte(`{"error": "failed to serialize tool result"}`)
-	}
-
-	*history = append(*history, proxy.Message{
-		Role:       proxy.ToolRole,
-		Content:    string(jsonResult),
-		ToolCallID: toolCall.ID,
+	agent := assistant.NewAgent(client, h.provider, h.engine, assistant.AgentOptions{
+		Logger:     procLog,
+		MaxSteps:   10,
+		Guardrails: h.guardrails,
 	})
+
+	reply, updatedHistory, agErr := agent.Execute(ctx, session.History)
+	if agErr != nil {
+		log.Error("agent execution failed", "error", agErr)
+		return nil, &handlerError{Status: http.StatusInternalServerError, Message: agErr.Error()}
+	}
+
+	// 4. Persistence: Save Updated History
+	session.History = updatedHistory
+	if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
+		log.Error("failed to save session", "error", pErr)
+		// We continue anyway so the user gets the reply, but it's a warnable offense
+	}
+
+	return map[string]any{
+		"reply":           reply,
+		"conversation_id": session.ID,
+		"workspace_id":    session.WorkspaceID,
+	}, nil
 }
 
 // Logic fix for appendToolResult structure:
@@ -226,7 +174,7 @@ func (h *AssistantMessageHandler) appendToolResult(history *[]proxy.Message, too
 func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.Logger) (proxy.Client, *handlerError) {
 	client, err := h.client.GetClient(ctx)
 	if err != nil {
-		if errors.Is(err, llm.ErrModelStarting) {
+		if errors.Is(err, models.ErrModelStarting) {
 			return nil, &handlerError{
 				Status:  http.StatusServiceUnavailable,
 				Message: "model is starting, try again shortly",
@@ -248,11 +196,23 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 		return nil, err
 	}
 
+	// Calculate robust relative path from Current Working Directory to Workspaces Dir
+	relWs := h.persistence.GetRelativeWorkspacePath()
+	jailPrompt := assistant.BuildJailPrompt(relWs, payload.WorkspaceID)
+
+	agentPrompt := ""
+	if payload.WorkspaceID != "" && h.persistence != nil {
+		agentPromptStr, err := h.persistence.ReadTaskFile(payload.WorkspaceID, "agent.md")
+		if err == nil && agentPromptStr != "" {
+			agentPrompt = "\n\n# Workspace Agent Directives\n" + agentPromptStr
+		}
+	}
+
 	return []proxy.Message{
 		{
 			Role: proxy.SystemRole,
 			Content: assistant.BuildSystemMessage(
-				systemPrompt,
+				systemPrompt+jailPrompt+agentPrompt,
 				payload.ConversationID,
 				payload.ContextVersion,
 				payload.Timezone,
@@ -263,4 +223,65 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 			Content: payload.Message,
 		},
 	}, nil
+}
+
+// Session Management Handlers
+
+func (h *AssistantMessageHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+		return
+	}
+
+	sessions, err := h.persistence.ListSessions(workspaceID)
+	if err != nil {
+		h.logger.Error("failed to list sessions", "workspace", workspaceID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list sessions")
+		return
+	}
+
+	respondJSON(w, sessions)
+}
+
+func (h *AssistantMessageHandler) GetSession(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	sessionID := r.PathValue("session")
+
+	if workspaceID == "" || sessionID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace and session are required")
+		return
+	}
+
+	session, err := h.persistence.ReadSession(workspaceID, sessionID)
+	if err != nil {
+		h.logger.Error("failed to read session", "workspace", workspaceID, "session", sessionID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to read session")
+		return
+	}
+
+	if session == nil {
+		writeJSONError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	respondJSON(w, session)
+}
+
+func (h *AssistantMessageHandler) DeleteSession(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	sessionID := r.PathValue("session")
+
+	if workspaceID == "" || sessionID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace and session are required")
+		return
+	}
+
+	if err := h.persistence.DeleteSession(workspaceID, sessionID); err != nil {
+		h.logger.Error("failed to delete session", "workspace", workspaceID, "session", sessionID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete session")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

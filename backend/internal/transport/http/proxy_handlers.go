@@ -6,7 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"llm-proxy/internal/core/llm"
+	"llm-proxy/models"
 )
 
 type ProxyHandlers struct {
@@ -32,12 +32,16 @@ func SetReverseProxyFactory(f func(string) http.Handler) func() {
 func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.Request) {
 	model := r.Header.Get("X-Model-Name")
 	if model == "" {
-		http.Error(w, "missing X-Model-Name", http.StatusBadRequest)
-		return
+		primary, _ := h.runtime.SelectModels()
+		if primary == "" {
+			http.Error(w, "missing model name and no default configured", http.StatusBadRequest)
+			return
+		}
+		model = primary
 	}
 
 	mi, err := h.runtime.EnsureModel(r.Context(), model)
-	if err == llm.ErrModelStarting {
+	if err == models.ErrModelStarting {
 		w.Header().Set("Retry-After", "1")
 		w.Header().Set("X-LLM-Status", "starting")
 		w.WriteHeader(http.StatusAccepted)
