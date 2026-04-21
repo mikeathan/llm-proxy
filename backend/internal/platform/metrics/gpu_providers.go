@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +34,11 @@ func buildGPUProvider(cfg *models.Config) (GPUProvider, string, string) {
 		return nil, "disabled", ""
 	}
 
-	if provider == "" || provider == "auto" {
+	if provider == "" {
+		return nil, "none", "not setup"
+	}
+
+	if provider == "auto" {
 		if p, name := tryNvidia(binary, index); p != nil {
 			return p, name, ""
 		}
@@ -45,7 +51,10 @@ func buildGPUProvider(cfg *models.Config) (GPUProvider, string, string) {
 		if p, name := trySysfs(sysfsPath, index); p != nil {
 			return p, name, ""
 		}
-		return nil, "auto", "no GPU metrics source found (tried nvidia-smi, rocm-smi, amd-smi, amdgpu_top, sysfs)"
+		if p, name := tryMacos(); p != nil {
+			return p, name, ""
+		}
+		return nil, "auto", "no GPU metrics source found"
 	}
 
 	switch provider {
@@ -89,6 +98,8 @@ func buildGPUProvider(cfg *models.Config) (GPUProvider, string, string) {
 			return nil, path, fmt.Sprintf("sysfs path %s not readable", path)
 		}
 		return newSysfsProvider(path), "sysfs", ""
+	case "macos", "metal", "apple":
+		return newMacosProvider(nil), "macos", ""
 	default:
 		if binary == "" {
 			binary = provider
@@ -144,6 +155,13 @@ func trySysfs(path string, index int) (GPUProvider, string) {
 	}
 	if sysfsAvailable(path) {
 		return newSysfsProvider(path), "sysfs"
+	}
+	return nil, ""
+}
+
+func tryMacos() (GPUProvider, string) {
+	if runtime.GOOS == "darwin" {
+		return newMacosProvider(nil), "macos"
 	}
 	return nil, ""
 }
@@ -258,6 +276,12 @@ func (p *rocmSMIProvider) Sample() (*GPUMetrics, error) {
 }
 
 func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
+	cleaned, err := sanitizeJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("rocm-smi output not JSON: %w", err)
+	}
+	raw = cleaned
+
 	var payload map[string]map[string]interface{}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("parse rocm-smi output: %w", err)
@@ -267,6 +291,11 @@ func parseRocmSMIOutput(raw []byte) (*GPUMetrics, error) {
 	}
 
 	for key, data := range payload {
+		lk := strings.ToLower(key)
+		if lk == "system" || lk == "timestamp" {
+			continue
+		}
+
 		util := extractPercent(data, "gpu use")
 		if util == 0 {
 			util = extractPercent(data, "gpu activity")
@@ -571,6 +600,12 @@ func (p *amdGpuTopProvider) Sample() (*GPUMetrics, error) {
 }
 
 func parseAmdGpuTopJSON(raw []byte) (*GPUMetrics, error) {
+	cleaned, err := sanitizeJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("amdgpu_top output not JSON: %w", err)
+	}
+	raw = cleaned
+
 	// amdgpu_top JSON can be an object with a "devices" array or a flat object.
 	var any interface{}
 	if err := json.Unmarshal(raw, &any); err != nil {
@@ -730,4 +765,67 @@ func findNestedTemperature(data map[string]interface{}) float64 {
 		}
 	}
 	return 0
+}
+
+func sanitizeJSON(raw []byte) ([]byte, error) {
+	raw = bytes.TrimSpace(raw)
+	start := bytes.IndexAny(raw, "{[")
+	if start == -1 {
+		return nil, errors.New("no JSON object or array found")
+	}
+	end := bytes.LastIndexAny(raw, "}]")
+	if end == -1 || end <= start {
+		return nil, errors.New("incomplete JSON structure")
+	}
+	return raw[start : end+1], nil
+}
+
+type macosProvider struct {
+	run commandRunner
+}
+
+func newMacosProvider(runner commandRunner) *macosProvider {
+	if runner == nil {
+		runner = defaultCommandRunner
+	}
+	return &macosProvider{run: runner}
+}
+
+func (p *macosProvider) Name() string {
+	return "macos"
+}
+
+func (p *macosProvider) Sample() (*GPUMetrics, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// ioreg -c IOAccelerator -r -l provides PerformanceStatistics on macOS
+	out, err := p.run(ctx, "ioreg", "-c", "IOAccelerator", "-r", "-l")
+	if err != nil {
+		return nil, fmt.Errorf("ioreg: %w", err)
+	}
+
+	res := &GPUMetrics{Vendor: "apple", Name: "Apple GPU"}
+	s := string(out)
+
+	// Regex for core utilization
+	if m := regexp.MustCompile(`"Device Utilization %"=(\d+)`).FindStringSubmatch(s); len(m) > 1 {
+		res.UtilizationPct, _ = strconv.ParseFloat(m[1], 64)
+	} else if m := regexp.MustCompile(`"GPU Activity"=(\d+)`).FindStringSubmatch(s); len(m) > 1 {
+		res.UtilizationPct, _ = strconv.ParseFloat(m[1], 64)
+	}
+
+	// Regex for memory metrics
+	if m := regexp.MustCompile(`"In use system memory"=(\d+)`).FindStringSubmatch(s); len(m) > 1 {
+		res.MemoryUsedMB = bytesToMB(parseNumber(m[1]))
+	}
+	if m := regexp.MustCompile(`"Alloc system memory"=(\d+)`).FindStringSubmatch(s); len(m) > 1 {
+		res.MemoryTotalMB = bytesToMB(parseNumber(m[1]))
+	}
+
+	if res.MemoryTotalMB > 0 {
+		res.MemoryUtilizationPct = (res.MemoryUsedMB / res.MemoryTotalMB) * 100
+	}
+
+	return res, nil
 }

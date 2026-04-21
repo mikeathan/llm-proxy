@@ -22,5 +22,10 @@
       "0.0.0.0"
     ]
   },
-  "workspaces_dir": "workspaces"
+  "workspaces_dir": "workspaces",
+  "metrics": {
+    "gpu": {
+      "provider": "auto"
+    }
+  }
 }

@@ -72,6 +72,7 @@ export interface GlobalConfig {
   gpu_provider?: string
   gpu_binary?: string
   gpu_index?: number
+  gpu_sysfs_path?: string
   primary_model?: string
   fallback_model?: string
   default_args?: string[]
