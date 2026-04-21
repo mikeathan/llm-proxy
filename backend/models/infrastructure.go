@@ -24,6 +24,7 @@ type SystemConfig struct {
 	} `json:"local"`
 
 	WorkspacesDir string `json:"workspaces_dir"`
+	Metrics       MetricsConfig `json:"metrics,omitempty"`
 }
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
@@ -34,6 +35,7 @@ type SystemUpdatePayload struct {
 	GPUProvider         string                         `json:"gpu_provider,omitempty"`
 	GPUBinary           string                         `json:"gpu_binary,omitempty"`
 	GPUIndex            *int                           `json:"gpu_index,omitempty"`
+	GPUSysfsPath        string                         `json:"gpu_sysfs_path,omitempty"`
 	ServiceClientID     string                         `json:"service_client_id,omitempty"`
 	ServiceClientSecret string                         `json:"service_client_secret,omitempty"`
 	Environment         map[string]string              `json:"environment,omitempty"`

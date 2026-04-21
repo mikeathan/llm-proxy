@@ -131,6 +131,27 @@ func TestParseRocmSMIOutput(t *testing.T) {
 	}
 }
 
+func TestParseRocmSMIOutput_WithWarnings(t *testing.T) {
+	raw := `Warning: ROCm SMI is not initialized for card 1
+{"card0":{"GPU use (%)":"45%","VRAM Total Used Memory (B)":52428800,"VRAM Total Memory (B)":104857600,"GTT Total Used Memory (B)":104857600,"GTT Total Memory (B)":419430400,"Temperature (C)":55}}`
+
+	snap, err := parseRocmSMIOutput([]byte(raw))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.UtilizationPct != 45 {
+		t.Fatalf("unexpected utilization: %v", snap.UtilizationPct)
+	}
+}
+
+func TestBuildGPUProvider_NoConfig(t *testing.T) {
+	cfg := &models.Config{}
+	provider, name, err := buildGPUProvider(cfg)
+	if provider != nil || name != "none" || err != "not setup" {
+		t.Fatalf("expected not setup, got provider=%v name=%s err=%s", provider, name, err)
+	}
+}
+
 func TestParseRocmSMIOutput_Empty(t *testing.T) {
 	_, err := parseRocmSMIOutput([]byte(`{}`))
 	if err == nil {
