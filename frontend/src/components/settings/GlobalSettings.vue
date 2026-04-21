@@ -178,6 +178,62 @@ function submitConfig() {
       </div>
 
       <div class="form-section">
+        <h3 class="section-title">GPU Status Configuration</h3>
+        <div class="form-helper mb-4">
+          Configure how the system retrieves GPU utilization and memory metrics.
+        </div>
+        
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">GPU Provider</label>
+            <div class="form-helper">Method used to poll metrics</div>
+            <select v-model="editConfig.gpu_provider" class="form-input">
+              <option value="">(None: Not setup)</option>
+              <option value="auto">Auto-detect (Recommended)</option>
+              <option value="nvidia">NVIDIA (nvidia-smi)</option>
+              <option value="rocm">AMD ROCm (rocm-smi)</option>
+              <option value="macos">macOS (Metal/Apple Silicon)</option>
+              <option value="amdgpu_top">AMD (amdgpu_top)</option>
+              <option value="sysfs">Linux (Direct Sysfs)</option>
+            </select>
+          </div>
+
+          <div class="form-group" v-if="editConfig.gpu_provider && editConfig.gpu_provider !== 'macos'">
+            <label class="form-label">GPU Index</label>
+            <div class="form-helper">The device ID (usually 0)</div>
+            <input
+              v-model.number="editConfig.gpu_index"
+              type="number"
+              class="form-input"
+              placeholder="0"
+            />
+          </div>
+        </div>
+
+        <div class="form-group mt-4" v-if="['nvidia', 'rocm', 'amdgpu_top'].includes(editConfig.gpu_provider || '')">
+          <label class="form-label">Custom Tool Binary</label>
+          <div class="form-helper">Override path to tool binary (Optional)</div>
+          <input
+            v-model="editConfig.gpu_binary"
+            type="text"
+            class="form-input"
+            placeholder="e.g. /opt/rocm/bin/rocm-smi"
+          />
+        </div>
+
+        <div class="form-group mt-4" v-if="editConfig.gpu_provider === 'sysfs'">
+          <label class="form-label">Sysfs Device Path</label>
+          <div class="form-helper">Path to the GPU device in /sys (Optional)</div>
+          <input
+            v-model="editConfig.gpu_sysfs_path"
+            type="text"
+            class="form-input"
+            placeholder="/sys/class/drm/card0/device"
+          />
+        </div>
+      </div>
+
+      <div class="form-section">
         <label class="form-label">System Log Level</label>
         <div class="form-helper mb-custom">
           Change the verbosity of proxy logging in the terminal
@@ -204,8 +260,14 @@ function submitConfig() {
 .settings-title {
   @apply text-xl font-bold text-white mb-6 border-b border-gray-700 pb-3;
 }
+.section-title {
+  @apply text-base font-bold text-gray-300 mb-2;
+}
 .settings-form {
   @apply space-y-4;
+}
+.form-grid {
+  @apply grid grid-cols-1 md:grid-cols-2 gap-4;
 }
 .form-group {
   @apply space-y-1.5;

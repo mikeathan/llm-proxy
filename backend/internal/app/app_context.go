@@ -34,11 +34,12 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 	rootDir := dataMgr.RootDir()
 
 	s := &AppContext{
-		manager:  mgr,
-		dataMgr:  dataMgr,
-		modelDir: sys.Local.ModelDir,
-		resolver: storage.NewPathResolver(dataMgr.WorkspacesDir()),
-		rootDir:  rootDir,
+		manager:   mgr,
+		dataMgr:   dataMgr,
+		modelDir:  sys.Local.ModelDir,
+		resolver:  storage.NewPathResolver(dataMgr.WorkspacesDir()),
+		rootDir:   rootDir,
+		gpuConfig: sys.Metrics.GPU,
 	}
 
 	// Link manager to secrets
@@ -269,12 +270,29 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 				sys.Local.DefaultArgs = local.DefaultArgs
 			}
 		}
+		// 2. Sync GPU Configuration (moved into transaction for persistence)
+		if req.GPUProvider != "" {
+			sys.Metrics.GPU.Provider = req.GPUProvider
+		}
+		if req.GPUBinary != "" {
+			sys.Metrics.GPU.Binary = req.GPUBinary
+		}
+		if req.GPUIndex != nil {
+			sys.Metrics.GPU.Index = *req.GPUIndex
+		}
+		if req.GPUSysfsPath != "" {
+			sys.Metrics.GPU.SysfsPath = req.GPUSysfsPath
+		}
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save system config: %w", err)
 	}
 
-	// 2. Update Registry Providers
+	// 2. Refresh in-memory state from the newly saved config
+	newSys := s.dataMgr.System().Get()
+	s.SetGPUConfig(newSys.Metrics.GPU)
+
+	// 3. Update Registry Providers
 	if req.Providers != nil {
 		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
 			if reg.Providers == nil {
@@ -321,25 +339,6 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 		if err != nil {
 			return fmt.Errorf("failed to save registry: %w", err)
 		}
-	}
-
-	// 3. Update GPU Configuration
-	gpuCfg := s.GPUConfig()
-	gpuUpdated := false
-	if req.GPUProvider != "" {
-		gpuCfg.Provider = req.GPUProvider
-		gpuUpdated = true
-	}
-	if req.GPUBinary != "" {
-		gpuCfg.Binary = req.GPUBinary
-		gpuUpdated = true
-	}
-	if req.GPUIndex != nil {
-		gpuCfg.Index = *req.GPUIndex
-		gpuUpdated = true
-	}
-	if gpuUpdated {
-		s.SetGPUConfig(gpuCfg)
 	}
 
 	// 4. Update Runtime (ModelHost)
