@@ -1,5 +1,5 @@
 /** Regex to identify where a "Base Name" ends and "Version/Quant/Size" starts */
-export const MODEL_CLEANUP_REGEX = /[-\._]([qQ][0-9]|[0-9]+[bB]|[vV][0-9]+|[iI][tT]|draft|preview)[a-zA-Z0-9_]*/gi;
+export const MODEL_CLEANUP_REGEX = /[-\._]([qQ][0-9]|i[qQ][0-9]|[0-9]+[bB]|[vV][0-9]+|[iI][tT]|draft|preview|f[0-9]|fp[0-9]|int[0-9]|[0-9])[a-zA-Z0-9_\.]*/gi;
 
 /** Normalizes a filename to its base family name */
 export function getBaseName(filename: string): string {
