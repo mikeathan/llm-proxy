@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, toRefs } from 'vue'
 import type { AvailableModel } from '../../types'
-import { getVariantLabel, extractDynamicTags } from '../../utils/model-discovery'
+import { getVariantLabel, extractDynamicTags, formatFileSize } from '../../utils/model-discovery'
 import { useModelDiscovery } from '../../composables/useModelDiscovery'
 
 const props = defineProps<{
@@ -80,9 +80,10 @@ function isConfigured(filename: string) {
               :class="{ 'configured': isConfigured(model.filename) }"
             >
               <div class="variant-info">
-                <div class="variant-top">
-                  <span class="quant-badge">{{ getVariantLabel(model.filename) }}</span>
-                  <span class="variant-filename text-[9px]">{{ model.filename }}</span>
+                <span class="variant-filename text-[10px]" :title="model.filename">{{ model.filename }}</span>
+                <div class="variant-badges">
+                  <span class="quant-badge" v-if="getVariantLabel(model.filename) !== 'Original'">{{ getVariantLabel(model.filename) }}</span>
+                  <span class="size-badge">{{ formatFileSize(model.size_bytes) }}</span>
                 </div>
               </div>
 
@@ -107,6 +108,10 @@ function isConfigured(filename: string) {
 </template>
 
 <style scoped lang="postcss">
+.size-badge {
+  @apply text-[10px] bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-gray-400 font-mono tracking-tighter;
+}
+
 .header-row {
   @apply mb-4 flex items-center justify-between;
 }
@@ -172,10 +177,10 @@ function isConfigured(filename: string) {
 }
 
 .variant-info {
-  @apply min-w-0 flex-1;
+  @apply min-w-0 flex-1 flex items-center justify-between pr-4 gap-4;
 }
-.variant-top {
-  @apply flex items-center gap-2;
+.variant-badges {
+  @apply flex items-center gap-2 shrink-0;
 }
 .quant-badge {
   @apply text-[9px] font-black bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20 leading-none;

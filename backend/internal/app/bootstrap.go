@@ -284,6 +284,7 @@ func buildRouter(
 	router.Delete("/admin/api/models", admin.AdminDeleteModelHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/system/restart", admin.AdminRestartHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/logs", admin.AdminLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)
