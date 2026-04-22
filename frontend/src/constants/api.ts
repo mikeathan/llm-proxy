@@ -16,6 +16,7 @@ export const API_ENDPOINTS = {
   providerManifests: `${API_BASE}/providers/manifests`,
   testConnection: `${API_BASE}/providers/test`,
   secretsKeys: `${API_BASE}/secrets/keys`,
+  restart: `${API_BASE}/system/restart`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

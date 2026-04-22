@@ -106,6 +106,19 @@ const handleAddMCPServer = (): void => {
   newMcpServer.value = { name: "", url: "" };
 };
 
+async function handleRestartBackend() {
+  try {
+    toast.success("Restart request sent. Reconnecting in 5 seconds...")
+    await AdminApiService.restartSystem()
+    // The backend will exit. We wait a bit then refresh.
+    setTimeout(() => {
+      window.location.reload()
+    }, 5000)
+  } catch (e: any) {
+    toast.error(`Failed to request restart: ${e.message}`)
+  }
+}
+
 onMounted(() => {
   fetchManifests();
   fetchConfig();
@@ -164,6 +177,7 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
             :models="modelsList"
             @updateConfig="handleSaveConfig"
             @updateLogLevel="updateLogLevel"
+            @restartBackend="handleRestartBackend"
           />
         </div>
 

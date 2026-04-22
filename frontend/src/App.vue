@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, provide } from 'vue'
 import AdminHeader from './components/layout/AdminHeader.vue'
 import Dashboard from './components/dashboard/Dashboard.vue'
 import Settings from './components/settings/Settings.vue'
@@ -12,6 +12,10 @@ import Toast from './components/ui/Toast.vue'
 type Tab = 'dashboard' | 'settings' | 'logs' | 'agent-ide'
 
 const activeTab = ref<Tab>('dashboard')
+
+provide('setActiveTab', (tab: Tab) => {
+  activeTab.value = tab
+})
 
 const { state, refresh: refreshModels } = useModels()
 const { refresh: refreshMcp } = useMcpServers()

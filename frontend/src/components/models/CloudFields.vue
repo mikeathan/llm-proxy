@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, inject } from "vue";
 import { useModels } from "../../composables/useModels";
 import { useProviders } from "../../composables/useProviders";
 import type { AdminState } from "../../types";
@@ -15,6 +15,8 @@ const emit = defineEmits<{
   (e: "update:modelId", value: string): void;
   (e: "update:apiKeyName", value: string): void;
 }>();
+
+const setActiveTab = inject<(tab: string) => void>("setActiveTab");
 
 const { cloudProviders } = useProviders();
 const { fetchProviderModels } = useModels();
@@ -119,9 +121,13 @@ watch(isProviderConfigured, (configured) => {
       <span class="config-warning-text">
         <span class="text-base">⚠️</span> Configuration Required
       </span>
-      <router-link to="/settings" class="btn-settings-link"
-        >Settings</router-link
+      <button 
+        type="button"
+        @click="setActiveTab?.('settings')" 
+        class="btn-settings-link"
       >
+        Settings
+      </button>
     </div>
 
     <div v-if="availableKeys.length > 0" class="mb-3">

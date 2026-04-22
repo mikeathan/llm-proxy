@@ -93,4 +93,7 @@ export const AdminApiService = {
 
   deleteProviderKey: (provider: string, keyId: string): Promise<void> =>
     del(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}&key_id=${encodeURIComponent(keyId)}`),
+  
+  restartSystem: (): Promise<void> =>
+    post<void>(API_ENDPOINTS.restart),
 }

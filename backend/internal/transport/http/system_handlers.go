@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"time"
 
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
@@ -75,8 +77,16 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// 3. Sync All Providers into Registry (handled by UpdateSettings, but here we might need to handle the loop separately if registry was complex)
-	// Actually, UpdateSettings handles it now.
-
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// AdminRestartHandler handles POST /admin/api/system/restart
+func (h *AdminHandlers) AdminRestartHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("Restart requested via Admin UI")
+	respondJSON(w, map[string]string{"status": "restarting", "message": "Backend is restarting..."})
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(0)
+	}()
 }

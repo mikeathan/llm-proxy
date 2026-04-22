@@ -1,8 +1,3 @@
-HTTP request
-  → validate
-  → load device context
-  → reduce context
-  → heuristic relevance check
-  → normalize question
-  → assemble LLM prompt
-  → THEN call LLM
+  sandbox enviroment for agents 
+  agent router - that selects the right agent for the job
+  agent memory - long term memory for agents
