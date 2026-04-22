@@ -8,7 +8,8 @@ import (
 
 func TestPathResolver(t *testing.T) {
 	workspacesDir := "/tmp/workspaces"
-	resolver := NewPathResolver(workspacesDir)
+	metadataDir := "/tmp/metadata"
+	resolver := NewPathResolver("/tmp/root", workspacesDir, metadataDir)
 
 	t.Run("WorkspacesRoot", func(t *testing.T) {
 		if got := resolver.WorkspacesRoot(); got != workspacesDir {
@@ -26,7 +27,7 @@ func TestPathResolver(t *testing.T) {
 
 	t.Run("Config", func(t *testing.T) {
 		id := "test-ws"
-		want := filepath.Join(workspacesDir, id, models.InternalDirName, models.ConfigFilename)
+		want := filepath.Join(metadataDir, id, models.ConfigFilename)
 		if got := resolver.Config(id); got != want {
 			t.Errorf("Config() = %v, want %v", got, want)
 		}
@@ -34,7 +35,7 @@ func TestPathResolver(t *testing.T) {
 
 	t.Run("State", func(t *testing.T) {
 		id := "test-ws"
-		want := filepath.Join(workspacesDir, id, models.InternalDirName, models.StateFilename)
+		want := filepath.Join(metadataDir, id, models.StateFilename)
 		if got := resolver.State(id); got != want {
 			t.Errorf("State() = %v, want %v", got, want)
 		}
@@ -42,7 +43,7 @@ func TestPathResolver(t *testing.T) {
 
 	t.Run("InternalDir", func(t *testing.T) {
 		id := "test-ws"
-		want := filepath.Join(workspacesDir, id, models.InternalDirName)
+		want := filepath.Join(metadataDir, id)
 		if got := resolver.InternalDir(id); got != want {
 			t.Errorf("InternalDir() = %v, want %v", got, want)
 		}
@@ -50,7 +51,7 @@ func TestPathResolver(t *testing.T) {
 
 	t.Run("ProcessLog", func(t *testing.T) {
 		id := "test-ws"
-		want := filepath.Join(workspacesDir, id, models.InternalDirName, models.ProcessLogFilename)
+		want := filepath.Join(metadataDir, id, models.ProcessLogFilename)
 		if got := resolver.ProcessLog(id); got != want {
 			t.Errorf("ProcessLog() = %v, want %v", got, want)
 		}
@@ -58,7 +59,7 @@ func TestPathResolver(t *testing.T) {
 
 	t.Run("Lock", func(t *testing.T) {
 		id := "test-ws"
-		want := filepath.Join(workspacesDir, id, models.LockFilename)
+		want := filepath.Join(metadataDir, id, models.LockFilename)
 		if got := resolver.Lock(id); got != want {
 			t.Errorf("Lock() = %v, want %v", got, want)
 		}

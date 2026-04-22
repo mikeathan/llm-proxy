@@ -184,3 +184,31 @@ func TestParseContentToolCalls_ToolsTagMissingName(t *testing.T) {
 		t.Errorf("expected 0 calls, got %d", len(calls))
 	}
 }
+
+func TestParseContentToolCalls_RawJSON(t *testing.T) {
+	content := `{"name": "get_weather", "arguments": {"city": "London"}}`
+	_, calls, ok := proxy.ParseContentToolCalls(content)
+	if !ok {
+		t.Fatal("expected ok=true for raw JSON")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "get_weather" {
+		t.Errorf("expected 'get_weather', got %q", calls[0].Function.Name)
+	}
+}
+
+func TestParseContentToolCalls_MarkdownJSON(t *testing.T) {
+	content := "```json\n[\n  {\"name\": \"get_weather\", \"arguments\": {\"city\": \"London\"}}\n]\n```"
+	_, calls, ok := proxy.ParseContentToolCalls(content)
+	if !ok {
+		t.Fatal("expected ok=true for Markdown JSON")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "get_weather" {
+		t.Errorf("expected 'get_weather', got %q", calls[0].Function.Name)
+	}
+}

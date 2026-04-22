@@ -143,9 +143,10 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	procLog.Info("Assistant request started", "conversation", payload.ConversationID, "message", payload.Message)
 
 	agent := assistant.NewAgent(client, h.provider, h.engine, assistant.AgentOptions{
-		Logger:     procLog,
-		MaxSteps:   10,
-		Guardrails: h.guardrails,
+		Logger:      procLog,
+		MaxSteps:    20,
+		Guardrails:  h.guardrails,
+		WorkspaceID: payload.WorkspaceID,
 	})
 
 	reply, updatedHistory, agErr := agent.Execute(ctx, session.History)

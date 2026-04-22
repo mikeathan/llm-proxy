@@ -214,7 +214,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	var runtimeArgs []string
 	if len(req.Args) == 0 {
-		runtimeArgs = append([]string(nil), h.admin.DefaultArgs()...)
+		settings := h.admin.GetSettings()
+		runtimeArgs = append([]string(nil), settings.Local.DefaultArgs...)
 	} else {
 		runtimeArgs = append([]string(nil), req.Args...)
 	}

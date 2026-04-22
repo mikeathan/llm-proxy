@@ -48,7 +48,7 @@ func TestGuardrailEngine_GlobalGuardrails(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{}
 			cfg.Global.BlockSecrets = tt.blockSecrets
 			
-			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver(""), nil)
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil)
 			
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
@@ -111,7 +111,7 @@ func TestGuardrailEngine_SearchGuardrails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{Search: tt.config}
-			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver(""), nil)
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil)
 			
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
@@ -163,7 +163,7 @@ func TestGuardrailEngine_CommunicationGuardrails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{Communication: tt.config}
-			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver(""), nil)
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil)
 			
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
@@ -193,7 +193,7 @@ func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 		},
 	}
 
-	resolver := storage.NewPathResolver(wsDir)
+	resolver := storage.NewPathResolver(wsDir, wsDir, wsDir)
 	engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return cfg
 	}, resolver, nil)

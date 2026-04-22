@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/sandbox"
 	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -32,9 +33,32 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("proxied"))
 }
 
+type mockSandboxProvider struct {
+	recycledID     string
+	sessions       []models.SandboxSessionView
+	shutdownCalled bool
+}
+
+func (m *mockSandboxProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string) (sandbox.Sandbox, error) {
+	return nil, nil
+}
+
+func (m *mockSandboxProvider) Recycle(ctx context.Context, workspaceID string) {
+	m.recycledID = workspaceID
+}
+
+func (m *mockSandboxProvider) ListSessions() []models.SandboxSessionView {
+	return m.sessions
+}
+
+func (m *mockSandboxProvider) Shutdown() {
+	m.shutdownCalled = true
+}
+
 // Helper to create valid server with optional config overrides
 func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.Config) *app.AppContext {
 	dir := t.TempDir()
+	t.Setenv("LLM_PROXY_CONFIG_DIR", dir)
 
 	// 1. Create System Config (config.json)
 	sys := models.SystemConfig{}
@@ -46,19 +70,29 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 		sys.Server.Bind = initialCfg.Server.Bind
 		sys.Server.ModelHost = initialCfg.Server.ModelHost
 		sys.Server.IdleTimeoutSecs = initialCfg.Server.IdleTimeoutSecs
-
-		if local, ok := initialCfg.Providers["local"]; ok {
-			sys.Local.ModelDir = local.ModelDir
-			sys.Local.LlamaServerBinary = local.LlamaServerBinary
-			sys.Local.DefaultArgs = local.DefaultArgs
-		}
-		if sys.Local.DefaultArgs == nil && len(initialCfg.Server.DefaultArgs) > 0 {
-			sys.Local.DefaultArgs = initialCfg.Server.DefaultArgs
-		}
 	}
 
 	sysData, _ := json.Marshal(sys)
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), sysData, 0644)
+
+	// 1.5 Create Settings (settings.yml)
+	settings := models.UserSettings{}
+	if initialCfg != nil {
+		if local, ok := initialCfg.Providers["local"]; ok {
+			settings.Local.ModelDir = local.ModelDir
+			settings.Local.LlamaServerBinary = local.LlamaServerBinary
+			settings.Local.DefaultArgs = local.DefaultArgs
+		}
+		if settings.Local.DefaultArgs == nil && len(initialCfg.Server.DefaultArgs) > 0 {
+			settings.Local.DefaultArgs = initialCfg.Server.DefaultArgs
+		}
+	}
+	// We use json for the mock since YamlStore supports json unmarshalling if the ext is wrong, or we can write a yaml manually
+	// Actually, just let Store load it since we added yaml support, we should write valid yaml or json.
+	// We can write it as json for simplicity in tests if we just name it settings.yml and it expects valid yaml, JSON is valid YAML!
+	settingsData, _ := json.Marshal(settings)
+	_ = os.WriteFile(filepath.Join(dir, "settings.yml"), settingsData, 0644)
+
 
 	// 2. Create Registry (registry.json)
 	reg := models.RegistryData{
@@ -597,8 +631,8 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 		},
 	}
 
-	if err := ctx.UpdateSettings(context.Background(), req); err != nil {
-		t.Fatalf("UpdateSettings failed: %v", err)
+	if err := ctx.ApplySystemUpdate(context.Background(), req); err != nil {
+		t.Fatalf("ApplySystemUpdate failed: %v", err)
 	}
 
 	// Verify it went to registry, NOT system
@@ -622,6 +656,51 @@ func findModel(config []models.ModelRegistryEntry, name string) (models.ModelReg
 			return m, true
 		}
 	}
-
 	return models.ModelRegistryEntry{}, false
+}
+
+func TestAppContext_SandboxLifecycle(t *testing.T) {
+	s := &app.AppContext{}
+	mock := &mockSandboxProvider{
+		sessions: []models.SandboxSessionView{
+			{WorkspaceID: "ws-123", HostPath: "/tmp/ws-123"},
+		},
+	}
+
+	s.SetSandboxProvider(mock)
+
+	t.Run("ListSandboxSessions proxies to provider", func(t *testing.T) {
+		sessions := s.ListSandboxSessions()
+		if len(sessions) != 1 {
+			t.Fatalf("expected 1 session, got %d", len(sessions))
+		}
+		if sessions[0].WorkspaceID != "ws-123" {
+			t.Errorf("expected ws-123, got %s", sessions[0].WorkspaceID)
+		}
+	})
+
+	t.Run("ResetSandbox proxies Recycle to provider", func(t *testing.T) {
+		err := s.ResetSandbox("target-ws")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if mock.recycledID != "target-ws" {
+			t.Errorf("expected target-ws to be recycled, got %s", mock.recycledID)
+		}
+	})
+
+	t.Run("Shutdown proxies to provider", func(t *testing.T) {
+		s.Shutdown()
+		if !mock.shutdownCalled {
+			t.Error("expected Shutdown to be called on provider")
+		}
+	})
+
+	t.Run("ResetSandbox returns error when provider missing", func(t *testing.T) {
+		s2 := &app.AppContext{}
+		err := s2.ResetSandbox("ws")
+		if err == nil {
+			t.Error("expected error when sandbox provider is nil")
+		}
+	})
 }

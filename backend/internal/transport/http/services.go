@@ -43,11 +43,18 @@ type AdminService interface {
 	GetRegistry() models.RegistryData
 	UpdateRegistry(func(*models.RegistryData)) error
 
+	GetSettings() models.UserSettings
+	UpdateSettings(func(*models.UserSettings)) error
+	GetGuardrails() models.AgentGuardrailsConfig
+
 	// Tier 3: Secrets
 	Secrets() models.SecretsStore
 
+	// Host Machine Isolated Settings
+	HostSettings() models.HostSettings
+	UpdateHostSettings(models.HostSettings) error
+
 	// Helper accessors for UI / Tools
-	ModelDir() string
 	WorkspacesDir() string
 	GPUConfig() models.GPUConfig
 	MetricsSnapshot() metrics.MetricsSnapshot
@@ -69,13 +76,11 @@ type AdminService interface {
 	Providers() map[string]models.ProviderItem
 	SetGPUConfig(models.GPUConfig)
 	SetWorkspacesDir(string)
-	DefaultArgs() []string
-	CurrentBinary() string
-	CurrentIdleTimeout() int
 	Environment() map[string]string
-	SyncGuardrails(models.AgentGuardrailsConfig) error
-	UpdateSettings(context.Context, models.SystemUpdatePayload) error
+	ApplySystemUpdate(context.Context, models.SystemUpdatePayload) error
 	ServiceCredentials() (id, secret string)
+	ResetSandbox(workspaceID string) error
+	ListSandboxSessions() []models.SandboxSessionView
 }
 
 type AssistantService interface {

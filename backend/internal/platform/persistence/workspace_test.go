@@ -11,7 +11,7 @@ import (
 func TestWorkspaceManager_Sessions(t *testing.T) {
 	// Setup
 	tmpBase := t.TempDir()
-	mgr := NewWorkspaceManager(storage.NewPathResolver(tmpBase))
+	mgr := NewWorkspaceManager(storage.NewPathResolver(tmpBase, tmpBase, tmpBase))
 	workspaceID := "test-workspace"
 
 	t.Run("Write and Read Session", func(t *testing.T) {
@@ -114,7 +114,7 @@ func TestWorkspaceManager_Sessions(t *testing.T) {
 
 func TestWorkspaceManager_Paths(t *testing.T) {
 	tmpBase := t.TempDir()
-	mgr := NewWorkspaceManager(storage.NewPathResolver(tmpBase))
+	mgr := NewWorkspaceManager(storage.NewPathResolver(tmpBase, tmpBase, tmpBase))
 
 	rel := mgr.GetRelativeWorkspacePath()
 	if rel == "" {

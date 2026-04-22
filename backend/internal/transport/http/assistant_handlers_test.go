@@ -62,7 +62,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 
 	// Setup Persistence
 	tmpWorkspaces := t.TempDir()
-	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces))
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
@@ -129,7 +129,6 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	if len(clientMock.Requests) < 2 {
 		t.Fatalf("expected 2 calls to Chat, got %d", len(clientMock.Requests))
 	}
-
 	secondCallReq := clientMock.Requests[1] // The call AFTER the tool execution
 	msgs := secondCallReq.Messages
 
@@ -171,7 +170,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 }
 func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	tmpWorkspaces := t.TempDir()
-	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces))
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
 	mockClient := &mocks.MockLLMClientProvider{
@@ -181,7 +180,7 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	mockMCP.SetSystemPrompt("BASE_PROMPT")
 	mockMCP.SetToolsResult([]proxy.Tool{})
-	
+
 	engine := assistant.NewEngine(mockMCP, &noopLogger{})
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 	service.PersistenceMgr = mgr
@@ -217,7 +216,7 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemContent, "STRICT WORKSPACE RULES:") {
 		t.Errorf("system prompt missing jail rules: %s", systemContent)
 	}
-	
+
 	// Check that relative path was correctly injected
 	relWs := mgr.GetRelativeWorkspacePath()
 	expectedPath := relWs + "/test-jail/"

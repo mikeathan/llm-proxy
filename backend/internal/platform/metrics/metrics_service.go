@@ -29,6 +29,10 @@ func (s *MetricsService) SetThroughputSource(src ThroughputSource) {
 	s.throughput = src
 }
 
+func (s *MetricsService) SetSandboxSource(src SandboxSource) {
+	s.sandbox = src
+}
+
 func (s *MetricsService) Snapshot() MetricsSnapshot {
 	host := readHostMetrics(s.nowFn)
 	resp := MetricsSnapshot{
@@ -69,6 +73,12 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 			resp.LLMTokensPerSec = tps
 			resp.LLMTokensPerSecTS = ts
 		}
+	}
+
+	if s.sandbox != nil {
+		idle, active := s.sandbox.HealthCheck()
+		resp.IdleSandboxes = idle
+		resp.ActiveSandboxes = active
 	}
 	return resp
 }

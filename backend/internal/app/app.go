@@ -46,6 +46,31 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// InitializeData prepares the data manager by loading stores and starting the watcher.
+func InitializeData(dataMgr *storage.DataManager) error {
+	// 1. Load all data (3-tier)
+	if err := dataMgr.LoadAll(); err != nil {
+		logging.Warn("could not load existing data stores (expected on first run)", "error", err)
+	}
+
+	// 2. Start auto-reload watcher for config files
+	if err := dataMgr.Watch(); err != nil {
+		logging.Error("failed to start config watcher", "error", err)
+		return err
+	}
+
+	return nil
+}
+
+// ResolveBindAddr determines the server binding address from configuration.
+func ResolveBindAddr(dataMgr *storage.DataManager) string {
+	sys := dataMgr.System().Get()
+	if sys.Server.Bind == "" {
+		return network.JoinDefault(models.AddrAllInterfaces)
+	}
+	return sys.Server.Bind
+}
+
 func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
 	container := bootstrap(dataMgr, logger)
 	svc := container.BuildAppServices()
@@ -62,13 +87,7 @@ func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildin
 	}
 
 	router := buildHTTP(svc, container.Dispatcher, buildInfo)
-
-	// Get bind address from system storage
-	sys := dataMgr.System().Get()
-	bindAddr := sys.Server.Bind
-	if bindAddr == "" {
-		bindAddr = network.JoinDefault(models.AddrAllInterfaces)
-	}
+	bindAddr := ResolveBindAddr(dataMgr)
 
 	return &App{
 		server: &http.Server{

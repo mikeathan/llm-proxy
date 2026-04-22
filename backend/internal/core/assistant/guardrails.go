@@ -17,11 +17,11 @@ import (
 // GuardrailEngine evaluates tool calls against configured boundaries.
 type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
-	resolver       *storage.PathResolver
+	resolver       storage.Resolver
 	persistence    *persistence.WorkspaceManager
 }
 
-func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver *storage.PathResolver, persistence *persistence.WorkspaceManager) *GuardrailEngine {
+func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver storage.Resolver, persistence *persistence.WorkspaceManager) *GuardrailEngine {
 	return &GuardrailEngine{
 		configProvider: provider,
 		resolver:       resolver,
@@ -55,6 +55,8 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 		return e.validateCommunication(call, cfg.Communication)
 	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
+	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
+		return e.validateNetwork(call, cfg.Network)
 	}
 
 	return nil
@@ -145,14 +147,15 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 	}
 
 	// 0. System Protection: Strictly block access to hidden files/folders and config files
-	// This prevents the agent from tampering with its own security configuration
+	// Special Case: Allow "." (current directory) but block other items starting with "."
 	base := filepath.Base(args.Path)
-	if strings.HasPrefix(base, ".") || strings.HasPrefix(args.Path, ".") ||
-		strings.Contains(args.Path, "/.") ||
+	isDot := args.Path == "." || args.Path == "./"
+	
+	if (!isDot && (strings.HasPrefix(base, ".") || (strings.HasPrefix(args.Path, "..")) || strings.Contains(args.Path, "/."))) ||
 		base == models.ConfigFilename || base == models.StateFilename ||
 		base == models.LockFilename ||
-		strings.Contains(args.Path, models.InternalDirName) {
-		return fmt.Errorf("path access denied: restricted system file")
+		base == models.SystemConfigFilename || base == models.SecretsFilename || base == models.RegistryFilename {
+		return fmt.Errorf("path access denied: restricted system file or directory (%s)", args.Path)
 	}
 
 	// Dynamic Root: Ensure the specific workspace directory is always in the allowed roots
@@ -165,4 +168,29 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 
 	_, err := tools.IsSecurePath(args.Path, allowedRoots)
 	return err
+}
+
+func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.NetworkGuardrailsConfig) error {
+	if !cfg.Enabled {
+		return fmt.Errorf("network tools are disabled by guardrails policy")
+	}
+
+	if call.Function.Name == models.ToolNetworkScan && !cfg.AllowLanAccess {
+		return fmt.Errorf("local network scanning is blocked by guardrails policy")
+	}
+
+	if call.Function.Name == models.ToolNetworkInfo && !cfg.AllowLanAccess {
+		return fmt.Errorf("local network discovery is blocked by guardrails policy")
+	}
+
+	// For fetch_url, check domains in arguments
+	if call.Function.Name == models.ToolNetworkFetch {
+		for _, domain := range cfg.BlockedDomains {
+			if strings.Contains(call.Function.Arguments, domain) {
+				return fmt.Errorf("guardrail violation: URL contains blocked domain '%s'", domain)
+			}
+		}
+	}
+
+	return nil
 }

@@ -33,6 +33,7 @@ type ChatRequest struct {
 	Messages   []Message  `json:"messages"`
 	Tools      []Tool     `json:"tools,omitempty"`
 	ToolChoice ToolChoice `json:"tool_choice,omitempty"`
+	Stream     bool       `json:"stream,omitempty"`
 }
 
 type ToolCall struct {
@@ -75,6 +76,7 @@ func (f *FunctionCall) UnmarshalJSON(data []byte) error {
 
 type Choice struct {
 	Message Message `json:"message"`
+	Delta   Message `json:"delta,omitempty"`
 }
 
 // Chat Response

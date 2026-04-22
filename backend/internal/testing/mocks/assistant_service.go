@@ -67,10 +67,9 @@ func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName 
 }
 
 func (m *MockAssistantService) GuardrailEngine() *assistant.GuardrailEngine {
-	resolver := storage.NewPathResolver(m.WorkspacesDir())
 	return assistant.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
-	}, resolver, m.PersistenceMgr)
+	}, m.Resolver(), m.PersistenceMgr)
 }
 
 func (m *MockAssistantService) Config() *models.Config {
@@ -111,6 +110,14 @@ func (m *MockAssistantService) RootDir() string {
 
 func (m *MockAssistantService) WorkspacesDir() string {
 	return ""
+}
+
+func (m *MockAssistantService) MetadataDir() string {
+	return ""
+}
+
+func (m *MockAssistantService) Resolver() storage.Resolver {
+	return storage.NewPathResolver(m.RootDir(), m.WorkspacesDir(), m.MetadataDir())
 }
 
 func (m *MockAssistantService) Events() *automation.EventBus {

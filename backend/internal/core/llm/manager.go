@@ -91,11 +91,11 @@ type LLMRuntimeManager struct {
 	stopCh            chan struct{}
 }
 
-func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, secrets models.SecretsStore) *LLMRuntimeManager {
+func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore) *LLMRuntimeManager {
 	logging.Info("Initializing LLM Runtime Manager from registry", "models", len(reg.Catalogue))
 
 	registrar := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, sys.Server.ModelHost)
-	registrar.RegisterLocal(sys.Local.LlamaServerBinary, sys.Local.ModelDir, sys.Local.DefaultArgs)
+	registrar.RegisterLocal(settings.Local.LlamaServerBinary, settings.Local.ModelDir, settings.Local.DefaultArgs)
 
 	m := &LLMRuntimeManager{
 		models:      make(map[string]models.ModelConfig),

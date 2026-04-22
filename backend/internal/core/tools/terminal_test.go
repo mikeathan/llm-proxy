@@ -70,7 +70,7 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			// Create tool with a provider that returns the test config
 			term := NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
 				return tt.config
-			})
+			}, nil)
 
 			ctx := context.Background()
 

@@ -14,6 +14,15 @@ type MockClient struct {
 	Err      error
 	Calls    int
 	ChatFunc func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error)
+	StreamFunc func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error)
+}
+
+func (m *MockClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	if m.StreamFunc != nil {
+		return m.StreamFunc(ctx, req)
+	}
+	// Fall back to non-streaming by default for existing tests
+	return nil, fmt.Errorf("streaming not implemented in mock")
 }
 
 func (m *MockClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
@@ -200,7 +209,53 @@ func TestNormalizeContent(t *testing.T) {
 			input:    "Thinking... [{'type': 'text', 'text': ''}]",
 			expected: "Thinking...", // Should trim the end too
 		},
+		{
+			name:     "space inside empty string",
+			input:    "[{'type': 'text', 'text': ' '}] Hello",
+			expected: "Hello",
+		},
+		{
+			name:     "incomplete block",
+			input:    "[{'type': 'text', 'text': '' Hello",
+			expected: "Hello",
+		},
+		{
+			name:     "incomplete block with space",
+			input:    "[{'type': 'text', 'text': ' ' Hello",
+			expected: "Hello",
+		},
+		{
+			name:     "extract text from single quote python block",
+			input:    "[{'type': 'text', 'text': 'Perfect. Now let me begin Phase 1: Rapid Host Discovery.'}]",
+			expected: "Perfect. Now let me begin Phase 1: Rapid Host Discovery.",
+		},
+		{
+			name:     "extract text from double quote json block",
+			input:    "[{\"type\": \"text\", \"text\": \"Valid JSON format\"}]",
+			expected: "Valid JSON format",
+		},
+		{
+			name:     "extract text from truncated block",
+			input:    "[{'type': 'text', 'text': 'Some text'",
+			expected: "Some text",
+		},
+		{
+			name:     "mixed block and normal text",
+			input:    "[{'type': 'text', 'text': 'Hello'}] World",
+			expected: "Hello World",
+		},
+		{
+			name:     "extract text with embedded newlines",
+			input:    "[{'type': 'text', 'text': 'Line 1\nLine 2'}]",
+			expected: "Line 1\nLine 2",
+		},
+		{
+			name:     "extract text missing brackets",
+			input:    "{'type': 'text', 'text': 'No brackets'}",
+			expected: "No brackets",
+		},
 	}
+
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

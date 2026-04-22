@@ -28,6 +28,13 @@ const DEFAULT_CONFIG: GlobalConfig = {
       require_review: true,
       max_messages_per_task: 10,
     },
+    network: {
+      enabled: false,
+      allow_lan_access: false,
+      allow_internet_access: false,
+      max_fetch_size_kb: 5000,
+      timeout_seconds: 30,
+    },
     filesystem: {
       enabled: false,
       allowed_paths: [],

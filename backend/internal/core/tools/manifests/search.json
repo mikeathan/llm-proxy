@@ -2,8 +2,20 @@
   "tool_name": "internet_search",
   "version": "1.0",
   "description": "Search the internet for real-time information and documentation.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The search query to perform."
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
   "guardrails": {
-    "enabled": false,
+    "enabled": true,
     "max_query_len": 500,
     "blocked_sites": [
       "darkweb.com",

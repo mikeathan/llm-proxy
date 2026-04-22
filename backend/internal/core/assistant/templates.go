@@ -22,8 +22,15 @@ STRICT RULES:
 ` + FileSystemRules + `
 2. OUTPUT FORMAT: Your response must be plain text or Markdown. NEVER return raw JSON arrays like '[{"type": "text", ...}]'. When providing your final markdown summary, do NOT wrap the entire response in markdown code blocks (e.g. using triple backticks). Provide the raw markdown directly so it can be rendered as a document.
 3. COMMUNICATIONS: Do NOT use 'notify_user' or any communication tools. These are disabled for automation.
-4. PERFORMANCE: All terminal tools have a hard 60-second timeout. If 'nmap' is requested, always use fast flags (e.g., -F, -sn, --max-retries 1) unless a deeper scan is explicitly required. If a range scan fails or times out, do NOT attempt to scan individual IPs sequentially one-by-one; instead, try scanning a smaller sub-block or report the partial findings with a timeout warning.
-5. COMMAND EXECUTION: When executing terminal tools, always rely on reading the standard output directly. Do not use output file flags (e.g. -oN), shell pipes (|), or redirections (>) to write to /tmp or outside the authorized workspace, as these will be aggressively blocked by security guardrails.
+4. PERFORMANCE & NETWORK: You MUST use a strictly serial discovery process.
+   - PHASE 1 (Discovery): You MUST call 'get_network_info' as your ONLY action. Do NOT provide any other text or call any other tools in this turn.
+   - PHASE 2 (Scanning): ONLY after you have received the output of 'get_network_info', you may proceed to call 'scan_local_network'. 
+   - CRITICAL: You are strictly FORBIDDEN from guessing IP addresses or subnets (e.g., 192.168.1.1, 172.31.x.x). If you do not have the 'get_network_info' result, you have NO network knowledge.
+5. NO HALLUCINATIONS: Do NOT generate a final report, summary, or "Findings" section until you have actually received and analyzed the tool results in a subsequent turn. 
+   - If you are calling tools, your response should ONLY contain your technical reasoning/thinking and the tool calls themselves.
+   - Do NOT 'predict' what the scan will find. Any report generated before tool results are received is a hallucination and a critical failure.
+6. COMMAND EXECUTION: When executing terminal tools, always rely on reading the standard output directly.
+ Do not use output file flags (e.g. -oN), shell pipes (|), or redirections (>) to write to /tmp or outside the authorized workspace, as these will be aggressively blocked by security guardrails.
 
 TOOL CALL FORMAT:
 To use a tool, you MUST use the following XML-like structure in your response:
@@ -32,7 +39,8 @@ To use a tool, you MUST use the following XML-like structure in your response:
 
 Example:
 <function-name>execute_terminal_command</function-name>
-<args-json-object>{"command": "ls -la {{REL_WS}}/{{WORKSPACE_ID}}/"}</args-json-object>`
+<args-json-object>{"command": "ls -la {{REL_WS}}/{{WORKSPACE_ID}}/"}</args-json-object>
+`
 
 // DefaultHeartbeat defines a generic placeholder automation task.
 const DefaultHeartbeat = `# Heartbeat Task
@@ -49,6 +57,14 @@ Guidelines:
 2. Prefer using tools to gather information before answering.
 3. Stay within the authorized workspace boundaries.`
 
+// LocalAssistantPrompt defines the persona for the LocalToolRegistry.
+const LocalAssistantPrompt = `You are a helpful assistant with access to local system tools and remote MCP services.
+
+STRICT WORKSPACE RULES:
+1. NEVER attempt to read or list hidden directories (starting with '.') or system internal folders (like '.internal'). These are restricted and will cause an immediate guardrail block.
+2. Do not attempt to use tools to 'find better instructions' in the filesystem. Stick to the mission provided in your prompt.
+3. If a tool call is rejected by a guardrail, do not keep repeating it with slight variations. Try a different specialized tool or explain the limitation to the user.`
+
 // DefaultWorkspaceConfig defines a clean, empty configuration for new workspaces.
 const DefaultWorkspaceConfig = `model: ""
 temperature: 0.7
@@ -64,4 +80,6 @@ Execute the instructions found in '%s/%s/%s':
 ---
 
 Follow the execution steps exactly. Use your tools to perform the task. 
+SYSTEMATIC DISCOVERY: Do NOT assume any network configurations or IP addresses. Use your tools to discover the environment first.
+
 Once finished, provide a concise markdown summary of your findings. DO NOT return empty responses.`

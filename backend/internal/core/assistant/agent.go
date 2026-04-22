@@ -34,6 +34,7 @@ const (
 	EventToolResult         AgentEventType = "tool_result"
 	EventGuardrailViolation AgentEventType = "guardrail_violation"
 	EventError              AgentEventType = "error"
+	EventToolStream         AgentEventType = "tool_stream"
 )
 
 type AgentEvent struct {
@@ -63,7 +64,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	// Default guardrail engine if none provided
 	guardrails := opts.Guardrails
 	if guardrails == nil {
-		guardrails = NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver(""), nil)
+		guardrails = NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
 	}
 
 	return &Agent{
@@ -134,6 +135,80 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 }
 
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
+	// Attempt streaming first to provide immediate feedback
+	ch, err := a.client.Stream(ctx, proxy.ChatRequest{
+		Messages: history,
+		Tools:    tools,
+	})
+
+	if err != nil {
+		a.logger.Warn("streaming not supported or failed, falling back to non-streaming", "error", err)
+		return a.computeNextResponseNonStreaming(ctx, history, tools)
+	}
+
+	var fullMsg proxy.Message
+	fullMsg.Role = proxy.AssistantRole
+
+	a.processStream(ch, &fullMsg)
+
+	return fullMsg, nil
+}
+
+func (a *Agent) processStream(ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) {
+	for resp := range ch {
+		if len(resp.Choices) > 0 {
+			choice := resp.Choices[0]
+			
+			// Accumulate Content
+			if choice.Delta.Content != "" {
+				fullMsg.Content += choice.Delta.Content
+				
+				// UI Smoothing: If we detect the start of a tool call signature, 
+				// stop streaming to the text-content bus to avoid showing raw technical markup.
+				displayContent := fullMsg.Content
+				hasToolCall := false
+				cutoffPatterns := []string{
+					"<function-name>", "<tools>", "functions.", 
+					"```json", "```", 
+					"{\"name\":", "[{\"name\":", 
+					"{\"target\":", "{\"mode\":", "{\"command\":",
+					"[{'type':", "{\"type\":",
+				}
+				for _, p := range cutoffPatterns {
+					if idx := strings.Index(displayContent, p); idx != -1 {
+						displayContent = displayContent[:idx]
+						hasToolCall = true
+						break
+					}
+				}
+				
+				// If we've reached a tool call, provide a small visual hint in the stream
+				// so the user knows the agent is still active but is now processing technical steps.
+				if hasToolCall {
+					a.notify(EventToolStream, displayContent + "\n\n🛠️ *Agent is initiating tool calls...*")
+				} else {
+					a.notify(EventToolStream, displayContent)
+				}
+			}
+
+			// Accumulate Tool Calls
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tc := range choice.Delta.ToolCalls {
+					// Stream-based tool calls often come in chunks
+					if tc.ID != "" {
+						fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
+					} else if len(fullMsg.ToolCalls) > 0 {
+						// Append arguments to the last tool call
+						last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
+						last.Function.Arguments += tc.Function.Arguments
+					}
+				}
+			}
+		}
+	}
+}
+
+func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
@@ -162,9 +237,9 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 }
 
 func (a *Agent) handleContentToolCalls(msg *proxy.Message) {
-	if len(msg.ToolCalls) == 0 && msg.Content != "" {
+	if msg.Content != "" {
 		if cleanedContent, calls, ok := proxy.ParseContentToolCalls(msg.Content); ok {
-			msg.ToolCalls = calls
+			msg.ToolCalls = append(msg.ToolCalls, calls...)
 			msg.Content = cleanedContent
 			a.logger.Debug("detected embedded tool calls in content", "count", len(calls))
 		}
@@ -193,7 +268,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name)
+		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
 		a.notifyToolCall(tc)
 
 		if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
@@ -300,18 +375,24 @@ func (a *Agent) notifyGuardrailViolation(tool string, err error) {
 	})
 }
 
-// normalizeContent strips common "structured noise" (JSON/Python-style artifacts)
-// that some local models leak into the text content field.
 func normalizeContent(content string) string {
 	content = strings.TrimSpace(content)
 
-	// Detect and strip common "structured noise" blocks
-	// e.g. [{'type': 'text', 'text': ''}] or {"type": "text", "text": ""}
-	extractPattern := `\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]['"]\s*\}?\s*\]?`
-	re := regexp.MustCompile(extractPattern)
+	// Detect and extract text from common "structured noise" blocks
+	// e.g. [{'type': 'text', 'text': 'Hello'}] -> Hello
+	// We handle both complete and incomplete/truncated blocks
+	extractionPatterns := []struct {
+		pattern     string
+		replacement string
+	}{
+		{`\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"](.*?)['"]\s*\}?\s*\]?`, "$1"},
+		{`\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`, "$1"}, 
+	}
 
-	// Remove the noise blocks entirely
-	content = re.ReplaceAllString(content, "")
+	for _, p := range extractionPatterns {
+		re := regexp.MustCompile("(?s)" + p.pattern) // Use (?s) to allow matching across newlines in $1
+		content = re.ReplaceAllString(content, p.replacement)
+	}
 
 	return strings.TrimSpace(content)
 }

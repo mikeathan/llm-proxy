@@ -34,12 +34,12 @@ onMounted(() => {
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
       </div>
 
-      <template v-else>
+      <div v-else class="h-full">
         <Dashboard v-if="activeTab === 'dashboard'" />
         <Settings  v-else-if="activeTab === 'settings'" />
         <Logs      v-else-if="activeTab === 'logs'" />
         <AgentIde v-else-if="activeTab === 'agent-ide'" />
-      </template>
+      </div>
     </main>
     <Toast />
   </div>

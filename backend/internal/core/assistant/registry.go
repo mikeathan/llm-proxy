@@ -20,6 +20,7 @@ type LocalToolRegistry struct {
 	Communication   *tools.CommunicationTools
 	Search          *tools.InternetTools
 	FileSystem      *tools.FileSystemTools
+	Network         *tools.NetworkTools
 }
 
 func NewLocalToolRegistry(
@@ -27,6 +28,7 @@ func NewLocalToolRegistry(
 	comm *tools.CommunicationTools,
 	search *tools.InternetTools,
 	fsTools *tools.FileSystemTools,
+	network *tools.NetworkTools,
 ) *LocalToolRegistry {
 	r := &LocalToolRegistry{
 		handlers:      make(map[string]ToolHandler),
@@ -34,6 +36,7 @@ func NewLocalToolRegistry(
 		Communication: comm,
 		Search:        search,
 		FileSystem:    fsTools,
+		Network:       network,
 	}
 	r.registerAll()
 	return r
@@ -42,25 +45,23 @@ func NewLocalToolRegistry(
 // ToolHandler is a function that executes a local tool.
 type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 
-// InitializeAgentStack is a facade that wires up all tool providers and engines.
 func InitializeAgentStack(
 	appCtx interface {
 		GetSystem() models.SystemConfig
 		GetRegistry() models.RegistryData
-		RootDir() string
-		WorkspacesDir() string
+		Resolver() storage.Resolver
 		Secrets() models.SecretsStore
+		GetGuardrails() models.AgentGuardrailsConfig
 	},
 	persistence *persistence.WorkspaceManager,
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
+	poolManager tools.SandboxProvider,
+	observer tools.StreamObserver,
 ) (ToolProvider, Engine, *GuardrailEngine) {
-	rootDir := appCtx.RootDir()
-
-	// 1. Load defaults from manifests (prefer disk if in dev)
-	defaultGuardrails := tools.GetDefaultGuardrails(rootDir)
-
-	// 2. Initialize local machine capabilities
+	resolver := appCtx.Resolver()
+	// 1. Load defaults from settings/manifests
+	defaultGuardrails := appCtx.GetGuardrails()
 	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
 		cfg := defaultGuardrails.Terminal
 		wsID := models.GetWorkspaceID(ctx)
@@ -70,11 +71,18 @@ func InitializeAgentStack(
 			}
 		}
 		return cfg
+	}, func(workspaceID string) string {
+		if workspaceID == "" || persistence == nil {
+			return ""
+		}
+		return resolver.WorkspaceDir(workspaceID)
 	})
+	if poolManager != nil {
+		terminal.SetSandboxProvider(poolManager, observer)
+	}
 
 	// 3. Initialize Guardrail Engine with granular merging
 	// We want to use config.json values if they exist, otherwise fallback to defaults.
-	resolver := storage.NewPathResolver(appCtx.WorkspacesDir())
 	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, resolver, persistence)
@@ -118,7 +126,19 @@ func InitializeAgentStack(
 		return cfg
 	})
 
-	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools)
+	// 6. Initialize Network
+	network := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
+		cfg := defaultGuardrails.Network
+		wsID := models.GetWorkspaceID(ctx)
+		if wsID != "" && persistence != nil {
+			if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
+				cfg = wsCfg.Guardrails.Network
+			}
+		}
+		return cfg
+	})
+
+	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
 
 	// 6. Aggregate Tools: Local Registry + Remote MCP
 	provider := NewMultiToolProvider(localRegistry, mcp)
@@ -135,7 +155,7 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 
 // GetSystemPrompt satisfies the ToolProvider interface.
 func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
-	return "You are a helpful assistant with access to local system tools and remote MCP services.", nil
+	return LocalAssistantPrompt, nil
 }
 
 var ErrToolNotInternal = fmt.Errorf("tool not found in local registry")
@@ -149,34 +169,34 @@ func (r *LocalToolRegistry) ExecuteTool(ctx context.Context, call proxy.ToolCall
 	return handler(ctx, call.Function.Arguments)
 }
 
+func (r *LocalToolRegistry) addTool(toolKey string, toolName string) {
+	params, desc, err := tools.LoadManifestAsTool("", toolKey, toolName)
+	if err != nil {
+		fmt.Printf("Warning: failed to load manifest for %s: %v\n", toolKey, err)
+		return
+	}
+
+	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
+		Type: "function",
+		Function: proxy.FunctionSchema{
+			Name:        toolName,
+			Description: desc,
+			Parameters:  params,
+		},
+	})
+}
+
 func (r *LocalToolRegistry) registerAll() {
 	r.registerTerminalTools()
 	r.registerCommunicationTools()
 	r.registerSearchTools()
 	r.registerFileSystemTools()
+	r.registerNetworkTools()
 }
 
 func (r *LocalToolRegistry) registerTerminalTools() {
 	name := models.ToolTerminalExecute
-
-	// 1. Define Schema
-	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
-		Type: "function",
-		Function: proxy.FunctionSchema{
-			Name:        name,
-			Description: "Execute a shell command on the host terminal and return the output.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command": map[string]any{
-						"type":        "string",
-						"description": "The full shell command to execute (e.g., 'nmap -v 192.168.1.1').",
-					},
-				},
-				"required": []string{"command"},
-			},
-		},
-	})
+	r.addTool("terminal", name)
 
 	// 2. Register Handler
 	r.handlers[name] = func(ctx context.Context, rawArgs string) (any, error) {
@@ -192,23 +212,7 @@ func (r *LocalToolRegistry) registerTerminalTools() {
 
 func (r *LocalToolRegistry) registerCommunicationTools() {
 	name := models.ToolNotifyUser
-	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
-		Type: "function",
-		Function: proxy.FunctionSchema{
-			Name:        name,
-			Description: "Send a message or notification to the user via configured platforms (e.g., Telegram).",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"message": map[string]any{
-						"type":        "string",
-						"description": "The message to send.",
-					},
-				},
-				"required": []string{"message"},
-			},
-		},
-	})
+	r.addTool("communication", name)
 
 	r.handlers[name] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args struct {
@@ -226,23 +230,7 @@ func (r *LocalToolRegistry) registerCommunicationTools() {
 
 func (r *LocalToolRegistry) registerSearchTools() {
 	name := models.ToolInternetSearch
-	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
-		Type: "function",
-		Function: proxy.FunctionSchema{
-			Name:        name,
-			Description: "Search the internet for real-time information, news, or technical details.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "The search query.",
-					},
-				},
-				"required": []string{"query"},
-			},
-		},
-	})
+	r.addTool("search", name)
 
 	r.handlers[name] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args struct {
@@ -259,21 +247,9 @@ func (r *LocalToolRegistry) registerSearchTools() {
 }
 
 func (r *LocalToolRegistry) registerFileSystemTools() {
-	// 1. List Directory
-	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
-		Type: "function",
-		Function: proxy.FunctionSchema{
-			Name:        models.ToolDirectoryList,
-			Description: "List files and subdirectories in a specific path.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "The directory path."},
-				},
-				"required": []string{"path"},
-			},
-		},
-	})
+	r.addTool("filesystem", models.ToolDirectoryList)
+	r.addTool("filesystem", models.ToolFileRead)
+	r.addTool("filesystem", models.ToolFileWrite)
 
 	r.handlers[models.ToolDirectoryList] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args struct {
@@ -285,22 +261,6 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		return r.FileSystem.ListDirectory(ctx, args.Path)
 	}
 
-	// 2. Read File
-	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
-		Type: "function",
-		Function: proxy.FunctionSchema{
-			Name:        models.ToolFileRead,
-			Description: "Read the entire content of a file.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "The file path."},
-				},
-				"required": []string{"path"},
-			},
-		},
-	})
-
 	r.handlers[models.ToolFileRead] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args struct {
 			Path string `json:"path"`
@@ -311,23 +271,6 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		return r.FileSystem.ReadFile(ctx, args.Path)
 	}
 
-	// 3. Write File
-	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
-		Type: "function",
-		Function: proxy.FunctionSchema{
-			Name:        models.ToolFileWrite,
-			Description: "Create or update a file with specific content.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path":    map[string]any{"type": "string", "description": "The file path."},
-					"content": map[string]any{"type": "string", "description": "The content to write."},
-				},
-				"required": []string{"path", "content"},
-			},
-		},
-	})
-
 	r.handlers[models.ToolFileWrite] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args struct {
 			Path    string `json:"path"`
@@ -337,5 +280,42 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 			return nil, err
 		}
 		return "File written successfully", r.FileSystem.WriteFile(ctx, args.Path, args.Content)
+	}
+}
+
+func (r *LocalToolRegistry) registerNetworkTools() {
+	r.addTool("network", models.ToolNetworkFetch)
+	r.addTool("network", models.ToolNetworkScan)
+	r.addTool("network", models.ToolNetworkInfo)
+
+	r.handlers[models.ToolNetworkFetch] = func(ctx context.Context, rawArgs string) (any, error) {
+		var args struct {
+			URL string `json:"url"`
+		}
+		if err := decodeArgs(rawArgs, &args); err != nil {
+			return nil, err
+		}
+		if r.Network == nil {
+			return nil, fmt.Errorf("network tools not configured")
+		}
+		return r.Network.FetchURL(ctx, args.URL)
+	}
+
+	r.handlers[models.ToolNetworkScan] = func(ctx context.Context, rawArgs string) (any, error) {
+		var args tools.ScanArgs
+		if err := decodeArgs(rawArgs, &args); err != nil {
+			return nil, err
+		}
+		if r.Network == nil {
+			return nil, fmt.Errorf("network tools not configured")
+		}
+		return r.Network.ScanLocalNetwork(ctx, args)
+	}
+
+	r.handlers[models.ToolNetworkInfo] = func(ctx context.Context, rawArgs string) (any, error) {
+		if r.Network == nil {
+			return nil, fmt.Errorf("network tools not configured")
+		}
+		return r.Network.GetNetworkInfo(ctx)
 	}
 }

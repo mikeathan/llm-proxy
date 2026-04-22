@@ -96,4 +96,16 @@ export const AdminApiService = {
   
   restartSystem: (): Promise<void> =>
     post<void>(API_ENDPOINTS.restart),
+    
+  fetchHostSettings: (): Promise<any> =>
+    get<any>(API_ENDPOINTS.hostSettings),
+
+  updateHostSettings: (payload: any): Promise<any> =>
+    put<any>(API_ENDPOINTS.hostSettings, payload),
+
+  resetSandbox: (workspaceID: string): Promise<void> =>
+    post<void>(`${API_ENDPOINTS.hostSettings}/sandbox/reset?workspaceID=${encodeURIComponent(workspaceID)}`),
+
+  fetchSandboxSessions: (): Promise<any[]> =>
+    get<any[]>(`${API_ENDPOINTS.hostSettings}/sandbox/sessions`),
 }

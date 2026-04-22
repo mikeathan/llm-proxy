@@ -8,17 +8,15 @@ import (
 )
 
 type MockAdminService struct {
-	ModelDirFunc              func() string
-	SetModelDirFunc           func(string)
-	GPUConfigFunc             func() models.GPUConfig
-	SetGPUConfigFunc          func(models.GPUConfig)
-	CurrentBinaryFunc         func() string
-	CurrentIdleTimeoutFunc    func() int
-	DefaultArgsFunc           func() []string
+	GetSettingsFunc           func() models.UserSettings
+	UpdateSettingsFunc        func(func(*models.UserSettings)) error
 	GetSystemFunc             func() models.SystemConfig
 	UpdateSystemFunc          func(func(*models.SystemConfig)) error
 	GetRegistryFunc           func() models.RegistryData
 	UpdateRegistryFunc        func(func(*models.RegistryData)) error
+	GetGuardrailsFunc         func() models.AgentGuardrailsConfig
+	GPUConfigFunc             func() models.GPUConfig
+	SetGPUConfigFunc          func(models.GPUConfig)
 	PersistModelFunc          func(models.ModelConfig) error
 	PersistReplaceModelFunc   func(models.ModelConfig) error
 	PersistDeleteModelFunc    func(string) error
@@ -35,72 +33,29 @@ type MockAdminService struct {
 	ProvidersFunc             func() map[string]models.ProviderItem
 	WorkspacesDirFunc         func() string
 	SetWorkspacesDirFunc      func(string)
-	SyncGuardrailsFunc        func(models.AgentGuardrailsConfig) error
 	ProcessLoggerFunc         func(string) logging.Logger
 	RootDirFunc               func() string
 	SecretsFunc               func() models.SecretsStore
-	UpdateSettingsFunc        func(context.Context, models.SystemUpdatePayload) error
+	ApplySystemUpdateFunc     func(context.Context, models.SystemUpdatePayload) error
 	ServiceCredentialsFunc    func() (string, string)
 	ListTemplatesFunc         func() ([]models.TemplateMetadata, error)
 	GetTemplateFunc           func(string) (models.Template, error)
+	HostSettingsFunc          func() models.HostSettings
+	UpdateHostSettingsFunc    func(models.HostSettings) error
+	ResetSandboxFunc          func(string) error
+	ListSandboxSessionsFunc   func() []models.SandboxSessionView
 }
 
-func (m *MockAdminService) ModelDir() string {
-	if m.ModelDirFunc != nil {
-		return m.ModelDirFunc()
+func (m *MockAdminService) GetSettings() models.UserSettings {
+	if m.GetSettingsFunc != nil {
+		return m.GetSettingsFunc()
 	}
-	return ""
+	return models.UserSettings{}
 }
 
-func (m *MockAdminService) SetModelDir(dir string) {
-	if m.SetModelDirFunc != nil {
-		m.SetModelDirFunc(dir)
-	}
-}
-
-func (m *MockAdminService) WorkspacesDir() string {
-	if m.WorkspacesDirFunc != nil {
-		return m.WorkspacesDirFunc()
-	}
-	return ""
-}
-
-func (m *MockAdminService) SetWorkspacesDir(dir string) {
-	if m.SetWorkspacesDirFunc != nil {
-		m.SetWorkspacesDirFunc(dir)
-	}
-}
-
-func (m *MockAdminService) GPUConfig() models.GPUConfig {
-	if m.GPUConfigFunc != nil {
-		return m.GPUConfigFunc()
-	}
-	return models.GPUConfig{}
-}
-
-func (m *MockAdminService) SetGPUConfig(cfg models.GPUConfig) {
-	if m.SetGPUConfigFunc != nil {
-		m.SetGPUConfigFunc(cfg)
-	}
-}
-
-func (m *MockAdminService) CurrentBinary() string {
-	if m.CurrentBinaryFunc != nil {
-		return m.CurrentBinaryFunc()
-	}
-	return ""
-}
-
-func (m *MockAdminService) CurrentIdleTimeout() int {
-	if m.CurrentIdleTimeoutFunc != nil {
-		return m.CurrentIdleTimeoutFunc()
-	}
-	return 0
-}
-
-func (m *MockAdminService) DefaultArgs() []string {
-	if m.DefaultArgsFunc != nil {
-		return m.DefaultArgsFunc()
+func (m *MockAdminService) UpdateSettings(fn func(*models.UserSettings)) error {
+	if m.UpdateSettingsFunc != nil {
+		return m.UpdateSettingsFunc(fn)
 	}
 	return nil
 }
@@ -131,6 +86,39 @@ func (m *MockAdminService) UpdateRegistry(fn func(*models.RegistryData)) error {
 		return m.UpdateRegistryFunc(fn)
 	}
 	return nil
+}
+
+func (m *MockAdminService) GetGuardrails() models.AgentGuardrailsConfig {
+	if m.GetGuardrailsFunc != nil {
+		return m.GetGuardrailsFunc()
+	}
+	return models.AgentGuardrailsConfig{}
+}
+
+func (m *MockAdminService) WorkspacesDir() string {
+	if m.WorkspacesDirFunc != nil {
+		return m.WorkspacesDirFunc()
+	}
+	return ""
+}
+
+func (m *MockAdminService) SetWorkspacesDir(dir string) {
+	if m.SetWorkspacesDirFunc != nil {
+		m.SetWorkspacesDirFunc(dir)
+	}
+}
+
+func (m *MockAdminService) GPUConfig() models.GPUConfig {
+	if m.GPUConfigFunc != nil {
+		return m.GPUConfigFunc()
+	}
+	return models.GPUConfig{}
+}
+
+func (m *MockAdminService) SetGPUConfig(cfg models.GPUConfig) {
+	if m.SetGPUConfigFunc != nil {
+		m.SetGPUConfigFunc(cfg)
+	}
 }
 
 func (m *MockAdminService) PersistModel(cfg models.ModelConfig) error {
@@ -229,13 +217,6 @@ func (m *MockAdminService) Providers() map[string]models.ProviderItem {
 	return nil
 }
 
-func (m *MockAdminService) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
-	if m.SyncGuardrailsFunc != nil {
-		return m.SyncGuardrailsFunc(cfg)
-	}
-	return nil
-}
-
 func (m *MockAdminService) ProcessLogger(workspaceID string) logging.Logger {
 	if m.ProcessLoggerFunc != nil {
 		return m.ProcessLoggerFunc(workspaceID)
@@ -257,9 +238,9 @@ func (m *MockAdminService) Secrets() models.SecretsStore {
 	return nil
 }
 
-func (m *MockAdminService) UpdateSettings(ctx context.Context, req models.SystemUpdatePayload) error {
-	if m.UpdateSettingsFunc != nil {
-		return m.UpdateSettingsFunc(ctx, req)
+func (m *MockAdminService) ApplySystemUpdate(ctx context.Context, req models.SystemUpdatePayload) error {
+	if m.ApplySystemUpdateFunc != nil {
+		return m.ApplySystemUpdateFunc(ctx, req)
 	}
 	return nil
 }
@@ -284,4 +265,30 @@ func (m *MockAdminService) GetTemplate(id string) (models.Template, error) {
 	}
 	return models.Template{}, nil
 }
+func (m *MockAdminService) HostSettings() models.HostSettings {
+	if m.HostSettingsFunc != nil {
+		return m.HostSettingsFunc()
+	}
+	return models.HostSettings{}
+}
 
+func (m *MockAdminService) UpdateHostSettings(settings models.HostSettings) error {
+	if m.UpdateHostSettingsFunc != nil {
+		return m.UpdateHostSettingsFunc(settings)
+	}
+	return nil
+}
+
+func (m *MockAdminService) ResetSandbox(workspaceID string) error {
+	if m.ResetSandboxFunc != nil {
+		return m.ResetSandboxFunc(workspaceID)
+	}
+	return nil
+}
+
+func (m *MockAdminService) ListSandboxSessions() []models.SandboxSessionView {
+	if m.ListSandboxSessionsFunc != nil {
+		return m.ListSandboxSessionsFunc()
+	}
+	return nil
+}

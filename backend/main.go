@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -27,7 +26,6 @@ var (
 
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
-	configFlag := flag.String("config", "", "path to config file (legacy, will be moved to data/)")
 	dataFlag := flag.String("data", "data", "path to data directory containing config, secrets, and registry")
 	flag.Parse()
 
@@ -51,26 +49,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// For Phase 1, we still might need the legacy config path if it exists outside data/
-	configPath := *configFlag
-	if configPath == "" {
-		configPath = filepath.Join(dataMgr.RootDir(), "config.json")
+	// Configure Data Stack
+	if err := app.InitializeData(dataMgr); err != nil {
+		os.Exit(1)
 	}
-
-	// Load all data (3-tier)
-	if err := dataMgr.LoadAll(); err != nil {
-		logging.Warn("could not load existing data stores (expected on first run)", "error", err)
-	}
+	defer dataMgr.Close()
 
 	// Bootstrap using the new DataManager
 	proxyApp := app.New(dataMgr, logger, buildInfo)
-
-	// Get system bind from the new storage
-	sys := dataMgr.System().Get()
-	bindAddr := sys.Server.Bind
-	if bindAddr == "" {
-		bindAddr = "0.0.0.0:4001" // Safe default
-	}
+	bindAddr := app.ResolveBindAddr(dataMgr)
 
 	logStartup(logger, buildInfo, bindAddr)
 

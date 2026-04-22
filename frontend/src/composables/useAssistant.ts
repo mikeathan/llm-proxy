@@ -15,7 +15,8 @@ export function useAssistant() {
     loading.value = true
     error.value = null
     try {
-      sessions.value = await AssistantService.listSessions(workspaceId)
+      const result = await AssistantService.listSessions(workspaceId)
+      sessions.value = result || []
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch sessions'
       console.error(err)

@@ -16,7 +16,10 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/sandbox"
+	"llm-proxy/internal/core/tools"
 	api "llm-proxy/internal/transport/http"
+	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -50,7 +53,7 @@ func (c *Container) BuildAppServices() *AppServices {
 		nodeHerder:  c.Infra.NodeHerder,
 		logger:      c.Infra.Logger,
 		Clock:       c.Infra.Clock,
-		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.WorkspacesDir())),
+		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -60,10 +63,54 @@ func (c *Container) BuildAppServices() *AppServices {
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
 	s.dispatcher = c.Dispatcher
 
+	// Initialize Sandboxing Subsystem
+	poolManager, streamObserver := c.initSandboxOrchestrator(s)
+
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
-	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.persistence, s.nodeHerder, s.logger)
+	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(
+		s.AppCtx, 
+		s.persistence, 
+		s.nodeHerder, 
+		s.logger, 
+		poolManager, 
+		streamObserver,
+	)
 
 	return s
+}
+
+// initSandboxOrchestrator spins up the background Warm Container Pool 
+// and configures the streaming T-Junction metrics observer for the frontend.
+func (c *Container) initSandboxOrchestrator(s *AppServices) (tools.SandboxProvider, tools.StreamObserver) {
+	var poolManager tools.SandboxProvider
+
+	settings := s.AppCtx.HostSettings()
+	if settings.Sandboxing.Enabled {
+		if pm, err := sandbox.NewWazeroPool(settings.Sandboxing); err == nil {
+			poolManager = pm
+			c.Infra.Logger.Info("WASM Sandbox Engine (Wazero) initialized successfully")
+		} else {
+			c.Infra.Logger.Error("Failed to start WASM Sandbox Engine, using local host proxy fallback", "error", err)
+		}
+	} else {
+		c.Infra.Logger.Warn("Security Warning: Agent Sandbox is disabled. Output tools will run natively on the host.")
+	}
+
+	streamObserver := func(streamType string, chunk []byte) {
+		s.Events().Publish("global", assistant.AgentEvent{
+			Type: assistant.EventToolStream, // Emits to the frontend console via EventBus
+			Payload: map[string]any{
+				"stream": streamType,
+				"output": string(chunk),
+			},
+		})
+	}
+
+	if pm, ok := poolManager.(metrics.SandboxSource); ok {
+		s.AppCtx.SetSandboxSource(pm)
+	}
+	s.AppCtx.SetSandboxProvider(poolManager)
+	return poolManager, streamObserver
 }
 
 type AppServices struct {
@@ -84,6 +131,9 @@ func (s AppServices) Shutdown() {
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")
 		s.Runtime.Shutdown()
+	}
+	if s.AppCtx != nil {
+		s.AppCtx.Shutdown()
 	}
 }
 
@@ -167,8 +217,9 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	// 2. Initialize Runtime Manager from Registry
 	logging.Info("Initializing LLM runtime manager...")
 	registry := dataMgr.Registry().Get()
+	settings := dataMgr.Settings().Get()
 	secretsStore := dataMgr.Secrets()
-	manager := llm.NewManagerFromRegistry(registry, sys, secretsStore)
+	manager := llm.NewManagerFromRegistry(registry, sys, settings, secretsStore)
 
 	logging.Info("Creating server context...")
 	appCtx := NewServer(manager, dataMgr)
@@ -257,7 +308,7 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 
 	var dispatcherHandlers *api.DispatcherHandlers
 	if disp != nil {
-		dispatcherHandlers = api.NewDispatcherHandlers(disp)
+		dispatcherHandlers = api.NewDispatcherHandlers(disp, s.logger)
 	}
 
 	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers)
@@ -285,6 +336,10 @@ func buildRouter(
 	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/restart", admin.AdminRestartHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host", admin.AdminHostSettingsHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/host", admin.AdminHostSettingsPutHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/host/sandbox/reset", admin.AdminSandboxResetHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host/sandbox/sessions", admin.AdminSandboxSessionsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/logs", admin.AdminLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)

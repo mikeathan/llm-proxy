@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Store is a generic atomic JSON file store.
@@ -47,11 +50,24 @@ func (s *Store[T]) Load() error {
 	}
 
 	var val T
-	if err := json.Unmarshal(data, &val); err != nil {
-		return fmt.Errorf("failed to parse store file at %s: %w", s.path, err)
+	if strings.HasSuffix(s.path, ".yml") || strings.HasSuffix(s.path, ".yaml") {
+		if err := yaml.Unmarshal(data, &val); err != nil {
+			return fmt.Errorf("failed to parse yaml store file at %s: %w", s.path, err)
+		}
+	} else {
+		if err := json.Unmarshal(data, &val); err != nil {
+			return fmt.Errorf("failed to parse json store file at %s: %w", s.path, err)
+		}
 	}
 
 	s.data = &val
+
+	// Notify listeners
+	dataCopy := *s.data
+	for _, l := range s.listeners {
+		l(dataCopy)
+	}
+
 	return nil
 }
 
@@ -85,7 +101,15 @@ func (s *Store[T]) Update(fn func(*T)) error {
 // saveLocked writes the data to a temporary file and renames it.
 // mu must be locked.
 func (s *Store[T]) saveLocked() error {
-	data, err := json.MarshalIndent(s.data, "", "  ")
+	var data []byte
+	var err error
+
+	if strings.HasSuffix(s.path, ".yml") || strings.HasSuffix(s.path, ".yaml") {
+		data, err = yaml.Marshal(s.data)
+	} else {
+		data, err = json.MarshalIndent(s.data, "", "  ")
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to marshal store data: %w", err)
 	}

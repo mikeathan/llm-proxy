@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"mime"
@@ -104,17 +103,13 @@ type adminConfigView struct {
 }
 
 type adminSystemView struct {
-	Bind            string            `json:"bind"`
-	ModelHost       string            `json:"model_host"`
-	IdleTimeoutSecs int               `json:"idle_timeout_seconds"`
-	WorkspacesDir   string            `json:"workspaces_dir"`
-	GPU             models.GPUConfig  `json:"gpu"`
-	Environment     map[string]string `json:"environment"`
-	Local           struct {
-		ModelDir          string   `json:"model_dir"`
-		LlamaServerBinary string   `json:"llama_server_binary"`
-		DefaultArgs       []string `json:"default_args"`
-	} `json:"local"`
+	Bind            string               `json:"bind"`
+	ModelHost       string               `json:"model_host"`
+	IdleTimeoutSecs int                  `json:"idle_timeout_seconds"`
+	WorkspacesDir   string               `json:"workspaces_dir"`
+	GPU             models.GPUConfig     `json:"gpu"`
+	Environment     map[string]string    `json:"environment"`
+	Local           models.LocalSettings `json:"local"`
 }
 
 type adminRegistryView struct {
@@ -174,9 +169,10 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
 	modelsList := h.runtime.ListModels()
 	host := h.runtime.ModelHost()
+	settings := h.admin.GetSettings()
 	var available []adminAvailableModel
 	if v := strings.ToLower(r.URL.Query().Get("available")); v == "1" || v == "true" {
-		available = discoverModelFiles(h.admin.ModelDir(), modelsList)
+		available = discoverModelFiles(settings.Local.ModelDir, modelsList)
 	}
 
 	sort.Slice(modelsList, func(i, j int) bool {
@@ -213,18 +209,18 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		Active:    activeDetails,
 		Config: adminConfigView{
 			WorkspacesDir:       sys.WorkspacesDir,
-			ModelHost:           h.admin.GetSystem().Server.ModelHost,
-			IdleTimeoutSecs:     h.admin.CurrentIdleTimeout(),
+			ModelHost:           sys.Server.ModelHost,
+			IdleTimeoutSecs:     sys.Server.IdleTimeoutSecs,
 			GPUProvider:         h.admin.GPUConfig().Provider,
 			GPUBinary:           h.admin.GPUConfig().Binary,
 			GPUIndex:            h.admin.GPUConfig().Index,
-			DefaultArgs:         h.admin.DefaultArgs(),
+			DefaultArgs:         settings.Local.DefaultArgs,
 			ServiceClientID:     id,
 			ServiceClientSecret: secret,
 			PrimaryModel:        reg.PrimaryModel,
 			FallbackModel:       reg.FallbackModel,
 			Providers:           h.getProvidersView(),
-			Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
+			Guardrails:          h.admin.GetGuardrails(),
 			Communication:       reg.Communication,
 			Search:              reg.Search,
 		},

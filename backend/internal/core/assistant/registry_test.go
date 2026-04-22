@@ -15,7 +15,9 @@ import (
 )
 
 func TestLocalToolRegistry_Discovery(t *testing.T) {
-	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
+	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{}
+	}), nil)
 	toolsList, err := r.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools failed: %v", err)
@@ -34,9 +36,11 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 			AllowedCommands: []string{"echo"},
 			TimeoutSeconds:  10,
 		}
-	})
+	}, nil)
 
-	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig { return models.FileSystemGuardrailsConfig{} }))
+	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{}
+	}), nil)
 
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
@@ -57,7 +61,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
-	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil, nil)
+	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil, nil, nil, nil)
 
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")
@@ -76,14 +80,14 @@ func TestInitializeAgentStack_FileSystemIsolation(t *testing.T) {
 	}
 
 	// 1. Initialize the stack
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, nil, nil)
+	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, nil, nil, nil, nil)
 
-	// 2. Access the MultiToolProvider 
+	// 2. Access the MultiToolProvider
 	multiProvider := provider.(*assistant.MultiToolProvider)
-	
+
 	// 3. Find the LocalToolRegistry (it's the first provider in InitializeAgentStack)
 	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
-	
+
 	// 4. Inspect its FileSystem configuration via the public method
 	fsCfg := localRegistry.FileSystem.Config(context.Background())
 
@@ -106,13 +110,13 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 	wsDir := filepath.Join(tmpRoot, "workspaces")
 	os.MkdirAll(wsDir, 0755)
 
-	resolver := storage.NewPathResolver(wsDir)
+	resolver := storage.NewPathResolver(tmpRoot, wsDir, wsDir)
 	manager := persistence.NewWorkspaceManager(resolver)
 
 	// 2. Create a workspace with specific overrides
 	wsID := "test-vault"
 	customTimeout := 123
-	
+
 	// Prepare a config with a custom timeout and a custom allowed path
 	wsCfg := models.WorkspaceConfig{
 		Guardrails: &models.AgentGuardrailsConfig{
@@ -126,7 +130,7 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Write the config to the workspace's .internal directory
 	if err := manager.WriteConfig(wsID, &wsCfg); err != nil {
 		t.Fatalf("failed to write workspace config: %v", err)
@@ -134,8 +138,8 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 
 	// 3. Initialize the Agent Stack
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, manager, nil, nil)
-	
+	provider, _, _ := assistant.InitializeAgentStack(appCtx, manager, nil, nil, nil, nil)
+
 	// Access the internal registry
 	multiProvider := provider.(*assistant.MultiToolProvider)
 	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
@@ -145,12 +149,12 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 	// ========================================================================
 	t.Run("Default_Context_Should_Use_Global_Manifests", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		termCfg := localRegistry.Terminal.Config(ctx)
 		if termCfg.TimeoutSeconds == customTimeout {
 			t.Errorf("expected default timeout, but got workspace override %d", termCfg.TimeoutSeconds)
 		}
-		
+
 		fsCfg := localRegistry.FileSystem.Config(ctx)
 		for _, p := range fsCfg.AllowedPaths {
 			if p == "/tmp/custom-authorized-path" {
@@ -165,7 +169,7 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 	t.Run("Workspace_Context_Should_Apply_Overrides", func(t *testing.T) {
 		// Inject workspace ID into context
 		ctx := models.WithWorkspaceID(context.Background(), wsID)
-		
+
 		// 1. Verify Terminal Timeout Override
 		termCfg := localRegistry.Terminal.Config(ctx)
 		if termCfg.TimeoutSeconds != customTimeout {
@@ -174,11 +178,11 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 
 		// 2. Verify FileSystem AllowedPaths Merging + Jaling
 		fsCfg := localRegistry.FileSystem.Config(ctx)
-		
+
 		foundCustom := false
 		foundJail := false
 		expectedJail := resolver.WorkspaceDir(wsID)
-		
+
 		for _, p := range fsCfg.AllowedPaths {
 			if p == "/tmp/custom-authorized-path" {
 				foundCustom = true
@@ -187,7 +191,7 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 				foundJail = true
 			}
 		}
-		
+
 		if !foundCustom {
 			t.Error("FileSystem override failed! Custom allowed path not found")
 		}
@@ -205,24 +209,28 @@ func (m *mockAppContext) GetSystem() models.SystemConfig {
 func (m *mockAppContext) GetRegistry() models.RegistryData {
 	return models.RegistryData{}
 }
-func (m *mockAppContext) RootDir() string {
-	return ""
+func (m *mockAppContext) GetGuardrails() models.AgentGuardrailsConfig {
+	return models.AgentGuardrailsConfig{}
+}
+func (m *mockAppContext) Resolver() storage.Resolver {
+	return storage.NewPathResolver("", "", "")
 }
 func (m *mockAppContext) Secrets() models.SecretsStore {
 	return &mocks.MockSecretsStore{}
-}
-func (m *mockAppContext) WorkspacesDir() string {
-	return ""
 }
 
 type mockAppContextWithDirs struct {
 	workspacesDir string
 }
-func (m *mockAppContextWithDirs) GetSystem() models.SystemConfig { return models.SystemConfig{} }
+
+func (m *mockAppContextWithDirs) GetSystem() models.SystemConfig   { return models.SystemConfig{} }
 func (m *mockAppContextWithDirs) GetRegistry() models.RegistryData { return models.RegistryData{} }
-func (m *mockAppContextWithDirs) RootDir() string               { return "" }
-func (m *mockAppContextWithDirs) Secrets() models.SecretsStore  { return &mocks.MockSecretsStore{} }
-func (m *mockAppContextWithDirs) WorkspacesDir() string         { return m.workspacesDir }
+func (m *mockAppContextWithDirs) GetGuardrails() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }
+func (m *mockAppContextWithDirs) RootDir() string                  { return "" }
+func (m *mockAppContextWithDirs) Secrets() models.SecretsStore     { return &mocks.MockSecretsStore{} }
+func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
+	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
+}
 
 func TestFileSystem_IsSecurePath(t *testing.T) {
 	allowed := []string{"/tmp/test_workspace"}

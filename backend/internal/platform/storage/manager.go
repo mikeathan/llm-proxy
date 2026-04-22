@@ -3,7 +3,11 @@ package storage
 import (
 	"fmt"
 	"llm-proxy/models"
+	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // DataManager orchestrates the 3-Tier storage model.
@@ -12,6 +16,9 @@ type DataManager struct {
 
 	// Config (System/Infrastructure)
 	systemStore *Store[models.SystemConfig]
+
+	// Settings (User Preferences)
+	settingsStore *Store[models.UserSettings]
 
 	// Secrets (Credentials)
 	encSecretStore *Store[models.EncryptedSecretData]
@@ -22,8 +29,9 @@ type DataManager struct {
 
 	// Templates (Reusable task playbooks)
 	templateStore *TemplateStore
-}
 
+	watcher *fsnotify.Watcher
+}
 
 func NewDataManager(rootDir string) (*DataManager, error) {
 	absRoot, err := filepath.Abs(rootDir)
@@ -42,6 +50,7 @@ func NewDataManager(rootDir string) (*DataManager, error) {
 	return &DataManager{
 		rootDir:        absRoot,
 		systemStore:    NewStore[models.SystemConfig](filepath.Join(absRoot, models.SystemConfigFilename)),
+		settingsStore:  NewStore[models.UserSettings](filepath.Join(getMetadataDir(absRoot), models.SettingsFilename)),
 		encSecretStore: encStore,
 		secretsStore:   secStore,
 		registryStore:  NewStore[models.RegistryData](filepath.Join(absRoot, models.RegistryFilename)),
@@ -49,8 +58,70 @@ func NewDataManager(rootDir string) (*DataManager, error) {
 	}, nil
 }
 
+func (m *DataManager) Watch() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	m.watcher = watcher
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// debounce slightly to avoid multiple reloads on rapid writes
+				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Remove == fsnotify.Remove {
+					time.Sleep(100 * time.Millisecond)
+					filename := filepath.Base(event.Name)
+					switch filename {
+					case models.SystemConfigFilename:
+						_ = m.systemStore.Load()
+					case models.SettingsFilename:
+						_ = m.settingsStore.Load()
+					case models.RegistryFilename:
+						_ = m.registryStore.Load()
+					case models.SecretsFilename:
+						_ = m.encSecretStore.Load()
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				fmt.Printf("Watcher error: %v\n", err)
+			}
+		}
+	}()
+
+	// Watch root and metadata dirs
+	if err := watcher.Add(m.rootDir); err != nil {
+		return err
+	}
+	metadataDir := m.MetadataDir()
+	if _, err := os.Stat(metadataDir); err == nil {
+		if err := watcher.Add(metadataDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *DataManager) Close() error {
+	if m.watcher != nil {
+		return m.watcher.Close()
+	}
+	return nil
+}
+
 func (m *DataManager) LoadAll() error {
 	if err := m.systemStore.Load(); err != nil {
+		return err
+	}
+	if err := m.settingsStore.Load(); err != nil {
 		return err
 	}
 	if err := m.encSecretStore.Load(); err != nil {
@@ -64,10 +135,12 @@ func (m *DataManager) LoadAll() error {
 
 func (m *DataManager) System() *Store[models.SystemConfig] { return m.systemStore }
 
+func (m *DataManager) Settings() *Store[models.UserSettings] { return m.settingsStore }
+
 func (m *DataManager) Secrets() models.SecretsStore { return m.secretsStore }
 
 func (m *DataManager) Registry() *Store[models.RegistryData] { return m.registryStore }
-func (m *DataManager) Templates() *TemplateStore { return m.templateStore }
+func (m *DataManager) Templates() *TemplateStore             { return m.templateStore }
 
 func (m *DataManager) RootDir() string { return m.rootDir }
 func (m *DataManager) WorkspacesDir() string {
@@ -79,4 +152,24 @@ func (m *DataManager) WorkspacesDir() string {
 		return filepath.Join(m.rootDir, sys.WorkspacesDir)
 	}
 	return filepath.Join(m.rootDir, models.WorkspacesDirName)
+}
+
+func (m *DataManager) MetadataDir() string {
+	return getMetadataDir(m.rootDir)
+}
+
+func getMetadataDir(rootDir string) string {
+	if envDir := os.Getenv("LLM_PROXY_CONFIG_DIR"); envDir != "" {
+		return envDir
+	}
+
+	// 1. Primary: Use ~/.config/llm-proxy as requested ("out of sight" in home dir)
+	home, err := os.UserHomeDir()
+	if err == nil {
+		return filepath.Join(home, ".config", "llm-proxy")
+	}
+
+	// 2. Fallback: Use a centralized hidden .internal folder in the app root
+	// This reuses the existing naming convention without scattering folders.
+	return filepath.Join(rootDir, models.InternalDirName)
 }
