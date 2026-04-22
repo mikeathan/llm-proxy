@@ -18,13 +18,15 @@ export function useModelDiscovery(
 
     for (const m of filtered) {
       const base = getBaseName(m.filename);
-      if (!groups[base]) {
-        groups[base] = { 
+      const key = base.toLowerCase();
+      
+      if (!groups[key]) {
+        groups[key] = { 
           name: base, 
           items: []
         };
       }
-      groups[base].items.push(m);
+      groups[key].items.push(m);
     }
     
     return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
