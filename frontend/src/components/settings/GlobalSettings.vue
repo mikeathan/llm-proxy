@@ -20,6 +20,7 @@ const emit = defineEmits<{
   (e: "update:editConfig", config: GlobalConfig): void;
   (e: "updateConfig"): void;
   (e: "updateLogLevel", level: string): void;
+  (e: "restartBackend"): void;
 }>();
 
 // Dynamic access to local provider. 
@@ -63,6 +64,12 @@ const environmentStr = computed({
 
 function submitConfig() {
   emit("updateConfig");
+}
+
+function handleRestart() {
+  if (window.confirm("Are you sure you want to restart the backend? This will terminate any active model sessions and automations.")) {
+    emit("restartBackend");
+  }
 }
 </script>
 <template>
@@ -244,7 +251,15 @@ function submitConfig() {
         />
       </div>
 
-      <div class="form-actions">
+      <div class="form-actions gap-3">
+        <BaseButton 
+          type="button" 
+          variant="secondary" 
+          icon="power"
+          @click="handleRestart"
+        >
+          Restart Backend
+        </BaseButton>
         <BaseButton type="submit" variant="primary" icon="play">
           Save Local Engine Settings
         </BaseButton>

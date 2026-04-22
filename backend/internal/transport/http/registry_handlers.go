@@ -435,10 +435,18 @@ func discoverModelFiles(modelDir string, current []models.ModelConfig) []adminAv
 		if _, ok := seenNames[name]; ok {
 			return nil
 		}
+		var sizeBytes int64
+		if targetInfo, err := os.Stat(fullPath); err == nil {
+			sizeBytes = targetInfo.Size()
+		} else if info, err := d.Info(); err == nil {
+			sizeBytes = info.Size()
+		}
+
 		found = append(found, adminAvailableModel{
 			Name:         name,
 			Filename:     d.Name(),
 			ResolvedPath: fullPath,
+			SizeBytes:    sizeBytes,
 		})
 		return nil
 	})

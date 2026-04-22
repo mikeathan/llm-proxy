@@ -35,6 +35,7 @@ export interface AvailableModel {
   name: string
   filename: string
   resolved_path: string
+  size_bytes: number
 }
 
 export interface NewModelForm {

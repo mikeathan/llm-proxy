@@ -74,6 +74,7 @@ type adminAvailableModel struct {
 	Name         string `json:"name"`
 	Filename     string `json:"filename"`
 	ResolvedPath string `json:"resolved_path"`
+	SizeBytes    int64  `json:"size_bytes"`
 }
 
 type adminStateResponse struct {
