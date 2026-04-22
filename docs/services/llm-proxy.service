@@ -6,9 +6,9 @@ Wants=network-online.target
 [Service]
 User=mikeathan
 Group=mikeathan
-WorkingDirectory=/home/mikeathan/dev/llm-proxy
 Environment=APP_ENV=production
-ReadWritePaths=/home/mikeathan/dev/llm-proxy/backend
+ReadWritePaths=/home/mikeathan/dev/llm-proxy
+WorkingDirectory=/home/mikeathan/dev/llm-proxy/backend
 ExecStart=/home/mikeathan/dev/llm-proxy/backend/llm-proxy
 Restart=always
 RestartSec=3

@@ -184,6 +184,7 @@ onMounted(() => {
         <DiscoveredList
           v-if="filterProvider === 'local'"
           :available-models="availableModels"
+          :already-configured="props.state?.models.map(m => m.filename).filter(Boolean) as string[] || []"
           @select="selectAvailableModel"
         />
       </div>
