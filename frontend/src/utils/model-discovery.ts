@@ -1,11 +1,18 @@
 /** Regex to identify where a "Base Name" ends and "Version/Quant/Size" starts */
-export const MODEL_CLEANUP_REGEX = /[-\._]([qQ][0-9]|i[qQ][0-9]|[0-9]+[bB]|[vV][0-9]+|[iI][tT]|draft|preview|f[0-9]|fp[0-9]|int[0-9]|[0-9])[a-zA-Z0-9_\.]*/gi;
+export const MODEL_CLEANUP_REGEX = /[-\._]([qQ][0-9]|i[qQ][0-9]|[0-9]+[bB]|[vV][0-9]+|[iI][tT]|draft|preview|instruct|instrcut|f[0-9]|fp[0-9]|int[0-9]|[0-9])[a-zA-Z0-9_\.]*/gi;
 
 /** Normalizes a filename to its base family name */
 export function getBaseName(filename: string): string {
-  return filename
+  const base = filename
     .replace(/\.gguf$/i, '')
     .replace(MODEL_CLEANUP_REGEX, '')
+    .trim();
+
+  // Second pass: Strip trailing version numbers to group by Brand (e.g. Qwen2 -> Qwen)
+  // This handles trailing numbers like Qwen2, Llama3, Llama-3.1, etc.
+  return base
+    .replace(/[0-9]+(\.[0-9]+)?$/g, '') // Strip numbers at end (3, 3.5)
+    .replace(/[-\._]$/, '')             // Strip trailing separator
     .trim();
 }
 
