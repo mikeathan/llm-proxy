@@ -3,6 +3,7 @@ package mocks
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
@@ -66,8 +67,8 @@ func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName 
 	return m.Client.GetClientForModel(ctx, modelName)
 }
 
-func (m *MockAssistantService) GuardrailEngine() *assistant.GuardrailEngine {
-	return assistant.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+func (m *MockAssistantService) GuardrailEngine() *guardrails.GuardrailEngine {
+	return guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
 	}, m.Resolver(), m.PersistenceMgr)
 }

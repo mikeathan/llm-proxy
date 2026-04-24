@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
-	"regexp"
 	"strings"
 	"time"
+
 )
 
 // Agent represents a unified, stateful assistant that can use tools.
@@ -18,37 +19,17 @@ type Agent struct {
 	client      proxy.Client
 	provider    ToolProvider
 	engine      Engine
-	guardrails  *GuardrailEngine
+	guardrails  *guardrails.GuardrailEngine
 	logger      logging.Logger
 	maxSteps    int
 	observer    Observer
 	workspaceID string
 }
 
-type AgentEventType string
-
-const (
-	EventStepStart          AgentEventType = "step_start"
-	EventMessage            AgentEventType = "message"
-	EventToolCall           AgentEventType = "tool_call"
-	EventToolResult         AgentEventType = "tool_result"
-	EventGuardrailViolation AgentEventType = "guardrail_violation"
-	EventError              AgentEventType = "error"
-	EventToolStream         AgentEventType = "tool_stream"
-)
-
-type AgentEvent struct {
-	Type      AgentEventType `json:"type"`
-	Payload   any            `json:"payload"`
-	Timestamp time.Time      `json:"timestamp"`
-}
-
-type Observer func(AgentEvent)
-
 type AgentOptions struct {
 	MaxSteps    int
 	Logger      logging.Logger
-	Guardrails  *GuardrailEngine
+	Guardrails  *guardrails.GuardrailEngine
 	Observer    Observer
 	WorkspaceID string
 }
@@ -62,16 +43,16 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		opts.Logger = logging.NewNopLogger()
 	}
 	// Default guardrail engine if none provided
-	guardrails := opts.Guardrails
-	if guardrails == nil {
-		guardrails = NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
+	gr := opts.Guardrails
+	if gr == nil {
+		gr = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
 	}
 
 	return &Agent{
 		client:      client,
 		provider:    provider,
 		engine:      engine,
-		guardrails:  guardrails,
+		guardrails:  gr,
 		logger:      opts.Logger,
 		maxSteps:    opts.MaxSteps,
 		observer:    opts.Observer,
@@ -165,22 +146,7 @@ func (a *Agent) processStream(ch <-chan *proxy.ChatResponse, fullMsg *proxy.Mess
 				
 				// UI Smoothing: If we detect the start of a tool call signature, 
 				// stop streaming to the text-content bus to avoid showing raw technical markup.
-				displayContent := fullMsg.Content
-				hasToolCall := false
-				cutoffPatterns := []string{
-					"<function-name>", "<tools>", "functions.", 
-					"```json", "```", 
-					"{\"name\":", "[{\"name\":", 
-					"{\"target\":", "{\"mode\":", "{\"command\":",
-					"[{'type':", "{\"type\":",
-				}
-				for _, p := range cutoffPatterns {
-					if idx := strings.Index(displayContent, p); idx != -1 {
-						displayContent = displayContent[:idx]
-						hasToolCall = true
-						break
-					}
-				}
+				displayContent, hasToolCall := FilterStreamingMarkup(fullMsg.Content)
 				
 				// If we've reached a tool call, provide a small visual hint in the stream
 				// so the user knows the agent is still active but is now processing technical steps.
@@ -321,78 +287,4 @@ func isToolSupportError(err error) bool {
 		strings.Contains(lowErr, "parameter `tools`")
 }
 
-func (a *Agent) notify(t AgentEventType, payload any) {
-	if a.observer != nil {
-		a.observer(AgentEvent{
-			Type:      t,
-			Payload:   payload,
-			Timestamp: time.Now(),
-		})
-	}
-}
 
-// Named Notification Wrappers
-
-func (a *Agent) notifyThinking() {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "🤖 Agent is thinking...",
-	})
-}
-
-func (a *Agent) notifyStepStart(step int) {
-	a.notify(EventStepStart, map[string]int{"step": step})
-}
-
-func (a *Agent) notifyFallbackWarning(err error) {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "⚠️ WARNING: The selected model does not support tool calling. Fallback mode engaged (tools disabled). " + err.Error(),
-	})
-}
-
-func (a *Agent) notifyPrematureTerminationNag(history *[]proxy.Message) {
-	nagMsg := proxy.Message{
-		Role:    "user",
-		Content: "You returned an incomplete response. You MUST continue using tools or reply with the final comprehensive Markdown report as requested.",
-	}
-	*history = append(*history, nagMsg)
-	a.notify(EventMessage, nagMsg)
-}
-
-func (a *Agent) notifyToolCall(tc proxy.ToolCall) {
-	a.notify(EventToolCall, tc)
-}
-
-func (a *Agent) notifyToolResult(id, name string, result any) {
-	a.notify(EventToolResult, map[string]any{"id": id, "name": name, "result": result})
-}
-
-func (a *Agent) notifyGuardrailViolation(tool string, err error) {
-	a.notify(EventGuardrailViolation, map[string]string{
-		"tool":  tool,
-		"error": err.Error(),
-	})
-}
-
-func normalizeContent(content string) string {
-	content = strings.TrimSpace(content)
-
-	// Detect and extract text from common "structured noise" blocks
-	// e.g. [{'type': 'text', 'text': 'Hello'}] -> Hello
-	// We handle both complete and incomplete/truncated blocks
-	extractionPatterns := []struct {
-		pattern     string
-		replacement string
-	}{
-		{`\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"](.*?)['"]\s*\}?\s*\]?`, "$1"},
-		{`\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`, "$1"}, 
-	}
-
-	for _, p := range extractionPatterns {
-		re := regexp.MustCompile("(?s)" + p.pattern) // Use (?s) to allow matching across newlines in $1
-		content = re.ReplaceAllString(content, p.replacement)
-	}
-
-	return strings.TrimSpace(content)
-}

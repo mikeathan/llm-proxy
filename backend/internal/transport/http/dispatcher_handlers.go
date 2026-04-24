@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -318,9 +318,9 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 
 	// Create default task files in root
 	defaultTaskFiles := map[string]string{
-		models.HeartbeatFilename:   assistant.DefaultHeartbeat,
-		models.AgentPromptFilename: assistant.DefaultAgentPrompt,
-		models.RulesFilename:       assistant.DefaultRules,
+		models.HeartbeatFilename:   prompts.DefaultHeartbeat,
+		models.AgentPromptFilename: prompts.DefaultAgentPrompt,
+		models.RulesFilename:       prompts.DefaultRules,
 	}
 
 	for filename, content := range defaultTaskFiles {

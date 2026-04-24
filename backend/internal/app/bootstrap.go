@@ -7,6 +7,7 @@ import (
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/mcp"
@@ -120,7 +121,7 @@ type AppServices struct {
 	toolProvider    assistant.ToolProvider
 	clientProvider  proxy.LLMClientProvider
 	engine          assistant.Engine
-	guardrailEngine *assistant.GuardrailEngine
+	guardrailEngine *guardrails.GuardrailEngine
 	persistence     *persistence.WorkspaceManager
 	logger          logging.Logger
 	Clock           utils.Clock
@@ -169,7 +170,7 @@ func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func (s AppServices) GuardrailEngine() *assistant.GuardrailEngine {
+func (s AppServices) GuardrailEngine() *guardrails.GuardrailEngine {
 	return s.guardrailEngine
 }
 

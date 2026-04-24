@@ -1,4 +1,4 @@
-package assistant
+package guardrails
 
 import (
 	"context"
@@ -14,6 +14,12 @@ import (
 	"strings"
 )
 
+var secretRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),
+	regexp.MustCompile(`AKIA[a-zA-Z0-9]{16}`),
+	regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),
+}
+
 // GuardrailEngine evaluates tool calls against configured boundaries.
 type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
@@ -21,6 +27,7 @@ type GuardrailEngine struct {
 	persistence    *persistence.WorkspaceManager
 }
 
+// NewGuardrailEngine creates a new validation engine
 func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver storage.Resolver, persistence *persistence.WorkspaceManager) *GuardrailEngine {
 	return &GuardrailEngine{
 		configProvider: provider,
@@ -64,14 +71,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 
 func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalGuardrailsConfig) error {
 	if cfg.BlockSecrets {
-		// regex to find common API key formats (sk-..., AKIA..., etc)
-		secretPatterns := []string{
-			`sk-[a-zA-Z0-9]{32,}`,
-			`AKIA[a-zA-Z0-9]{16}`,
-			`AIza[a-zA-Z0-9_-]{35}`,
-		}
-		for _, p := range secretPatterns {
-			re := regexp.MustCompile(p)
+		for _, re := range secretRegexes {
 			if re.MatchString(call.Function.Arguments) {
 				return fmt.Errorf("guardrail violation: sensitive data detected in tool arguments")
 			}

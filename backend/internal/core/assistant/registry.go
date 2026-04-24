@@ -3,6 +3,8 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
@@ -58,7 +60,7 @@ func InitializeAgentStack(
 	logger logging.Logger,
 	poolManager tools.SandboxProvider,
 	observer tools.StreamObserver,
-) (ToolProvider, Engine, *GuardrailEngine) {
+) (ToolProvider, Engine, *guardrails.GuardrailEngine) {
 	resolver := appCtx.Resolver()
 	// 1. Load defaults from settings/manifests
 	defaultGuardrails := appCtx.GetGuardrails()
@@ -83,7 +85,7 @@ func InitializeAgentStack(
 
 	// 3. Initialize Guardrail Engine with granular merging
 	// We want to use config.json values if they exist, otherwise fallback to defaults.
-	guardrails := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, resolver, persistence)
 
@@ -145,7 +147,7 @@ func InitializeAgentStack(
 	mcpEngine := NewEngine(mcp, logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
 
-	return provider, engine, guardrails
+	return provider, engine, grEngine
 }
 
 // ListTools satisfies the ToolProvider interface.
@@ -155,7 +157,7 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 
 // GetSystemPrompt satisfies the ToolProvider interface.
 func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
-	return LocalAssistantPrompt, nil
+	return prompts.LocalAssistantPrompt, nil
 }
 
 var ErrToolNotInternal = fmt.Errorf("tool not found in local registry")

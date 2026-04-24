@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
@@ -92,7 +93,7 @@ type AssistantService interface {
 
 	Engine() assistant.Engine
 	ToolProvider() assistant.ToolProvider
-	GuardrailEngine() *assistant.GuardrailEngine
+	GuardrailEngine() *guardrails.GuardrailEngine
 	Persistence() *persistence.WorkspaceManager
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ProcessLogger(workspaceID string) logging.Logger

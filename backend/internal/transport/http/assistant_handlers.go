@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -28,7 +30,7 @@ type AssistantMessageHandler struct {
 	limiter     ratelimiter.Limiter
 	logger      logging.Logger
 	engine      assistant.Engine
-	guardrails  *assistant.GuardrailEngine
+	guardrails  *guardrails.GuardrailEngine
 	persistence *persistence.WorkspaceManager
 	svc         AssistantService
 }
@@ -199,7 +201,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 
 	// Calculate robust relative path from Current Working Directory to Workspaces Dir
 	relWs := h.persistence.GetRelativeWorkspacePath()
-	jailPrompt := assistant.BuildJailPrompt(relWs, payload.WorkspaceID)
+	jailPrompt := prompts.BuildJailPrompt(relWs, payload.WorkspaceID)
 
 	agentPrompt := ""
 	if payload.WorkspaceID != "" && h.persistence != nil {
@@ -212,7 +214,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 	return []proxy.Message{
 		{
 			Role: proxy.SystemRole,
-			Content: assistant.BuildSystemMessage(
+			Content: prompts.BuildSystemMessage(
 				systemPrompt+jailPrompt+agentPrompt,
 				payload.ConversationID,
 				payload.ContextVersion,
