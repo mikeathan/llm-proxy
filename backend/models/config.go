@@ -175,9 +175,10 @@ type ProviderItem struct {
 }
 
 type MCPServerConfig struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Enabled   bool   `json:"enabled"`
+	TLSCACert string `json:"tls_ca_cert,omitempty"` 
 }
 
 type ServerConfig struct {

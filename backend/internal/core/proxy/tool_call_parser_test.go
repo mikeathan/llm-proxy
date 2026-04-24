@@ -35,8 +35,8 @@ func TestParseContentToolCalls_StandardToolCall(t *testing.T) {
 		t.Error("expected a non-empty tool call ID")
 	}
 	// Arguments should be valid, non-empty JSON
-	if tc.Function.Arguments == "" || tc.Function.Arguments == "{}" {
-		t.Errorf("expected non-empty arguments, got %q", tc.Function.Arguments)
+	if string(tc.Function.Arguments) == "" || string(tc.Function.Arguments) == "{}" {
+		t.Errorf("expected non-empty arguments, got %q", string(tc.Function.Arguments))
 	}
 }
 
@@ -101,8 +101,8 @@ func TestParseContentToolCalls_MissingArgs(t *testing.T) {
 		t.Errorf("expected 'list_devices', got %q", calls[0].Function.Name)
 	}
 	// Should fall back to empty args object
-	if calls[0].Function.Arguments != "{}" {
-		t.Errorf("expected '{}' as fallback args, got %q", calls[0].Function.Arguments)
+	if string(calls[0].Function.Arguments) != "{}" {
+		t.Errorf("expected '{}' as fallback args, got %q", string(calls[0].Function.Arguments))
 	}
 }
 
@@ -136,8 +136,8 @@ func TestParseContentToolCalls_ToolsTagFormat(t *testing.T) {
 	if tc.Type != "function" {
 		t.Errorf("expected type 'function', got %q", tc.Type)
 	}
-	if tc.Function.Arguments == "" || tc.Function.Arguments == "{}" {
-		t.Errorf("expected non-empty arguments, got %q", tc.Function.Arguments)
+	if string(tc.Function.Arguments) == "" || string(tc.Function.Arguments) == "{}" {
+		t.Errorf("expected non-empty arguments, got %q", string(tc.Function.Arguments))
 	}
 }
 

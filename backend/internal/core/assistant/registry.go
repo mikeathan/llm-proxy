@@ -138,7 +138,7 @@ func InitializeAgentStack(
 			}
 		}
 		return cfg
-	})
+	}, logger)
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
 

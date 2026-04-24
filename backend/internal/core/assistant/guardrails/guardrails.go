@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 var secretRegexes = []*regexp.Regexp{
@@ -25,6 +26,7 @@ type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
 	resolver       storage.Resolver
 	persistence    *persistence.WorkspaceManager
+	regexCache     sync.Map
 }
 
 // NewGuardrailEngine creates a new validation engine
@@ -33,6 +35,7 @@ func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver s
 		configProvider: provider,
 		resolver:       resolver,
 		persistence:    persistence,
+		regexCache:     sync.Map{},
 	}
 }
 
@@ -72,7 +75,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalGuardrailsConfig) error {
 	if cfg.BlockSecrets {
 		for _, re := range secretRegexes {
-			if re.MatchString(call.Function.Arguments) {
+			if re.Match([]byte(call.Function.Arguments)) {
 				return fmt.Errorf("guardrail violation: sensitive data detected in tool arguments")
 			}
 		}
@@ -87,7 +90,7 @@ func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalG
 		if err != nil {
 			continue // Skip invalid regex
 		}
-		if re.MatchString(call.Function.Arguments) {
+		if re.Match([]byte(call.Function.Arguments)) {
 			return fmt.Errorf("guardrail violation: blocked pattern detected (%s)", p)
 		}
 	}
@@ -102,7 +105,7 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	return tools.ValidateTerminalCommand(args.Command, cfg)
+	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache)
 }
 
 func (e *GuardrailEngine) validateSearch(call proxy.ToolCall, cfg models.SearchGuardrailsConfig) error {
@@ -116,7 +119,7 @@ func (e *GuardrailEngine) validateSearch(call proxy.ToolCall, cfg models.SearchG
 
 	// Check for blocked domains in arguments
 	for _, site := range cfg.BlockedSites {
-		if strings.Contains(call.Function.Arguments, site) {
+		if strings.Contains(string(call.Function.Arguments), site) {
 			return fmt.Errorf("guardrail violation: search query contains blocked domain '%s'", site)
 		}
 	}
@@ -127,7 +130,7 @@ func (e *GuardrailEngine) validateCommunication(call proxy.ToolCall, cfg models.
 	if !cfg.Enabled {
 		return fmt.Errorf("communication tools are disabled by guardrails policy")
 	}
-	
+
 	if cfg.RequireReview {
 		return fmt.Errorf("guardrail check: manual approval required for this communication")
 	}
@@ -150,7 +153,7 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 	// Special Case: Allow "." (current directory) but block other items starting with "."
 	base := filepath.Base(args.Path)
 	isDot := args.Path == "." || args.Path == "./"
-	
+
 	if (!isDot && (strings.HasPrefix(base, ".") || (strings.HasPrefix(args.Path, "..")) || strings.Contains(args.Path, "/."))) ||
 		base == models.ConfigFilename || base == models.StateFilename ||
 		base == models.LockFilename ||
@@ -185,9 +188,14 @@ func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.Networ
 
 	// For fetch_url, check domains in arguments
 	if call.Function.Name == models.ToolNetworkFetch {
-		for _, domain := range cfg.BlockedDomains {
-			if strings.Contains(call.Function.Arguments, domain) {
-				return fmt.Errorf("guardrail violation: URL contains blocked domain '%s'", domain)
+		var args struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err == nil {
+			// Reuse the same boundary check logic from the tool itself
+			host := tools.ExtractHost(args.URL)
+			if err := tools.ValidateDomainBoundary(host, cfg.BlockedDomains); err != nil {
+				return err
 			}
 		}
 	}

@@ -78,3 +78,62 @@ func TestCreateWorkspace_Isolation(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatcherHandlers_Validation(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	dispatcher := &testDispatcher{mgr: mgr}
+	handlers := NewDispatcherHandlers(dispatcher, logging.NewNopLogger())
+
+	tests := []struct {
+		name           string
+		workspaceID    string
+		automationName string
+		wantStatus     int
+	}{
+		{
+			name:        "Valid IDs work",
+			workspaceID: "valid-ws",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "Invalid workspace ID (injection)",
+			workspaceID: "../outside",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "Invalid workspace ID (special chars)",
+			workspaceID: "invalid$id",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:           "Invalid automation name",
+			workspaceID:    "valid-ws",
+			automationName: "bad/auto",
+			wantStatus:     http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/workspaces/"+tt.workspaceID, nil)
+			req.SetPathValue(models.WorkspaceIDParam, tt.workspaceID)
+			if tt.automationName != "" {
+				req.SetPathValue("automation", tt.automationName)
+			}
+			
+			rr := httptest.NewRecorder()
+
+			if tt.automationName != "" {
+				handlers.TriggerAutomation(rr, req)
+			} else {
+				handlers.GetWorkspaceState(rr, req)
+			}
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("%s: expected status %d, got %d. Body: %s", tt.name, tt.wantStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}

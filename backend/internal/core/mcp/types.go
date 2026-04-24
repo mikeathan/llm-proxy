@@ -16,6 +16,7 @@ type Client struct {
 	Name          string
 	URL           string
 	BindAddr      string
+	TLSCACert     string
 	logger        logging.Logger
 	retryInterval time.Duration
 

@@ -4,6 +4,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -32,11 +34,12 @@ func getKeepAliveInterval() time.Duration {
 	return 15 * time.Second
 }
 
-func NewClient(name, sseURL, bindAddr string, logger logging.Logger) *Client {
+func NewClient(name, sseURL, bindAddr string, tlsCACert string, logger logging.Logger) *Client {
 	return &Client{
 		Name:          name,
 		URL:           sseURL,
 		BindAddr:      bindAddr,
+		TLSCACert:     tlsCACert,
 		logger:        logger,
 		retryInterval: 5 * time.Second,
 		subscriptions: make(map[string]struct{}),
@@ -186,6 +189,24 @@ func (c *Client) connect(ctx context.Context, logger *logging.PulseLogger) error
 		IdleConnTimeout:       0,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// Support custom CA certificates for TLS verification
+	if c.TLSCACert != "" {
+		caCert, err := os.ReadFile(c.TLSCACert)
+		if err != nil {
+			return fmt.Errorf("failed to read TLS CA cert from %s: %w", c.TLSCACert, err)
+		}
+		caCertPool, _ := x509.SystemCertPool()
+		if caCertPool == nil {
+			caCertPool = x509.NewCertPool()
+		}
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return fmt.Errorf("failed to append CA cert from %s", c.TLSCACert)
+		}
+		transport.TLSClientConfig = &tls.Config{
+			RootCAs: caCertPool,
+		}
 	}
 
 	httpClient := &http.Client{

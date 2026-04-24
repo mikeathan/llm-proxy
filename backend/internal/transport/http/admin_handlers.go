@@ -155,7 +155,7 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := decodeJSON(r, v); err != nil {
+	if err := decodeJSON(w, r, v); err != nil {
 		if errors.Is(err, ErrUnsupportedContentType) {
 			writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		} else {

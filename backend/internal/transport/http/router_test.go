@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +99,49 @@ func TestRouter_MethodOverridesAny(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestDecodeJSON_BodyLimit(t *testing.T) {
+	// 1. Create a large body (> 4MB)
+	largeBody := strings.Repeat("a", 5*1024*1024)
+	r := httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{"message":"`+largeBody+`"}`)))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	var payload struct {
+		Message string `json:"message"`
+	}
+
+	// 2. Call decodeJSON
+	err := decodeJSON(w, r, &payload)
+
+	// 3. Verify it failed due to size limit
+	if err == nil {
+		t.Errorf("expected error for body exceeding 4MB limit, got nil")
+	}
+
+	// http.MaxBytesReader returns a specific error type that json.Decoder wraps
+	if !strings.Contains(err.Error(), "too large") {
+		t.Errorf("expected 'too large' error, got: %v", err)
+	}
+}
+
+func TestDecodeJSON_ValidBody(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{"message":"hello"}`)))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	var payload struct {
+		Message string `json:"message"`
+	}
+
+	err := decodeJSON(w, r, &payload)
+	if err != nil {
+		t.Errorf("expected no error for valid 1MB body, got: %v", err)
+	}
+
+	if payload.Message != "hello" {
+		t.Errorf("expected message 'hello', got: %s", payload.Message)
 	}
 }

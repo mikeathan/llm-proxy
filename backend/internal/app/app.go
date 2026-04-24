@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
@@ -91,8 +92,12 @@ func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildin
 
 	return &App{
 		server: &http.Server{
-			Addr:    bindAddr,
-			Handler: router,
+			Addr:              bindAddr,
+			Handler:           router,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      120 * time.Second,
+			IdleTimeout:       120 * time.Second,
 		},
 		services:   svc,
 		dispatcher: container.Dispatcher,

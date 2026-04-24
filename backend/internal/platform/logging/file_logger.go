@@ -50,7 +50,7 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		if err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
 			return nil, err
 		}

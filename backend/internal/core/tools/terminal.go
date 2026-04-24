@@ -21,6 +21,7 @@ type TerminalTools struct {
 	pathResolver   func(workspaceID string) string
 	sandboxPool    SandboxProvider
 	observer       StreamObserver
+	regexCache     sync.Map 
 }
 
 type SandboxProvider interface {
@@ -41,6 +42,7 @@ func NewTerminalTools(
 	return &TerminalTools{
 		configProvider: provider,
 		pathResolver:   pathResolver,
+		regexCache:     sync.Map{},
 	}
 }
 
@@ -56,26 +58,41 @@ func (t *TerminalTools) Config(ctx context.Context) models.TerminalGuardrailsCon
 
 // Validate checks if a command is allowed based on the provided configuration.
 func (t *TerminalTools) Validate(ctx context.Context, command string) error {
-	return ValidateTerminalCommand(command, t.configProvider(ctx))
+	return ValidateTerminalCommand(command, t.configProvider(ctx), &t.regexCache)
 }
 
-// ValidateTerminalCommand is a standalone validator that checks a command against guardrails.
-func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig) error {
+// ValidateTerminalCommand is a standalone-like validator that checks a command against guardrails.
+func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig, cache *sync.Map) error {
 	if !cfg.Enabled {
 		return fmt.Errorf("terminal tools are disabled in configuration")
 	}
 
-	cleanCmd := strings.TrimSpace(command)
+	// Normalize whitespace: trim and collapse internal spaces to prevent bypasses like "rm  -rf"
+	cleanCmd := strings.Join(strings.Fields(command), " ")
 	if cleanCmd == "" {
 		return fmt.Errorf("empty command")
 	}
 
 	// 1. Check Blocked Patterns FIRST
 	for _, pattern := range cfg.BlockedPatterns {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			continue 
+		var re *regexp.Regexp
+		if cache != nil {
+			if val, ok := cache.Load(pattern); ok {
+				re = val.(*regexp.Regexp)
+			}
 		}
+		
+		if re == nil {
+			var err error
+			re, err = regexp.Compile(pattern)
+			if err != nil {
+				continue
+			}
+			if cache != nil {
+				cache.Store(pattern, re)
+			}
+		}
+
 		if re.MatchString(cleanCmd) {
 			return fmt.Errorf("command contains blocked pattern: %s", pattern)
 		}

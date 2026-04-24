@@ -184,8 +184,8 @@ func parseToolsTagFormat(content string) ([]ToolCall, bool) {
 	}
 
 	type toolEntry struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	}
 
 	calls := make([]ToolCall, 0, len(tagMatches))
@@ -197,17 +197,12 @@ func parseToolsTagFormat(content string) ([]ToolCall, bool) {
 			continue
 		}
 
-		argsJSON, err := json.Marshal(entry.Arguments)
-		if err != nil {
-			argsJSON = []byte("{}")
-		}
-
 		calls = append(calls, ToolCall{
 			ID:   fmt.Sprintf("cid-%d", i),
 			Type: "function",
 			Function: FunctionCall{
 				Name:      entry.Name,
-				Arguments: string(argsJSON),
+				Arguments: string(entry.Arguments),
 			},
 		})
 	}

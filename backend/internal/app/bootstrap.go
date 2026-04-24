@@ -13,14 +13,14 @@ import (
 	"llm-proxy/internal/core/mcp"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/sandbox"
-	"llm-proxy/internal/core/tools"
 	api "llm-proxy/internal/transport/http"
-	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -55,6 +55,7 @@ func (c *Container) BuildAppServices() *AppServices {
 		logger:      c.Infra.Logger,
 		Clock:       c.Infra.Clock,
 		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
+		limiter:     ratelimiter.NewLimiter(c.Infra.Clock),
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -69,32 +70,32 @@ func (c *Container) BuildAppServices() *AppServices {
 
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
 	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(
-		s.AppCtx, 
-		s.persistence, 
-		s.nodeHerder, 
-		s.logger, 
-		poolManager, 
+		s.AppCtx,
+		s.persistence,
+		s.nodeHerder,
+		s.logger,
+		poolManager,
 		streamObserver,
 	)
 
 	return s
 }
 
-// initSandboxOrchestrator spins up the background Warm Container Pool 
+// initSandboxOrchestrator spins up the background Warm Container Pool
 // and configures the streaming T-Junction metrics observer for the frontend.
 func (c *Container) initSandboxOrchestrator(s *AppServices) (tools.SandboxProvider, tools.StreamObserver) {
 	var poolManager tools.SandboxProvider
 
 	settings := s.AppCtx.HostSettings()
-	if settings.Sandboxing.Enabled {
-		if pm, err := sandbox.NewWazeroPool(settings.Sandboxing); err == nil {
-			poolManager = pm
-			c.Infra.Logger.Info("WASM Sandbox Engine (Wazero) initialized successfully")
-		} else {
-			c.Infra.Logger.Error("Failed to start WASM Sandbox Engine, using local host proxy fallback", "error", err)
-		}
+	if !settings.Sandboxing.Enabled {
+		log.Fatal("[SECURITY] Sandboxing is required for agentic execution. Set sandboxing.enabled = true in host settings.")
+	}
+
+	if pm, err := sandbox.NewWazeroPool(settings.Sandboxing); err == nil {
+		poolManager = pm
+		c.Infra.Logger.Info("WASM Sandbox Engine (Wazero) initialized successfully")
 	} else {
-		c.Infra.Logger.Warn("Security Warning: Agent Sandbox is disabled. Output tools will run natively on the host.")
+		log.Fatalf("[SECURITY] Failed to start WASM Sandbox Engine: %v", err)
 	}
 
 	streamObserver := func(streamType string, chunk []byte) {
@@ -126,6 +127,7 @@ type AppServices struct {
 	logger          logging.Logger
 	Clock           utils.Clock
 	dispatcher      *automation.Dispatcher
+	limiter         ratelimiter.Limiter
 }
 
 func (s AppServices) Shutdown() {
@@ -159,7 +161,7 @@ func (s AppServices) Logger() logging.Logger {
 }
 
 func (s AppServices) Limiter() ratelimiter.Limiter {
-	return ratelimiter.NewLimiter(s.Clock)
+	return s.limiter
 }
 
 func (s AppServices) SelectModels() (string, string) {
@@ -293,9 +295,10 @@ func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServer
 	out := make([]models.MCPServerConfig, len(reg))
 	for i, s := range reg {
 		out[i] = models.MCPServerConfig{
-			Name:    s.Name,
-			URL:     s.URL,
-			Enabled: s.Enabled,
+			Name:      s.Name,
+			URL:       s.URL,
+			Enabled:   s.Enabled,
+			TLSCACert: s.TLSCACert,
 		}
 	}
 	return out

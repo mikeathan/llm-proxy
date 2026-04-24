@@ -29,6 +29,13 @@ func FilterStreamingMarkup(content string) (displayContent string, hasToolCall b
 	return displayContent, hasToolCall
 }
 
+var (
+	extractionRegexes = []*regexp.Regexp{
+		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"](.*?)['"]\s*\}?\s*\]?`),
+		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`),
+	}
+)
+
 // normalizeContent strips common "structured noise" (JSON/Python-style artifacts)
 // that some local models leak into the text content field.
 func normalizeContent(content string) string {
@@ -37,17 +44,8 @@ func normalizeContent(content string) string {
 	// Detect and extract text from common "structured noise" blocks
 	// e.g. [{'type': 'text', 'text': 'Hello'}] -> Hello
 	// We handle both complete and incomplete/truncated blocks
-	extractionPatterns := []struct {
-		pattern     string
-		replacement string
-	}{
-		{`\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"](.*?)['"]\s*\}?\s*\]?`, "$1"},
-		{`\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`, "$1"},
-	}
-
-	for _, p := range extractionPatterns {
-		re := regexp.MustCompile("(?s)" + p.pattern) // Use (?s) to allow matching across newlines in $1
-		content = re.ReplaceAllString(content, p.replacement)
+	for _, re := range extractionRegexes {
+		content = re.ReplaceAllString(content, "$1")
 	}
 
 	return strings.TrimSpace(content)

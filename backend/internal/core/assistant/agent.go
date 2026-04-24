@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"strings"
+	"sync"
 	"time"
 
 )
@@ -230,31 +231,47 @@ func (a *Agent) countRetries(history []proxy.Message) int {
 }
 
 func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
 	for _, tc := range msg.ToolCalls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
-		a.notifyToolCall(tc)
+		
+		wg.Add(1)
+		go func(tc proxy.ToolCall) {
+			defer wg.Done()
+			
+			a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+			a.notifyToolCall(tc)
 
-		if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
-			a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
-			a.notifyGuardrailViolation(tc.Function.Name, err)
-			a.appendToolResult(history, tc, formatGuardrailError(err))
-			continue
-		}
+			if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
+				a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
+				a.notifyGuardrailViolation(tc.Function.Name, err)
+				
+				mu.Lock()
+				a.appendToolResult(history, tc, formatGuardrailError(err))
+				mu.Unlock()
+				return
+			}
 
-		// Inject workspace ID into context so tools can resolve contextual guardrails
-		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
-		result, err := a.engine.ExecuteTool(toolCtx, tc)
-		if err != nil {
-			a.logger.Warn("tool execution failed", "name", tc.Function.Name, "error", err)
-			result = formatToolError(err)
-		}
+			// Inject workspace ID into context so tools can resolve contextual guardrails
+			toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
+			result, err := a.engine.ExecuteTool(toolCtx, tc)
+			if err != nil {
+				a.logger.Warn("tool execution failed", "name", tc.Function.Name, "error", err)
+				result = formatToolError(err)
+			}
 
-		a.appendToolResult(history, tc, result)
-		a.notifyToolResult(tc.ID, tc.Function.Name, result)
+			mu.Lock()
+			a.appendToolResult(history, tc, result)
+			a.notifyToolResult(tc.ID, tc.Function.Name, result)
+			mu.Unlock()
+		}(tc)
 	}
+
+	wg.Wait()
 	return nil
 }
 
@@ -266,12 +283,23 @@ func formatGuardrailError(err error) map[string]string {
 	return map[string]string{"error": "Guardrail violation: " + err.Error()}
 }
 
-// appendToolResult helper
+// appendToolResult helper with memory-sensitive pruning 
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
 	raw, _ := json.Marshal(result)
+	content := string(raw)
+
+	// If tool result is very large (e.g. > 2KB), truncate it to save memory and context tokens.
+	// Agents often don't need the full output of e.g. a huge directory listing or file read
+	// if they've already seen it or if it's too much to process at once.
+	const maxToolResultSize = 2048
+	if len(content) > maxToolResultSize {
+		a.logger.Info("truncating large tool result for history", "name", tc.Function.Name, "original_size", len(content))
+		content = fmt.Sprintf("%s\n\n... (result truncated for memory efficiency. Total size: %d bytes)", content[:maxToolResultSize], len(content))
+	}
+
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
-		Content:    string(raw),
+		Content:    content,
 		ToolCallID: tc.ID,
 	})
 }

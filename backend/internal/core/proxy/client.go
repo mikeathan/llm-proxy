@@ -25,9 +25,35 @@ type LLMClient struct {
 	model              string
 }
 
+const (
+	// DefaultResponseHeaderTimeout is the time allowed for the server to send response headers.
+	DefaultResponseHeaderTimeout = 30 * time.Second
+	// DefaultIdleConnTimeout is the maximum amount of time an idle (keep-alive) connection will remain idle before closing itself.
+	DefaultIdleConnTimeout = 90 * time.Second
+	// DefaultStreamChunkTimeout is the time allowed between individual streaming chunks.
+	DefaultStreamChunkTimeout = 60 * time.Second
+)
+
+var (
+	// StreamChunkTimeout allows overriding the chunk timeout for testing.
+	StreamChunkTimeout = DefaultStreamChunkTimeout
+
+	// SharedTransport is a pooled transport shared by all LLMClient instances to ensure
+	// connection reuse and prevent socket exhaustion
+	SharedTransport = &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ResponseHeaderTimeout: DefaultResponseHeaderTimeout,
+		IdleConnTimeout:       DefaultIdleConnTimeout,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+	}
+)
+
 func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 180 * time.Second}
+		httpClient = &http.Client{
+			Transport: SharedTransport,
+		}
 	}
 	chatURL := utils.SanitiseUrl(baseURL)
 	if !strings.HasSuffix(chatURL, "/v1/chat/completions") && !strings.HasSuffix(chatURL, "/chat/completions") {
@@ -106,10 +132,19 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 
 		reader := io.Reader(resp.Body)
 		for {
+			// Set a per-chunk timeout. If the server doesn't send a line within
+			// StreamChunkTimeout, we close the stream.
+			timer := time.AfterFunc(StreamChunkTimeout, func() {
+				resp.Body.Close()
+			})
+
 			line, err := readSSELine(reader)
+			timer.Stop()
+
 			if err != nil {
 				if err != io.EOF {
-					logging.Error("LLM stream read error", "error", err)
+					// If the body was closed by our timer, this will return an error
+					logging.Error("LLM stream read error or timeout", "error", err)
 				}
 				return
 			}

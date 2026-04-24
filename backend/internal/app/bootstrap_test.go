@@ -11,6 +11,8 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
+	realutils "llm-proxy/utils"
+	"llm-proxy/internal/buildinfo"
 )
 
 func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
@@ -56,4 +58,70 @@ func minimalDataManager(t *testing.T) *storage.DataManager {
 	}
 	
 	return mgr
+}
+
+func TestLimiter_IsSingleton(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	logger := &mocks.MockLogger{}
+	clock := realutils.NewRealClock()
+	
+	dir := t.TempDir()
+	dataMgr, _ := storage.NewDataManager(dir)
+	
+	appCtx := NewServer(nil, dataMgr)
+	
+	// Enable sandboxing so bootstrap doesn't fatal
+	settings := appCtx.HostSettings()
+	settings.Sandboxing.Enabled = true
+	_ = appCtx.UpdateHostSettings(settings)
+	
+	c := &Container{
+		Core: Core{
+			AppCtx: appCtx,
+		},
+		Infra: Infra{
+			Logger: logger,
+			Clock:  clock,
+		},
+	}
+
+	services := c.BuildAppServices()
+
+	l1 := services.Limiter()
+	l2 := services.Limiter()
+
+	if l1 == nil {
+		t.Fatal("Limiter should not be nil")
+	}
+
+	if l1 != l2 {
+		t.Errorf("Limiter should be a singleton, but got different instances: %p vs %p", l1, l2)
+	}
+}
+
+func TestApp_ServerTimeouts(t *testing.T) {
+	utils.SetRequiredEnv(t)
+
+	dataMgr := minimalDataManager(t)
+	
+	// Enable sandboxing for bootstrap
+	appCtx := NewServer(nil, dataMgr)
+	settings := appCtx.HostSettings()
+	settings.Sandboxing.Enabled = true
+	_ = appCtx.UpdateHostSettings(settings)
+
+	a := New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
+
+	if a.server.ReadTimeout == 0 {
+		t.Error("expected ReadTimeout to be set")
+	}
+	if a.server.WriteTimeout == 0 {
+		t.Error("expected WriteTimeout to be set")
+	}
+	if a.server.IdleTimeout == 0 {
+		t.Error("expected IdleTimeout to be set")
+	}
+	if a.server.ReadHeaderTimeout == 0 {
+		t.Error("expected ReadHeaderTimeout to be set")
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -110,5 +111,51 @@ func TestClientChatInvalidJSONResponse(t *testing.T) {
 	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+func TestClientStreamTimeout(t *testing.T) {
+	// Reduce timeout for testing
+	oldTimeout := proxy.StreamChunkTimeout
+	proxy.StreamChunkTimeout = 50 * time.Millisecond
+	defer func() { proxy.StreamChunkTimeout = oldTimeout }()
+
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			pr, pw := io.Pipe()
+			//pw.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"))
+			// We won't write anything more to pw, causing a hang
+			go func() {
+				// Wait longer than the timeout
+				time.Sleep(200 * time.Millisecond)
+				pw.Close()
+			}()
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       pr,
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	client := proxy.NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	ch, err := client.Stream(context.Background(), proxy.ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Wait for the stream to finish (it should timeout)
+	start := time.Now()
+	count := 0
+	for range ch {
+		count++
+	}
+	duration := time.Since(start)
+
+	if duration < 50*time.Millisecond {
+		t.Errorf("stream finished too early: %v", duration)
+	}
+	if duration > 150*time.Millisecond {
+		t.Errorf("stream took too long to timeout: %v", duration)
 	}
 }
