@@ -13,6 +13,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,11 +26,46 @@ func init() {
 //go:embed all:frontend_dist
 var frontendFS embed.FS
 
+// modelDiscoveryCache caches the result of a model directory scan.
+// It is invalidated automatically when the directory mtime changes
+// (i.e. a file was added or removed).
+type modelDiscoveryCache struct {
+	mu      sync.Mutex
+	dir     string
+	dirMod  time.Time
+	results []adminAvailableModel
+}
+
+func (c *modelDiscoveryCache) get(dir string) ([]adminAvailableModel, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.dir != dir {
+		return nil, false
+	}
+	if info, err := os.Stat(dir); err != nil || !info.ModTime().Equal(c.dirMod) {
+		return nil, false // directory changed or gone
+	}
+	return c.results, true
+}
+
+func (c *modelDiscoveryCache) set(dir string, results []adminAvailableModel) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	info, err := os.Stat(dir)
+	if err != nil {
+		return
+	}
+	c.dir = dir
+	c.dirMod = info.ModTime()
+	c.results = results
+}
+
 type AdminHandlers struct {
-	runtime   RuntimeService
-	admin     AdminService
-	logger    logging.Logger
-	buildInfo *buildinfo.Info
+	runtime        RuntimeService
+	admin          AdminService
+	logger         logging.Logger
+	buildInfo      *buildinfo.Info
+	discoveryCache modelDiscoveryCache
 }
 
 func NewAdminHandlers(
@@ -47,17 +83,17 @@ func NewAdminHandlers(
 }
 
 type adminModelView struct {
-	Name           string                `json:"name"`
-	Provider       string                `json:"provider"`
-	Filename       string                `json:"filename"`
-	ResolvedPath   string                `json:"resolved_path"`
-	Args           []string              `json:"args"`
-	Port           int                   `json:"port"`
-	Endpoint       string                `json:"endpoint"`
-	Active         bool                  `json:"active"`
-	Ready          bool                  `json:"ready"`
+	Name           string                 `json:"name"`
+	Provider       string                 `json:"provider"`
+	Filename       string                 `json:"filename"`
+	ResolvedPath   string                 `json:"resolved_path"`
+	Args           []string               `json:"args"`
+	Port           int                    `json:"port"`
+	Endpoint       string                 `json:"endpoint"`
+	Active         bool                   `json:"active"`
+	Ready          bool                   `json:"ready"`
 	ProviderConfig *models.ProviderConfig `json:"provider_config,omitempty"`
-	Metadata       *models.ModelMetadata `json:"metadata,omitempty"`
+	Metadata       *models.ModelMetadata  `json:"metadata,omitempty"`
 }
 
 type adminActiveModel struct {
@@ -174,7 +210,13 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	settings := h.admin.GetSettings()
 	var available []adminAvailableModel
 	if v := strings.ToLower(r.URL.Query().Get("available")); v == "1" || v == "true" {
-		available = discoverModelFiles(r.Context(), settings.Local.ModelDir, modelsList)
+		modelDir := settings.Local.ModelDir
+		if cached, ok := h.discoveryCache.get(modelDir); ok {
+			available = cached
+		} else {
+			available = discoverModelFiles(r.Context(), modelDir, modelsList)
+			h.discoveryCache.set(modelDir, available)
+		}
 	}
 
 	sort.Slice(modelsList, func(i, j int) bool {

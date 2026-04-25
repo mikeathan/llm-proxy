@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gpustack/gguf-parser-go"
+	gguf_parser "github.com/gpustack/gguf-parser-go"
 	"llm-proxy/models"
 )
 
@@ -16,17 +16,19 @@ func NewGGUFScanner() *GGUFScanner {
 }
 
 // Scan extracts metadata from a GGUF file without loading the entire file into RAM.
+// It uses SkipLargeMetadata and UseMMap to read only the file header (a few KB),
+// making it instantaneous even for multi-GB models.
 func (s *GGUFScanner) Scan(ctx context.Context, path string) (models.ModelMetadata, error) {
-	// Respect context before starting
 	select {
 	case <-ctx.Done():
 		return models.ModelMetadata{}, ctx.Err()
 	default:
 	}
 
-	// Use gguf-parser-go to inspect the file
-	// Parsing the header only is sufficient for metadata
-	gf, err := gguf_parser.ParseGGUFFile(path)
+	gf, err := gguf_parser.ParseGGUFFile(path,
+		gguf_parser.SkipLargeMetadata(), // Skip tensor/large metadata blobs — header only
+		gguf_parser.UseMMap(),           // mmap instead of read() — OS handles page faults
+	)
 	if err != nil {
 		return models.ModelMetadata{}, fmt.Errorf("failed to parse GGUF: %w", err)
 	}
@@ -34,7 +36,7 @@ func (s *GGUFScanner) Scan(ctx context.Context, path string) (models.ModelMetada
 	gm := gf.Metadata()
 	ga := gf.Architecture()
 
-	metadata := models.ModelMetadata{
+	meta := models.ModelMetadata{
 		Name:          gm.Name,
 		Architecture:  gm.Architecture,
 		ContextLength: int(ga.MaximumContextLength),
@@ -43,11 +45,10 @@ func (s *GGUFScanner) Scan(ctx context.Context, path string) (models.ModelMetada
 		Description:   gm.Description,
 	}
 
-	// Quantization logic: Use FileTypeDescriptor (e.g. Q4_K_M) as it's more descriptive for users.
-	metadata.Quantization = gm.FileTypeDescriptor
-	if metadata.Quantization == "" && gm.QuantizationVersion > 0 {
-		metadata.Quantization = fmt.Sprintf("v%d", gm.QuantizationVersion)
+	meta.Quantization = gm.FileTypeDescriptor
+	if meta.Quantization == "" && gm.QuantizationVersion > 0 {
+		meta.Quantization = fmt.Sprintf("v%d", gm.QuantizationVersion)
 	}
 
-	return metadata, nil
+	return meta, nil
 }
