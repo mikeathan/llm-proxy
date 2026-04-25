@@ -159,17 +159,39 @@ func (m *DataManager) MetadataDir() string {
 }
 
 func getMetadataDir(rootDir string) string {
+	// Priority 1: Explicit override via env var (recommended for systemd deployments).
 	if envDir := os.Getenv("LLM_PROXY_CONFIG_DIR"); envDir != "" {
 		return envDir
 	}
 
-	// 1. Primary: Use ~/.config/llm-proxy as requested ("out of sight" in home dir)
-	home, err := os.UserHomeDir()
-	if err == nil {
-		return filepath.Join(home, ".config", "llm-proxy")
+	// Priority 2: XDG/home-based config dir — but only if it is actually writable.
+	// Under systemd with ProtectHome= or ReadOnlyPaths=, os.UserHomeDir() may
+	// resolve fine yet the path is on a read-only filesystem, causing write failures.
+	if home, err := os.UserHomeDir(); err == nil {
+		candidate := filepath.Join(home, ".config", "llm-proxy")
+		if isWritableDir(candidate) {
+			return candidate
+		}
 	}
 
-	// 2. Fallback: Use a centralized hidden .internal folder in the app root
-	// This reuses the existing naming convention without scattering folders.
+	// Priority 3: Fallback to a hidden folder inside the app data root.
+	// This is always writable because it lives next to the rest of the app data.
 	return filepath.Join(rootDir, models.InternalDirName)
 }
+
+// isWritableDir returns true if dir exists and a temp file can be created inside it.
+// If the directory does not exist yet, we attempt to create it — if that succeeds
+// the location is writable.
+func isWritableDir(dir string) bool {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".write-probe-*.tmp")
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(f.Name())
+	return true
+}
+
