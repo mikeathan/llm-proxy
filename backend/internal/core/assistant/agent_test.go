@@ -6,6 +6,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"strings"
 	"testing"
+	"time"
 )
 
 // MockClient implements proxy.Client
@@ -170,6 +171,72 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	}
 	if len(history) != 4 { // user + assistant (tc) + tool result + assistant (final)
 		t.Errorf("Expected history length 4, got %d", len(history))
+	}
+}
+
+func TestAgent_Execute_LoopDetection(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_loop",
+								Function: proxy.FunctionCall{
+									Name:      "ping",
+									Arguments: `{}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
+	}
+	engine := &MockEngine{Result: "pong"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 10})
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "loop please"}})
+
+	if err == nil || !strings.Contains(err.Error(), "infinite loop detected") {
+		t.Fatalf("Expected infinite loop error, got: %v", err)
+	}
+}
+
+func TestAgent_Execute_TotalTimeout(t *testing.T) {
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", Content: "Too slow"}}},
+				}, nil
+			}
+		},
+	}
+
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+
+	// Create a context that will expire quickly
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, _, err := agent.Execute(ctx, []proxy.Message{{Role: "user", Content: "Wait"}})
+
+	if err == nil || (!strings.Contains(err.Error(), "halted") && !strings.Contains(err.Error(), "context deadline exceeded")) {
+		t.Fatalf("Expected timeout error, got: %v", err)
 	}
 }
 

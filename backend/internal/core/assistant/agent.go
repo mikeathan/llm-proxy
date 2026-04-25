@@ -63,57 +63,87 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 
 // Execute runs the agentic loop for a given conversation history.
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
+	execCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
 	steps := 0
 	currentHistory := append([]proxy.Message{}, history...)
 
+	type toolKey struct{ name, args string }
+	recentCalls := make([]toolKey, 0, 5)
+
 	for steps < a.maxSteps {
 		steps++
-		a.logger.Debug("agent loop step", "step", steps)
+		if err := execCtx.Err(); err != nil {
+			return "", currentHistory, fmt.Errorf("agent execution halted: %w", err)
+		}
+
 		a.notifyStepStart(steps)
 		a.notifyThinking()
 
-		// 1. Get LLM Tools
-		tools, err := a.provider.ListTools(ctx)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to list tools: %w", err)
-		}
+		var turnMsg proxy.Message
+		err := func() error {
+			turnCtx, turnCancel := context.WithTimeout(execCtx, 5*time.Minute)
+			defer turnCancel()
 
-		// 2. Get Next Response (handles fallbacks/tool support internally)
-		msg, err := a.computeNextResponse(ctx, currentHistory, tools)
-		if err != nil {
-			return "", nil, err
-		}
+			toolsList, err := a.provider.ListTools(turnCtx)
+			if err != nil {
+				return fmt.Errorf("failed to list tools: %w", err)
+			}
 
-		// Handle embedded tool calls in content (common with local models like Qwen)
-		a.handleContentToolCalls(&msg)
+			msg, err := a.computeNextResponse(turnCtx, currentHistory, toolsList)
+			if err != nil {
+				return err
+			}
 
-		// Content Normalization (Handle common model glitches)
-		msg.Content = normalizeContent(msg.Content)
-
-		currentHistory = append(currentHistory, msg)
-		a.notify(EventMessage, msg)
-
-		// 3. Termination Check
-		if len(msg.ToolCalls) == 0 {
-			if a.isPrematureTermination(msg, currentHistory) {
-				if a.countRetries(currentHistory) >= 2 {
-					return msg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
+			a.handleContentToolCalls(&msg)
+			msg.Content = normalizeContent(msg.Content)
+			turnMsg = msg
+			
+			// Process tool calls within the turn context if they exist
+			if len(turnMsg.ToolCalls) > 0 {
+				// Loop detection
+				for _, tc := range turnMsg.ToolCalls {
+					key := toolKey{tc.Function.Name, tc.Function.Arguments}
+					count := 0
+					for _, prev := range recentCalls {
+						if prev == key { count++ }
+					}
+					if count >= 3 {
+						return fmt.Errorf("infinite loop detected: agent repeated tool call '%s'", key.name)
+					}
+					if len(recentCalls) >= 5 { recentCalls = recentCalls[1:] }
+					recentCalls = append(recentCalls, key)
 				}
 
-				a.logger.Warn("model attempted to terminate prematurely, forcing retry", "content", msg.Content)
+				currentHistory = append(currentHistory, turnMsg)
+				a.notify(EventMessage, turnMsg)
+				return a.processToolCalls(turnCtx, turnMsg, &currentHistory)
+			}
+			return nil
+		}()
+
+		if err != nil {
+			return "", currentHistory, err
+		}
+
+		// If no tool calls were generated in the turn, handle termination
+		if len(turnMsg.ToolCalls) == 0 {
+			currentHistory = append(currentHistory, turnMsg)
+			a.notify(EventMessage, turnMsg)
+
+			if a.isPrematureTermination(turnMsg, currentHistory) {
+				if a.countRetries(currentHistory) >= 2 {
+					return turnMsg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
+				}
 				a.notifyPrematureTerminationNag(&currentHistory)
 				continue
 			}
-			return msg.Content, currentHistory, nil
-		}
-
-		// 4. Execution Step: Process Tool Calls
-		if err := a.processToolCalls(ctx, msg, &currentHistory); err != nil {
-			return "", nil, err
+			return turnMsg.Content, currentHistory, nil
 		}
 	}
 
-	return "", nil, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
+	return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
 }
 
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
