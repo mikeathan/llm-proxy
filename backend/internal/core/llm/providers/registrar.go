@@ -174,6 +174,18 @@ func (r *ProviderRegistrar) DefaultBinary() string {
 	return r.defaultBinary
 }
 
+// ResolveBinary returns the best available binary path: the explicit value from
+// the local provider config if set, otherwise the default. This is the
+// authoritative resolution used both at model start and on config updates.
+func (r *ProviderRegistrar) ResolveBinary() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if local, ok := r.configs["local"]; ok && local.LlamaServerBinary != "" {
+		return local.LlamaServerBinary
+	}
+	return r.defaultBinary
+}
+
 // ListConfigs returns a copy of the currently registered provider configurations.
 func (r *ProviderRegistrar) ListConfigs() map[string]models.ProviderItem {
 	r.mu.RLock()

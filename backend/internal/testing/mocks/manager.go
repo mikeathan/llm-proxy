@@ -3,31 +3,40 @@ package mocks
 import (
 	"context"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 	"time"
 )
 
 type MockManager struct {
-	EnsureModelFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
-	GetInstanceFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
-	RecordActivityFunc      func(name string)
-	ListModelsFunc          func() []models.ModelConfig
-	AddModelFunc            func(models.ModelConfig) error
-	UpdateModelFunc         func(models.ModelConfig) error
-	RemoveModelFunc         func(string) error
-	ActiveInfoFunc          func() *llm.ActiveModelInfo
-	ActiveLogsFunc          func() string
-	LastTokensPerSecondFunc func() (float64, time.Time)
-	StopActiveFunc          func() error
-	ClearLogsFunc           func() error
-	ModelHostFunc           func() string
-	SetBinaryFunc           func(string)
-	SetModelHostFunc        func(string)
-	ListProviderModelsFunc  func(ctx context.Context, provider, apiKeyName string) ([]string, error)
+	EnsureModelFunc            func(ctx context.Context, name string) (llm.ModelInstance, error)
+	GetInstanceFunc            func(ctx context.Context, name string) (llm.ModelInstance, error)
+	RecordActivityFunc         func(name string)
+	ListModelsFunc             func() []models.ModelConfig
+	AddModelFunc               func(models.ModelConfig) error
+	UpdateModelFunc            func(models.ModelConfig) error
+	RemoveModelFunc            func(string) error
+	ActiveInfoFunc             func() *llm.ActiveModelInfo
+	ActiveLogsFunc             func() string
+	LastTokensPerSecondFunc    func() (float64, time.Time)
+	StopActiveFunc             func() error
+	ClearLogsFunc              func() error
+	ModelHostFunc              func() string
+	SetBinaryFunc              func(string)
+	SetModelHostFunc           func(string)
+	ListProviderModelsFunc     func(ctx context.Context, provider, apiKeyName string) ([]string, error)
 	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName string) error
-	SelectModelsFunc        func() (string, string)
-	SetSecretsFunc          func(models.SecretsStore)
-	ShutdownFunc            func()
+	SelectModelsFunc           func() (string, string)
+	SetSecretsFunc             func(models.SecretsStore)
+	ShutdownFunc               func()
+	RegistrarFunc              func() *providers.ProviderRegistrar
+}
+
+func (m *MockManager) Registrar() *providers.ProviderRegistrar {
+	if m.RegistrarFunc != nil {
+		return m.RegistrarFunc()
+	}
+	return nil
 }
 
 func (m *MockManager) Shutdown() {

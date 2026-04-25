@@ -282,6 +282,11 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		return fmt.Errorf("failed to save settings: %w", err)
 	}
 
+	//  Register Local Provider
+	s.dataMgr.Settings().OnChange(func(u models.UserSettings) {
+		s.manager.Registrar().RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
+	})
+
 	// 2. Refresh in-memory state from the newly saved config
 	newSys := s.dataMgr.System().Get()
 	s.SetGPUConfig(newSys.Metrics.GPU)

@@ -24,6 +24,7 @@ func (m *LLMRuntimeManager) startModelLocked(ctx context.Context, cfg models.Mod
 
 	args := providers.BuildLaunchArgs(cfg)
 	binary := m.registrar.DefaultBinary()
+
 	logging.Info("Starting local model (runtime)", 
 		"model", cfg.Name, 
 		"binary", binary, 

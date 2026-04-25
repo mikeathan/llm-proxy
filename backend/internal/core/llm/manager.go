@@ -77,6 +77,7 @@ type RuntimeManager interface {
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
 	Shutdown()
+	Registrar() *providers.ProviderRegistrar
 }
 
 type LLMRuntimeManager struct {
