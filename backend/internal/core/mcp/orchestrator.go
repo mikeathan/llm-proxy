@@ -70,7 +70,7 @@ func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPSer
 }
 
 func (m *Orchestrator) startClient(parentCtx context.Context, cfg models.MCPServerConfig, bindAddr string) {
-	client := NewClient(cfg.Name, cfg.URL, bindAddr, cfg.TLSCACert, m.logger)
+	client := NewClient(cfg.Name, cfg.URL, bindAddr, cfg.TLSCACert, m.logger, m.DialContext)
 
 	// Create a context for this client that can be cancelled
 	ctx, cancel := context.WithCancel(parentCtx)

@@ -14,6 +14,34 @@ import (
 	"llm-proxy/models"
 )
 
+// getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides.
+func getEffectiveConfig[T any](
+	ctx context.Context,
+	persistence *persistence.WorkspaceManager,
+	defaultCfg T,
+	getSpecific func(*models.AgentGuardrailsConfig) T,
+) T {
+	wsID := models.GetWorkspaceID(ctx)
+	if wsID != "" && persistence != nil {
+		if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
+			return getSpecific(wsCfg.Guardrails)
+		}
+	}
+	return defaultCfg
+}
+
+// registerTool simplifies the addition of a local tool and its handler to the registry.
+func registerTool[T any](r *LocalToolRegistry, category, toolName string, fn func(context.Context, T) (any, error)) {
+	r.addTool(category, toolName)
+	r.handlers[toolName] = func(ctx context.Context, rawArgs string) (any, error) {
+		var args T
+		if err := decodeArgs(rawArgs, &args); err != nil {
+			return nil, err
+		}
+		return fn(ctx, args)
+	}
+}
+
 // LocalToolRegistry manages Go-based tools implemented in this repository.
 type LocalToolRegistry struct {
 	toolDefinitions []proxy.Tool
@@ -62,17 +90,13 @@ func InitializeAgentStack(
 	observer tools.StreamObserver,
 ) (ToolProvider, Engine, *guardrails.GuardrailEngine) {
 	resolver := appCtx.Resolver()
-	// 1. Load defaults from settings/manifests
 	defaultGuardrails := appCtx.GetGuardrails()
+
+	// 1. Initialize Terminal
 	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-		cfg := defaultGuardrails.Terminal
-		wsID := models.GetWorkspaceID(ctx)
-		if wsID != "" && persistence != nil {
-			if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
-				cfg = wsCfg.Guardrails.Terminal
-			}
-		}
-		return cfg
+		return getEffectiveConfig(ctx, persistence, defaultGuardrails.Terminal, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
+			return c.Terminal
+		})
 	}, func(workspaceID string) string {
 		if workspaceID == "" || persistence == nil {
 			return ""
@@ -83,62 +107,48 @@ func InitializeAgentStack(
 		terminal.SetSandboxProvider(poolManager, observer)
 	}
 
-	// 3. Initialize Guardrail Engine with granular merging
-	// We want to use config.json values if they exist, otherwise fallback to defaults.
+	// 2. Initialize Guardrail Engine
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, resolver, persistence)
 
 	// 3. Initialize Communications
 	reg := appCtx.GetRegistry()
-	commCfg := reg.Communication
 	comm := tools.NewCommunicationTools()
 	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
-	if commCfg.Telegram.Enabled && telegramToken != "" {
+	if reg.Communication.Telegram.Enabled && telegramToken != "" {
 		comm.AddNotifier(&tools.TelegramNotifier{
 			Token:  telegramToken,
-			ChatID: commCfg.Telegram.ChatID,
+			ChatID: reg.Communication.Telegram.ChatID,
 		})
 	}
 
-	// 4. Initialize Search
+	// 4. Initialize Network (Guardrail foundation)
+	network := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
+		return getEffectiveConfig(ctx, persistence, defaultGuardrails.Network, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
+			return c.Network
+		})
+	}, logger)
+
+	// 5. Initialize Search with guarded client
 	var search *tools.InternetTools
-	tavilyKey := appCtx.Secrets().GetSecret("search", "tavily")
-	if tavilyKey != "" {
+	if tavilyKey := appCtx.Secrets().GetSecret("search", "tavily"); tavilyKey != "" {
 		search = tools.NewInternetTools(&tools.TavilyProvider{
 			APIKey: tavilyKey,
+			Client: network.HTTPClient(),
 		})
 	}
 
-	// 5. Initialize FileSystem
+	// 6. Initialize FileSystem
 	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
-		cfg := defaultGuardrails.FileSystem
-		wsID := models.GetWorkspaceID(ctx)
-		if wsID != "" {
-			// 1. Apply workspace-specific overrides if they exist
-			if persistence != nil {
-				if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
-					cfg = wsCfg.Guardrails.FileSystem
-				}
-			}
-			// 2. STAMP the physical jailing path. This ensures the tool itself
-			// considers its own workspace as an authorized path.
+		cfg := getEffectiveConfig(ctx, persistence, defaultGuardrails.FileSystem, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
+			return c.FileSystem
+		})
+		if wsID := models.GetWorkspaceID(ctx); wsID != "" {
 			cfg.AllowedPaths = append(cfg.AllowedPaths, resolver.WorkspaceDir(wsID))
 		}
 		return cfg
 	})
-
-	// 6. Initialize Network
-	network := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
-		cfg := defaultGuardrails.Network
-		wsID := models.GetWorkspaceID(ctx)
-		if wsID != "" && persistence != nil {
-			if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
-				cfg = wsCfg.Guardrails.Network
-			}
-		}
-		return cfg
-	}, logger)
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
 
@@ -197,127 +207,77 @@ func (r *LocalToolRegistry) registerAll() {
 }
 
 func (r *LocalToolRegistry) registerTerminalTools() {
-	name := models.ToolTerminalExecute
-	r.addTool("terminal", name)
-
-	// 2. Register Handler
-	r.handlers[name] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			Command string `json:"command"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "terminal", models.ToolTerminalExecute, func(ctx context.Context, args struct {
+		Command string `json:"command"`
+	}) (any, error) {
 		return r.Terminal.ExecuteCommand(ctx, args.Command)
-	}
+	})
 }
 
 func (r *LocalToolRegistry) registerCommunicationTools() {
-	name := models.ToolNotifyUser
-	r.addTool("communication", name)
-
-	r.handlers[name] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			Message string `json:"message"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "communication", models.ToolNotifyUser, func(ctx context.Context, args struct {
+		Message string `json:"message"`
+	}) (any, error) {
 		if r.Communication == nil {
 			return nil, fmt.Errorf("communication tools not configured")
 		}
 		return "Notification sent successfully", r.Communication.NotifyAll(ctx, args.Message)
-	}
+	})
 }
 
 func (r *LocalToolRegistry) registerSearchTools() {
-	name := models.ToolInternetSearch
-	r.addTool("search", name)
-
-	r.handlers[name] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			Query string `json:"query"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "search", models.ToolInternetSearch, func(ctx context.Context, args struct {
+		Query string `json:"query"`
+	}) (any, error) {
 		if r.Search == nil {
 			return nil, fmt.Errorf("search tools not configured")
 		}
 		return r.Search.Search(ctx, args.Query)
-	}
+	})
 }
 
 func (r *LocalToolRegistry) registerFileSystemTools() {
-	r.addTool("filesystem", models.ToolDirectoryList)
-	r.addTool("filesystem", models.ToolFileRead)
-	r.addTool("filesystem", models.ToolFileWrite)
-
-	r.handlers[models.ToolDirectoryList] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			Path string `json:"path"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "filesystem", models.ToolDirectoryList, func(ctx context.Context, args struct {
+		Path string `json:"path"`
+	}) (any, error) {
 		return r.FileSystem.ListDirectory(ctx, args.Path)
-	}
+	})
 
-	r.handlers[models.ToolFileRead] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			Path string `json:"path"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "filesystem", models.ToolFileRead, func(ctx context.Context, args struct {
+		Path string `json:"path"`
+	}) (any, error) {
 		return r.FileSystem.ReadFile(ctx, args.Path)
-	}
+	})
 
-	r.handlers[models.ToolFileWrite] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "filesystem", models.ToolFileWrite, func(ctx context.Context, args struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}) (any, error) {
 		return "File written successfully", r.FileSystem.WriteFile(ctx, args.Path, args.Content)
-	}
+	})
 }
 
 func (r *LocalToolRegistry) registerNetworkTools() {
-	r.addTool("network", models.ToolNetworkFetch)
-	r.addTool("network", models.ToolNetworkScan)
-	r.addTool("network", models.ToolNetworkInfo)
-
-	r.handlers[models.ToolNetworkFetch] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args struct {
-			URL string `json:"url"`
-		}
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "network", models.ToolNetworkFetch, func(ctx context.Context, args struct {
+		URL string `json:"url"`
+	}) (any, error) {
 		if r.Network == nil {
 			return nil, fmt.Errorf("network tools not configured")
 		}
 		return r.Network.FetchURL(ctx, args.URL)
-	}
+	})
 
-	r.handlers[models.ToolNetworkScan] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args tools.ScanArgs
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
+	registerTool(r, "network", models.ToolNetworkScan, func(ctx context.Context, args tools.ScanArgs) (any, error) {
 		if r.Network == nil {
 			return nil, fmt.Errorf("network tools not configured")
 		}
 		return r.Network.ScanLocalNetwork(ctx, args)
-	}
+	})
 
-	r.handlers[models.ToolNetworkInfo] = func(ctx context.Context, rawArgs string) (any, error) {
+	registerTool(r, "network", models.ToolNetworkInfo, func(ctx context.Context, args struct{}) (any, error) {
 		if r.Network == nil {
 			return nil, fmt.Errorf("network tools not configured")
 		}
 		return r.Network.GetNetworkInfo(ctx)
-	}
+	})
 }

@@ -201,6 +201,46 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 	})
 }
 
+func TestInitializeAgentStack_NetworkGuardrails(t *testing.T) {
+	tmpRoot, _ := os.MkdirTemp("", "proxy-test-net-*")
+	defer os.RemoveAll(tmpRoot)
+	wsDir := filepath.Join(tmpRoot, "workspaces")
+	resolver := storage.NewPathResolver(tmpRoot, wsDir, wsDir)
+	manager := persistence.NewWorkspaceManager(resolver)
+
+	wsID := "net-workspace"
+	wsCfg := models.WorkspaceConfig{
+		Guardrails: &models.AgentGuardrailsConfig{
+			Network: models.NetworkGuardrailsConfig{
+				Enabled:        true,
+				AllowLanAccess: true,
+			},
+		},
+	}
+	manager.WriteConfig(wsID, &wsCfg)
+
+	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
+	provider, _, _ := assistant.InitializeAgentStack(appCtx, manager, nil, nil, nil, nil)
+	multiProvider := provider.(*assistant.MultiToolProvider)
+	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
+
+	t.Run("Should apply network overrides", func(t *testing.T) {
+		ctx := models.WithWorkspaceID(context.Background(), wsID)
+		netCfg := localRegistry.Network.Config(ctx)
+		if !netCfg.AllowLanAccess {
+			t.Error("Network override failed! Expected AllowLanAccess to be true")
+		}
+	})
+
+	t.Run("Should use defaults for no workspace", func(t *testing.T) {
+		ctx := context.Background()
+		netCfg := localRegistry.Network.Config(ctx)
+		if netCfg.AllowLanAccess {
+			t.Error("Expected default network config (LanAccess=false), but got true")
+		}
+	})
+}
+
 type mockAppContext struct{}
 
 func (m *mockAppContext) GetSystem() models.SystemConfig {

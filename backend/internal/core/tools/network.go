@@ -79,6 +79,10 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 }
 
 // FetchURL downloads the content of a remote URL.
+func (n *NetworkTools) Config(ctx context.Context) models.NetworkGuardrailsConfig {
+	return n.configProvider(ctx)
+}
+
 func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, error) {
 	cfg := n.configProvider(ctx)
 	if !cfg.Enabled {
@@ -442,6 +446,16 @@ func ExtractHost(address string) string {
 		}
 	}
 	return host
+}
+
+// HTTPClient returns the underlying guarded http.Client.
+func (n *NetworkTools) HTTPClient() *http.Client {
+	return n.httpClient
+}
+
+// DialContext returns a guarded dial function compatible with http.Transport.DialContext.
+func (n *NetworkTools) DialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return n.httpClient.Transport.(*http.Transport).DialContext
 }
 
 // ValidateScanTargets ensures all targets in a comma-separated list are valid IPs or CIDRs.

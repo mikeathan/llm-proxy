@@ -234,6 +234,11 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// Limit concurrent tool executions to prevent resource exhaustion.
+	// We use a semaphore of 10 concurrent slots.
+	const maxConcurrentTools = 10
+	sem := make(chan struct{}, maxConcurrentTools)
+
 	for _, tc := range msg.ToolCalls {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -242,6 +247,14 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		wg.Add(1)
 		go func(tc proxy.ToolCall) {
 			defer wg.Done()
+			
+			// Acquire semaphore slot
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
 			
 			a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
 			a.notifyToolCall(tc)

@@ -40,7 +40,7 @@ func TestClient_Connect_HTTPClientSettings(t *testing.T) {
 	mLogger := &mockLogger{}
 	pLogger := logging.NewPulseLogger(mLogger, "test-client")
 
-	client := NewClient("test-client", sseURL, "127.0.0.1:0", "", mLogger)
+	client := NewClient("test-client", sseURL, "127.0.0.1:0", "", mLogger, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -140,7 +140,7 @@ func TestClient_PingTimeoutSettings(t *testing.T) {
 	defer server.Close()
 
 	mLogger := &mockLogger{}
-	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger)
+	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger, nil)
 
 	// We can't directly test the ping timeout without mocking the entire client,
 	// but we can verify the client creation works with our new settings
@@ -156,7 +156,7 @@ func TestClient_HTTPTransportSettings(t *testing.T) {
 	// and the client can be created.
 
 	mLogger := &mockLogger{}
-	client := NewClient("test-http", "http://localhost:4110/api/mcp", "127.0.0.1:0", "", mLogger)
+	client := NewClient("test-http", "http://localhost:4110/api/mcp", "127.0.0.1:0", "", mLogger, nil)
 
 	// Verify client was created with correct initial values
 	if client.URL != "http://localhost:4110/api/mcp" {
@@ -179,7 +179,7 @@ func TestClient_StartStop(t *testing.T) {
 	defer server.Close()
 
 	mLogger := &mockLogger{}
-	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger)
+	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger, nil)
 
 	// Test that we can start and stop the client
 	ctx, cancel := context.WithCancel(context.Background())
@@ -229,7 +229,7 @@ func TestClient_CustomHTTPClientUsed(t *testing.T) {
 
 	mLogger := &mockLogger{}
 	pLogger := logging.NewPulseLogger(mLogger, "test-client")
-	client := NewClient("test-client", server.URL, "127.0.0.1:4001", "", mLogger)
+	client := NewClient("test-client", server.URL, "127.0.0.1:4001", "", mLogger, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -278,7 +278,7 @@ func TestClient_NetworkOriginResolution(t *testing.T) {
 			// We can't easily test the exact origin without exposing network.ResolveOrigin,
 			// but we can verify the client creation works
 			mLogger := &mockLogger{}
-			client := NewClient("test", "http://localhost:4110/api/mcp", tt.bindAddr, "", mLogger)
+			client := NewClient("test", "http://localhost:4110/api/mcp", tt.bindAddr, "", mLogger, nil)
 
 			if client.BindAddr != tt.bindAddr {
 				t.Errorf("Client BindAddr = %v, want %v", client.BindAddr, tt.bindAddr)
@@ -300,7 +300,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 
 	mLogger := &mockLogger{}
 	pLogger := logging.NewPulseLogger(mLogger, "test-client")
-	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger)
+	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger, nil)
 
 	// Create a context with a timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -327,7 +327,7 @@ func TestClient_ManageConnectionPingInterval(t *testing.T) {
 	// This is more of an integration test - we can't easily test the exact timing
 	// without mocking time, but we can verify the code paths work
 	mLogger := &mockLogger{}
-	client := NewClient("test", "http://localhost:4110/api/mcp", "127.0.0.1:0", "", mLogger)
+	client := NewClient("test", "http://localhost:4110/api/mcp", "127.0.0.1:0", "", mLogger, nil)
 	// Create a context for the manageConnection goroutine
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -364,7 +364,7 @@ func TestClient_TransportSettingsForLongLivedConnections(t *testing.T) {
 
 	mLogger := &mockLogger{}
 	pLogger := logging.NewPulseLogger(mLogger, "test-client")
-	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger)
+	client := NewClient("test-client", server.URL, "127.0.0.1:0", "", mLogger, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -385,7 +385,7 @@ func TestClient_TLSCAConfiguration(t *testing.T) {
 	pLogger := logging.NewPulseLogger(mLogger, "test-client")
 
 	// Test case 1: Non-existent file
-	client := NewClient("test-client", "https://localhost:4110/api/mcp", "127.0.0.1:0", "/non/existent/cert.pem", mLogger)
+	client := NewClient("test-client", "https://localhost:4110/api/mcp", "127.0.0.1:0", "/non/existent/cert.pem", mLogger, nil)
 	err := client.connect(context.Background(), pLogger)
 	if err == nil || !strings.Contains(err.Error(), "failed to read TLS CA cert") {
 		t.Errorf("Expected error reading non-existent CA cert, got: %v", err)
@@ -400,7 +400,7 @@ func TestClient_TLSCAConfiguration(t *testing.T) {
 	tmpFile.Write([]byte("not a real cert"))
 	tmpFile.Close()
 
-	client2 := NewClient("test-client", "https://localhost:4110/api/mcp", "127.0.0.1:0", tmpFile.Name(), mLogger)
+	client2 := NewClient("test-client", "https://localhost:4110/api/mcp", "127.0.0.1:0", tmpFile.Name(), mLogger, nil)
 	err = client2.connect(context.Background(), pLogger)
 	if err == nil || !strings.Contains(err.Error(), "failed to append CA cert") {
 		t.Errorf("Expected error appending invalid CA cert, got: %v", err)

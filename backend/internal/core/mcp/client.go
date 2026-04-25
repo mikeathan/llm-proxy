@@ -34,12 +34,13 @@ func getKeepAliveInterval() time.Duration {
 	return 15 * time.Second
 }
 
-func NewClient(name, sseURL, bindAddr string, tlsCACert string, logger logging.Logger) *Client {
+func NewClient(name, sseURL, bindAddr string, tlsCACert string, logger logging.Logger, dialer func(context.Context, string, string) (net.Conn, error)) *Client {
 	return &Client{
 		Name:          name,
 		URL:           sseURL,
 		BindAddr:      bindAddr,
 		TLSCACert:     tlsCACert,
+		DialContext:   dialer,
 		logger:        logger,
 		retryInterval: 5 * time.Second,
 		subscriptions: make(map[string]struct{}),
@@ -171,16 +172,18 @@ func (c *Client) connect(ctx context.Context, logger *logging.PulseLogger) error
 	// Create a custom HTTP client with aggressive TCP keep-alives to prevent
 	// silent connection drops by network infrastructure (NATs, Firewalls, Wi-Fi sleep)
 	dialer := &net.Dialer{
-		Timeout: 30 * time.Second,
-		// KeepAlive is the OS-level TCP heartbeat.
-		// 15s is often safer than 10s to avoid aggressive triggers on busy networks.
-		// Optimized for LAN/Wi-Fi to prevent NAT state-table expiry and Wi-Fi chip sleep cycles.
+		Timeout:   30 * time.Second,
 		KeepAlive: getKeepAliveInterval(),
+	}
+
+	dialFunc := dialer.DialContext
+	if c.DialContext != nil {
+		dialFunc = c.DialContext
 	}
 
 	transport := &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         dialer.DialContext,
+		DialContext:         dialFunc,
 		ForceAttemptHTTP2:   true,
 		MaxIdleConns:        10,
 		MaxIdleConnsPerHost: 2, // Limits reuse to prevent "sticky" dead connections

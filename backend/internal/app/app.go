@@ -72,7 +72,7 @@ func ResolveBindAddr(dataMgr *storage.DataManager) string {
 	return sys.Server.Bind
 }
 
-func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
+func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
 	container := bootstrap(dataMgr, logger)
 	svc := container.BuildAppServices()
 
@@ -83,8 +83,8 @@ func New(dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildin
 	} else {
 		container.Dispatcher = disp
 		svc.SetDispatcher(disp)
-		// Start dispatcher in background
-		go disp.Start(context.Background())
+		// Start dispatcher in background, tethered to app context
+		go disp.Start(ctx)
 	}
 
 	router := buildHTTP(svc, container.Dispatcher, buildInfo)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -110,7 +111,7 @@ func TestApp_ServerTimeouts(t *testing.T) {
 	settings.Sandboxing.Enabled = true
 	_ = appCtx.UpdateHostSettings(settings)
 
-	a := New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
+	a := New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	if a.server.ReadTimeout == 0 {
 		t.Error("expected ReadTimeout to be set")

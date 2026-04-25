@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
@@ -209,9 +210,15 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	logging.Info("Loading system configuration...")
 	sys := dataMgr.System().Get()
 
+	// 1.5 Initialize Network for Infrastructure (MCP, Cloud LLMs)
+	networkTools := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
+		// Use global guardrails from data manager
+		return dataMgr.Settings().Get().Guardrails.Network
+	}, logger)
+
 	// Configure MCP Service (Bridge logic: we still pass sys config parts)
 	logging.Info("Configuring MCP services...")
-	nodeHerder, err := configureMCP(dataMgr, logger)
+	nodeHerder, err := configureMCP(dataMgr, logger, networkTools.DialContext())
 	if err != nil {
 		logging.Error("Failed to configure MCP service", "error", err)
 		return nil
@@ -261,9 +268,10 @@ func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispa
 	return d, nil
 }
 
-func configureMCP(dataMgr *storage.DataManager, logger logging.Logger) (nodeherder.MCPService, error) {
+func configureMCP(dataMgr *storage.DataManager, logger logging.Logger, dialer func(context.Context, string, string) (net.Conn, error)) (nodeherder.MCPService, error) {
 	// Initialize MCP Orchestrator
 	orchestrator := mcp.NewOrchestrator(logger)
+	orchestrator.DialContext = dialer
 
 	// Initialize Resource Mirror
 	mirror := mcp.NewResourceMirror()

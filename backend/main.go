@@ -49,21 +49,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Setup Graceful Shutdown Context
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	// Configure Data Stack
 	if err := app.InitializeData(dataMgr); err != nil {
 		os.Exit(1)
 	}
 	defer dataMgr.Close()
 
-	// Bootstrap using the new DataManager
-	proxyApp := app.New(dataMgr, logger, buildInfo)
+	// Bootstrap using the new DataManager and app context
+	proxyApp := app.New(ctx, dataMgr, logger, buildInfo)
 	bindAddr := app.ResolveBindAddr(dataMgr)
 
 	logStartup(logger, buildInfo, bindAddr)
-
-	// Setup Graceful Shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	go func() {
 		if err := proxyApp.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -72,7 +72,7 @@ func main() {
 		}
 	}()
 
-	<-stop
+	<-ctx.Done()
 	logging.Info("Shutting down...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

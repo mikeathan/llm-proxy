@@ -195,7 +195,7 @@ func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.Networ
 			// Reuse the same boundary check logic from the tool itself
 			host := tools.ExtractHost(args.URL)
 			if err := tools.ValidateDomainBoundary(host, cfg.BlockedDomains); err != nil {
-				return err
+				return fmt.Errorf("guardrail violation: %w", err)
 			}
 		}
 	}
