@@ -123,6 +123,8 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 	t := time.NewTicker(reapInterval)
 	defer t.Stop()
 
+	startupTimeout := 5 * time.Minute
+
 	for {
 		select {
 		case <-m.stopCh:
@@ -131,6 +133,30 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 			m.mu.Lock()
 
 			if m.activeModel != nil {
+				ready := portReady(m.activeModel.Cfg.Port)
+
+				// 1. If not ready, enforce a startup timeout to prevent zombie processes.
+				if !ready {
+					if time.Since(m.activeModel.Started) > startupTimeout {
+						log.Printf("Model %s failed to become ready within %v → stopping", m.activeModel.Cfg.Name, startupTimeout)
+						waiter := m.signalStopLocked()
+						m.mu.Unlock()
+						if waiter != nil {
+							waiter()
+						}
+						continue
+					}
+					m.mu.Unlock()
+					continue
+				}
+
+				// 2. If ready but idleTimeout is 0, never reap.
+				if m.idleTimeout <= 0 {
+					m.mu.Unlock()
+					continue
+				}
+
+				// 3. Check for idle timeout.
 				if time.Since(m.activeModel.LastUsed) > m.idleTimeout {
 					log.Printf("Idle timeout on model %s → stopping", m.activeModel.Cfg.Name)
 					waiter := m.signalStopLocked()

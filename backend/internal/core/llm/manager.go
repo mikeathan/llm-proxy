@@ -113,6 +113,7 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 			Provider: entry.ProviderID,
 			Filename: entry.ModelID, // Bridge: Filename is the identifier
 			Port:     entry.Port,
+			Args:     entry.Args,
 			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: entry.CredentialID,
 			},
@@ -391,6 +392,7 @@ func (m *LLMRuntimeManager) syncPortWithActiveLocked(cfg models.ModelConfig) mod
 
 func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelConfig) (ModelInstance, bool) {
 	if m.activeModel != nil && m.activeModel.Cfg.Name == name && portReady(m.activeModel.Cfg.Port) {
+		m.activeModel.LastUsed = time.Now()
 		return ModelInstance{
 			Name: name,
 			Host: m.registrar.ModelHost(),

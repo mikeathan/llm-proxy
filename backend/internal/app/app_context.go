@@ -176,6 +176,7 @@ func (s *AppContext) Models() []models.ModelConfig {
 			Provider: m.ProviderID,
 			Filename: m.ModelID,
 			Port:     m.Port,
+			Args:     m.Args,
 			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: m.CredentialID,
 			},
@@ -403,6 +404,7 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 					ModelID:      cfg.Filename,
 					CredentialID: credID,
 					Port:         cfg.Port,
+					Args:         cfg.Args,
 				}
 				return
 			}
@@ -418,6 +420,7 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 			ModelID:      cfg.Filename,
 			CredentialID: credID,
 			Port:         cfg.Port,
+			Args:         cfg.Args,
 		})
 	})
 }
@@ -437,6 +440,7 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 			ModelID:      cfg.Filename,
 			CredentialID: credID,
 			Port:         cfg.Port,
+			Args:         cfg.Args,
 		}
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {

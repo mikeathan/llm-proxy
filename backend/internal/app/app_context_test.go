@@ -568,6 +568,43 @@ func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 	}
 }
 
+func TestAppContextPersistModel_IncludesArgs(t *testing.T) {
+	ctx := createTestServer(t, &mocks.MockManager{}, nil)
+	dir := ctx.RootDir()
+
+	args := []string{"--ctx-size", "4096", "--parallel", "4"}
+	cfg := models.ModelConfig{
+		Name:     "custom",
+		Filename: "model.gguf",
+		Provider: "local",
+		Args:     args,
+		Port:     8081,
+	}
+
+	if err := ctx.PersistModel(cfg); err != nil {
+		t.Fatalf("persist model: %v", err)
+	}
+
+	// Reload and verify
+	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr.LoadAll()
+	loaded := loadedMgr.Registry().Get()
+
+	m, ok := findModel(loaded.Catalogue, "custom")
+	if !ok {
+		t.Fatalf("expected custom model to be found")
+	}
+
+	if len(m.Args) != len(args) {
+		t.Fatalf("expected %d args, got %d", len(args), len(m.Args))
+	}
+	for i, v := range args {
+		if m.Args[i] != v {
+			t.Errorf("arg[%d]: expected %s, got %s", i, v, m.Args[i])
+		}
+	}
+}
+
 func TestAppContextPersistReplaceModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
