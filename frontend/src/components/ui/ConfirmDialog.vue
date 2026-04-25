@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { } from 'vue'
 
 export type DialogType = 'info' | 'warning' | 'error'
 
 interface Props {
+  modelValue: boolean
   title: string
   message: string
   type?: DialogType
@@ -18,20 +19,16 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
+  (e: 'update:modelValue', value: boolean): void
   (e: 'confirm'): void
   (e: 'cancel'): void
 }>()
 
-const isOpen = ref(false)
-
-const open = () => { isOpen.value = true }
-const close = () => { isOpen.value = false }
-
-defineExpose({ open, close })
+const close = () => { emit('update:modelValue', false) }
 </script>
 
 <template>
-  <div v-if="isOpen" class="dialog-overlay">
+  <div v-if="modelValue" class="dialog-overlay">
     <div
       class="dialog-content"
       :class="`dialog-content--${type}`"

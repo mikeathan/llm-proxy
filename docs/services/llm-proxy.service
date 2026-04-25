@@ -4,12 +4,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=mikeathan
-Group=mikeathan
+User=[USER]
+Group=[USER]
 Environment=APP_ENV=production
-ReadWritePaths=/home/mikeathan/dev/llm-proxy
-WorkingDirectory=/home/mikeathan/dev/llm-proxy/backend
-ExecStart=/home/mikeathan/dev/llm-proxy/backend/llm-proxy
+ReadWritePaths=/home/[USER]/llm-proxy
+WorkingDirectory=/home/[USER]/llm-proxy/backend
+ExecStart=/home/[USER]/llm-proxy/backend/llm-proxy
 Restart=always
 RestartSec=3
 KillMode=control-group

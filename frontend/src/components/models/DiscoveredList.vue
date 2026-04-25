@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, toRefs } from 'vue'
 import type { AvailableModel } from '../../types'
-import { getVariantLabel, extractDynamicTags, formatFileSize } from '../../utils/model-discovery'
+import { extractDynamicTags, formatFileSize } from '../../utils/model-discovery'
 import { useModelDiscovery } from '../../composables/useModelDiscovery'
+import ModelTags from './ModelTags.vue'
 
 const props = defineProps<{
   availableModels: AvailableModel[]
@@ -54,7 +55,7 @@ function isConfigured(filename: string) {
               <div class="group-details">
                 <div class="group-name">{{ group.name }}</div>
                 <div class="group-meta">
-                   {{ group.items.length }} version{{ group.items.length > 1 ? 's' : '' }} available
+                   {{ group.items.length }} variant{{ group.items.length > 1 ? 's' : '' }} • {{ group.items[0]?.metadata?.architecture || 'Unknown Arch' }}
                 </div>
               </div>
             </div>
@@ -80,9 +81,15 @@ function isConfigured(filename: string) {
               :class="{ 'configured': isConfigured(model.filename) }"
             >
               <div class="variant-info">
-                <span class="variant-filename text-[10px]" :title="model.filename">{{ model.filename }}</span>
+                <div class="flex flex-col gap-0.5">
+                  <span class="variant-filename" :title="model.filename">{{ model.filename }}</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[9px] text-gray-500" v-if="model.metadata.context_length">CTX: {{ Math.round(model.metadata.context_length / 1024) }}K</span>
+                    <span class="text-[9px] text-gray-500" v-if="model.metadata.author">By {{ model.metadata.author }}</span>
+                  </div>
+                </div>
                 <div class="variant-badges">
-                  <span class="quant-badge" v-if="getVariantLabel(model.filename) !== 'Original'">{{ getVariantLabel(model.filename) }}</span>
+                  <ModelTags :metadata="model.metadata" />
                   <span class="size-badge">{{ formatFileSize(model.size_bytes) }}</span>
                 </div>
               </div>
@@ -181,9 +188,6 @@ function isConfigured(filename: string) {
 }
 .variant-badges {
   @apply flex items-center gap-2 shrink-0;
-}
-.quant-badge {
-  @apply text-[9px] font-black bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20 leading-none;
 }
 .variant-filename {
   @apply text-[10px] text-gray-400 truncate font-mono;

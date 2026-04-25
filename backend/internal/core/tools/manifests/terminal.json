@@ -2,6 +2,22 @@
   "tool_name": "execute_terminal_command",
   "version": "1.1",
   "description": "Execute a shell command on the host terminal and return the output.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "The shell command to execute (e.g., 'ls -la')."
+      }
+    },
+    "required": [
+      "command"
+    ]
+  },
+  "runtime": {
+    "timeout_seconds": 60,
+    "default_shell": "sh"
+  },
   "guardrails": {
     "enabled": true,
     "allowed_commands": [
@@ -9,30 +25,28 @@
       "pwd",
       "whoami",
       "uname",
-      "nmap",
-      "ping",
       "df",
+      "du",
       "uptime",
-      "curl",
       "date",
       "cat",
       "grep",
       "head",
       "tail",
-      "ip",
-      "hostname",
-      "ifconfig"
+      "ss",
+      "netstat",
+      "nc",
+      "ping",
+      "nmap"
     ],
     "blocked_patterns": [
       "rm\\s+",
       "mv\\s+",
       "chmod\\s+",
       "sudo\\s+",
-      "\u003e\\s*/",
       ";",
       "\u0026\u0026",
       "\\|\\|",
-      "\\|",
       "\u0026",
       "\\$",
       "ssh\\s+",
@@ -40,9 +54,5 @@
     ],
     "timeout_seconds": 60,
     "max_output_size_chars": 50000
-  },
-  "runtime": {
-    "timeout_seconds": 60,
-    "default_shell": "sh"
   }
 }

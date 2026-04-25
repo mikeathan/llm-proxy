@@ -1,12 +1,30 @@
 <script setup lang="ts">
+import { ref, onMounted } from "vue";
+import type { AppTab } from "../../types";
+
 defineProps<{
-  activeTab: string;
+  activeTab: AppTab;
 }>();
 
 defineEmits<{
-  (e: "update:activeTab", tab: string): void;
+  (e: "update:activeTab", tab: AppTab): void;
 }>();
+
+const version = ref<string | null>(null);
+
+onMounted(async () => {
+  try {
+    const res = await fetch("/admin/api/version");
+    if (res.ok) {
+      const data = await res.json();
+      version.value = data.version ?? null;
+    }
+  } catch {
+    // Non-critical — silently skip
+  }
+});
 </script>
+
 <template>
   <header class="header-container">
     <div class="header-inner">
@@ -25,6 +43,7 @@ defineEmits<{
           ></path>
         </svg>
         LLM Proxy Admin
+        <span v-if="version" class="version-badge">{{ version }}</span>
       </h1>
 
       <nav class="nav-links">
@@ -87,6 +106,9 @@ defineEmits<{
 }
 .header-icon {
   @apply w-6 h-6 text-blue-500;
+}
+.version-badge {
+  @apply text-xs font-mono font-normal text-gray-400 bg-gray-700 border border-gray-600 px-2 py-0.5 rounded-full;
 }
 .nav-links {
   @apply flex gap-2;

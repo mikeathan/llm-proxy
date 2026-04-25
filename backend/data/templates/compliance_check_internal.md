@@ -6,13 +6,12 @@ Audit internal hosts for the presence of legacy or high-risk services that shoul
 
 ### Execution Strategy
 
-#### Command: High-Risk Scan
-**Command:** `nmap -sT -Pn -p 21,23,445,3389,5900,111,2049 -T4 --open {{target}}`
-*   **Port 21**: FTP (Unencrypted)
-*   **Port 23**: Telnet (Unencrypted Admin)
+#### Action: High-Risk Service Audit
+**Action:** Use `scan_local_network` with specific ports: [21,23,111,445,2049,3389,5900].
+*   **Port 21/23**: FTP/Telnet (Unencrypted Admin)
 *   **Port 445**: SMB (File Sharing)
-*   **Port 3389/5900**: Remote Desktop (RDP/VNC)
 *   **Port 111/2049**: NFS (Network File System)
+*   **Port 3389/5900**: Remote Desktop (RDP/VNC)
 
 ### Analysis Goals
 *   Verify if exposure is justified by business need.

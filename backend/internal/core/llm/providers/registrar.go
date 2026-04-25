@@ -74,6 +74,14 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 	defer r.mu.RUnlock()
 
 	pCfg := cfg
+	if pCfg.ProviderConfig == nil {
+		pCfg.ProviderConfig = &models.ProviderConfig{}
+	} else {
+		// Deep copy to avoid side effects
+		copy := *pCfg.ProviderConfig
+		pCfg.ProviderConfig = &copy
+	}
+
 	providerName := cfg.Provider
 	var modelDir string
 

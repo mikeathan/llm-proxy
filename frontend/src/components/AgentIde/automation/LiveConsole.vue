@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from "vue";
-import type { AgentEvent } from "../../../types/dispatcher";
+import type {
+  AgentEvent,
+} from "../../../types/dispatcher";
 import {
   getRoleLabel,
   getMessageClass,
@@ -18,6 +20,8 @@ import {
 import { marked } from "marked";
 import CopyButton from "../../common/CopyButton.vue";
 
+import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
+
 const props = defineProps<{
   workspaceId: string;
   isActive: boolean;
@@ -25,10 +29,20 @@ const props = defineProps<{
   historyEvents?: AgentEvent[];
 }>();
 
-const liveEvents = ref<AgentEvent[]>([]);
-const isConnected = ref(false);
-let eventSource: EventSource | null = null;
 const scrollContainer = ref<HTMLElement | null>(null);
+
+const {
+  liveEvents,
+  displayEvents,
+  isConnected,
+  connect,
+  disconnect,
+  clearEvents
+} = useLiveConsole(
+  () => props.workspaceId,
+  () => props.isExecuting,
+  () => props.historyEvents
+);
 
 const scrollToBottom = () => {
   if (scrollContainer.value) {
@@ -39,59 +53,21 @@ const scrollToBottom = () => {
   }
 };
 
-const displayEvents = computed(() => {
-  // If we have live events, always show them
-  if (liveEvents.value.length > 0) return liveEvents.value;
-  
-  // If we are actively executing/running, we want a clean terminal, not old history
-  if (props.isExecuting) return [];
-  
-  // Otherwise fallback to history if provided
-  return props.historyEvents || [];
-});
-
-const connect = () => {
-  if (eventSource) eventSource.close();
-
-  const url = `/admin/api/dispatcher/workspaces/${props.workspaceId}/live`;
-  eventSource = new EventSource(url);
-
-  eventSource.addEventListener("ping", () => {
-    isConnected.value = true;
-  });
-
-  eventSource.addEventListener("agent_update", (e) => {
-    try {
-      const ev = JSON.parse(e.data) as AgentEvent;
-      
-      // Auto-clear old events if we detect a fresh automation start signal
-      if (ev.type === 'message' && getMsgPayload(ev).content?.includes('▶ Booting automation:')) {
-        liveEvents.value = [];
-      }
-      
-      liveEvents.value.push(ev);
-    } catch (err) {
-      console.error("Failed to parse agent event", err);
-    }
-  });
-
-  eventSource.onerror = () => {
-    isConnected.value = false;
-  };
-};
+let isUnmounted = false;
 
 onMounted(() => {
   connect();
 });
 
 onUnmounted(() => {
-  if (eventSource) eventSource.close();
+  isUnmounted = true;
+  disconnect();
 });
 
 watch(
   () => props.workspaceId,
   () => {
-    liveEvents.value = [];
+    clearEvents();
     connect();
   },
 );
@@ -99,19 +75,30 @@ watch(
 watch(
   displayEvents,
   async () => {
+    if (isUnmounted) return;
     await nextTick();
+    if (isUnmounted) return;
     // Use a small timeout to ensure DOM is fully rendered
-    setTimeout(scrollToBottom, 50);
+    setTimeout(() => {
+       if (!isUnmounted) scrollToBottom();
+    }, 50);
   },
   { deep: true },
 );
 
-const fullTerminalText = computed(() => formatEventsToText(displayEvents.value));
+const fullTerminalText = computed(() =>
+  formatEventsToText(displayEvents.value),
+);
 
 const formatTime = (ts?: string) => {
   if (!ts) return "";
   const date = new Date(ts);
-  return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return date.toLocaleTimeString([], {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 };
 </script>
 
@@ -142,16 +129,21 @@ const formatTime = (ts?: string) => {
       </div>
 
       <div class="term-content">
-        <div v-for="(ev, i) in displayEvents" :key="i" class="term-line">
+        <div v-for="ev in displayEvents" :key="(ev as any).id" class="term-line">
           <!-- Step Block -->
           <div v-if="ev.type === 'step_start'" class="line-step">
             <span class="step-label">Step {{ getStepPayload(ev).step }}</span>
-            <span v-if="ev.timestamp" class="step-ts">[{{ formatTime(ev.timestamp) }}]</span>
+            <span v-if="ev.timestamp" class="step-ts"
+              >[{{ formatTime(ev.timestamp) }}]</span
+            >
           </div>
 
           <!-- Message Block -->
           <div
-            v-else-if="(ev.type === 'message' || ev.type === 'error') && getMsgPayload(ev).content"
+            v-else-if="
+              (ev.type === 'message' || ev.type === 'error') &&
+              getMsgPayload(ev).content
+            "
             class="line-msg"
             :class="getMessageClass(getMsgPayload(ev).role, ev.type)"
           >
@@ -216,12 +208,19 @@ const formatTime = (ts?: string) => {
           </div>
 
           <!-- Guardrail Violation -->
-          <div v-else-if="ev.type === 'guardrail_violation'" class="line-violation">
+          <div
+            v-else-if="ev.type === 'guardrail_violation'"
+            class="line-violation"
+          >
             <div class="violation-header">
               <span class="violation-icon">🛑</span>
-              <span class="violation-title">Guardrail Blocked: {{ getViolationPayload(ev).tool }}</span>
+              <span class="violation-title"
+                >Guardrail Blocked: {{ getViolationPayload(ev).tool }}</span
+              >
             </div>
-            <div class="violation-body">{{ getViolationPayload(ev).error }}</div>
+            <div class="violation-body">
+              {{ getViolationPayload(ev).error }}
+            </div>
           </div>
         </div>
       </div>
@@ -316,16 +315,23 @@ const formatTime = (ts?: string) => {
 .msg-content :deep(p) {
   @apply mb-1 mt-0;
 }
-.msg-content :deep(h1), 
-.msg-content :deep(h2), 
+.msg-content :deep(h1),
+.msg-content :deep(h2),
 .msg-content :deep(h3) {
   @apply text-gray-100 font-bold mt-2 mb-1;
 }
-.msg-content :deep(h3) { @apply text-[11px]; }
-.msg-content :deep(h2) { @apply text-[12px]; }
-.msg-content :deep(h1) { @apply text-[14px]; }
+.msg-content :deep(h3) {
+  @apply text-[11px];
+}
+.msg-content :deep(h2) {
+  @apply text-[12px];
+}
+.msg-content :deep(h1) {
+  @apply text-[14px];
+}
 
-.msg-content :deep(ul), .msg-content :deep(ol) {
+.msg-content :deep(ul),
+.msg-content :deep(ol) {
   @apply mb-1 ml-4;
 }
 
@@ -333,7 +339,8 @@ const formatTime = (ts?: string) => {
   @apply my-2 border-collapse text-[10px] w-full;
 }
 
-.msg-content :deep(th), .msg-content :deep(td) {
+.msg-content :deep(th),
+.msg-content :deep(td) {
   @apply p-1 border border-gray-800 text-left;
 }
 

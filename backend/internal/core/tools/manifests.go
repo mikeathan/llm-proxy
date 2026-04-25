@@ -18,6 +18,8 @@ type ToolManifest struct {
 	ToolName    string          `json:"tool_name"`
 	Version     string          `json:"version"`
 	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Runtime     json.RawMessage `json:"runtime,omitempty"`
 	Guardrails  json.RawMessage `json:"guardrails"`
 }
 
@@ -58,7 +60,72 @@ func LoadManifest(root string, toolKey string, target any) error {
 	return nil
 }
 
-// GetDefaultGuardrails loads all guardrail configurations from their respective manifests.
+// LoadManifestAsTool loads a JSON manifest and converts it to an LLM-ready tool definition.
+func LoadManifestAsTool(root string, toolKey string, toolName string) (map[string]any, string, error) {
+	var data []byte
+	var err error
+
+	// Try Disk first (for live dev updates)
+	_, filename, _, ok := runtime.Caller(0)
+	if ok {
+		sourceDir := filepath.Dir(filename)
+		diskPath := filepath.Join(sourceDir, "manifests", toolKey+".json")
+		data, err = os.ReadFile(diskPath)
+	}
+
+	// Fallback to Embedded FS (Production)
+	if err != nil || len(data) == 0 {
+		embedPath := fmt.Sprintf("manifests/%s.json", toolKey)
+		data, err = manifestFS.ReadFile(embedPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read %s manifest: %w", toolKey, err)
+		}
+	}
+
+	var m ToolManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, "", err
+	}
+
+	// 2. Parse parameters into map[string]any
+	params := make(map[string]any)
+	description := m.Description
+
+	// 3. Look for per-tool overrides in the 'runtime' section
+	if m.Runtime != nil {
+		var runtime map[string]struct {
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
+		}
+		if err := json.Unmarshal(m.Runtime, &runtime); err == nil {
+			if toolCfg, ok := runtime[toolName]; ok {
+				if toolCfg.Description != "" {
+					description = toolCfg.Description
+				}
+				if len(toolCfg.Parameters) > 0 {
+					if err := json.Unmarshal(toolCfg.Parameters, &params); err != nil {
+						return nil, "", fmt.Errorf("failed to parse %s runtime parameters: %w", toolName, err)
+					}
+					// If we found specific runtime parameters, return early
+					return params, description, nil
+				}
+			}
+		}
+	}
+
+	// 4. Fallback to global manifest parameters
+	if len(m.Parameters) > 0 {
+		if err := json.Unmarshal(m.Parameters, &params); err != nil {
+			return nil, "", fmt.Errorf("failed to parse %s parameters: %w", toolKey, err)
+		}
+	}
+
+	if params == nil {
+		params = make(map[string]any)
+	}
+
+	return params, description, nil
+}
 func GetDefaultGuardrails(root string) models.AgentGuardrailsConfig {
 	var cfg models.AgentGuardrailsConfig
 	cfg.Global.BlockSecrets = true
@@ -67,6 +134,7 @@ func GetDefaultGuardrails(root string) models.AgentGuardrailsConfig {
 	_ = LoadManifest(root, "search", &cfg.Search)
 	_ = LoadManifest(root, "communication", &cfg.Communication)
 	_ = LoadManifest(root, "filesystem", &cfg.FileSystem)
+	_ = LoadManifest(root, "network", &cfg.Network)
 	_ = LoadManifest(root, "security", &cfg.Global)
 
 	return cfg
@@ -90,21 +158,15 @@ func SaveManifest(root string, toolKey string, guardrails any) error {
 		return fmt.Errorf("source manifest not found on disk for %s: %w", toolKey, err)
 	}
 	
-	// 1. Read existing manifest to preserve other fields (name, version, etc)
-	var manifest struct {
-		ToolName    string          `json:"tool_name"`
-		Version     string          `json:"version"`
-		Description string          `json:"description"`
-		Guardrails  json.RawMessage `json:"guardrails"`
-		Runtime     json.RawMessage `json:"runtime,omitempty"`
-	}
+	// 1. Read existing manifest to preserve all fields
+	var m ToolManifest
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read manifest for writing: %w", err)
 	}
 
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	if err := json.Unmarshal(data, &m); err != nil {
 		return err
 	}
 
@@ -113,10 +175,10 @@ func SaveManifest(root string, toolKey string, guardrails any) error {
 	if err != nil {
 		return err
 	}
-	manifest.Guardrails = newData
+	m.Guardrails = newData
 
 	// 3. Write back
-	finalData, err := json.MarshalIndent(manifest, "", "  ")
+	finalData, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -17,6 +17,7 @@ export const API_ENDPOINTS = {
   testConnection: `${API_BASE}/providers/test`,
   secretsKeys: `${API_BASE}/secrets/keys`,
   restart: `${API_BASE}/system/restart`,
+  hostSettings: `${API_BASE}/host`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

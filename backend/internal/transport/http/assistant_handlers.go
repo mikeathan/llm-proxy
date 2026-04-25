@@ -7,12 +7,16 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
 )
+
+const maxHistoryChars = 128 * 1024
 
 type AssistantMessage struct {
 	WorkspaceID    string `json:"workspace_id"`
@@ -28,7 +32,7 @@ type AssistantMessageHandler struct {
 	limiter     ratelimiter.Limiter
 	logger      logging.Logger
 	engine      assistant.Engine
-	guardrails  *assistant.GuardrailEngine
+	guardrails  *guardrails.GuardrailEngine
 	persistence *persistence.WorkspaceManager
 	svc         AssistantService
 }
@@ -63,7 +67,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.Request) (*AssistantMessage, logging.Logger, bool) {
 	var payload AssistantMessage
-	if err := decodeJSON(r, &payload); err != nil {
+	if err := decodeJSON(w, r, &payload); err != nil {
 		if errors.Is(err, ErrUnsupportedContentType) {
 			writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		} else {
@@ -138,14 +142,18 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		})
 	}
 
+	// Apply sliding window truncation to keep history within token limits
+	session.History = h.truncateHistory(session.History)
+
 	// 3. Initialize and Execute Agent
 	procLog := h.svc.ProcessLogger(payload.WorkspaceID)
 	procLog.Info("Assistant request started", "conversation", payload.ConversationID, "message", payload.Message)
 
 	agent := assistant.NewAgent(client, h.provider, h.engine, assistant.AgentOptions{
-		Logger:     procLog,
-		MaxSteps:   10,
-		Guardrails: h.guardrails,
+		Logger:      procLog,
+		MaxSteps:    20,
+		Guardrails:  h.guardrails,
+		WorkspaceID: payload.WorkspaceID,
 	})
 
 	reply, updatedHistory, agErr := agent.Execute(ctx, session.History)
@@ -198,7 +206,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 
 	// Calculate robust relative path from Current Working Directory to Workspaces Dir
 	relWs := h.persistence.GetRelativeWorkspacePath()
-	jailPrompt := assistant.BuildJailPrompt(relWs, payload.WorkspaceID)
+	jailPrompt := prompts.BuildJailPrompt(relWs, payload.WorkspaceID)
 
 	agentPrompt := ""
 	if payload.WorkspaceID != "" && h.persistence != nil {
@@ -211,7 +219,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 	return []proxy.Message{
 		{
 			Role: proxy.SystemRole,
-			Content: assistant.BuildSystemMessage(
+			Content: prompts.BuildSystemMessage(
 				systemPrompt+jailPrompt+agentPrompt,
 				payload.ConversationID,
 				payload.ContextVersion,
@@ -284,4 +292,34 @@ func (h *AssistantMessageHandler) DeleteSession(w http.ResponseWriter, r *http.R
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AssistantMessageHandler) truncateHistory(history []proxy.Message) []proxy.Message {
+	if len(history) <= 1 {
+		return history
+	}
+
+	totalChars := 0
+	for _, m := range history {
+		totalChars += len(m.Content)
+	}
+
+	if totalChars <= maxHistoryChars {
+		return history
+	}
+
+	// Sliding window: remove oldest non-system messages
+	// Keep the system prompt at index 0 if it exists
+	startIdx := 0
+	if history[0].Role == proxy.SystemRole {
+		startIdx = 1
+	}
+
+	for totalChars > maxHistoryChars && startIdx < len(history)-1 {
+		// Remove the message at startIdx (the oldest non-system message)
+		totalChars -= len(history[startIdx].Content)
+		history = append(history[:startIdx], history[startIdx+1:]...)
+	}
+
+	return history
 }

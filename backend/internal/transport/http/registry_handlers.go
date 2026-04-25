@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 	"os"
@@ -168,6 +170,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Args           []string              `json:"args"`
 		Port           int                   `json:"port"`
 		ProviderConfig models.ProviderConfig `json:"provider_config"`
+		Metadata       *models.ModelMetadata `json:"metadata"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -214,7 +217,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	var runtimeArgs []string
 	if len(req.Args) == 0 {
-		runtimeArgs = append([]string(nil), h.admin.DefaultArgs()...)
+		settings := h.admin.GetSettings()
+		runtimeArgs = append([]string(nil), settings.Local.DefaultArgs...)
 	} else {
 		runtimeArgs = append([]string(nil), req.Args...)
 	}
@@ -227,7 +231,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Args:           runtimeArgs,
 		Port:           req.Port,
 		Environment:    h.admin.Environment(),
-		ProviderConfig: req.ProviderConfig,
+		ProviderConfig: &req.ProviderConfig,
+		Metadata:       req.Metadata,
 	}
 
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
@@ -245,7 +250,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Filename:       filename,
 		Args:           append([]string{}, req.Args...),
 		Port:           req.Port,
-		ProviderConfig: req.ProviderConfig,
+		ProviderConfig: &req.ProviderConfig,
+		Metadata:       req.Metadata,
 	}
 
 	if err := h.admin.PersistModel(persistCfg); err != nil {
@@ -266,6 +272,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Args           []string              `json:"args"`
 		Port           int                   `json:"port"`
 		ProviderConfig models.ProviderConfig `json:"provider_config"`
+		Metadata       *models.ModelMetadata `json:"metadata"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -308,6 +315,9 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	if req.Port == 0 && req.Provider == "local" {
 		req.Port = existing.Port
 	}
+	if req.Metadata == nil {
+		req.Metadata = existing.Metadata
+	}
 
 	var runtimeArgs []string
 	if len(req.Args) == 0 {
@@ -333,7 +343,8 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Args:           runtimeArgs,
 		Port:           req.Port,
 		Environment:    h.admin.Environment(),
-		ProviderConfig: req.ProviderConfig,
+		ProviderConfig: &req.ProviderConfig,
+		Metadata:       req.Metadata,
 	}
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
@@ -350,7 +361,8 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Filename:       req.Filename,
 		Args:           append([]string{}, req.Args...),
 		Port:           req.Port,
-		ProviderConfig: req.ProviderConfig,
+		ProviderConfig: &req.ProviderConfig,
+		Metadata:       req.Metadata,
 	}
 
 	if err := h.admin.PersistReplaceModel(persistCfg); err != nil {
@@ -397,7 +409,7 @@ func (h *AdminHandlers) handleDeleteModel(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func discoverModelFiles(modelDir string, current []models.ModelConfig) []adminAvailableModel {
+func discoverModelFiles(ctx context.Context, modelDir string, current []models.ModelConfig) []adminAvailableModel {
 	if modelDir == "" {
 		return nil
 	}
@@ -415,6 +427,7 @@ func discoverModelFiles(modelDir string, current []models.ModelConfig) []adminAv
 		}
 	}
 
+	scanner := metadata.NewGGUFScanner()
 	var found []adminAvailableModel
 	_ = filepath.WalkDir(modelDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -431,10 +444,18 @@ func discoverModelFiles(modelDir string, current []models.ModelConfig) []adminAv
 		if _, ok := seenPaths[fullPath]; ok {
 			return nil
 		}
-		name := strings.TrimSuffix(d.Name(), ext)
-		if _, ok := seenNames[name]; ok {
+
+		// Use native GGUF metadata parsing
+		meta, err := scanner.Scan(ctx, fullPath)
+		if err != nil {
+			// Fallback to filename-based name if parsing fails
+			meta.Name = strings.TrimSuffix(d.Name(), ext)
+		}
+
+		if _, ok := seenNames[meta.Name]; ok {
 			return nil
 		}
+
 		var sizeBytes int64
 		if targetInfo, err := os.Stat(fullPath); err == nil {
 			sizeBytes = targetInfo.Size()
@@ -443,10 +464,11 @@ func discoverModelFiles(modelDir string, current []models.ModelConfig) []adminAv
 		}
 
 		found = append(found, adminAvailableModel{
-			Name:         name,
+			Name:         meta.Name,
 			Filename:     d.Name(),
 			ResolvedPath: fullPath,
 			SizeBytes:    sizeBytes,
+			Metadata:     meta,
 		})
 		return nil
 	})

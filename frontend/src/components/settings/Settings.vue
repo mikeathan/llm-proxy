@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import GlobalSettings from "./GlobalSettings.vue";
+import SecuritySettings from "./SecuritySettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
@@ -179,6 +180,11 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
             @updateLogLevel="updateLogLevel"
             @restartBackend="handleRestartBackend"
           />
+        </div>
+
+        <!-- Security & Sandboxing -->
+        <div v-show="activeTab === 'security'">
+          <SecuritySettings />
         </div>
 
         <!-- Guardrails -->

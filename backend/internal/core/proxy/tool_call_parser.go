@@ -24,6 +24,12 @@ var (
 	reToolName  = regexp.MustCompile(`(?s)<function-name>(.*?)</function-name>`)
 	reToolArgs  = regexp.MustCompile(`(?s)<args-json-object>(.*?)</args-json-object>`)
 	reToolsTag  = regexp.MustCompile(`(?s)<tools>(.*?)</tools>`)
+	// Match functions.<name>:<id>{args} (common in vLLM/OpenAI-like local outputs)
+	reNativeFunc = regexp.MustCompile(`(?s)functions\.([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)(\{.*?\})`)
+	// Match markdown JSON blocks containing tool call arrays
+	reMarkdownJSON = regexp.MustCompile("(?s)```(?:json)?\n\\s*(\\[\\s*\\{.*?\\}\\s*\\])\\s*\n```")
+	// Match raw JSON objects (often used by models that ignore formatting instructions)
+	reRawJSON = regexp.MustCompile(`(?s)^\s*(\{.*?\})\s*$`)
 )
 
 // ParseContentToolCalls inspects a message's Content for embedded tool call
@@ -41,7 +47,105 @@ func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
 		cleaned := reToolsTag.ReplaceAllString(content, "")
 		return cleaned, calls, true
 	}
+	// Try format 3: functions.<name>:<id>{args}
+	if calls, ok := parseNativeFuncFormat(content); ok {
+		cleaned := reNativeFunc.ReplaceAllString(content, "")
+		return cleaned, calls, true
+	}
+	// Try format 4: Markdown JSON blocks
+	if calls, ok := parseMarkdownJSONFormat(content); ok {
+		cleaned := reMarkdownJSON.ReplaceAllString(content, "")
+		return cleaned, calls, true
+	}
+	// Try format 5: Raw JSON object (as a last resort)
+	if calls, ok := parseRawJSONFormat(content); ok {
+		return "", calls, true
+	}
+
 	return content, nil, false
+}
+
+// parseRawJSONFormat handles a single raw JSON object that might be tool arguments.
+func parseRawJSONFormat(content string) ([]ToolCall, bool) {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, "{") || !strings.HasSuffix(content, "}") {
+		return nil, false
+	}
+
+	// We don't know the name yet, so we'll have to rely on the model 
+	// having been instructed to return the name inside the JSON or 
+	// this being a very specific edge case.
+	// Actually, some models return {"name": "...", "arguments": {...}}
+	var entry struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal([]byte(content), &entry); err == nil && entry.Name != "" {
+		return []ToolCall{{
+			ID:   "raw-0",
+			Type: "function",
+			Function: FunctionCall{
+				Name:      entry.Name,
+				Arguments: string(entry.Arguments),
+			},
+		}}, true
+	}
+
+	return nil, false
+}
+
+// parseMarkdownJSONFormat handles tool calls embedded in markdown code blocks.
+func parseMarkdownJSONFormat(content string) ([]ToolCall, bool) {
+	match := reMarkdownJSON.FindStringSubmatch(content)
+	if len(match) == 0 {
+		return nil, false
+	}
+
+	var rawCalls []struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+
+	if err := json.Unmarshal([]byte(match[1]), &rawCalls); err != nil {
+		return nil, false
+	}
+
+	calls := make([]ToolCall, 0, len(rawCalls))
+	for i, rc := range rawCalls {
+		calls = append(calls, ToolCall{
+			ID:   fmt.Sprintf("md-%d", i),
+			Type: "function",
+			Function: FunctionCall{
+				Name:      rc.Name,
+				Arguments: string(rc.Arguments),
+			},
+		})
+	}
+	return calls, true
+}
+
+// parseNativeFuncFormat handles the functions.name:id{args} style.
+func parseNativeFuncFormat(content string) ([]ToolCall, bool) {
+	matches := reNativeFunc.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil, false
+	}
+
+	calls := make([]ToolCall, 0, len(matches))
+	for _, m := range matches {
+		name := m[1]
+		id := m[2]
+		args := m[3]
+		calls = append(calls, ToolCall{
+			ID:   id,
+			Type: "function",
+			Function: FunctionCall{
+				Name:      name,
+				Arguments: args,
+			},
+		})
+	}
+	return calls, true
 }
 
 // parseFunctionNameFormat handles the <function-name>/<args-json-object> style.
@@ -80,8 +184,8 @@ func parseToolsTagFormat(content string) ([]ToolCall, bool) {
 	}
 
 	type toolEntry struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	}
 
 	calls := make([]ToolCall, 0, len(tagMatches))
@@ -93,17 +197,12 @@ func parseToolsTagFormat(content string) ([]ToolCall, bool) {
 			continue
 		}
 
-		argsJSON, err := json.Marshal(entry.Arguments)
-		if err != nil {
-			argsJSON = []byte("{}")
-		}
-
 		calls = append(calls, ToolCall{
 			ID:   fmt.Sprintf("cid-%d", i),
 			Type: "function",
 			Function: FunctionCall{
 				Name:      entry.Name,
-				Arguments: string(argsJSON),
+				Arguments: string(entry.Arguments),
 			},
 		})
 	}

@@ -5,13 +5,22 @@ import (
 	"os"
 	"time"
 
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
 )
+
+// AdminVersionHandler handles GET /admin/api/version
+func (h *AdminHandlers) AdminVersionHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, map[string]string{
+		"version":    h.buildInfo.Version,
+		"commit":     h.buildInfo.Commit,
+		"build_date": h.buildInfo.BuildDate,
+	})
+}
 
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	sys := h.admin.GetSystem()
 	reg := h.admin.GetRegistry()
+	settings := h.admin.GetSettings()
 	id, secret := h.admin.ServiceCredentials()
 	cfg := adminConfigView{
 		WorkspacesDir:       sys.WorkspacesDir,
@@ -20,13 +29,13 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		GPUProvider:         h.admin.GPUConfig().Provider,
 		GPUBinary:           h.admin.GPUConfig().Binary,
 		GPUIndex:            h.admin.GPUConfig().Index,
-		DefaultArgs:         sys.Local.DefaultArgs,
+		DefaultArgs:         settings.Local.DefaultArgs,
 		ServiceClientID:     id,
 		ServiceClientSecret: secret,
 		PrimaryModel:        reg.PrimaryModel,
 		FallbackModel:       reg.FallbackModel,
 		Providers:           h.getProvidersView(),
-		Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
+		Guardrails:          h.admin.GetGuardrails(),
 		Communication:       reg.Communication,
 		Search:              reg.Search,
 	}
@@ -36,6 +45,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 // AdminSystemHandler handles GET /admin/api/system
 func (h *AdminHandlers) AdminSystemHandler(w http.ResponseWriter, r *http.Request) {
 	sys := h.admin.GetSystem()
+	settings := h.admin.GetSettings()
 	view := adminSystemView{
 		Bind:            sys.Server.Bind,
 		ModelHost:       sys.Server.ModelHost,
@@ -43,11 +53,8 @@ func (h *AdminHandlers) AdminSystemHandler(w http.ResponseWriter, r *http.Reques
 		WorkspacesDir:   sys.WorkspacesDir,
 		GPU:             h.admin.GPUConfig(),
 		Environment:     sys.Server.Environment,
+		Local:           settings.Local,
 	}
-	view.Local.ModelDir = sys.Local.ModelDir
-	view.Local.LlamaServerBinary = sys.Local.LlamaServerBinary
-	view.Local.DefaultArgs = sys.Local.DefaultArgs
-
 	respondJSON(w, view)
 }
 
@@ -58,8 +65,8 @@ func (h *AdminHandlers) AdminSystemPutHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.admin.UpdateSettings(r.Context(), req); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to update system: "+err.Error())
+	if err := h.admin.ApplySystemUpdate(r.Context(), req); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err.Error())
 		return
 	}
 
@@ -72,8 +79,8 @@ func (h *AdminHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err2 := h.admin.UpdateSettings(r.Context(), req); err2 != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to update system: "+err2.Error())
+	if err2 := h.admin.ApplySystemUpdate(r.Context(), req); err2 != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err2.Error())
 		return
 	}
 
@@ -90,3 +97,47 @@ func (h *AdminHandlers) AdminRestartHandler(w http.ResponseWriter, r *http.Reque
 		os.Exit(0)
 	}()
 }
+
+// AdminHostSettingsHandler handles GET /admin/api/host
+func (h *AdminHandlers) AdminHostSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, h.admin.HostSettings())
+}
+
+// AdminHostSettingsPutHandler handles PUT /admin/api/host
+func (h *AdminHandlers) AdminHostSettingsPutHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.HostSettings
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+
+	if err := h.admin.UpdateHostSettings(req); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to update host settings: "+err.Error())
+		return
+	}
+
+	respondJSON(w, req)
+}
+
+// AdminSandboxResetHandler handles POST /admin/api/host/sandbox/reset
+func (h *AdminHandlers) AdminSandboxResetHandler(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspaceID")
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspaceID query parameter is required")
+		return
+	}
+
+	if err := h.admin.ResetSandbox(workspaceID); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to reset sandbox: "+err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]string{"status": "ok", "message": "Sandbox reset triggered for " + workspaceID})
+}
+
+// AdminSandboxSessionsHandler handles GET /admin/api/host/sandbox/sessions
+func (h *AdminHandlers) AdminSandboxSessionsHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, h.admin.ListSandboxSessions())
+}
+
+
+

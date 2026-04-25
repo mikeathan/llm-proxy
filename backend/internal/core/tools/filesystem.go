@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const secureFileMode = 0600
+
 // FileSystemTools provides secure file operations.
 type FileSystemTools struct {
 	configProvider func(ctx context.Context) models.FileSystemGuardrailsConfig
@@ -128,12 +130,13 @@ func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content st
 		return fmt.Errorf("file size exceeds quota (max %d KB)", cfg.MaxFileSizeKB)
 	}
 
+
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(absPath, []byte(content), 0644)
+	return os.WriteFile(absPath, []byte(content), secureFileMode)
 }
 
 // IsSecurePath checks if a path is within the allowed roots.
@@ -143,11 +146,30 @@ func IsSecurePath(path string, allowedRoots []string) (string, error) {
 		return "", fmt.Errorf("invalid path: %w", err)
 	}
 
+	// Resolve symlinks to prevent jail escape.
+	// If the file exists, resolve it fully.
+	if resolved, err := filepath.EvalSymlinks(absLocal); err == nil {
+		absLocal = resolved
+	} else if os.IsNotExist(err) {
+		// If the file doesn't exist, we must still resolve its parent to prevent
+		// creating a file inside a symlinked directory that points outside the jail.
+		parent := filepath.Dir(absLocal)
+		if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
+			absLocal = filepath.Join(resolvedParent, filepath.Base(absLocal))
+		}
+	}
+
 	for _, root := range allowedRoots {
 		absRoot, err := filepath.Abs(root)
 		if err != nil {
 			continue
 		}
+
+		// Resolve symlinks in roots too to ensure canonical comparison
+		if resolvedRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
+			absRoot = resolvedRoot
+		}
+
 		// Robust prefix check: handle same path or subpath correctly
 		if absLocal == absRoot || strings.HasPrefix(absLocal, absRoot+string(filepath.Separator)) {
 			return absLocal, nil

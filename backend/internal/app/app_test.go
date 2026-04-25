@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ func TestAppBoots(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalTestDataManager(t)
-	a := app.New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	if a == nil {
 		t.Fatal("app not initialized")
@@ -31,7 +32,7 @@ func TestRoutesExist(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalTestDataManager(t)
-	a := app.New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	tests := []string{
 		"/admin/",
@@ -56,7 +57,7 @@ func TestMethodEnforcement(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalTestDataManager(t)
-	a := app.New(dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{})
 
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
 	rec := httptest.NewRecorder()

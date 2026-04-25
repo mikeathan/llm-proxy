@@ -29,6 +29,17 @@ export interface Model {
   active: boolean
   ready: boolean
   provider_config?: ProviderConfig
+  metadata?: ModelMetadata
+}
+
+export interface ModelMetadata {
+  name: string
+  architecture: string
+  context_length: number
+  parameters: number
+  quantization: string
+  author?: string
+  description?: string
 }
 
 export interface AvailableModel {
@@ -36,6 +47,7 @@ export interface AvailableModel {
   filename: string
   resolved_path: string
   size_bytes: number
+  metadata: ModelMetadata
 }
 
 export interface NewModelForm {
@@ -46,4 +58,5 @@ export interface NewModelForm {
   port?: number
   args?: string
   provider_config?: ProviderConfig
+  metadata?: ModelMetadata
 }

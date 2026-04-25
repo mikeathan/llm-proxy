@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"net"
 	"sync"
 	"time"
 
@@ -16,6 +17,8 @@ type Client struct {
 	Name          string
 	URL           string
 	BindAddr      string
+	TLSCACert     string
+	DialContext   func(ctx context.Context, network, addr string) (net.Conn, error)
 	logger        logging.Logger
 	retryInterval time.Duration
 
@@ -37,6 +40,7 @@ type Orchestrator struct {
 	mu             sync.RWMutex
 	clients        map[string]*Client // Keyed by server name
 	onPromptUpdate func(content string)
+	DialContext    func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // ClientInterface allows mocking the client or using the real one.

@@ -87,7 +87,7 @@ func TestAdminConfigUpdateHandler_InvalidJSON(t *testing.T) {
 
 func TestAdminConfigUpdateHandler_UpdateSystemError(t *testing.T) {
 	admin := &mocks.MockAdminService{
-		UpdateSettingsFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
+		ApplySystemUpdateFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
 			return errors.New("save failed")
 		},
 	}
@@ -136,7 +136,7 @@ func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
 	t.Setenv("SERVICE_CLIENT_SECRET", "")
 
 	admin := &mocks.MockAdminService{
-		UpdateSettingsFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
+		ApplySystemUpdateFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
 			if req.ServiceClientID != "" {
 				os.Setenv("SERVICE_CLIENT_ID", req.ServiceClientID)
 			}

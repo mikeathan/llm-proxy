@@ -25,10 +25,15 @@ const (
 	SystemConfigFilename = "config.json"
 	SecretsFilename      = "secrets.json"
 	RegistryFilename     = "registry.json"
+	SettingsFilename     = "settings.yml"
 	ProcessLogFilename   = "process.log"
 
 	// API Parameter Names
 	WorkspaceIDParam = "workspace"
+
+	// Sandbox execution paths
+	SandboxTmpDir         = "/tmp"
+	SandboxRunDir         = "/run"
 )
 
 // TriggerConfig describes a trigger for an automation.
@@ -89,4 +94,10 @@ type Workspace struct {
 	Config    WorkspaceConfig `json:"config"`
 	State     AgentState      `json:"state"`
 	Heartbeat string          `json:"heartbeat"`
+}
+
+type SandboxSessionView struct {
+	WorkspaceID string    `json:"workspace_id"`
+	LastUsed    time.Time `json:"last_used"`
+	HostPath    string    `json:"host_path"`
 }

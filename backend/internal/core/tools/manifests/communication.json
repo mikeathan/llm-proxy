@@ -2,6 +2,18 @@
   "tool_name": "notify_user",
   "version": "1.0",
   "description": "Send notifications and reports to the user via external platforms.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string",
+        "description": "The notification message or report content to send."
+      }
+    },
+    "required": [
+      "message"
+    ]
+  },
   "guardrails": {
     "enabled": false,
     "require_review": true,

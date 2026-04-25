@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // SearchProvider defines the interface for various search engines.
@@ -23,11 +22,17 @@ type SearchResult struct {
 // TavilyProvider implements the SearchProvider using the Tavily API.
 type TavilyProvider struct {
 	APIKey string
+	Client *http.Client
 }
 
 func (t *TavilyProvider) Search(ctx context.Context, query string) ([]SearchResult, error) {
 	if t.APIKey == "" {
 		return nil, fmt.Errorf("tavily api key missing")
+	}
+
+	client := t.Client
+	if client == nil {
+		client = http.DefaultClient
 	}
 
 	const searchURL = "https://api.tavily.com/search"
@@ -50,7 +55,6 @@ func (t *TavilyProvider) Search(ctx context.Context, query string) ([]SearchResu
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("search request failed: %w", err)

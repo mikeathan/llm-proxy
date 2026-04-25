@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/models"
 	"path/filepath"
 )
@@ -28,9 +30,10 @@ func (h *AdminHandlers) getProvidersView() map[string]adminProviderView {
 
 // getModelsView constructs a view-friendly list of models, handling path resolution
 // for local providers and ensuring consistent identifier mapping.
-func (h *AdminHandlers) getModelsView(modelsList []models.ModelConfig, activeName string, activeReady bool) []adminModelView {
+func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeName string, activeReady bool) []adminModelView {
 	out := make([]adminModelView, 0, len(modelsList))
 	host := h.runtime.ModelHost()
+	scanner := metadata.NewGGUFScanner()
 
 	for _, mc := range modelsList {
 		filename := mc.Filename
@@ -38,16 +41,30 @@ func (h *AdminHandlers) getModelsView(modelsList []models.ModelConfig, activeNam
 			filename = filepath.Base(mc.Path)
 		}
 
+		fullPath := mc.Path
+		if fullPath == "" && mc.Provider == "local" && filename != "" {
+			fullPath = h.admin.ResolveModelPath(filename, "")
+		}
+
+		meta := mc.Metadata
+		if meta == nil && mc.Provider == "local" && fullPath != "" {
+			// Lazy enrich metadata for existing models
+			if m, err := scanner.Scan(ctx, fullPath); err == nil {
+				meta = &m
+			}
+		}
+
 		view := adminModelView{
 			Name:           mc.Name,
 			Provider:       mc.Provider,
 			Filename:       filename,
-			ResolvedPath:   mc.Path,
+			ResolvedPath:   fullPath,
 			Args:           mc.Args,
 			Port:           mc.Port,
 			Active:         mc.Name == activeName,
 			Ready:          mc.Name == activeName && activeReady,
 			ProviderConfig: mc.ProviderConfig,
+			Metadata:       meta,
 		}
 
 		if mc.Port > 0 {

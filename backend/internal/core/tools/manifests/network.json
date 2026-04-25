@@ -1,0 +1,50 @@
+{
+  "tool_name": "network_tools",
+  "version": "1.1",
+  "description": "Perform scoped network operations like scanning the local network for devices or fetching remote resources.",
+  "runtime": {
+    "fetch_url": {
+      "description": "Download the content of a remote URL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to fetch." }
+        },
+        "required": ["url"]
+      }
+    },
+    "scan_local_network": {
+      "description": "Scan the local network for active devices and services.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string", "description": "Target IP, CIDR, or a comma-separated list of IPs (e.g. '192.168.1.1, 192.168.1.5'). Leave blank for auto-detect." },
+          "mode": { "type": "string", "enum": ["fast", "deep"], "description": "Scan depth." },
+          "ports": { "type": "array", "items": { "type": "integer" }, "description": "Optional port list." }
+        }
+      }
+    },
+    "get_network_info": {
+      "description": "Returns the local IP address and subnet mask of the host machine.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  "guardrails": {
+    "enabled": true,
+    "allow_lan_access": true,
+    "allow_internet_access": true,
+    "blocked_domains": [
+      "*.internal.company.com"
+    ],
+    "blocked_ips": [
+      "127.0.0.1",
+      "0.0.0.1",
+      "169.254.169.254"
+    ],
+    "max_fetch_size_kb": 2048,
+    "timeout_seconds": 30
+  }
+}
