@@ -72,10 +72,11 @@ function selectAvailableModel(model: AvailableModel) {
   form.value = {
     ...form.value,
     provider: "local",
-    name: model.name,
+    name: model.metadata?.name || model.name,
     filename: model.filename,
     port: props.state?.next_port || 8000,
     args: "",
+    metadata: model.metadata,
   };
 }
 
@@ -118,8 +119,10 @@ onMounted(() => {
             :model="model"
             :state="state"
             :is-editing="editingModelName === model.name"
-            @start-model="$emit('startModel', $event)"
+            @start-model="$emit('startModel', $event.name)"
             @stop-model="$emit('stopModel')"
+            @select-model="$emit('startModel', $event.name)"
+            @deselect-model="$emit('stopModel')"
             @remove-model="$emit('removeModel', $event)"
             @start-edit="handleStartEdit"
             @cancel-edit="handleCancelEdit"
@@ -197,13 +200,13 @@ onMounted(() => {
   @apply grid grid-cols-1 lg:grid-cols-2 gap-6;
 }
 .models-box {
-  @apply bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-5 flex flex-col min-h-[300px] h-[500px];
+  @apply bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-4 flex flex-col min-h-[300px] h-[500px];
 }
 .models-header {
-  @apply mb-4 flex justify-between items-center;
+  @apply mb-3 flex justify-between items-center;
 }
 .models-title {
-  @apply text-lg font-semibold text-white flex items-center gap-3;
+  @apply text-base font-semibold text-white flex items-center gap-3;
 }
 .models-count {
   @apply text-[10px] bg-gray-700 px-2 py-0.5 rounded text-gray-400;
@@ -215,7 +218,7 @@ onMounted(() => {
   @apply text-center text-gray-500 py-10 italic text-sm;
 }
 .models-list {
-  @apply space-y-3;
+  @apply space-y-2;
 }
 .add-content-wrapper {
   @apply overflow-y-auto flex-1 pr-2;

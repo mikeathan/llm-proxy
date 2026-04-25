@@ -23,6 +23,7 @@ type ModelRegistryEntry struct {
 	ProviderID   string `json:"provider_id"`
 	ModelID      string `json:"model_id"`
 	CredentialID string `json:"credential_id,omitempty"`
+	Port         int    `json:"port,omitempty"`
 }
 
 type MCPServerRegistryEntry struct {

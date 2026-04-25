@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import type { AppTab } from "../../types";
+
 defineProps<{
-  activeTab: string;
+  activeTab: AppTab;
 }>();
 
 defineEmits<{
-  (e: "update:activeTab", tab: string): void;
+  (e: "update:activeTab", tab: AppTab): void;
 }>();
 </script>
 <template>

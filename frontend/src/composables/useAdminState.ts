@@ -1,8 +1,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ApiService } from '../services/api'
+import { useConfirm } from './useConfirm'
 import type { AdminState, McpServer, ProcessLogs, SystemMetrics } from '../types'
 
 export function useAdminState() {
+  const { confirm } = useConfirm()
   const state = ref<AdminState | null>(null)
   const metrics = ref<SystemMetrics | null>(null)
   const logs = ref<ProcessLogs | null>(null)
@@ -109,7 +111,14 @@ export function useAdminState() {
   }
 
   const removeModel = async (name: string) => {
-    if (!confirm(`Are you sure you want to remove ${name}?`)) return
+    const confirmed = await confirm({
+      title: 'Remove Model',
+      message: `Are you sure you want to remove model "${name}"?`,
+      type: 'error',
+      confirmText: 'Remove',
+      cancelText: 'Cancel'
+    })
+    if (!confirmed) return
     try {
       await ApiService.removeModel(name)
       await fetchState()
@@ -151,7 +160,14 @@ export function useAdminState() {
   }
 
   const removeMCPServer = async (name: string) => {
-    if (!confirm(`Are you sure you want to remove the MCP server ${name}?`)) return
+    const confirmed = await confirm({
+      title: 'Remove MCP Server',
+      message: `Are you sure you want to remove the MCP server "${name}"?`,
+      type: 'error',
+      confirmText: 'Remove',
+      cancelText: 'Cancel'
+    })
+    if (!confirmed) return
     try {
       await ApiService.removeMCPServer(name)
       await fetchMcpServers()

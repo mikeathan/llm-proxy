@@ -17,15 +17,15 @@ import (
 )
 
 type AppContext struct {
-	manager       llm.RuntimeManager
-	dataMgr       *storage.DataManager
-	resolver      *storage.PathResolver
-	rootDir       string
-	gpuConfig     models.GPUConfig
-	metrics       *metrics.MetricsService
-	hostSettings  *storage.HostSettingsStore
-	sandbox       tools.SandboxProvider
-	configMu      sync.RWMutex
+	manager      llm.RuntimeManager
+	dataMgr      *storage.DataManager
+	resolver     *storage.PathResolver
+	rootDir      string
+	gpuConfig    models.GPUConfig
+	metrics      *metrics.MetricsService
+	hostSettings *storage.HostSettingsStore
+	sandbox      tools.SandboxProvider
+	configMu     sync.RWMutex
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -35,8 +35,8 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 	rootDir := dataMgr.RootDir()
 
 	s := &AppContext{
-		manager:   mgr,
-		dataMgr:   dataMgr,
+		manager:      mgr,
+		dataMgr:      dataMgr,
 		resolver:     storage.NewPathResolver(rootDir, dataMgr.WorkspacesDir(), dataMgr.MetadataDir()),
 		rootDir:      rootDir,
 		gpuConfig:    sys.Metrics.GPU,
@@ -175,7 +175,8 @@ func (s *AppContext) Models() []models.ModelConfig {
 			Name:     m.Name,
 			Provider: m.ProviderID,
 			Filename: m.ModelID,
-			ProviderConfig: models.ProviderConfig{
+			Port:     m.Port,
+			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: m.CredentialID,
 			},
 		}
@@ -384,17 +385,34 @@ func (s *AppContext) ServiceCredentials() (id, secret string) {
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 	logging.Info("Persisting new model to registry", "name", cfg.Name)
 	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
-		for _, existing := range c.Catalogue {
+		for i, existing := range c.Catalogue {
 			if existing.Name == cfg.Name {
+				credID := ""
+				if cfg.ProviderConfig != nil {
+					credID = cfg.ProviderConfig.APIKeyName
+				}
+				c.Catalogue[i] = models.ModelRegistryEntry{
+					ID:           cfg.Name,
+					Name:         cfg.Name,
+					ProviderID:   cfg.Provider,
+					ModelID:      cfg.Filename,
+					CredentialID: credID,
+					Port:         cfg.Port,
+				}
 				return
 			}
+		}
+		credID := ""
+		if cfg.ProviderConfig != nil {
+			credID = cfg.ProviderConfig.APIKeyName
 		}
 		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
 			ID:           cfg.Name,
 			Name:         cfg.Name,
 			ProviderID:   cfg.Provider,
 			ModelID:      cfg.Filename,
-			CredentialID: cfg.ProviderConfig.APIKeyName,
+			CredentialID: credID,
+			Port:         cfg.Port,
 		})
 	})
 }
@@ -403,12 +421,17 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 	logging.Info("Replacing model in registry", "name", cfg.Name)
 	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
 		replaced := false
+		credID := ""
+		if cfg.ProviderConfig != nil {
+			credID = cfg.ProviderConfig.APIKeyName
+		}
 		newEntry := models.ModelRegistryEntry{
 			ID:           cfg.Name,
 			Name:         cfg.Name,
 			ProviderID:   cfg.Provider,
 			ModelID:      cfg.Filename,
-			CredentialID: cfg.ProviderConfig.APIKeyName,
+			CredentialID: credID,
+			Port:         cfg.Port,
 		}
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {
@@ -584,5 +607,3 @@ func (s *AppContext) ListSandboxSessions() []models.SandboxSessionView {
 	}
 	return s.sandbox.ListSessions()
 }
-
-

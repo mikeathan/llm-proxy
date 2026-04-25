@@ -56,7 +56,8 @@ type adminModelView struct {
 	Endpoint       string                `json:"endpoint"`
 	Active         bool                  `json:"active"`
 	Ready          bool                  `json:"ready"`
-	ProviderConfig models.ProviderConfig `json:"provider_config,omitempty"`
+	ProviderConfig *models.ProviderConfig `json:"provider_config,omitempty"`
+	Metadata       *models.ModelMetadata `json:"metadata,omitempty"`
 }
 
 type adminActiveModel struct {
@@ -70,10 +71,11 @@ type adminActiveModel struct {
 }
 
 type adminAvailableModel struct {
-	Name         string `json:"name"`
-	Filename     string `json:"filename"`
-	ResolvedPath string `json:"resolved_path"`
-	SizeBytes    int64  `json:"size_bytes"`
+	Name         string               `json:"name"`
+	Filename     string               `json:"filename"`
+	ResolvedPath string               `json:"resolved_path"`
+	SizeBytes    int64                `json:"size_bytes"`
+	Metadata     models.ModelMetadata `json:"metadata"`
 }
 
 type adminStateResponse struct {
@@ -172,7 +174,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	settings := h.admin.GetSettings()
 	var available []adminAvailableModel
 	if v := strings.ToLower(r.URL.Query().Get("available")); v == "1" || v == "true" {
-		available = discoverModelFiles(settings.Local.ModelDir, modelsList)
+		available = discoverModelFiles(r.Context(), settings.Local.ModelDir, modelsList)
 	}
 
 	sort.Slice(modelsList, func(i, j int) bool {
@@ -203,7 +205,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	reg := h.admin.GetRegistry()
 	id, secret := h.admin.ServiceCredentials()
 	state := adminStateResponse{
-		Models:    h.getModelsView(modelsList, activeName, activeDetails != nil && activeDetails.Ready),
+		Models:    h.getModelsView(r.Context(), modelsList, activeName, activeDetails != nil && activeDetails.Ready),
 		Available: available,
 		NextPort:  nextPort,
 		Active:    activeDetails,

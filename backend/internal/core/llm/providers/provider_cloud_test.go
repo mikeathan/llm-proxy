@@ -24,7 +24,7 @@ func TestDynamicProviderRegistry(t *testing.T) {
 
 	cfg := models.ModelConfig{
 		Provider: "mulerouter",
-		ProviderConfig: models.ProviderConfig{
+		ProviderConfig: &models.ProviderConfig{
 			APIKey: "test-key",
 		},
 	}
@@ -73,7 +73,7 @@ func TestNvidiaProvider_Manifest(t *testing.T) {
 	m, _ := providers.GetRegistry().Get("nvidia")
 	cfg := models.ModelConfig{
 		Provider: "nvidia",
-		ProviderConfig: models.ProviderConfig{
+		ProviderConfig: &models.ProviderConfig{
 			APIKey: "nvapi-test",
 		},
 	}

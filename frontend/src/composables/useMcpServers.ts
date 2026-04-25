@@ -1,9 +1,11 @@
 import { ref } from 'vue'
 import { McpApiService } from '../services/mcpService'
 import { useToast } from './useToast'
+import { useConfirm } from './useConfirm'
 import type { McpServer } from '../types/mcp'
 
 const { error: toastError, success: toastSuccess } = useToast()
+const { confirm } = useConfirm()
 
 const mcpServers = ref<McpServer[]>([])
 
@@ -38,7 +40,15 @@ const toggleMCPServer = async (server: McpServer): Promise<void> => {
 }
 
 const removeMCPServer = async (name: string): Promise<void> => {
-	if (!confirm(`Remove MCP server "${name}"?`)) return
+	const confirmed = await confirm({
+		title: 'Remove MCP Server',
+		message: `Are you sure you want to remove the MCP server "${name}"?`,
+		type: 'error',
+		confirmText: 'Remove',
+		cancelText: 'Cancel'
+	})
+
+	if (!confirmed) return
 	try {
 		await McpApiService.remove(name)
 		toastSuccess(`MCP Server "${name}" removed`)

@@ -111,6 +111,7 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 				Name:       m.Name,
 				ModelID:    m.Filename,
 				ProviderID: m.Provider,
+				Port:       m.Port,
 			})
 		}
 		reg.PrimaryModel = initialCfg.Server.PrimaryModel
@@ -537,18 +538,20 @@ func TestAppContextUpdateSystem_Persists(t *testing.T) {
 	}
 }
 
-func TestAppContextPersistModel_AddsOnce(t *testing.T) {
+func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 	cfg := &models.Config{
-		Models: []models.ModelConfig{{Name: "alpha"}},
+		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
 	}
 	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
 	dir := ctx.RootDir()
 
-	if err := ctx.PersistModel(models.ModelConfig{Name: "beta"}); err != nil {
+	// Update existing model with a new port
+	if err := ctx.PersistModel(models.ModelConfig{Name: "alpha", Port: 9999}); err != nil {
 		t.Fatalf("persist model: %v", err)
 	}
-	if err := ctx.PersistModel(models.ModelConfig{Name: "alpha"}); err != nil {
-		t.Fatalf("persist model (duplicate): %v", err)
+	// Add a new model
+	if err := ctx.PersistModel(models.ModelConfig{Name: "beta", Port: 8082}); err != nil {
+		t.Fatalf("persist model: %v", err)
 	}
 
 	loadedMgr, _ := storage.NewDataManager(dir)
@@ -558,20 +561,24 @@ func TestAppContextPersistModel_AddsOnce(t *testing.T) {
 	if len(loaded.Catalogue) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(loaded.Catalogue))
 	}
+
+	alpha, ok := findModel(loaded.Catalogue, "alpha")
+	if !ok || alpha.Port != 9999 {
+		t.Fatalf("expected alpha to be updated with port 9999, got %+v", alpha)
+	}
 }
 
 func TestAppContextPersistReplaceModel(t *testing.T) {
 	cfg := &models.Config{
-		Models: []models.ModelConfig{{Name: "alpha"}},
+		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
 	}
 	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
 	dir := ctx.RootDir()
 
-	// Port isn't actually in registry entry, but we can verify filename update
-	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Filename: "new.gguf"}); err != nil {
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Filename: "new.gguf", Port: 9999}); err != nil {
 		t.Fatalf("persist replace: %v", err)
 	}
-	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "beta", Filename: "beta.gguf"}); err != nil {
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "beta", Filename: "beta.gguf", Port: 8082}); err != nil {
 		t.Fatalf("persist replace new: %v", err)
 	}
 
@@ -580,11 +587,12 @@ func TestAppContextPersistReplaceModel(t *testing.T) {
 	loaded := loadedMgr.Registry().Get()
 
 	alpha, ok := findModel(loaded.Catalogue, "alpha")
-	if !ok || alpha.ModelID != "new.gguf" {
-		t.Fatalf("expected alpha ModelID new.gguf, got %+v", alpha)
+	if !ok || alpha.ModelID != "new.gguf" || alpha.Port != 9999 {
+		t.Fatalf("expected alpha ModelID new.gguf and Port 9999, got %+v", alpha)
 	}
-	if _, ok := findModel(loaded.Catalogue, "beta"); !ok {
-		t.Fatalf("expected beta to be added")
+	beta, ok := findModel(loaded.Catalogue, "beta")
+	if !ok || beta.Port != 8082 {
+		t.Fatalf("expected beta to be added with port 8082, got %+v", beta)
 	}
 }
 

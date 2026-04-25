@@ -8,12 +8,15 @@ import AgentIde from './components/AgentIde/AgentIde.vue'
 import { useModels } from './composables/useModels'
 import { useMcpServers } from './composables/useMcpServers'
 import Toast from './components/ui/Toast.vue'
+import ConfirmDialog from './components/ui/ConfirmDialog.vue'
+import { useConfirm } from './composables/useConfirm'
+import type { AppTab } from './types'
 
-type Tab = 'dashboard' | 'settings' | 'logs' | 'agent-ide'
+const { isOpen, options, handleConfirm, handleCancel } = useConfirm()
 
-const activeTab = ref<Tab>('dashboard')
+const activeTab = ref<AppTab>('dashboard')
 
-provide('setActiveTab', (tab: Tab) => {
+provide('setActiveTab', (tab: AppTab) => {
   activeTab.value = tab
 })
 
@@ -42,5 +45,11 @@ onMounted(() => {
       </div>
     </main>
     <Toast />
+    <ConfirmDialog 
+      v-model="isOpen"
+      v-bind="options"
+      @confirm="handleConfirm"
+      @cancel="handleCancel"
+    />
   </div>
 </template>

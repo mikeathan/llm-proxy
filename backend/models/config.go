@@ -198,9 +198,20 @@ type ModelConfig struct {
 	Filename       string            `json:"filename,omitempty"`
 	Args           []string          `json:"args,omitempty"`
 	Port           int               `json:"port,omitempty"`
-	Path           string            `json:"-"`
+	Path           string            `json:"path,omitempty"`
 	Environment    map[string]string `json:"environment,omitempty"`
-	ProviderConfig ProviderConfig    `json:"provider_config,omitempty"`
+	ProviderConfig *ProviderConfig   `json:"provider_config,omitempty"`
+	Metadata       *ModelMetadata    `json:"metadata,omitempty"`
+}
+
+type ModelMetadata struct {
+	Name          string `json:"name"`
+	Architecture  string `json:"architecture"`
+	ContextLength int    `json:"context_length"`
+	Parameters    int64  `json:"parameters"`
+	Quantization  string `json:"quantization"`
+	Author        string `json:"author,omitempty"`
+	Description   string `json:"description,omitempty"`
 }
 
 type ProviderConfig struct {
