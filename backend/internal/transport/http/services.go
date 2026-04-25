@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
@@ -43,11 +44,18 @@ type AdminService interface {
 	GetRegistry() models.RegistryData
 	UpdateRegistry(func(*models.RegistryData)) error
 
+	GetSettings() models.UserSettings
+	UpdateSettings(func(*models.UserSettings)) error
+	GetGuardrails() models.AgentGuardrailsConfig
+
 	// Tier 3: Secrets
 	Secrets() models.SecretsStore
 
+	// Host Machine Isolated Settings
+	HostSettings() models.HostSettings
+	UpdateHostSettings(models.HostSettings) error
+
 	// Helper accessors for UI / Tools
-	ModelDir() string
 	WorkspacesDir() string
 	GPUConfig() models.GPUConfig
 	MetricsSnapshot() metrics.MetricsSnapshot
@@ -69,13 +77,11 @@ type AdminService interface {
 	Providers() map[string]models.ProviderItem
 	SetGPUConfig(models.GPUConfig)
 	SetWorkspacesDir(string)
-	DefaultArgs() []string
-	CurrentBinary() string
-	CurrentIdleTimeout() int
 	Environment() map[string]string
-	SyncGuardrails(models.AgentGuardrailsConfig) error
-	UpdateSettings(context.Context, models.SystemUpdatePayload) error
+	ApplySystemUpdate(context.Context, models.SystemUpdatePayload) error
 	ServiceCredentials() (id, secret string)
+	ResetSandbox(workspaceID string) error
+	ListSandboxSessions() []models.SandboxSessionView
 }
 
 type AssistantService interface {
@@ -87,7 +93,7 @@ type AssistantService interface {
 
 	Engine() assistant.Engine
 	ToolProvider() assistant.ToolProvider
-	GuardrailEngine() *assistant.GuardrailEngine
+	GuardrailEngine() *guardrails.GuardrailEngine
 	Persistence() *persistence.WorkspaceManager
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ProcessLogger(workspaceID string) logging.Logger

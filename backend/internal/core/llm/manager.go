@@ -91,11 +91,11 @@ type LLMRuntimeManager struct {
 	stopCh            chan struct{}
 }
 
-func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, secrets models.SecretsStore) *LLMRuntimeManager {
+func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore) *LLMRuntimeManager {
 	logging.Info("Initializing LLM Runtime Manager from registry", "models", len(reg.Catalogue))
 
 	registrar := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, sys.Server.ModelHost)
-	registrar.RegisterLocal(sys.Local.LlamaServerBinary, sys.Local.ModelDir, sys.Local.DefaultArgs)
+	registrar.RegisterLocal(settings.Local.LlamaServerBinary, settings.Local.ModelDir, settings.Local.DefaultArgs)
 
 	m := &LLMRuntimeManager{
 		models:      make(map[string]models.ModelConfig),
@@ -111,7 +111,8 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 			Name:     entry.Name,
 			Provider: entry.ProviderID,
 			Filename: entry.ModelID, // Bridge: Filename is the identifier
-			ProviderConfig: models.ProviderConfig{
+			Port:     entry.Port,
+			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: entry.CredentialID,
 			},
 		}
@@ -177,7 +178,7 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error {
 	cfg := models.ModelConfig{
 		Provider: providerName,
-		ProviderConfig: models.ProviderConfig{
+		ProviderConfig: &models.ProviderConfig{
 			APIKey:     apiKey,
 			APIKeyName: apiKeyName,
 		},
@@ -192,7 +193,7 @@ func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, provider
 func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]string, error) {
 	p, err := m.registrar.Build(models.ModelConfig{
 		Provider: providerName,
-		ProviderConfig: models.ProviderConfig{
+		ProviderConfig: &models.ProviderConfig{
 			APIKeyName: apiKeyName,
 		},
 	})

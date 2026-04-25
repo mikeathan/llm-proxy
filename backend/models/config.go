@@ -38,45 +38,56 @@ type Config struct {
 }
 
 type AgentGuardrailsConfig struct {
-	Global        GlobalGuardrailsConfig        `json:"global"`
-	Terminal      TerminalGuardrailsConfig      `json:"terminal"`
-	Search        SearchGuardrailsConfig        `json:"search"`
-	Communication CommunicationGuardrailsConfig `json:"communication"`
-	FileSystem    FileSystemGuardrailsConfig    `json:"filesystem"`
+	Global        GlobalGuardrailsConfig        `json:"global" yaml:"global"`
+	Terminal      TerminalGuardrailsConfig      `json:"terminal" yaml:"terminal"`
+	Search        SearchGuardrailsConfig        `json:"search" yaml:"search"`
+	Communication CommunicationGuardrailsConfig `json:"communication" yaml:"communication"`
+	FileSystem    FileSystemGuardrailsConfig    `json:"filesystem" yaml:"filesystem"`
+	Network       NetworkGuardrailsConfig       `json:"network" yaml:"network"`
 }
 
 type GlobalGuardrailsConfig struct {
-	BlockSecrets bool     `json:"block_secrets"`
-	UserBlocked  []string `json:"user_blocked_patterns"`
+	BlockSecrets bool     `json:"block_secrets" yaml:"blocksecrets"`
+	UserBlocked  []string `json:"user_blocked_patterns" yaml:"userblocked"`
 }
 
 type SearchGuardrailsConfig struct {
-	Enabled      bool     `json:"enabled"`
-	MaxQueryLen  int      `json:"max_query_len"`
-	BlockedSites []string `json:"blocked_sites"`
+	Enabled      bool     `json:"enabled" yaml:"enabled"`
+	MaxQueryLen  int      `json:"max_query_len" yaml:"maxquerylen"`
+	BlockedSites []string `json:"blocked_sites" yaml:"blockedsites"`
 }
 
 type CommunicationGuardrailsConfig struct {
-	Enabled       bool `json:"enabled"`
-	RequireReview bool `json:"require_review"`
-	MaxMessages   int  `json:"max_messages_per_task"`
+	Enabled       bool `json:"enabled" yaml:"enabled"`
+	RequireReview bool `json:"require_review" yaml:"requirereview"`
+	MaxMessages   int  `json:"max_messages_per_task" yaml:"maxmessages"`
 }
 
 type FileSystemGuardrailsConfig struct {
-	Enabled           bool     `json:"enabled"`
-	AllowedPaths      []string `json:"allowed_paths"`
-	ReadOnly          bool     `json:"read_only"`
-	MaxFileSizeKB     int      `json:"max_file_size_kb"`
-	AllowedExtensions []string `json:"allowed_extensions,omitempty"`
-	BlockedFilenames  []string `json:"blocked_filenames,omitempty"`
+	Enabled           bool     `json:"enabled" yaml:"enabled"`
+	AllowedPaths      []string `json:"allowed_paths" yaml:"allowedpaths"`
+	ReadOnly          bool     `json:"read_only" yaml:"readonly"`
+	MaxFileSizeKB     int      `json:"max_file_size_kb" yaml:"maxfilesizekb"`
+	AllowedExtensions []string `json:"allowed_extensions,omitempty" yaml:"allowedextensions"`
+	BlockedFilenames  []string `json:"blocked_filenames,omitempty" yaml:"blockedfilenames"`
 }
 
 type TerminalGuardrailsConfig struct {
-	Enabled         bool     `json:"enabled"`
-	AllowedCommands []string `json:"allowed_commands"`
-	BlockedPatterns []string `json:"blocked_patterns,omitempty"`
-	TimeoutSeconds  int      `json:"timeout_seconds"`
-	MaxOutputSize   int      `json:"max_output_size_chars"`
+	Enabled         bool     `json:"enabled" yaml:"enabled"`
+	AllowedCommands []string `json:"allowed_commands" yaml:"allowedcommands"`
+	BlockedPatterns []string `json:"blocked_patterns,omitempty" yaml:"blockedpatterns"`
+	TimeoutSeconds  int      `json:"timeout_seconds" yaml:"timeoutseconds"`
+	MaxOutputSize   int      `json:"max_output_size_chars" yaml:"maxoutputsize"`
+}
+
+type NetworkGuardrailsConfig struct {
+	Enabled             bool     `json:"enabled" yaml:"enabled"`
+	AllowLanAccess      bool     `json:"allow_lan_access" yaml:"allowlanaccess"`
+	AllowInternetAccess bool     `json:"allow_internet_access" yaml:"allowinternetaccess"`
+	BlockedDomains      []string `json:"blocked_domains,omitempty" yaml:"blockeddomains"`
+	BlockedIPs          []string `json:"blocked_ips,omitempty" yaml:"blockedips"`
+	MaxFetchSizeKB      int      `json:"max_fetch_size_kb" yaml:"maxfetchsizekb"`
+	TimeoutSeconds      int      `json:"timeout_seconds" yaml:"timeoutseconds"`
 }
 
 func (c TerminalGuardrailsConfig) IsActive() bool {
@@ -99,6 +110,10 @@ func (c GlobalGuardrailsConfig) IsActive() bool {
 	return c.BlockSecrets || len(c.UserBlocked) > 0
 }
 
+func (c NetworkGuardrailsConfig) IsActive() bool {
+	return c.Enabled || c.AllowLanAccess || c.AllowInternetAccess
+}
+
 func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	if other == nil {
 		return
@@ -117,6 +132,9 @@ func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	}
 	if other.Global.IsActive() {
 		c.Global = other.Global
+	}
+	if other.Network.IsActive() {
+		c.Network = other.Network
 	}
 }
 
@@ -157,9 +175,10 @@ type ProviderItem struct {
 }
 
 type MCPServerConfig struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Enabled   bool   `json:"enabled"`
+	TLSCACert string `json:"tls_ca_cert,omitempty"` 
 }
 
 type ServerConfig struct {
@@ -179,9 +198,20 @@ type ModelConfig struct {
 	Filename       string            `json:"filename,omitempty"`
 	Args           []string          `json:"args,omitempty"`
 	Port           int               `json:"port,omitempty"`
-	Path           string            `json:"-"`
+	Path           string            `json:"path,omitempty"`
 	Environment    map[string]string `json:"environment,omitempty"`
-	ProviderConfig ProviderConfig    `json:"provider_config,omitempty"`
+	ProviderConfig *ProviderConfig   `json:"provider_config,omitempty"`
+	Metadata       *ModelMetadata    `json:"metadata,omitempty"`
+}
+
+type ModelMetadata struct {
+	Name          string `json:"name"`
+	Architecture  string `json:"architecture"`
+	ContextLength int    `json:"context_length"`
+	Parameters    int64  `json:"parameters"`
+	Quantization  string `json:"quantization"`
+	Author        string `json:"author,omitempty"`
+	Description   string `json:"description,omitempty"`
 }
 
 type ProviderConfig struct {

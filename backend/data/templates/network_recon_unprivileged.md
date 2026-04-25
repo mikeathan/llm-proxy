@@ -7,14 +7,12 @@ Perform a multi-phase, optimized network scan to identify active hosts and their
 ### Execution Strategy
 
 #### Phase 1: Rapid Host Discovery
-**Command:** `nmap -sn -PS22,80,443 -T4 {{target_range}}`
-*   `-sn`: Ping scan (no port scan).
-*   `-PS22,80,443`: TCP SYN Ping on common ports (bypasses ICMP blocks).
+**Action:** Use `scan_local_network` with `mode: "fast"`.
+*   Performs a rapid sweep of common discovery ports to identify active IPs.
 
-#### Phase 2: Targeted Port Scan
-**Command:** `nmap -sT -sV -p [PORTS_FROM_PHASE_1] [IPs_FROM_PHASE_1] --version-intensity 3`
-*   `-sT`: TCP Connect scan (Unprivileged).
-*   `-sV`: Version detection.
+#### Phase 2: Targeted Service Audit
+**Action:** Use `scan_local_network` with `mode: "deep"` for specific IPs found in Phase 1.
+*   Performs service identification and banner fingerprinting.
 
 ### Output Format
 Generate a Markdown report with sections for:

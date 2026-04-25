@@ -1,7 +1,5 @@
 package models
 
-import "encoding/json"
-
 type ChatRole string
 type ToolChoice string
 
@@ -33,6 +31,7 @@ type ChatRequest struct {
 	Messages   []Message  `json:"messages"`
 	Tools      []Tool     `json:"tools,omitempty"`
 	ToolChoice ToolChoice `json:"tool_choice,omitempty"`
+	Stream     bool       `json:"stream,omitempty"`
 }
 
 type ToolCall struct {
@@ -46,35 +45,9 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-func (f *FunctionCall) UnmarshalJSON(data []byte) error {
-	type Alias FunctionCall
-	aux := &struct {
-		Arguments json.RawMessage `json:"arguments"`
-		*Alias
-	}{
-		Alias: (*Alias)(f),
-	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	if len(aux.Arguments) > 0 {
-		if aux.Arguments[0] == '"' {
-			var s string
-			if err := json.Unmarshal(aux.Arguments, &s); err != nil {
-				return err
-			}
-			f.Arguments = s
-		} else if aux.Arguments[0] == 'n' && string(aux.Arguments) == "null" {
-			f.Arguments = ""
-		} else {
-			f.Arguments = string(aux.Arguments)
-		}
-	}
-	return nil
-}
-
 type Choice struct {
 	Message Message `json:"message"`
+	Delta   Message `json:"delta,omitempty"`
 }
 
 // Chat Response

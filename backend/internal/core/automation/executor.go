@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -44,7 +46,7 @@ type LLMServiceProvider interface {
 	Logger() logging.Logger
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
-	GuardrailEngine() *assistant.GuardrailEngine
+	GuardrailEngine() *guardrails.GuardrailEngine
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
@@ -247,7 +249,7 @@ func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
 	// Try to load custom workspace rules if they exist
 	rules, err := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
 	if err != nil || rules == "" {
-		rules = assistant.DefaultRules
+		rules = prompts.DefaultRules
 	}
 
 	// Calculate robust relative path from Current Working Directory to Workspaces Dir
@@ -267,7 +269,7 @@ func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
 	formattedRules = strings.ReplaceAll(formattedRules, "{{REL_WS}}", relWs)
 	formattedRules = strings.ReplaceAll(formattedRules, "{{WORKSPACE_ID}}", req.WorkspaceID)
 
-	return fmt.Sprintf(assistant.AutomationTaskPrompt,
+	return fmt.Sprintf(prompts.AutomationTaskPrompt,
 		formattedRules,
 		req.WorkspaceID, relWs, req.WorkspaceID, req.TaskFile, req.TaskContent)
 }

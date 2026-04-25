@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
+	"llm-proxy/models"
 	"os"
 )
 
@@ -62,7 +63,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 
 	// Setup Persistence
 	tmpWorkspaces := t.TempDir()
-	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces))
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
@@ -129,7 +130,6 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	if len(clientMock.Requests) < 2 {
 		t.Fatalf("expected 2 calls to Chat, got %d", len(clientMock.Requests))
 	}
-
 	secondCallReq := clientMock.Requests[1] // The call AFTER the tool execution
 	msgs := secondCallReq.Messages
 
@@ -171,7 +171,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 }
 func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	tmpWorkspaces := t.TempDir()
-	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces))
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
 	mockClient := &mocks.MockLLMClientProvider{
@@ -181,7 +181,7 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	mockMCP.SetSystemPrompt("BASE_PROMPT")
 	mockMCP.SetToolsResult([]proxy.Tool{})
-	
+
 	engine := assistant.NewEngine(mockMCP, &noopLogger{})
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 	service.PersistenceMgr = mgr
@@ -217,11 +217,79 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemContent, "STRICT WORKSPACE RULES:") {
 		t.Errorf("system prompt missing jail rules: %s", systemContent)
 	}
-	
+
 	// Check that relative path was correctly injected
 	relWs := mgr.GetRelativeWorkspacePath()
 	expectedPath := relWs + "/test-jail/"
 	if !strings.Contains(systemContent, expectedPath) {
 		t.Errorf("system prompt missing expected relative path %s: %s", expectedPath, systemContent)
+	}
+}
+
+func TestHandleAssistant_HistoryTruncation(t *testing.T) {
+	// Setup
+	mockLimiter := &mocks.MockRateLimiter{}
+	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
+	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP.SetSystemPrompt("SYSTEM")
+	mockMCP.SetToolsResult([]proxy.Tool{})
+
+	engine := assistant.NewEngine(mockMCP, &noopLogger{})
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
+	tmpWorkspaces := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
+	defer os.RemoveAll(tmpWorkspaces)
+
+	handler := NewAssistantMessageHandler(service)
+	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+	clientMock.Responses = []proxy.ChatResponse{
+		{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "# Response\nThis is a long enough response to avoid premature termination check."}}}},
+	}
+
+	// Create a very long history that should trigger truncation
+	// maxHistoryChars is 128KB. Let's create 200KB of history.
+	longContent := strings.Repeat("a", 200*1024)
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "SYSTEM"},
+		{Role: proxy.UserRole, Content: longContent},
+		{Role: proxy.AssistantRole, Content: "short"},
+	}
+
+	// Manually inject history into persistence
+	wsID := "test-trunc"
+	convID := "conv-trunc"
+	service.PersistenceMgr.WriteSession(wsID, &models.AssistantSession{
+		ID:      convID,
+		History: history,
+	})
+
+	reqBody := `{"conversation_id": "conv-trunc", "workspace_id": "test-trunc", "message": "next"}`
+	req := httptest.NewRequest("POST", "/api/v1/assistant", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	// Check the request sent to LLM
+	if len(clientMock.Requests) == 0 {
+		t.Fatal("expected at least one request to LLM")
+	}
+
+	sentMsgs := clientMock.Requests[0].Messages
+
+	// Verify that the very long message was removed
+	for _, m := range sentMsgs {
+		if len(m.Content) > 150*1024 {
+			t.Errorf("history was not truncated, found message with length %d", len(m.Content))
+		}
+	}
+
+	// Verify system prompt is still there
+	if sentMsgs[0].Role != proxy.SystemRole || sentMsgs[0].Content != "SYSTEM" {
+		t.Error("system prompt was incorrectly truncated or modified")
 	}
 }

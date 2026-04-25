@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
@@ -20,6 +21,15 @@ func TestIsSecurePath(t *testing.T) {
 	_ = os.MkdirAll(other, 0755)
 
 	allowedRoots := []string{ws1}
+
+	// Create symlink escape
+	escapeLink := filepath.Join(ws1, "escape")
+	_ = os.Symlink(other, escapeLink)
+
+	// Create symlink in parent directory
+	parentLinkDir := filepath.Join(ws1, "parent-link")
+	_ = os.MkdirAll(parentLinkDir, 0755)
+	_ = os.Symlink(other, filepath.Join(parentLinkDir, "evil-link"))
 
 	tests := []struct {
 		name    string
@@ -52,9 +62,14 @@ func TestIsSecurePath(t *testing.T) {
 			allowed: false,
 		},
 		{
-			name:    "relative path in workspace",
-			path:    "./test.txt", // This depends on CWD, but we should test absolute resolution
-			allowed: false, // Usually rejected if not absolute OR not matching root
+			name:    "symlink escape attempt (SEC-H1)",
+			path:    filepath.Join(ws1, "escape", "secret.txt"),
+			allowed: false,
+		},
+		{
+			name:    "parent symlink escape attempt (SEC-H1)",
+			path:    filepath.Join(ws1, "parent-link", "evil-link", "secret.txt"),
+			allowed: false,
 		},
 	}
 
@@ -66,5 +81,32 @@ func TestIsSecurePath(t *testing.T) {
 				t.Errorf("IsSecurePath(%q) allowed = %v, want %v (err: %v)", tt.path, isAllowed, tt.allowed, err)
 			}
 		})
+	}
+}
+
+func TestFileSystemTools_WritePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	tools := NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{tmpDir},
+		}
+	})
+
+	testFile := filepath.Join(tmpDir, "test.txt")
+	err := tools.WriteFile(context.Background(), testFile, "content")
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	info, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatalf("Stat failed: %v", err)
+	}
+
+	// Mode() returns FileMode. On Unix, the bottom 9 bits are permissions.
+	// We expect 0600 (-rw-------)
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Errorf("Expected permissions 0600, got %o", mode)
 	}
 }

@@ -16,15 +16,20 @@ type SystemConfig struct {
 		Environment     map[string]string `json:"environment,omitempty"`
 	} `json:"server"`
 
-	// Local Infrastructure settings
-	Local struct {
-		LlamaServerBinary string   `json:"llama_server_binary"`
-		ModelDir          string   `json:"model_dir"`
-		DefaultArgs       []string `json:"default_args"`
-	} `json:"local"`
-
 	WorkspacesDir string `json:"workspaces_dir"`
 	Metrics       MetricsConfig `json:"metrics,omitempty"`
+}
+
+type LocalSettings struct {
+	LlamaServerBinary string   `yaml:"llama_server_binary" json:"llama_server_binary"`
+	ModelDir          string   `yaml:"model_dir" json:"model_dir"`
+	DefaultArgs       []string `yaml:"default_args" json:"default_args"`
+}
+
+// UserSettings represents the user-level settings (Tier 2: settings.yml)
+type UserSettings struct {
+	Local      LocalSettings          `yaml:"local" json:"local"`
+	Guardrails *AgentGuardrailsConfig `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 }
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.

@@ -33,6 +33,7 @@ type WorkspaceManager struct {
 // NewWorkspaceManager creates a WorkspaceManager with the given path resolver.
 func NewWorkspaceManager(r *storage.PathResolver) *WorkspaceManager {
 	os.MkdirAll(r.WorkspacesRoot(), 0755)
+	os.MkdirAll(r.MetadataRoot(), 0755)
 	return &WorkspaceManager{resolver: r}
 }
 

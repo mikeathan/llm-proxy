@@ -68,8 +68,8 @@ deviceName = AMD Radeon Graphics (RADV PHOENIX)
 
 Example:
 
-/home/mikeathan/dev/llama.cpp/build/bin/llama-cli \
-  --model ~/dev/models/qwen2.5-3b-instruct-q4_k_m.gguf \
+/home/[USER]/llama.cpp/build/bin/llama-cli \
+  --model ~/models/qwen2.5-3b-instruct-q4_k_m.gguf \
   --gpu-layers 50 \
   --prompt "hi"
 

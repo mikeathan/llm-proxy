@@ -1,6 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
 import type { AvailableModel } from '../types';
-import { getBaseName } from '../utils/model-discovery';
 
 export function useModelDiscovery(
   availableModels: Ref<AvailableModel[]>,
@@ -17,7 +16,7 @@ export function useModelDiscovery(
     );
 
     for (const m of filtered) {
-      const base = getBaseName(m.filename);
+      const base = m.metadata?.name || m.name || 'Unknown';
       const key = base.toLowerCase();
       
       if (!groups[key]) {

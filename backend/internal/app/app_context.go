@@ -17,14 +17,15 @@ import (
 )
 
 type AppContext struct {
-	manager       llm.RuntimeManager
-	dataMgr       *storage.DataManager
-	modelDir      string
-	resolver      *storage.PathResolver
-	rootDir       string
-	gpuConfig     models.GPUConfig
-	metrics       *metrics.MetricsService
-	configMu      sync.RWMutex
+	manager      llm.RuntimeManager
+	dataMgr      *storage.DataManager
+	resolver     *storage.PathResolver
+	rootDir      string
+	gpuConfig    models.GPUConfig
+	metrics      *metrics.MetricsService
+	hostSettings *storage.HostSettingsStore
+	sandbox      tools.SandboxProvider
+	configMu     sync.RWMutex
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -34,12 +35,12 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 	rootDir := dataMgr.RootDir()
 
 	s := &AppContext{
-		manager:   mgr,
-		dataMgr:   dataMgr,
-		modelDir:  sys.Local.ModelDir,
-		resolver:  storage.NewPathResolver(dataMgr.WorkspacesDir()),
-		rootDir:   rootDir,
-		gpuConfig: sys.Metrics.GPU,
+		manager:      mgr,
+		dataMgr:      dataMgr,
+		resolver:     storage.NewPathResolver(rootDir, dataMgr.WorkspacesDir(), dataMgr.MetadataDir()),
+		rootDir:      rootDir,
+		gpuConfig:    sys.Metrics.GPU,
+		hostSettings: storage.NewHostSettingsStore(),
 	}
 
 	// Link manager to secrets
@@ -49,8 +50,7 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 
 	logging.Debug("State initialized",
 		"root", rootDir,
-		"workspaces", s.resolver.WorkspacesRoot(),
-		"model_dir", s.modelDir)
+		"workspaces", s.resolver.WorkspacesRoot())
 
 	s.refreshMetricsService()
 	return s
@@ -84,32 +84,56 @@ func (s *AppContext) refreshMetricsService() {
 	s.metrics.SetThroughputSource(s.manager)
 }
 
+func (s *AppContext) SetSandboxSource(src metrics.SandboxSource) {
+	if s.metrics != nil {
+		s.metrics.SetSandboxSource(src)
+	}
+}
+
+func (s *AppContext) SetSandboxProvider(sb tools.SandboxProvider) {
+	s.sandbox = sb
+}
+
 func (s *AppContext) Manager() llm.RuntimeManager {
 	return s.manager
+}
+
+func (s *AppContext) GetSettings() models.UserSettings {
+	return s.dataMgr.Settings().Get()
+}
+
+func (s *AppContext) UpdateSettings(fn func(*models.UserSettings)) error {
+	return s.dataMgr.Settings().Update(fn)
 }
 
 func (s *AppContext) Secrets() models.SecretsStore {
 	return s.dataMgr.Secrets()
 }
 
-func (s *AppContext) ModelDir() string {
-	return s.modelDir
+func (s *AppContext) RootDir() string {
+	return s.resolver.RootDir()
 }
 
-func (s *AppContext) RootDir() string {
-	return s.rootDir
+func (s *AppContext) Resolver() storage.Resolver {
+	return s.resolver
 }
 
 func (s *AppContext) WorkspacesDir() string {
 	return s.resolver.WorkspacesRoot()
 }
 
+func (s *AppContext) MetadataDir() string {
+	return s.resolver.MetadataRoot()
+}
+
 func (s *AppContext) SetModelDir(dir string) {
-	s.modelDir = dir
+	_ = s.UpdateSettings(func(set *models.UserSettings) {
+		set.Local.ModelDir = dir
+	})
 }
 
 func (s *AppContext) SetWorkspacesDir(dir string) {
-	s.resolver = storage.NewPathResolver(dir)
+	s.resolver = storage.NewPathResolver(s.resolver.RootDir(), dir, s.dataMgr.MetadataDir())
 }
 
 // Tier 1: System
@@ -139,27 +163,6 @@ func (s *AppContext) SetGPUConfig(cfg models.GPUConfig) {
 	s.refreshMetricsService()
 }
 
-func (s *AppContext) CurrentBinary() string {
-	sys := s.dataMgr.System().Get()
-	if sys.Local.LlamaServerBinary != "" {
-		return sys.Local.LlamaServerBinary
-	}
-	return "llama-server"
-}
-
-func (s *AppContext) CurrentIdleTimeout() int {
-	sys := s.dataMgr.System().Get()
-	return sys.Server.IdleTimeoutSecs
-}
-
-func (s *AppContext) DefaultArgs() []string {
-	sys := s.dataMgr.System().Get()
-	if len(sys.Local.DefaultArgs) == 0 {
-		return nil
-	}
-	return append([]string{}, sys.Local.DefaultArgs...)
-}
-
 func (s *AppContext) Environment() map[string]string {
 	return map[string]string{}
 }
@@ -172,7 +175,8 @@ func (s *AppContext) Models() []models.ModelConfig {
 			Name:     m.Name,
 			Provider: m.ProviderID,
 			Filename: m.ModelID,
-			ProviderConfig: models.ProviderConfig{
+			Port:     m.Port,
+			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: m.CredentialID,
 			},
 		}
@@ -182,7 +186,7 @@ func (s *AppContext) Models() []models.ModelConfig {
 
 func (s *AppContext) Providers() map[string]models.ProviderItem {
 	reg := s.dataMgr.Registry().Get()
-	sys := s.dataMgr.System().Get()
+	settings := s.dataMgr.Settings().Get()
 	out := make(map[string]models.ProviderItem)
 
 	// 1. Populate from Registry
@@ -198,9 +202,9 @@ func (s *AppContext) Providers() map[string]models.ProviderItem {
 	if local.Type == "" {
 		local.Type = "local"
 	}
-	local.LlamaServerBinary = sys.Local.LlamaServerBinary
-	local.ModelDir = sys.Local.ModelDir
-	local.DefaultArgs = sys.Local.DefaultArgs
+	local.LlamaServerBinary = settings.Local.LlamaServerBinary
+	local.ModelDir = settings.Local.ModelDir
+	local.DefaultArgs = settings.Local.DefaultArgs
 	out["local"] = local
 
 	return out
@@ -210,31 +214,19 @@ func (s *AppContext) SetEnvironment(env map[string]string) error {
 	return nil
 }
 
-func (s *AppContext) SyncGuardrails(cfg models.AgentGuardrailsConfig) error {
-	var errs []error
-	if err := tools.SaveManifest(s.rootDir, models.CategoryTerminal, cfg.Terminal); err != nil {
-		errs = append(errs, fmt.Errorf("terminal: %w", err))
-	}
-	if err := tools.SaveManifest(s.rootDir, models.CategoryFileSystem, cfg.FileSystem); err != nil {
-		errs = append(errs, fmt.Errorf("filesystem: %w", err))
-	}
-	if err := tools.SaveManifest(s.rootDir, models.CategorySearch, cfg.Search); err != nil {
-		errs = append(errs, fmt.Errorf("search: %w", err))
-	}
-	if err := tools.SaveManifest(s.rootDir, models.CategoryCommunication, cfg.Communication); err != nil {
-		errs = append(errs, fmt.Errorf("communication: %w", err))
-	}
-	if err := tools.SaveManifest(s.rootDir, models.CategoryGlobal, cfg.Global); err != nil {
-		errs = append(errs, fmt.Errorf("security: %w", err))
-	}
+func (s *AppContext) GetGuardrails() models.AgentGuardrailsConfig {
+	// Start with defaults from manifests
+	cfg := tools.GetDefaultGuardrails(s.rootDir)
 
-	if len(errs) > 0 {
-		return fmt.Errorf("sync failed: %v", errs)
+	// Overlay with user overrides from settings.yml
+	settings := s.dataMgr.Settings().Get()
+	if settings.Guardrails != nil {
+		return *settings.Guardrails
 	}
-	return nil
+	return cfg
 }
 
-func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdatePayload) error {
+func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpdatePayload) error {
 	// 1. Update Infrastructure (SystemConfig)
 	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) {
 		if req.Bind != "" {
@@ -253,23 +245,7 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 		if req.Environment != nil {
 			sys.Server.Environment = req.Environment
 		}
-		if req.DefaultArgs != nil {
-			sys.Local.DefaultArgs = req.DefaultArgs
-		}
 
-		// Sync 'local' infrastructure fields
-		if local, ok := req.Providers["local"]; ok {
-			if local.LlamaServerBinary != "" {
-				sys.Local.LlamaServerBinary = local.LlamaServerBinary
-			}
-			if local.ModelDir != "" {
-				sys.Local.ModelDir = local.ModelDir
-				s.modelDir = local.ModelDir
-			}
-			if local.DefaultArgs != nil {
-				sys.Local.DefaultArgs = local.DefaultArgs
-			}
-		}
 		// 2. Sync GPU Configuration (moved into transaction for persistence)
 		if req.GPUProvider != "" {
 			sys.Metrics.GPU.Provider = req.GPUProvider
@@ -286,6 +262,24 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save system config: %w", err)
+	}
+
+	// 1.5 Update Settings
+	err = s.dataMgr.Settings().Update(func(set *models.UserSettings) {
+		if req.DefaultArgs != nil {
+			set.Local.DefaultArgs = req.DefaultArgs
+		}
+		if local, ok := req.Providers["local"]; ok {
+			// We allow clearing these fields by removing the != "" check
+			set.Local.LlamaServerBinary = local.LlamaServerBinary
+			set.Local.ModelDir = local.ModelDir
+			if local.DefaultArgs != nil {
+				set.Local.DefaultArgs = local.DefaultArgs
+			}
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to save settings: %w", err)
 	}
 
 	// 2. Refresh in-memory state from the newly saved config
@@ -306,6 +300,9 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 				entry.Type = p.Type
 				entry.BaseURL = p.BaseURL
 				reg.Providers[id] = entry
+			}
+			if req.PrimaryModel != "" {
+				reg.PrimaryModel = req.PrimaryModel
 			}
 			if req.FallbackModel != "" {
 				reg.FallbackModel = req.FallbackModel
@@ -371,7 +368,9 @@ func (s *AppContext) UpdateSettings(ctx context.Context, req models.SystemUpdate
 
 	// 7. Sync Guardrails
 	if req.Guardrails != nil {
-		if err := s.SyncGuardrails(*req.Guardrails); err != nil {
+		if err := s.UpdateSettings(func(set *models.UserSettings) {
+			set.Guardrails = req.Guardrails
+		}); err != nil {
 			return fmt.Errorf("failed to sync guardrails: %w", err)
 		}
 	}
@@ -386,17 +385,34 @@ func (s *AppContext) ServiceCredentials() (id, secret string) {
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 	logging.Info("Persisting new model to registry", "name", cfg.Name)
 	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
-		for _, existing := range c.Catalogue {
+		for i, existing := range c.Catalogue {
 			if existing.Name == cfg.Name {
+				credID := ""
+				if cfg.ProviderConfig != nil {
+					credID = cfg.ProviderConfig.APIKeyName
+				}
+				c.Catalogue[i] = models.ModelRegistryEntry{
+					ID:           cfg.Name,
+					Name:         cfg.Name,
+					ProviderID:   cfg.Provider,
+					ModelID:      cfg.Filename,
+					CredentialID: credID,
+					Port:         cfg.Port,
+				}
 				return
 			}
+		}
+		credID := ""
+		if cfg.ProviderConfig != nil {
+			credID = cfg.ProviderConfig.APIKeyName
 		}
 		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
 			ID:           cfg.Name,
 			Name:         cfg.Name,
 			ProviderID:   cfg.Provider,
 			ModelID:      cfg.Filename,
-			CredentialID: cfg.ProviderConfig.APIKeyName,
+			CredentialID: credID,
+			Port:         cfg.Port,
 		})
 	})
 }
@@ -405,12 +421,17 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 	logging.Info("Replacing model in registry", "name", cfg.Name)
 	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
 		replaced := false
+		credID := ""
+		if cfg.ProviderConfig != nil {
+			credID = cfg.ProviderConfig.APIKeyName
+		}
 		newEntry := models.ModelRegistryEntry{
 			ID:           cfg.Name,
 			Name:         cfg.Name,
 			ProviderID:   cfg.Provider,
 			ModelID:      cfg.Filename,
-			CredentialID: cfg.ProviderConfig.APIKeyName,
+			CredentialID: credID,
+			Port:         cfg.Port,
 		}
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {
@@ -448,8 +469,9 @@ func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {
 	if filepath.IsAbs(filename) {
 		return filename
 	}
-	if s.modelDir != "" {
-		return filepath.Join(s.modelDir, filename)
+	modelDir := s.GetSettings().Local.ModelDir
+	if modelDir != "" {
+		return filepath.Join(modelDir, filename)
 	}
 	if explicitPath != "" {
 		return explicitPath
@@ -548,4 +570,40 @@ func (s *AppContext) ListTemplates() ([]models.TemplateMetadata, error) {
 
 func (s *AppContext) GetTemplate(id string) (models.Template, error) {
 	return s.dataMgr.Templates().Get(id)
+}
+
+func (s *AppContext) HostSettings() models.HostSettings {
+	settings, err := s.hostSettings.Read()
+	if err != nil {
+		logging.Error("Failed to read host settings, returning defaults", "error", err)
+	}
+	// Inject runtime functional state
+	settings.Sandboxing.Functional = (s.sandbox != nil)
+	return settings
+}
+
+func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {
+	return s.hostSettings.Write(settings)
+}
+
+func (s *AppContext) Shutdown() {
+	if s.sandbox != nil {
+		logging.Info("Shutting down sandbox pool...")
+		s.sandbox.Shutdown()
+	}
+}
+
+func (s *AppContext) ResetSandbox(workspaceID string) error {
+	if s.sandbox == nil {
+		return fmt.Errorf("sandboxing is not initialized")
+	}
+	s.sandbox.Recycle(context.Background(), workspaceID)
+	return nil
+}
+
+func (s *AppContext) ListSandboxSessions() []models.SandboxSessionView {
+	if s.sandbox == nil {
+		return nil
+	}
+	return s.sandbox.ListSessions()
 }

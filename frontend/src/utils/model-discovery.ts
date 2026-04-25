@@ -1,19 +1,3 @@
-/** Regex to identify where a "Base Name" ends and "Version/Quant/Size" starts */
-export const MODEL_CLEANUP_REGEX = /[-\._]([qQ][0-9]|i[qQ][0-9]|[0-9]+[bB]|[vV][0-9]+|[iI][tT]|draft|preview|instruct|instrcut|f[0-9]|fp[0-9]|int[0-9]|[0-9])[a-zA-Z0-9_\.]*/gi;
-
-/** Normalizes a filename to its base family name for grouping */
-export function getBaseName(filename: string): string {
-  // Purely algorithmic: Extract the first continuous sequence of letters.
-  // This automatically handles 'Qwen2.5' -> 'Qwen', 'deepseek-coder' -> 'Deepseek'
-  // without relying on ANY hardcoded brand strings or dictionaries.
-  const match = filename.match(/^[a-zA-Z]+/);
-  
-  let base = match ? match[0] : filename.split(/[-\._]/)[0];
-  if (!base) base = 'Unknown';
-  
-  return base.charAt(0).toUpperCase() + base.slice(1).toLowerCase();
-}
-
 /** Formats bytes into a human-readable size (e.g. 4.2 GB) */
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -23,15 +7,16 @@ export function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-/** Extracts Size and Quantization into a compact label */
-export function getVariantLabel(filename: string): string {
-  const sizeMatch = filename.match(/[0-9]+[bB]/);
-  const quantMatch = filename.match(/[qQ][0-9][a-zA-Z0-9_]*/);
-  
-  const size = sizeMatch ? sizeMatch[0].toUpperCase() : '';
-  const quant = quantMatch ? quantMatch[0].toUpperCase() : '';
-  
-  return size && quant ? `${size} • ${quant}` : size || quant || 'Original';
+/** Formats parameter count into a human-readable string (e.g. 8B, 70B) */
+export function formatParameters(params: number): string {
+  if (!params || params === 0) return '';
+  if (params >= 1_000_000_000) {
+    return (params / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  }
+  if (params >= 1_000_000) {
+    return (params / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  return params.toString();
 }
 
 const COLOR_PALETTES = [
@@ -68,4 +53,35 @@ export function extractDynamicTags(name: string) {
       color: getDynamicColor(name) 
     }
   ];
+}
+
+/**
+ * Metadata Inference:
+ * Sniffs model names/IDs for technical details (params, quant, type).
+ * Essential for cloud models where header metadata isn't available.
+ */
+export function inferMetadata(text: string) {
+  const meta: any = {};
+  const normalized = text.toLowerCase();
+  
+  // 1. Parameter Sniffing (e.g., 7b, 32B, 1.5b)
+  const paramMatch = text.match(/(\d+(?:\.\d+)?)[bB]\b/);
+  if (paramMatch && paramMatch[1]) {
+    meta.parameters = parseFloat(paramMatch[1]) * 1_000_000_000;
+  }
+  
+  // 2. Quantization Sniffing (e.g., Q4_K_M, FP16, INT8)
+  const quantMatch = text.match(/(Q\d_[Kk]_[A-Za-z]|\b[Ff][Pp]\d+\b|\b[Ii][Nn][Tt]\d+\b)/i);
+  if (quantMatch && quantMatch[1]) {
+    meta.quantization = quantMatch[1].toUpperCase();
+  }
+
+  // 3. Architecture/Role Sniffing
+  if (normalized.includes('instruct')) meta.architecture = 'Instruct';
+  else if (normalized.includes('coder')) meta.architecture = 'Coder';
+  else if (normalized.includes('chat')) meta.architecture = 'Chat';
+  else if (normalized.includes('vision')) meta.architecture = 'Vision';
+  else if (normalized.includes('math')) meta.architecture = 'Math';
+  
+  return meta;
 }

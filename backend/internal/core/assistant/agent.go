@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
-	"regexp"
 	"strings"
+	"sync"
 	"time"
+
 )
 
 // Agent represents a unified, stateful assistant that can use tools.
@@ -18,36 +20,17 @@ type Agent struct {
 	client      proxy.Client
 	provider    ToolProvider
 	engine      Engine
-	guardrails  *GuardrailEngine
+	guardrails  *guardrails.GuardrailEngine
 	logger      logging.Logger
 	maxSteps    int
 	observer    Observer
 	workspaceID string
 }
 
-type AgentEventType string
-
-const (
-	EventStepStart          AgentEventType = "step_start"
-	EventMessage            AgentEventType = "message"
-	EventToolCall           AgentEventType = "tool_call"
-	EventToolResult         AgentEventType = "tool_result"
-	EventGuardrailViolation AgentEventType = "guardrail_violation"
-	EventError              AgentEventType = "error"
-)
-
-type AgentEvent struct {
-	Type      AgentEventType `json:"type"`
-	Payload   any            `json:"payload"`
-	Timestamp time.Time      `json:"timestamp"`
-}
-
-type Observer func(AgentEvent)
-
 type AgentOptions struct {
 	MaxSteps    int
 	Logger      logging.Logger
-	Guardrails  *GuardrailEngine
+	Guardrails  *guardrails.GuardrailEngine
 	Observer    Observer
 	WorkspaceID string
 }
@@ -61,16 +44,16 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		opts.Logger = logging.NewNopLogger()
 	}
 	// Default guardrail engine if none provided
-	guardrails := opts.Guardrails
-	if guardrails == nil {
-		guardrails = NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver(""), nil)
+	gr := opts.Guardrails
+	if gr == nil {
+		gr = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
 	}
 
 	return &Agent{
 		client:      client,
 		provider:    provider,
 		engine:      engine,
-		guardrails:  guardrails,
+		guardrails:  gr,
 		logger:      opts.Logger,
 		maxSteps:    opts.MaxSteps,
 		observer:    opts.Observer,
@@ -80,60 +63,149 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 
 // Execute runs the agentic loop for a given conversation history.
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
+	execCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
 	steps := 0
 	currentHistory := append([]proxy.Message{}, history...)
 
+	type toolKey struct{ name, args string }
+	recentCalls := make([]toolKey, 0, 5)
+
 	for steps < a.maxSteps {
 		steps++
-		a.logger.Debug("agent loop step", "step", steps)
+		if err := execCtx.Err(); err != nil {
+			return "", currentHistory, fmt.Errorf("agent execution halted: %w", err)
+		}
+
 		a.notifyStepStart(steps)
 		a.notifyThinking()
 
-		// 1. Get LLM Tools
-		tools, err := a.provider.ListTools(ctx)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to list tools: %w", err)
-		}
+		var turnMsg proxy.Message
+		err := func() error {
+			turnCtx, turnCancel := context.WithTimeout(execCtx, 5*time.Minute)
+			defer turnCancel()
 
-		// 2. Get Next Response (handles fallbacks/tool support internally)
-		msg, err := a.computeNextResponse(ctx, currentHistory, tools)
-		if err != nil {
-			return "", nil, err
-		}
+			toolsList, err := a.provider.ListTools(turnCtx)
+			if err != nil {
+				return fmt.Errorf("failed to list tools: %w", err)
+			}
 
-		// Handle embedded tool calls in content (common with local models like Qwen)
-		a.handleContentToolCalls(&msg)
+			msg, err := a.computeNextResponse(turnCtx, currentHistory, toolsList)
+			if err != nil {
+				return err
+			}
 
-		// Content Normalization (Handle common model glitches)
-		msg.Content = normalizeContent(msg.Content)
-
-		currentHistory = append(currentHistory, msg)
-		a.notify(EventMessage, msg)
-
-		// 3. Termination Check
-		if len(msg.ToolCalls) == 0 {
-			if a.isPrematureTermination(msg, currentHistory) {
-				if a.countRetries(currentHistory) >= 2 {
-					return msg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
+			a.handleContentToolCalls(&msg)
+			msg.Content = normalizeContent(msg.Content)
+			turnMsg = msg
+			
+			// Process tool calls within the turn context if they exist
+			if len(turnMsg.ToolCalls) > 0 {
+				// Loop detection
+				for _, tc := range turnMsg.ToolCalls {
+					key := toolKey{tc.Function.Name, tc.Function.Arguments}
+					count := 0
+					for _, prev := range recentCalls {
+						if prev == key { count++ }
+					}
+					if count >= 3 {
+						return fmt.Errorf("infinite loop detected: agent repeated tool call '%s'", key.name)
+					}
+					if len(recentCalls) >= 5 { recentCalls = recentCalls[1:] }
+					recentCalls = append(recentCalls, key)
 				}
 
-				a.logger.Warn("model attempted to terminate prematurely, forcing retry", "content", msg.Content)
+				currentHistory = append(currentHistory, turnMsg)
+				a.notify(EventMessage, turnMsg)
+				return a.processToolCalls(turnCtx, turnMsg, &currentHistory)
+			}
+			return nil
+		}()
+
+		if err != nil {
+			return "", currentHistory, err
+		}
+
+		// If no tool calls were generated in the turn, handle termination
+		if len(turnMsg.ToolCalls) == 0 {
+			currentHistory = append(currentHistory, turnMsg)
+			a.notify(EventMessage, turnMsg)
+
+			if a.isPrematureTermination(turnMsg, currentHistory) {
+				if a.countRetries(currentHistory) >= 2 {
+					return turnMsg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
+				}
 				a.notifyPrematureTerminationNag(&currentHistory)
 				continue
 			}
-			return msg.Content, currentHistory, nil
-		}
-
-		// 4. Execution Step: Process Tool Calls
-		if err := a.processToolCalls(ctx, msg, &currentHistory); err != nil {
-			return "", nil, err
+			return turnMsg.Content, currentHistory, nil
 		}
 	}
 
-	return "", nil, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
+	return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
 }
 
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
+	// Attempt streaming first to provide immediate feedback
+	ch, err := a.client.Stream(ctx, proxy.ChatRequest{
+		Messages: history,
+		Tools:    tools,
+	})
+
+	if err != nil {
+		a.logger.Warn("streaming not supported or failed, falling back to non-streaming", "error", err)
+		return a.computeNextResponseNonStreaming(ctx, history, tools)
+	}
+
+	var fullMsg proxy.Message
+	fullMsg.Role = proxy.AssistantRole
+
+	a.processStream(ch, &fullMsg)
+
+	return fullMsg, nil
+}
+
+func (a *Agent) processStream(ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) {
+	for resp := range ch {
+		if len(resp.Choices) > 0 {
+			choice := resp.Choices[0]
+			
+			// Accumulate Content
+			if choice.Delta.Content != "" {
+				fullMsg.Content += choice.Delta.Content
+				
+				// UI Smoothing: If we detect the start of a tool call signature, 
+				// stop streaming to the text-content bus to avoid showing raw technical markup.
+				displayContent, hasToolCall := FilterStreamingMarkup(fullMsg.Content)
+				
+				// If we've reached a tool call, provide a small visual hint in the stream
+				// so the user knows the agent is still active but is now processing technical steps.
+				if hasToolCall {
+					a.notify(EventToolStream, displayContent + "\n\n🛠️ *Agent is initiating tool calls...*")
+				} else {
+					a.notify(EventToolStream, displayContent)
+				}
+			}
+
+			// Accumulate Tool Calls
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tc := range choice.Delta.ToolCalls {
+					// Stream-based tool calls often come in chunks
+					if tc.ID != "" {
+						fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
+					} else if len(fullMsg.ToolCalls) > 0 {
+						// Append arguments to the last tool call
+						last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
+						last.Function.Arguments += tc.Function.Arguments
+					}
+				}
+			}
+		}
+	}
+}
+
+func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
@@ -162,9 +234,9 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 }
 
 func (a *Agent) handleContentToolCalls(msg *proxy.Message) {
-	if len(msg.ToolCalls) == 0 && msg.Content != "" {
+	if msg.Content != "" {
 		if cleanedContent, calls, ok := proxy.ParseContentToolCalls(msg.Content); ok {
-			msg.ToolCalls = calls
+			msg.ToolCalls = append(msg.ToolCalls, calls...)
 			msg.Content = cleanedContent
 			a.logger.Debug("detected embedded tool calls in content", "count", len(calls))
 		}
@@ -189,31 +261,60 @@ func (a *Agent) countRetries(history []proxy.Message) int {
 }
 
 func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Limit concurrent tool executions to prevent resource exhaustion.
+	// We use a semaphore of 10 concurrent slots.
+	const maxConcurrentTools = 10
+	sem := make(chan struct{}, maxConcurrentTools)
+
 	for _, tc := range msg.ToolCalls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name)
-		a.notifyToolCall(tc)
+		
+		wg.Add(1)
+		go func(tc proxy.ToolCall) {
+			defer wg.Done()
+			
+			// Acquire semaphore slot
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			
+			a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+			a.notifyToolCall(tc)
 
-		if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
-			a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
-			a.notifyGuardrailViolation(tc.Function.Name, err)
-			a.appendToolResult(history, tc, formatGuardrailError(err))
-			continue
-		}
+			if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
+				a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
+				a.notifyGuardrailViolation(tc.Function.Name, err)
+				
+				mu.Lock()
+				a.appendToolResult(history, tc, formatGuardrailError(err))
+				mu.Unlock()
+				return
+			}
 
-		// Inject workspace ID into context so tools can resolve contextual guardrails
-		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
-		result, err := a.engine.ExecuteTool(toolCtx, tc)
-		if err != nil {
-			a.logger.Warn("tool execution failed", "name", tc.Function.Name, "error", err)
-			result = formatToolError(err)
-		}
+			// Inject workspace ID into context so tools can resolve contextual guardrails
+			toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
+			result, err := a.engine.ExecuteTool(toolCtx, tc)
+			if err != nil {
+				a.logger.Warn("tool execution failed", "name", tc.Function.Name, "error", err)
+				result = formatToolError(err)
+			}
 
-		a.appendToolResult(history, tc, result)
-		a.notifyToolResult(tc.ID, tc.Function.Name, result)
+			mu.Lock()
+			a.appendToolResult(history, tc, result)
+			a.notifyToolResult(tc.ID, tc.Function.Name, result)
+			mu.Unlock()
+		}(tc)
 	}
+
+	wg.Wait()
 	return nil
 }
 
@@ -225,12 +326,23 @@ func formatGuardrailError(err error) map[string]string {
 	return map[string]string{"error": "Guardrail violation: " + err.Error()}
 }
 
-// appendToolResult helper
+// appendToolResult helper with memory-sensitive pruning 
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
 	raw, _ := json.Marshal(result)
+	content := string(raw)
+
+	// If tool result is very large (e.g. > 2KB), truncate it to save memory and context tokens.
+	// Agents often don't need the full output of e.g. a huge directory listing or file read
+	// if they've already seen it or if it's too much to process at once.
+	const maxToolResultSize = 2048
+	if len(content) > maxToolResultSize {
+		a.logger.Info("truncating large tool result for history", "name", tc.Function.Name, "original_size", len(content))
+		content = fmt.Sprintf("%s\n\n... (result truncated for memory efficiency. Total size: %d bytes)", content[:maxToolResultSize], len(content))
+	}
+
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
-		Content:    string(raw),
+		Content:    content,
 		ToolCallID: tc.ID,
 	})
 }
@@ -246,72 +358,4 @@ func isToolSupportError(err error) bool {
 		strings.Contains(lowErr, "parameter `tools`")
 }
 
-func (a *Agent) notify(t AgentEventType, payload any) {
-	if a.observer != nil {
-		a.observer(AgentEvent{
-			Type:      t,
-			Payload:   payload,
-			Timestamp: time.Now(),
-		})
-	}
-}
 
-// Named Notification Wrappers
-
-func (a *Agent) notifyThinking() {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "🤖 Agent is thinking...",
-	})
-}
-
-func (a *Agent) notifyStepStart(step int) {
-	a.notify(EventStepStart, map[string]int{"step": step})
-}
-
-func (a *Agent) notifyFallbackWarning(err error) {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "⚠️ WARNING: The selected model does not support tool calling. Fallback mode engaged (tools disabled). " + err.Error(),
-	})
-}
-
-func (a *Agent) notifyPrematureTerminationNag(history *[]proxy.Message) {
-	nagMsg := proxy.Message{
-		Role:    "user",
-		Content: "You returned an incomplete response. You MUST continue using tools or reply with the final comprehensive Markdown report as requested.",
-	}
-	*history = append(*history, nagMsg)
-	a.notify(EventMessage, nagMsg)
-}
-
-func (a *Agent) notifyToolCall(tc proxy.ToolCall) {
-	a.notify(EventToolCall, tc)
-}
-
-func (a *Agent) notifyToolResult(id, name string, result any) {
-	a.notify(EventToolResult, map[string]any{"id": id, "name": name, "result": result})
-}
-
-func (a *Agent) notifyGuardrailViolation(tool string, err error) {
-	a.notify(EventGuardrailViolation, map[string]string{
-		"tool":  tool,
-		"error": err.Error(),
-	})
-}
-
-// normalizeContent strips common "structured noise" (JSON/Python-style artifacts)
-// that some local models leak into the text content field.
-func normalizeContent(content string) string {
-	content = strings.TrimSpace(content)
-
-	// Detect and strip common "structured noise" blocks
-	// e.g. [{'type': 'text', 'text': ''}] or {"type": "text", "text": ""}
-	extractPattern := `\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]['"]\s*\}?\s*\]?`
-	re := regexp.MustCompile(extractPattern)
-
-	// Remove the noise blocks entirely
-	content = re.ReplaceAllString(content, "")
-
-	return strings.TrimSpace(content)
-}

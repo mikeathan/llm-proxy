@@ -118,6 +118,15 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	}
 
 	for _, ws := range workspaces {
+		// Cleanup stale execution state from previous runs
+		if ws.State.IsRunning {
+			d.logger.Warn("Stale execution state detected on startup, resetting", "workspace", ws.ID)
+			ws.State.IsRunning = false
+			if err := d.persistence.WriteState(ws.ID, &ws.State); err != nil {
+				d.logger.Error("Failed to reset stale state", "workspace", ws.ID, "error", err)
+			}
+		}
+
 		if err := d.registerWorkspaceAutomations(ws); err != nil {
 			d.logger.Error("Failed to register automations for workspace",
 				"workspace", ws.ID, "error", err)

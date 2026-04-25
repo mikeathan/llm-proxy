@@ -63,6 +63,16 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			wantErr:     true,
 			errContains: "empty",
 		},
+		{
+			name: "Whitespace normalization bypass",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				BlockedPatterns: []string{"rm -rf"},
+			},
+			command:     "rm  -rf /", // Double space
+			wantErr:     true,
+			errContains: "blocked pattern",
+		},
 	}
 
 	for _, tt := range tests {
@@ -70,7 +80,7 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			// Create tool with a provider that returns the test config
 			term := NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
 				return tt.config
-			})
+			}, nil)
 
 			ctx := context.Background()
 

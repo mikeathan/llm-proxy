@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"mime"
@@ -57,7 +56,8 @@ type adminModelView struct {
 	Endpoint       string                `json:"endpoint"`
 	Active         bool                  `json:"active"`
 	Ready          bool                  `json:"ready"`
-	ProviderConfig models.ProviderConfig `json:"provider_config,omitempty"`
+	ProviderConfig *models.ProviderConfig `json:"provider_config,omitempty"`
+	Metadata       *models.ModelMetadata `json:"metadata,omitempty"`
 }
 
 type adminActiveModel struct {
@@ -71,10 +71,11 @@ type adminActiveModel struct {
 }
 
 type adminAvailableModel struct {
-	Name         string `json:"name"`
-	Filename     string `json:"filename"`
-	ResolvedPath string `json:"resolved_path"`
-	SizeBytes    int64  `json:"size_bytes"`
+	Name         string               `json:"name"`
+	Filename     string               `json:"filename"`
+	ResolvedPath string               `json:"resolved_path"`
+	SizeBytes    int64                `json:"size_bytes"`
+	Metadata     models.ModelMetadata `json:"metadata"`
 }
 
 type adminStateResponse struct {
@@ -104,17 +105,13 @@ type adminConfigView struct {
 }
 
 type adminSystemView struct {
-	Bind            string            `json:"bind"`
-	ModelHost       string            `json:"model_host"`
-	IdleTimeoutSecs int               `json:"idle_timeout_seconds"`
-	WorkspacesDir   string            `json:"workspaces_dir"`
-	GPU             models.GPUConfig  `json:"gpu"`
-	Environment     map[string]string `json:"environment"`
-	Local           struct {
-		ModelDir          string   `json:"model_dir"`
-		LlamaServerBinary string   `json:"llama_server_binary"`
-		DefaultArgs       []string `json:"default_args"`
-	} `json:"local"`
+	Bind            string               `json:"bind"`
+	ModelHost       string               `json:"model_host"`
+	IdleTimeoutSecs int                  `json:"idle_timeout_seconds"`
+	WorkspacesDir   string               `json:"workspaces_dir"`
+	GPU             models.GPUConfig     `json:"gpu"`
+	Environment     map[string]string    `json:"environment"`
+	Local           models.LocalSettings `json:"local"`
 }
 
 type adminRegistryView struct {
@@ -160,7 +157,7 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := decodeJSON(r, v); err != nil {
+	if err := decodeJSON(w, r, v); err != nil {
 		if errors.Is(err, ErrUnsupportedContentType) {
 			writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 		} else {
@@ -174,9 +171,10 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request) {
 	modelsList := h.runtime.ListModels()
 	host := h.runtime.ModelHost()
+	settings := h.admin.GetSettings()
 	var available []adminAvailableModel
 	if v := strings.ToLower(r.URL.Query().Get("available")); v == "1" || v == "true" {
-		available = discoverModelFiles(h.admin.ModelDir(), modelsList)
+		available = discoverModelFiles(r.Context(), settings.Local.ModelDir, modelsList)
 	}
 
 	sort.Slice(modelsList, func(i, j int) bool {
@@ -207,24 +205,24 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	reg := h.admin.GetRegistry()
 	id, secret := h.admin.ServiceCredentials()
 	state := adminStateResponse{
-		Models:    h.getModelsView(modelsList, activeName, activeDetails != nil && activeDetails.Ready),
+		Models:    h.getModelsView(r.Context(), modelsList, activeName, activeDetails != nil && activeDetails.Ready),
 		Available: available,
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
 			WorkspacesDir:       sys.WorkspacesDir,
-			ModelHost:           h.admin.GetSystem().Server.ModelHost,
-			IdleTimeoutSecs:     h.admin.CurrentIdleTimeout(),
+			ModelHost:           sys.Server.ModelHost,
+			IdleTimeoutSecs:     sys.Server.IdleTimeoutSecs,
 			GPUProvider:         h.admin.GPUConfig().Provider,
 			GPUBinary:           h.admin.GPUConfig().Binary,
 			GPUIndex:            h.admin.GPUConfig().Index,
-			DefaultArgs:         h.admin.DefaultArgs(),
+			DefaultArgs:         settings.Local.DefaultArgs,
 			ServiceClientID:     id,
 			ServiceClientSecret: secret,
 			PrimaryModel:        reg.PrimaryModel,
 			FallbackModel:       reg.FallbackModel,
 			Providers:           h.getProvidersView(),
-			Guardrails:          tools.GetDefaultGuardrails(h.admin.RootDir()),
+			Guardrails:          h.admin.GetGuardrails(),
 			Communication:       reg.Communication,
 			Search:              reg.Search,
 		},

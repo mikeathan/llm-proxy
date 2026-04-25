@@ -15,6 +15,11 @@ const (
 	ToolFileRead      = "read_file"
 	ToolFileWrite     = "write_file"
 	ToolDirectoryList = "list_directory"
+	
+	// Network
+	ToolNetworkFetch = "fetch_url"
+	ToolNetworkScan  = "scan_local_network"
+	ToolNetworkInfo  = "get_network_info"
 
 	// Security/Admin
 	ToolApplyGuardrails = "security_guardrails"
@@ -26,5 +31,6 @@ const (
 	CategorySearch        = "search"
 	CategoryCommunication = "communication"
 	CategoryFileSystem    = "filesystem"
+	CategoryNetwork       = "network"
 	CategoryGlobal        = "security"
 )

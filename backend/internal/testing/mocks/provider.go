@@ -149,6 +149,10 @@ func (m *MockLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy
 	return &response, nil
 }
 
+func (m *MockLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	return nil, errors.New("streaming not implemented in mock")
+}
+
 // Mock RateLimiter
 type MockRateLimiter struct{}
 

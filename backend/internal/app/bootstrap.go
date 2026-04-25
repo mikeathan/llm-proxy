@@ -3,19 +3,24 @@ package app
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/mcp"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/sandbox"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 	"llm-proxy/utils"
@@ -50,7 +55,8 @@ func (c *Container) BuildAppServices() *AppServices {
 		nodeHerder:  c.Infra.NodeHerder,
 		logger:      c.Infra.Logger,
 		Clock:       c.Infra.Clock,
-		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.WorkspacesDir())),
+		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
+		limiter:     ratelimiter.NewLimiter(c.Infra.Clock),
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -60,10 +66,54 @@ func (c *Container) BuildAppServices() *AppServices {
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
 	s.dispatcher = c.Dispatcher
 
+	// Initialize Sandboxing Subsystem
+	poolManager, streamObserver := c.initSandboxOrchestrator(s)
+
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
-	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(s.AppCtx, s.persistence, s.nodeHerder, s.logger)
+	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(
+		s.AppCtx,
+		s.persistence,
+		s.nodeHerder,
+		s.logger,
+		poolManager,
+		streamObserver,
+	)
 
 	return s
+}
+
+// initSandboxOrchestrator spins up the background Warm Container Pool
+// and configures the streaming T-Junction metrics observer for the frontend.
+func (c *Container) initSandboxOrchestrator(s *AppServices) (tools.SandboxProvider, tools.StreamObserver) {
+	var poolManager tools.SandboxProvider
+
+	settings := s.AppCtx.HostSettings()
+	if !settings.Sandboxing.Enabled {
+		log.Fatal("[SECURITY] Sandboxing is required for agentic execution. Set sandboxing.enabled = true in host settings.")
+	}
+
+	if pm, err := sandbox.NewWazeroPool(settings.Sandboxing); err == nil {
+		poolManager = pm
+		c.Infra.Logger.Info("WASM Sandbox Engine (Wazero) initialized successfully")
+	} else {
+		log.Fatalf("[SECURITY] Failed to start WASM Sandbox Engine: %v", err)
+	}
+
+	streamObserver := func(streamType string, chunk []byte) {
+		s.Events().Publish("global", assistant.AgentEvent{
+			Type: assistant.EventToolStream, // Emits to the frontend console via EventBus
+			Payload: map[string]any{
+				"stream": streamType,
+				"output": string(chunk),
+			},
+		})
+	}
+
+	if pm, ok := poolManager.(metrics.SandboxSource); ok {
+		s.AppCtx.SetSandboxSource(pm)
+	}
+	s.AppCtx.SetSandboxProvider(poolManager)
+	return poolManager, streamObserver
 }
 
 type AppServices struct {
@@ -73,17 +123,21 @@ type AppServices struct {
 	toolProvider    assistant.ToolProvider
 	clientProvider  proxy.LLMClientProvider
 	engine          assistant.Engine
-	guardrailEngine *assistant.GuardrailEngine
+	guardrailEngine *guardrails.GuardrailEngine
 	persistence     *persistence.WorkspaceManager
 	logger          logging.Logger
 	Clock           utils.Clock
 	dispatcher      *automation.Dispatcher
+	limiter         ratelimiter.Limiter
 }
 
 func (s AppServices) Shutdown() {
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")
 		s.Runtime.Shutdown()
+	}
+	if s.AppCtx != nil {
+		s.AppCtx.Shutdown()
 	}
 }
 
@@ -108,7 +162,7 @@ func (s AppServices) Logger() logging.Logger {
 }
 
 func (s AppServices) Limiter() ratelimiter.Limiter {
-	return ratelimiter.NewLimiter(s.Clock)
+	return s.limiter
 }
 
 func (s AppServices) SelectModels() (string, string) {
@@ -119,7 +173,7 @@ func (s AppServices) Engine() assistant.Engine {
 	return s.engine
 }
 
-func (s AppServices) GuardrailEngine() *assistant.GuardrailEngine {
+func (s AppServices) GuardrailEngine() *guardrails.GuardrailEngine {
 	return s.guardrailEngine
 }
 
@@ -156,9 +210,15 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	logging.Info("Loading system configuration...")
 	sys := dataMgr.System().Get()
 
+	// 1.5 Initialize Network for Infrastructure (MCP, Cloud LLMs)
+	networkTools := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
+		// Use global guardrails from data manager
+		return dataMgr.Settings().Get().Guardrails.Network
+	}, logger)
+
 	// Configure MCP Service (Bridge logic: we still pass sys config parts)
 	logging.Info("Configuring MCP services...")
-	nodeHerder, err := configureMCP(dataMgr, logger)
+	nodeHerder, err := configureMCP(dataMgr, logger, networkTools.DialContext())
 	if err != nil {
 		logging.Error("Failed to configure MCP service", "error", err)
 		return nil
@@ -167,8 +227,9 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	// 2. Initialize Runtime Manager from Registry
 	logging.Info("Initializing LLM runtime manager...")
 	registry := dataMgr.Registry().Get()
+	settings := dataMgr.Settings().Get()
 	secretsStore := dataMgr.Secrets()
-	manager := llm.NewManagerFromRegistry(registry, sys, secretsStore)
+	manager := llm.NewManagerFromRegistry(registry, sys, settings, secretsStore)
 
 	logging.Info("Creating server context...")
 	appCtx := NewServer(manager, dataMgr)
@@ -207,9 +268,10 @@ func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispa
 	return d, nil
 }
 
-func configureMCP(dataMgr *storage.DataManager, logger logging.Logger) (nodeherder.MCPService, error) {
+func configureMCP(dataMgr *storage.DataManager, logger logging.Logger, dialer func(context.Context, string, string) (net.Conn, error)) (nodeherder.MCPService, error) {
 	// Initialize MCP Orchestrator
 	orchestrator := mcp.NewOrchestrator(logger)
+	orchestrator.DialContext = dialer
 
 	// Initialize Resource Mirror
 	mirror := mcp.NewResourceMirror()
@@ -241,9 +303,10 @@ func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServer
 	out := make([]models.MCPServerConfig, len(reg))
 	for i, s := range reg {
 		out[i] = models.MCPServerConfig{
-			Name:    s.Name,
-			URL:     s.URL,
-			Enabled: s.Enabled,
+			Name:      s.Name,
+			URL:       s.URL,
+			Enabled:   s.Enabled,
+			TLSCACert: s.TLSCACert,
 		}
 	}
 	return out
@@ -257,7 +320,7 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 
 	var dispatcherHandlers *api.DispatcherHandlers
 	if disp != nil {
-		dispatcherHandlers = api.NewDispatcherHandlers(disp)
+		dispatcherHandlers = api.NewDispatcherHandlers(disp, s.logger)
 	}
 
 	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers)
@@ -276,6 +339,7 @@ func buildRouter(
 	textMethodNotAllowed := api.WithMethodNotAllowed(http.HandlerFunc(api.MethodNotAllowedText))
 
 	// Admin
+	router.Get("/admin/api/version", admin.AdminVersionHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/state", admin.AdminStateHandler, textMethodNotAllowed)
 	router.Post("/admin/api/start", admin.AdminStartHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/stop", admin.AdminStopHandler, textMethodNotAllowed)
@@ -285,6 +349,10 @@ func buildRouter(
 	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/restart", admin.AdminRestartHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host", admin.AdminHostSettingsHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/host", admin.AdminHostSettingsPutHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/host/sandbox/reset", admin.AdminSandboxResetHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host/sandbox/sessions", admin.AdminSandboxSessionsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/logs", admin.AdminLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)

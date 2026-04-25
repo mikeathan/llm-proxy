@@ -102,3 +102,21 @@ func TestMetricsServiceSnapshot_IgnoresZeroThroughput(t *testing.T) {
 		t.Fatalf("expected tokens/sec timestamp to be zero")
 	}
 }
+
+func TestReadHostMetrics_Integration(t *testing.T) {
+	svc := &MetricsService{
+		nowFn: time.Now,
+	}
+	m := svc.readHostMetrics()
+
+	if m.Cores <= 0 {
+		t.Errorf("expected Cores > 0, got %d", m.Cores)
+	}
+	if m.MemTotalMB <= 0 {
+		t.Errorf("expected MemTotalMB > 0, got %f", m.MemTotalMB)
+	}
+	// On most systems Load1 will be >= 0
+	if m.Load1 < 0 {
+		t.Errorf("expected Load1 >= 0, got %f", m.Load1)
+	}
+}

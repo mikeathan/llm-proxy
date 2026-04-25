@@ -6,12 +6,13 @@ Scan specifically for web applications and management interfaces, identifying so
 
 ### Execution Strategy
 
-#### Phase 1: Port Discovery (Web Focused)
-**Command:** `nmap -sT -Pn -p 80,443,3000,4000,5000,8000,8080,8081,8443,9000,9001,9002 -T4 {{target}}`
+#### Phase 1: Web Service Discovery
+**Action:** Use `scan_local_network` with specific ports: [80,443,3000,4000,5000,8080,8443,9000].
+*   Identifies open web and API ports across the target range.
 
-#### Phase 2: Banner Grabbing
-**Command:** `curl -I -s --connect-timeout 5 http://[IP]:[PORT]`
-*   Check for `Server` headers, `X-Powered-By`, and `Location` redirects.
+#### Phase 2: Header Grabbing
+**Action:** Use `fetch_url` on identified endpoints.
+*   The tool handles following redirects and capturing header metadata automatically.
 
 ### Output Format
 1. Summary of Web Services

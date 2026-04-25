@@ -1,3 +1,9 @@
-  sandbox enviroment for agents 
-  agent router - that selects the right agent for the job
-  agent memory - long term memory for agents
+# Completed Milestones
+- [x] WASM (Wazero) + "Native Capability" Bridges
+- [x] Zero-Trust Sandbox Environment (removed Docker dependency)
+- [x] Manifest-Driven Tool Discovery
+
+# Upcoming Tasks
+- [ ] use "github.com/gpustack/gguf-parser-go" to read gguf metadata
+- [ ] agent router - that selects the right agent for the job
+- [ ] agent memory - long term memory for agents

@@ -20,10 +20,13 @@ import TemplateLibrary from "./system/TemplateLibrary.vue";
 import type { AutomationRun } from "../../types/dispatcher";
 import { useToast } from "../../composables/useToast";
 import { useTemplates } from "../../composables/useTemplates";
+import { useMetrics } from "../../composables/useMetrics";
 import BaseButton from "../common/BaseButton.vue";
+import MetricsPulse from "../common/MetricsPulse.vue";
 
 /* ── Composables & Services ── */
 const { state: adminState, refresh: refreshModels } = useModels();
+const { metrics: systemMetrics } = useMetrics();
 const toast = useToast();
 
 const {
@@ -604,6 +607,11 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 
     <!-- Right Pane: Monitor & Activity -->
     <div v-show="!isMobile || mobilePanel === 'monitor'" class="right-pane">
+      <!-- Hardware Pulse -->
+      <div class="pulse-container">
+        <MetricsPulse :metrics="systemMetrics" :activeModel="adminState?.active" />
+      </div>
+
       <!-- Trigger Control -->
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
@@ -767,6 +775,11 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 /* ── Right Pane ── */
 .right-pane {
   @apply w-full lg:w-72 flex flex-col gap-4 overflow-y-auto relative shrink-0 min-h-0;
+}
+
+.pulse-container {
+  @apply sticky top-0 z-20 bg-gray-900/80 backdrop-blur-md pb-4 pt-1;
+  @apply flex justify-center;
 }
 
 .action-card {

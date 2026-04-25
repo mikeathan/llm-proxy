@@ -5,6 +5,7 @@ import (
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"net/http"
 	"net/http/httptest"
@@ -32,12 +33,13 @@ func (t *testDispatcher) UnregisterWorkspace(ws string) {}
 func (t *testDispatcher) ClearWorkspaceHistory(ws string) {}
 
 func TestCreateWorkspace_Isolation(t *testing.T) {
-	tmpDir := t.TempDir()
-	resolver := storage.NewPathResolver(tmpDir)
+	tmpWorkspaces := t.TempDir()
+	tmpMetadata := t.TempDir()
+	resolver := storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpMetadata)
 	mgr := persistence.NewWorkspaceManager(resolver)
 	
 	dispatcher := &testDispatcher{mgr: mgr}
-	handlers := &DispatcherHandlers{dispatcher: dispatcher}
+	handlers := NewDispatcherHandlers(dispatcher, logging.NewNopLogger())
 
 	workspaceID := "secure-project"
 	reqBody := `{"id": "` + workspaceID + `"}`
@@ -53,33 +55,85 @@ func TestCreateWorkspace_Isolation(t *testing.T) {
 	// VERIFY ISOLATION
 	
 	// 1. Config MUST NOT exist in root
-	rootConfig := filepath.Join(tmpDir, workspaceID, models.ConfigFilename)
+	rootConfig := filepath.Join(tmpWorkspaces, workspaceID, models.ConfigFilename)
 	if _, err := os.Stat(rootConfig); err == nil {
 		t.Error("SECURITY VIOLATION: config.yaml found in workspace root")
 	}
 
-	// 2. Config MUST exist in .internal
-	internalConfig := resolver.Config(workspaceID)
-	if _, err := os.Stat(internalConfig); os.IsNotExist(err) {
-		t.Errorf("Config missing from required isolated path: %s", internalConfig)
+	// 3. New workspaces should NOT have .internal folder in root
+	internalDirInRoot := filepath.Join(tmpWorkspaces, workspaceID, models.InternalDirName)
+	if _, err := os.Stat(internalDirInRoot); err == nil {
+		t.Error(".internal directory found in workspace root (should be moved out)")
 	}
 
-	// 3. New workspaces should have .internal folder
-	internalDir := resolver.InternalDir(workspaceID)
-	if _, err := os.Stat(internalDir); os.IsNotExist(err) {
-		t.Error(".internal directory was not created during workspace initialization")
-	}
-
-	// 4. Root should only contain task files
-	entries, _ := os.ReadDir(filepath.Join(tmpDir, workspaceID))
+	// 4. Root should only contain task files and NO hidden files
+	entries, _ := os.ReadDir(filepath.Join(tmpWorkspaces, workspaceID))
 	for _, entry := range entries {
 		name := entry.Name()
-		// .internal is a directory and allowed
-		if entry.IsDir() && name == models.InternalDirName {
-			continue
+		if name[0] == '.' && name != "." && name != ".." {
+			t.Errorf("Hidden file/directory %s found in workspace root (should be clean)", name)
 		}
 		if name == models.ConfigFilename || name == models.StateFilename {
-			t.Errorf("Forbidden file %s found in workspace root", name)
+			t.Errorf("Forbidden internal file %s found in workspace root", name)
 		}
+	}
+}
+
+func TestDispatcherHandlers_Validation(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	dispatcher := &testDispatcher{mgr: mgr}
+	handlers := NewDispatcherHandlers(dispatcher, logging.NewNopLogger())
+
+	tests := []struct {
+		name           string
+		workspaceID    string
+		automationName string
+		wantStatus     int
+	}{
+		{
+			name:        "Valid IDs work",
+			workspaceID: "valid-ws",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "Invalid workspace ID (injection)",
+			workspaceID: "../outside",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "Invalid workspace ID (special chars)",
+			workspaceID: "invalid$id",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:           "Invalid automation name",
+			workspaceID:    "valid-ws",
+			automationName: "bad/auto",
+			wantStatus:     http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/workspaces/"+tt.workspaceID, nil)
+			req.SetPathValue(models.WorkspaceIDParam, tt.workspaceID)
+			if tt.automationName != "" {
+				req.SetPathValue("automation", tt.automationName)
+			}
+			
+			rr := httptest.NewRecorder()
+
+			if tt.automationName != "" {
+				handlers.TriggerAutomation(rr, req)
+			} else {
+				handlers.GetWorkspaceState(rr, req)
+			}
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("%s: expected status %d, got %d. Body: %s", tt.name, tt.wantStatus, rr.Code, rr.Body.String())
+			}
+		})
 	}
 }

@@ -1,18 +1,13 @@
 package metrics
 
 import (
-	"fmt"
 	"llm-proxy/models"
-	"os"
 	"runtime"
-	"strconv"
-	"strings"
 	"time"
-)
 
-const (
-	procLoadAvgPath = "/proc/loadavg"
-	procMemInfoPath = "/proc/meminfo"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/load"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 func NewMetricsService(cfg *models.Config) *MetricsService {
@@ -29,8 +24,12 @@ func (s *MetricsService) SetThroughputSource(src ThroughputSource) {
 	s.throughput = src
 }
 
+func (s *MetricsService) SetSandboxSource(src SandboxSource) {
+	s.sandbox = src
+}
+
 func (s *MetricsService) Snapshot() MetricsSnapshot {
-	host := readHostMetrics(s.nowFn)
+	host := s.readHostMetrics()
 	resp := MetricsSnapshot{
 		HostMetrics: host,
 		GPUProvider: s.gpuProviderName,
@@ -70,76 +69,50 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 			resp.LLMTokensPerSecTS = ts
 		}
 	}
+
+	if s.sandbox != nil {
+		idle, active := s.sandbox.HealthCheck()
+		resp.IdleSandboxes = idle
+		resp.ActiveSandboxes = active
+	}
 	return resp
 }
 
-func readHostMetrics(now func() time.Time) HostMetrics {
-	load1, load5, load15, _ := readLoadAvg()
-	mem := readMemInfo()
+func (s *MetricsService) readHostMetrics() HostMetrics {
+	loadAvg, _ := load.Avg()
+	vmem, _ := mem.VirtualMemory()
 	cores := runtime.NumCPU()
-	pct := loadPct(load1, cores)
 
-	return HostMetrics{
-		Load1:          load1,
-		Load5:          load5,
-		Load15:         load15,
-		LoadPct:        pct,
-		Cores:          cores,
-		MemTotalMB:     mem.totalMB,
-		MemFreeMB:      mem.freeMB,
-		MemAvailableMB: mem.availMB,
-		MemUsedMB:      mem.usedMB,
-		Timestamp:      now(),
+	// Calculate Instantaneous CPU Utilization
+	// We use cpu.Percent with 0 to get usage since last call
+	percents, err := cpu.Percent(0, false)
+	pct := 0.0
+	if err == nil && len(percents) > 0 {
+		pct = percents[0]
 	}
+
+	m := HostMetrics{
+		Cores:     cores,
+		Timestamp: s.nowFn(),
+		LoadPct:   pct,
+	}
+
+	if loadAvg != nil {
+		m.Load1 = loadAvg.Load1
+		m.Load5 = loadAvg.Load5
+		m.Load15 = loadAvg.Load15
+	}
+
+	if vmem != nil {
+		m.MemTotalMB = float64(vmem.Total) / 1024 / 1024
+		m.MemFreeMB = float64(vmem.Free) / 1024 / 1024
+		m.MemAvailableMB = float64(vmem.Available) / 1024 / 1024
+		m.MemUsedMB = float64(vmem.Used) / 1024 / 1024
+	}
+
+	return m
 }
 
-func loadPct(load1 float64, cores int) float64 {
-	if cores <= 0 {
-		return 0
-	}
-	return (load1 / float64(cores)) * 100
-}
-
-func readLoadAvg() (float64, float64, float64, error) {
-	data, err := os.ReadFile(procLoadAvgPath)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return 0, 0, 0, fmt.Errorf("unexpected loadavg format")
-	}
-	return parseFloat(fields[0]), parseFloat(fields[1]), parseFloat(fields[2]), nil
-}
-
-func parseFloat(s string) float64 {
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-
-func readMemInfo() memSnapshot {
-	data, err := os.ReadFile(procMemInfoPath)
-	if err != nil {
-		return memSnapshot{}
-	}
-	lines := strings.Split(string(data), "\n")
-	toMB := func(kb float64) float64 { return kb / 1024.0 }
-	info := make(map[string]float64)
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		info[fields[0]] = parseFloat(fields[1])
-	}
-	total := toMB(info["MemTotal:"])
-	free := toMB(info["MemFree:"])
-	avail := toMB(info["MemAvailable:"])
-	used := total - avail
-	return memSnapshot{
-		totalMB: total,
-		freeMB:  free,
-		availMB: avail,
-		usedMB:  used,
-	}
+func (s *MetricsService) GPUProvider() string {
+	return s.gpuProviderName
 }

@@ -1,5 +1,0 @@
-cat /sys/class/drm/card0/device/gpu_busy_percent
-cat /sys/class/drm/card0/device/mem_info_vram_used
-cat /sys/class/drm/card0/device/mem_info_vram_total
-cat /sys/class/drm/card0/device/pp_cur_state
-cat /sys/class/drm/card0/device/hwmon/hwmon*/temp1_input

@@ -2,6 +2,58 @@
   "tool_name": "filesystem_tools",
   "version": "1.1",
   "description": "Securely read from and write to authorized workspace directories.",
+  "runtime": {
+    "list_directory": {
+      "description": "List the contents of a directory in the workspace.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path to list."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    "read_file": {
+      "description": "Read the content of a file in the workspace.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path to read."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    "write_file": {
+      "description": "Write content to a file in the workspace.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path to write."
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      }
+    }
+  },
   "guardrails": {
     "enabled": true,
     "allowed_paths": [],

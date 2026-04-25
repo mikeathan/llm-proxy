@@ -6,6 +6,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"strings"
 	"testing"
+	"time"
 )
 
 // MockClient implements proxy.Client
@@ -14,6 +15,15 @@ type MockClient struct {
 	Err      error
 	Calls    int
 	ChatFunc func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error)
+	StreamFunc func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error)
+}
+
+func (m *MockClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	if m.StreamFunc != nil {
+		return m.StreamFunc(ctx, req)
+	}
+	// Fall back to non-streaming by default for existing tests
+	return nil, fmt.Errorf("streaming not implemented in mock")
 }
 
 func (m *MockClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
@@ -164,51 +174,69 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	}
 }
 
-func TestNormalizeContent(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "clean string",
-			input:    "Hello world",
-			expected: "Hello world",
-		},
-		{
-			name:     "python empty block glitch",
-			input:    "[{'type': 'text', 'text': ''}] Hello",
-			expected: "Hello",
-		},
-		{
-			name:     "json empty block glitch",
-			input:    "[{\"type\": \"text\", \"text\": \"\"}] Hello",
-			expected: "Hello",
-		},
-		{
-			name:     "single object glitch",
-			input:    "{'type': 'text', 'text': ''} Hello",
-			expected: "Hello",
-		},
-		{
-			name:     "no space",
-			input:    "[{'type': 'text', 'text': ''}]<tools>call</tools>",
-			expected: "<tools>call</tools>",
-		},
-		{
-			name:     "embedded",
-			input:    "Thinking... [{'type': 'text', 'text': ''}]",
-			expected: "Thinking...", // Should trim the end too
+func TestAgent_Execute_LoopDetection(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_loop",
+								Function: proxy.FunctionCall{
+									Name:      "ping",
+									Arguments: `{}`,
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeContent(tt.input)
-			if got != tt.expected {
-				t.Errorf("normalizeContent(%q) = %q, want %q", tt.input, got, tt.expected)
+	provider := &MockProvider{
+		Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
+	}
+	engine := &MockEngine{Result: "pong"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 10})
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "loop please"}})
+
+	if err == nil || !strings.Contains(err.Error(), "infinite loop detected") {
+		t.Fatalf("Expected infinite loop error, got: %v", err)
+	}
+}
+
+func TestAgent_Execute_TotalTimeout(t *testing.T) {
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", Content: "Too slow"}}},
+				}, nil
 			}
-		})
+		},
+	}
+
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+
+	// Create a context that will expire quickly
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, _, err := agent.Execute(ctx, []proxy.Message{{Role: "user", Content: "Wait"}})
+
+	if err == nil || (!strings.Contains(err.Error(), "halted") && !strings.Contains(err.Error(), "context deadline exceeded")) {
+		t.Fatalf("Expected timeout error, got: %v", err)
 	}
 }
 

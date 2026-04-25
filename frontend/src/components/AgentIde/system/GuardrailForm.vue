@@ -13,7 +13,17 @@ const emit = defineEmits<{
   (e: "update:modelValue", config: AgentGuardrailsConfig): void;
 }>();
 
-const local = ref<AgentGuardrailsConfig>(structuredClone(toRaw(props.modelValue)));
+const ensureStructure = (cfg: any) => {
+  if (!cfg.global) cfg.global = { block_secrets: true, user_blocked_patterns: [] };
+  if (!cfg.terminal) cfg.terminal = { enabled: false, allowed_commands: [], timeout_seconds: 30, max_output_size_chars: 5000 };
+  if (!cfg.filesystem) cfg.filesystem = { enabled: false, allowed_paths: [], read_only: true, max_file_size_kb: 512 };
+  if (!cfg.search) cfg.search = { enabled: false, max_query_len: 100, blocked_sites: [] };
+  if (!cfg.communication) cfg.communication = { enabled: false, require_review: true, max_messages_per_task: 10 };
+  if (!cfg.network) cfg.network = { enabled: false, allow_lan_access: false, allow_internet_access: false, max_fetch_size_kb: 512, timeout_seconds: 30 };
+  return cfg;
+}
+
+const local = ref<AgentGuardrailsConfig>(ensureStructure(structuredClone(toRaw(props.modelValue))));
 
 watch(
   () => props.modelValue,
@@ -21,7 +31,7 @@ watch(
     const current = JSON.stringify(toRaw(local.value));
     const incoming = JSON.stringify(toRaw(newVal));
     if (current !== incoming) {
-      local.value = structuredClone(toRaw(newVal));
+      local.value = ensureStructure(structuredClone(toRaw(newVal)));
     }
   },
   { deep: true },
@@ -35,18 +45,43 @@ watch(
   { deep: true },
 );
 
-// Raw string helpers for textareas
-const terminalAllowedRaw = ref(listToString(local.value.terminal.allowed_commands, "\n"));
-const terminalBlockedRaw = ref(listToString(local.value.terminal.blocked_patterns, "\n"));
-const fsAllowedPathsRaw = ref(listToString(local.value.filesystem.allowed_paths, "\n"));
-const searchBlockedSitesRaw = ref(listToString(local.value.search.blocked_sites, "\n"));
-const globalBlockedRaw = ref(listToString(local.value.global.user_blocked_patterns, "\n"));
+// Raw string helpers for textareas with defensive null-checks
+const terminalAllowedRaw = ref(listToString(local.value.terminal?.allowed_commands, "\n"));
+const terminalBlockedRaw = ref(listToString(local.value.terminal?.blocked_patterns, "\n"));
+const fsAllowedPathsRaw = ref(listToString(local.value.filesystem?.allowed_paths, "\n"));
+const searchBlockedSitesRaw = ref(listToString(local.value.search?.blocked_sites, "\n"));
+const networkBlockedDomainsRaw = ref(listToString(local.value.network?.blocked_domains, "\n"));
+const networkBlockedIPsRaw = ref(listToString(local.value.network?.blocked_ips, "\n"));
+const globalBlockedRaw = ref(listToString(local.value.global?.user_blocked_patterns, "\n"));
 
-watch(terminalAllowedRaw, (val) => { local.value.terminal.allowed_commands = stringToList(val, "\n"); });
-watch(terminalBlockedRaw, (val) => { local.value.terminal.blocked_patterns = stringToList(val, "\n"); });
-watch(fsAllowedPathsRaw, (val) => { local.value.filesystem.allowed_paths = stringToList(val, "\n"); });
-watch(searchBlockedSitesRaw, (val) => { local.value.search.blocked_sites = stringToList(val, "\n"); });
-watch(globalBlockedRaw, (val) => { local.value.global.user_blocked_patterns = stringToList(val, "\n"); });
+watch(terminalAllowedRaw, (val) => { 
+  if (!local.value.terminal) local.value.terminal = { enabled: false, allowed_commands: [], timeout_seconds: 30, max_output_size_chars: 5000 };
+  local.value.terminal.allowed_commands = stringToList(val, "\n"); 
+});
+watch(terminalBlockedRaw, (val) => { 
+  if (!local.value.terminal) local.value.terminal = { enabled: false, allowed_commands: [], timeout_seconds: 30, max_output_size_chars: 5000 };
+  local.value.terminal.blocked_patterns = stringToList(val, "\n"); 
+});
+watch(fsAllowedPathsRaw, (val) => { 
+  if (!local.value.filesystem) local.value.filesystem = { enabled: false, allowed_paths: [], read_only: true, max_file_size_kb: 512 };
+  local.value.filesystem.allowed_paths = stringToList(val, "\n"); 
+});
+watch(searchBlockedSitesRaw, (val) => { 
+  if (!local.value.search) local.value.search = { enabled: false, max_query_len: 100, blocked_sites: [] };
+  local.value.search.blocked_sites = stringToList(val, "\n"); 
+});
+watch(networkBlockedDomainsRaw, (val) => { 
+  if (!local.value.network) local.value.network = { enabled: false, allow_lan_access: false, allow_internet_access: false, max_fetch_size_kb: 512, timeout_seconds: 30 };
+  local.value.network.blocked_domains = stringToList(val, "\n"); 
+});
+watch(networkBlockedIPsRaw, (val) => { 
+  if (!local.value.network) local.value.network = { enabled: false, allow_lan_access: false, allow_internet_access: false, max_fetch_size_kb: 512, timeout_seconds: 30 };
+  local.value.network.blocked_ips = stringToList(val, "\n"); 
+});
+watch(globalBlockedRaw, (val) => { 
+  if (!local.value.global) local.value.global = { block_secrets: true, user_blocked_patterns: [] };
+  local.value.global.user_blocked_patterns = stringToList(val, "\n"); 
+});
 
 watch(local, (newVal) => {
   const sync = (rawRef: any, list: string[] | undefined) => {
@@ -55,11 +90,13 @@ watch(local, (newVal) => {
        rawRef.value = clean;
     }
   };
-  sync(terminalAllowedRaw, newVal.terminal.allowed_commands);
-  sync(terminalBlockedRaw, newVal.terminal.blocked_patterns);
-  sync(fsAllowedPathsRaw, newVal.filesystem.allowed_paths);
-  sync(searchBlockedSitesRaw, newVal.search.blocked_sites);
-  sync(globalBlockedRaw, newVal.global.user_blocked_patterns);
+  sync(terminalAllowedRaw, newVal.terminal?.allowed_commands);
+  sync(terminalBlockedRaw, newVal.terminal?.blocked_patterns);
+  sync(fsAllowedPathsRaw, newVal.filesystem?.allowed_paths);
+  sync(searchBlockedSitesRaw, newVal.search?.blocked_sites);
+  sync(networkBlockedDomainsRaw, newVal.network?.blocked_domains);
+  sync(networkBlockedIPsRaw, newVal.network?.blocked_ips);
+  sync(globalBlockedRaw, newVal.global?.user_blocked_patterns);
 }, { deep: true });
 </script>
 
@@ -121,6 +158,40 @@ watch(local, (newVal) => {
           <div class="form-group">
             <label class="form-label">Allowed Paths</label>
             <textarea v-model="fsAllowedPathsRaw" class="form-input font-mono text-xs" rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Network Guardrails -->
+      <div class="config-card">
+        <div class="card-header">
+          <h3 class="card-title">Network Tool (Native)</h3>
+          <BaseToggle v-model="local.network.enabled" />
+        </div>
+        <div v-if="local.network.enabled" class="card-body">
+          <div class="grid grid-cols-2 gap-4">
+            <BaseToggle 
+              v-model="local.network.allow_lan_access" 
+              label="LAN Access" 
+            />
+            <BaseToggle 
+              v-model="local.network.allow_internet_access" 
+              label="Internet" 
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Blocked Domains</label>
+            <textarea v-model="networkBlockedDomainsRaw" class="form-input font-mono text-xs" rows="3"></textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">Size Limit (KB)</label>
+              <input type="number" v-model.number="local.network.max_fetch_size_kb" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Timeout (sec)</label>
+              <input type="number" v-model.number="local.network.timeout_seconds" class="form-input" />
+            </div>
           </div>
         </div>
       </div>
