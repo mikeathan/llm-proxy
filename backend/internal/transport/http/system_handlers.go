@@ -8,6 +8,15 @@ import (
 	"llm-proxy/models"
 )
 
+// AdminVersionHandler handles GET /admin/api/version
+func (h *AdminHandlers) AdminVersionHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, map[string]string{
+		"version":    h.buildInfo.Version,
+		"commit":     h.buildInfo.Commit,
+		"build_date": h.buildInfo.BuildDate,
+	})
+}
+
 func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Request) {
 	sys := h.admin.GetSystem()
 	reg := h.admin.GetRegistry()

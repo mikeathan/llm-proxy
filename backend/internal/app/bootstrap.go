@@ -339,6 +339,7 @@ func buildRouter(
 	textMethodNotAllowed := api.WithMethodNotAllowed(http.HandlerFunc(api.MethodNotAllowedText))
 
 	// Admin
+	router.Get("/admin/api/version", admin.AdminVersionHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/state", admin.AdminStateHandler, textMethodNotAllowed)
 	router.Post("/admin/api/start", admin.AdminStartHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/stop", admin.AdminStopHandler, textMethodNotAllowed)
