@@ -38,8 +38,7 @@ var (
 func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
 	// Try format 1: <function-name> / <args-json-object>
 	if calls, ok := parseFunctionNameFormat(content); ok {
-		cleaned := reToolName.ReplaceAllString(content, "")
-		cleaned = reToolArgs.ReplaceAllString(cleaned, "")
+		cleaned := reToolPair.ReplaceAllString(content, "")
 		return cleaned, calls, true
 	}
 	// Try format 2: <tools> wrapping a JSON object
@@ -148,21 +147,26 @@ func parseNativeFuncFormat(content string) ([]ToolCall, bool) {
 	return calls, true
 }
 
+var reToolPair = regexp.MustCompile(`(?s)<function-name>(.*?)</function-name>\s*<args-json-object>(.*?)</args-json-object>`)
+
 // parseFunctionNameFormat handles the <function-name>/<args-json-object> style.
 func parseFunctionNameFormat(content string) ([]ToolCall, bool) {
-	nameMatches := reToolName.FindAllStringSubmatch(content, -1)
-	if len(nameMatches) == 0 {
+	matches := reToolPair.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
 		return nil, false
 	}
 
-	argsMatches := reToolArgs.FindAllStringSubmatch(content, -1)
-	calls := make([]ToolCall, 0, len(nameMatches))
-	for i, nm := range nameMatches {
-		name := strings.TrimSpace(nm[1])
-		args := "{}"
-		if i < len(argsMatches) {
-			args = strings.TrimSpace(argsMatches[i][1])
+	calls := make([]ToolCall, 0, len(matches))
+	for i, m := range matches {
+		name := strings.TrimSpace(m[1])
+		args := strings.TrimSpace(m[2])
+
+		// Sanitization: Some models leak stray characters (like '>') after the JSON block
+		// if they get confused by the XML tags.
+		if idx := strings.LastIndex(args, "}"); idx != -1 {
+			args = args[:idx+1]
 		}
+
 		calls = append(calls, ToolCall{
 			ID:   fmt.Sprintf("cid-%d", i),
 			Type: "function",

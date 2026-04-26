@@ -86,23 +86,30 @@ func TestParseContentToolCalls_MultipleToolCalls(t *testing.T) {
 	}
 }
 
-func TestParseContentToolCalls_MissingArgs(t *testing.T) {
-	// Function name present but no args block — should still parse with default
-	content := `<function-name>list_devices</function-name>`
+func TestParseContentToolCalls_Sanitization(t *testing.T) {
+	// Test that trailing characters (like '>') after the JSON block are stripped
+	content := `<function-name>list_directory</function-name>
+<args-json-object>{"path": "/tmp/"}></args-json-object>`
 
 	_, calls, ok := proxy.ParseContentToolCalls(content)
 	if !ok {
-		t.Fatal("expected ok=true when function-name is present")
+		t.Fatal("expected ok=true")
 	}
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
-	if calls[0].Function.Name != "list_devices" {
-		t.Errorf("expected 'list_devices', got %q", calls[0].Function.Name)
+	if string(calls[0].Function.Arguments) != `{"path": "/tmp/"}` {
+		t.Errorf("expected sanitized arguments, got %q", string(calls[0].Function.Arguments))
 	}
-	// Should fall back to empty args object
-	if string(calls[0].Function.Arguments) != "{}" {
-		t.Errorf("expected '{}' as fallback args, got %q", string(calls[0].Function.Arguments))
+}
+
+func TestParseContentToolCalls_MissingArgs(t *testing.T) {
+	// With the new reToolPair requirement, a missing args tag means no tool call is matched
+	content := `<function-name>list_devices</function-name>`
+
+	_, _, ok := proxy.ParseContentToolCalls(content)
+	if ok {
+		t.Fatal("expected ok=false when args tag is missing in the new strict pair format")
 	}
 }
 

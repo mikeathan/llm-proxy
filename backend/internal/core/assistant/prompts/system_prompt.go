@@ -16,9 +16,9 @@ Context Version: %s
 Timezone: %s
 Current Time (UTC): %s
 
-CRITICAL: Your final response MUST be a natural language answer. 
-DO NOT echo the tool call JSON, tags, or return any JSON structures in your final output. 
-Just give the plain text answer to the user's question.`,
+CRITICAL: Your final response MUST be a natural language or Markdown answer. 
+DO NOT include raw JSON, tool call XML tags (<function-name>, <args-json-object>), or return any technical data structures in your final output. 
+Provide only the raw markdown or text answer for the user.`,
 		systemPrompt,
 		conversationID,
 		contextVersion,

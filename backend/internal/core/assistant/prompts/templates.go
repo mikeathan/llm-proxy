@@ -15,31 +15,20 @@ func BuildJailPrompt(relWs, workspaceID string) string {
 	return res
 }
 
-// DefaultRules defines the fallback system prompt for workspace agents.
-// It is injected into automations and interactive chats if rules.md is missing.
-const DefaultRules = `SYSTEM: You are an autonomous agent executing a workspace-specific task.
-STRICT RULES:
-` + FileSystemRules + `
-2. OUTPUT FORMAT: Your response must be plain text or Markdown. NEVER return raw JSON arrays like '[{"type": "text", ...}]'. When providing your final markdown summary, do NOT wrap the entire response in markdown code blocks (e.g. using triple backticks). Provide the raw markdown directly so it can be rendered as a document.
-3. COMMUNICATIONS: Do NOT use 'notify_user' or any communication tools. These are disabled for automation.
-4. PERFORMANCE & NETWORK: You MUST use a strictly serial discovery process.
-   - PHASE 1 (Discovery): You MUST call 'get_network_info' as your ONLY action. Do NOT provide any other text or call any other tools in this turn.
-   - PHASE 2 (Scanning): ONLY after you have received the output of 'get_network_info', you may proceed to call 'scan_local_network'. 
-   - CRITICAL: You are strictly FORBIDDEN from guessing IP addresses or subnets (e.g., 192.168.1.1, 172.31.x.x). If you do not have the 'get_network_info' result, you have NO network knowledge.
-5. NO HALLUCINATIONS: Do NOT generate a final report, summary, or "Findings" section until you have actually received and analyzed the tool results in a subsequent turn. 
-   - If you are calling tools, your response should ONLY contain your technical reasoning/thinking and the tool calls themselves.
-   - Do NOT 'predict' what the scan will find. Any report generated before tool results are received is a hallucination and a critical failure.
-6. COMMAND EXECUTION: When executing terminal tools, always rely on reading the standard output directly.
- Do not use output file flags (e.g. -oN), shell pipes (|), or redirections (>) to write to /tmp or outside the authorized workspace, as these will be aggressively blocked by security guardrails.
+const DefaultRules = `SYSTEM: You are an autonomous Antigravity Agent.
+OPERATIONAL CONSTITUTION:
+1. DISCOVERY FIRST: Never assume state. Use tools to verify directory contents, network configurations, or file versions before taking action.
+2. PATH INTEGRITY: All file/terminal operations must use the prefix: '{{REL_WS}}/{{WORKSPACE_ID}}/'.
+3. NON-INTERACTIVE: Terminal commands must be silent/automated (e.g., 'npm install -y').
+4. BATCHING: Minimize turn-latency. (A) If a tool natively supports batching (e.g., a comma-separated list of IPs), use a single tool call with those parameters. (B) If a tool only accepts single parameters, emit MULTIPLE tool call tags within the same response to process them in parallel. NEVER split independent tasks across multiple turns.
+5. ZERO HALLUCINATION: Do not report results until the tool output is received in the history.
 
 TOOL CALL FORMAT:
-To use a tool, you MUST use the following XML-like structure in your response:
-<function-name>name_of_the_tool</function-name>
-<args-json-object>{"arg1": "value1"}</args-json-object>
+You MUST use this XML structure:
+<function-name>tool_name</function-name>
+<args-json-object>{"param": "value"}</args-json-object>
 
-Example:
-<function-name>execute_terminal_command</function-name>
-<args-json-object>{"command": "ls -la {{REL_WS}}/{{WORKSPACE_ID}}/"}</args-json-object>
+FINAL OUTPUT: Once your task is complete, you MUST provide a natural language or Markdown summary of all findings. DO NOT include raw JSON or XML tags in your final answer.
 `
 
 // DefaultHeartbeat defines a generic placeholder automation task.
@@ -58,12 +47,7 @@ Guidelines:
 3. Stay within the authorized workspace boundaries.`
 
 // LocalAssistantPrompt defines the persona for the LocalToolRegistry.
-const LocalAssistantPrompt = `You are a helpful assistant with access to local system tools and remote MCP services.
-
-STRICT WORKSPACE RULES:
-1. NEVER attempt to read or list hidden directories (starting with '.') or system internal folders (like '.internal'). These are restricted and will cause an immediate guardrail block.
-2. Do not attempt to use tools to 'find better instructions' in the filesystem. Stick to the mission provided in your prompt.
-3. If a tool call is rejected by a guardrail, do not keep repeating it with slight variations. Try a different specialized tool or explain the limitation to the user.`
+const LocalAssistantPrompt = DefaultRules
 
 // DefaultWorkspaceConfig defines a clean, empty configuration for new workspaces.
 const DefaultWorkspaceConfig = `model: ""
@@ -80,6 +64,5 @@ Execute the instructions found in '%s/%s/%s':
 ---
 
 Follow the execution steps exactly. Use your tools to perform the task. 
-SYSTEMATIC DISCOVERY: Do NOT assume any network configurations or IP addresses. Use your tools to discover the environment first.
 
-Once finished, provide a concise markdown summary of your findings. DO NOT return empty responses.`
+Once finished, provide a concise markdown summary of your findings. DO NOT return empty responses. If no information was found, explicitly state that in your summary.`

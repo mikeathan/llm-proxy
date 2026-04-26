@@ -30,6 +30,18 @@ func TestFilterStreamingMarkup(t *testing.T) {
 			wantToolCall: true,
 		},
 		{
+			name:         "xml tags",
+			input:        "Here we go <function-name>scan",
+			wantContent:  "Here we go ",
+			wantToolCall: true,
+		},
+		{
+			name:         "xml args tag",
+			input:        "Args: <args-json-object>{",
+			wantContent:  "Args: ",
+			wantToolCall: true,
+		},
+		{
 			name:         "python dict",
 			input:        "Okay [{'type': 'function'",
 			wantContent:  "Okay ",

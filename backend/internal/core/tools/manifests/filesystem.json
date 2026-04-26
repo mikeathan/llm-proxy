@@ -10,7 +10,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative path to list."
+            "description": "Single path to list. Prefix with '{{REL_WS}}/{{WORKSPACE_ID}}/'. This tool does NOT support native batching; for multiple paths, emit multiple tool call tags."
           }
         },
         "required": [
@@ -25,7 +25,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative path to read."
+            "description": "Single path to read. Prefix with '{{REL_WS}}/{{WORKSPACE_ID}}/'. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
           }
         },
         "required": [
@@ -40,7 +40,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative path to write."
+            "description": "Single path to write. Prefix with '{{REL_WS}}/{{WORKSPACE_ID}}/'. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
           },
           "content": {
             "type": "string",

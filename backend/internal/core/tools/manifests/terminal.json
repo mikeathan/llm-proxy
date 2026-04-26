@@ -7,7 +7,7 @@
     "properties": {
       "command": {
         "type": "string",
-        "description": "The shell command to execute (e.g., 'ls -la')."
+        "description": "The shell command to execute. You MUST use non-interactive flags (e.g. 'npm install -y') and prefix all paths with '{{REL_WS}}/{{WORKSPACE_ID}}/'."
       }
     },
     "required": [

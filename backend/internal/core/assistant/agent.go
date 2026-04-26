@@ -110,7 +110,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 						if prev == key { count++ }
 					}
 					if count >= 3 {
-						return fmt.Errorf("infinite loop detected: agent repeated tool call '%s'", key.name)
+						return fmt.Errorf("infinite loop detected: agent repeated tool call '%s'. User Intervention Required", key.name)
 					}
 					if len(recentCalls) >= 5 { recentCalls = recentCalls[1:] }
 					recentCalls = append(recentCalls, key)
@@ -244,10 +244,29 @@ func (a *Agent) handleContentToolCalls(msg *proxy.Message) {
 }
 
 func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Message) bool {
-	if msg.Content != "" && (len(msg.Content) >= 60 || strings.Contains(msg.Content, "```") || strings.Contains(msg.Content, "#")) {
-		return false
+	content := strings.TrimSpace(msg.Content)
+	if content == "" {
+		// If there are tool calls, it's definitely NOT a termination.
+		if len(msg.ToolCalls) > 0 {
+			return false
+		}
+		return true
 	}
-	return true
+
+	// Basic repetition detection for short content-only responses
+	// if the same message is returned 3 times in a row, it's premature.
+	if len(history) >= 2 {
+		last := history[len(history)-1]
+		if last.Role == proxy.AssistantRole && strings.TrimSpace(last.Content) == content {
+			// Found one repeat, check if it's a pattern
+			prev := history[len(history)-2]
+			if prev.Role == proxy.AssistantRole && strings.TrimSpace(prev.Content) == content {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (a *Agent) countRetries(history []proxy.Message) int {
@@ -265,7 +284,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 	var mu sync.Mutex
 
 	// Limit concurrent tool executions to prevent resource exhaustion.
-	// We use a semaphore of 10 concurrent slots.
+	// As per Antigravity Constitution II.1: "implement a Semaphore (currently capped at 10)"
 	const maxConcurrentTools = 10
 	sem := make(chan struct{}, maxConcurrentTools)
 
@@ -273,11 +292,11 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		
+
 		wg.Add(1)
 		go func(tc proxy.ToolCall) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore slot
 			select {
 			case sem <- struct{}{}:
@@ -285,14 +304,14 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			case <-ctx.Done():
 				return
 			}
-			
+
 			a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
 			a.notifyToolCall(tc)
 
 			if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
 				a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 				a.notifyGuardrailViolation(tc.Function.Name, err)
-				
+
 				mu.Lock()
 				a.appendToolResult(history, tc, formatGuardrailError(err))
 				mu.Unlock()
@@ -331,10 +350,10 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 	raw, _ := json.Marshal(result)
 	content := string(raw)
 
-	// If tool result is very large (e.g. > 2KB), truncate it to save memory and context tokens.
+	// If tool result is very large (e.g. > 16KB), truncate it to save memory and context tokens.
 	// Agents often don't need the full output of e.g. a huge directory listing or file read
 	// if they've already seen it or if it's too much to process at once.
-	const maxToolResultSize = 2048
+	const maxToolResultSize = 16384
 	if len(content) > maxToolResultSize {
 		a.logger.Info("truncating large tool result for history", "name", tc.Function.Name, "original_size", len(content))
 		content = fmt.Sprintf("%s\n\n... (result truncated for memory efficiency. Total size: %d bytes)", content[:maxToolResultSize], len(content))

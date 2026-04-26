@@ -245,19 +245,31 @@ func TestAgent_IsPrematureTermination(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
+		history  []proxy.Message
 		expected bool
 	}{
-		{"empty", "", true},
-		{"too short", "Hello", true},
-		{"enough length", strings.Repeat("a", 60), false},
-		{"has header", "# Hi", false},
-		{"has code", "```js\n```", false},
+		{"empty", "", nil, true},
+		{"short but valid", "Hello.", []proxy.Message{{Role: proxy.AssistantRole, Content: "Hello."}}, false},
+		{"long valid", strings.Repeat("a", 100), []proxy.Message{{Role: proxy.AssistantRole, Content: strings.Repeat("a", 100)}}, false},
+		{"repetition", "Thinking...", []proxy.Message{
+			{Role: proxy.AssistantRole, Content: "Thinking..."},
+			{Role: proxy.AssistantRole, Content: "Thinking..."},
+		}, true},
+		{"not repetition (different content)", "New thought.", []proxy.Message{
+			{Role: proxy.AssistantRole, Content: "Old thought."},
+			{Role: proxy.AssistantRole, Content: "New thought."},
+		}, false},
+		{"not repetition (intervening tool)", "Thinking...", []proxy.Message{
+			{Role: proxy.AssistantRole, Content: "Thinking..."},
+			{Role: proxy.ToolRole, Content: "result"},
+			{Role: proxy.AssistantRole, Content: "Thinking..."},
+		}, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := proxy.Message{Content: tt.content}
-			got := agent.isPrematureTermination(msg, nil)
+			got := agent.isPrematureTermination(msg, tt.history)
 			if got != tt.expected {
 				t.Errorf("isPrematureTermination(%q) = %v, want %v", tt.content, got, tt.expected)
 			}
