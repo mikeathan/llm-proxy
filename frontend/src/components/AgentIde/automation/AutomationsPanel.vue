@@ -31,7 +31,10 @@ const confirmAndEmit = (auto: Automation) => {
       <div v-for="auto in autos" :key="auto.id">
         <div
           class="automation-row group"
-          :class="{ 'automation-row--selected': selectedAutomationId === auto.id }"
+          :class="{ 
+            'automation-row--selected': selectedAutomationId === auto.id,
+            'automation-row--disabled': autos.some(a => a.is_running) && !auto.is_running
+          }"
         >
           <button
             @click="emit('select-automation', auto)"
@@ -53,6 +56,7 @@ const confirmAndEmit = (auto: Automation) => {
               v-if="confirmingDeleteFor !== auto.id"
               @click.stop="confirmingDeleteFor = auto.id"
               class="btn-automation-action btn-automation-action--delete"
+              :disabled="autos.some(a => a.is_running)"
               title="Delete Automation"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -62,6 +66,7 @@ const confirmAndEmit = (auto: Automation) => {
             <button
               @click.stop="emit('edit-automation', auto)"
               class="btn-automation-action btn-automation-action--edit"
+              :disabled="autos.some(a => a.is_running)"
               title="Edit Automation"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -99,6 +104,12 @@ const confirmAndEmit = (auto: Automation) => {
 
 .automation-row--selected {
   @apply bg-blue-600 hover:bg-blue-600;
+}
+.automation-row--disabled {
+  @apply opacity-60 grayscale-[0.3];
+}
+.automation-row--disabled .status-running {
+  @apply opacity-100 grayscale-0;
 }
 
 .btn-automation-select {

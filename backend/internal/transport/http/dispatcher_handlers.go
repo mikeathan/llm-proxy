@@ -129,7 +129,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 				info.LastOutput = state.LastOutput
 				info.LastError = state.LastError
 			}
-			info.IsRunning = state.IsRunning
+			info.IsRunning = state.ActiveAutomation == entry.Name
 		}
 
 		infos = append(infos, info)
@@ -197,7 +197,14 @@ func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Re
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, state)
+	// Wrap state to include is_running for frontend compatibility
+	respondJSON(w, struct {
+		*models.AgentState
+		IsRunning bool `json:"is_running"`
+	}{
+		AgentState: state,
+		IsRunning:  state.IsRunning(),
+	})
 }
 
 func (h *DispatcherHandlers) GetWorkspaceConfig(w http.ResponseWriter, r *http.Request) {

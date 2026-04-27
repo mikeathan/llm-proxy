@@ -69,7 +69,7 @@ func (e *DefaultTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (
 		resp.State = &models.AgentState{}
 	}
 
-	resp.State.IsRunning = true
+	resp.State.SetRunning(req.AutomationName)
 	resp.Output = "dispatcher placeholder output (Phase 3: wire LLM)"
 
 	return resp, nil
@@ -95,7 +95,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 
 	// Mark as running
-	resp.State.IsRunning = true
+	resp.State.SetRunning(req.AutomationName)
 
 	// Get LLM client
 	var client proxy.Client
@@ -110,7 +110,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.LastError = errStr
-		resp.State.IsRunning = false
+		resp.State.SetRunning("")
 		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
 		return resp, fmt.Errorf("failed to get llm client: %w", err)
 	}
@@ -143,7 +143,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	if agErr != nil {
 		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
-		resp.State.IsRunning = false
+		resp.State.SetRunning("")
 		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
 		return resp, fmt.Errorf("agent execution failed: %w", agErr)
 	}
@@ -188,7 +188,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	resp.State.LastOutput = fullOutput
 	runResult = fullOutput
 
-	resp.State.IsRunning = false
+	resp.State.SetRunning("")
 
 	// Push a concluding message to the UI stream to clear "thinking..."
 	e.svc.Events().Publish(req.WorkspaceID, assistant.AgentEvent{

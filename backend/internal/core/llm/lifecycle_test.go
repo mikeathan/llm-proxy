@@ -2,11 +2,12 @@ package llm_test
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
-	"testing"
-	"time"
 )
 
 func TestIdleReaper_IgnoresStartingModels(t *testing.T) {
@@ -18,9 +19,10 @@ func TestIdleReaper_IgnoresStartingModels(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return isReady })
 	defer restorePort()
 
+	setupModelFile(t, "reap_test.gguf")
 	m := llm.NewWithReapInterval(
 		[]models.ModelConfig{
-			{Name: "test", Path: "x", Port: 3333},
+			{Name: "test", Path: "reap_test.gguf", Port: 3333},
 		},
 		"127.0.0.1",
 		time.Millisecond*50, // idle timeout
@@ -69,9 +71,10 @@ func TestIdleReaper_RespectsZeroTimeout(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return true })
 	defer restorePort()
 
+	setupModelFile(t, "zero_timeout.gguf")
 	m := llm.NewWithReapInterval(
 		[]models.ModelConfig{
-			{Name: "test", Path: "x", Port: 3333},
+			{Name: "test", Path: "zero_timeout.gguf", Port: 3333},
 		},
 		"127.0.0.1",
 		0,                   // NO idle timeout

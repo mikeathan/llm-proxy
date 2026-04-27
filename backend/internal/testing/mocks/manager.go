@@ -30,6 +30,7 @@ type MockManager struct {
 	SetSecretsFunc             func(models.SecretsStore)
 	ShutdownFunc               func()
 	RegistrarFunc              func() *providers.ProviderRegistrar
+	SyncFunc                   func()
 }
 
 func (m *MockManager) Registrar() *providers.ProviderRegistrar {
@@ -37,6 +38,17 @@ func (m *MockManager) Registrar() *providers.ProviderRegistrar {
 		return m.RegistrarFunc()
 	}
 	return nil
+}
+
+func NewMockManager() *MockManager {
+	return (&MockManager{}).WithDefaultRegistrar()
+}
+
+func (m *MockManager) WithDefaultRegistrar() *MockManager {
+	m.RegistrarFunc = func() *providers.ProviderRegistrar {
+		return providers.NewProviderRegistrar(providers.GetRegistry(), nil, "http://localhost")
+	}
+	return m
 }
 
 func (m *MockManager) Shutdown() {
@@ -169,5 +181,11 @@ func (m *MockManager) SetSecrets(s models.SecretsStore) {
 func (m *MockManager) SetModelHost(host string) {
 	if m.SetModelHostFunc != nil {
 		m.SetModelHostFunc(host)
+	}
+}
+
+func (m *MockManager) Sync() {
+	if m.SyncFunc != nil {
+		m.SyncFunc()
 	}
 }

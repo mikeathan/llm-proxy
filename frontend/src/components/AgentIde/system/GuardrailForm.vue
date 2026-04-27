@@ -49,6 +49,8 @@ watch(
 const terminalAllowedRaw = ref(listToString(local.value.terminal?.allowed_commands, "\n"));
 const terminalBlockedRaw = ref(listToString(local.value.terminal?.blocked_patterns, "\n"));
 const fsAllowedPathsRaw = ref(listToString(local.value.filesystem?.allowed_paths, "\n"));
+const fsAllowedExtensionsRaw = ref(listToString(local.value.filesystem?.allowed_extensions, "\n"));
+const fsBlockedFilenamesRaw = ref(listToString(local.value.filesystem?.blocked_filenames, "\n"));
 const searchBlockedSitesRaw = ref(listToString(local.value.search?.blocked_sites, "\n"));
 const networkBlockedDomainsRaw = ref(listToString(local.value.network?.blocked_domains, "\n"));
 const networkBlockedIPsRaw = ref(listToString(local.value.network?.blocked_ips, "\n"));
@@ -65,6 +67,14 @@ watch(terminalBlockedRaw, (val) => {
 watch(fsAllowedPathsRaw, (val) => { 
   if (!local.value.filesystem) local.value.filesystem = { enabled: false, allowed_paths: [], read_only: true, max_file_size_kb: 512 };
   local.value.filesystem.allowed_paths = stringToList(val, "\n"); 
+});
+watch(fsAllowedExtensionsRaw, (val) => { 
+  if (!local.value.filesystem) local.value.filesystem = { enabled: false, allowed_paths: [], read_only: true, max_file_size_kb: 512 };
+  local.value.filesystem.allowed_extensions = stringToList(val, "\n"); 
+});
+watch(fsBlockedFilenamesRaw, (val) => { 
+  if (!local.value.filesystem) local.value.filesystem = { enabled: false, allowed_paths: [], read_only: true, max_file_size_kb: 512 };
+  local.value.filesystem.blocked_filenames = stringToList(val, "\n"); 
 });
 watch(searchBlockedSitesRaw, (val) => { 
   if (!local.value.search) local.value.search = { enabled: false, max_query_len: 100, blocked_sites: [] };
@@ -93,6 +103,8 @@ watch(local, (newVal) => {
   sync(terminalAllowedRaw, newVal.terminal?.allowed_commands);
   sync(terminalBlockedRaw, newVal.terminal?.blocked_patterns);
   sync(fsAllowedPathsRaw, newVal.filesystem?.allowed_paths);
+  sync(fsAllowedExtensionsRaw, newVal.filesystem?.allowed_extensions);
+  sync(fsBlockedFilenamesRaw, newVal.filesystem?.blocked_filenames);
   sync(searchBlockedSitesRaw, newVal.search?.blocked_sites);
   sync(networkBlockedDomainsRaw, newVal.network?.blocked_domains);
   sync(networkBlockedIPsRaw, newVal.network?.blocked_ips);
@@ -138,6 +150,10 @@ watch(local, (newVal) => {
               <label class="form-label">Timeout (sec)</label>
               <input type="number" v-model.number="local.terminal.timeout_seconds" class="form-input" />
             </div>
+            <div class="form-group">
+              <label class="form-label">Max Output (chars)</label>
+              <input type="number" v-model.number="local.terminal.max_output_size_chars" class="form-input" />
+            </div>
           </div>
         </div>
       </div>
@@ -157,7 +173,21 @@ watch(local, (newVal) => {
           </div>
           <div class="form-group">
             <label class="form-label">Allowed Paths</label>
-            <textarea v-model="fsAllowedPathsRaw" class="form-input font-mono text-xs" rows="3"></textarea>
+            <textarea v-model="fsAllowedPathsRaw" class="form-input font-mono text-xs" rows="2"></textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">Allowed Extensions</label>
+              <textarea v-model="fsAllowedExtensionsRaw" class="form-input font-mono text-xs" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Blocked Filenames</label>
+              <textarea v-model="fsBlockedFilenamesRaw" class="form-input font-mono text-xs" rows="3"></textarea>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max File Size (KB)</label>
+            <input type="number" v-model.number="local.filesystem.max_file_size_kb" class="form-input" />
           </div>
         </div>
       </div>
@@ -181,7 +211,11 @@ watch(local, (newVal) => {
           </div>
           <div class="form-group">
             <label class="form-label">Blocked Domains</label>
-            <textarea v-model="networkBlockedDomainsRaw" class="form-input font-mono text-xs" rows="3"></textarea>
+            <textarea v-model="networkBlockedDomainsRaw" class="form-input font-mono text-xs" rows="2"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Blocked IPs</label>
+            <textarea v-model="networkBlockedIPsRaw" class="form-input font-mono text-xs" rows="2"></textarea>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div class="form-group">

@@ -80,12 +80,23 @@ type AgentState struct {
 	LastOutput string    `json:"last_output"`
 	LastError  string    `json:"last_error"`
 	NextRunAt  time.Time `json:"next_run_at"`
-	IsRunning  bool      `json:"is_running"`
-	LastPulse  time.Time `json:"last_pulse"` // For HEARTBEAT_OK suppression
+	ActiveAutomation string    `json:"active_automation,omitempty"`
+	LastPulse        time.Time `json:"last_pulse"` // For HEARTBEAT_OK suppression
 
 	// History and per-automation state
 	History  []AutomationRun           `json:"history"`
 	LastRuns map[string]*AutomationRun `json:"last_runs"`
+}
+
+// IsRunning returns true if an automation is currently active.
+func (s *AgentState) IsRunning() bool {
+	return s.ActiveAutomation != ""
+}
+
+// SetRunning updates the active automation and ensures the state is consistent.
+// Pass an empty string to clear the active status.
+func (s *AgentState) SetRunning(name string) {
+	s.ActiveAutomation = name
 }
 
 // Workspace represents an entire workspace object

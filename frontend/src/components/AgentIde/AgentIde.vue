@@ -148,6 +148,11 @@ const groupedByWorkspace = computed(() => {
   }
   return groups;
 });
+const anyRunningInSelectedWorkspace = computed(() => {
+  if (!selectedAutomation.value) return false;
+  const workspace = selectedAutomation.value.workspace;
+  return automations.value.some((a) => a.workspace === workspace && a.is_running);
+});
 
 const handleSelectAutomation = (auto: Automation) => {
   selectedAutomationId.value = auto.id;
@@ -616,7 +621,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
         <BaseButton
-          v-if="!selectedAutomation?.is_running"
+          v-if="!anyRunningInSelectedWorkspace"
           @click="handleTrigger"
           variant="primary"
           icon="play"

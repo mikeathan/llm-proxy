@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"llm-proxy/models"
 	"llm-proxy/internal/platform/network"
@@ -64,4 +65,14 @@ func SanitizeArgs(args []string) []string {
 		out = append(out, arg)
 	}
 	return out
+}
+
+func ValidateModelPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("model path is empty; cannot start local model")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("model file not found at %q: %w", path, err)
+	}
+	return nil
 }

@@ -141,7 +141,7 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 }
 
 func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
-	srv := createTestServer(t, &mocks.MockManager{}, nil)
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
@@ -472,7 +472,7 @@ func TestAppContextSelectModels_FirstModel(t *testing.T) {
 }
 
 func TestAppContextResolveModelPath(t *testing.T) {
-	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{
+	ctx := createTestServer(t, mocks.NewMockManager(), &models.Config{
 		Providers: map[string]models.ProviderItem{
 			"local": {ModelDir: "/models"},
 		},
@@ -517,7 +517,7 @@ func TestAppContextUpdateSystem_Persists(t *testing.T) {
 	dataMgr, _ := storage.NewDataManager(dir)
 	dataMgr.LoadAll()
 
-	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
+	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
 
 	if err := ctx.UpdateSystem(func(c *models.SystemConfig) {
 		c.Server.Bind = ":9999"
@@ -542,7 +542,7 @@ func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
 	}
-	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
 	dir := ctx.RootDir()
 
 	// Update existing model with a new port
@@ -569,7 +569,7 @@ func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 }
 
 func TestAppContextPersistModel_IncludesArgs(t *testing.T) {
-	ctx := createTestServer(t, &mocks.MockManager{}, nil)
+	ctx := createTestServer(t, mocks.NewMockManager(), nil)
 	dir := ctx.RootDir()
 
 	args := []string{"--ctx-size", "4096", "--parallel", "4"}
@@ -609,7 +609,7 @@ func TestAppContextPersistReplaceModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
 	}
-	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
 	dir := ctx.RootDir()
 
 	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Filename: "new.gguf", Port: 9999}); err != nil {
@@ -637,7 +637,7 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
 	}
-	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
 	dir := ctx.RootDir()
 
 	if err := ctx.PersistDeleteModel("alpha"); err != nil {
@@ -661,7 +661,7 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	dataMgr, _ := storage.NewDataManager(dir)
 	_ = dataMgr.LoadAll()
 
-	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
+	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
 
 	// Update communication settings
 	req := models.SystemUpdatePayload{

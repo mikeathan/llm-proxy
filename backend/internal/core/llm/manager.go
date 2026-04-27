@@ -76,6 +76,7 @@ type RuntimeManager interface {
 	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
+	Sync()
 	Shutdown()
 	Registrar() *providers.ProviderRegistrar
 }
@@ -108,7 +109,7 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 
 	// 1. Map Registry Catalogue to Runtime Models
 	for _, entry := range reg.Catalogue {
-		m.models[entry.Name] = models.ModelConfig{
+		cfg := models.ModelConfig{
 			Name:     entry.Name,
 			Provider: entry.ProviderID,
 			Filename: entry.ModelID, // Bridge: Filename is the identifier
@@ -118,6 +119,7 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 				APIKeyName: entry.CredentialID,
 			},
 		}
+		m.models[entry.Name] = normalizeModelConfig(settings.Local.ModelDir, cfg)
 	}
 
 	go m.reapIdleModels(defaultReapPeriod)
@@ -439,14 +441,22 @@ func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
 	if _, ok := m.models[cfg.Name]; ok {
 		return ErrModelExists
 	}
-	m.models[cfg.Name] = normalizeModelConfig("", cfg)
+	modelDir := ""
+	if local, ok := m.registrar.ListConfigs()["local"]; ok {
+		modelDir = local.ModelDir
+	}
+	m.models[cfg.Name] = normalizeModelConfig(modelDir, cfg)
 	return nil
 }
 
 func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.models[cfg.Name] = normalizeModelConfig("", cfg)
+	modelDir := ""
+	if local, ok := m.registrar.ListConfigs()["local"]; ok {
+		modelDir = local.ModelDir
+	}
+	m.models[cfg.Name] = normalizeModelConfig(modelDir, cfg)
 	if m.activeModel != nil && m.activeModel.Cfg.Name == cfg.Name {
 		waiter := m.signalStopLocked()
 		if waiter != nil {
@@ -467,6 +477,22 @@ func (m *LLMRuntimeManager) RemoveModel(name string) error {
 		}
 	}
 	return nil
+}
+
+// Sync re-normalizes all model configurations based on the current registrar state.
+func (m *LLMRuntimeManager) Sync() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	modelDir := ""
+	if local, ok := m.registrar.ListConfigs()["local"]; ok {
+		modelDir = local.ModelDir
+	}
+
+	for name, cfg := range m.models {
+		m.models[name] = normalizeModelConfig(modelDir, cfg)
+	}
+	logging.Info("LLM Runtime Manager synchronized with registrar", "models", len(m.models), "modelDir", modelDir)
 }
 
 func portReady(port int) bool {

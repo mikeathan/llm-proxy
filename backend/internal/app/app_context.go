@@ -53,7 +53,32 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		"workspaces", s.resolver.WorkspacesRoot())
 
 	s.refreshMetricsService()
+	
+	s.registerSubscribers()
+
 	return s
+}
+
+func (s *AppContext) registerSubscribers() {
+	// 1. Settings Changes -> Sync LLM Runtime & Local Paths
+	s.dataMgr.Settings().OnChange(func(u models.UserSettings) {
+		logging.Info("Settings change detected, syncing LLM runtime", "modelDir", u.Local.ModelDir)
+		s.manager.Registrar().RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
+		s.manager.Sync()
+	})
+
+	// 2. System Config Changes -> Sync Infrastructure & Environment
+	s.dataMgr.System().OnChange(func(sys models.SystemConfig) {
+		logging.Info("System config change detected, syncing infrastructure")
+		s.SetGPUConfig(sys.Metrics.GPU)
+		s.manager.SetModelHost(sys.Server.ModelHost)
+		
+		// Push environment updates to active models
+		for _, m := range s.manager.ListModels() {
+			m.Environment = sys.Server.Environment
+			_ = s.manager.UpdateModel(m)
+		}
+	})
 }
 
 func (a *AppContext) SelectModels() (string, string) {
@@ -283,14 +308,7 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		return fmt.Errorf("failed to save settings: %w", err)
 	}
 
-	//  Register Local Provider
-	s.dataMgr.Settings().OnChange(func(u models.UserSettings) {
-		s.manager.Registrar().RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
-	})
-
-	// 2. Refresh in-memory state from the newly saved config
-	newSys := s.dataMgr.System().Get()
-	s.SetGPUConfig(newSys.Metrics.GPU)
+	// 2. Registry and Infrastructure updates (Sync handled by subscribers)
 
 	// 3. Update Registry Providers
 	if req.Providers != nil {
@@ -344,10 +362,6 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		}
 	}
 
-	// 4. Update Runtime (ModelHost)
-	if req.ModelHost != "" {
-		s.manager.SetModelHost(req.ModelHost)
-	}
 
 	// 5. Update Environment Variables (.env)
 	envUpdates := map[string]string{}
@@ -364,13 +378,6 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		_ = env.UpdateEnvFile(envPath, envUpdates)
 	}
 
-	// 6. Push env to active models
-	if req.Environment != nil {
-		for _, m := range s.manager.ListModels() {
-			m.Environment = req.Environment
-			_ = s.manager.UpdateModel(m)
-		}
-	}
 
 	// 7. Sync Guardrails
 	if req.Guardrails != nil {

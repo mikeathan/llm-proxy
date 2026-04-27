@@ -119,9 +119,9 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 	for _, ws := range workspaces {
 		// Cleanup stale execution state from previous runs
-		if ws.State.IsRunning {
+		if ws.State.IsRunning() {
 			d.logger.Warn("Stale execution state detected on startup, resetting", "workspace", ws.ID)
-			ws.State.IsRunning = false
+			ws.State.SetRunning("")
 			if err := d.persistence.WriteState(ws.ID, &ws.State); err != nil {
 				d.logger.Error("Failed to reset stale state", "workspace", ws.ID, "error", err)
 			}
@@ -433,7 +433,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		return fmt.Errorf("task file %s is empty", entry.TaskFile)
 	}
 
-	state.IsRunning = true
+	state.SetRunning(entry.Name)
 	if err := d.persistence.WriteState(entry.Workspace, state); err != nil {
 		d.metrics.RecordExecution(false, false, time.Since(start))
 		return fmt.Errorf("failed to write state: %w", err)
@@ -452,7 +452,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 
 	stratCtx, err := entry.Strategy.Prepare(execCtx, entry.Workspace, entry.Name, state)
 	if err != nil {
-		state.IsRunning = false
+		state.SetRunning("")
 		d.persistence.WriteState(entry.Workspace, state)
 		d.metrics.RecordExecution(false, false, time.Since(start))
 		return fmt.Errorf("strategy preparation failed: %w", err)
@@ -472,7 +472,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	elapsed := time.Since(start)
 
 	if err != nil {
-		state.IsRunning = false
+		state.SetRunning("")
 		state.LastError = err.Error()
 		d.persistence.WriteState(entry.Workspace, state)
 		
@@ -502,7 +502,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 			ApplyPulseLogic(resp)
 		}
 
-		state.IsRunning = false
+		state.SetRunning("")
 		if resp.Output != "" {
 			state.LastOutput = resp.Output
 		}
