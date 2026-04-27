@@ -1,85 +1,93 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useModels } from '../../composables/useModels'
-import BaseButton from '../common/BaseButton.vue'
-import type { Model, AvailableModel } from '../../types/model'
+import { ref } from "vue";
+import { useModels } from "../../composables/useModels";
+import BaseButton from "../common/BaseButton.vue";
+import type { Model, AvailableModel } from "../../types/model";
 
-const { models, availableModels, addModel, updateModel, removeModel, nextPort } = useModels()
+const {
+  models,
+  availableModels,
+  addModel,
+  updateModel,
+  removeModel,
+  nextPort,
+} = useModels();
 
-const editingModel = ref<Partial<Model> | null>(null)
-const isAddingNew = ref(false)
+const editingModel = ref<Partial<Model> | null>(null);
+const isAddingNew = ref(false);
 
-const argsToString = (args?: string[]) => args?.join(' ') || ''
-const stringToArgs = (str: string) => str.split(/\s+/).filter(s => s.length > 0)
+const argsToString = (args?: string[]) => args?.join(" ") || "";
+const stringToArgs = (str: string) =>
+  str.split(/\s+/).filter((s) => s.length > 0);
 
-const rawArgs = ref('')
+const rawArgs = ref("");
 
 function handleEdit(model: Model) {
-  editingModel.value = JSON.parse(JSON.stringify(model))
-  rawArgs.value = argsToString(editingModel.value?.args)
-  isAddingNew.value = false
+  editingModel.value = JSON.parse(JSON.stringify(model));
+  rawArgs.value = argsToString(editingModel.value?.args);
+  isAddingNew.value = false;
 }
 
 function handleAddNew(available?: AvailableModel) {
   if (available) {
     editingModel.value = {
       name: available.name,
-      provider: 'local',
+      provider: "local",
       filename: available.filename,
       port: nextPort.value,
       args: [],
-      metadata: available.metadata
-    }
+      metadata: available.metadata,
+    };
   } else {
     editingModel.value = {
-      name: '',
-      provider: 'local',
-      filename: '',
+      name: "",
+      provider: "local",
+      filename: "",
       port: nextPort.value,
-      args: []
-    }
+      args: [],
+    };
   }
-  rawArgs.value = ''
-  isAddingNew.value = true
+  rawArgs.value = "";
+  isAddingNew.value = true;
 }
 
 async function saveModel() {
-  if (!editingModel.value) return
-  
+  if (!editingModel.value) return;
+
   const payload = {
     ...editingModel.value,
-    args: stringToArgs(rawArgs.value)
-  }
+    args: stringToArgs(rawArgs.value),
+  };
 
   if (isAddingNew.value) {
-    await addModel(payload)
+    await addModel(payload);
   } else {
-    await updateModel(payload)
+    await updateModel(payload);
   }
-  editingModel.value = null
+  editingModel.value = null;
 }
 
 function cancelEdit() {
-  editingModel.value = null
+  editingModel.value = null;
 }
 
 const formatSize = (bytes: number) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+};
 </script>
 
 <template>
   <div class="catalogue-container">
     <div class="header-row">
       <h2 class="title">Model Catalogue</h2>
-      <BaseButton 
+      <BaseButton
         v-if="!editingModel"
-        variant="primary" 
-        icon="plus" 
+        variant="primary"
+        icon="plus"
         @click="handleAddNew()"
       >
         Manual Add
@@ -87,15 +95,25 @@ const formatSize = (bytes: number) => {
     </div>
 
     <!-- Edit/Add Form -->
-    <div v-if="editingModel" class="form-card animate-in zoom-in-95 duration-200">
-      <h3 class="form-title">{{ isAddingNew ? 'Register New Model' : 'Edit Model Settings' }}</h3>
-      
+    <div
+      v-if="editingModel"
+      class="form-card animate-in zoom-in-95 duration-200"
+    >
+      <h3 class="form-title">
+        {{ isAddingNew ? "Register New Model" : "Edit Model Settings" }}
+      </h3>
+
       <div class="form-grid">
         <div class="form-group">
           <label>Display Name</label>
-          <input v-model="editingModel.name" type="text" class="form-input" placeholder="e.g. My Llama" />
+          <input
+            v-model="editingModel.name"
+            type="text"
+            class="form-input"
+            placeholder="e.g. My Llama"
+          />
         </div>
-        
+
         <div class="form-group">
           <label>Provider</label>
           <select v-model="editingModel.provider" class="form-input">
@@ -109,29 +127,42 @@ const formatSize = (bytes: number) => {
 
         <div class="form-group">
           <label>Model ID / Filename</label>
-          <input v-model="editingModel.filename" type="text" class="form-input" placeholder="e.g. llama3.gguf" />
+          <input
+            v-model="editingModel.filename"
+            type="text"
+            class="form-input"
+            placeholder="e.g. llama3.gguf"
+          />
         </div>
 
         <div class="form-group" v-if="editingModel.provider === 'local'">
           <label>Port</label>
-          <input v-model.number="editingModel.port" type="number" class="form-input" />
+          <input
+            v-model.number="editingModel.port"
+            type="number"
+            class="form-input"
+          />
         </div>
 
         <div class="form-group col-span-2">
           <label>Custom Arguments</label>
-          <textarea 
-            v-model="rawArgs" 
-            class="form-input font-mono text-xs" 
-            rows="2" 
+          <textarea
+            v-model="rawArgs"
+            class="form-input font-mono text-xs"
+            rows="2"
             placeholder="--ctx-size 8192 --n-gpu-layers 32"
           ></textarea>
-          <p class="helper-text">These arguments override global defaults for this specific model.</p>
+          <p class="helper-text">
+            These arguments override global defaults for this specific model.
+          </p>
         </div>
       </div>
 
       <div class="form-actions">
         <BaseButton variant="secondary" @click="cancelEdit">Cancel</BaseButton>
-        <BaseButton variant="primary" @click="saveModel">Save Configuration</BaseButton>
+        <BaseButton variant="primary" @click="saveModel"
+          >Save Configuration</BaseButton
+        >
       </div>
     </div>
 
@@ -144,21 +175,34 @@ const formatSize = (bytes: number) => {
             <div class="model-info">
               <div class="model-main">
                 <span class="model-name">{{ m.name }}</span>
-                <span :class="['badge', m.provider === 'local' ? 'badge-blue' : 'badge-purple']">
+                <span
+                  :class="[
+                    'badge',
+                    m.provider === 'local' ? 'badge-blue' : 'badge-purple',
+                  ]"
+                >
                   {{ m.provider }}
                 </span>
               </div>
               <div class="model-details">
-                <span class="detail-item" v-if="m.filename">📄 {{ m.filename }}</span>
+                <span class="detail-item" v-if="m.filename"
+                  >📄 {{ m.filename }}</span
+                >
                 <span class="detail-item" v-if="m.port">🔌 :{{ m.port }}</span>
-                <span class="detail-item" v-if="m.args && m.args.length">⚙️ {{ m.args.length }} args</span>
+                <span class="detail-item" v-if="m.args && m.args.length"
+                  >⚙️ {{ m.args.length }} args</span
+                >
               </div>
             </div>
             <div class="model-actions">
               <button @click="handleEdit(m)" class="action-btn" title="Edit">
                 ✏️
               </button>
-              <button @click="removeModel(m.name)" class="action-btn text-red-400" title="Delete">
+              <button
+                @click="removeModel(m.name)"
+                class="action-btn text-red-400"
+                title="Delete"
+              >
                 🗑️
               </button>
             </div>
@@ -170,10 +214,16 @@ const formatSize = (bytes: number) => {
       <section v-if="availableModels.length > 0" class="section">
         <h3 class="section-subtitle">Discovered on Disk (.gguf)</h3>
         <div class="available-list">
-          <div v-for="a in availableModels" :key="a.filename" class="available-item">
+          <div
+            v-for="a in availableModels"
+            :key="a.filename"
+            class="available-item"
+          >
             <div class="available-info">
               <span class="available-name">{{ a.name }}</span>
-              <span class="available-meta">{{ a.filename }} • {{ formatSize(a.size_bytes) }}</span>
+              <span class="available-meta"
+                >{{ a.filename }} • {{ formatSize(a.size_bytes) }}</span
+              >
             </div>
             <BaseButton variant="secondary" size="sm" @click="handleAddNew(a)">
               Add to Catalogue
@@ -258,8 +308,12 @@ const formatSize = (bytes: number) => {
   @apply text-[10px] px-2 py-0.5 rounded-full font-bold uppercase;
 }
 
-.badge-blue { @apply bg-blue-500/10 text-blue-400 border border-blue-500/20; }
-.badge-purple { @apply bg-purple-500/10 text-purple-400 border border-purple-500/20; }
+.badge-blue {
+  @apply bg-blue-500/10 text-blue-400 border border-blue-500/20;
+}
+.badge-purple {
+  @apply bg-purple-500/10 text-purple-400 border border-purple-500/20;
+}
 
 .model-details {
   @apply flex flex-wrap gap-x-4 gap-y-1;
