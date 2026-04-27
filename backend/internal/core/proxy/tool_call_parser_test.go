@@ -219,3 +219,21 @@ func TestParseContentToolCalls_MarkdownJSON(t *testing.T) {
 		t.Errorf("expected 'get_weather', got %q", calls[0].Function.Name)
 	}
 }
+
+func TestParseContentToolCalls_PipeToolCallFormat(t *testing.T) {
+	content := `<|tool_call>call:scan_local_network{mode:<|"|>deep<|"|>,target_ip:<|"|>192.168.50.10<|"|>}<|tool_call|>`
+
+	_, calls, ok := proxy.ParseContentToolCalls(content)
+	if !ok {
+		t.Fatal("expected ok=true for pipe tool call format")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "scan_local_network" {
+		t.Errorf("expected name 'scan_local_network', got %q", calls[0].Function.Name)
+	}
+	if string(calls[0].Function.Arguments) != `{"mode":"deep","target_ip":"192.168.50.10"}` {
+		t.Errorf("expected arguments JSON, got %q", string(calls[0].Function.Arguments))
+	}
+}

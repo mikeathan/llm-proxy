@@ -118,25 +118,25 @@ func (h *AdminHandlers) AdminHostSettingsPutHandler(w http.ResponseWriter, r *ht
 	respondJSON(w, req)
 }
 
-// AdminSandboxResetHandler handles POST /admin/api/host/sandbox/reset
-func (h *AdminHandlers) AdminSandboxResetHandler(w http.ResponseWriter, r *http.Request) {
+// AdminTerminalResetHandler handles POST /admin/api/host/terminal/reset
+func (h *AdminHandlers) AdminTerminalResetHandler(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.URL.Query().Get("workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, http.StatusBadRequest, "workspaceID query parameter is required")
 		return
 	}
 
-	if err := h.admin.ResetSandbox(workspaceID); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to reset sandbox: "+err.Error())
+	if err := h.admin.ResetShell(workspaceID); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to reset terminal session: "+err.Error())
 		return
 	}
 
-	respondJSON(w, map[string]string{"status": "ok", "message": "Sandbox reset triggered for " + workspaceID})
+	respondJSON(w, map[string]string{"status": "ok", "message": "Terminal session reset triggered for " + workspaceID})
 }
 
-// AdminSandboxSessionsHandler handles GET /admin/api/host/sandbox/sessions
-func (h *AdminHandlers) AdminSandboxSessionsHandler(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, h.admin.ListSandboxSessions())
+// AdminTerminalSessionsHandler handles GET /admin/api/host/terminal/sessions
+func (h *AdminHandlers) AdminTerminalSessionsHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, h.admin.ListShellSessions())
 }
 
 

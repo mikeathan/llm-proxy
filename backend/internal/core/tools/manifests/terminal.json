@@ -1,27 +1,31 @@
 {
   "tool_name": "execute_terminal_command",
   "version": "1.1",
-  "description": "Execute a shell command on the host terminal and return the output.",
+  "description": "Execute a shell command on the host terminal and return the output. The shell session is persistent across calls in the same workspace; variables and directory changes (via 'cd') will persist.",
   "parameters": {
     "type": "object",
     "properties": {
       "command": {
         "type": "string",
-        "description": "The shell command to execute. You MUST use non-interactive flags (e.g. 'npm install -y') and prefix all paths with '{{REL_WS}}/{{WORKSPACE_ID}}/'."
+        "description": "The shell command to execute. Must be non-interactive (e.g. 'npm install -y')."
+      },
+      "cwd": {
+        "type": "string",
+        "description": "Optional: Temporary subdirectory to run this command in. Use this only for one-off commands that should not permanently change the session's working directory."
       }
     },
-    "required": [
-      "command"
-    ]
+    "required": ["command"]
   },
   "runtime": {
-    "timeout_seconds": 60,
-    "default_shell": "sh"
+    "timeout_seconds": 60
   },
   "guardrails": {
     "enabled": true,
+    "default_shell": "bash",
     "allowed_commands": [
       "ls",
+      "mkdir",
+      "cd",
       "pwd",
       "whoami",
       "uname",
@@ -30,29 +34,75 @@
       "uptime",
       "date",
       "cat",
-      "grep",
       "head",
       "tail",
-      "ss",
-      "netstat",
-      "nc",
-      "ping",
-      "nmap"
+      "grep",
+      "find",
+      "touch",
+      "chmod",
+      "env",
+      "echo",
+      "node",
+      "npm",
+      "npx",
+      "go",
+      "python",
+      "python3",
+      "pip",
+      "pip3",
+      "curl",
+      "wget",
+      "git",
+      "tsc",
+      "ts-node",
+      "tsx"
     ],
-    "blocked_patterns": [
-      "rm\\s+",
-      "mv\\s+",
-      "chmod\\s+",
-      "sudo\\s+",
-      ";",
-      "\u0026\u0026",
-      "\\|\\|",
-      "\u0026",
-      "\\$",
-      "ssh\\s+",
-      "passwd"
+    "allowed_env_vars": [
+      "PATH",
+      "LANG",
+      "LC_ALL",
+      "LC_CTYPE",
+      "TERM",
+      "COLORTERM",
+      "NVM_DIR",
+      "NVM_BIN",
+      "PNPM_HOME",
+      "YARN_CACHE_FOLDER",
+      "PYENV_ROOT",
+      "PYTHONPATH",
+      "POETRY_HOME",
+      "GOPATH",
+      "GOROOT",
+      "GOCACHE",
+      "GOMODCACHE",
+      "JAVA_HOME",
+      "JDK_HOME",
+      "MAVEN_HOME",
+      "GRADLE_USER_HOME",
+      "DOTNET_ROOT",
+      "DOTNET_CLI_TELEMETRY_OPTOUT",
+      "NUGET_PACKAGES",
+      "CARGO_HOME",
+      "RUSTUP_HOME",
+      "RBENV_ROOT",
+      "GEM_HOME",
+      "GEM_PATH",
+      "XDG_DATA_HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_CACHE_HOME"
     ],
+    "path_extensions": [
+      ".sandbox/node_modules/.bin",
+      "node_modules/.bin",
+      ".venv/bin",
+      "venv/bin",
+      "bin",
+      ".bin",
+      ".gem/ruby/bin"
+    ],
+    "blocked_patterns": ["rm\\s+/", "sudo\\s+", "ssh\\s+", "passwd"],
     "timeout_seconds": 60,
-    "max_output_size_chars": 50000
+    "session_idle_timeout_seconds": 1800,
+    "max_output_size_chars": 10000
   }
 }

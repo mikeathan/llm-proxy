@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
 
@@ -24,7 +25,7 @@ type AppContext struct {
 	gpuConfig    models.GPUConfig
 	metrics      *metrics.MetricsService
 	hostSettings *storage.HostSettingsStore
-	sandbox      tools.SandboxProvider
+	terminal     shell.ShellProvider
 	configMu     sync.RWMutex
 }
 
@@ -53,7 +54,7 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		"workspaces", s.resolver.WorkspacesRoot())
 
 	s.refreshMetricsService()
-	
+
 	s.registerSubscribers()
 
 	return s
@@ -72,12 +73,18 @@ func (s *AppContext) registerSubscribers() {
 		logging.Info("System config change detected, syncing infrastructure")
 		s.SetGPUConfig(sys.Metrics.GPU)
 		s.manager.SetModelHost(sys.Server.ModelHost)
-		
+
 		// Push environment updates to active models
 		for _, m := range s.manager.ListModels() {
 			m.Environment = sys.Server.Environment
 			_ = s.manager.UpdateModel(m)
 		}
+	})
+
+	// 3. Registry Changes -> Sync LLM Runtime (Providers, Catalogue)
+	s.dataMgr.Registry().OnChange(func(reg models.RegistryData) {
+		logging.Info("Registry change detected, syncing LLM runtime")
+		s.manager.Sync()
 	})
 }
 
@@ -109,14 +116,14 @@ func (s *AppContext) refreshMetricsService() {
 	s.metrics.SetThroughputSource(s.manager)
 }
 
-func (s *AppContext) SetSandboxSource(src metrics.SandboxSource) {
+func (s *AppContext) SetTerminalSource(src metrics.TerminalSource) {
 	if s.metrics != nil {
-		s.metrics.SetSandboxSource(src)
+		s.metrics.SetTerminalSource(src)
 	}
 }
 
-func (s *AppContext) SetSandboxProvider(sb tools.SandboxProvider) {
-	s.sandbox = sb
+func (s *AppContext) SetShellProvider(tp shell.ShellProvider) {
+	s.terminal = tp
 }
 
 func (s *AppContext) Manager() llm.RuntimeManager {
@@ -128,7 +135,10 @@ func (s *AppContext) GetSettings() models.UserSettings {
 }
 
 func (s *AppContext) UpdateSettings(fn func(*models.UserSettings)) error {
-	return s.dataMgr.Settings().Update(fn)
+	return s.dataMgr.Settings().Update(func(set *models.UserSettings) error {
+		fn(set)
+		return nil
+	})
 }
 
 func (s *AppContext) Secrets() models.SecretsStore {
@@ -167,7 +177,10 @@ func (s *AppContext) GetSystem() models.SystemConfig {
 }
 
 func (s *AppContext) UpdateSystem(fn func(*models.SystemConfig)) error {
-	return s.dataMgr.System().Update(fn)
+	return s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
+		fn(sys)
+		return nil
+	})
 }
 
 // Tier 2: Registry
@@ -176,7 +189,10 @@ func (s *AppContext) GetRegistry() models.RegistryData {
 }
 
 func (s *AppContext) UpdateRegistry(fn func(*models.RegistryData)) error {
-	return s.dataMgr.Registry().Update(fn)
+	return s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
+		fn(reg)
+		return nil
+	})
 }
 
 func (s *AppContext) GPUConfig() models.GPUConfig {
@@ -247,14 +263,14 @@ func (s *AppContext) GetGuardrails() models.AgentGuardrailsConfig {
 	// Overlay with user overrides from settings.yml
 	settings := s.dataMgr.Settings().Get()
 	if settings.Guardrails != nil {
-		return *settings.Guardrails
+		cfg.MergeWith(settings.Guardrails)
 	}
 	return cfg
 }
 
 func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpdatePayload) error {
 	// 1. Update Infrastructure (SystemConfig)
-	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) {
+	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
 		if req.Bind != "" {
 			sys.Server.Bind = req.Bind
 		}
@@ -285,13 +301,14 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		if req.GPUSysfsPath != "" {
 			sys.Metrics.GPU.SysfsPath = req.GPUSysfsPath
 		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save system config: %w", err)
 	}
 
 	// 1.5 Update Settings
-	err = s.dataMgr.Settings().Update(func(set *models.UserSettings) {
+	err = s.dataMgr.Settings().Update(func(set *models.UserSettings) error {
 		if req.DefaultArgs != nil {
 			set.Local.DefaultArgs = req.DefaultArgs
 		}
@@ -303,6 +320,7 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 				set.Local.DefaultArgs = local.DefaultArgs
 			}
 		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save settings: %w", err)
@@ -312,7 +330,7 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 
 	// 3. Update Registry Providers
 	if req.Providers != nil {
-		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
+		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
 			if reg.Providers == nil {
 				reg.Providers = make(map[string]models.ProviderRegistryEntry)
 			}
@@ -337,13 +355,14 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 			if req.Search != nil {
 				reg.Search = *req.Search
 			}
+			return nil
 		})
 		if err != nil {
 			return fmt.Errorf("failed to save registry: %w", err)
 		}
 	} else if req.PrimaryModel != "" || req.FallbackModel != "" || req.Communication != nil || req.Search != nil {
 		// Just update registry items if providers weren't involved
-		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) {
+		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
 			if req.PrimaryModel != "" {
 				reg.PrimaryModel = req.PrimaryModel
 			}
@@ -356,12 +375,12 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 			if req.Search != nil {
 				reg.Search = *req.Search
 			}
+			return nil
 		})
 		if err != nil {
 			return fmt.Errorf("failed to save registry: %w", err)
 		}
 	}
-
 
 	// 5. Update Environment Variables (.env)
 	envUpdates := map[string]string{}
@@ -377,7 +396,6 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		envPath, _ := env.EnvFilePaths()
 		_ = env.UpdateEnvFile(envPath, envUpdates)
 	}
-
 
 	// 7. Sync Guardrails
 	if req.Guardrails != nil {
@@ -397,7 +415,7 @@ func (s *AppContext) ServiceCredentials() (id, secret string) {
 
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 	logging.Info("Persisting new model to registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
 		for i, existing := range c.Catalogue {
 			if existing.Name == cfg.Name {
 				credID := ""
@@ -413,7 +431,7 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 					Port:         cfg.Port,
 					Args:         cfg.Args,
 				}
-				return
+				return nil
 			}
 		}
 		credID := ""
@@ -429,12 +447,13 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 			Port:         cfg.Port,
 			Args:         cfg.Args,
 		})
+		return nil
 	})
 }
 
 func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 	logging.Info("Replacing model in registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
 		replaced := false
 		credID := ""
 		if cfg.ProviderConfig != nil {
@@ -459,12 +478,13 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 		if !replaced {
 			c.Catalogue = append(c.Catalogue, newEntry)
 		}
+		return nil
 	})
 }
 
 func (s *AppContext) PersistDeleteModel(name string) error {
 	logging.Info("Deleting model from registry", "name", name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
 		out := c.Catalogue[:0]
 		for _, m := range c.Catalogue {
 			if m.Name != name {
@@ -472,6 +492,7 @@ func (s *AppContext) PersistDeleteModel(name string) error {
 			}
 		}
 		c.Catalogue = out
+		return nil
 	})
 }
 
@@ -521,10 +542,10 @@ func (s *AppContext) ListMCPServers() []models.MCPServerConfig {
 
 func (s *AppContext) AddMCPServer(cfg models.MCPServerConfig) error {
 	logging.Info("Adding new MCP server to registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
 		for _, existing := range c.MCPServers {
 			if existing.Name == cfg.Name {
-				return
+				return nil
 			}
 		}
 		c.MCPServers = append(c.MCPServers, models.MCPServerRegistryEntry{
@@ -532,12 +553,13 @@ func (s *AppContext) AddMCPServer(cfg models.MCPServerConfig) error {
 			URL:     cfg.URL,
 			Enabled: cfg.Enabled,
 		})
+		return nil
 	})
 }
 
 func (s *AppContext) UpdateMCPServer(cfg models.MCPServerConfig) error {
 	logging.Info("Updating MCP server in registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
 		for i, m := range c.MCPServers {
 			if m.Name == cfg.Name {
 				c.MCPServers[i] = models.MCPServerRegistryEntry{
@@ -545,15 +567,16 @@ func (s *AppContext) UpdateMCPServer(cfg models.MCPServerConfig) error {
 					URL:     cfg.URL,
 					Enabled: cfg.Enabled,
 				}
-				return
+				return nil
 			}
 		}
+		return nil
 	})
 }
 
 func (s *AppContext) RemoveMCPServer(name string) error {
 	logging.Info("Removing MCP server from registry", "name", name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) {
+	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
 		out := c.MCPServers[:0]
 		for _, m := range c.MCPServers {
 			if m.Name != name {
@@ -561,6 +584,7 @@ func (s *AppContext) RemoveMCPServer(name string) error {
 			}
 		}
 		c.MCPServers = out
+		return nil
 	})
 }
 
@@ -594,7 +618,7 @@ func (s *AppContext) HostSettings() models.HostSettings {
 		logging.Error("Failed to read host settings, returning defaults", "error", err)
 	}
 	// Inject runtime functional state
-	settings.Sandboxing.Functional = (s.sandbox != nil)
+	settings.Sandboxing.Functional = (s.terminal != nil)
 	return settings
 }
 
@@ -603,23 +627,23 @@ func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {
 }
 
 func (s *AppContext) Shutdown() {
-	if s.sandbox != nil {
-		logging.Info("Shutting down sandbox pool...")
-		s.sandbox.Shutdown()
+	if s.terminal != nil {
+		logging.Info("Shutting down shell provider...")
+		s.terminal.Shutdown()
 	}
 }
 
-func (s *AppContext) ResetSandbox(workspaceID string) error {
-	if s.sandbox == nil {
-		return fmt.Errorf("sandboxing is not initialized")
+func (s *AppContext) ResetShell(workspaceID string) error {
+	if s.terminal == nil {
+		return fmt.Errorf("terminal provider is not initialized")
 	}
-	s.sandbox.Recycle(context.Background(), workspaceID)
+	s.terminal.Recycle(context.Background(), workspaceID)
 	return nil
 }
 
-func (s *AppContext) ListSandboxSessions() []models.SandboxSessionView {
-	if s.sandbox == nil {
+func (s *AppContext) ListShellSessions() []models.TerminalSessionView {
+	if s.terminal == nil {
 		return nil
 	}
-	return s.sandbox.ListSessions()
+	return s.terminal.ListSessions()
 }

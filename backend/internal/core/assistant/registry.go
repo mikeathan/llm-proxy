@@ -11,24 +11,28 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 	"strings"
 )
 
-// getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides.
+// getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides merged with defaults.
 func getEffectiveConfig[T any](
 	ctx context.Context,
 	persistence *persistence.WorkspaceManager,
-	defaultCfg T,
+	defaults models.AgentGuardrailsConfig,
 	getSpecific func(*models.AgentGuardrailsConfig) T,
 ) T {
 	wsID := models.GetWorkspaceID(ctx)
 	if wsID != "" && persistence != nil {
 		if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
-			return getSpecific(wsCfg.Guardrails)
+			// Merge workspace overrides into a copy of system defaults
+			merged := defaults
+			merged.MergeWith(wsCfg.Guardrails)
+			return getSpecific(&merged)
 		}
 	}
-	return defaultCfg
+	return getSpecific(&defaults)
 }
 
 // registerTool simplifies the addition of a local tool and its handler to the registry.
@@ -87,7 +91,7 @@ func InitializeAgentStack(
 	persistence *persistence.WorkspaceManager,
 	mcp nodeherder.MCPService,
 	logger logging.Logger,
-	poolManager tools.SandboxProvider,
+	shellManager shell.ShellProvider,
 	observer tools.StreamObserver,
 ) (ToolProvider, Engine, *guardrails.GuardrailEngine) {
 	resolver := appCtx.Resolver()
@@ -95,7 +99,7 @@ func InitializeAgentStack(
 
 	// 1. Initialize Terminal
 	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-		return getEffectiveConfig(ctx, persistence, defaultGuardrails.Terminal, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
+		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
 			return c.Terminal
 		})
 	}, func(workspaceID string) string {
@@ -104,8 +108,8 @@ func InitializeAgentStack(
 		}
 		return resolver.WorkspaceDir(workspaceID)
 	})
-	if poolManager != nil {
-		terminal.SetSandboxProvider(poolManager, observer)
+	if shellManager != nil {
+		terminal.SetShellProvider(shellManager, observer)
 	}
 
 	// 2. Initialize Guardrail Engine
@@ -126,7 +130,7 @@ func InitializeAgentStack(
 
 	// 4. Initialize Network (Guardrail foundation)
 	network := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
-		return getEffectiveConfig(ctx, persistence, defaultGuardrails.Network, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
+		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
 			return c.Network
 		})
 	}, logger)
@@ -142,12 +146,20 @@ func InitializeAgentStack(
 
 	// 6. Initialize FileSystem
 	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
-		cfg := getEffectiveConfig(ctx, persistence, defaultGuardrails.FileSystem, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
+		cfg := getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
 			return c.FileSystem
 		})
+
+		// Important: Create a fresh copy of the slice to avoid polluting shared defaultGuardrails
+		allowed := make([]string, 0, len(cfg.AllowedPaths)+1)
+		
 		if wsID := models.GetWorkspaceID(ctx); wsID != "" {
-			cfg.AllowedPaths = append(cfg.AllowedPaths, resolver.WorkspaceDir(wsID))
+			wsPath := resolver.WorkspaceDir(wsID)
+			allowed = append(allowed, wsPath)
 		}
+
+		allowed = append(allowed, cfg.AllowedPaths...)
+		cfg.AllowedPaths = allowed
 		return cfg
 	})
 
@@ -223,7 +235,7 @@ func (r *LocalToolRegistry) ExecuteTool(ctx context.Context, call proxy.ToolCall
 func (r *LocalToolRegistry) addTool(toolKey string, toolName string) {
 	params, desc, err := tools.LoadManifestAsTool("", toolKey, toolName)
 	if err != nil {
-		fmt.Printf("Warning: failed to load manifest for %s: %v\n", toolKey, err)
+		logging.Warn("failed to load tool manifest", "key", toolKey, "error", err)
 		return
 	}
 
@@ -243,13 +255,15 @@ func (r *LocalToolRegistry) registerAll() {
 	r.registerSearchTools()
 	r.registerFileSystemTools()
 	r.registerNetworkTools()
+	r.registerSystemTools()
 }
 
 func (r *LocalToolRegistry) registerTerminalTools() {
 	registerTool(r, "terminal", models.ToolTerminalExecute, func(ctx context.Context, args struct {
 		Command string `json:"command"`
+		Cwd     string `json:"cwd"`
 	}) (any, error) {
-		return r.Terminal.ExecuteCommand(ctx, args.Command)
+		return r.Terminal.ExecuteCommand(ctx, args.Command, args.Cwd)
 	})
 }
 
@@ -318,5 +332,15 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 			return nil, fmt.Errorf("network tools not configured")
 		}
 		return r.Network.GetNetworkInfo(ctx)
+	})
+}
+func (r *LocalToolRegistry) registerSystemTools() {
+	registerTool(r, models.CategorySystem, models.ToolSubmitTask, func(ctx context.Context, args struct {
+		Summary string `json:"summary"`
+	}) (any, error) {
+		// This tool is primarily a marker for the Agent loop.
+		// Returning the summary back as the 'result' so it can be seen in history,
+		// but the loop will detect the call name and terminate.
+		return "Task submitted successfully.", nil
 	})
 }

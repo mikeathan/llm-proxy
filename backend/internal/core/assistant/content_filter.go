@@ -13,6 +13,8 @@ func FilterStreamingMarkup(content string) (displayContent string, hasToolCall b
 	cutoffPatterns := []string{
 		"<function-name>", "</function-name>", "<args-json-object>", "</args-json-object>",
 		"<tools>", "functions.",
+		"<|tool_call", "<tool_call",
+		"[TOOL_CALLS]", "[ARGS]",
 		"```json", "```",
 		"{\"name\":", "[{\"name\":",
 		"{\"target\":", "{\"mode\":", "{\"command\":",

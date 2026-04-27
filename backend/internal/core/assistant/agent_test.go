@@ -157,7 +157,7 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 		
 		return &proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "# Weather Report\nIt is sunny in London."}},
+				{Message: proxy.Message{Role: "assistant", Content: "# Summary\nIt is sunny in London."}},
 			},
 		}, nil
 	}
@@ -167,7 +167,7 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "# Weather Report\nIt is sunny in London." {
+	if reply != "# Summary\nIt is sunny in London." {
 		t.Errorf("Got unexpected reply: %s", reply)
 	}
 	if client.Calls != 2 {

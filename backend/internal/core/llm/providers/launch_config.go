@@ -48,8 +48,11 @@ func BuildLaunchArgs(cfg models.ModelConfig, host string) []string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
+
+	sanitized := SanitizeArgs(cfg.Args)
+	
 	args := []string{"-m", cfg.Path, "--host", host, "--port", fmt.Sprint(cfg.Port)}
-	return append(args, SanitizeArgs(cfg.Args)...)
+	return append(args, sanitized...)
 }
 
 func SanitizeArgs(args []string) []string {

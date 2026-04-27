@@ -20,6 +20,14 @@ const confirmAndEmit = (auto: Automation) => {
   confirmingDeleteFor.value = null
   emit('delete-automation', auto)
 }
+
+const isWorkspaceBusy = (workspaceAutos: Automation[]) => {
+  return workspaceAutos.some(a => a.is_running)
+}
+
+const isAutomationLocked = (auto: Automation, workspaceAutos: Automation[]) => {
+  return isWorkspaceBusy(workspaceAutos) && !auto.is_running
+}
 </script>
 
 <template>
@@ -33,12 +41,13 @@ const confirmAndEmit = (auto: Automation) => {
           class="automation-row group"
           :class="{ 
             'automation-row--selected': selectedAutomationId === auto.id,
-            'automation-row--disabled': autos.some(a => a.is_running) && !auto.is_running
+            'automation-row--disabled': isAutomationLocked(auto, autos)
           }"
         >
           <button
             @click="emit('select-automation', auto)"
             class="btn-automation-select"
+            :disabled="isAutomationLocked(auto, autos)"
             :class="{ 'btn-automation-select--selected': selectedAutomationId === auto.id }"
           >
             <div class="automation-name">{{ auto.name }}</div>
@@ -56,7 +65,7 @@ const confirmAndEmit = (auto: Automation) => {
               v-if="confirmingDeleteFor !== auto.id"
               @click.stop="confirmingDeleteFor = auto.id"
               class="btn-automation-action btn-automation-action--delete"
-              :disabled="autos.some(a => a.is_running)"
+              :disabled="isWorkspaceBusy(autos)"
               title="Delete Automation"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -66,7 +75,7 @@ const confirmAndEmit = (auto: Automation) => {
             <button
               @click.stop="emit('edit-automation', auto)"
               class="btn-automation-action btn-automation-action--edit"
-              :disabled="autos.some(a => a.is_running)"
+              :disabled="isWorkspaceBusy(autos)"
               title="Edit Automation"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

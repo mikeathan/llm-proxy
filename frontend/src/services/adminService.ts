@@ -76,10 +76,11 @@ export const AdminApiService = {
   fetchProviderManifests: (): Promise<any[]> =>
     get<any[]>(API_ENDPOINTS.providerManifests),
 
-  testConnection: (provider: string, apiKey?: string, apiKeyName?: string): Promise<{ status: string; message: string }> => {
+  testConnection: (provider: string, apiKey?: string, apiKeyName?: string, baseURL?: string): Promise<{ status: string; message: string }> => {
     const params = new URLSearchParams({ provider })
     if (apiKey) params.set('api_key', apiKey)
     if (apiKeyName) params.set('api_key_name', apiKeyName)
+    if (baseURL) params.set('base_url', baseURL)
     return get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${params.toString()}`)
   },
 
@@ -103,9 +104,9 @@ export const AdminApiService = {
   updateHostSettings: (payload: any): Promise<any> =>
     put<any>(API_ENDPOINTS.hostSettings, payload),
 
-  resetSandbox: (workspaceID: string): Promise<void> =>
-    post<void>(`${API_ENDPOINTS.hostSettings}/sandbox/reset?workspaceID=${encodeURIComponent(workspaceID)}`),
+  resetTerminalSession: (workspaceID: string): Promise<void> =>
+    post<void>(`${API_ENDPOINTS.terminalReset}?workspaceID=${encodeURIComponent(workspaceID)}`),
 
-  fetchSandboxSessions: (): Promise<any[]> =>
-    get<any[]>(`${API_ENDPOINTS.hostSettings}/sandbox/sessions`),
+  fetchTerminalSessions: (): Promise<any[]> =>
+    get<any[]>(API_ENDPOINTS.terminalSessions),
 }

@@ -44,13 +44,16 @@ func (b *SecretStore) getDecrypted() models.SecretData {
 }
 
 func (b *SecretStore) updateEncrypted(fn func(data *models.SecretData)) error {
-	return b.store.Update(func(edata *models.EncryptedSecretData) {
+	return b.store.Update(func(edata *models.EncryptedSecretData) error {
 		var data models.SecretData
 		// Decrypt
 		if edata.Ciphertext != "" {
 			plaintext, err := DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
-			if err == nil {
-				_ = json.Unmarshal(plaintext, &data.ProviderKeys)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt secrets: %w", err)
+			}
+			if err := json.Unmarshal(plaintext, &data.ProviderKeys); err != nil {
+				return fmt.Errorf("failed to unmarshal secrets: %w", err)
 			}
 		}
 
@@ -62,12 +65,19 @@ func (b *SecretStore) updateEncrypted(fn func(data *models.SecretData)) error {
 		fn(&data)
 
 		// Encrypt back
-		plaintext, _ := json.Marshal(data.ProviderKeys)
-		cipher, nonce, err := EncryptAES(b.masterKey, plaintext)
-		if err == nil {
-			edata.Ciphertext = cipher
-			edata.Nonce = nonce
+		plaintext, err := json.Marshal(data.ProviderKeys)
+		if err != nil {
+			return fmt.Errorf("failed to marshal updated secrets: %w", err)
 		}
+
+		cipher, nonce, err := EncryptAES(b.masterKey, plaintext)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt updated secrets: %w", err)
+		}
+
+		edata.Ciphertext = cipher
+		edata.Nonce = nonce
+		return nil
 	})
 }
 
@@ -90,14 +100,12 @@ func (b *SecretStore) GetProviderKeys(provider string) []models.APIKeyItem {
 
 func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem) error {
 	return b.updateEncrypted(func(data *models.SecretData) {
-		if data.ProviderKeys == nil {
-			data.ProviderKeys = make(map[string][]models.SecretEntry)
-		}
-
-		// Build lookup
+		// Build lookup from existing keys for this provider
 		existingByID := make(map[string]string)
-		for _, e := range data.ProviderKeys[provider] {
-			existingByID[e.ID] = e.Key
+		if providerKeys, ok := data.ProviderKeys[provider]; ok {
+			for _, e := range providerKeys {
+				existingByID[e.ID] = e.Key
+			}
 		}
 
 		newEntries := make([]models.SecretEntry, len(keys))
@@ -106,6 +114,8 @@ func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem)
 			if IsMasked(keyVal) {
 				if real, ok := existingByID[k.ID]; ok {
 					keyVal = real
+				} else {
+					fmt.Printf("Warning: could not resolve masked key for ID %s in provider %s\n", k.ID, provider)
 				}
 			}
 			newEntries[i] = models.SecretEntry{

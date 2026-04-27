@@ -3,8 +3,6 @@ package automation
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -131,11 +129,13 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		},
 	})
 
-	// Build task prompt from automation info
-	prompt := e.buildPrompt(req)
+	// Load workspace-specific rules and assemble the final system prompt
+	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
+	systemPrompt := prompts.AssembleSystemPrompt(customRules)
 
 	history := []proxy.Message{
-		{Role: "user", Content: prompt},
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: e.buildPrompt(req)},
 	}
 
 	// Execute via Agent Loop
@@ -170,8 +170,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
 
 	output := strings.TrimSpace(runResult)
-	
-	// Smart Unwrapper: If the model wrapped the entire response in a markdown code block, 
+
+	// Smart Unwrapper: If the model wrapped the entire response in a markdown code block,
 	// strip it so our UI can actually render the markdown structure (headers, tables).
 	if strings.HasPrefix(output, "```") && strings.HasSuffix(output, "```") {
 		lines := strings.Split(output, "\n")
@@ -244,34 +244,8 @@ func generateRunID() string {
 }
 
 func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
-	procLog := e.svc.ProcessLogger(req.WorkspaceID)
-
-	// Try to load custom workspace rules if they exist
-	rules, err := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
-	if err != nil || rules == "" {
-		rules = prompts.DefaultRules
-	}
-
-	// Calculate robust relative path from Current Working Directory to Workspaces Dir
-	// This ensures the agent uses paths that the backend can resolve from its current execution root.
-	absWs := e.svc.Persistence().BaseDir()
-	cwd, _ := os.Getwd()
-	relWs, err := filepath.Rel(cwd, absWs)
-	if err != nil {
-		relWs = absWs
-	}
-	relWs = filepath.Clean(relWs)
-
-	procLog.Debug("Automation path resolution", "abs_ws", absWs, "cwd", cwd, "rel_ws", relWs)
-
-	// Safely format rules to avoid %!(EXTRA) errors if the file doesn't contain verbs
-	formattedRules := rules
-	formattedRules = strings.ReplaceAll(formattedRules, "{{REL_WS}}", relWs)
-	formattedRules = strings.ReplaceAll(formattedRules, "{{WORKSPACE_ID}}", req.WorkspaceID)
-
 	return fmt.Sprintf(prompts.AutomationTaskPrompt,
-		formattedRules,
-		req.WorkspaceID, relWs, req.WorkspaceID, req.TaskFile, req.TaskContent)
+		req.WorkspaceID, req.TaskFile, req.TaskContent)
 }
 
 // ============================================================================

@@ -42,8 +42,8 @@ type MockAdminService struct {
 	GetTemplateFunc           func(string) (models.Template, error)
 	HostSettingsFunc          func() models.HostSettings
 	UpdateHostSettingsFunc    func(models.HostSettings) error
-	ResetSandboxFunc          func(string) error
-	ListSandboxSessionsFunc   func() []models.SandboxSessionView
+	ResetShellFunc          func(string) error
+	ListShellSessionsFunc   func() []models.TerminalSessionView
 }
 
 func (m *MockAdminService) GetSettings() models.UserSettings {
@@ -279,16 +279,16 @@ func (m *MockAdminService) UpdateHostSettings(settings models.HostSettings) erro
 	return nil
 }
 
-func (m *MockAdminService) ResetSandbox(workspaceID string) error {
-	if m.ResetSandboxFunc != nil {
-		return m.ResetSandboxFunc(workspaceID)
+func (m *MockAdminService) ResetShell(workspaceID string) error {
+	if m.ResetShellFunc != nil {
+		return m.ResetShellFunc(workspaceID)
 	}
 	return nil
 }
 
-func (m *MockAdminService) ListSandboxSessions() []models.SandboxSessionView {
-	if m.ListSandboxSessionsFunc != nil {
-		return m.ListSandboxSessionsFunc()
+func (m *MockAdminService) ListShellSessions() []models.TerminalSessionView {
+	if m.ListShellSessionsFunc != nil {
+		return m.ListShellSessionsFunc()
 	}
 	return nil
 }

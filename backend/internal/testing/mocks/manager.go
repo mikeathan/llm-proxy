@@ -186,6 +186,7 @@ func (m *MockManager) SetModelHost(host string) {
 
 func (m *MockManager) Sync() {
 	if m.SyncFunc != nil {
+		// Mock sync behavior doesn't usually need the providers, but we pass them if needed
 		m.SyncFunc()
 	}
 }

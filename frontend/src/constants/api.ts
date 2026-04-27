@@ -18,6 +18,8 @@ export const API_ENDPOINTS = {
   secretsKeys: `${API_BASE}/secrets/keys`,
   restart: `${API_BASE}/system/restart`,
   hostSettings: `${API_BASE}/host`,
+  terminalReset: `${API_BASE}/host/terminal/reset`,
+  terminalSessions: `${API_BASE}/host/terminal/sessions`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

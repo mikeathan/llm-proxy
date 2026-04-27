@@ -11,8 +11,11 @@ export interface APIKeyItem {
 export interface TerminalGuardrailsConfig {
   enabled: boolean
   allowed_commands: string[]
+  allowed_env_vars?: string[]
   blocked_patterns?: string[]
+  path_extensions?: string[]
   timeout_seconds: number
+  session_idle_timeout_seconds: number
   max_output_size_chars: number
 }
 

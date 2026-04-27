@@ -85,7 +85,8 @@ async function handleSaveConfig() {
 const testProvider = async (type: string, payload: { key: string; name: string; id: string }) => {
   testStatus.value[type] = { loading: true };
   try {
-    const res = await AdminApiService.testConnection(type, payload.key, payload.id);
+    const baseURL = (config.value.providers as any)?.[type]?.base_url;
+    const res = await AdminApiService.testConnection(type, payload.key, payload.id, baseURL);
     testStatus.value[type] = { loading: false, success: res.message };
     setTimeout(() => {
       if (testStatus.value[type]?.success === res.message) {
@@ -188,7 +189,7 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
           <ModelCatalogue />
         </div>
 
-        <!-- Security & Sandboxing -->
+        <!-- Local Host Terminal -->
         <div v-show="activeTab === 'security'">
           <SecuritySettings />
         </div>

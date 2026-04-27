@@ -1,0 +1,17 @@
+{
+  "submit_task": {
+    "description": "Signal that the current task or automation is complete and provide a final summary of results. This tool MUST be called to end an automation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "A comprehensive Markdown summary of what was accomplished, including any relevant findings, file paths created, or errors encountered."
+        }
+      },
+      "required": [
+        "summary"
+      ]
+    }
+  }
+}

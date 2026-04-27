@@ -19,6 +19,7 @@ import (
 type RuntimeService interface {
 	EnsureModel(context.Context, string) (llm.ModelInstance, error)
 	RecordActivity(string)
+	Sync()
 	ListModels() []models.ModelConfig
 	AddModel(models.ModelConfig) error
 	UpdateModel(models.ModelConfig) error
@@ -80,8 +81,8 @@ type AdminService interface {
 	Environment() map[string]string
 	ApplySystemUpdate(context.Context, models.SystemUpdatePayload) error
 	ServiceCredentials() (id, secret string)
-	ResetSandbox(workspaceID string) error
-	ListSandboxSessions() []models.SandboxSessionView
+	ResetShell(workspaceID string) error
+	ListShellSessions() []models.TerminalSessionView
 }
 
 type AssistantService interface {

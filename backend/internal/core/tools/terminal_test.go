@@ -88,7 +88,7 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			// we skip the actual execution if it's not an error case.
 			// But since 'ls' is safe, we let it run check if it's expected to pass.
 
-			res, err := term.ExecuteCommand(ctx, tt.command)
+			res, err := term.ExecuteCommand(ctx, tt.command, "")
 
 			if tt.wantErr {
 				if err == nil {

@@ -56,6 +56,13 @@ const handleSave = async () => {
   }
 };
 
+const handleReset = () => {
+  if (!config.value) return;
+  // Populate UI with a fresh copy of global guardrails
+  config.value.guardrails = JSON.parse(JSON.stringify(props.globalGuardrails));
+  toast.info("Security form reset to system baseline. Click 'Save' to apply.");
+};
+
 onMounted(loadConfig);
 watch(() => props.workspaceId, loadConfig);
 </script>
@@ -74,6 +81,9 @@ watch(() => props.workspaceId, loadConfig);
       </div>
 
       <div class="actions">
+        <button @click="handleReset" class="btn-secondary" title="Reset to global defaults">
+          Reset to Baseline
+        </button>
         <button @click="handleSave" :disabled="saving" class="btn-primary">
           {{ saving ? "Saving..." : "Save Overrides" }}
         </button>
@@ -137,6 +147,11 @@ watch(() => props.workspaceId, loadConfig);
 .btn-primary {
   @apply bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-md font-bold text-xs shadow-lg 
          active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md font-bold text-xs 
+         active:scale-95 transition-all mr-2;
 }
 
 .btn-ghost {

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
@@ -25,7 +26,11 @@ func (f *FileSystemTools) Config(ctx context.Context) models.FileSystemGuardrail
 }
 
 func (f *FileSystemTools) ValidatePath(ctx context.Context, path string, isWrite bool) (string, error) {
-	cfg := f.configProvider(ctx)
+	return ValidateFileSystemPath(path, isWrite, f.configProvider(ctx))
+}
+
+// ValidateFileSystemPath is a standalone validator for filesystem paths.
+func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuardrailsConfig) (string, error) {
 	if !cfg.Enabled {
 		return "", fmt.Errorf("filesystem tools are disabled in configuration")
 	}
@@ -33,6 +38,34 @@ func (f *FileSystemTools) ValidatePath(ctx context.Context, path string, isWrite
 	// 1. Check Read-Only Mode
 	if isWrite && cfg.ReadOnly {
 		return "", fmt.Errorf("filesystem is in read-only mode")
+	}
+
+	// 1.5 System Protection: Strictly block access to hidden files/folders and sensitive config files
+	base := filepath.Base(path)
+	isDot := path == "." || path == "./"
+	
+	// Check if any part of the path starts with "." (excluding "." and "..")
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	hasHidden := false
+	for _, p := range parts {
+		if p != "." && p != ".." && strings.HasPrefix(p, ".") {
+			hasHidden = true
+			break
+		}
+	}
+
+	if (!isDot && (hasHidden || strings.Contains(path, "..") || strings.Contains(path, "/."))) ||
+		base == models.ConfigFilename || base == models.StateFilename ||
+		base == models.LockFilename || base == models.SystemConfigFilename ||
+		base == models.SecretsFilename || base == models.RegistryFilename {
+		return "", fmt.Errorf("path access denied: restricted system file or directory (%s)", path)
+	}
+
+	logging.Debug("Validating filesystem path", "path", path, "isWrite", isWrite, "allowedRoots", cfg.AllowedPaths)
+
+	// 1.6 Automatically resolve relative paths against the workspace root
+	if !filepath.IsAbs(path) && len(cfg.AllowedPaths) > 0 {
+		path = filepath.Join(cfg.AllowedPaths[0], path)
 	}
 
 	// 2. Resolve and Validate Path (Jailing)
@@ -50,21 +83,25 @@ func (f *FileSystemTools) ValidatePath(ctx context.Context, path string, isWrite
 		}
 	}
 
-	// 4. Check Allowed Extensions (only for files)
+	// 4. Check Allowed Extensions (for both existing and new files)
 	if len(cfg.AllowedExtensions) > 0 {
+		// We check extensions for files only. 
+		// If it's an existing directory, we skip extension check.
 		fi, err := os.Stat(absPath)
-		if err == nil && !fi.IsDir() {
-			ext := filepath.Ext(absPath)
-			allowed := false
-			for _, a := range cfg.AllowedExtensions {
-				if a == ext {
-					allowed = true
-					break
-				}
+		if err == nil && fi.IsDir() {
+			return absPath, nil
+		}
+
+		ext := filepath.Ext(absPath)
+		allowed := false
+		for _, a := range cfg.AllowedExtensions {
+			if strings.EqualFold(a, ext) {
+				allowed = true
+				break
 			}
-			if !allowed {
-				return "", fmt.Errorf("file extension '%s' is not allowed", ext)
-			}
+		}
+		if !allowed {
+			return "", fmt.Errorf("file extension '%s' is not allowed", ext)
 		}
 	}
 
@@ -81,7 +118,7 @@ func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	var names []string
+	names := make([]string, 0)
 	for _, entry := range entries {
 		name := entry.Name()
 		// Filter out blocked files from listing too
@@ -139,42 +176,3 @@ func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content st
 	return os.WriteFile(absPath, []byte(content), secureFileMode)
 }
 
-// IsSecurePath checks if a path is within the allowed roots.
-func IsSecurePath(path string, allowedRoots []string) (string, error) {
-	absLocal, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("invalid path: %w", err)
-	}
-
-	// Resolve symlinks to prevent jail escape.
-	// If the file exists, resolve it fully.
-	if resolved, err := filepath.EvalSymlinks(absLocal); err == nil {
-		absLocal = resolved
-	} else if os.IsNotExist(err) {
-		// If the file doesn't exist, we must still resolve its parent to prevent
-		// creating a file inside a symlinked directory that points outside the jail.
-		parent := filepath.Dir(absLocal)
-		if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
-			absLocal = filepath.Join(resolvedParent, filepath.Base(absLocal))
-		}
-	}
-
-	for _, root := range allowedRoots {
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			continue
-		}
-
-		// Resolve symlinks in roots too to ensure canonical comparison
-		if resolvedRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
-			absRoot = resolvedRoot
-		}
-
-		// Robust prefix check: handle same path or subpath correctly
-		if absLocal == absRoot || strings.HasPrefix(absLocal, absRoot+string(filepath.Separator)) {
-			return absLocal, nil
-		}
-	}
-
-	return "", fmt.Errorf("path access denied: outside of authorized workspaces")
-}

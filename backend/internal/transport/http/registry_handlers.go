@@ -57,6 +57,9 @@ func (h *AdminHandlers) AdminRegistryPutHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Trigger immediate sync to refresh provider settings and model configs
+	h.runtime.Sync()
+
 	respondJSON(w, h.admin.GetRegistry())
 }
 

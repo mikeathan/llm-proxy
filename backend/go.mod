@@ -1,6 +1,6 @@
 module llm-proxy
 
-go 1.25.2
+go 1.26.2
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
@@ -13,10 +13,12 @@ require (
 )
 
 require (
+	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/henvic/httpretty v0.1.4 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kaptinlin/jsonrepair v0.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect

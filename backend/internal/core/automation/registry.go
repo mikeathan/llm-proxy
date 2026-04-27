@@ -2,17 +2,18 @@ package automation
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"llm-proxy/models"
 )
 
-// AutomationEntry holds a registered automation with its parsed  
+// AutomationEntry holds a registered automation with its parsed
 type AutomationEntry struct {
 	ID        string // "workspaceID/automationName"
 	Workspace string
 	Name      string
-	Trigger    Trigger
+	Trigger   Trigger
 	TaskFile  string
 	Strategy  ExecutionStrategy
 	Model     string
@@ -24,7 +25,7 @@ type AutomationRegistry struct {
 	automations map[string]*AutomationEntry // key: "workspaceID/automationName"
 }
 
-//NewAutomationRegistry creates a new registry.
+// NewAutomationRegistry creates a new registry.
 func NewAutomationRegistry() *AutomationRegistry {
 	return &AutomationRegistry{
 		automations: make(map[string]*AutomationEntry),
@@ -110,6 +111,12 @@ func (r *AutomationRegistry) ListAll() []*AutomationEntry {
 	for _, v := range r.automations {
 		result = append(result, v)
 	}
+
+	// Sort by ID (workspace/name) to ensure stable ordering in the UI
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+
 	return result
 }
 

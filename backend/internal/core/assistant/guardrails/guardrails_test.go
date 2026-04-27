@@ -214,7 +214,7 @@ func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 		{
 			name:        "Reject access to another workspace (JAILBREAK)",
 			workspaceID: "test-ws",
-			path:        filepath.Join(wsDir, "other-ws", "file.txt"),
+			path:        "../other-ws/file.txt",
 			wantErr:     true,
 		},
 		{

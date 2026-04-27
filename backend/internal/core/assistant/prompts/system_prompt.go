@@ -16,9 +16,8 @@ Context Version: %s
 Timezone: %s
 Current Time (UTC): %s
 
-CRITICAL: Your final response MUST be a natural language or Markdown answer. 
-DO NOT include raw JSON, tool call XML tags (<function-name>, <args-json-object>), or return any technical data structures in your final output. 
-Provide only the raw markdown or text answer for the user.`,
+CRITICAL: When you have finished your task or have a final answer for the user, your response MUST be a clear natural language or Markdown answer. 
+DO NOT include raw technical data structures in the final answer you provide to the user.`,
 		systemPrompt,
 		conversationID,
 		contextVersion,

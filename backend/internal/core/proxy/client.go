@@ -27,11 +27,13 @@ type LLMClient struct {
 
 const (
 	// DefaultResponseHeaderTimeout is the time allowed for the server to send response headers.
-	DefaultResponseHeaderTimeout = 30 * time.Second
+	// This is set to a high value to support reasoning models that think for a long time.
+	DefaultResponseHeaderTimeout = 10 * time.Minute
 	// DefaultIdleConnTimeout is the maximum amount of time an idle (keep-alive) connection will remain idle before closing itself.
 	DefaultIdleConnTimeout = 90 * time.Second
 	// DefaultStreamChunkTimeout is the time allowed between individual streaming chunks.
-	DefaultStreamChunkTimeout = 60 * time.Second
+	// Increased to 5 minutes to accommodate large-context prefill times on local models.
+	DefaultStreamChunkTimeout = 5 * time.Minute
 )
 
 var (

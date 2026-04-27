@@ -42,8 +42,8 @@ type MetricsSnapshot struct {
 	GPUMemoryTotalMB  float64     `json:"gpu_memory_total_mb"`
 	LLMTokensPerSec   float64     `json:"llm_tokens_per_sec,omitempty"`
 	LLMTokensPerSecTS time.Time   `json:"llm_tokens_per_sec_ts,omitempty"`
-	IdleSandboxes     int         `json:"idle_sandboxes"`
-	ActiveSandboxes   int         `json:"active_sandboxes"`
+	IdleTerminals     int         `json:"idle_terminals"`
+	ActiveTerminals   int         `json:"active_terminals"`
 }
 
 type GPUProvider interface {
@@ -55,7 +55,7 @@ type ThroughputSource interface {
 	LastTokensPerSecond() (float64, time.Time)
 }
 
-type SandboxSource interface {
+type TerminalSource interface {
 	HealthCheck() (idle, active int)
 }
 
@@ -64,7 +64,7 @@ type MetricsService struct {
 	gpuProviderName string
 	gpuInitErr      string
 	throughput      ThroughputSource
-	sandbox         SandboxSource
+	terminal        TerminalSource
 	nowFn           func() time.Time
 }
 

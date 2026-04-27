@@ -16,7 +16,7 @@ import (
 	"llm-proxy/models"
 )
 
-const maxHistoryChars = 128 * 1024
+const maxHistoryChars = 12 * 1024
 
 type AssistantMessage struct {
 	WorkspaceID    string `json:"workspace_id"`
@@ -204,9 +204,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage)
 		return nil, err
 	}
 
-	// Calculate robust relative path from Current Working Directory to Workspaces Dir
-	relWs := h.persistence.GetRelativeWorkspacePath()
-	jailPrompt := prompts.BuildJailPrompt(relWs, payload.WorkspaceID)
+	jailPrompt := prompts.FileSystemRules
 
 	agentPrompt := ""
 	if payload.WorkspaceID != "" && h.persistence != nil {

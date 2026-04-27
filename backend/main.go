@@ -119,7 +119,7 @@ func initLogger() logging.Logger {
 	logger, err := logging.NewFileLogger(logging.Options{
 		Stdout: true,
 		File:   "logs/llm-proxy.log",
-		Level:  logging.LevelDebug,
+		Level:  logging.LevelInfo,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)

@@ -17,7 +17,7 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/platform/storage"
-	"llm-proxy/internal/sandbox"
+	"llm-proxy/internal/shell"
 	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -33,25 +33,25 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("proxied"))
 }
 
-type mockSandboxProvider struct {
+type mockShellProvider struct {
 	recycledID     string
-	sessions       []models.SandboxSessionView
+	sessions       []models.TerminalSessionView
 	shutdownCalled bool
 }
 
-func (m *mockSandboxProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string) (sandbox.Sandbox, error) {
+func (m *mockShellProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string, idleTimeout time.Duration, allowedEnvVars []string, pathExtensions []string) (shell.Terminal, error) {
 	return nil, nil
 }
 
-func (m *mockSandboxProvider) Recycle(ctx context.Context, workspaceID string) {
+func (m *mockShellProvider) Recycle(ctx context.Context, workspaceID string) {
 	m.recycledID = workspaceID
 }
 
-func (m *mockSandboxProvider) ListSessions() []models.SandboxSessionView {
+func (m *mockShellProvider) ListSessions() []models.TerminalSessionView {
 	return m.sessions
 }
 
-func (m *mockSandboxProvider) Shutdown() {
+func (m *mockShellProvider) Shutdown() {
 	m.shutdownCalled = true
 }
 
@@ -704,18 +704,18 @@ func findModel(config []models.ModelRegistryEntry, name string) (models.ModelReg
 	return models.ModelRegistryEntry{}, false
 }
 
-func TestAppContext_SandboxLifecycle(t *testing.T) {
+func TestAppContext_TerminalLifecycle(t *testing.T) {
 	s := &app.AppContext{}
-	mock := &mockSandboxProvider{
-		sessions: []models.SandboxSessionView{
+	mock := &mockShellProvider{
+		sessions: []models.TerminalSessionView{
 			{WorkspaceID: "ws-123", HostPath: "/tmp/ws-123"},
 		},
 	}
 
-	s.SetSandboxProvider(mock)
+	s.SetShellProvider(mock)
 
-	t.Run("ListSandboxSessions proxies to provider", func(t *testing.T) {
-		sessions := s.ListSandboxSessions()
+	t.Run("ListShellSessions proxies to provider", func(t *testing.T) {
+		sessions := s.ListShellSessions()
 		if len(sessions) != 1 {
 			t.Fatalf("expected 1 session, got %d", len(sessions))
 		}
@@ -724,8 +724,8 @@ func TestAppContext_SandboxLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("ResetSandbox proxies Recycle to provider", func(t *testing.T) {
-		err := s.ResetSandbox("target-ws")
+	t.Run("ResetShell proxies Recycle to provider", func(t *testing.T) {
+		err := s.ResetShell("target-ws")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -741,11 +741,11 @@ func TestAppContext_SandboxLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("ResetSandbox returns error when provider missing", func(t *testing.T) {
+	t.Run("ResetShell returns error when provider missing", func(t *testing.T) {
 		s2 := &app.AppContext{}
-		err := s2.ResetSandbox("ws")
+		err := s2.ResetShell("ws")
 		if err == nil {
-			t.Error("expected error when sandbox provider is nil")
+			t.Error("expected error when terminal provider is nil")
 		}
 	})
 }

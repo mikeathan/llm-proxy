@@ -370,7 +370,17 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 	jobFunc := func() {
 		// Check ShouldRun to avoid redundant executions
 		state, err := d.persistence.ReadState(entry.Workspace)
-		if err == nil && !entry.Trigger.ShouldRun(state.NextRunAt, time.Now()) {
+		if err != nil {
+			return
+		}
+
+		// Use per-automation last run time if available
+		var lastRun time.Time
+		if last, ok := state.LastRuns[entry.Name]; ok {
+			lastRun = last.Timestamp
+		}
+
+		if !entry.Trigger.ShouldRun(lastRun, time.Now()) {
 			return // Not time to run yet
 		}
 
@@ -421,6 +431,13 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	f, err := d.persistence.TryAcquireLock(entry.Workspace)
+	if err != nil {
+		d.metrics.RecordExecution(false, true, time.Since(start))
+		return fmt.Errorf("automation skipped (workspace locked): %w", err)
+	}
+	defer d.persistence.ReleaseLock(f)
+
 	d.runMu.Lock()
 	d.activeRuns[entry.Workspace] = cancel
 	d.runMu.Unlock()
@@ -429,13 +446,6 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		delete(d.activeRuns, entry.Workspace)
 		d.runMu.Unlock()
 	}()
-
-	f, err := d.persistence.TryAcquireLock(entry.Workspace)
-	if err != nil {
-		d.metrics.RecordExecution(false, true, time.Since(start))
-		return fmt.Errorf("automation skipped (workspace locked): %w", err)
-	}
-	defer d.persistence.ReleaseLock(f)
 
 	state, err := d.persistence.ReadState(entry.Workspace)
 	if err != nil {

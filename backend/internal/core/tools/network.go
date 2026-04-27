@@ -2,11 +2,13 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -143,8 +145,7 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 
 // resolveAndQueueTargets handles the expansion and validation of comma-separated targets.
 func (n *NetworkTools) resolveAndQueueTargets(ctx context.Context, targetStr string, cfg models.NetworkGuardrailsConfig, jobs chan<- string) {
-	targetParts := strings.SplitSeq(targetStr, ",")
-	for rawTarget := range targetParts {
+	for _, rawTarget := range strings.Split(targetStr, ",") {
 		target := strings.TrimSpace(rawTarget)
 		if target == "" {
 			continue
@@ -157,15 +158,24 @@ func (n *NetworkTools) resolveAndQueueTargets(ctx context.Context, targetStr str
 				continue
 			}
 
-			// Iterate through the usable range of the subnet
+			// Safety: Iterate through the usable range of the subnet, but cap at 1024 IPs
+			// to prevent accidental hangs on massive CIDR ranges (/16, etc.)
+			count := 0
+			const maxIPs = 1024
 			for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
+				if count > maxIPs {
+					n.logger.Warn("Network scan capped to prevent hang", "target", target, "limit", maxIPs)
+					break
+				}
+
 				// Skip the network and broadcast addresses (heuristic for /24-like subnets)
 				// For larger subnets, we just scan everything in the range.
 				if ip.Equal(ipnet.IP) {
 					continue
 				}
-				
+
 				targetIP := ip.String()
+				count++
 				if err := n.validateIP(ip, cfg); err != nil {
 					continue
 				}
@@ -242,12 +252,44 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	return nil
 }
 
+type PortList []int
+
+func (p *PortList) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Try standard array of integers first
+	var ints []int
+	if err := json.Unmarshal(data, &ints); err == nil {
+		*p = ints
+		return nil
+	}
+
+	// Fallback: Try a comma-separated string (common output from some LLMs)
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		for _, part := range strings.Split(s, ",") {
+			port, err := strconv.Atoi(strings.TrimSpace(part))
+			if err == nil {
+				*p = append(*p, port)
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("invalid ports format: expected array of integers or comma-separated string")
+}
+
 type ScanArgs struct {
-	Target    string `json:"target,omitempty"`     // IP or CIDR (e.g. 192.168.1.1 or 192.168.1.0/24)
-	Mode      string `json:"mode,omitempty"`       // "fast" or "deep"
-	Ports     []int  `json:"ports,omitempty"`      // Custom port list
-	TimeoutMs int    `json:"timeout_ms,omitempty"` // Per-IP timeout
-	Timeout   int    `json:"timeout,omitempty"`    // Alias for some models
+	Targets   string   `json:"targets,omitempty"`    // Plural (preferred for batching)
+	Target    string   `json:"target,omitempty"`     // Singular (legacy)
+	IP        string   `json:"ip,omitempty"`         // Hallucination alias
+	CIDR      string   `json:"cidr,omitempty"`       // Hallucination alias
+	Mode      string   `json:"mode,omitempty"`       // "fast" or "deep"
+	Ports     PortList `json:"ports,omitempty"`      // Custom port list (handles []int or string)
+	TimeoutMs int      `json:"timeout_ms,omitempty"` // Per-IP timeout
+	Timeout   int      `json:"timeout,omitempty"`    // Alias for some models
 }
 
 // GetNetworkInfo returns the local IP and subnet mask.
@@ -272,13 +314,24 @@ func (n *NetworkTools) ScanLocalNetwork(ctx context.Context, args ScanArgs) (str
 		return "", fmt.Errorf("network scanning is disabled or LAN access is blocked")
 	}
 
-	// 1. Determine Target Range
+	// 1. Determine Target Range (Handle aliases and pluralization)
 	var base string
-	if args.Target != "" {
-		if err := ValidateScanTargets(args.Target); err != nil {
+	target := args.Targets
+	if target == "" {
+		if args.Target != "" {
+			target = args.Target
+		} else if args.IP != "" {
+			target = args.IP
+		} else if args.CIDR != "" {
+			target = args.CIDR
+		}
+	}
+
+	if target != "" {
+		if err := ValidateScanTargets(target); err != nil {
 			return "", err
 		}
-		base = args.Target
+		base = target
 	} else {
 		// Auto-detect local
 		_, subnet, err := n.getLocalSubnet()
@@ -478,8 +531,7 @@ func (n *NetworkTools) DialContext() func(ctx context.Context, network, addr str
 
 // ValidateScanTargets ensures all targets in a comma-separated list are valid IPs or CIDRs.
 func ValidateScanTargets(targetStr string) error {
-	targetParts := strings.SplitSeq(targetStr, ",")
-	for rawTarget := range targetParts {
+	for _, rawTarget := range strings.Split(targetStr, ",") {
 		target := strings.TrimSpace(rawTarget)
 		if target == "" {
 			continue

@@ -1,41 +1,104 @@
 package prompts
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 )
 
 // FileSystemRules defines the standard path jail instructions.
-const FileSystemRules = `1. FILESYSTEM: All file paths MUST be relative to the application root. To access files in your current workspace, you MUST prefix the path with '{{REL_WS}}/{{WORKSPACE_ID}}/'. Example: to read 'task.md', use '{{REL_WS}}/{{WORKSPACE_ID}}/task.md'.`
+const FileSystemRules = `
+STRICT WORKSPACE RULES:
+1. FILESYSTEM: All file paths MUST be relative to the workspace root. Example: to read 'task.md', use 'task.md'.`
 
-// BuildJailPrompt constructs the strict workspace filesystem jail rules.
-func BuildJailPrompt(relWs, workspaceID string) string {
-	res := "\n\nSTRICT WORKSPACE RULES:\n" + FileSystemRules
-	res = strings.ReplaceAll(res, "{{REL_WS}}", relWs)
-	res = strings.ReplaceAll(res, "{{WORKSPACE_ID}}", workspaceID)
-	return res
+const ToolManualHeader = "# TOOL INTERFACE"
+
+// HasToolManual checks if the tool instructions are already present in the content.
+func HasToolManual(content string) bool {
+	return strings.Contains(content, ToolManualHeader)
 }
 
-const DefaultRules = `SYSTEM: You are an autonomous Antigravity Agent.
-OPERATIONAL CONSTITUTION:
-1. DISCOVERY FIRST: Never assume state. Use tools to verify directory contents, network configurations, or file versions before taking action.
-2. PATH INTEGRITY: All file/terminal operations must use the prefix: '{{REL_WS}}/{{WORKSPACE_ID}}/'.
-3. NON-INTERACTIVE: Terminal commands must be silent/automated (e.g., 'npm install -y').
-4. BATCHING: Minimize turn-latency. (A) If a tool natively supports batching, use a single tool call. (B) If you need to perform multiple independent actions, emit MULTIPLE tool call tags in ONE response.
-5. ZERO HALLUCINATION: Do not report results until the tool output is received in the history.
+// InjectToolManual merges tool instructions into existing content, ensuring they are only added once.
+func InjectToolManual(content string, instructions string) string {
+	if HasToolManual(content) {
+		return content
+	}
+	if content == "" {
+		return instructions
+	}
+	return fmt.Sprintf("%s\n\n%s", content, instructions)
+}
 
-TOOL CALL FORMAT:
-To use a tool, you MUST use this exact XML structure. You can emit multiple calls in one turn.
-<function-name>tool_name</function-name>
-<args-json-object>{"arg1": "val1"}</args-json-object>
+// ToolInfo is a simplified version of a tool's schema for template generation.
+type ToolInfo struct {
+	Name        string
+	Description string
+	Parameters  any
+}
 
-EXAMPLE PARALLEL CALL:
-<function-name>filesystem_read_file</function-name>
-<args-json-object>{"path": "file1.txt"}</args-json-object>
-<function-name>filesystem_read_file</function-name>
-<args-json-object>{"path": "file2.txt"}</args-json-object>
+// BuildToolManual generates the dynamic technical manual for available tools.
+// It uses the unified JSON array format for consistency.
+func BuildToolManual(tools []ToolInfo) string {
+	if len(tools) == 0 {
+		return ""
+	}
 
-FINAL OUTPUT: Once your task is complete, provide a natural language or Markdown summary. DO NOT include tool call tags in your final answer.
+	var sb strings.Builder
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("### %s\n%s\n", t.Name, t.Description))
+		raw, _ := json.MarshalIndent(t.Parameters, "", "  ")
+		sb.WriteString(fmt.Sprintf("Parameters:\n```json\n%s\n```\n\n", string(raw)))
+		params, _ := json.Marshal(t.Parameters)
+		sb.WriteString(fmt.Sprintf("#### %s\n%s\nArguments Schema: %s\n\n", t.Name, t.Description, string(params)))
+	}
+
+	return fmt.Sprintf(UnifiedToolManual, sb.String())
+}
+
+// UnifiedToolManual defines the ONE canonical tool calling format.
+// This is intentionally strict: one format, concrete examples, no ambiguity.
+const UnifiedToolManual = `## TOOL INTERFACE
+You have access to technical tools. To use a tool, you MUST output a JSON array inside a markdown code block.
+
+### Format
+` + "```" + `json
+[
+  {
+    "tool": "tool_name",
+    "args": { "arg_name": "value" }
+  }
+]
+` + "```" + `
+
+### Rules
+1. You can call multiple tools in one block. They will execute sequentially.
+2. Use ONLY the tools listed below.
+3. If a tool fails, you will receive the error. Fix it in your next turn.
+4. When finished, call 'submit_task' with your final report.
+
+### Available Tools
+%s`
+
+// DefaultRules is the operational protocol injected into the system prompt.
+// It does NOT mention tool calling format — that lives in UnifiedToolManual.
+const DefaultRules = `You are an autonomous agent with access to tools. Your job is to complete the given task by using tools.
+
+RULES:
+1. Use tools to act. Do not describe what you would do — do it.
+2. Verify results. After each action, check the output before proceeding.
+3. Fix errors immediately. If a tool fails, analyze and retry.
+4. Do not assume. Check the workspace state with ls/cat before assuming files exist.
+5. Complete the task. When finished and verified, call submit_task with your report.
 `
+
+// AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.
+func AssembleSystemPrompt(customRules string) string {
+	prompt := DefaultRules
+	if customRules != "" && strings.TrimSpace(customRules) != strings.TrimSpace(DefaultRules) {
+		prompt += "\n\nWORKSPACE-SPECIFIC RULES:\n" + customRules
+	}
+	return prompt
+}
 
 // DefaultHeartbeat defines a generic placeholder automation task.
 const DefaultHeartbeat = `# Heartbeat Task
@@ -60,15 +123,59 @@ const DefaultWorkspaceConfig = `model: ""
 temperature: 0.7
 automations: []`
 
-// AutomationTaskPrompt defines the standard instruction wrapper for automation runs.
-const AutomationTaskPrompt = `%s
+const AutomationMarker = "TASK: You are an autonomous agent"
 
-TASK: You are an autonomous agent in workspace '%s'. 
-Execute the instructions found in '%s/%s/%s':
+func IsAutomationTask(content string) bool {
+	return strings.Contains(content, AutomationMarker)
+}
+
+// AutomationNagPrompt is sent when a model outputs text without any tool calls.
+const AutomationNagPrompt = `You must use a tool to continue. Output your actions in a JSON markdown block:
+
+` + "```" + `json
+[
+  {
+    "tool": "execute_terminal_command",
+    "args": { "command": "your command here" }
+  }
+]
+` + "```" + `
+
+Or if you are finished:
+
+` + "```" + `json
+[
+  {
+    "tool": "submit_task",
+    "args": { "summary": "your markdown report" }
+  }
+]
+` + "```" + `
+`
+
+// AutomationJSONPlanPrompt is a fallback for models that cannot emit XML tool calls.
+// It asks the model to output its intended actions as a JSON array so the backend
+// can execute the plan directly without relying on XML parsing.
+const AutomationJSONPlanPrompt = `XML tool calling failed. Switch to JSON PLAN MODE.
+Now output your full plan as a JSON array so the system can execute it.
+
+Output ONLY a JSON array. No text before or after. Each element must have "tool" and "args" fields.
+
+Available tools: execute_terminal_command, write_file, read_file, list_directory, submit_task
+
+Example:
+[
+  {"tool": "execute_terminal_command", "args": {"command": "mkdir -p project/src"}},
+  {"tool": "write_file", "args": {"path": "project/src/main.ts", "content": "console.log('hello')"}},
+  {"tool": "execute_terminal_command", "args": {"command": "node project/src/main.js"}}
+]`
+
+// AutomationTaskPrompt is the user-facing task message for autonomous agents.
+// It references the same tool format as UnifiedToolManual.
+const AutomationTaskPrompt = AutomationMarker + ` in workspace '%s'.
+Execute the instructions found in '%s':
 ---
 %s
 ---
 
-Follow the execution steps exactly. Use your tools to perform the task. 
-
-Once finished, provide a concise markdown summary of your findings. DO NOT return empty responses. If no information was found, explicitly state that in your summary.`
+Use your tools to complete every step. Call submit_task when done.`

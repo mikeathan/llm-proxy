@@ -91,20 +91,22 @@ type LLMRuntimeManager struct {
 	serverEnv         map[string]string
 	idleTimeout       time.Duration
 	stopCh            chan struct{}
+	registrySource    func() models.RegistryData
 }
 
-func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore) *LLMRuntimeManager {
+func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore, regSource func() models.RegistryData) *LLMRuntimeManager {
 	logging.Info("Initializing LLM Runtime Manager from registry", "models", len(reg.Catalogue))
 
 	registrar := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, sys.Server.ModelHost)
 	registrar.RegisterLocal(settings.Local.LlamaServerBinary, settings.Local.ModelDir, settings.Local.DefaultArgs)
 
 	m := &LLMRuntimeManager{
-		models:      make(map[string]models.ModelConfig),
-		registrar:   registrar,
-		serverEnv:   make(map[string]string),
-		idleTimeout: time.Duration(sys.Server.IdleTimeoutSecs) * time.Second,
-		stopCh:      make(chan struct{}),
+		models:         make(map[string]models.ModelConfig),
+		registrar:      registrar,
+		serverEnv:      sys.Server.Environment,
+		idleTimeout:    time.Duration(sys.Server.IdleTimeoutSecs) * time.Second,
+		stopCh:         make(chan struct{}),
+		registrySource: regSource,
 	}
 
 	// 1. Map Registry Catalogue to Runtime Models
@@ -122,6 +124,7 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 		m.models[entry.Name] = normalizeModelConfig(settings.Local.ModelDir, cfg)
 	}
 
+	m.Sync()
 	go m.reapIdleModels(defaultReapPeriod)
 
 	return m
@@ -480,11 +483,26 @@ func (m *LLMRuntimeManager) RemoveModel(name string) error {
 	return nil
 }
 
-// Sync re-normalizes all model configurations based on the current registrar state.
+// Sync refreshes the runtime state by updating provider configurations and re-normalizing all models.
 func (m *LLMRuntimeManager) Sync() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var cloudProviders map[string]models.ProviderRegistryEntry
+	if m.registrySource != nil {
+		cloudProviders = m.registrySource().Providers
+	}
+
+	// 1. Update cloud provider configurations in the registrar
+	for id, p := range cloudProviders {
+		item := models.ProviderItem{
+			Type:    p.Type,
+			BaseURL: p.BaseURL,
+		}
+		m.registrar.RegisterCloud(id, item)
+	}
+
+	// 2. Re-normalize all model configurations
 	modelDir := ""
 	if local, ok := m.registrar.ListConfigs()["local"]; ok {
 		modelDir = local.ModelDir
@@ -493,7 +511,8 @@ func (m *LLMRuntimeManager) Sync() {
 	for name, cfg := range m.models {
 		m.models[name] = normalizeModelConfig(modelDir, cfg)
 	}
-	logging.Info("LLM Runtime Manager synchronized with registrar", "models", len(m.models), "modelDir", modelDir)
+
+	logging.Info("LLM Runtime Manager synchronized", "providers", len(cloudProviders), "models", len(m.models))
 }
 
 func portReady(port int) bool {

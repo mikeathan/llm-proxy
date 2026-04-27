@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"sync"
@@ -89,6 +90,7 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 	if provider, ok := r.configs[providerName]; ok {
 		if pCfg.ProviderConfig.BaseURL == "" {
 			pCfg.ProviderConfig.BaseURL = provider.BaseURL
+			logging.Debug("Hydrated provider BaseURL from registrar config", "provider", providerName, "url", provider.BaseURL)
 		}
 		if pCfg.ProviderConfig.ProjectID == "" {
 			pCfg.ProviderConfig.ProjectID = provider.ProjectID
@@ -100,6 +102,8 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 			pCfg.Args = provider.DefaultArgs
 		}
 		modelDir = provider.ModelDir
+	} else {
+		logging.Debug("No registrar config found for provider", "provider", providerName)
 	}
 
 	// 2. Resolve Secrets (API Keys)
@@ -130,12 +134,14 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 
 	// Dynamic Resolution via Manifest Registry
 	if manifest, ok := r.registry.Get(providerName); ok {
+		logging.Debug("Instantiating cloud provider", "name", providerName, "url", pCfg.ProviderConfig.BaseURL, "manifest_default", manifest.DefaultBaseURL)
 		if factory, ok := GetProviderFactory(manifest.Archetype); ok {
 			return factory(pCfg, manifest), nil
 		}
 	}
 
 	// Resilient Fallback to local for unknown providers
+	logging.Warn("Unknown provider, falling back to local", "provider", providerName)
 	return NewLocalProvider(pCfg, r.defaultBinary, modelDir, r.ModelHost()), nil
 }
 

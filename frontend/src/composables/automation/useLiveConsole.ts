@@ -10,7 +10,6 @@ export function useLiveConsole(workspaceId: () => string, isExecuting: () => boo
 
   const displayEvents = computed(() => {
     if (liveEvents.value.length > 0) return liveEvents.value;
-    if (isExecuting()) return [];
     return historyEvents() || [];
   });
 

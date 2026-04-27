@@ -13,7 +13,7 @@ Monitor the physical health of the workspace environment and identify resource-h
 
 #### Phase 2: Storage Analysis
 
-**Action:** Use du -sh {{REL_WS}}/{{WORKSPACE_ID}}/\* to identify the largest directories and files within the authorized jail.
+**Action:** Use du -sh * to identify the largest directories and files within the authorized jail.
 
 #### Phase 3: Cleanup Identification
 

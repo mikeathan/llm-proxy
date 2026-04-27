@@ -9,7 +9,6 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -58,7 +57,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 	// 2. Category-Specific Guardrails
 	switch call.Function.Name {
 	case models.ToolTerminalExecute:
-		return e.validateTerminal(call, cfg.Terminal)
+		return e.validateTerminal(call, cfg.Terminal, workspaceID)
 	case models.ToolInternetSearch:
 		return e.validateSearch(call, cfg.Search)
 	case models.ToolNotifyUser:
@@ -97,15 +96,24 @@ func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalG
 	return nil
 }
 
-func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.TerminalGuardrailsConfig) error {
+func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.TerminalGuardrailsConfig, workspaceID string) error {
+	if strings.TrimSpace(call.Function.Arguments) == "" {
+		return fmt.Errorf("missing tool arguments: 'command' field is required")
+	}
+
 	var args struct {
 		Command string `json:"command"`
 	}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
+		return fmt.Errorf("malformed JSON arguments: %w", err)
 	}
 
-	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache)
+	jailPath := ""
+	if workspaceID != "" {
+		jailPath = e.resolver.WorkspaceDir(workspaceID)
+	}
+
+	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache, jailPath)
 }
 
 func (e *GuardrailEngine) validateSearch(call proxy.ToolCall, cfg models.SearchGuardrailsConfig) error {
@@ -138,10 +146,6 @@ func (e *GuardrailEngine) validateCommunication(call proxy.ToolCall, cfg models.
 }
 
 func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.FileSystemGuardrailsConfig, workspaceID string) error {
-	if !cfg.Enabled {
-		return fmt.Errorf("filesystem tools are disabled by guardrails policy")
-	}
-
 	var args struct {
 		Path string `json:"path"`
 	}
@@ -149,27 +153,15 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 		return fmt.Errorf("failed to parse path: %w", err)
 	}
 
-	// 0. System Protection: Strictly block access to hidden files/folders and config files
-	// Special Case: Allow "." (current directory) but block other items starting with "."
-	base := filepath.Base(args.Path)
-	isDot := args.Path == "." || args.Path == "./"
-
-	if (!isDot && (strings.HasPrefix(base, ".") || (strings.HasPrefix(args.Path, "..")) || strings.Contains(args.Path, "/."))) ||
-		base == models.ConfigFilename || base == models.StateFilename ||
-		base == models.LockFilename ||
-		base == models.SystemConfigFilename || base == models.SecretsFilename || base == models.RegistryFilename {
-		return fmt.Errorf("path access denied: restricted system file or directory (%s)", args.Path)
-	}
-
 	// Dynamic Root: Ensure the specific workspace directory is always in the allowed roots
-	allowedRoots := append([]string{}, cfg.AllowedPaths...)
 	if workspaceID != "" {
-		// Use the correct workspaces directory (resolved via central resolver)
 		wsPath := e.resolver.WorkspaceDir(workspaceID)
-		allowedRoots = append(allowedRoots, wsPath)
+		// Ensure it's at the beginning of the slice so relative paths resolve against it
+		cfg.AllowedPaths = append([]string{wsPath}, cfg.AllowedPaths...)
 	}
 
-	_, err := tools.IsSecurePath(args.Path, allowedRoots)
+	isWrite := call.Function.Name == models.ToolFileWrite
+	_, err := tools.ValidateFileSystemPath(args.Path, isWrite, cfg)
 	return err
 }
 

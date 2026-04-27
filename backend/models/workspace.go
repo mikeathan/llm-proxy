@@ -107,7 +107,7 @@ type Workspace struct {
 	Heartbeat string          `json:"heartbeat"`
 }
 
-type SandboxSessionView struct {
+type TerminalSessionView struct {
 	WorkspaceID string    `json:"workspace_id"`
 	LastUsed    time.Time `json:"last_used"`
 	HostPath    string    `json:"host_path"`
