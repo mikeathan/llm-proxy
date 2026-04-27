@@ -151,16 +151,22 @@ func (n *NetworkTools) resolveAndQueueTargets(ctx context.Context, targetStr str
 		}
 
 		if strings.Contains(target, "/") {
-			// Subnet expansion
-			_, ipnet, err := net.ParseCIDR(target)
+			// Subnet expansion (Safe IP arithmetic)
+			ip, ipnet, err := net.ParseCIDR(target)
 			if err != nil {
 				continue
 			}
-			prefix := ipnet.IP.Mask(ipnet.Mask).String()
-			prefixBase := prefix[:strings.LastIndex(prefix, ".")+1]
-			for i := 1; i < 255; i++ {
-				targetIP := fmt.Sprintf("%s%d", prefixBase, i)
-				if err := n.validateIP(net.ParseIP(targetIP), cfg); err != nil {
+
+			// Iterate through the usable range of the subnet
+			for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
+				// Skip the network and broadcast addresses (heuristic for /24-like subnets)
+				// For larger subnets, we just scan everything in the range.
+				if ip.Equal(ipnet.IP) {
+					continue
+				}
+				
+				targetIP := ip.String()
+				if err := n.validateIP(ip, cfg); err != nil {
 					continue
 				}
 				select {
@@ -241,6 +247,7 @@ type ScanArgs struct {
 	Mode      string `json:"mode,omitempty"`       // "fast" or "deep"
 	Ports     []int  `json:"ports,omitempty"`      // Custom port list
 	TimeoutMs int    `json:"timeout_ms,omitempty"` // Per-IP timeout
+	Timeout   int    `json:"timeout,omitempty"`    // Alias for some models
 }
 
 // GetNetworkInfo returns the local IP and subnet mask.
@@ -296,6 +303,8 @@ func (n *NetworkTools) ScanLocalNetwork(ctx context.Context, args ScanArgs) (str
 	timeout := 500 * time.Millisecond
 	if args.TimeoutMs > 0 {
 		timeout = time.Duration(args.TimeoutMs) * time.Millisecond
+	} else if args.Timeout > 0 {
+		timeout = time.Duration(args.Timeout) * time.Millisecond
 	}
 
 	dialer := &net.Dialer{Timeout: timeout}
@@ -351,7 +360,7 @@ func (n *NetworkTools) ScanLocalNetwork(ctx context.Context, args ScanArgs) (str
 
 	// 4. Feed jobs to workers
 	go func() {
-		n.resolveAndQueueTargets(ctx, args.Target, cfg, jobs)
+		n.resolveAndQueueTargets(ctx, base, cfg, jobs)
 		close(jobs)
 		wg.Wait()
 		close(results)
@@ -395,6 +404,15 @@ func (n *NetworkTools) probeHTTP(ctx context.Context, ip string, port int) strin
 		return "HTTP Service (No banner)"
 	}
 	return "Active Service (No banner)"
+}
+
+func incIP(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
 }
 
 func (n *NetworkTools) getLocalSubnet() (string, *net.IPNet, error) {

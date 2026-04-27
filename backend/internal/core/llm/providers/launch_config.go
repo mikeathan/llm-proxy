@@ -44,8 +44,11 @@ func NormalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelCo
 	return out
 }
 
-func BuildLaunchArgs(cfg models.ModelConfig) []string {
-	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
+func BuildLaunchArgs(cfg models.ModelConfig, host string) []string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	args := []string{"-m", cfg.Path, "--host", host, "--port", fmt.Sprint(cfg.Port)}
 	return append(args, SanitizeArgs(cfg.Args)...)
 }
 

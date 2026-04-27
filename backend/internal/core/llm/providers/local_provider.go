@@ -163,7 +163,7 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 		return err
 	}
 
-	args := BuildLaunchArgs(p.cfg)
+	args := BuildLaunchArgs(p.cfg, p.host)
 	logging.Info("Starting local model (discovery)", 
 		"model", p.cfg.Name, 
 		"binary", p.llamaBinary, 

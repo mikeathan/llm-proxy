@@ -53,14 +53,6 @@ func normalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelCo
 	return providers.NormalizeModelConfig(baseDir, cfg)
 }
 
-func buildLaunchArgs(cfg models.ModelConfig) []string {
-	return providers.BuildLaunchArgs(cfg)
-}
-
-func sanitizeArgs(args []string) []string {
-	return providers.SanitizeArgs(args)
-}
-
 func (m *LLMRuntimeManager) enrichModelLocked(cfg models.ModelConfig) models.ModelConfig {
 	env := make(map[string]string)
 	for k, v := range m.serverEnv {

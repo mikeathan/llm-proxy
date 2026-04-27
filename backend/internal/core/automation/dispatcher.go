@@ -312,7 +312,27 @@ func (d *Dispatcher) LoadHistory() {
 		allRuns = allRuns[len(allRuns)-MaxHistorySize:]
 	}
 	d.globalHistory = allRuns
-	d.logger.Info("Loaded global history", "count", len(d.globalHistory))
+
+	// Reset and recalculate metrics from history
+	d.metrics.mu.Lock()
+	defer d.metrics.mu.Unlock()
+	d.metrics.TotalExecutions = 0
+	d.metrics.SuccessfulExecutions = 0
+	d.metrics.FailedExecutions = 0
+	d.metrics.SkippedExecutions = 0
+	d.metrics.TotalLatency = 0
+
+	for _, run := range allRuns {
+		d.metrics.TotalExecutions++
+		d.metrics.TotalLatency += time.Duration(run.DurationMs) * time.Millisecond
+		if run.Error == "" {
+			d.metrics.SuccessfulExecutions++
+		} else {
+			d.metrics.FailedExecutions++
+		}
+	}
+
+	d.logger.Info("Loaded global history", "count", len(d.globalHistory), "total_executions", d.metrics.TotalExecutions)
 }
 
 func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {

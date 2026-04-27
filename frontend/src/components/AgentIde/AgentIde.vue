@@ -130,6 +130,7 @@ onMounted(() => {
   historyInterval = setInterval(() => {
     refreshHistory();
     fetchAutomations(true);
+    fetchMetrics();
   }, 10000);
 });
 

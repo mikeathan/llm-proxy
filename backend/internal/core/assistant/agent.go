@@ -130,34 +130,50 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			return "", currentHistory, err
 		}
 
-		// If no tool calls were generated in the turn, handle termination
+		// Handle termination logic
 		if len(turnMsg.ToolCalls) == 0 {
+			// 1. Check for premature termination (empty responses)
 			if a.isPrematureTermination(turnMsg, currentHistory) {
 				retries := a.countRetries(currentHistory)
 				if retries >= 2 {
 					return turnMsg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
 				}
-
-				// If it's the first retry, do it silently to avoid UI noise
 				if retries == 0 {
-					a.logger.Info("model returned empty response, performing silent retry", "step", steps)
 					currentHistory = append(currentHistory, proxy.Message{
 						Role:    proxy.UserRole,
 						Content: "You returned an empty response. Please continue the task or provide your final report.",
 					})
 					continue
 				}
-
-				// For subsequent retries, notify the user
 				currentHistory = append(currentHistory, turnMsg)
 				a.notify(EventMessage, turnMsg)
 				a.notifyPrematureTerminationNag(&currentHistory)
 				continue
 			}
 
-			currentHistory = append(currentHistory, turnMsg)
-			a.notify(EventMessage, turnMsg)
-			return turnMsg.Content, currentHistory, nil
+			// 2. Append the response to history if not already done (for non-tool messages)
+			if len(currentHistory) == 0 || currentHistory[len(currentHistory)-1].Content != turnMsg.Content {
+				currentHistory = append(currentHistory, turnMsg)
+				a.notify(EventMessage, turnMsg)
+			}
+
+			// 3. Stop if it's a final report
+			if a.isFinalReport(turnMsg.Content) {
+				return turnMsg.Content, currentHistory, nil
+			}
+
+			// 4. Soft Termination: allow one more turn to ensure model is truly done
+			chatCount := 0
+			for i := len(currentHistory) - 1; i >= 0; i-- {
+				if currentHistory[i].Role == proxy.AssistantRole && len(currentHistory[i].ToolCalls) == 0 {
+					chatCount++
+				} else {
+					break
+				}
+			}
+			if chatCount >= 2 {
+				return turnMsg.Content, currentHistory, nil
+			}
 		}
 	}
 
@@ -363,6 +379,14 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 
 	wg.Wait()
 	return nil
+}
+
+func (a *Agent) isFinalReport(content string) bool {
+	c := strings.ToLower(content)
+	return strings.Contains(c, "summary") ||
+		strings.Contains(c, "final report") ||
+		strings.Contains(c, "conclusion") ||
+		strings.Contains(c, "findings")
 }
 
 func formatToolError(err error) map[string]string {
