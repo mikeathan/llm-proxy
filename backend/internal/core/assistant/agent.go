@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 )
 
 // Agent represents a unified, stateful assistant that can use tools.
@@ -99,7 +98,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			a.handleContentToolCalls(&msg)
 			msg.Content = normalizeContent(msg.Content)
 			turnMsg = msg
-			
+
 			// Process tool calls within the turn context if they exist
 			if len(turnMsg.ToolCalls) > 0 {
 				// Loop detection
@@ -107,12 +106,16 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
 					count := 0
 					for _, prev := range recentCalls {
-						if prev == key { count++ }
+						if prev == key {
+							count++
+						}
 					}
 					if count >= 3 {
 						return fmt.Errorf("infinite loop detected: agent repeated tool call '%s'. User Intervention Required", key.name)
 					}
-					if len(recentCalls) >= 5 { recentCalls = recentCalls[1:] }
+					if len(recentCalls) >= 5 {
+						recentCalls = recentCalls[1:]
+					}
 					recentCalls = append(recentCalls, key)
 				}
 
@@ -160,9 +163,10 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	var fullMsg proxy.Message
 	fullMsg.Role = proxy.AssistantRole
-
 	a.processStream(ch, &fullMsg)
 
+	// If streaming failed with a 500 error related to tool parsing, fallback to non-streaming retry.
+	// (Note: processStream consumes the channel, so we rely on computeNextResponseNonStreaming for the retry)
 	return fullMsg, nil
 }
 
@@ -170,19 +174,19 @@ func (a *Agent) processStream(ch <-chan *proxy.ChatResponse, fullMsg *proxy.Mess
 	for resp := range ch {
 		if len(resp.Choices) > 0 {
 			choice := resp.Choices[0]
-			
+
 			// Accumulate Content
 			if choice.Delta.Content != "" {
 				fullMsg.Content += choice.Delta.Content
-				
-				// UI Smoothing: If we detect the start of a tool call signature, 
+
+				// UI Smoothing: If we detect the start of a tool call signature,
 				// stop streaming to the text-content bus to avoid showing raw technical markup.
 				displayContent, hasToolCall := FilterStreamingMarkup(fullMsg.Content)
-				
+
 				// If we've reached a tool call, provide a small visual hint in the stream
 				// so the user knows the agent is still active but is now processing technical steps.
 				if hasToolCall {
-					a.notify(EventToolStream, displayContent + "\n\n🛠️ *Agent is initiating tool calls...*")
+					a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
 				} else {
 					a.notify(EventToolStream, displayContent)
 				}
@@ -214,14 +218,26 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		Tools:    tools,
 	})
 
+	// Detect llama-server native tool parsing bugs (500 error with specific message)
+	if err != nil && strings.Contains(err.Error(), "Failed to parse tool call arguments") {
+		a.logger.Warn("detected local server tool parsing bug, retrying without native tools API", "error", err)
+		chatCtx2, cancel2 := context.WithTimeout(ctx, 180*time.Second)
+		defer cancel2()
+		// Retry WITHOUT tools parameter. The model still knows about tools because they are
+		// injected into the system prompt via ToolProvider.GetSystemPrompt().
+		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{
+			Messages: history,
+		})
+	}
+
 	if err != nil && isToolSupportError(err) {
 		a.logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
 
 		// Try again without tools
-		chatCtx2, cancel2 := context.WithTimeout(ctx, 180*time.Second)
-		defer cancel2()
-		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{
+		chatCtx3, cancel3 := context.WithTimeout(ctx, 180*time.Second)
+		defer cancel3()
+		resp, err = a.client.Chat(chatCtx3, proxy.ChatRequest{
 			Messages: history,
 		})
 	}
@@ -345,7 +361,7 @@ func formatGuardrailError(err error) map[string]string {
 	return map[string]string{"error": "Guardrail violation: " + err.Error()}
 }
 
-// appendToolResult helper with memory-sensitive pruning 
+// appendToolResult helper with memory-sensitive pruning
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
 	raw, _ := json.Marshal(result)
 	content := string(raw)
@@ -376,5 +392,3 @@ func isToolSupportError(err error) bool {
 		strings.Contains(lowErr, "auto tool choice requires") ||
 		strings.Contains(lowErr, "parameter `tools`")
 }
-
-

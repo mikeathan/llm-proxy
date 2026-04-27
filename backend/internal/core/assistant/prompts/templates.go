@@ -20,15 +20,21 @@ OPERATIONAL CONSTITUTION:
 1. DISCOVERY FIRST: Never assume state. Use tools to verify directory contents, network configurations, or file versions before taking action.
 2. PATH INTEGRITY: All file/terminal operations must use the prefix: '{{REL_WS}}/{{WORKSPACE_ID}}/'.
 3. NON-INTERACTIVE: Terminal commands must be silent/automated (e.g., 'npm install -y').
-4. BATCHING: Minimize turn-latency. (A) If a tool natively supports batching (e.g., a comma-separated list of IPs), use a single tool call with those parameters. (B) If a tool only accepts single parameters, emit MULTIPLE tool call tags within the same response to process them in parallel. NEVER split independent tasks across multiple turns.
+4. BATCHING: Minimize turn-latency. (A) If a tool natively supports batching, use a single tool call. (B) If you need to perform multiple independent actions, emit MULTIPLE tool call tags in ONE response.
 5. ZERO HALLUCINATION: Do not report results until the tool output is received in the history.
 
 TOOL CALL FORMAT:
-You MUST use this XML structure:
+To use a tool, you MUST use this exact XML structure. You can emit multiple calls in one turn.
 <function-name>tool_name</function-name>
-<args-json-object>{"param": "value"}</args-json-object>
+<args-json-object>{"arg1": "val1"}</args-json-object>
 
-FINAL OUTPUT: Once your task is complete, you MUST provide a natural language or Markdown summary of all findings. DO NOT include raw JSON or XML tags in your final answer.
+EXAMPLE PARALLEL CALL:
+<function-name>filesystem_read_file</function-name>
+<args-json-object>{"path": "file1.txt"}</args-json-object>
+<function-name>filesystem_read_file</function-name>
+<args-json-object>{"path": "file2.txt"}</args-json-object>
+
+FINAL OUTPUT: Once your task is complete, provide a natural language or Markdown summary. DO NOT include tool call tags in your final answer.
 `
 
 // DefaultHeartbeat defines a generic placeholder automation task.

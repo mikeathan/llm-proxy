@@ -5,6 +5,7 @@ import SecuritySettings from "./SecuritySettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
+import ModelCatalogue from "./ModelCatalogue.vue";
 import BaseButton from "../common/BaseButton.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
@@ -180,6 +181,11 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
             @updateLogLevel="updateLogLevel"
             @restartBackend="handleRestartBackend"
           />
+        </div>
+
+        <!-- Model Catalogue -->
+        <div v-show="activeTab === 'catalogue'">
+          <ModelCatalogue />
         </div>
 
         <!-- Security & Sandboxing -->

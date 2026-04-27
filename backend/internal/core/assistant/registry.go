@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
+	"strings"
 )
 
 // getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides.
@@ -167,7 +168,39 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 
 // GetSystemPrompt satisfies the ToolProvider interface.
 func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
-	return prompts.LocalAssistantPrompt, nil
+	prompt := prompts.LocalAssistantPrompt
+
+	// Append tool definitions to the system prompt so the model sees them as text.
+	// This is critical for local models where we might bypass the native tools API
+	// to avoid parser bugs in local servers (like llama-server).
+	if len(r.toolDefinitions) > 0 {
+		prompt += "\n\nAVAILABLE TOOLS:\n"
+		prompt += r.FormatToolsForPrompt()
+	}
+
+	return prompt, nil
+}
+
+// FormatToolsForPrompt converts the tool definitions into a readable format.
+func (r *LocalToolRegistry) FormatToolsForPrompt() string {
+	var sb strings.Builder
+	for _, t := range r.toolDefinitions {
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Function.Name, t.Function.Description))
+		if params, ok := t.Function.Parameters.(map[string]any); ok {
+			if props, ok := params["properties"].(map[string]any); ok {
+				sb.WriteString("  Parameters:\n")
+				for pName, pDetails := range props {
+					if details, ok := pDetails.(map[string]any); ok {
+						pType := details["type"]
+						pDesc := details["description"]
+						sb.WriteString(fmt.Sprintf("    * %s (%v): %v\n", pName, pType, pDesc))
+					}
+				}
+			}
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 var ErrToolNotInternal = fmt.Errorf("tool not found in local registry")
