@@ -47,6 +47,10 @@ func (m *MockProvider) GetSystemPrompt() (string, error) {
 	return "test prompt", nil
 }
 
+func (m *MockProvider) UseNativeTools() bool {
+	return true
+}
+
 // MockEngine implements Engine
 type MockEngine struct {
 	Result any

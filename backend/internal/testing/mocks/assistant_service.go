@@ -93,6 +93,10 @@ func (p *mockToolProvider) GetSystemPrompt() (string, error) {
 	return p.herder.GetSystemPrompt()
 }
 
+func (p *mockToolProvider) UseNativeTools() bool {
+	return true
+}
+
 func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
 	return &mockToolProvider{herder: m.Herder}
 }

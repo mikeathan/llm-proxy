@@ -132,16 +132,31 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 		// If no tool calls were generated in the turn, handle termination
 		if len(turnMsg.ToolCalls) == 0 {
-			currentHistory = append(currentHistory, turnMsg)
-			a.notify(EventMessage, turnMsg)
-
 			if a.isPrematureTermination(turnMsg, currentHistory) {
-				if a.countRetries(currentHistory) >= 2 {
+				retries := a.countRetries(currentHistory)
+				if retries >= 2 {
 					return turnMsg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
 				}
+
+				// If it's the first retry, do it silently to avoid UI noise
+				if retries == 0 {
+					a.logger.Info("model returned empty response, performing silent retry", "step", steps)
+					currentHistory = append(currentHistory, proxy.Message{
+						Role:    proxy.UserRole,
+						Content: "You returned an empty response. Please continue the task or provide your final report.",
+					})
+					continue
+				}
+
+				// For subsequent retries, notify the user
+				currentHistory = append(currentHistory, turnMsg)
+				a.notify(EventMessage, turnMsg)
 				a.notifyPrematureTerminationNag(&currentHistory)
 				continue
 			}
+
+			currentHistory = append(currentHistory, turnMsg)
+			a.notify(EventMessage, turnMsg)
 			return turnMsg.Content, currentHistory, nil
 		}
 	}
@@ -150,10 +165,14 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 }
 
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
-	// Attempt streaming first to provide immediate feedback
+	llmTools := tools
+	if !a.provider.UseNativeTools() {
+		llmTools = nil
+	}
+
 	ch, err := a.client.Stream(ctx, proxy.ChatRequest{
 		Messages: history,
-		Tools:    tools,
+		Tools:    llmTools,
 	})
 
 	if err != nil {
@@ -213,31 +232,24 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	chatCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
+	llmTools := tools
+	if !a.provider.UseNativeTools() {
+		llmTools = nil
+	}
+
 	resp, err := a.client.Chat(chatCtx, proxy.ChatRequest{
 		Messages: history,
-		Tools:    tools,
+		Tools:    llmTools,
 	})
-
-	// Detect llama-server native tool parsing bugs (500 error with specific message)
-	if err != nil && strings.Contains(err.Error(), "Failed to parse tool call arguments") {
-		a.logger.Warn("detected local server tool parsing bug, retrying without native tools API", "error", err)
-		chatCtx2, cancel2 := context.WithTimeout(ctx, 180*time.Second)
-		defer cancel2()
-		// Retry WITHOUT tools parameter. The model still knows about tools because they are
-		// injected into the system prompt via ToolProvider.GetSystemPrompt().
-		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{
-			Messages: history,
-		})
-	}
 
 	if err != nil && isToolSupportError(err) {
 		a.logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
 
 		// Try again without tools
-		chatCtx3, cancel3 := context.WithTimeout(ctx, 180*time.Second)
-		defer cancel3()
-		resp, err = a.client.Chat(chatCtx3, proxy.ChatRequest{
+		chatCtx2, cancel2 := context.WithTimeout(ctx, 180*time.Second)
+		defer cancel2()
+		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{
 			Messages: history,
 		})
 	}
@@ -288,7 +300,7 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 func (a *Agent) countRetries(history []proxy.Message) int {
 	count := 0
 	for _, h := range history {
-		if h.Role == "user" && strings.Contains(h.Content, "You returned an incomplete response") {
+		if h.Role == "user" && (strings.Contains(h.Content, "incomplete response") || strings.Contains(h.Content, "empty response")) {
 			count++
 		}
 	}

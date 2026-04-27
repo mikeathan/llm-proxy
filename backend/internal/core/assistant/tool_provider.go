@@ -11,6 +11,7 @@ import (
 type ToolProvider interface {
 	ListTools(ctx context.Context) ([]proxy.Tool, error)
 	GetSystemPrompt() (string, error)
+	UseNativeTools() bool
 }
 
 // MultiToolProvider aggregates tools from multiple providers.
@@ -50,6 +51,17 @@ func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
 
 	// Join multiple prompts if multiple providers provide them
 	return strings.Join(fullPrompt, "\n\n---\n\n"), nil
+}
+
+func (p *MultiToolProvider) UseNativeTools() bool {
+	// If any provider says we shouldn't use native tools, we fallback to prompt-only.
+	// This is a safety measure for mixed environments.
+	for _, provider := range p.Providers {
+		if !provider.UseNativeTools() {
+			return false
+		}
+	}
+	return true
 }
 
 // CompositeEngine delegates tool execution to either a primary (builtin) or secondary (mcp) engine.

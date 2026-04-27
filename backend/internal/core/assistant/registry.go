@@ -181,6 +181,12 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 	return prompt, nil
 }
 
+// UseNativeTools indicates if tools should be passed via the API.
+// For local models, we return false to avoid llama-server parser bugs.
+func (r *LocalToolRegistry) UseNativeTools() bool {
+	return false
+}
+
 // FormatToolsForPrompt converts the tool definitions into a readable format.
 func (r *LocalToolRegistry) FormatToolsForPrompt() string {
 	var sb strings.Builder
