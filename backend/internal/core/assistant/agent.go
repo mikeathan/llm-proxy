@@ -141,7 +141,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				if retries == 0 {
 					currentHistory = append(currentHistory, proxy.Message{
 						Role:    proxy.UserRole,
-						Content: "You returned an empty response. Please continue the task or provide your final report.",
+						Content: "You returned an incomplete response. You MUST continue using tools or reply with the final comprehensive Markdown report as requested.",
 					})
 					continue
 				}
@@ -151,33 +151,43 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				continue
 			}
 
-			// 2. Append the response to history if not already done (for non-tool messages)
+			// 2. Append the response to history
 			if len(currentHistory) == 0 || currentHistory[len(currentHistory)-1].Content != turnMsg.Content {
 				currentHistory = append(currentHistory, turnMsg)
 				a.notify(EventMessage, turnMsg)
 			}
 
-			// 3. Stop if it's a final report
+			// 3. Stop immediately on first turn if no tools are called (direct answer)
+			if steps == 1 {
+				return turnMsg.Content, currentHistory, nil
+			}
+
+			// 4. Stop if it's a final report
 			if a.isFinalReport(turnMsg.Content) {
 				return turnMsg.Content, currentHistory, nil
 			}
 
-			// 4. Soft Termination: allow one more turn to ensure model is truly done
+			// 5. Soft Termination: allow one more turn to ensure model is truly done
+			// Check if we already have 2 consecutive chat messages with no tools
 			chatCount := 0
-			for i := len(currentHistory) - 1; i >= 0; i-- {
-				if currentHistory[i].Role == proxy.AssistantRole && len(currentHistory[i].ToolCalls) == 0 {
+			for j := len(currentHistory) - 1; j >= 0; j-- {
+				if currentHistory[j].Role == proxy.AssistantRole && len(currentHistory[j].ToolCalls) == 0 {
 					chatCount++
 				} else {
 					break
 				}
 			}
-			if chatCount >= 2 {
-				return turnMsg.Content, currentHistory, nil
+			if chatCount < 2 {
+				continue
 			}
+			return turnMsg.Content, currentHistory, nil
+		}
+
+		if steps >= a.maxSteps {
+			return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
 		}
 	}
-
-	return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
+	return "", currentHistory, nil
 }
 
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {

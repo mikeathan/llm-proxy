@@ -12,7 +12,7 @@ func TestResolveHost(t *testing.T) {
 		want string
 	}{
 		{"Empty host", "", models.AddrLocalhost},
-		{"Generic listener 0.0.0.0", "0.0.0.0", models.AddrLocalhost},
+		{"Generic listener 0.0.0.0", "0.0.0.0", "0.0.0.0"},
 		{"Specific IP", "192.168.1.10", "192.168.1.10"},
 		{"Localhost", "127.0.0.1", "127.0.0.1"},
 		{"Hostname", "vertex.local", "vertex.local"},

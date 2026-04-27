@@ -31,7 +31,7 @@ type RuntimeService interface {
 	ModelHost() string
 	SetModelHost(string)
 	ListProviderModels(context.Context, string, string) ([]string, error)
-	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error
+	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
 }
 

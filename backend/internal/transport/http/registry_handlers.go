@@ -150,8 +150,9 @@ func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter
 
 	apiKey := r.URL.Query().Get("api_key")
 	apiKeyName := r.URL.Query().Get("api_key_name")
+	baseURL := r.URL.Query().Get("base_url")
 
-	err := h.runtime.TestProviderConnection(r.Context(), provider, apiKey, apiKeyName)
+	err := h.runtime.TestProviderConnection(r.Context(), provider, apiKey, apiKeyName, baseURL)
 	if err != nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "connection test failed: "+err.Error())
 		return

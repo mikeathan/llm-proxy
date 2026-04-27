@@ -73,7 +73,7 @@ type RuntimeManager interface {
 	ModelHost() string
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
-	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error
+	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
 	Sync()
@@ -179,12 +179,13 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 	return m
 }
 
-func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error {
+func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error {
 	cfg := models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: &models.ProviderConfig{
 			APIKey:     apiKey,
 			APIKeyName: apiKeyName,
+			BaseURL:    baseURL,
 		},
 	}
 	p, err := m.registrar.Build(cfg)

@@ -25,7 +25,7 @@ type MockManager struct {
 	SetBinaryFunc              func(string)
 	SetModelHostFunc           func(string)
 	ListProviderModelsFunc     func(ctx context.Context, provider, apiKeyName string) ([]string, error)
-	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName string) error
+	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
 	SelectModelsFunc           func() (string, string)
 	SetSecretsFunc             func(models.SecretsStore)
 	ShutdownFunc               func()
@@ -64,9 +64,9 @@ func (m *MockManager) SelectModels() (string, string) {
 	return "", ""
 }
 
-func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error {
+func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error {
 	if m.TestProviderConnectionFunc != nil {
-		return m.TestProviderConnectionFunc(ctx, provider, apiKey, apiKeyName)
+		return m.TestProviderConnectionFunc(ctx, provider, apiKey, apiKeyName, baseURL)
 	}
 	return nil
 }
