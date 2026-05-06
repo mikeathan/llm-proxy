@@ -102,8 +102,31 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				return fmt.Errorf("failed to list tools: %w", err)
 			}
 
+			// Open Claw v3 Phase 4: Token Pressure Injection
+			totalChars := 0
+			for _, m := range currentHistory {
+				totalChars += len(m.Content)
+			}
+			if totalChars > 14000 { // 85% of 16,000 budget
+				a.logger.Warn("critical context pressure detected", "chars", totalChars)
+				currentHistory = append(currentHistory, proxy.Message{
+					Role:    proxy.UserRole,
+					Content: "SYSTEM: CRITICAL - Context window is almost full. You must complete your task and call submit_final_answer in your next response.",
+				})
+			}
+
 			msg, err := a.computeNextResponse(turnCtx, currentHistory, toolsList)
 			if err != nil {
+				// Open Claw v3 Phase 4: Graceful Recovery on 400 Context Errors
+				if strings.Contains(err.Error(), "context size exceeded") || strings.Contains(err.Error(), "400") {
+					a.logger.Error("context limit reached - attempting graceful termination")
+					if len(currentHistory) > 0 {
+						lastMsg := currentHistory[len(currentHistory)-1]
+						if a.isFinalReport(lastMsg.Content) {
+							return fmt.Errorf("TASK_SUBMITTED_TEXT")
+						}
+					}
+				}
 				return err
 			}
 
@@ -162,6 +185,9 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 		if err != nil {
 			if err.Error() == "TASK_SUBMITTED" {
 				return turnMsg.Content, currentHistory, nil
+			}
+			if err.Error() == "TASK_SUBMITTED_TEXT" {
+				return currentHistory[len(currentHistory)-1].Content, currentHistory, nil
 			}
 			return "", currentHistory, err
 		}
@@ -594,12 +620,26 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 
 func (a *Agent) isFinalReport(content string) bool {
 	c := strings.ToLower(content)
-	return strings.HasPrefix(c, "# summary") ||
-		strings.HasPrefix(c, "### summary") ||
-		strings.HasPrefix(c, "# final report") ||
-		strings.HasPrefix(c, "### final report") ||
-		strings.HasPrefix(c, "## conclusion") ||
-		strings.HasPrefix(c, "## findings")
+	markers := []string{
+		"# summary",
+		"## summary",
+		"### summary",
+		"final answer:",
+		"task complete",
+		"### findings",
+		"### task accomplished",
+		"i have completed",
+	}
+	
+	for _, m := range markers {
+		if strings.Contains(c, m) {
+			// Also check for significant length to avoid false positives on short sentences
+			return len(content) > 300
+		}
+	}
+	
+	// Fallback: If it contains a lot of Markdown structure and no tool tags
+	return strings.Count(content, "###") >= 2 && !strings.Contains(content, "```json")
 }
 
 func formatToolError(err error) map[string]string {
@@ -806,3 +846,4 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 
 	return newHistory
 }
+

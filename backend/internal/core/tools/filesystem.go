@@ -109,7 +109,7 @@ func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuar
 	return absPath, nil
 }
 
-func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) ([]string, error) {
+func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) (any, error) {
 	absPath, err := f.ValidatePath(ctx, path, false)
 	if err != nil {
 		return nil, err
@@ -139,7 +139,8 @@ func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) ([]str
 		}
 		names = append(names, name)
 	}
-	return names, nil
+	// Open Claw v3 Phase 3: Structural Truncation for Directory Listing
+	return proxy.TruncateLines(names, 30), nil
 }
 
 func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, error) {
@@ -152,7 +153,17 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 	if err != nil {
 		return "", err
 	}
-	return proxy.TruncateResult(string(content)), nil
+	
+	// Open Claw v3 Phase 3: Structural Truncation for ReadFile (3000 chars)
+	raw := string(content)
+	if len(raw) <= 3000 {
+		return raw, nil
+	}
+
+	head := raw[:1500]
+	tail := raw[len(raw)-1500:]
+	return fmt.Sprintf("%s\n\n... [SYSTEM: File truncated (%d bytes total). Use 'read_range' or 'grep' to access the middle] ...\n\n%s", 
+		head, len(raw), tail), nil
 }
 
 func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content string) error {

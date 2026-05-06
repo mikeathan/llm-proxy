@@ -78,9 +78,15 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		})
 	}
 
-	// 4. Sliding Window: Preserve system prompt + last 50 messages (approx 24 turns)
-	// Open Claw v2: Protects against context window exhaustion.
-	if len(merged) > 51 {
+	// 4. Dynamic Context Sieve: Token-Budgeted Middle-Pruning (approx 16,000 characters)
+	// Open Claw v3: Protects against context size exceeded errors while preserving the goal and state.
+	const charBudget = 16000
+	totalChars := 0
+	for _, msg := range merged {
+		totalChars += len(msg.Content)
+	}
+
+	if totalChars > charBudget && len(merged) > 8 {
 		systemMsg := Message{}
 		hasSystem := false
 		if merged[0].Role == SystemRole {
@@ -88,19 +94,54 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 			hasSystem = true
 		}
 
-		// Keep only the last 50 messages
-		newMerged := make([]Message, 0, 51)
+		// Keep the first user message (the Task/Goal)
+		firstUserIdx := -1
+		for i, msg := range merged {
+			if msg.Role == UserRole {
+				firstUserIdx = i
+				break
+			}
+		}
+
+		// Keep the Priority Tail (last 3 turns / 6 messages)
+		tailCount := 6
+		if len(merged) < 8 {
+			tailCount = len(merged) - 2 // Safety
+		}
+		startIndex := len(merged) - tailCount
+		
+		newMerged := make([]Message, 0)
 		if hasSystem {
 			newMerged = append(newMerged, systemMsg)
 		}
-		
-		startIndex := len(merged) - 50
-		if startIndex < 1 {
-			startIndex = 1
+		if firstUserIdx != -1 && firstUserIdx != 0 {
+			newMerged = append(newMerged, merged[firstUserIdx])
 		}
+
+		// Add distillation marker
+		newMerged = append(newMerged, Message{
+			Role:    SystemRole,
+			Content: "[System: (Earlier steps omitted for space preservation. Current project state is maintained.)]",
+		})
+
 		newMerged = append(newMerged, merged[startIndex:]...)
 		merged = newMerged
 	}
 
-	return merged
+	return SanitizeHistory(merged)
+}
+
+// SanitizeHistory strips non-essential metadata from messages before sending to LLM.
+// Open Claw v3 Phase 1: Overhead reduction.
+func SanitizeHistory(history []Message) []Message {
+	sanitized := make([]Message, len(history))
+	for i, msg := range history {
+		sanitized[i] = Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+			// Keep ToolCalls only if it's an assistant message and we are in a turn
+			ToolCalls: msg.ToolCalls,
+		}
+	}
+	return sanitized
 }
