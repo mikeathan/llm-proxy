@@ -15,26 +15,6 @@ import (
 // leverages the 'jsonrepair' library to robustly handle malformed LLM outputs.
 
 var (
-	// Tag definitions for identifying tool calls in a stream
-	tagMarkers = []struct {
-		namePattern *regexp.Regexp
-		argStart    string
-		argEnd      string
-	}{
-		// Standard XML: <function-name>NAME</function-name> <args-json-object>ARGS</args-json-object>
-		{regexp.MustCompile(`(?s)<function-name>\s*(.*?)\s*</function-name>`), "<args-json-object>", "</args-json-object>"},
-		// Call Tag (High Fidelity): <call:NAME>{"arg": "val"}</call:NAME>
-		{regexp.MustCompile(`(?s)<call:([a-zA-Z0-9_-]+)>`), "", "</call:"},
-		// Wrapper Tag: <tools>{"name":"...","arguments":{...}}</tools>
-		{nil, "<tools>", "</tools>"},
-		// Pipe Format: <|tool_call|>call:NAME{ARGS}<|tool_call|>
-		{regexp.MustCompile(`(?s)<\|?tool_call\|?>(?:call:)?\s*([a-zA-Z0-9_]+)`), "{", ""},
-		// Bracket Format: [TOOL_CALLS]NAME[ARGS]{ARGS}[TOOL_CALLS]
-		{regexp.MustCompile(`(?s)\[TOOL_CALLS\]\s*([a-zA-Z0-9_]+)`), "[ARGS]", ""},
-		// Native vLLM: functions.NAME:ID{ARGS}
-		{regexp.MustCompile(`(?s)functions\.([a-zA-Z0-9_-]+):[a-zA-Z0-9_-]+`), "{", ""},
-	}
-
 	// Regex for Thought blocks (to be stripped from final content)
 	reThoughtTag = regexp.MustCompile("(?s)<thought>.*?</thought>")
 
@@ -42,17 +22,76 @@ var (
 	reMarkdownJSON = regexp.MustCompile("(?s)```(?:json)?\n?\\s*(\\[\\s*\\{.*?\\}\\s*\\])\\s*\n?```")
 	// Regex for raw JSON arrays (fallback for models that skip markdown blocks)
 	reRawJSONArray = regexp.MustCompile("(?s)(\\[\\s*\\{\\s*\"(?:tool|function|name)\".*?\\}\\s*\\])")
+	// Regex for the new <tool_call> tag format
+	reToolCallTag = regexp.MustCompile("(?s)<tool_call>(.*?)</tool_call>")
 	// Pattern for custom string markers <|"|>...<|"|> (Gemma-specific)
 	reCustomStringMarker = regexp.MustCompile(`(?s)<\|"\|>(.*?)<\|"\|>`)
-	// Pattern for any XML tag (for final content cleanup)
-	reAnyXMLTag = regexp.MustCompile(`<[^>]*>`)
 )
 
 // ParseContentToolCalls is the entry point for extracting tool calls from LLM content.
 func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
 	var calls []ToolCall
 
-	// 1. Try Markdown JSON blocks first (high precision)
+	// 1. Priority 1: Search for <tool_call> tags (Universal Agnostic Standard)
+	// We use a lenient approach that handles missing closing tags.
+	openingTag := "<tool_call>"
+	idx := strings.Index(content, openingTag)
+	if idx != -1 {
+		var raw string
+		closingTag := "</tool_call>"
+		endIdx := strings.Index(content[idx:], closingTag)
+
+		if endIdx != -1 {
+			// Perfect match with closing tag
+			raw = content[idx+len(openingTag) : idx+endIdx]
+		} else {
+			// Lenient match: extract balanced JSON starting after the opening tag
+			jsonStr, ok := extractBalancedJSON(content, idx+len(openingTag), "{", "}")
+			if ok {
+				raw = jsonStr
+			}
+		}
+
+		if raw != "" {
+			// The tag content can be a single tool object or an array of tools
+			trimmedRaw := strings.TrimSpace(raw)
+			if strings.HasPrefix(trimmedRaw, "[") {
+				if _, tc, ok := parseJSONArray(trimmedRaw); ok {
+					cleaned := strings.Replace(content, openingTag, "", -1)
+					if endIdx != -1 {
+						cleaned = strings.Replace(cleaned, closingTag, "", -1)
+					}
+					// Also remove the raw JSON from content to avoid duplication
+					cleaned = strings.Replace(cleaned, trimmedRaw, "", -1)
+					return cleaned, tc, true
+				}
+			} else {
+				// Single tool object
+				if _, tc, ok := parseJSONObject(trimmedRaw); ok {
+					cleaned := strings.Replace(content, openingTag, "", -1)
+					if endIdx != -1 {
+						cleaned = strings.Replace(cleaned, closingTag, "", -1)
+					}
+					cleaned = strings.Replace(cleaned, trimmedRaw, "", -1)
+					return cleaned, tc, true
+				}
+			}
+		}
+
+		// If we found a tag but failed to parse it, return a helpful error
+		errorCall := ToolCall{
+			ID:   "parse-error",
+			Type: "function",
+			Function: FunctionCall{
+				Name: "system_error",
+				Arguments: fmt.Sprintf(`{"error": "SYSTEM ERROR: Malformed tool call inside <tool_call> tags. Ensure your JSON is valid. raw content: %s"}`, 
+					strings.ReplaceAll(strings.ReplaceAll(raw, `"`, `\"`), "\n", "\\n")),
+			},
+		}
+		return content, []ToolCall{errorCall}, true
+	}
+
+	// 2. Priority 2: Try Markdown JSON blocks (high precision)
 	if match := reMarkdownJSON.FindStringSubmatch(content); len(match) > 0 {
 		if _, tc, ok := parseJSONArray(match[1]); ok {
 			cleaned := reMarkdownJSON.ReplaceAllString(content, "")
@@ -60,7 +99,7 @@ func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
 		}
 	}
 
-	// 1b. Try Raw JSON arrays (fallback for models that skip markdown blocks)
+	// 3. Priority 3: Try Raw JSON arrays
 	if match := reRawJSONArray.FindStringSubmatch(content); len(match) > 0 {
 		if _, tc, ok := parseJSONArray(match[1]); ok {
 			cleaned := reRawJSONArray.ReplaceAllString(content, "")
@@ -68,119 +107,76 @@ func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
 		}
 	}
 
-	// 2. Format-agnostic tag scanning
-	for _, marker := range tagMarkers {
-		if marker.namePattern != nil {
-			matches := marker.namePattern.FindAllStringSubmatchIndex(content, -1)
-			for _, match := range matches {
-				name := strings.TrimSpace(content[match[2]:match[3]])
-				
-				// Extract args starting after the name match
-				argContent, found := extractBalancedJSON(content, match[1], marker.argStart, marker.argEnd)
-				if found {
-					repaired, err := jsonrepair.Repair(standardizeCustomMarkers(argContent))
-					if err == nil {
-						calls = append(calls, ToolCall{
-							ID:   fmt.Sprintf("call-%d", len(calls)),
-							Type: "function",
-							Function: FunctionCall{
-								Name:      name,
-								Arguments: repaired,
-							},
-						})
-					}
-				}
+	// 4. Priority 4: Try Custom String Markers (e.g. Gemma <|"|>)
+	if match := reCustomStringMarker.FindStringSubmatch(content); len(match) > 0 {
+		if _, tc, ok := parseJSONObject(match[1]); ok {
+			cleaned := reCustomStringMarker.ReplaceAllString(content, "")
+			return cleaned, tc, true
+		}
+	}
+
+	// 4b. Priority 4b: Generic "Name{Args}" Scanner (Agnostic Fallback)
+	// Handles: tool_name{"key": "value"} or call:tool_name{...}
+	// This is common for models that struggle with wrapping the name inside JSON.
+	nameIdx := strings.Index(content, "{")
+	if nameIdx != -1 {
+		// Look backwards from the first '{' to find the start of the tool name.
+		// We accept letters, numbers, underscores, dots, and colons (for 'call:').
+		start := nameIdx
+		for start > 0 {
+			char := content[start-1]
+			if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '.' || char == ':' {
+				start--
+			} else {
+				break
 			}
-		} else {
-			// Handle Wrapper tags like <tools>
-			startIdx := 0
-			for {
-				loc := strings.Index(content[startIdx:], marker.argStart)
-				if loc == -1 {
-					break
+		}
+		rawName := content[start:nameIdx]
+		// Clean name (remove "call:", ":", etc.)
+		toolName := strings.Trim(rawName, " :")
+		if strings.HasPrefix(toolName, "call:") {
+			toolName = toolName[5:]
+		}
+
+		// Extract balanced JSON starting at nameIdx
+		if argsStr, ok := extractBalancedJSON(content, nameIdx, "{", "}"); ok {
+			// Verify if it looks like a tool name (no weird characters and reasonable length)
+			if len(toolName) > 2 && len(toolName) < 64 {
+				// Standardize markers and repair JSON in arguments
+				repairedArgs := standardizeCustomMarkers(argsStr)
+				if repaired, err := jsonrepair.Repair(repairedArgs); err == nil {
+					repairedArgs = repaired
 				}
-				absStart := startIdx + loc
-				argContent, found := extractBalancedJSON(content, absStart, marker.argStart, marker.argEnd)
-				if found {
-					var wrapper struct {
-						Name      string          `json:"name"`
-						Arguments json.RawMessage `json:"arguments"`
-					}
-					repaired, err := jsonrepair.Repair(standardizeCustomMarkers(argContent))
-					if err == nil && json.Unmarshal([]byte(repaired), &wrapper) == nil && wrapper.Name != "" {
-						calls = append(calls, ToolCall{
-							ID:   fmt.Sprintf("wrap-%d", len(calls)),
-							Type: "function",
-							Function: FunctionCall{
-								Name:      wrapper.Name,
-								Arguments: string(wrapper.Arguments),
-							},
-						})
-					}
+
+				tc := ToolCall{
+					ID:   "agnostic-call",
+					Type: "function",
+					Function: FunctionCall{
+						Name:      toolName,
+						Arguments: repairedArgs,
+					},
 				}
-				startIdx = absStart + len(marker.argStart)
+				// Verify if it's a known tool or likely action
+				// (We are very lenient here to support agnostic discovery)
+				cleaned := strings.Replace(content, rawName, "", 1)
+				cleaned = strings.Replace(cleaned, argsStr, "", 1)
+				return cleaned, []ToolCall{tc}, true
 			}
 		}
 	}
 
-	// 3. Fallback: Raw JSON object (if no tags found)
-	if len(calls) == 0 {
-		trimmed := strings.TrimSpace(content)
-		if strings.HasPrefix(trimmed, "{") {
-			var rc map[string]json.RawMessage
-			repaired, err := jsonrepair.Repair(standardizeCustomMarkers(trimmed))
-			if err == nil && json.Unmarshal([]byte(repaired), &rc) == nil {
-				name := ""
-				if val, ok := rc["tool"]; ok {
-					json.Unmarshal(val, &name)
-				} else if val, ok := rc["function"]; ok {
-					json.Unmarshal(val, &name)
-				} else if val, ok := rc["name"]; ok {
-					json.Unmarshal(val, &name)
-				}
-
-				var args json.RawMessage
-				if val, ok := rc["args"]; ok {
-					args = val
-				} else if val, ok := rc["parameters"]; ok {
-					args = val
-				} else if val, ok := rc["arguments"]; ok {
-					args = val
-				}
-
-				if name != "" {
-					calls = append(calls, ToolCall{
-						ID:   "raw-0",
-						Type: "function",
-						Function: FunctionCall{
-							Name:      name,
-							Arguments: string(args),
-						},
-					})
-					return "", calls, true
-				}
-			}
+	// 5. Priority 5: Global Balanced JSON Scanner (The Ultimate Fallback)
+	// This searches the entire content for the first '{' and tries to extract a valid tool call.
+	// This handles models that ignore tags entirely and just output JSON mixed with text.
+	if jsonStr, ok := extractBalancedJSON(content, 0, "{", "}"); ok {
+		if _, tc, ok := parseJSONObject(jsonStr); ok {
+			cleaned := strings.Replace(content, jsonStr, "", 1)
+			return cleaned, tc, true
 		}
 	}
 
-	// 4. Cleanup: Only remove the specific substrings that were successfully parsed as tool calls.
-	// This ensures that if a tool call was malformed, the tags remain in the content for debugging.
-	cleaned := reThoughtTag.ReplaceAllString(content, "")
-	if len(calls) > 0 {
-		for _, marker := range tagMarkers {
-			if marker.namePattern != nil {
-				cleaned = marker.namePattern.ReplaceAllString(cleaned, "")
-			}
-			if marker.argStart != "" {
-				cleaned = strings.ReplaceAll(cleaned, marker.argStart, "")
-			}
-			if marker.argEnd != "" {
-				cleaned = strings.ReplaceAll(cleaned, marker.argEnd, "")
-			}
-		}
-		cleaned = reAnyXMLTag.ReplaceAllString(cleaned, "")
-	}
-	cleaned = strings.TrimSpace(cleaned)
+	// Cleanup and return
+	cleaned := strings.TrimSpace(content)
 
 	if len(calls) == 0 {
 		return content, nil, false
@@ -313,6 +309,50 @@ func parseJSONArray(input string) (string, []ToolCall, bool) {
 		if len(calls) > 0 {
 			return "", calls, true
 		}
+	}
+
+	return "", nil, false
+}
+// parseJSONObject extracts a single tool call from a JSON object string.
+func parseJSONObject(input string) (string, []ToolCall, bool) {
+	var rc map[string]json.RawMessage
+	repaired, err := jsonrepair.Repair(standardizeCustomMarkers(input))
+	if err != nil {
+		return "", nil, false
+	}
+	if err := json.Unmarshal([]byte(repaired), &rc); err != nil {
+		return "", nil, false
+	}
+
+	name := ""
+	if val, ok := rc["tool"]; ok {
+		json.Unmarshal(val, &name)
+	} else if val, ok := rc["function"]; ok {
+		json.Unmarshal(val, &name)
+	} else if val, ok := rc["name"]; ok {
+		json.Unmarshal(val, &name)
+	}
+
+	var args json.RawMessage
+	if val, ok := rc["args"]; ok {
+		args = val
+	} else if val, ok := rc["parameters"]; ok {
+		args = val
+	} else if val, ok := rc["arguments"]; ok {
+		args = val
+	}
+
+	if name != "" {
+		return "", []ToolCall{
+			{
+				ID:   "tc-0",
+				Type: "function",
+				Function: FunctionCall{
+					Name:      name,
+					Arguments: string(args),
+				},
+			},
+		}, true
 	}
 
 	return "", nil, false

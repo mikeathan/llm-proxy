@@ -56,39 +56,32 @@ func BuildToolManual(tools []ToolInfo) string {
 }
 
 // UnifiedToolManual defines the ONE canonical tool calling format.
-// This is intentionally strict: one format, concrete examples, no ambiguity.
 const UnifiedToolManual = `## TOOL INTERFACE
-You have access to technical tools. To use a tool, you MUST output a JSON array inside a markdown code block.
+You operate in a strict Reason -> Act -> Observe loop. 
+You must ALWAYS output your response in the following format:
 
-### Format
-` + "```" + `json
-[
-  {
-    "tool": "tool_name",
-    "args": { "arg_name": "value" }
-  }
-]
-` + "```" + `
+Thought: [Your detailed reasoning about what to do next based on observations]
+Action: <tool_call>{"name": "tool_name", "args": {"key": "value"}}</tool_call>
 
 ### Rules
-1. You can call multiple tools in one block. They will execute sequentially.
+1. You can call multiple tools in one block by repeating the <tool_call> tag.
 2. Use ONLY the tools listed below.
 3. If a tool fails, you will receive the error. Fix it in your next turn.
-4. When finished, call 'submit_task' with your final report.
+4. You are not finished until you successfully call the 'submit_final_answer' tool.
 
 ### Available Tools
 %s`
 
 // DefaultRules is the operational protocol injected into the system prompt.
-// It does NOT mention tool calling format — that lives in UnifiedToolManual.
 const DefaultRules = `You are an autonomous agent with access to tools. Your job is to complete the given task by using tools.
 
 RULES:
-1. Use tools to act. Do not describe what you would do — do it.
-2. Verify results. After each action, check the output before proceeding.
-3. Fix errors immediately. If a tool fails, analyze and retry.
-4. Do not assume. Check the workspace state with ls/cat before assuming files exist.
-5. Complete the task. When finished and verified, call submit_task with your report.
+1. ReAct Loop: You MUST use the Thought -> Action sequence.
+2. Use tools to act. Do not describe what you would do — do it via <tool_call>.
+3. Verify results. After each action, check the output before proceeding.
+4. Fix errors immediately. If a tool fails, analyze and retry.
+5. Complete the task. When finished and verified, call submit_final_answer. 
+   IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs).
 `
 
 // AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.
@@ -129,31 +122,25 @@ func IsAutomationTask(content string) bool {
 	return strings.Contains(content, AutomationMarker)
 }
 
+// AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
+const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You are repeating your reasoning without taking an action. " +
+	"You MUST either call a tool now using <tool_call> or call submit_final_answer if you are done. " +
+	"Do not repeat your reasoning; skip directly to the action."
+
 // AutomationNagPrompt is sent when a model outputs text without any tool calls.
-const AutomationNagPrompt = `You must use a tool to continue. Output your actions in a JSON markdown block:
+const AutomationNagPrompt = `SYSTEM ERROR: You stopped generating without taking an action or calling submit_final_answer. 
+You must use a tool to continue. Output your action in this EXACT format:
+Action: <tool_call>{"name": "tool_name", "args": {"key": "value"}}</tool_call>
 
-` + "```" + `json
-[
-  {
-    "tool": "execute_terminal_command",
-    "args": { "command": "your command here" }
-  }
-]
-` + "```" + `
+If you are done with the task, you MUST call:
+Action: <tool_call>{"name": "submit_final_answer", "args": {"summary": "..."}}</tool_call>`
 
-Or if you are finished:
-
-` + "```" + `json
-[
-  {
-    "tool": "submit_task",
-    "args": { "summary": "your markdown report" }
-  }
-]
-` + "```" + `
-`
-
-// AutomationJSONPlanPrompt is a fallback for models that cannot emit XML tool calls.
+// AutomationRejectedSubmissionPrompt is sent when a model tries to call submit_final_answer along with other tools.
+const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cannot be called in the same turn as other tools. " +
+	"Complete the task. You are not finished until you successfully call the 'submit_final_answer' tool. " +
+	"YOU MUST INCLUDE ALL REQUESTED OUTPUTS (Visualizations, Data, Results) IN THE SUMMARY. " +
+	"FAILURE TO PROVIDE THESE IN THE FINAL SUMMARY IS A TASK FAILURE. " +
+	"IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs)."
 // It asks the model to output its intended actions as a JSON array so the backend
 // can execute the plan directly without relying on XML parsing.
 const AutomationJSONPlanPrompt = `XML tool calling failed. Switch to JSON PLAN MODE.
@@ -161,21 +148,17 @@ Now output your full plan as a JSON array so the system can execute it.
 
 Output ONLY a JSON array. No text before or after. Each element must have "tool" and "args" fields.
 
-Available tools: execute_terminal_command, write_file, read_file, list_directory, submit_task
-
-Example:
-[
   {"tool": "execute_terminal_command", "args": {"command": "mkdir -p project/src"}},
   {"tool": "write_file", "args": {"path": "project/src/main.ts", "content": "console.log('hello')"}},
-  {"tool": "execute_terminal_command", "args": {"command": "node project/src/main.js"}}
+  {"tool": "execute_terminal_command", "args": {"command": "node project/src/main.js"}},
+  {"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
 ]`
 
 // AutomationTaskPrompt is the user-facing task message for autonomous agents.
-// It references the same tool format as UnifiedToolManual.
 const AutomationTaskPrompt = AutomationMarker + ` in workspace '%s'.
 Execute the instructions found in '%s':
 ---
 %s
 ---
 
-Use your tools to complete every step. Call submit_task when done.`
+Use your tools to complete every step. Call submit_final_answer when done.`

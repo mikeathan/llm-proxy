@@ -16,6 +16,8 @@ import (
 )
  
 const (
+	// MaxSteps is the maximum number of turns before the agent gives up.
+	MaxSteps = 30
 	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
 	AgentGlobalTimeout = 30 * time.Minute
 	// AgentTurnTimeout is the maximum time allowed for a single LLM turn.
@@ -47,7 +49,7 @@ type AgentOptions struct {
 // NewAgent creates a new unified agent.
 func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts AgentOptions) *Agent {
 	if opts.MaxSteps <= 0 {
-		opts.MaxSteps = 10
+		opts.MaxSteps = MaxSteps
 	}
 	if opts.Logger == nil {
 		opts.Logger = logging.NewNopLogger()
@@ -111,18 +113,24 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 			// Process tool calls within the turn context if they exist
 			if len(turnMsg.ToolCalls) > 0 {
-				// Loop detection
+				// 1. Loop & Duplicate Detection
 				for _, tc := range turnMsg.ToolCalls {
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
-					count := 0
-					for _, prev := range recentCalls {
-						if prev == key {
-							count++
-						}
+					
+					// Plan Directive: If it matches the EXACT previous call, do not execute.
+					if len(recentCalls) > 0 && recentCalls[len(recentCalls)-1] == key {
+						a.logger.Warn("duplicate action detected", "tool", key.name)
+						currentHistory = append(currentHistory, turnMsg)
+						a.notify(EventMessage, turnMsg)
+						
+						// Inject observation directly into history
+						currentHistory = append(currentHistory, proxy.Message{
+							Role:    proxy.UserRole,
+							Content: "SYSTEM WARNING: You just repeated an action. It is failing or stuck. Analyze the error and try a completely different approach.",
+						})
+						return nil // Continue the loop with the warning
 					}
-					if count >= 3 {
-						return fmt.Errorf("infinite loop detected: agent repeated tool call '%s'. User Intervention Required", key.name)
-					}
+
 					if len(recentCalls) >= 5 {
 						recentCalls = recentCalls[1:]
 					}
@@ -136,9 +144,9 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 					return err
 				}
 
-				// If the model called submit_task, we terminate the loop and return the summary
+				// Check for submission
 				for _, tc := range turnMsg.ToolCalls {
-					if tc.Function.Name == models.ToolSubmitTask {
+					if tc.Function.Name == models.ToolSubmitFinalAnswer {
 						turnMsg.Content = extractTaskSummary(tc.Function.Arguments)
 						return fmt.Errorf("TASK_SUBMITTED")
 					}
@@ -207,18 +215,39 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 				a.logger.Warn("automation model failed to output tool")
 
-				// 1. Discard the assistant's reasoning-only message.
-				if len(currentHistory) > 0 && currentHistory[len(currentHistory)-1].Role == proxy.AssistantRole {
-					currentHistory = currentHistory[:len(currentHistory)-1]
+				// 1. APPEND the reasoning turn to history so the model knows it already thought about it.
+				// But check for a duplicate reasoning loop first.
+				isDuplicate := false
+				if n := len(currentHistory); n >= 2 {
+					lastMsg := currentHistory[n-1]
+					// If last message was a nag and the one before was the SAME assistant content (fuzzy)
+					if lastMsg.Role == proxy.UserRole && strings.Contains(lastMsg.Content, "SYSTEM ERROR") {
+						prevAssistant := currentHistory[n-2]
+						if prevAssistant.Role == proxy.AssistantRole && isFuzzyDuplicate(prevAssistant.Content, turnMsg.Content) {
+							isDuplicate = true
+						}
+					}
 				}
 
-				// 2. Standard single nag — replace if already present.
-				if n := len(currentHistory); n > 0 && currentHistory[n-1].Role == proxy.UserRole && currentHistory[n-1].Content == prompts.AutomationNagPrompt {
-					// Already have nag at end — do nothing
+				if !isDuplicate {
+					if len(currentHistory) == 0 || currentHistory[len(currentHistory)-1].Content != turnMsg.Content {
+						currentHistory = append(currentHistory, turnMsg)
+						a.notify(EventMessage, turnMsg)
+					}
+				}
+
+				// 2. Standard single nag — replace if already present or escalate if duplicate
+				nagContent := prompts.AutomationNagPrompt
+				if isDuplicate {
+					nagContent = prompts.AutomationDuplicateNagPrompt
+				}
+
+				if n := len(currentHistory); n > 0 && currentHistory[n-1].Role == proxy.UserRole && strings.Contains(currentHistory[n-1].Content, "SYSTEM ERROR") {
+					currentHistory[n-1].Content = nagContent
 				} else {
 					currentHistory = append(currentHistory, proxy.Message{
 						Role:    proxy.UserRole,
-						Content: prompts.AutomationNagPrompt,
+						Content: nagContent,
 					})
 				}
 				continue
@@ -231,7 +260,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 			// 5. Soft Termination: allow one more turn to ensure model is truly done
 			// Check if we already have 2 consecutive chat messages with no tools.
-			// IMPORTANT: For automations, we ignore this and continue until submit_task or maxSteps.
+			// IMPORTANT: For automations, we ignore this and continue until submit_final_answer or maxSteps.
 			if isAutomation {
 				continue
 			}
@@ -428,9 +457,10 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 func (a *Agent) handleContentToolCalls(msg *proxy.Message) {
 	if msg.Content != "" {
-		if cleanedContent, calls, ok := proxy.ParseContentToolCalls(msg.Content); ok {
+		if _, calls, ok := proxy.ParseContentToolCalls(msg.Content); ok {
 			msg.ToolCalls = append(msg.ToolCalls, calls...)
-			msg.Content = cleanedContent
+			// Note: We no longer overwrite msg.Content with cleanedContent.
+			// This ensures the user can see the model's full reasoning and the tool tags in the UI.
 			a.logger.Debug("detected embedded tool calls in content", "count", len(calls))
 		}
 	}
@@ -475,11 +505,11 @@ func (a *Agent) countRetries(history []proxy.Message) int {
 func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
 	var mu sync.Mutex
 
-	// 1. Submission Isolation: If submit_task is called, it MUST be the only tool call.
+	// 1. Submission Isolation: If submit_final_answer is called, it MUST be the only tool call.
 	// This prevents "greedy batching" where a model submits success before seeing if previous tools failed.
 	hasSubmit := false
 	for _, tc := range msg.ToolCalls {
-		if tc.Function.Name == models.ToolSubmitTask {
+		if tc.Function.Name == models.ToolSubmitFinalAnswer {
 			hasSubmit = true
 			break
 		}
@@ -488,8 +518,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		a.logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
 		mu.Lock()
 		// We return a specialized error to the model asking it to separate the submission
-		errorMsg := "REJECTED: 'submit_task' cannot be called in the same turn as other tools. " +
-			"You MUST execute your actions first, read their results, and then call 'submit_task' in a separate turn to conclude."
+		errorMsg := prompts.AutomationRejectedSubmissionPrompt
 		// We append this result to all calls in the turn to be safe
 		for _, tc := range msg.ToolCalls {
 			a.appendToolResult(history, tc, map[string]string{"error": errorMsg})
@@ -541,8 +570,8 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			return nil
 		}
 
-		// 6. Check for early termination if submit_task was called
-		if tc.Function.Name == models.ToolSubmitTask {
+		// 6. Check for early termination if submit_final_answer was called
+		if tc.Function.Name == models.ToolSubmitFinalAnswer {
 			return nil
 		}
 	}
@@ -568,7 +597,7 @@ func formatGuardrailError(err error) map[string]string {
 	return map[string]string{"error": "Guardrail violation: " + err.Error()}
 }
 
-// extractTaskSummary dynamically pulls a human-readable summary from the submit_task arguments.
+// extractTaskSummary dynamically pulls a human-readable summary from the submit_final_answer arguments.
 func extractTaskSummary(rawArgs string) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
@@ -596,20 +625,16 @@ func extractTaskSummary(rawArgs string) string {
 // appendToolResult helper with memory-sensitive pruning
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
 	raw, _ := json.Marshal(result)
-	content := string(raw)
+	strContent := string(raw)
 
-	// If tool result is very large (e.g. > 16KB), truncate it to save memory and context tokens.
-	// Agents often don't need the full output of e.g. a huge directory listing or file read
-	// if they've already seen it or if it's too much to process at once.
-	const maxToolResultSize = 16384
-	if len(content) > maxToolResultSize {
-		a.logger.Info("truncating large tool result for history", "name", tc.Function.Name, "original_size", len(content))
-		content = fmt.Sprintf("%s\n\n... (result truncated for memory efficiency. Total size: %d bytes)", content[:maxToolResultSize], len(content))
+	// Proactively truncate large tool results (e.g. > 4KB) to protect context and state file size.
+	if len(strContent) > 4096 {
+		strContent = strContent[:4096] + "... [result truncated by agent for context safety]"
 	}
 
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
-		Content:    content,
+		Content:    strContent,
 		ToolCallID: tc.ID,
 	})
 }
@@ -628,6 +653,46 @@ func isToolSupportError(err error) bool {
 // prepareMessages adapts history for the LLM request using unified normalization rules.
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
 	return proxy.NormalizeHistory(history, a.provider.UseNativeTools())
+}
+
+// isFuzzyDuplicate returns true if s1 and s2 are highly similar,
+// indicating the model is repeating itself with slight variations.
+func isFuzzyDuplicate(s1, s2 string) bool {
+	if s1 == s2 {
+		return true
+	}
+	// Simple length-based and prefix-based fuzzy check
+	// If the strings are almost the same length and share a significant prefix
+	if len(s1) == 0 || len(s2) == 0 {
+		return false
+	}
+	
+	// Check if one is a prefix of the other (common in looping reasoning)
+	if strings.HasPrefix(s1, s2) || strings.HasPrefix(s2, s1) {
+		return true
+	}
+
+	// Calculate word overlap
+	w1 := strings.Fields(s1)
+	w2 := strings.Fields(s2)
+	if len(w1) == 0 || len(w2) == 0 {
+		return false
+	}
+
+	matchCount := 0
+	wordMap := make(map[string]bool)
+	for _, w := range w1 {
+		wordMap[w] = true
+	}
+	for _, w := range w2 {
+		if wordMap[w] {
+			matchCount++
+		}
+	}
+
+	// If more than 70% of words overlap, consider it a duplicate
+	overlap := float64(matchCount) / float64(len(w1))
+	return overlap > 0.7
 }
 
 // injectToolInstructions prepends tool definitions to the first system message.

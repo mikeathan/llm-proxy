@@ -10,3 +10,7 @@
 - **Network Access**: All network interaction is mediated through `NetworkTools` (see `/tools/network.go`). Raw I/O is prohibited.
 - **Binary Metadata**: Extraction from GGUF files must use authorized parsing libraries. No filename-based regex extraction.
 - **Context Handling**: `context.Context` is mandatory for all async/io operations.
+
+## Prompting & Protocol
+- **Single Source of Truth**: All systemic prompts, nag messages, and protocol instructions MUST be centralized in `internal/core/assistant/prompts/templates.go`. Hardcoded prompt strings in logic files are prohibited.
+- **Agnostic Standard**: All tool calling must adhere to the `<tool_call>` standard defined in `templates.go`. Do not implement provider-specific tool calling logic.

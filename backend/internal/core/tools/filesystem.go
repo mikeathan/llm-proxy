@@ -151,7 +151,7 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 	if err != nil {
 		return "", err
 	}
-	return string(content), nil
+	return TruncateResult(string(content)), nil
 }
 
 func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content string) error {

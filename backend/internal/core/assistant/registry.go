@@ -335,12 +335,20 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 	})
 }
 func (r *LocalToolRegistry) registerSystemTools() {
-	registerTool(r, models.CategorySystem, models.ToolSubmitTask, func(ctx context.Context, args struct {
+	registerTool(r, models.CategorySystem, models.ToolSubmitFinalAnswer, func(ctx context.Context, args struct {
 		Summary string `json:"summary"`
 	}) (any, error) {
 		// This tool is primarily a marker for the Agent loop.
 		// Returning the summary back as the 'result' so it can be seen in history,
 		// but the loop will detect the call name and terminate.
 		return "Task submitted successfully.", nil
+	})
+
+	registerTool(r, models.CategorySystem, models.ToolSystemError, func(ctx context.Context, args struct {
+		Error string `json:"error"`
+	}) (any, error) {
+		// This tool allows the system to send error feedback back to the agent
+		// as a tool result when it makes a mistake in its tool-calling format.
+		return fmt.Sprintf("SYSTEM ERROR: %s", args.Error), nil
 	})
 }

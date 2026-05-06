@@ -120,7 +120,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	var capturedEvents []any
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
 		Logger:      procLog,
-		MaxSteps:    20,
+		MaxSteps:    assistant.MaxSteps,
 		Guardrails:  e.svc.GuardrailEngine(),
 		WorkspaceID: req.WorkspaceID,
 		Observer: func(ev assistant.AgentEvent) {
@@ -210,6 +210,9 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		return
 	}
 
+	// Prune events to prevent state.json bloat (105MB issue)
+	prunedEvents := pruneEvents(events)
+
 	run := models.AutomationRun{
 		ID:             generateRunID(),
 		WorkspaceID:    req.WorkspaceID,
@@ -219,13 +222,13 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		Error:          errStr,
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
-		Events:         events,
+		Events:         prunedEvents,
 	}
 
 	// Add to full history (capped to last 50 for performance)
 	state.History = append(state.History, run)
-	if len(state.History) > 50 {
-		state.History = state.History[len(state.History)-50:]
+	if len(state.History) > 30 { // Reduced from 50 to 30 for extra safety
+		state.History = state.History[len(state.History)-30:]
 	}
 
 	// Update per-automation latest run
@@ -264,4 +267,33 @@ func ApplyPulseLogic(resp *ExecuteResponse) {
 		resp.Output = ""
 		resp.State.LastPulse = time.Now()
 	}
+}
+
+// pruneEvents strips heavy payloads from the event history before persistence.
+func pruneEvents(events []any) []any {
+	if len(events) == 0 {
+		return events
+	}
+	pruned := make([]any, 0, len(events))
+	for _, ev := range events {
+		// We only keep a lightweight version of events for history.
+		// Detailed payloads (like file contents) are truncated.
+		switch v := ev.(type) {
+		case assistant.AgentEvent:
+			if v.Type == assistant.EventMessage {
+				msg, ok := v.Payload.(proxy.Message)
+				if ok {
+					// Truncate message content to 1KB for history
+					if len(msg.Content) > 1024 {
+						msg.Content = msg.Content[:1024] + "... [truncated for history]"
+					}
+					v.Payload = msg
+				}
+			}
+			pruned = append(pruned, v)
+		default:
+			pruned = append(pruned, ev)
+		}
+	}
+	return pruned
 }

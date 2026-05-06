@@ -17,10 +17,15 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	prepared := make([]Message, 0, len(history))
 	for _, msg := range history {
 		newMsg := msg
-		// Compatibility: Map 'tool' role to 'user' for models that don't support native tool calls.
-		if !useNativeTools && msg.Role == ToolRole {
-			newMsg.Role = UserRole
-			newMsg.Content = fmt.Sprintf("### Tool Output (%s):\n%s", msg.ToolCallID, msg.Content)
+		// Compatibility: Strip native tool call fields if the model doesn't support them.
+		// Many local LLM servers (Ollama, vLLM) crash with a 500 error if they see
+		// tool_calls in the history when native tools are disabled or malformed.
+		if !useNativeTools {
+			newMsg.ToolCalls = nil
+			if msg.Role == ToolRole {
+				newMsg.Role = UserRole
+				newMsg.Content = fmt.Sprintf("### Tool Output (%s):\n%s", msg.ToolCallID, msg.Content)
+			}
 		}
 		prepared = append(prepared, newMsg)
 	}
@@ -71,6 +76,30 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 			Role:    UserRole,
 			Content: "Continue.",
 		})
+	}
+
+	// 4. Sliding Window: Preserve system prompt + last 12 turns (max 25 messages)
+	// This protects against context window exhaustion while allowing enough context for complex tasks.
+	if len(merged) > 25 {
+		systemMsg := Message{}
+		hasSystem := false
+		if merged[0].Role == SystemRole {
+			systemMsg = merged[0]
+			hasSystem = true
+		}
+
+		// Keep only the last 24 messages (approx 12 turns)
+		newMerged := make([]Message, 0, 25)
+		if hasSystem {
+			newMerged = append(newMerged, systemMsg)
+		}
+		
+		startIndex := len(merged) - 24
+		if startIndex < 1 {
+			startIndex = 1
+		}
+		newMerged = append(newMerged, merged[startIndex:]...)
+		merged = newMerged
 	}
 
 	return merged

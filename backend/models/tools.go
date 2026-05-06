@@ -25,7 +25,8 @@ const (
 	ToolApplyGuardrails = "security_guardrails"
 
 	// System
-	ToolSubmitTask = "submit_task"
+	ToolSubmitFinalAnswer = "submit_final_answer"
+	ToolSystemError       = "system_error"
 )
 
 // Tool Categories
