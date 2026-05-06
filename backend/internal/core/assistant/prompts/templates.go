@@ -58,16 +58,24 @@ func BuildToolManual(tools []ToolInfo) string {
 // UnifiedToolManual defines the ONE canonical tool calling format.
 const UnifiedToolManual = `## TOOL INTERFACE
 You operate in a strict Reason -> Act -> Observe loop. 
-You must ALWAYS output your response in the following format:
+You must ALWAYS output your response in the following exact format. Do not invent custom tags.
 
-Thought: [Your detailed reasoning about what to do next based on observations]
-Action: <tool_call>{"name": "tool_name", "args": {"key": "value"}}</tool_call>
+Thought: [Your step-by-step reasoning about what to do next]
+Action:
+` + "```json" + `
+{
+  "tool": "tool_name",
+  "args": {
+    "key": "value"
+  }
+}
+` + "```" + `
 
 ### Rules
-1. You can call multiple tools in one block by repeating the <tool_call> tag.
+1. You can call ONLY ONE tool per turn.
 2. Use ONLY the tools listed below.
 3. If a tool fails, you will receive the error. Fix it in your next turn.
-4. You are not finished until you successfully call the 'submit_final_answer' tool.
+4. You are not finished until you successfully call the 'submit_final_answer' tool. If you have completed the task, provide your final summary inside this tool call.
 
 ### Available Tools
 %s`
@@ -77,10 +85,10 @@ const DefaultRules = `You are an autonomous agent with access to tools. Your job
 
 RULES:
 1. ReAct Loop: You MUST use the Thought -> Action sequence.
-2. Use tools to act. Do not describe what you would do — do it via <tool_call>.
+2. Use tools to act. Do not describe what you would do — do it via the Action block.
 3. Verify results. After each action, check the output before proceeding.
 4. Fix errors immediately. If a tool fails, analyze and retry.
-5. Complete the task. When finished and verified, call submit_final_answer. 
+5. Complete the task. When finished and verified, you MUST call submit_final_answer. 
    IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs).
 `
 
@@ -124,16 +132,11 @@ func IsAutomationTask(content string) bool {
 
 // AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
 const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You are repeating your reasoning without taking an action. " +
-	"You MUST either call a tool now using <tool_call> or call submit_final_answer if you are done. " +
+	"You MUST either call a tool now using a Markdown JSON Action block or call submit_final_answer if you are done. " +
 	"Do not repeat your reasoning; skip directly to the action."
 
 // AutomationNagPrompt is sent when a model outputs text without any tool calls.
-const AutomationNagPrompt = `SYSTEM ERROR: You stopped generating without taking an action or calling submit_final_answer. 
-You must use a tool to continue. Output your action in this EXACT format:
-Action: <tool_call>{"name": "tool_name", "args": {"key": "value"}}</tool_call>
-
-If you are done with the task, you MUST call:
-Action: <tool_call>{"name": "submit_final_answer", "args": {"summary": "..."}}</tool_call>`
+const AutomationNagPrompt = "SYSTEM ERROR: Generation stopped without an action. Continue reasoning or use submit_final_answer if done."
 
 // AutomationRejectedSubmissionPrompt is sent when a model tries to call submit_final_answer along with other tools.
 const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cannot be called in the same turn as other tools. " +

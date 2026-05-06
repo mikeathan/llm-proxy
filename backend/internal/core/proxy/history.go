@@ -78,9 +78,9 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		})
 	}
 
-	// 4. Sliding Window: Preserve system prompt + last 12 turns (max 25 messages)
-	// This protects against context window exhaustion while allowing enough context for complex tasks.
-	if len(merged) > 25 {
+	// 4. Sliding Window: Preserve system prompt + last 50 messages (approx 24 turns)
+	// Open Claw v2: Protects against context window exhaustion.
+	if len(merged) > 51 {
 		systemMsg := Message{}
 		hasSystem := false
 		if merged[0].Role == SystemRole {
@@ -88,13 +88,13 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 			hasSystem = true
 		}
 
-		// Keep only the last 24 messages (approx 12 turns)
-		newMerged := make([]Message, 0, 25)
+		// Keep only the last 50 messages
+		newMerged := make([]Message, 0, 51)
 		if hasSystem {
 			newMerged = append(newMerged, systemMsg)
 		}
 		
-		startIndex := len(merged) - 24
+		startIndex := len(merged) - 50
 		if startIndex < 1 {
 			startIndex = 1
 		}

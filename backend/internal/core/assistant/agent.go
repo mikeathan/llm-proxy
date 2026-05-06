@@ -17,7 +17,7 @@ import (
  
 const (
 	// MaxSteps is the maximum number of turns before the agent gives up.
-	MaxSteps = 30
+	MaxSteps = 15
 	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
 	AgentGlobalTimeout = 30 * time.Minute
 	// AgentTurnTimeout is the maximum time allowed for a single LLM turn.
@@ -81,7 +81,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	currentHistory := append([]proxy.Message{}, history...)
 
 	type toolKey struct{ name, args string }
-	recentCalls := make([]toolKey, 0, 5)
+	recentCalls := make([]toolKey, 0, 3)
 
 	for steps < a.maxSteps {
 		steps++
@@ -116,25 +116,28 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				// 1. Loop & Duplicate Detection
 				for _, tc := range turnMsg.ToolCalls {
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
-					
-					// Plan Directive: If it matches the EXACT previous call, do not execute.
-					if len(recentCalls) > 0 && recentCalls[len(recentCalls)-1] == key {
-						a.logger.Warn("duplicate action detected", "tool", key.name)
-						currentHistory = append(currentHistory, turnMsg)
-						a.notify(EventMessage, turnMsg)
-						
-						// Inject observation directly into history
-						currentHistory = append(currentHistory, proxy.Message{
-							Role:    proxy.UserRole,
-							Content: "SYSTEM WARNING: You just repeated an action. It is failing or stuck. Analyze the error and try a completely different approach.",
-						})
-						return nil // Continue the loop with the warning
-					}
 
-					if len(recentCalls) >= 5 {
-						recentCalls = recentCalls[1:]
+					// Open Claw v2 Phase 4: If it matches the EXACT previous call, do not execute.
+					// EXCEPTION: Always allow submit_final_answer and system_error to repeat to avoid meta-loops.
+					if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
+						if len(recentCalls) > 0 && recentCalls[len(recentCalls)-1] == key {
+							a.logger.Warn("duplicate action detected", "tool", key.name)
+							currentHistory = append(currentHistory, turnMsg)
+							a.notify(EventMessage, turnMsg)
+							
+							// Inject observation directly into history
+							currentHistory = append(currentHistory, proxy.Message{
+								Role:    proxy.UserRole,
+								Content: "SYSTEM WARNING: You just repeated an action with the exact same arguments. It did not progress the task or produced an error. Analyze the problem and try a completely different approach or tool.",
+							})
+							return nil // Continue the loop with the warning
+						}
+
+						if len(recentCalls) >= 3 {
+							recentCalls = recentCalls[1:]
+						}
+						recentCalls = append(recentCalls, key)
 					}
-					recentCalls = append(recentCalls, key)
 				}
 
 				currentHistory = append(currentHistory, turnMsg)
@@ -538,7 +541,17 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 
 		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
 
-		// 2. Validate against guardrails
+		// 2. Generic Schema Validation
+		toolsList, _ := a.provider.ListTools(ctx)
+		if err := validateToolArgs(tc, toolsList); err != nil {
+			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
+			mu.Lock()
+			a.appendToolResult(history, tc, map[string]string{"error": fmt.Sprintf("INVALID ARGUMENTS: %v", err)})
+			mu.Unlock()
+			return nil
+		}
+
+		// 3. Validate against guardrails
 		if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
 			a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 			a.notifyGuardrailViolation(tc.Function.Name, err)
@@ -601,7 +614,7 @@ func formatGuardrailError(err error) map[string]string {
 func extractTaskSummary(rawArgs string) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
-		return "Task complete. Summary: " + rawArgs
+		return "Task complete."
 	}
 
 	// 1. Try known keys first for precision
@@ -618,8 +631,67 @@ func extractTaskSummary(rawArgs string) string {
 		}
 	}
 
-	// 3. Absolute Fallback: Just return the raw JSON
-	return "Task complete. Summary: " + rawArgs
+	return "Task complete."
+}
+
+func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
+	var targetTool *proxy.Tool
+	for _, t := range tools {
+		if t.Function.Name == tc.Function.Name {
+			targetTool = &t
+			break
+		}
+	}
+	if targetTool == nil {
+		return fmt.Errorf("tool '%s' not found", tc.Function.Name)
+	}
+
+	// Parse parameters
+	params, ok := targetTool.Function.Parameters.(map[string]any)
+	if !ok {
+		return nil // No parameters to validate
+	}
+
+	requiredRaw, ok := params["required"]
+	if !ok {
+		return nil // No required fields
+	}
+
+	var required []string
+	switch r := requiredRaw.(type) {
+	case []any:
+		for _, v := range r {
+			if s, ok := v.(string); ok {
+				required = append(required, s)
+			}
+		}
+	case []string:
+		required = r
+	}
+
+	if len(required) == 0 {
+		return nil
+	}
+
+	// Parse arguments
+	var args map[string]any
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		return fmt.Errorf("failed to parse arguments as JSON: %w", err)
+	}
+
+	for _, field := range required {
+		val, ok := args[field]
+		if !ok {
+			return fmt.Errorf("missing required parameter '%s'", field)
+		}
+		
+		// String fields shouldn't be empty
+		if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
+			return fmt.Errorf("parameter '%s' cannot be empty", field)
+		}
+	}
+
+	return nil
 }
 
 // appendToolResult helper with memory-sensitive pruning
@@ -627,10 +699,8 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 	raw, _ := json.Marshal(result)
 	strContent := string(raw)
 
-	// Proactively truncate large tool results (e.g. > 4KB) to protect context and state file size.
-	if len(strContent) > 4096 {
-		strContent = strContent[:4096] + "... [result truncated by agent for context safety]"
-	}
+	// Open Claw v2: Proactively truncate large tool results to protect context window.
+	strContent = proxy.TruncateResult(strContent)
 
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,

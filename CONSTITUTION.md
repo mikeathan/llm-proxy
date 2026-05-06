@@ -12,10 +12,11 @@ This document defines the immutable architectural and security laws of the Antig
 
 ## II. Resource Management (The Bounded Deck)
 
-1.  **Sequential Execution**: To prevent race conditions and ensure state integrity (e.g., ensuring a directory exists before writing to it), all agentic tool calls within a single turn MUST be executed sequentially by default.
-    *   Concurrent execution is prohibited for state-modifying tools (Terminal, FileSystem). Independent operations may be parallelized only if they adhere to a strict **Semaphore** (currently capped at 10) to prevent host resource exhaustion.
+1.  **Single Tool Execution**: To prevent race conditions and ensure deterministic state transitions, all agentic turns MUST result in at most ONE tool execution. 
+    *   The system uses a strict Thought -> Action -> Observation loop. Batching multiple tool calls in a single turn is prohibited to ensure the model observes the result of each action before proceeding.
 2.  **Lifecycle Tethering**: No background process (Dispatcher, MCP Client, Watcher) shall be started with `context.Background()`. All long-running processes must be tethered to a cancellable context derived from the application's root lifecycle.
 3.  **Sandbox Isolation**: All execution of untrusted code (scripts, binaries, WASM) must occur within the verified `Sandboxing` subsystem. No raw `os/exec` calls are allowed for agent-triggered work. Terminal execution must utilize a persistent shell session to maintain state (CWD, environment) throughout the agent's task lifecycle. **Environment variables passed from the host to the sandbox must be strictly filtered using an explicit Allowlist (defined via `terminal.json` overrides) to prevent secret leakage.**
+4.  **Pure Text Interface (Open Claw)**: The agent loop must operate as a pure text-in/text-out interface. Native tool schemas (OpenAI/Gemini `tools` arrays) must NEVER be passed to the LLM engine to prevent provider-specific validation crashes and token bleed. Tool definitions must be injected directly into the system prompt as text.
 
 ## III. Data & Metadata (The High-Fidelity Rule)
 

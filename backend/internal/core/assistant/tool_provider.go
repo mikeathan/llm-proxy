@@ -54,14 +54,9 @@ func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
 }
 
 func (p *MultiToolProvider) UseNativeTools() bool {
-	// If any provider says we shouldn't use native tools, we fallback to prompt-only.
-	// This is a safety measure for mixed environments.
-	for _, provider := range p.Providers {
-		if !provider.UseNativeTools() {
-			return false
-		}
-	}
-	return true
+	// Open Claw v2: Always return false to force prompt-based tool calling.
+	// This ensures the LLM engine never sees the native 'tools' schema.
+	return false
 }
 
 // CompositeEngine delegates tool execution to either a primary (builtin) or secondary (mcp) engine.

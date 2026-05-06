@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"llm-proxy/internal/core/proxy"
+
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 )
@@ -140,7 +142,7 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 		result += "\n... (content truncated by network guardrails)"
 	}
 
-	return TruncateResult(result), nil
+	return proxy.TruncateResult(result), nil
 }
 
 // resolveAndQueueTargets handles the expansion and validation of comma-separated targets.

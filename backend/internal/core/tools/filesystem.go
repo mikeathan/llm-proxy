@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
+	"llm-proxy/internal/core/proxy"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,7 +152,7 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 	if err != nil {
 		return "", err
 	}
-	return TruncateResult(string(content)), nil
+	return proxy.TruncateResult(string(content)), nil
 }
 
 func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content string) error {
