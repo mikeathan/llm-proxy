@@ -77,71 +77,100 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 			Content: "Continue.",
 		})
 	}
+	
+	return NormalizeContextSieve(merged, 15000)
+}
 
-	// 4. Dynamic Context Sieve: Token-Budgeted Middle-Pruning (approx 16,000 characters)
-	// Open Claw v3: Protects against context size exceeded errors while preserving the goal and state.
-	const charBudget = 16000
+// NormalizeContextSieve applies the token-budgeted middle-pruning logic.
+// Open Claw v3: Protects against context size exceeded errors while preserving the goal and state.
+func NormalizeContextSieve(history []Message, budget int) []Message {
 	totalChars := 0
-	for _, msg := range merged {
+	for _, msg := range history {
 		totalChars += len(msg.Content)
 	}
 
-	if totalChars > charBudget && len(merged) > 8 {
-		systemMsg := Message{}
-		hasSystem := false
-		if merged[0].Role == SystemRole {
-			systemMsg = merged[0]
-			hasSystem = true
-		}
-
-		// Keep the first user message (the Task/Goal)
-		firstUserIdx := -1
-		for i, msg := range merged {
-			if msg.Role == UserRole {
-				firstUserIdx = i
-				break
-			}
-		}
-
-		// Keep the Priority Tail (last 3 turns / 6 messages)
-		tailCount := 6
-		if len(merged) < 8 {
-			tailCount = len(merged) - 2 // Safety
-		}
-		startIndex := len(merged) - tailCount
-		
-		newMerged := make([]Message, 0)
-		if hasSystem {
-			newMerged = append(newMerged, systemMsg)
-		}
-		if firstUserIdx != -1 && firstUserIdx != 0 {
-			newMerged = append(newMerged, merged[firstUserIdx])
-		}
-
-		// Add distillation marker
-		newMerged = append(newMerged, Message{
-			Role:    SystemRole,
-			Content: "[System: (Earlier steps omitted for space preservation. Current project state is maintained.)]",
-		})
-
-		newMerged = append(newMerged, merged[startIndex:]...)
-		merged = newMerged
+	if totalChars <= budget || len(history) < 8 {
+		return SanitizeHistory(history)
 	}
 
-	return SanitizeHistory(merged)
+	systemMsg := Message{}
+	hasSystem := false
+	if history[0].Role == SystemRole {
+		systemMsg = history[0]
+		hasSystem = true
+	}
+
+	// Keep the first user message (the Task/Goal)
+	firstUserIdx := -1
+	for i, msg := range history {
+		if msg.Role == UserRole {
+			firstUserIdx = i
+			break
+		}
+	}
+
+	// Keep the Priority Tail (starting with 6 messages / 3 turns)
+	tailCount := 6
+	markerMsg := Message{
+		Role:    SystemRole,
+		Content: "[System: (Earlier history distilled for context space preservation. Tasks completed: (omitted))]",
+	}
+
+	// Iteratively reduce tail if still over budget (min 2 messages)
+	for tailCount > 2 {
+		currentTotal := len(systemMsg.Content) + len(markerMsg.Content)
+		if firstUserIdx != -1 && firstUserIdx != 0 {
+			currentTotal += len(history[firstUserIdx].Content)
+		}
+		
+		startIndex := len(history) - tailCount
+		for _, m := range history[startIndex:] {
+			currentTotal += len(m.Content)
+		}
+
+		if currentTotal <= budget {
+			break
+		}
+		tailCount--
+	}
+
+	startIndex := len(history) - tailCount
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	newMerged := make([]Message, 0)
+	if hasSystem {
+		newMerged = append(newMerged, systemMsg)
+	}
+	if firstUserIdx != -1 && firstUserIdx != 0 {
+		newMerged = append(newMerged, history[firstUserIdx])
+	}
+
+	newMerged = append(newMerged, markerMsg)
+	newMerged = append(newMerged, history[startIndex:]...)
+	
+	return SanitizeHistory(newMerged)
 }
 
-// SanitizeHistory strips non-essential metadata from messages before sending to LLM.
-// Open Claw v3 Phase 1: Overhead reduction.
+// SanitizeHistory strips non-essential fields to minimize context overhead.
+// Open Claw v3: Strict Token-Only Normalization.
 func SanitizeHistory(history []Message) []Message {
 	sanitized := make([]Message, len(history))
 	for i, msg := range history {
 		sanitized[i] = Message{
 			Role:    msg.Role,
 			Content: msg.Content,
-			// Keep ToolCalls only if it's an assistant message and we are in a turn
-			ToolCalls: msg.ToolCalls,
+			// ONLY include ToolCalls for the very last assistant message if relevant, 
+			// otherwise strip them to save space.
+			ToolCalls: nil,
 		}
+		if msg.Role == AssistantRole && i == len(history)-1 {
+			sanitized[i].ToolCalls = msg.ToolCalls
+		}
+		// For tool messages, we MUST keep ToolCallID for internal validation if the model needs it,
+		// but since we are doing text-only, we usually don't need it in the prompt.
+		// However, keeping Role and Content is the core requirement.
 	}
 	return sanitized
 }
+

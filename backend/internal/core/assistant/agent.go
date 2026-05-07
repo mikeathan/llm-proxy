@@ -102,16 +102,21 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				return fmt.Errorf("failed to list tools: %w", err)
 			}
 
-			// Open Claw v3 Phase 4: Token Pressure Injection
+			// Open Claw v3 Phase 4: Token Pressure Injection & Sieve Activation
 			totalChars := 0
 			for _, m := range currentHistory {
 				totalChars += len(m.Content)
 			}
-			if totalChars > 14000 { // 85% of 16,000 budget
-				a.logger.Warn("critical context pressure detected", "chars", totalChars)
+			
+			// Hard enforcement of context budget via Sieve
+			if totalChars > 15000 {
+				a.logger.Warn("critical context pressure - activating sieve", "chars", totalChars)
+				currentHistory = proxy.NormalizeContextSieve(currentHistory, 15000)
+				
+				// Re-inject pressure warning after sieve to ensure model finalizes
 				currentHistory = append(currentHistory, proxy.Message{
 					Role:    proxy.UserRole,
-					Content: "SYSTEM: CRITICAL - Context window is almost full. You must complete your task and call submit_final_answer in your next response.",
+					Content: "SYSTEM: CRITICAL - Context window limit reached. History has been distilled. You MUST complete your task and call submit_final_answer NOW.",
 				})
 			}
 

@@ -10,56 +10,166 @@ import (
 var jsonBlockRegex = regexp.MustCompile("(?is)```json\\s*(.*?)\\s*```")
 var plainBlockRegex = regexp.MustCompile("(?is)```\\s*({.*?})\\s*```")
 
-// ParseContentToolCalls extracts a tool call from Markdown JSON blocks.
-// Open Claw v2: Pure text-in/text-out interface using standard Markdown code blocks.
+// ParseContentToolCalls extracts tool calls from Markdown JSON blocks.
+// Open Claw v3: Production-grade robustness handling multiple calls, escaped quotes, and case-insensitivity.
 func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
-	match := jsonBlockRegex.FindStringSubmatch(content)
-	if len(match) < 2 {
-		// Fallback to plain markdown block if it looks like JSON
-		match = plainBlockRegex.FindStringSubmatch(content)
-		if len(match) < 2 {
-			return content, nil, false
+	var allCalls []ToolCall
+	var cleanedParts []string
+	workingContent := content
+	lastPos := 0
+	offset := 0
+
+	for {
+		// 1. Find the start of the JSON block (Case-Insensitive)
+		lowerContent := strings.ToLower(workingContent)
+		marker := "```json"
+		startIdx := strings.Index(lowerContent, marker)
+		if startIdx == -1 {
+			marker = "```"
+			startIdx = strings.Index(lowerContent, marker)
+			if startIdx == -1 {
+				break
+			}
+		}
+
+		// 2. Find the first '{' after the marker
+		jsonStart := strings.Index(workingContent[startIdx+len(marker):], "{")
+		if jsonStart == -1 {
+			// Skip this block and continue searching
+			workingContent = workingContent[startIdx+len(marker):]
+			offset += startIdx + len(marker)
+			continue
+		}
+		jsonStart += startIdx + len(marker)
+
+		// 3. Find the matching '}' with escape-aware balanced-brace counting
+		braceCount := 0
+		inString := false
+		jsonEnd := -1
+		
+		for i := jsonStart; i < len(workingContent); i++ {
+			char := workingContent[i]
+			
+			// Escape-aware string detection
+			if char == '"' {
+				backslashes := 0
+				for j := i - 1; j >= 0; j-- { // Scan backwards in workingContent
+					if workingContent[j] == '\\' {
+						backslashes++
+					} else {
+						break
+					}
+				}
+				if backslashes%2 == 0 {
+					inString = !inString
+				}
+			}
+
+			if !inString {
+				if char == '{' {
+					braceCount++
+				} else if char == '}' {
+					braceCount--
+					if braceCount == 0 {
+						jsonEnd = i + 1
+						break
+					}
+				}
+			}
+		}
+
+		// 4. Greedy Fallback: Handle mid-generation cutoffs
+		if jsonEnd == -1 && braceCount > 0 {
+			jsonStr := strings.TrimSpace(workingContent[jsonStart:])
+			if inString {
+				jsonStr += "\""
+			}
+			for braceCount > 0 {
+				jsonStr += "}"
+				braceCount--
+			}
+			
+			var call struct {
+				Tool string          `json:"tool"`
+				Args json.RawMessage `json:"args"`
+			}
+			if err := json.Unmarshal([]byte(jsonStr), &call); err == nil && call.Tool != "" {
+				allCalls = append(allCalls, ToolCall{
+					ID:   fmt.Sprintf("tc-cutoff-%d", len(allCalls)),
+					Type: "function",
+					Function: FunctionCall{
+						Name:      call.Tool,
+						Arguments: string(call.Args),
+					},
+				})
+				// Collect text before the block and stop (it was cut off)
+				cleanedParts = append(cleanedParts, content[lastPos:offset+startIdx])
+				lastPos = len(content) // Skip everything else
+				break
+			}
+		}
+
+		if jsonEnd == -1 {
+			workingContent = workingContent[startIdx+len(marker):]
+			offset += startIdx + len(marker)
+			continue
+		}
+
+		jsonStr := workingContent[jsonStart:jsonEnd]
+		
+		// 5. Find the closing backticks
+		fullMatchEnd := jsonEnd
+		if idx := strings.Index(workingContent[jsonEnd:], "```"); idx != -1 {
+			fullMatchEnd = jsonEnd + idx + 3
+		}
+
+		// 6. Parse and Collect
+		var call struct {
+			Tool string          `json:"tool"`
+			Args json.RawMessage `json:"args"`
+		}
+
+		if err := json.Unmarshal([]byte(jsonStr), &call); err == nil && call.Tool != "" {
+			allCalls = append(allCalls, ToolCall{
+				ID:   fmt.Sprintf("tc-%d", len(allCalls)),
+				Type: "function",
+				Function: FunctionCall{
+					Name:      call.Tool,
+					Arguments: string(call.Args),
+				},
+			})
+			
+			// Collector Pattern: Collect text BEFORE the block
+			cleanedParts = append(cleanedParts, content[lastPos:offset+startIdx])
+			lastPos = offset + fullMatchEnd
+		} else if err != nil && len(allCalls) == 0 {
+			errorCall := ToolCall{
+				ID:   "parse-error",
+				Type: "function",
+				Function: FunctionCall{
+					Name: "system_error",
+					Arguments: fmt.Sprintf(`{"error": "SYSTEM ERROR: Malformed action format. Error: %v"}`, err),
+				},
+			}
+			return content, []ToolCall{errorCall}, true
+		}
+
+		// Move to the next part
+		workingContent = workingContent[fullMatchEnd:]
+		offset += fullMatchEnd
+		if len(workingContent) < 10 {
+			break
 		}
 	}
 
-	jsonStr := strings.TrimSpace(match[1])
-	fullMatch := match[0]
-	startIdx := strings.Index(content, fullMatch)
-
-	// 4. Run standard Go json.Unmarshal
-	var call struct {
-		Tool string          `json:"tool"`
-		Args json.RawMessage `json:"args"`
-	}
-
-	if err := json.Unmarshal([]byte(jsonStr), &call); err != nil {
-		// Open Claw v2 Phase 4: Return a structured error string to the loop
-		errorCall := ToolCall{
-			ID:   "parse-error",
-			Type: "function",
-			Function: FunctionCall{
-				Name: "system_error",
-				Arguments: fmt.Sprintf(`{"error": "SYSTEM ERROR: Malformed action format. You must format your action as a single Markdown JSON block. If you are finished, you MUST reply with exactly this:\n\n`+"```json"+`\n{\n  \"tool\": \"submit_final_answer\",\n  \"args\": {\n    \"summary\": \"your final results here\"\n  }\n}\n`+"```"+`"}`, 
-				),
-			},
-		}
-		return content, []ToolCall{errorCall}, true
-	}
-
-	if call.Tool == "" {
+	if len(allCalls) == 0 {
 		return content, nil, false
 	}
 
-	tc := ToolCall{
-		ID:   "tc-0",
-		Type: "function",
-		Function: FunctionCall{
-			Name:      call.Tool,
-			Arguments: string(call.Args),
-		},
+	// Append remaining text after the last block
+	if lastPos < len(content) {
+		cleanedParts = append(cleanedParts, content[lastPos:])
 	}
 
-	// Clean the content by removing the JSON block
-	cleaned := content[:startIdx] + content[startIdx+len(fullMatch):]
-	return strings.TrimSpace(cleaned), []ToolCall{tc}, true
+	return strings.TrimSpace(strings.Join(cleanedParts, "\n")), allCalls, true
 }
