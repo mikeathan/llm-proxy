@@ -23,7 +23,7 @@ func TruncateResult(content string) string {
 }
 
 // TruncateLines implements line-based head-and-tail truncation.
-// Open Claw v3 Phase 3: Structural Truncation for list_directory, grep, etc.
+//  Phase 3: Structural Truncation for list_directory, grep, etc.
 func TruncateLines(lines []string, maxLines int) string {
 	if len(lines) <= maxLines {
 		return strings.Join(lines, "\n")

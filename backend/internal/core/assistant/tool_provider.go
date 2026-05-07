@@ -54,7 +54,7 @@ func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
 }
 
 func (p *MultiToolProvider) UseNativeTools() bool {
-	// Open Claw v2: Always return false to force prompt-based tool calling.
+	// : Always return false to force prompt-based tool calling.
 	// This ensures the LLM engine never sees the native 'tools' schema.
 	return false
 }

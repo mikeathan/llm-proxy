@@ -1,4 +1,4 @@
-# ARCHITECTURAL BLUEPRINT: Universal LLM-Agnostic Agent Loop (Open Claw v2)
+# ARCHITECTURAL BLUEPRINT: Universal LLM-Agnostic Agent Loop ()
 
 ## 1. The Core Problem: Why the Previous Refactors Failed
 The "whack-a-mole" bugs (500 Server Errors, infinite **SYSTEM ERROR** loops, and token bleed like `<|tool_call|>`) stem from treating the symptoms rather than the root cause. 

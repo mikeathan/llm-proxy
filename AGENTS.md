@@ -15,7 +15,7 @@
 - **Single Source of Truth**: All systemic prompts, nag messages, and protocol instructions MUST be centralized in `internal/core/assistant/prompts/templates.go`. Hardcoded prompt strings in logic files are prohibited.
 - **Agnostic Standard**: All tool calling must adhere to the `<tool_call>` standard defined in `templates.go`. Do not implement provider-specific tool calling logic.
 17. 
-18. ## Context Discipline (Open Claw v3)
+18. ## Context Discipline ()
 19. - **Targeted Execution**: Avoid large `list_directory` or `read_file` calls on entire repositories. If you receive a "Truncated Output" warning, you MUST use targeted tools like `grep`, `search_files`, or `read_range` to access specific content.
 20. - **Submission Finality**: When context pressure is detected (SYSTEM Warning), prioritize finalizing your task and emitting `submit_final_answer` immediately. Do not perform extraneous cleanup or diagnostic turns when the window is nearly full.
 21. - **Heuristic Awareness**: If you have already provided a comprehensive Markdown report but are unable to emit the JSON tool call due to technical constraints, the system will attempt to accept your text as a final submission. However, you should always strive to use the formal `submit_final_answer` tool as your primary exit point.

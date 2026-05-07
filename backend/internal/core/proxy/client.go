@@ -68,7 +68,7 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 	if req.Model == "" {
 		req.Model = c.model
 	}
-	// Open Claw v2: Ensure zero native tools are passed to the LLM engine
+	// : Ensure zero native tools are passed to the LLM engine
 	req.Tools = nil
 	req.ToolChoice = ""
 
@@ -107,7 +107,7 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 		req.Model = c.model
 	}
 	req.Stream = true
-	// Open Claw v2: Ensure zero native tools are passed to the LLM engine
+	// : Ensure zero native tools are passed to the LLM engine
 	req.Tools = nil
 	req.ToolChoice = ""
 

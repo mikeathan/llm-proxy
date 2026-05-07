@@ -139,7 +139,7 @@ func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) (any, 
 		}
 		names = append(names, name)
 	}
-	// Open Claw v3 Phase 3: Structural Truncation for Directory Listing
+	//  Phase 3: Structural Truncation for Directory Listing
 	return proxy.TruncateLines(names, 30), nil
 }
 
@@ -154,7 +154,7 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 		return "", err
 	}
 	
-	// Open Claw v3 Phase 3: Structural Truncation for ReadFile (3000 chars)
+	//  Phase 3: Structural Truncation for ReadFile (3000 chars)
 	raw := string(content)
 	if len(raw) <= 3000 {
 		return raw, nil

@@ -72,7 +72,7 @@ Action:
 ` + "```" + `
 
 ### Rules
-1. You can call ONLY ONE tool per turn.
+1. **Parallel Tool Execution**: You may call multiple tools in a single turn by providing multiple Markdown JSON blocks. For example, you can create a directory and write a file in the same response to be more efficient.
 2. Use ONLY the tools listed below.
 3. If a tool fails, you will receive the error. Fix it in your next turn.
 4. You are not finished until you successfully call the 'submit_final_answer' tool. If you have completed the task, provide your final summary inside this tool call.
@@ -89,7 +89,8 @@ RULES:
 3. Verify results. After each action, check the output before proceeding.
 4. Fix errors immediately. If a tool fails, analyze and retry.
 5. Complete the task. When finished and verified, you MUST call submit_final_answer. 
-   IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs).
+    IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs).
+6. BEST PRACTICE: Always start by verifying your environment. If you need to run code, use 'execute_terminal_command' to check for required runtimes (e.g., node, tsc, python) in your first turn.
 `
 
 // AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.

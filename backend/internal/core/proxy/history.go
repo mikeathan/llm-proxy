@@ -82,7 +82,7 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 }
 
 // NormalizeContextSieve applies the token-budgeted middle-pruning logic.
-// Open Claw v3: Protects against context size exceeded errors while preserving the goal and state.
+// : Structural History Pruning ("The Sieve")
 func NormalizeContextSieve(history []Message, budget int) []Message {
 	totalChars := 0
 	for _, msg := range history {
@@ -93,6 +93,7 @@ func NormalizeContextSieve(history []Message, budget int) []Message {
 		return SanitizeHistory(history)
 	}
 
+	// 1. Keep the System Message
 	systemMsg := Message{}
 	hasSystem := false
 	if history[0].Role == SystemRole {
@@ -100,60 +101,55 @@ func NormalizeContextSieve(history []Message, budget int) []Message {
 		hasSystem = true
 	}
 
-	// Keep the first user message (the Task/Goal)
+	// 2. Keep the first user message (the Task/Goal)
+	firstUserMsg := Message{}
 	firstUserIdx := -1
 	for i, msg := range history {
 		if msg.Role == UserRole {
+			firstUserMsg = msg
 			firstUserIdx = i
 			break
 		}
 	}
 
-	// Keep the Priority Tail (starting with 6 messages / 3 turns)
+	// 3. Keep the Priority Tail (The last 3 turns = 6 messages)
 	tailCount := 6
+	if len(history) < tailCount {
+		tailCount = len(history)
+	}
+	
 	markerMsg := Message{
 		Role:    SystemRole,
-		Content: "[System: (Earlier history distilled for context space preservation. Tasks completed: (omitted))]",
+		Content: "Memory Sieve: Older troubleshooting steps omitted. Progress so far: (Tasks completed successfully)",
 	}
 
-	// Iteratively reduce tail if still over budget (min 2 messages)
-	for tailCount > 2 {
-		currentTotal := len(systemMsg.Content) + len(markerMsg.Content)
-		if firstUserIdx != -1 && firstUserIdx != 0 {
-			currentTotal += len(history[firstUserIdx].Content)
-		}
-		
-		startIndex := len(history) - tailCount
-		for _, m := range history[startIndex:] {
-			currentTotal += len(m.Content)
-		}
-
-		if currentTotal <= budget {
-			break
-		}
-		tailCount--
-	}
-
-	startIndex := len(history) - tailCount
-	if startIndex < 0 {
-		startIndex = 0
-	}
 	newMerged := make([]Message, 0)
 	if hasSystem {
 		newMerged = append(newMerged, systemMsg)
 	}
 	if firstUserIdx != -1 && firstUserIdx != 0 {
-		newMerged = append(newMerged, history[firstUserIdx])
+		newMerged = append(newMerged, firstUserMsg)
 	}
 
 	newMerged = append(newMerged, markerMsg)
-	newMerged = append(newMerged, history[startIndex:]...)
+	
+	startIndex := len(history) - tailCount
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	// Avoid duplicating messages if they are already in the head
+	for i := startIndex; i < len(history); i++ {
+		if (hasSystem && i == 0) || (firstUserIdx != -1 && i == firstUserIdx) {
+			continue
+		}
+		newMerged = append(newMerged, history[i])
+	}
 	
 	return SanitizeHistory(newMerged)
 }
 
 // SanitizeHistory strips non-essential fields to minimize context overhead.
-// Open Claw v3: Strict Token-Only Normalization.
+// : Strict Token-Only Normalization.
 func SanitizeHistory(history []Message) []Message {
 	sanitized := make([]Message, len(history))
 	for i, msg := range history {

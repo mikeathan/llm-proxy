@@ -17,7 +17,7 @@ import (
  
 const (
 	// MaxSteps is the maximum number of turns before the agent gives up.
-	MaxSteps = 15
+	MaxSteps = 25
 	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
 	AgentGlobalTimeout = 30 * time.Minute
 	// AgentTurnTimeout is the maximum time allowed for a single LLM turn.
@@ -102,7 +102,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				return fmt.Errorf("failed to list tools: %w", err)
 			}
 
-			// Open Claw v3 Phase 4: Token Pressure Injection & Sieve Activation
+			//  Phase 4: Token Pressure Injection & Sieve Activation
 			totalChars := 0
 			for _, m := range currentHistory {
 				totalChars += len(m.Content)
@@ -122,7 +122,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 			msg, err := a.computeNextResponse(turnCtx, currentHistory, toolsList)
 			if err != nil {
-				// Open Claw v3 Phase 4: Graceful Recovery on 400 Context Errors
+				//  Phase 4: Graceful Recovery on 400 Context Errors
 				if strings.Contains(err.Error(), "context size exceeded") || strings.Contains(err.Error(), "400") {
 					a.logger.Error("context limit reached - attempting graceful termination")
 					if len(currentHistory) > 0 {
@@ -145,7 +145,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				for _, tc := range turnMsg.ToolCalls {
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
 
-					// Open Claw v2 Phase 4: If it matches the EXACT previous call, do not execute.
+					//  Phase 4: If it matches the EXACT previous call, do not execute.
 					// EXCEPTION: Always allow submit_final_answer and system_error to repeat to avoid meta-loops.
 					if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
 						if len(recentCalls) > 0 && recentCalls[len(recentCalls)-1] == key {
@@ -744,7 +744,7 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 	raw, _ := json.Marshal(result)
 	strContent := string(raw)
 
-	// Open Claw v2: Proactively truncate large tool results to protect context window.
+	// : Proactively truncate large tool results to protect context window.
 	strContent = proxy.TruncateResult(strContent)
 
 	*history = append(*history, proxy.Message{
