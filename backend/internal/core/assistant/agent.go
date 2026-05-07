@@ -102,22 +102,37 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				return fmt.Errorf("failed to list tools: %w", err)
 			}
 
-			//  Phase 4: Token Pressure Injection & Sieve Activation
+			// Phase 4: True Structural Sieve (Context Protection)
 			totalChars := 0
 			for _, m := range currentHistory {
 				totalChars += len(m.Content)
 			}
 			
-			// Hard enforcement of context budget via Sieve
 			if totalChars > 15000 {
-				a.logger.Warn("critical context pressure - activating sieve", "chars", totalChars)
-				currentHistory = proxy.NormalizeContextSieve(currentHistory, 15000)
+				a.logger.Warn("critical context pressure - activating physical sieve", "chars", totalChars)
 				
-				// Re-inject pressure warning after sieve to ensure model finalizes
-				currentHistory = append(currentHistory, proxy.Message{
-					Role:    proxy.UserRole,
-					Content: "SYSTEM: CRITICAL - Context window limit reached. History has been distilled. You MUST complete your task and call submit_final_answer NOW.",
-				})
+				// Identify middle segment: Keep messages[0, 1] and last 6 messages
+				if len(currentHistory) > 10 {
+					newHistory := make([]proxy.Message, 0, 10)
+					newHistory = append(newHistory, currentHistory[0], currentHistory[1])
+					newHistory = append(newHistory, proxy.Message{
+						Role:    proxy.SystemRole,
+						Content: "[System Note: Earlier history distilled to save context. Tasks prior to this point executed successfully.]",
+					})
+					newHistory = append(newHistory, currentHistory[len(currentHistory)-6:]...)
+					currentHistory = newHistory
+					
+					// Wipe repetition detector memory on sieve activation
+					// to prevent Sieve-Detector conflicts where the model retries 
+					// a pruned action but the detector blocks it.
+					recentCalls = recentCalls[:0]
+					
+					// Re-inject urgency
+					currentHistory = append(currentHistory, proxy.Message{
+						Role:    proxy.UserRole,
+						Content: "SYSTEM: CRITICAL - Context window limit reached. History has been physically pruned. You MUST complete your task and call submit_final_answer NOW.",
+					})
+				}
 			}
 
 			msg, err := a.computeNextResponse(turnCtx, currentHistory, toolsList)
@@ -141,7 +156,19 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 			// Process tool calls within the turn context if they exist
 			if len(turnMsg.ToolCalls) > 0 {
-				// 1. Loop & Duplicate Detection
+				// 0. Deduplicate tool calls within the same turn
+				uniqueCalls := make([]proxy.ToolCall, 0, len(turnMsg.ToolCalls))
+				seenInTurn := make(map[string]bool)
+				for _, tc := range turnMsg.ToolCalls {
+					callKey := tc.Function.Name + ":" + tc.Function.Arguments
+					if !seenInTurn[callKey] {
+						seenInTurn[callKey] = true
+						uniqueCalls = append(uniqueCalls, tc)
+					}
+				}
+				turnMsg.ToolCalls = uniqueCalls
+
+				// 1. Loop & Duplicate Detection (Across turns)
 				for _, tc := range turnMsg.ToolCalls {
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
 
@@ -156,7 +183,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 							// Inject observation directly into history
 							currentHistory = append(currentHistory, proxy.Message{
 								Role:    proxy.UserRole,
-								Content: "SYSTEM WARNING: You just repeated an action with the exact same arguments. It did not progress the task or produced an error. Analyze the problem and try a completely different approach or tool.",
+								Content: "SYSTEM WARNING: REPETITION DETECTED. You have already called this tool with these exact arguments. DO NOT retry this command. If you have gathered enough data, summarize your progress and call submit_final_answer immediately. If you are stuck, change your approach.",
 							})
 							return nil // Continue the loop with the warning
 						}
@@ -240,10 +267,25 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 			// Handle text-only turns in automation mode
 			if isAutomation && len(turnMsg.ToolCalls) == 0 {
-				// If the model is clearly providing a final report but forgot the tool call, 
-				// allow it to terminate successfully instead of nagging it into a loop.
-				if a.isFinalReport(turnMsg.Content) {
-					a.logger.Info("accepting text-only final report as automation conclusion")
+				lowerContent := strings.ToLower(turnMsg.Content)
+				// Phase 3: Heuristic Soft Exit (Detect natural language completion)
+				// We check for finality symbols (., !, ?, ```) at the end of the message 
+				// to ensure we don't trigger a fake success on a truncated response.
+				trimmed := strings.TrimSpace(lowerContent)
+				hasFinality := strings.HasSuffix(trimmed, ".") || 
+							  strings.HasSuffix(trimmed, "!") || 
+							  strings.HasSuffix(trimmed, "?") || 
+							  strings.HasSuffix(trimmed, "```") ||
+							  strings.HasSuffix(trimmed, "}")
+				
+				// CRITICAL: If the message contains action keywords but no tool calls were parsed,
+				// it is likely truncated or malformed. Do NOT allow a soft-exit.
+				isSuspect := strings.Contains(lowerContent, "<tool") || 
+							strings.Contains(lowerContent, "action:") || 
+							strings.Contains(lowerContent, "\"tool\":")
+				
+				if hasFinality && !isSuspect && a.isFinalReport(turnMsg.Content) {
+					a.logger.Info("Heuristic auto-submit triggered based on agent text output")
 					return turnMsg.Content, currentHistory, nil
 				}
 
@@ -387,7 +429,7 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 			}
 			if len(resp.Choices) > 0 {
 				choice := resp.Choices[0]
-
+				
 				// Accumulate Content
 				chunkContent := choice.Delta.Content
 				if chunkContent == "" && choice.Message.Content != "" {
@@ -638,13 +680,16 @@ func (a *Agent) isFinalReport(content string) bool {
 	
 	for _, m := range markers {
 		if strings.Contains(c, m) {
-			// Also check for significant length to avoid false positives on short sentences
-			return len(content) > 300
+			// Require a substantive length for a "Final Report" to avoid false positives on planning.
+			// Also ensure Markdown blocks are balanced (not truncated mid-code).
+			return len(content) > 400 && strings.Count(c, "```")%2 == 0
 		}
 	}
 	
 	// Fallback: If it contains a lot of Markdown structure and no tool tags
-	return strings.Count(content, "###") >= 2 && !strings.Contains(content, "```json")
+	return strings.Count(content, "###") >= 2 && 
+		   !strings.Contains(content, "```json") && 
+		   strings.Count(c, "```")%2 == 0
 }
 
 func formatToolError(err error) map[string]string {

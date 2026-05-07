@@ -55,27 +55,31 @@ func BuildToolManual(tools []ToolInfo) string {
 	return fmt.Sprintf(UnifiedToolManual, sb.String())
 }
 
-// UnifiedToolManual defines the ONE canonical tool calling format.
+// UnifiedToolManual defines the ONE canonical tool calling format using XML boundaries.
 const UnifiedToolManual = `## TOOL INTERFACE
 You operate in a strict Reason -> Act -> Observe loop. 
-You must ALWAYS output your response in the following exact format. Do not invent custom tags.
+To execute a tool, you MUST wrap a single valid JSON object inside <tool_call> tags.
+Do not use markdown block formatting (` + "```json" + `) inside the tags.
 
+Format:
 Thought: [Your step-by-step reasoning about what to do next]
 Action:
-` + "```json" + `
+<tool_call>
 {
   "tool": "tool_name",
   "args": {
     "key": "value"
   }
 }
-` + "```" + `
+</tool_call>
 
 ### Rules
-1. **Parallel Tool Execution**: You may call multiple tools in a single turn by providing multiple Markdown JSON blocks. For example, you can create a directory and write a file in the same response to be more efficient.
+1. **Parallel Tool Execution**: You may output multiple <tool_call> blocks in a single response to execute tools in parallel (e.g., creating a directory and writing multiple files at the same time).
 2. Use ONLY the tools listed below.
 3. If a tool fails, you will receive the error. Fix it in your next turn.
-4. You are not finished until you successfully call the 'submit_final_answer' tool. If you have completed the task, provide your final summary inside this tool call.
+4. Finalization: You are not finished until you call 'submit_final_answer'. 
+    - **Thought**: Use this for your internal reasoning (e.g., "I have all data, I will now finalize").
+    - **Action**: Use 'submit_final_answer'. The 'summary' argument MUST be the actual comprehensive report containing all raw data, tables, and findings. Do not put your monologue inside the summary.
 
 ### Available Tools
 %s`
@@ -87,9 +91,11 @@ RULES:
 1. ReAct Loop: You MUST use the Thought -> Action sequence.
 2. Use tools to act. Do not describe what you would do — do it via the Action block.
 3. Verify results. After each action, check the output before proceeding.
-4. Fix errors immediately. If a tool fails, analyze and retry.
-5. Complete the task. When finished and verified, you MUST call submit_final_answer. 
-    IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs).
+4. Loop Protection: If a tool returns a repetition warning, DO NOT retry. Change your approach or finalize with available data.
+5. Finalization: When finished, call 'submit_final_answer'. 
+    - The 'summary' argument is the FINAL PRODUCT seen by the user. 
+    - It MUST include ALL requested data (e.g., full file contents, execution outputs, du tables).
+    - Never say "I will now compile the summary" inside the summary; just provide the summary itself.
 6. BEST PRACTICE: Always start by verifying your environment. If you need to run code, use 'execute_terminal_command' to check for required runtimes (e.g., node, tsc, python) in your first turn.
 `
 
@@ -137,7 +143,9 @@ const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You are repeating your re
 	"Do not repeat your reasoning; skip directly to the action."
 
 // AutomationNagPrompt is sent when a model outputs text without any tool calls.
-const AutomationNagPrompt = "SYSTEM ERROR: Generation stopped without an action. Continue reasoning or use submit_final_answer if done."
+const AutomationNagPrompt = `SYSTEM ERROR: You stopped generating without taking an action. 
+If the task is complete, simply write "TASK COMPLETE" or "FINAL REPORT" to finish.
+If you need to execute a command, you MUST use a <tool_call> tag.`
 
 // AutomationRejectedSubmissionPrompt is sent when a model tries to call submit_final_answer along with other tools.
 const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cannot be called in the same turn as other tools. " +

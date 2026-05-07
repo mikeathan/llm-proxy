@@ -55,7 +55,8 @@
       "git",
       "tsc",
       "ts-node",
-      "tsx"
+      "tsx",
+      "sort"
     ],
     "allowed_env_vars": [
       "PATH",
