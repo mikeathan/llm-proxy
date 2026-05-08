@@ -24,7 +24,7 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 			newMsg.ToolCalls = nil
 			if msg.Role == ToolRole {
 				newMsg.Role = UserRole
-				newMsg.Content = fmt.Sprintf("### Tool Output (%s):\n%s", msg.ToolCallID, msg.Content)
+				newMsg.Content = fmt.Sprintf("Observation: %s", msg.Content)
 			}
 		}
 		prepared = append(prepared, newMsg)
@@ -35,7 +35,6 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	}
 
 	// 2. Consolidation pass: Merge consecutive messages of the same role to ensure alternation.
-	// This prevents the "Jinja Exception: roles must alternate" error.
 	merged := make([]Message, 0, len(prepared))
 	merged = append(merged, prepared[0])
 
@@ -44,7 +43,6 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		current := prepared[i]
 
 		if last.Role == current.Role {
-			// Merge content and tool calls into the previous message
 			if current.Content != "" {
 				if last.Content != "" {
 					last.Content += "\n\n"
@@ -57,16 +55,13 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		}
 	}
 
-	// 3. Final safety: Ensure no message has empty content (required by many strict templates)
-	// and ensure history doesn't end with an Assistant message (prevents prefill issues).
+	// 3. Final safety: Ensure alternation and action-oriented nags
 	for i := range merged {
 		if strings.TrimSpace(merged[i].Content) == "" {
 			if merged[i].Role == AssistantRole {
-				merged[i].Content = "..." // Placeholder for tool-only messages or empty generations
+				merged[i].Content = "Thinking..."
 			} else if merged[i].Role == UserRole {
-				merged[i].Content = "Continue."
-			} else {
-				merged[i].Content = "..."
+				merged[i].Content = "Observation: (Action successful but returned no output)"
 			}
 		}
 	}
@@ -74,11 +69,11 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	if !useNativeTools && len(merged) > 0 && merged[len(merged)-1].Role == AssistantRole {
 		merged = append(merged, Message{
 			Role:    UserRole,
-			Content: "Continue.",
+			Content: "Observation: No action taken in last turn. You MUST provide a <tool_call> tag to proceed.",
 		})
 	}
 	
-	return NormalizeContextSieve(merged, 15000)
+	return SanitizeHistory(merged)
 }
 
 // NormalizeContextSieve applies the token-budgeted middle-pruning logic.
@@ -154,18 +149,10 @@ func SanitizeHistory(history []Message) []Message {
 	sanitized := make([]Message, len(history))
 	for i, msg := range history {
 		sanitized[i] = Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-			// ONLY include ToolCalls for the very last assistant message if relevant, 
-			// otherwise strip them to save space.
-			ToolCalls: nil,
+			Role:      msg.Role,
+			Content:   msg.Content,
+			ToolCalls: msg.ToolCalls, // Preserve action memory
 		}
-		if msg.Role == AssistantRole && i == len(history)-1 {
-			sanitized[i].ToolCalls = msg.ToolCalls
-		}
-		// For tool messages, we MUST keep ToolCallID for internal validation if the model needs it,
-		// but since we are doing text-only, we usually don't need it in the prompt.
-		// However, keeping Role and Content is the core requirement.
 	}
 	return sanitized
 }

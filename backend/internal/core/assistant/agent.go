@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 )
- 
+
 const (
-	// MaxSteps is the maximum number of turns before the agent gives up.
+	// MaxSteps is increased to 25 to allow complex tasks to finish despite local model verbosity.
 	MaxSteps = 25
 	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
 	AgentGlobalTimeout = 30 * time.Minute
@@ -79,7 +79,6 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 	steps := 0
 	currentHistory := append([]proxy.Message{}, history...)
-
 	type toolKey struct{ name, args string }
 	recentCalls := make([]toolKey, 0, 3)
 
@@ -102,61 +101,50 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				return fmt.Errorf("failed to list tools: %w", err)
 			}
 
-			// Phase 4: True Structural Sieve (Context Protection)
+			// PHYSICAL SIEVE: Prune middle history when nearing context limits
 			totalChars := 0
 			for _, m := range currentHistory {
 				totalChars += len(m.Content)
 			}
-			
 			if totalChars > 15000 {
 				a.logger.Warn("critical context pressure - activating physical sieve", "chars", totalChars)
-				
-				// Identify middle segment: Keep messages[0, 1] and last 6 messages
 				if len(currentHistory) > 10 {
 					newHistory := make([]proxy.Message, 0, 10)
 					newHistory = append(newHistory, currentHistory[0], currentHistory[1])
 					newHistory = append(newHistory, proxy.Message{
 						Role:    proxy.SystemRole,
-						Content: "[System Note: Earlier history distilled to save context. Tasks prior to this point executed successfully.]",
+						Content: prompts.SieveSystemNote,
 					})
-					newHistory = append(newHistory, currentHistory[len(currentHistory)-6:]...)
+					newHistory = append(newHistory, currentHistory[len(currentHistory)-10:]...)
 					currentHistory = newHistory
-					
-					// Wipe repetition detector memory on sieve activation
-					// to prevent Sieve-Detector conflicts where the model retries 
-					// a pruned action but the detector blocks it.
+
+					// Reset repetition detector memory on sieve activation
 					recentCalls = recentCalls[:0]
-					
-					// Re-inject urgency
+
 					currentHistory = append(currentHistory, proxy.Message{
 						Role:    proxy.UserRole,
-						Content: "SYSTEM: CRITICAL - Context window limit reached. History has been physically pruned. You MUST complete your task and call submit_final_answer NOW.",
+						Content: "SYSTEM: CRITICAL - Context window full. History pruned. Continue your task and finalize when ready.",
 					})
 				}
 			}
 
 			msg, err := a.computeNextResponse(turnCtx, currentHistory, toolsList)
 			if err != nil {
-				//  Phase 4: Graceful Recovery on 400 Context Errors
-				if strings.Contains(err.Error(), "context size exceeded") || strings.Contains(err.Error(), "400") {
-					a.logger.Error("context limit reached - attempting graceful termination")
-					if len(currentHistory) > 0 {
-						lastMsg := currentHistory[len(currentHistory)-1]
-						if a.isFinalReport(lastMsg.Content) {
-							return fmt.Errorf("TASK_SUBMITTED_TEXT")
-						}
-					}
-				}
 				return err
 			}
 
+			// DIAGNOSTIC LOGGING: Capture the raw response from the model
+			a.logger.Debug("raw model response received", 
+				"content_length", len(msg.Content),
+				"content_preview", strings.ReplaceAll(msg.Content, "\n", " "),
+			)
+
+			// Extract tools and CLEAN the message content to save tokens
 			a.handleContentToolCalls(&msg)
-			msg.Content = normalizeContent(msg.Content)
 			turnMsg = msg
 
-			// Process tool calls within the turn context if they exist
 			if len(turnMsg.ToolCalls) > 0 {
-				// 0. Deduplicate tool calls within the same turn
+				// Deduplicate and Repetition Detection
 				uniqueCalls := make([]proxy.ToolCall, 0, len(turnMsg.ToolCalls))
 				seenInTurn := make(map[string]bool)
 				for _, tc := range turnMsg.ToolCalls {
@@ -168,26 +156,19 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				}
 				turnMsg.ToolCalls = uniqueCalls
 
-				// 1. Loop & Duplicate Detection (Across turns)
 				for _, tc := range turnMsg.ToolCalls {
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
-
-					//  Phase 4: If it matches the EXACT previous call, do not execute.
-					// EXCEPTION: Always allow submit_final_answer and system_error to repeat to avoid meta-loops.
 					if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
 						if len(recentCalls) > 0 && recentCalls[len(recentCalls)-1] == key {
 							a.logger.Warn("duplicate action detected", "tool", key.name)
 							currentHistory = append(currentHistory, turnMsg)
 							a.notify(EventMessage, turnMsg)
-							
-							// Inject observation directly into history
 							currentHistory = append(currentHistory, proxy.Message{
 								Role:    proxy.UserRole,
-								Content: "SYSTEM WARNING: REPETITION DETECTED. You have already called this tool with these exact arguments. DO NOT retry this command. If you have gathered enough data, summarize your progress and call submit_final_answer immediately. If you are stuck, change your approach.",
+								Content: prompts.AutomationDuplicateNagPrompt,
 							})
-							return nil // Continue the loop with the warning
+							return nil
 						}
-
 						if len(recentCalls) >= 3 {
 							recentCalls = recentCalls[1:]
 						}
@@ -197,12 +178,10 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 				currentHistory = append(currentHistory, turnMsg)
 				a.notify(EventMessage, turnMsg)
-				err := a.processToolCalls(turnCtx, turnMsg, &currentHistory)
-				if err != nil {
+				if err := a.processToolCalls(turnCtx, turnMsg, &currentHistory); err != nil {
 					return err
 				}
 
-				// Check for submission
 				for _, tc := range turnMsg.ToolCalls {
 					if tc.Function.Name == models.ToolSubmitFinalAnswer {
 						turnMsg.Content = extractTaskSummary(tc.Function.Arguments)
@@ -218,41 +197,15 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			if err.Error() == "TASK_SUBMITTED" {
 				return turnMsg.Content, currentHistory, nil
 			}
-			if err.Error() == "TASK_SUBMITTED_TEXT" {
-				return currentHistory[len(currentHistory)-1].Content, currentHistory, nil
-			}
 			return "", currentHistory, err
 		}
 
-		// Handle termination logic only when no tools are called
 		if len(turnMsg.ToolCalls) == 0 {
-			// 1. Check for premature termination (empty responses)
-			if a.isPrematureTermination(turnMsg, currentHistory) {
-				retries := a.countRetries(currentHistory)
-				if retries >= 2 {
-					return turnMsg.Content, currentHistory, fmt.Errorf("model repeatedly returned incomplete responses")
-				}
-				if retries == 0 {
-					currentHistory = append(currentHistory, proxy.Message{
-						Role:    proxy.UserRole,
-						Content: "You returned an incomplete response. You MUST continue using tools or reply with the final comprehensive Markdown report as requested.",
-					})
-					continue
-				}
-				currentHistory = append(currentHistory, turnMsg)
-				a.notify(EventMessage, turnMsg)
-				a.notifyPrematureTerminationNag(&currentHistory)
-				continue
-			}
-
-			// 2. Append the response to history
 			if len(currentHistory) == 0 || currentHistory[len(currentHistory)-1].Content != turnMsg.Content {
 				currentHistory = append(currentHistory, turnMsg)
 				a.notify(EventMessage, turnMsg)
 			}
 
-			// 3. Stop immediately on first turn if no tools are called (direct answer),
-			// unless this is an explicit automation task which requires tool execution.
 			isAutomation := false
 			for _, m := range history {
 				if prompts.IsAutomationTask(m.Content) {
@@ -261,102 +214,82 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				}
 			}
 
-			if steps == 1 && !isAutomation {
-				return turnMsg.Content, currentHistory, nil
-			}
+			// Agnostic Sentence Guard (Soft Exit)
+			if isAutomation {
+				trimmed := strings.TrimSpace(strings.ToLower(turnMsg.Content))
+				hasFinality := false
+				for _, s := range []string{".", "!", "?", "}", "```"} {
+					if strings.HasSuffix(trimmed, s) {
+						hasFinality = true
+						break
+					}
+				}
+				isSuspect := strings.Contains(trimmed, "<tool") || strings.Contains(trimmed, "\"tool\":")
+				isReport := strings.Contains(trimmed, "task complete") ||
+					strings.Contains(trimmed, "summary") ||
+					strings.Contains(trimmed, "final report")
 
-			// Handle text-only turns in automation mode
-			if isAutomation && len(turnMsg.ToolCalls) == 0 {
-				lowerContent := strings.ToLower(turnMsg.Content)
-				// Phase 3: Heuristic Soft Exit (Detect natural language completion)
-				// We check for finality symbols (., !, ?, ```) at the end of the message 
-				// to ensure we don't trigger a fake success on a truncated response.
-				trimmed := strings.TrimSpace(lowerContent)
-				hasFinality := strings.HasSuffix(trimmed, ".") || 
-							  strings.HasSuffix(trimmed, "!") || 
-							  strings.HasSuffix(trimmed, "?") || 
-							  strings.HasSuffix(trimmed, "```") ||
-							  strings.HasSuffix(trimmed, "}")
-				
-				// CRITICAL: If the message contains action keywords but no tool calls were parsed,
-				// it is likely truncated or malformed. Do NOT allow a soft-exit.
-				isSuspect := strings.Contains(lowerContent, "<tool") || 
-							strings.Contains(lowerContent, "action:") || 
-							strings.Contains(lowerContent, "\"tool\":")
-				
-				if hasFinality && !isSuspect && a.isFinalReport(turnMsg.Content) {
-					a.logger.Info("Heuristic auto-submit triggered based on agent text output")
+				if hasFinality && !isSuspect && isReport && a.isFinalReport(turnMsg.Content) {
+					a.logger.Info("Agnostic Heuristic Soft Exit Triggered")
 					return turnMsg.Content, currentHistory, nil
 				}
 
-				a.logger.Warn("automation model failed to output tool")
-
-				// 1. APPEND the reasoning turn to history so the model knows it already thought about it.
-				// But check for a duplicate reasoning loop first.
-				isDuplicate := false
-				if n := len(currentHistory); n >= 2 {
-					lastMsg := currentHistory[n-1]
-					// If last message was a nag and the one before was the SAME assistant content (fuzzy)
-					if lastMsg.Role == proxy.UserRole && strings.Contains(lastMsg.Content, "SYSTEM ERROR") {
-						prevAssistant := currentHistory[n-2]
-						if prevAssistant.Role == proxy.AssistantRole && isFuzzyDuplicate(prevAssistant.Content, turnMsg.Content) {
-							isDuplicate = true
-						}
-					}
-				}
-
-				if !isDuplicate {
-					if len(currentHistory) == 0 || currentHistory[len(currentHistory)-1].Content != turnMsg.Content {
-						currentHistory = append(currentHistory, turnMsg)
-						a.notify(EventMessage, turnMsg)
-					}
-				}
-
-				// 2. Standard single nag — replace if already present or escalate if duplicate
-				nagContent := prompts.AutomationNagPrompt
-				if isDuplicate {
-					nagContent = prompts.AutomationDuplicateNagPrompt
-				}
-
-				if n := len(currentHistory); n > 0 && currentHistory[n-1].Role == proxy.UserRole && strings.Contains(currentHistory[n-1].Content, "SYSTEM ERROR") {
-					currentHistory[n-1].Content = nagContent
-				} else {
-					currentHistory = append(currentHistory, proxy.Message{
-						Role:    proxy.UserRole,
-						Content: nagContent,
-					})
-				}
+				a.logger.Warn("turn resulted in no action - nagging model", "step", steps)
+				currentHistory = append(currentHistory, proxy.Message{
+					Role:    proxy.UserRole,
+					Content: prompts.AutomationNagPrompt,
+				})
 				continue
 			}
 
-			// 4. Stop if it's a final report (fallback for regular chats)
-			if !isAutomation && a.isFinalReport(turnMsg.Content) {
-				return turnMsg.Content, currentHistory, nil
-			}
-
-			// 5. Soft Termination: allow one more turn to ensure model is truly done
-			// Check if we already have 2 consecutive chat messages with no tools.
-			// IMPORTANT: For automations, we ignore this and continue until submit_final_answer or maxSteps.
-			if isAutomation {
-				continue
-			}
-
-			chatCount := 0
-			for j := len(currentHistory) - 1; j >= 0; j-- {
-				if currentHistory[j].Role == proxy.AssistantRole && len(currentHistory[j].ToolCalls) == 0 {
-					chatCount++
-				} else {
-					break
+			if !isAutomation {
+				if steps == 1 {
+					return turnMsg.Content, currentHistory, nil
+				}
+				if a.countConsecutiveChat(currentHistory) >= 2 {
+					return turnMsg.Content, currentHistory, nil
 				}
 			}
-			if chatCount < 2 {
-				continue
-			}
-			return turnMsg.Content, currentHistory, nil
 		}
-
 	}
-	return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d) without reaching a conclusion", a.maxSteps)
+	return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
+}
+
+func (a *Agent) handleContentToolCalls(msg *proxy.Message) {
+	if msg.Content != "" {
+		// Do not overwrite msg.Content with cleaned content.
+		// Keeping the XML in history is CRITICAL for local models to maintain their pattern.
+		_, calls, ok := proxy.ParseContentToolCalls(msg.Content)
+		if ok {
+			msg.ToolCalls = append(msg.ToolCalls, calls...)
+			a.logger.Debug("detected embedded tool calls in content", "count", len(calls))
+		} else if strings.Contains(msg.Content, "{") || strings.Contains(msg.Content, "<tool") {
+			// LOGGING ENHANCEMENT: Log suspicious but failed parsing attempts
+			a.logger.Warn("tool call detection failed on suspicious content", 
+				"content_snippet", strings.ReplaceAll(msg.Content, "\n", " "),
+			)
+		}
+	}
+}
+
+func (a *Agent) countConsecutiveChat(history []proxy.Message) int {
+	chatCount := 0
+	var lastContent string
+	for j := len(history) - 1; j >= 0; j-- {
+		if history[j].Role == proxy.AssistantRole && len(history[j].ToolCalls) == 0 {
+			// Check for near-identical monologue repetition
+			current := strings.TrimSpace(history[j].Content)
+			if lastContent != "" && len(current) > 10 && strings.Contains(lastContent, current[:len(current)/2]) {
+				chatCount += 2 // Penalize similar monologues heavily
+			} else {
+				chatCount++
+			}
+			lastContent = current
+		} else {
+			break
+		}
+	}
+	return chatCount
 }
 
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
@@ -367,11 +300,6 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	prepared := a.prepareMessages(history)
 
-	// Always inject the text-based tool manual for non-native mode.
-	// Also inject for automation tasks even when native tools are active:
-	// many models receive API-level tools fine but fail to emit native tool
-	// calls, so providing the XML fallback in text ensures they always have
-	// a format they can output.
 	isAutomationCtx := false
 	for _, m := range history {
 		if prompts.IsAutomationTask(m.Content) {
@@ -389,7 +317,6 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	ch, err := a.client.Stream(ctx, req)
-
 	if err != nil {
 		a.logger.Warn("streaming not supported or failed, falling back to non-streaming", "error", err)
 		return a.computeNextResponseNonStreaming(ctx, history, tools)
@@ -401,14 +328,11 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		return proxy.Message{}, err
 	}
 
-	// If the response is empty and we were using native tools, the model might be paralyzed by the 'tools' parameter.
-	// Fallback to prompt-based tool calling (no native tools).
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 && llmTools != nil {
 		a.logger.Info("empty response with native tools, retrying without them")
 		return a.computeNextResponseNonStreaming(ctx, history, nil)
 	}
 
-	// If the stream was empty, fallback to non-streaming which often provides better error diagnostics.
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
 		a.logger.Info("stream returned no content, falling back to non-streaming retry")
 		return a.computeNextResponseNonStreaming(ctx, history, tools)
@@ -429,45 +353,29 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 			}
 			if len(resp.Choices) > 0 {
 				choice := resp.Choices[0]
-				
-				// Accumulate Content
 				chunkContent := choice.Delta.Content
 				if chunkContent == "" && choice.Message.Content != "" {
 					chunkContent = choice.Message.Content
 				}
-
-				// Capture reasoning content from R1-style models that map <think> blocks to reasoning_content
 				reasoningChunk := choice.Delta.ReasoningContent
 				if reasoningChunk == "" && choice.Message.ReasoningContent != "" {
 					reasoningChunk = choice.Message.ReasoningContent
 				}
-
 				totalChunk := chunkContent + reasoningChunk
-
 				if totalChunk != "" {
 					fullMsg.Content += totalChunk
-
-					// UI Smoothing: If we detect the start of a tool call signature,
-					// stop streaming to the text-content bus to avoid showing raw technical markup.
 					displayContent, hasToolCall := FilterStreamingMarkup(fullMsg.Content)
-
-					// If we've reached a tool call, provide a small visual hint in the stream
-					// so the user knows the agent is still active but is now processing technical steps.
 					if hasToolCall {
 						a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
 					} else {
 						a.notify(EventToolStream, displayContent)
 					}
 				}
-
-				// Accumulate Tool Calls
 				if len(choice.Delta.ToolCalls) > 0 {
 					for _, tc := range choice.Delta.ToolCalls {
-						// Stream-based tool calls often come in chunks
 						if tc.ID != "" {
 							fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
 						} else if len(fullMsg.ToolCalls) > 0 {
-							// Append arguments to the last tool call
 							last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
 							last.Function.Arguments += tc.Function.Arguments
 						}
@@ -487,10 +395,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		llmTools = nil
 	}
 
-	// Use prepared history to avoid prefill errors and maintain consistency.
 	preparedHistory := a.prepareMessages(history)
-	
-	// Ensure we inject instructions for non-streaming as well if native tools are off
 	if llmTools == nil && len(tools) > 0 {
 		preparedHistory = a.injectToolInstructions(preparedHistory, tools)
 	}
@@ -502,22 +407,15 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 	if rawReq, err := json.Marshal(req); err == nil {
 		a.logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
-	} else {
-		a.logger.Error("Failed to marshal LLM Non-Stream Request", "error", err)
 	}
 
 	resp, err := a.client.Chat(chatCtx, req)
-
 	if err != nil && isToolSupportError(err) {
 		a.logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
-
-		// Try again without tools
 		chatCtx2, cancel2 := context.WithTimeout(ctx, AgentRetryTimeout)
 		defer cancel2()
-		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{
-			Messages: history,
-		})
+		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{Messages: history})
 	}
 
 	if err != nil {
@@ -531,40 +429,20 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	return resp.Choices[0].Message, nil
 }
 
-func (a *Agent) handleContentToolCalls(msg *proxy.Message) {
-	if msg.Content != "" {
-		if _, calls, ok := proxy.ParseContentToolCalls(msg.Content); ok {
-			msg.ToolCalls = append(msg.ToolCalls, calls...)
-			// Note: We no longer overwrite msg.Content with cleanedContent.
-			// This ensures the user can see the model's full reasoning and the tool tags in the UI.
-			a.logger.Debug("detected embedded tool calls in content", "count", len(calls))
-		}
-	}
-}
-
 func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Message) bool {
 	content := strings.TrimSpace(msg.Content)
 	if content == "" {
-		// If there are tool calls, it's definitely NOT a termination.
-		if len(msg.ToolCalls) > 0 {
-			return false
-		}
-		return true
+		return len(msg.ToolCalls) == 0
 	}
-
-	// Basic repetition detection for short content-only responses
-	// if the same message is returned 3 times in a row, it's premature.
 	if len(history) >= 2 {
 		last := history[len(history)-1]
 		if last.Role == proxy.AssistantRole && strings.TrimSpace(last.Content) == content {
-			// Found one repeat, check if it's a pattern
 			prev := history[len(history)-2]
 			if prev.Role == proxy.AssistantRole && strings.TrimSpace(prev.Content) == content {
 				return true
 			}
 		}
 	}
-
 	return false
 }
 
@@ -580,9 +458,6 @@ func (a *Agent) countRetries(history []proxy.Message) int {
 
 func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
 	var mu sync.Mutex
-
-	// 1. Submission Isolation: If submit_final_answer is called, it MUST be the only tool call.
-	// This prevents "greedy batching" where a model submits success before seeing if previous tools failed.
 	hasSubmit := false
 	for _, tc := range msg.ToolCalls {
 		if tc.Function.Name == models.ToolSubmitFinalAnswer {
@@ -593,28 +468,24 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 	if hasSubmit && len(msg.ToolCalls) > 1 {
 		a.logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
 		mu.Lock()
-		// We return a specialized error to the model asking it to separate the submission
 		errorMsg := prompts.AutomationRejectedSubmissionPrompt
-		// We append this result to all calls in the turn to be safe
 		for _, tc := range msg.ToolCalls {
 			a.appendToolResult(history, tc, map[string]string{"error": errorMsg})
 		}
 		mu.Unlock()
-		return nil // We return nil to continue the loop and let the model see the rejection
+		return nil
 	}
 
 	for _, tc := range msg.ToolCalls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
 		if tc.Type != "function" {
 			continue
 		}
 
 		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
 
-		// 2. Generic Schema Validation
 		toolsList, _ := a.provider.ListTools(ctx)
 		if err := validateToolArgs(tc, toolsList); err != nil {
 			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
@@ -624,26 +495,18 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			return nil
 		}
 
-		// 3. Validate against guardrails
 		if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
 			a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 			a.notifyGuardrailViolation(tc.Function.Name, err)
-
 			mu.Lock()
 			a.appendToolResult(history, tc, formatGuardrailError(err))
 			mu.Unlock()
-			// For coding tasks, we STOP the batch on any guardrail violation
-			return nil 
+			return nil
 		}
 
-		// 3. Notify start
 		a.notifyToolCall(tc)
-
-		// 4. Execute tool
 		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
 		result, err := a.engine.ExecuteTool(toolCtx, tc)
-		
-		// 5. Append result and notify
 		mu.Lock()
 		a.appendToolResult(history, tc, result)
 		a.notifyToolResult(tc.ID, tc.Function.Name, result)
@@ -651,17 +514,12 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 
 		if err != nil {
 			a.logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
-			// STOP-ON-ERROR: If a tool fails, we stop the batch immediately.
-			// This forces the model to observe the error and fix it before proceeding.
 			return nil
 		}
-
-		// 6. Check for early termination if submit_final_answer was called
 		if tc.Function.Name == models.ToolSubmitFinalAnswer {
 			return nil
 		}
 	}
-
 	return nil
 }
 
@@ -677,19 +535,16 @@ func (a *Agent) isFinalReport(content string) bool {
 		"### task accomplished",
 		"i have completed",
 	}
-	
+
 	for _, m := range markers {
 		if strings.Contains(c, m) {
-			// Require a substantive length for a "Final Report" to avoid false positives on planning.
-			// Also ensure Markdown blocks are balanced (not truncated mid-code).
-			return len(content) > 400 && strings.Count(c, "```")%2 == 0
+			return len(content) > 50 && strings.Count(c, "```")%2 == 0
 		}
 	}
-	
-	// Fallback: If it contains a lot of Markdown structure and no tool tags
-	return strings.Count(content, "###") >= 2 && 
-		   !strings.Contains(content, "```json") && 
-		   strings.Count(c, "```")%2 == 0
+	return strings.Count(content, "###") >= 2 &&
+		!strings.Contains(content, "```json") &&
+		len(content) > 100 &&
+		strings.Count(c, "```")%2 == 0
 }
 
 func formatToolError(err error) map[string]string {
@@ -700,27 +555,21 @@ func formatGuardrailError(err error) map[string]string {
 	return map[string]string{"error": "Guardrail violation: " + err.Error()}
 }
 
-// extractTaskSummary dynamically pulls a human-readable summary from the submit_final_answer arguments.
 func extractTaskSummary(rawArgs string) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
 		return "Task complete."
 	}
-
-	// 1. Try known keys first for precision
 	for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
 		if val, ok := args[key].(string); ok && val != "" {
 			return val
 		}
 	}
-
-	// 2. Dynamic Fallback: Use the first non-empty string field found in the map
 	for _, val := range args {
 		if s, ok := val.(string); ok && s != "" {
 			return s
 		}
 	}
-
 	return "Task complete."
 }
 
@@ -735,18 +584,14 @@ func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
 	if targetTool == nil {
 		return fmt.Errorf("tool '%s' not found", tc.Function.Name)
 	}
-
-	// Parse parameters
 	params, ok := targetTool.Function.Parameters.(map[string]any)
 	if !ok {
-		return nil // No parameters to validate
+		return nil
 	}
-
 	requiredRaw, ok := params["required"]
 	if !ok {
-		return nil // No required fields
+		return nil
 	}
-
 	var required []string
 	switch r := requiredRaw.(type) {
 	case []any:
@@ -758,40 +603,29 @@ func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
 	case []string:
 		required = r
 	}
-
 	if len(required) == 0 {
 		return nil
 	}
-
-	// Parse arguments
 	var args map[string]any
 	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 		return fmt.Errorf("failed to parse arguments as JSON: %w", err)
 	}
-
 	for _, field := range required {
 		val, ok := args[field]
 		if !ok {
 			return fmt.Errorf("missing required parameter '%s'", field)
 		}
-		
-		// String fields shouldn't be empty
 		if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
 			return fmt.Errorf("parameter '%s' cannot be empty", field)
 		}
 	}
-
 	return nil
 }
 
-// appendToolResult helper with memory-sensitive pruning
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
 	raw, _ := json.Marshal(result)
 	strContent := string(raw)
-
-	// : Proactively truncate large tool results to protect context window.
 	strContent = proxy.TruncateResult(strContent)
-
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
 		Content:    strContent,
@@ -810,35 +644,25 @@ func isToolSupportError(err error) bool {
 		strings.Contains(lowErr, "parameter `tools`")
 }
 
-// prepareMessages adapts history for the LLM request using unified normalization rules.
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
 	return proxy.NormalizeHistory(history, a.provider.UseNativeTools())
 }
 
-// isFuzzyDuplicate returns true if s1 and s2 are highly similar,
-// indicating the model is repeating itself with slight variations.
 func isFuzzyDuplicate(s1, s2 string) bool {
 	if s1 == s2 {
 		return true
 	}
-	// Simple length-based and prefix-based fuzzy check
-	// If the strings are almost the same length and share a significant prefix
 	if len(s1) == 0 || len(s2) == 0 {
 		return false
 	}
-	
-	// Check if one is a prefix of the other (common in looping reasoning)
 	if strings.HasPrefix(s1, s2) || strings.HasPrefix(s2, s1) {
 		return true
 	}
-
-	// Calculate word overlap
 	w1 := strings.Fields(s1)
 	w2 := strings.Fields(s2)
 	if len(w1) == 0 || len(w2) == 0 {
 		return false
 	}
-
 	matchCount := 0
 	wordMap := make(map[string]bool)
 	for _, w := range w1 {
@@ -849,19 +673,14 @@ func isFuzzyDuplicate(s1, s2 string) bool {
 			matchCount++
 		}
 	}
-
-	// If more than 70% of words overlap, consider it a duplicate
 	overlap := float64(matchCount) / float64(len(w1))
 	return overlap > 0.7
 }
 
-// injectToolInstructions prepends tool definitions to the first system message.
 func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
 	if len(tools) == 0 {
 		return history
 	}
-
-	// Map to prompts.ToolInfo for template building
 	info := make([]prompts.ToolInfo, len(tools))
 	for i, t := range tools {
 		info[i] = prompts.ToolInfo{
@@ -870,10 +689,7 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 			Parameters:  t.Function.Parameters,
 		}
 	}
-
 	instructions := prompts.BuildToolManual(info)
-
-	// Find the first system message or prepend a new one
 	newHistory := make([]proxy.Message, 0, len(history)+1)
 	foundSystem := false
 	for _, msg := range history {
@@ -886,14 +702,11 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 			newHistory = append(newHistory, msg)
 		}
 	}
-
 	if !foundSystem {
 		newHistory = append([]proxy.Message{{
 			Role:    proxy.SystemRole,
 			Content: prompts.InjectToolManual("You are a powerful agentic AI.", instructions),
 		}}, newHistory...)
 	}
-
 	return newHistory
 }
-
