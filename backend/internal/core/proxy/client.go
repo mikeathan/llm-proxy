@@ -68,9 +68,6 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 	if req.Model == "" {
 		req.Model = c.model
 	}
-	// : Ensure zero native tools are passed to the LLM engine
-	req.Tools = nil
-	req.ToolChoice = ""
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -107,9 +104,6 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 		req.Model = c.model
 	}
 	req.Stream = true
-	// : Ensure zero native tools are passed to the LLM engine
-	req.Tools = nil
-	req.ToolChoice = ""
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -139,6 +133,13 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
+
+		// When the context is cancelled, force-close the response body so
+		// the read loop exits immediately instead of waiting for TCP teardown.
+		go func() {
+			<-ctx.Done()
+			resp.Body.Close()
+		}()
 
 		reader := io.Reader(resp.Body)
 		for {

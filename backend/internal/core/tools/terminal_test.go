@@ -123,3 +123,59 @@ func TestLoadTerminalManifest(t *testing.T) {
 		t.Error("Manifest loaded with zero blocked patterns")
 	}
 }
+
+func TestExtractBaseCommands(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		expected []string
+	}{
+		{"single command", "ls -la", []string{"ls"}},
+		{"chained with &&", "chmod +x file && sh file", []string{"chmod", "sh"}},
+		{"chained with ;", "echo hello; ls", []string{"echo", "ls"}},
+		{"chained with |", "cat file | grep foo", []string{"cat", "grep"}},
+		{"chained with ||", "make || echo failed", []string{"make", "echo"}},
+		{"mixed chain", "mkdir -p dir && echo test > dir/file && sh dir/file", []string{"mkdir", "echo", "sh"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractBaseCommands(tt.command)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("expected %v, got %v", tt.expected, got)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("at index %d: expected %q, got %q", i, tt.expected[i], got[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizeCommandSkipsValidationWhenGuardrailApproved(t *testing.T) {
+	tt := &TerminalTools{
+		configProvider: func(ctx context.Context) models.TerminalGuardrailsConfig {
+			return models.TerminalGuardrailsConfig{
+				Enabled:        true,
+				AllowedCommands: []string{"echo"},
+			}
+		},
+	}
+
+	// Without the guardrail-approved marker, "ls" should be rejected.
+	ctx := context.Background()
+	_, err := tt.sanitizeCommand(ctx, "ls", tt.configProvider(ctx), "")
+	if err == nil {
+		t.Error("expected validation to reject 'ls' without approval marker")
+	}
+
+	// With the guardrail-approved marker, the check is skipped and command passes.
+	ctx = models.WithGuardrailApproved(context.Background())
+	clean, err := tt.sanitizeCommand(ctx, "ls", tt.configProvider(ctx), "")
+	if err != nil {
+		t.Errorf("expected validation to skip with approval marker, got: %v", err)
+	}
+	if clean != "ls" {
+		t.Errorf("expected clean command 'ls', got %q", clean)
+	}
+}

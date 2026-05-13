@@ -6,7 +6,10 @@ import (
 
 type contextKey string
 
-const WorkspaceIDKey contextKey = "workspace_id"
+const (
+	WorkspaceIDKey        contextKey = "workspace_id"
+	GuardrailApprovedKey  contextKey = "guardrail_approved"
+)
 
 // GetWorkspaceID retrieves the workspace ID from the context.
 func GetWorkspaceID(ctx context.Context) string {
@@ -22,6 +25,23 @@ func GetWorkspaceID(ctx context.Context) string {
 // WithWorkspaceID injects the workspace ID into the context.
 func WithWorkspaceID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, WorkspaceIDKey, id)
+}
+
+// GetGuardrailApproved returns true if the context carries a guardrail-
+// approval marker, signalling that the caller has already validated the
+// tool call through the user-facing guardrail decision flow.
+func GetGuardrailApproved(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(GuardrailApprovedKey).(bool)
+	return v
+}
+
+// WithGuardrailApproved marks the context so downstream validators know
+// the tool call was already approved by the user.
+func WithGuardrailApproved(ctx context.Context) context.Context {
+	return context.WithValue(ctx, GuardrailApprovedKey, true)
 }
 
 type Config struct {
@@ -283,6 +303,13 @@ type ModelConfig struct {
 	Environment    map[string]string `json:"environment,omitempty"`
 	ProviderConfig *ProviderConfig   `json:"provider_config,omitempty"`
 	Metadata       *ModelMetadata    `json:"metadata,omitempty"`
+
+	// Agent tuning — per-model overrides for agent loop behaviour.
+	// Zero values mean "use the global default."
+	MaxSteps      int    `json:"max_steps,omitempty"`
+	ContextBudget int    `json:"context_budget,omitempty"`
+	ToolCallFormat string `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill       bool   `json:"prefill,omitempty"`           // prefill assistant response with <tool_call> opening tag in automation mode
 }
 
 type ModelMetadata struct {

@@ -25,6 +25,7 @@ type ModelRegistryEntry struct {
 	CredentialID string   `json:"credential_id,omitempty"`
 	Port         int      `json:"port,omitempty"`
 	Args         []string `json:"args,omitempty"`
+	Prefill      bool     `json:"prefill,omitempty"`
 }
 
 type MCPServerRegistryEntry struct {

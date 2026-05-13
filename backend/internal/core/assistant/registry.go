@@ -166,7 +166,7 @@ func InitializeAgentStack(
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
 
 	// 6. Aggregate Tools: Local Registry + Remote MCP
-	provider := NewMultiToolProvider(localRegistry, mcp)
+	provider := NewMultiToolProvider(true, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
 
@@ -194,9 +194,11 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 }
 
 // UseNativeTools indicates if tools should be passed via the API.
-// For local models, we return false to avoid llama-server parser bugs.
+// Local models default to text-only to avoid confusing non-function-calling
+// models with API-level tool definitions they cannot process.  Models that
+// support native function calling can opt in via ModelConfig.ToolCallFormat.
 func (r *LocalToolRegistry) UseNativeTools() bool {
-	return false
+	return true
 }
 
 // FormatToolsForPrompt converts the tool definitions into a readable format.

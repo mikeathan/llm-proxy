@@ -175,6 +175,10 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Port           int                   `json:"port"`
 		ProviderConfig models.ProviderConfig `json:"provider_config"`
 		Metadata       *models.ModelMetadata `json:"metadata"`
+		Prefill        bool                  `json:"prefill"`
+		MaxSteps       int                   `json:"max_steps"`
+		ContextBudget  int                   `json:"context_budget"`
+		ToolCallFormat string                `json:"tool_call_format"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -237,6 +241,10 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Environment:    h.admin.Environment(),
 		ProviderConfig: &req.ProviderConfig,
 		Metadata:       req.Metadata,
+		Prefill:        req.Prefill,
+		MaxSteps:       req.MaxSteps,
+		ContextBudget:  req.ContextBudget,
+		ToolCallFormat: req.ToolCallFormat,
 	}
 
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
@@ -256,11 +264,30 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Port:           req.Port,
 		ProviderConfig: &req.ProviderConfig,
 		Metadata:       req.Metadata,
+		Prefill:        req.Prefill,
+		MaxSteps:       req.MaxSteps,
+		ContextBudget:  req.ContextBudget,
+		ToolCallFormat: req.ToolCallFormat,
 	}
 
 	if err := h.admin.PersistModel(persistCfg); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "saved model but failed to persist config: "+err.Error())
 		return
+	}
+
+	// Save agent tuning overrides to settings.yml (user-level, not registry.json)
+	if req.MaxSteps > 0 || req.ContextBudget > 0 || req.ToolCallFormat != "" || req.Prefill {
+		_ = h.admin.UpdateSettings(func(s *models.UserSettings) {
+			if s.ModelOverrides == nil {
+				s.ModelOverrides = make(map[string]models.ModelOverride)
+			}
+			s.ModelOverrides[req.Name] = models.ModelOverride{
+				MaxSteps:      req.MaxSteps,
+				ContextBudget: req.ContextBudget,
+				ToolCallFormat: req.ToolCallFormat,
+				Prefill:        req.Prefill,
+			}
+		})
 	}
 
 	respondJSON(w, runtimeCfg)
@@ -277,6 +304,10 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Port           int                   `json:"port"`
 		ProviderConfig models.ProviderConfig `json:"provider_config"`
 		Metadata       *models.ModelMetadata `json:"metadata"`
+		Prefill        bool                  `json:"prefill"`
+		MaxSteps       int                   `json:"max_steps"`
+		ContextBudget  int                   `json:"context_budget"`
+		ToolCallFormat string                `json:"tool_call_format"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -349,6 +380,10 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Environment:    h.admin.Environment(),
 		ProviderConfig: &req.ProviderConfig,
 		Metadata:       req.Metadata,
+		Prefill:        req.Prefill,
+		MaxSteps:       req.MaxSteps,
+		ContextBudget:  req.ContextBudget,
+		ToolCallFormat: req.ToolCallFormat,
 	}
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
@@ -367,11 +402,30 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		Port:           req.Port,
 		ProviderConfig: &req.ProviderConfig,
 		Metadata:       req.Metadata,
+		Prefill:        req.Prefill,
+		MaxSteps:       req.MaxSteps,
+		ContextBudget:  req.ContextBudget,
+		ToolCallFormat: req.ToolCallFormat,
 	}
 
 	if err := h.admin.PersistReplaceModel(persistCfg); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "updated model but failed to persist config: "+err.Error())
 		return
+	}
+
+	// Save agent tuning overrides to settings.yml (user-level, not registry.json)
+	if req.MaxSteps > 0 || req.ContextBudget > 0 || req.ToolCallFormat != "" || req.Prefill {
+		_ = h.admin.UpdateSettings(func(s *models.UserSettings) {
+			if s.ModelOverrides == nil {
+				s.ModelOverrides = make(map[string]models.ModelOverride)
+			}
+			s.ModelOverrides[req.Name] = models.ModelOverride{
+				MaxSteps:      req.MaxSteps,
+				ContextBudget: req.ContextBudget,
+				ToolCallFormat: req.ToolCallFormat,
+				Prefill:        req.Prefill,
+			}
+		})
 	}
 
 	respondJSON(w, runtimeCfg)

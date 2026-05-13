@@ -41,10 +41,12 @@ type ExecuteResponse struct {
 type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
+	ModelConfig(modelName string) (models.ModelConfig, bool)
 	Logger() logging.Logger
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
 	GuardrailEngine() *guardrails.GuardrailEngine
+	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
@@ -118,16 +120,41 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
 	var capturedEvents []any
-	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
+	agentOpts := assistant.AgentOptions{
 		Logger:      procLog,
-		MaxSteps:    assistant.MaxSteps,
+		MaxSteps:    assistant.DefaultMaxSteps,
 		Guardrails:  e.svc.GuardrailEngine(),
 		WorkspaceID: req.WorkspaceID,
 		Observer: func(ev assistant.AgentEvent) {
 			capturedEvents = append(capturedEvents, ev)
 			e.svc.Events().Publish(req.WorkspaceID, ev)
 		},
-	})
+		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
+			e.svc.GuardrailDecisionStore(),
+			func(ev assistant.AgentEvent) {
+				e.svc.Events().Publish(req.WorkspaceID, ev)
+			},
+		),
+	}
+	// Apply per-model overrides when available.
+	if req.Model != "" {
+		if cfg, ok := e.svc.ModelConfig(req.Model); ok {
+			if cfg.MaxSteps > 0 {
+				agentOpts.MaxSteps = cfg.MaxSteps
+			}
+			if cfg.ContextBudget > 0 {
+				agentOpts.ContextBudget = cfg.ContextBudget
+			}
+			if cfg.ToolCallFormat == "native" {
+				native := true
+				agentOpts.UseNativeTools = &native
+			}
+			if cfg.Prefill {
+				agentOpts.UsePrefill = true
+			}
+		}
+	}
+	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
 
 	// Load workspace-specific rules and assemble the final system prompt
 	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")

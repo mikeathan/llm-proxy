@@ -190,3 +190,7 @@ func (m *MockManager) Sync() {
 		m.SyncFunc()
 	}
 }
+
+func (m *MockManager) ApplyModelOverrides(overrides map[string]models.ModelOverride) {
+	// no-op for mock
+}

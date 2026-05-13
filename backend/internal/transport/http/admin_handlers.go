@@ -94,6 +94,10 @@ type adminModelView struct {
 	Ready          bool                   `json:"ready"`
 	ProviderConfig *models.ProviderConfig `json:"provider_config,omitempty"`
 	Metadata       *models.ModelMetadata  `json:"metadata,omitempty"`
+	Prefill        bool                   `json:"prefill"`
+	MaxSteps       int                    `json:"max_steps"`
+	ContextBudget  int                    `json:"context_budget"`
+	ToolCallFormat string                 `json:"tool_call_format"`
 }
 
 type adminActiveModel struct {

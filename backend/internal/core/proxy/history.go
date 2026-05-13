@@ -13,18 +13,24 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		return nil
 	}
 
-	// 1. Initial pass: Map roles and apply protocol mappings
+	// 1. Initial pass: Map roles and strip native-tool fields.
+	// When native tools are disabled, tool-role messages are converted to user
+	// role because many llama.cpp chat templates (Jinja) enforce a strict
+	// assistant-with-tool_call → tool-result pattern and reject orphan tool
+	// roles.  The tool_call_id is embedded in the content so the model can
+	// still associate results with specific calls.
 	prepared := make([]Message, 0, len(history))
 	for _, msg := range history {
 		newMsg := msg
-		// Compatibility: Strip native tool call fields if the model doesn't support them.
-		// Many local LLM servers (Ollama, vLLM) crash with a 500 error if they see
-		// tool_calls in the history when native tools are disabled or malformed.
 		if !useNativeTools {
 			newMsg.ToolCalls = nil
 			if msg.Role == ToolRole {
 				newMsg.Role = UserRole
-				newMsg.Content = fmt.Sprintf("Observation: %s", msg.Content)
+				if msg.ToolCallID != "" {
+					newMsg.Content = fmt.Sprintf("Tool result [%s]: %s", msg.ToolCallID, msg.Content)
+				} else {
+					newMsg.Content = fmt.Sprintf("Observation: %s", msg.Content)
+				}
 			}
 		}
 		prepared = append(prepared, newMsg)
@@ -35,6 +41,9 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	}
 
 	// 2. Consolidation pass: Merge consecutive messages of the same role to ensure alternation.
+	// Tool results (identified by non-empty ToolCallID) are never merged —
+	// merging a tool result with an adjacent nag message corrupts both and
+	// confuses the model into retrying already-successful tool calls.
 	merged := make([]Message, 0, len(prepared))
 	merged = append(merged, prepared[0])
 
@@ -42,7 +51,7 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		last := &merged[len(merged)-1]
 		current := prepared[i]
 
-		if last.Role == current.Role {
+		if last.Role == current.Role && last.ToolCallID == "" && current.ToolCallID == "" {
 			if current.Content != "" {
 				if last.Content != "" {
 					last.Content += "\n\n"
@@ -55,24 +64,17 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		}
 	}
 
-	// 3. Final safety: Ensure alternation and action-oriented nags
+	// 3. Final safety: Fill empty content with safe placeholders.
 	for i := range merged {
 		if strings.TrimSpace(merged[i].Content) == "" {
 			if merged[i].Role == AssistantRole {
 				merged[i].Content = "Thinking..."
-			} else if merged[i].Role == UserRole {
-				merged[i].Content = "Observation: (Action successful but returned no output)"
+			} else if merged[i].Role == UserRole || merged[i].Role == ToolRole {
+				merged[i].Content = "Tool result: (action completed, no output)"
 			}
 		}
 	}
 
-	if !useNativeTools && len(merged) > 0 && merged[len(merged)-1].Role == AssistantRole {
-		merged = append(merged, Message{
-			Role:    UserRole,
-			Content: "Observation: No action taken in last turn. You MUST provide a <tool_call> tag to proceed.",
-		})
-	}
-	
 	return SanitizeHistory(merged)
 }
 
@@ -149,9 +151,10 @@ func SanitizeHistory(history []Message) []Message {
 	sanitized := make([]Message, len(history))
 	for i, msg := range history {
 		sanitized[i] = Message{
-			Role:      msg.Role,
-			Content:   msg.Content,
-			ToolCalls: msg.ToolCalls, // Preserve action memory
+			Role:       msg.Role,
+			Content:    msg.Content,
+			ToolCalls:  msg.ToolCalls,
+			ToolCallID: msg.ToolCallID,
 		}
 	}
 	return sanitized

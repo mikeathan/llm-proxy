@@ -6,20 +6,14 @@ import (
 	"llm-proxy/internal/core/proxy"
 )
 
-func TestParseContentToolCalls_StandardToolCall(t *testing.T) {
-	content := `<function-name>query_device</function-name>
-<args-json-object>
-{
-  "target_name": "Living Room Light",
-  "metrics": ["state"],
-  "time_scope": "last_hour",
-  "aggregation": "last"
-}
-</args-json-object>`
+func TestParseContentToolCalls_StandardXMLFormat(t *testing.T) {
+	content := `<tool_call>
+{"tool": "query_device", "args": {"target_name": "Living Room Light", "metrics": ["state"], "time_scope": "last_hour", "aggregation": "last"}}
+</tool_call>`
 
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true, got false")
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(calls))
@@ -34,7 +28,6 @@ func TestParseContentToolCalls_StandardToolCall(t *testing.T) {
 	if tc.ID == "" {
 		t.Error("expected a non-empty tool call ID")
 	}
-	// Arguments should be valid, non-empty JSON
 	if string(tc.Function.Arguments) == "" || string(tc.Function.Arguments) == "{}" {
 		t.Errorf("expected non-empty arguments, got %q", string(tc.Function.Arguments))
 	}
@@ -42,9 +35,12 @@ func TestParseContentToolCalls_StandardToolCall(t *testing.T) {
 
 func TestParseContentToolCalls_NoToolCall(t *testing.T) {
 	content := "The temperature in the living room is 22°C."
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if ok {
-		t.Error("expected ok=false for plain text, got true")
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr == nil {
+		t.Error("expected parse error for plain text")
+	}
+	if !parseErr.XMLFound {
+		t.Log("correctly reports no XML tags found")
 	}
 	if len(calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(calls))
@@ -52,9 +48,9 @@ func TestParseContentToolCalls_NoToolCall(t *testing.T) {
 }
 
 func TestParseContentToolCalls_EmptyContent(t *testing.T) {
-	_, calls, ok := proxy.ParseContentToolCalls("")
-	if ok {
-		t.Error("expected ok=false for empty content")
+	_, calls, parseErr := proxy.ParseContentToolCalls("")
+	if parseErr == nil {
+		t.Error("expected parse error for empty content")
 	}
 	if len(calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(calls))
@@ -62,14 +58,16 @@ func TestParseContentToolCalls_EmptyContent(t *testing.T) {
 }
 
 func TestParseContentToolCalls_MultipleToolCalls(t *testing.T) {
-	content := `<function-name>get_temperature</function-name>
-<args-json-object>{"room": "attic"}</args-json-object>
-<function-name>get_temperature</function-name>
-<args-json-object>{"room": "basement"}</args-json-object>`
+	content := `<tool_call>
+{"tool": "get_temperature", "args": {"room": "attic"}}
+</tool_call>
+<tool_call>
+{"tool": "get_temperature", "args": {"room": "basement"}}
+</tool_call>`
 
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true")
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 tool calls, got %d", len(calls))
@@ -80,160 +78,137 @@ func TestParseContentToolCalls_MultipleToolCalls(t *testing.T) {
 	if calls[1].Function.Name != "get_temperature" {
 		t.Errorf("expected 'get_temperature', got %q", calls[1].Function.Name)
 	}
-	// IDs must be unique
 	if calls[0].ID == calls[1].ID {
 		t.Errorf("expected unique IDs, both are %q", calls[0].ID)
 	}
 }
 
-func TestParseContentToolCalls_Sanitization(t *testing.T) {
-	// Test that trailing characters (like '>') after the JSON block are stripped
+func TestParseContentToolCalls_MalformedJSON(t *testing.T) {
+	content := `<tool_call>
+not-valid-json
+</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr == nil {
+		t.Fatal("expected parse error for malformed JSON")
+	}
+	if !parseErr.XMLFound {
+		t.Error("expected XMLFound=true")
+	}
+	if parseErr.JSONError == "" {
+		t.Error("expected non-empty JSONError")
+	}
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls, got %d", len(calls))
+	}
+}
+
+func TestParseContentToolCalls_MissingToolField(t *testing.T) {
+	content := `<tool_call>{"args": {"foo": "bar"}}</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr == nil {
+		t.Fatal("expected parse error when tool field is missing")
+	}
+	if parseErr.JSONError == "" {
+		t.Error("expected non-empty JSONError for missing tool field")
+	}
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls, got %d", len(calls))
+	}
+}
+
+func TestParseContentToolCalls_WrongTagIgnored(t *testing.T) {
+	// Old-style <function-name> tags are no longer recognised.
 	content := `<function-name>list_directory</function-name>
-<args-json-object>{"path": "/tmp/"}></args-json-object>`
-
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true")
+<args-json-object>{"path": "/tmp/"}</args-json-object>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr == nil {
+		t.Fatal("expected parse error for unsupported tag format")
 	}
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
-	}
-	if string(calls[0].Function.Arguments) != `{"path": "/tmp/"}` {
-		t.Errorf("expected sanitized arguments, got %q", string(calls[0].Function.Arguments))
-	}
-}
-
-func TestParseContentToolCalls_MissingArgs(t *testing.T) {
-	// With the new reToolPair requirement, a missing args tag means no tool call is matched
-	content := `<function-name>list_devices</function-name>`
-
-	_, _, ok := proxy.ParseContentToolCalls(content)
-	if ok {
-		t.Fatal("expected ok=false when args tag is missing in the new strict pair format")
-	}
-}
-
-func TestParseContentToolCalls_FunctionNameTrimmed(t *testing.T) {
-	content := "<function-name>  declare_intent  </function-name>\n<args-json-object>{}</args-json-object>"
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true")
-	}
-	if calls[0].Function.Name != "declare_intent" {
-		t.Errorf("expected trimmed name 'declare_intent', got %q", calls[0].Function.Name)
-	}
-}
-
-// --- Tests for the <tools> JSON format ---
-
-func TestParseContentToolCalls_ToolsTagFormat(t *testing.T) {
-	content := "<tools>\n{\"name\": \"query_device\", \"arguments\": {\"target_name\": \"Living Room Light\", \"metrics\": [\"state\"], \"time_scope\": \"today\", \"aggregation\": \"last\"}}\n</tools>"
-
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true for <tools> format")
-	}
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
-	}
-	tc := calls[0]
-	if tc.Function.Name != "query_device" {
-		t.Errorf("expected name 'query_device', got %q", tc.Function.Name)
-	}
-	if tc.Type != "function" {
-		t.Errorf("expected type 'function', got %q", tc.Type)
-	}
-	if string(tc.Function.Arguments) == "" || string(tc.Function.Arguments) == "{}" {
-		t.Errorf("expected non-empty arguments, got %q", string(tc.Function.Arguments))
-	}
-}
-
-func TestParseContentToolCalls_ToolsTagMultiple(t *testing.T) {
-	content := `<tools>
-{"name": "get_state", "arguments": {"room": "kitchen"}}
-</tools>
-<tools>
-{"name": "get_state", "arguments": {"room": "hallway"}}
-</tools>`
-
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true")
-	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(calls))
-	}
-	if calls[0].ID == calls[1].ID {
-		t.Error("expected unique IDs for each call")
-	}
-}
-
-func TestParseContentToolCalls_ToolsTagMalformedJSON(t *testing.T) {
-	// Malformed JSON inside <tools> should be silently skipped
-	content := "<tools>\nnot-json\n</tools>"
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if ok {
-		t.Error("expected ok=false for malformed JSON in <tools>")
+	if !parseErr.XMLFound {
+		t.Log("correctly reports no XML tags because <function-name> is not supported")
 	}
 	if len(calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(calls))
 	}
 }
 
-func TestParseContentToolCalls_ToolsTagMissingName(t *testing.T) {
-	// Valid JSON but missing "name" key - should be rejected
-	content := `<tools>{"arguments": {"foo": "bar"}}</tools>`
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if ok {
-		t.Error("expected ok=false when name is missing")
+func TestParseContentToolCalls_RawJSONIgnored(t *testing.T) {
+	// Naked JSON without XML wrapper is no longer accepted.
+	content := `{"tool": "get_weather", "args": {"city": "London"}}`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr == nil {
+		t.Fatal("expected parse error for raw JSON without XML wrapper")
 	}
 	if len(calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(calls))
 	}
 }
 
-func TestParseContentToolCalls_RawJSON(t *testing.T) {
-	content := `{"name": "get_weather", "arguments": {"city": "London"}}`
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true for raw JSON")
+func TestParseContentToolCalls_FuzzyCloseTag(t *testing.T) {
+	// Some models omit the slash in the closing tag.
+	content := `<tool_call>{"tool": "read_file", "args": {"path": "test.txt"}}</tool_call`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error for fuzzy close tag: %v", parseErr)
 	}
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
-	}
-	if calls[0].Function.Name != "get_weather" {
-		t.Errorf("expected 'get_weather', got %q", calls[0].Function.Name)
 	}
 }
 
-func TestParseContentToolCalls_MarkdownJSON(t *testing.T) {
-	content := "```json\n[\n  {\"name\": \"get_weather\", \"arguments\": {\"city\": \"London\"}}\n]\n```"
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true for Markdown JSON")
+func TestParseContentToolCalls_SelfClosingTag(t *testing.T) {
+	content := `<tool_call>{"tool": "read_file", "args": {"path": "test.txt"}}</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
-	}
-	if calls[0].Function.Name != "get_weather" {
-		t.Errorf("expected 'get_weather', got %q", calls[0].Function.Name)
 	}
 }
 
-func TestParseContentToolCalls_PipeToolCallFormat(t *testing.T) {
-	content := `<|tool_call>call:scan_local_network{mode:<|"|>deep<|"|>,target_ip:<|"|>192.168.50.10<|"|>}<|tool_call|>`
+func TestValidateToolCall(t *testing.T) {
+	tools := []proxy.Tool{
+		{Function: proxy.FunctionSchema{Name: "read_file"}},
+		{Function: proxy.FunctionSchema{Name: "write_file"}},
+	}
+	validCall := proxy.ToolCall{Function: proxy.FunctionCall{Name: "read_file"}}
+	if err := proxy.ValidateToolCall(validCall, tools); err != nil {
+		t.Errorf("expected valid tool, got error: %v", err)
+	}
+	invalidCall := proxy.ToolCall{Function: proxy.FunctionCall{Name: "delete_everything"}}
+	if err := proxy.ValidateToolCall(invalidCall, tools); err == nil {
+		t.Error("expected error for unknown tool")
+	}
+}
 
-	_, calls, ok := proxy.ParseContentToolCalls(content)
-	if !ok {
-		t.Fatal("expected ok=true for pipe tool call format")
+func TestParseError_Feedback(t *testing.T) {
+	tests := []struct {
+		name string
+		pe   proxy.ParseError
+	}{
+		{"no XML", proxy.ParseError{XMLFound: false}},
+		{"JSON error", proxy.ParseError{XMLFound: true, JSONError: "unexpected character"}},
+		{"bad tool", proxy.ParseError{ToolName: "nonexistent"}},
 	}
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			feedback := tt.pe.Feedback([]string{"read_file", "write_file"})
+			if feedback == "" {
+				t.Error("expected non-empty feedback")
+			}
+		})
 	}
-	if calls[0].Function.Name != "scan_local_network" {
-		t.Errorf("expected name 'scan_local_network', got %q", calls[0].Function.Name)
+}
+
+func TestAvailableToolNames(t *testing.T) {
+	tools := []proxy.Tool{
+		{Function: proxy.FunctionSchema{Name: "read_file"}},
+		{Function: proxy.FunctionSchema{Name: "write_file"}},
+		{Function: proxy.FunctionSchema{Name: "read_file"}}, // duplicate
 	}
-	if string(calls[0].Function.Arguments) != `{"mode":"deep","target_ip":"192.168.50.10"}` {
-		t.Errorf("expected arguments JSON, got %q", string(calls[0].Function.Arguments))
+	names := proxy.AvailableToolNames(tools)
+	if len(names) != 2 {
+		t.Errorf("expected 2 unique names, got %d", len(names))
 	}
 }

@@ -47,6 +47,61 @@ func TestFilterStreamingMarkup(t *testing.T) {
 			wantContent:  "Okay ",
 			wantToolCall: true,
 		},
+		// Edge cases — normal text that should NOT be truncated
+		{
+			name:         "math less-than symbol",
+			input:        "The value 5 < 10 is correct.",
+			wantContent:  "The value 5 < 10 is correct.",
+			wantToolCall: false,
+		},
+		{
+			name:         "set notation with braces",
+			input:        "Consider the set {1, 2, 3} for this.",
+			wantContent:  "Consider the set {1, 2, 3} for this.",
+			wantToolCall: false,
+		},
+		{
+			name:         "JSON in normal sentence",
+			input:        `The format is {"key": "value"} for the config.`,
+			wantContent:  `The format is {"key": "value"} for the config.`,
+			wantToolCall: false,
+		},
+		{
+			name:         "markdown code fence with content after",
+			input:        "Here is code:\n```\nprint('hello')\n```\nNow continuing...",
+			wantContent:  "Here is code:\n",
+			wantToolCall: true,
+		},
+		{
+			name:         "normal text with functions word",
+			input:        "The system uses several functions.",
+			wantContent:  "The system uses several ",
+			wantToolCall: true,
+		},
+		{
+			name:         "tool_call tag mid-content",
+			input:        "Processing... <tool_call>data</tool_call> done.",
+			wantContent:  "Processing... ",
+			wantToolCall: true,
+		},
+		{
+			name:         "pipe-style tool call",
+			input:        "Starting <|tool_call>query</|tool_call> now.",
+			wantContent:  "Starting ",
+			wantToolCall: true,
+		},
+		{
+			name:         "JSON name field mid-content",
+			input:        `Response: {"name": "example"}`,
+			wantContent:  "Response: ",
+			wantToolCall: true,
+		},
+		{
+			name:         "normal text with quoted type",
+			input:        `The "type" of object matters.`,
+			wantContent:  `The "type" of object matters.`,
+			wantToolCall: false,
+		},
 	}
 
 	for _, tt := range tests {

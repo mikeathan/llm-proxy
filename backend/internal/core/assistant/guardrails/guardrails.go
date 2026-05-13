@@ -194,3 +194,66 @@ func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.Networ
 
 	return nil
 }
+
+// PersistOverride saves a guardrail override to the workspace config so
+// future tool calls matching this category and pattern are not blocked.
+func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args string) error {
+	if e.persistence == nil || workspaceID == "" {
+		return fmt.Errorf("persistence not available")
+	}
+
+	cfg, err := e.persistence.ReadConfig(workspaceID)
+	if err != nil {
+		return fmt.Errorf("read workspace config: %w", err)
+	}
+	if cfg.Guardrails == nil {
+		cfg.Guardrails = &models.AgentGuardrailsConfig{}
+	}
+
+	switch category {
+	case "terminal":
+		var a struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal([]byte(args), &a) == nil && a.Command != "" {
+			for _, base := range tools.ExtractBaseCommands(a.Command) {
+					cfg.Guardrails.Terminal.AllowedCommands = append(cfg.Guardrails.Terminal.AllowedCommands, base)
+				}
+		}
+
+	case "filesystem":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
+			cfg.Guardrails.FileSystem.AllowedPaths = append(cfg.Guardrails.FileSystem.AllowedPaths, a.Path)
+		}
+
+	case "network":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal([]byte(args), &a) == nil && a.URL != "" {
+			host := tools.ExtractHost(a.URL)
+			if host != "" {
+				filtered := make([]string, 0, len(cfg.Guardrails.Network.BlockedDomains))
+				for _, d := range cfg.Guardrails.Network.BlockedDomains {
+					if d != host {
+						filtered = append(filtered, d)
+					}
+				}
+				cfg.Guardrails.Network.BlockedDomains = filtered
+			}
+		}
+
+	case "search":
+		cfg.Guardrails.Search.Enabled = true
+
+	case "communication":
+		cfg.Guardrails.Communication.Enabled = true
+		cfg.Guardrails.Communication.RequireReview = false
+	}
+
+	return e.persistence.WriteConfig(workspaceID, cfg)
+}
+

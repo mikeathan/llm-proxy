@@ -95,8 +95,26 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 	return checkPathSecurity(cleanCmd, jailPath)
 }
 
-// splitCommandSegments decomposes a chained bash command into its individual executable parts
-// while respecting shell syntax like quotes and heredocs to prevent incorrect splitting.
+// SplitCommandSegments decomposes a chained bash command into its individual
+// executable parts while respecting shell syntax like quotes and heredocs.
+func SplitCommandSegments(command string) []string {
+	return splitCommandSegments(command)
+}
+
+// ExtractBaseCommands returns the base executable names from each segment
+// of a chained command.  "chmod +x file && sh file" → ["chmod", "sh"].
+func ExtractBaseCommands(command string) []string {
+	segments := splitCommandSegments(command)
+	base := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		words := strings.Fields(seg)
+		if len(words) > 0 {
+			base = append(base, words[0])
+		}
+	}
+	return base
+}
+
 func splitCommandSegments(command string) []string {
 	var segments []string
 	var current strings.Builder
@@ -267,7 +285,7 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 	wsID, jailPath := t.resolveWorkspace(ctx)
 
 	// 1. Sanitize and Validate Command
-	cleanCmd, err := t.sanitizeCommand(command, cfg, jailPath)
+	cleanCmd, err := t.sanitizeCommand(ctx, command, cfg, jailPath)
 	if err != nil {
 		return "", err
 	}
@@ -302,10 +320,14 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 }
 
 // sanitizeCommand handles path forgiveness, traversal validation, and guardrail enforcement in a single pipeline.
-func (t *TerminalTools) sanitizeCommand(command string, cfg models.TerminalGuardrailsConfig, jailPath string) (string, error) {
+func (t *TerminalTools) sanitizeCommand(ctx context.Context, command string, cfg models.TerminalGuardrailsConfig, jailPath string) (string, error) {
 	// 1. Initial Guardrail Validation (Whitelist / Blocked Patterns)
-	if err := ValidateTerminalCommand(command, cfg, &t.regexCache, jailPath); err != nil {
-		return "", err
+	// Skip when the agent already approved this call via the guardrail decision
+	// flow — running the same validation twice would reject "Allow Once" approvals.
+	if !models.GetGuardrailApproved(ctx) {
+		if err := ValidateTerminalCommand(command, cfg, &t.regexCache, jailPath); err != nil {
+			return "", err
+		}
 	}
 
 	// 2. Path Forgiveness: Strip redundant workspace prefixes

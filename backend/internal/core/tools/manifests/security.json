@@ -5,7 +5,7 @@
   "guardrails": {
     "block_secrets": true,
     "user_blocked_patterns": [
-      "\\b(?:\\d[ -]*?){13,16}\\b",
+      "\\b(?:4|5[1-5]|3[47]|6(?:011|5))(?:\\d[ -]*?){11,15}\\b",
       "\\b\\d{3}-\\d{2}-\\d{4}\\b",
       "(?i)-----BEGIN\\s+([A-Z\\s]+)\\s+PRIVATE\\s+KEY-----"
     ]

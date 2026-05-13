@@ -1,109 +1,233 @@
-# llm-proxy
+# Antigravity LLM Proxy
 
-LLM proxy that starts and manages local model runtimes, exposes an OpenAI-style
-`/v1/chat/completions` API, and provides a higher-level assistant endpoint that
-injects device context into the prompt.
+Local-first LLM orchestration platform. Manages model runtimes (llama.cpp), provides an OpenAI-compatible API, an agent loop for autonomous task execution, and a web admin UI.
 
-## How it works
+## How It Works
 
-- The proxy starts a model process (llama-server) on demand and forwards
-  `/v1/chat/completions` requests to it.
-- `/api/conversation/message` fetches device context, builds a system prompt,
-  and sends a chat request to the model.
-- Admin routes under `/admin` expose status and model management.
+1. **Model Runtime Management** — Starts/stops llama-server processes on demand with idle-timeout reaping. Supports local GGUF models and cloud providers (OpenAI, Gemini, Vertex AI).
+2. **OpenAI-Compatible Proxy** — `POST /v1/chat/completions` forwards to the active model using OpenAI wire format.
+3. **Agent Loop** — The assistant endpoint runs an autonomous agent: model generates tool calls (XML or native function calling), tools execute (terminal, filesystem, network, search), results feed back to the model. Repeats until `submit_final_answer` or step limit.
+4. **Guardrail Engine** — Validates every tool call against configurable rules (blocked patterns, command whitelist, path jail, network boundaries). Blocked calls pause for user approval.
+5. **Admin UI** — Vue 3 SPA for model management, chat, automation dashboards, settings, and guardrail configuration. Embedded in the Go binary.
 
-Additional endpoints:
+## Quick Start
 
-- `POST /v1/chat/completions`: OpenAI-style chat completions.
-- `GET /admin`: Admin UI.
-- `GET /admin/api/state`: Server/model status snapshot.
-- `POST /admin/api/start`: Start a model by name.
-- `POST /admin/api/stop`: Stop the active model.
-- `POST /admin/api/models`: Add a model.
-- `PUT /admin/api/models`: Update a model.
-- `DELETE /admin/api/models`: Remove a model.
-- `GET /admin/api/config`: Read current config.
-- `PUT /admin/api/config`: Persist config updates.
-- `GET /admin/api/logs`: Read active model logs.
-- `GET /admin/api/metrics`: Read GPU/system metrics snapshot.
+```bash
+# Build
+cd backend
+go build ./...
+
+# Run (creates data/ directory on first start)
+go run main.go --data ./data
+
+# Admin UI at http://localhost:4001/admin/
+# Chat API at http://localhost:4001/v1/chat/completions
+```
+
+## Endpoints
+
+### Proxy
+| Method | Path | Description |
+|--------|------|-------------|
+| ANY | `/v1/chat/completions` | OpenAI-compatible chat completions |
+
+### Assistant / Chat
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/conversation/message` | Send message to agent |
+| POST | `/admin/api/conversation/guardrail-decision` | Resolve guardrail block |
+| GET | `/api/conversation/sessions/:ws` | List chat sessions |
+| GET/DELETE | `/api/conversation/sessions/:ws/:id` | Get/delete session |
+
+### Admin API (`/admin/api/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/state` | Full admin state snapshot |
+| POST | `/start` | Start a model |
+| POST | `/stop` | Stop active model |
+| POST/PUT/DELETE | `/models` | Model CRUD |
+| GET | `/registry` | Registry catalogue + providers |
+| PUT | `/registry` | Update full registry |
+| GET/PUT | `/config` | System config |
+| POST | `/system/restart` | Restart application |
+| GET/PUT | `/host` | Host machine settings |
+| GET | `/logs` | Active model logs |
+| GET | `/app-logs/tail` | Application log tail |
+| GET/PUT | `/log-level` | Log level control |
+| GET | `/metrics` | GPU/CPU/token metrics |
+| GET/POST/PUT/DELETE | `/mcp` | MCP server CRUD |
+| GET | `/providers/models` | List provider models |
+| GET | `/providers/manifests` | Provider manifest list |
+| GET | `/providers/test` | Test provider connection |
+| GET/PUT/DELETE | `/secrets/keys` | API key management |
+| GET/PUT | `/secrets/tools` | Tool secrets (Tavily, Telegram) |
+| GET | `/templates` | Playbook templates |
+| GET | `/templates/:id` | Template content |
+
+### Dispatcher (`/admin/api/dispatcher/`)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/automations` | List all automations |
+| POST | `/trigger/:ws/:name` | Trigger automation |
+| POST | `/stop/:ws` | Stop running automation |
+| GET/POST/DELETE | `/workspaces` | Workspace CRUD |
+| POST/PUT/DELETE | `/workspaces/:ws/automations` | Automation CRUD |
+| GET/PUT/DELETE | `/workspaces/:ws/files/:file` | File CRUD |
+| GET/PUT | `/workspaces/:ws/state` | Workspace state |
+| GET/PUT | `/workspaces/:ws/config` | Workspace config |
+| GET | `/workspaces/:ws/live` | SSE event stream |
 
 ## Configuration
 
-The proxy reads `config/config.json` at startup. See `models/config.go` for the
-full schema.
+### Three-Tier Config Model
 
-Example snippet:
+```
+Tier 1: config.json       — System infrastructure (host, ports, timeouts)
+Tier 2: settings.yml      — User preferences (local paths, guardrails, per-model tuning)
+Tier 3: registry.json     — Dynamic state (models, providers, MCP servers)
+
++ Workspace overrides: {metadata}/{workspace}/config.yaml
+```
+
+### Data Directory Layout
+
+```
+data/
+├── config.json          — System config
+├── registry.json        — Model catalogue + providers
+├── secrets.json         — Encrypted API keys (AES-256-GCM)
+├── registry/definitions/ — Provider manifests (*.json)
+├── templates/           — Playbook templates
+├── workspaces/          — Run files, heartbeat, process logs
+└── metadata/            — Workspace configs (config.yaml per workspace)
+```
+
+```
+~/.config/llm-proxy/
+├── settings.yml         — User preferences
+└── host.json            — Host machine settings
+```
+
+### settings.yml
+
+```yaml
+local:
+  llama_server_binary: /usr/local/bin/llama-server
+  model_dir: /home/user/models
+  default_args:
+    - "--ctx-size"
+    - "4096"
+    - "--threads"
+    - "6"
+    - "--gpu-layers"
+    - "999"
+
+guardrails:
+  terminal:
+    blocked_commands:
+      - "rm -rf /"
+    blocked_patterns:
+      - "curl.*|.*sh"
+
+model_overrides:
+  my-model:
+    max_steps: 30
+    context_budget: 20000
+    tool_call_format: native
+    prefill: true
+```
+
+### registry.json
 
 ```json
 {
-  "server": {
-    "bind": "0.0.0.0:4001",
-    "model_host": "127.0.0.1",
-    "idle_timeout_seconds": 1800,
-    "llama_server_binary": "/home/mikeathan/dev/llama.cpp/build/bin/llama-server",
-    "default_args": [
-      "--ctx-size",
-      "4096",
-      "--threads",
-      "6",
-      "--gpu-layers",
-      "999"
-    ]
-  },
-  "models": [
+  "primary_model": "qwen2.5-7b",
+  "fallback_model": "",
+  "catalogue": [
     {
+      "id": "qwen2.5-7b",
       "name": "qwen2.5-7b",
-      "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
-      "args": [],
-      "port": 5001
+      "provider_id": "local",
+      "model_id": "qwen2.5-3b-instruct-q4_k_m.gguf",
+      "port": 8081,
+      "args": ["--flash-attn"],
+      "prefill": false
     }
   ],
-  "model_dir": "/home/mikeathan/dev/models",
-  "mcp_servers": [
-    {
-      "name": "nodeherder",
-      "url": "http://localhost:4110/sse",
-      "enabled": true
+  "providers": {
+    "openai": {
+      "type": "openai",
+      "base_url": "https://api.openai.com/v1"
     }
-  ]
+  },
+  "mcp_servers": []
 }
 ```
 
-Key fields:
+## Agent Loop
 
-- `server.bind`: host:port to listen on.
-- `server.model_host`: host used when constructing the model URL.
-- `server.idle_timeout_seconds`: stop the model after this idle period.
-- `server.llama_server_binary`: path to the llama-server binary.
-- `server.default_args`: args passed to the model server on startup.
-- `models[]`:
-  - `name`: model name.
-  - `filename`: filename in `model_dir`.
-  - `args`: per-model args (appended to defaults).
-  - `port`: port to run the model on.
-- `model_dir`: base directory for model files.
-- `metrics.gpu`: GPU metrics settings.
-  - `provider`: `auto`, `nvidia-smi`, `rocm-smi`, `amdgpu_top`, `sysfs`, `none`
-  - `binary`, `index`, `sysfs_path`: optional overrides.
-- `mcp_servers[]`:
-  - `name`: server identifier.
-  - `url`: SSE endpoint URL.
-  - `enabled`: boolean flag.
+The agent loop runs in `internal/core/assistant/agent.go`. Each iteration:
 
-## Environment variables
+1. **Physical Sieve** — If history exceeds `ContextBudget`, prune middle turns (keep system prompt + first user message + last 3 turns)
+2. **List tools** — Aggregate local tools + MCP tools
+3. **Compute response** — Stream LLM completion, accumulate text + native tool_calls
+4. **Parse tool calls** — Extract `<tool_call>` XML from text (fallback path). Native tool_calls from deltas (primary path).
+5. **Validate** — Guardrail engine checks each tool call against rules
+6. **Execute** — Run tool, append result to history
+7. **Repeat** — Until `submit_final_answer` or maxSteps
 
-- `APP_ENV` (Optional): Application environment (default `development`).
-  Note: Legacy variables `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` are no longer used as device context is now fetched via MCP.
+Tool call format (XML):
+```xml
+<tool_call>{"tool":"tool_name","args":{"key":"value"}}</tool_call>
+```
 
-Send a test request to the assistant endpoint (replace the port if your config
-uses a different `server.bind`):
+## Frontend
 
 ```bash
-curl -sS -X POST "http://localhost:4001/api/conversation/message" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "conversation_id": "local-dev-1",
-    "context_version": "v1",
-    "message": "Get the average temperature for device dev1 from 2025-01-01 to 2025-01-02."
-  }'
+cd frontend
+npm install
+npm run dev         # dev server (proxies API to :4001)
+npm run build       # production build → embedded in Go binary
 ```
+
+Vue 3 + Vite + TypeScript. The production build is embedded via `//go:embed`. After frontend changes, `npm run build` then rebuild the backend.
+
+## Environment Variables
+
+- `APP_ENV` — Application environment (default: `development`)
+- `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` — Service credentials (.env file)
+
+## Architecture
+
+```
+backend/
+├── main.go                    — Entry point
+├── models/                    — Shared types (no logic)
+├── internal/
+│   ├── app/                   — Bootstrap, AppContext state manager
+│   ├── core/
+│   │   ├── assistant/         — Agent loop, tool providers, guardrails, prompts
+│   │   ├── automation/        — Task scheduler, executor, event bus
+│   │   ├── llm/               — Model lifecycle, GGUF scanner, provider registry
+│   │   ├── mcp/               — MCP client (SSE transport)
+│   │   ├── proxy/             — LLM HTTP client, XML parser, history normalization
+│   │   └── tools/             — Tool implementations (terminal, fs, network, search)
+│   ├── platform/              — Logging, storage, persistence, metrics
+│   ├── shell/                 — Persistent shell sessions
+│   ├── testing/mocks/         — Shared test mocks
+│   └── transport/http/        — HTTP handlers + embedded frontend
+```
+
+## Documentation
+
+- `CONSTITUTION.md` — Immutable architectural laws (read first)
+- `CLAUDE.md` — Project guide with invariants and API reference
+- `AGENTS.md` — Instructions for AI coding assistants
+- `docs/SPECS/agent-loop.md` — Agent loop specification
+- `docs/SPECS/tool-call-parser.md` — Tool call parser specification
+- `docs/PLANS/agnostic-agent-loop.md` — Implementation plan
+- `docs/audits/agent-stability-report.md` — Stability audit results
+
+## License
+
+Proprietary.

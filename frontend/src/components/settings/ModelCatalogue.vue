@@ -156,6 +156,66 @@ const formatSize = (bytes: number) => {
             These arguments override global defaults for this specific model.
           </p>
         </div>
+
+        <!-- Agent Tuning -->
+        <div class="col-span-2 mt-4">
+          <h4 class="form-section-title">Agent Tuning (per-model overrides)</h4>
+        </div>
+
+        <div class="form-group">
+          <label>Max Steps</label>
+          <input
+            v-model.number="editingModel.max_steps"
+            type="number"
+            class="form-input"
+            placeholder="25 (default)"
+            min="1"
+            max="100"
+          />
+          <p class="helper-text">Max agent loop iterations before forced exit.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Context Budget (chars)</label>
+          <input
+            v-model.number="editingModel.context_budget"
+            type="number"
+            class="form-input"
+            placeholder="15000 (default)"
+            min="1000"
+            max="100000"
+            step="1000"
+          />
+          <p class="helper-text">Character count that triggers context pruning.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Tool Call Format</label>
+          <select v-model="editingModel.tool_call_format" class="form-input">
+            <option value="">Default (native)</option>
+            <option value="native">Native Tools (OpenAI function calling)</option>
+            <option value="xml">XML Text (model writes &lt;tool_call&gt; tags)</option>
+          </select>
+          <p class="helper-text">How tools are presented to the model.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Prefill</label>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input
+                v-model="editingModel.prefill"
+                type="checkbox"
+                class="toggle-input"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">{{
+              editingModel.prefill ? "Enabled" : "Disabled"
+            }}</span>
+          </div>
+          <p class="helper-text">Prefill assistant response with &lt;tool_call&gt; opener in automation mode.</p>
+        </div>
       </div>
 
       <div class="form-actions">
@@ -282,6 +342,43 @@ const formatSize = (bytes: number) => {
 
 .helper-text {
   @apply text-[10px] text-gray-500 mt-1;
+}
+
+.form-section-title {
+  @apply text-sm font-bold text-blue-400 uppercase tracking-wide border-t border-gray-700 pt-3;
+}
+
+.toggle-row {
+  @apply flex items-center gap-3 mt-1;
+}
+
+.toggle {
+  @apply relative inline-block w-9 h-5 cursor-pointer;
+}
+
+.toggle-input {
+  @apply sr-only;
+}
+
+.toggle-input:checked + .toggle-slider {
+  @apply bg-emerald-500;
+}
+
+.toggle-slider {
+  @apply absolute inset-0 rounded-full bg-gray-600 transition-colors;
+}
+
+.toggle-slider::after {
+  content: '';
+  @apply absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform;
+}
+
+.toggle-input:checked + .toggle-slider::after {
+  transform: translateX(1rem);
+}
+
+.toggle-label {
+  @apply text-sm text-gray-300 font-medium;
 }
 
 .form-actions {

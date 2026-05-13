@@ -16,11 +16,12 @@ type ToolProvider interface {
 
 // MultiToolProvider aggregates tools from multiple providers.
 type MultiToolProvider struct {
-	Providers []ToolProvider
+	Providers      []ToolProvider
+	useNativeTools bool
 }
 
-func NewMultiToolProvider(providers ...ToolProvider) *MultiToolProvider {
-	return &MultiToolProvider{Providers: providers}
+func NewMultiToolProvider(useNativeTools bool, providers ...ToolProvider) *MultiToolProvider {
+	return &MultiToolProvider{Providers: providers, useNativeTools: useNativeTools}
 }
 
 func (p *MultiToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
@@ -54,9 +55,7 @@ func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
 }
 
 func (p *MultiToolProvider) UseNativeTools() bool {
-	// : Always return false to force prompt-based tool calling.
-	// This ensures the LLM engine never sees the native 'tools' schema.
-	return false
+	return p.useNativeTools
 }
 
 // CompositeEngine delegates tool execution to either a primary (builtin) or secondary (mcp) engine.

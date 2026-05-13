@@ -34,6 +34,22 @@ const localModel = computed({
       <input v-model="localModel.args" type="text" placeholder="-c 4096" class="form-input font-mono">
     </div>
   </div>
+
+  <div class="mb-3 mt-3">
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        :checked="localModel.prefill"
+        @change="localModel.prefill = ($event.target as HTMLInputElement).checked"
+        class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600"
+      />
+      <span class="text-sm text-gray-300">Prefill tool calls</span>
+    </label>
+    <p class="text-[10px] text-gray-500 mt-1 ml-6">
+      Force the assistant response to start with a tool call in automation mode.
+      Recommended for smaller local models that struggle with XML formatting.
+    </p>
+  </div>
 </template>
 
 <style scoped lang="postcss">

@@ -95,8 +95,10 @@ type AssistantService interface {
 	Engine() assistant.Engine
 	ToolProvider() assistant.ToolProvider
 	GuardrailEngine() *guardrails.GuardrailEngine
+	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	Persistence() *persistence.WorkspaceManager
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
+	ModelConfig(modelName string) (models.ModelConfig, bool)
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
 	Events() *automation.EventBus

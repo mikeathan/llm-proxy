@@ -66,6 +66,7 @@ func (s *AppContext) registerSubscribers() {
 		logging.Info("Settings change detected, syncing LLM runtime", "modelDir", u.Local.ModelDir)
 		s.manager.Registrar().RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
 		s.manager.Sync()
+		s.manager.ApplyModelOverrides(u.ModelOverrides)
 	})
 
 	// 2. System Config Changes -> Sync Infrastructure & Environment
@@ -218,6 +219,7 @@ func (s *AppContext) Models() []models.ModelConfig {
 			Filename: m.ModelID,
 			Port:     m.Port,
 			Args:     m.Args,
+			Prefill:  m.Prefill,
 			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: m.CredentialID,
 			},
@@ -430,6 +432,7 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 					CredentialID: credID,
 					Port:         cfg.Port,
 					Args:         cfg.Args,
+					Prefill:      cfg.Prefill,
 				}
 				return nil
 			}
@@ -446,6 +449,7 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 			CredentialID: credID,
 			Port:         cfg.Port,
 			Args:         cfg.Args,
+			Prefill:      cfg.Prefill,
 		})
 		return nil
 	})
@@ -467,6 +471,7 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 			CredentialID: credID,
 			Port:         cfg.Port,
 			Args:         cfg.Args,
+			Prefill:      cfg.Prefill,
 		}
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {

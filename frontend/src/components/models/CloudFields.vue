@@ -8,12 +8,14 @@ const props = defineProps<{
   provider: string;
   modelId: string;
   apiKeyName: string;
+  prefill: boolean;
   state: AdminState | null;
 }>();
 
 const emit = defineEmits<{
   (e: "update:modelId", value: string): void;
   (e: "update:apiKeyName", value: string): void;
+  (e: "update:prefill", value: boolean): void;
 }>();
 
 const setActiveTab = inject<(tab: string) => void>("setActiveTab");
@@ -225,6 +227,22 @@ watch(isProviderConfigured, (configured) => {
       class="form-input"
       :disabled="!isProviderConfigured"
     />
+  </div>
+
+  <div class="mb-3">
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        :checked="prefill"
+        @change="emit('update:prefill', ($event.target as HTMLInputElement).checked)"
+        class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600"
+      />
+      <span class="text-sm text-gray-300">Prefill tool calls</span>
+    </label>
+    <p class="text-[10px] text-gray-500 mt-1 ml-6">
+      Force the assistant response to start with a tool call in automation mode.
+      Recommended for smaller local models that struggle with XML formatting.
+    </p>
   </div>
 </template>
 

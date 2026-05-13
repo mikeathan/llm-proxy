@@ -154,6 +154,15 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		MaxSteps:    20,
 		Guardrails:  h.guardrails,
 		WorkspaceID: payload.WorkspaceID,
+		Observer: func(ev assistant.AgentEvent) {
+			h.svc.Events().Publish(payload.WorkspaceID, ev)
+		},
+		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
+			h.svc.GuardrailDecisionStore(),
+			func(ev assistant.AgentEvent) {
+				h.svc.Events().Publish(payload.WorkspaceID, ev)
+			},
+			),
 	})
 
 	reply, updatedHistory, agErr := agent.Execute(ctx, session.History)
@@ -290,6 +299,42 @@ func (h *AssistantMessageHandler) DeleteSession(w http.ResponseWriter, r *http.R
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GuardrailDecisionRequest is the request body for submitting a guardrail decision.
+type GuardrailDecisionRequest struct {
+	DecisionID string `json:"decision_id"`
+	Allow      bool   `json:"allow"`
+	Persist    bool   `json:"persist"`
+}
+
+// GuardrailDecisionHandler processes user decisions on blocked tool calls.
+func (h *AssistantMessageHandler) GuardrailDecisionHandler(w http.ResponseWriter, r *http.Request) {
+	var req GuardrailDecisionRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.DecisionID == "" {
+		writeJSONError(w, http.StatusBadRequest, "decision_id is required")
+		return
+	}
+
+	store := h.svc.GuardrailDecisionStore()
+	if store == nil {
+		writeJSONError(w, http.StatusInternalServerError, "guardrail decision store not available")
+		return
+	}
+
+	if !store.Resolve(req.DecisionID, assistant.GuardrailDecision{
+		Allow:   req.Allow,
+		Persist: req.Persist,
+	}) {
+		writeJSONError(w, http.StatusNotFound, "decision not found or already resolved")
+		return
+	}
+
+	respondJSON(w, map[string]string{"status": "ok"})
 }
 
 func (h *AssistantMessageHandler) truncateHistory(history []proxy.Message) []proxy.Message {

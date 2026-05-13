@@ -65,6 +65,7 @@ func (c *Container) BuildAppServices() *AppServices {
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
 	s.dispatcher = c.Dispatcher
+	s.guardrailDecisionStore = assistant.NewGuardrailDecisionStore()
 
 	// Initialize Shell/Terminal Subsystem
 	shellManager, streamObserver := c.initShellOrchestrator(s)
@@ -119,18 +120,19 @@ func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, 
 }
 
 type AppServices struct {
-	Runtime         llm.RuntimeManager
-	AppCtx          *AppContext
-	nodeHerder      nodeherder.MCPService
-	toolProvider    assistant.ToolProvider
-	clientProvider  proxy.LLMClientProvider
-	engine          assistant.Engine
-	guardrailEngine *guardrails.GuardrailEngine
-	persistence     *persistence.WorkspaceManager
-	logger          logging.Logger
-	Clock           utils.Clock
-	dispatcher      *automation.Dispatcher
-	limiter         ratelimiter.Limiter
+	Runtime              llm.RuntimeManager
+	AppCtx               *AppContext
+	nodeHerder           nodeherder.MCPService
+	toolProvider         assistant.ToolProvider
+	clientProvider       proxy.LLMClientProvider
+	engine               assistant.Engine
+	guardrailEngine      *guardrails.GuardrailEngine
+	persistence          *persistence.WorkspaceManager
+	logger               logging.Logger
+	Clock                utils.Clock
+	dispatcher           *automation.Dispatcher
+	limiter              ratelimiter.Limiter
+	guardrailDecisionStore *assistant.GuardrailDecisionStore
 }
 
 func (s AppServices) Shutdown() {
@@ -179,6 +181,18 @@ func (s AppServices) GuardrailEngine() *guardrails.GuardrailEngine {
 	return s.guardrailEngine
 }
 
+func (s AppServices) ModelConfig(modelName string) (models.ModelConfig, bool) {
+	if s.Runtime == nil {
+		return models.ModelConfig{}, false
+	}
+	for _, m := range s.Runtime.ListModels() {
+		if m.Name == modelName {
+			return m, true
+		}
+	}
+	return models.ModelConfig{}, false
+}
+
 func (s AppServices) Persistence() *persistence.WorkspaceManager {
 	return s.persistence
 }
@@ -200,6 +214,10 @@ func (s *AppServices) Events() *automation.EventBus {
 
 func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
 	s.dispatcher = d
+}
+
+func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
+	return s.guardrailDecisionStore
 }
 
 func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
@@ -420,6 +438,7 @@ func buildRouter(
 
 	// Conversation API
 	router.Any("/admin/api/conversation/message", assistant)
+	router.Post("/admin/api/conversation/guardrail-decision", assistant.GuardrailDecisionHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)

@@ -136,27 +136,30 @@ func IsAutomationTask(content string) bool {
 // Replace the Sieve system message in agent.go (inside the totalChars > 15000 block):
 const SieveSystemNote = "[System Note: History distilled to save context. DO NOT repeat your reasoning; focus ONLY on the immediate next Action. Continue your task.]"
 
-// AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
-const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You are repeating yourself. STOP THINKING AND ACT.\n\n" +
-	"YOU MUST START YOUR RESPONSE WITH THE CHARACTER '<'. NO PREAMBLE. NO EXPLANATION.\n" +
-	"PATTERN:\n" +
+// automationNagFormatExample is the shared format template used by nag prompts.
+// It uses angle-bracket placeholders so the model doesn't copy the example literally.
+const automationNagFormatExample = "" +
+	"FORMAT REFERENCE (use the actual tools listed in the TOOL INTERFACE section of the system prompt):\n" +
 	"<tool_call>\n" +
-	"{\n" +
-	"  \"tool\": \"TOOL_NAME\",\n" +
-	"  \"args\": { \"ARG\": \"VALUE\" }\n" +
-	"}\n" +
+	"{\"tool\": \"<TOOL_NAME>\", \"args\": {\"<ARG>\": \"<VALUE>\"}}\n" +
 	"</tool_call>"
 
+// AutomationPrefline is injected as a synthetic assistant message to force
+// the model to complete a tool call. The model receives this as the last
+// assistant message and continues generating from the cursor position.
+// It never needs to decide "should I think or act?" — it must produce a
+// valid tool name and arguments.
+const AutomationPrefline = "<tool_call>\n{\"tool\":\""
+
+// AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
+const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You already ran this exact command and it succeeded. Do the NEXT step.\n\n" +
+	"Respond with ONLY a tool call. Nothing else.\n\n" +
+	automationNagFormatExample
+
 // AutomationNagPrompt is sent when a model outputs text without any tool calls.
-const AutomationNagPrompt = "SYSTEM ERROR: NO ACTION DETECTED. You are monologuing.\n\n" +
-	"YOU MUST START YOUR RESPONSE WITH THE CHARACTER '<'. NO PREAMBLE. NO EXPLANATION.\n" +
-	"PATTERN:\n" +
-	"<tool_call>\n" +
-	"{\n" +
-	"  \"tool\": \"TOOL_NAME\",\n" +
-	"  \"args\": { \"ARG\": \"VALUE\" }\n" +
-	"}\n" +
-	"</tool_call>"
+const AutomationNagPrompt = "SYSTEM ERROR: You are writing text instead of using tools.\n\n" +
+	"Respond with ONLY a tool call inside <tool_call> tags. Nothing else.\n\n" +
+	automationNagFormatExample
 
 // AutomationRejectedSubmissionPrompt is sent when a model tries to call submit_final_answer along with other tools.
 const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cannot be called in the same turn as other tools. " +
@@ -179,6 +182,79 @@ Output ONLY a JSON array. No text before or after. Each element must have "tool"
 ]`
 
 // AutomationTaskPrompt is the user-facing task message for autonomous agents.
+// ContextSieveWarning is injected after the physical sieve prunes intermediate history.
+const ContextSieveWarning = "SYSTEM: CRITICAL - Context window full. History pruned. Continue your task and finalize when ready."
+
+// ParseErrorEscalationPrefix wraps feedback text when the model has made the same
+// parse error 3+ times consecutively.
+const ParseErrorEscalationPrefix = "THIRD ATTEMPT — same error. Read this carefully:\n\n%s\n\n" +
+	"Reply with ONLY a tool call and nothing else.\n\n" +
+	automationNagFormatExample
+
+// ── Parse-error feedback strings ──────────────────────────────────────────
+
+// FeedbackNoXML tells the model to produce a tool call (no <tool_call> tags found).
+func FeedbackNoXML(allTools string) string {
+	return fmt.Sprintf(
+		"STOP writing text. Produce a tool call NOW.\n\n"+
+			automationNagFormatExample+"\n\n"+
+			"Available tools: %s",
+		allTools,
+	)
+}
+
+// FeedbackJSONError returns a prompt explaining JSON inside <tool_call> is invalid.
+func FeedbackJSONError(hint string, allTools string) string {
+	return fmt.Sprintf(
+		"FORMAT ERROR: The JSON inside your <tool_call> tags is invalid.\n"+
+			"%s\n"+
+			"Valid tools: %s",
+		hint, allTools,
+	)
+}
+
+// FeedbackBadTool tells the model its chosen tool name is not in the registry.
+func FeedbackBadTool(toolName string, allTools string) string {
+	return fmt.Sprintf(
+		"TOOL ERROR: Unknown tool %q. Available tools: %s",
+		toolName, allTools,
+	)
+}
+
+// FeedbackGenericFormat is the fallback for unclassifiable parse errors.
+func FeedbackGenericFormat() string {
+	return "FORMAT ERROR: Could not extract a valid tool call from your response."
+}
+
+// TranslateJSONError converts Go json.Unmarshal error strings into plain-language
+// hints that a model can act on.
+func TranslateJSONError(rawError, attempted string) string {
+	low := strings.ToLower(rawError)
+
+	if strings.Contains(low, "literal true") || strings.Contains(low, "literal false") ||
+		strings.Contains(low, "literal null") {
+		return "You used Python-style True/False/None. JSON requires lowercase: true, false, null."
+	}
+
+	if strings.Contains(low, "looking for beginning of value") {
+		return "You have extra text after the closing } of your JSON object. Remove everything after the final }."
+	}
+
+	if strings.Contains(low, "unexpected end of json") {
+		return "Your JSON is incomplete — likely a missing closing } or ]."
+	}
+
+	if strings.Contains(low, "invalid character") {
+		return fmt.Sprintf(
+			"Your JSON has a syntax error: %s. Check for: missing commas between fields, "+
+				"missing colons after keys, unquoted strings, or trailing commas.",
+			rawError,
+		)
+	}
+
+	return fmt.Sprintf("JSON parse error: %s. Use double-quotes for keys and string values, no trailing commas.", rawError)
+}
+
 const AutomationTaskPrompt = AutomationMarker + ` in workspace '%s'.
 Execute the instructions found in '%s':
 ---

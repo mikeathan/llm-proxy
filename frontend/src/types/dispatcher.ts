@@ -52,7 +52,7 @@ export interface TriggerResponse {
   automation: string
 }
 
-export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'error' | 'tool_stream'
+export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream'
 
 export interface AgentStepStartPayload {
   step: number
@@ -81,9 +81,22 @@ export interface AgentGuardrailViolationPayload {
   error: string
 }
 
+export interface GuardrailBlockedPayload {
+  decision_id: string
+  tool: string
+  args: string
+  reason: string
+  category: string
+}
+
+export interface GuardrailDecision {
+  allow: boolean
+  persist: boolean
+}
+
 export interface AgentEvent {
   type: AgentEventType
-  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | string
+  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | GuardrailBlockedPayload | string
   timestamp?: string
 }
 

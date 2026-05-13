@@ -49,6 +49,24 @@ func (b *EventBus) Unsubscribe(workspaceID string, ch chan assistant.AgentEvent)
 
 func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 	b.mu.Lock()
+	// When a guardrail decision is invalidated (resolved or cancelled), remove
+	// the corresponding blocked event from recent so reconnecting clients don't
+	// see a stale approval prompt.
+	if event.Type == assistant.EventGuardrailInvalidated {
+		if payload, ok := event.Payload.(assistant.GuardrailInvalidatedPayload); ok {
+			recent := b.recent[workspaceID]
+			for i, ev := range recent {
+				if ev.Type == assistant.EventGuardrailBlocked {
+					if bp, ok := ev.Payload.(assistant.GuardrailBlockedPayload); ok {
+						if bp.DecisionID == payload.DecisionID {
+							b.recent[workspaceID] = append(recent[:i], recent[i+1:]...)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
 	b.recent[workspaceID] = append(b.recent[workspaceID], event)
 	// Cap the buffer per workspace to prevent memory leaks if something misbehaves
 	if len(b.recent[workspaceID]) > 1000 {

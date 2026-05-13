@@ -79,6 +79,7 @@ type RuntimeManager interface {
 	Sync()
 	Shutdown()
 	Registrar() *providers.ProviderRegistrar
+	ApplyModelOverrides(overrides map[string]models.ModelOverride)
 }
 
 type LLMRuntimeManager struct {
@@ -117,12 +118,16 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 			Filename: entry.ModelID, // Bridge: Filename is the identifier
 			Port:     entry.Port,
 			Args:     entry.Args,
+			Prefill:  entry.Prefill,
 			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: entry.CredentialID,
 			},
 		}
 		m.models[entry.Name] = normalizeModelConfig(settings.Local.ModelDir, cfg)
 	}
+
+	// 2. Apply per-model agent tuning overrides from settings.yml
+	m.ApplyModelOverrides(settings.ModelOverrides)
 
 	m.Sync()
 	go m.reapIdleModels(defaultReapPeriod)
@@ -513,6 +518,30 @@ func (m *LLMRuntimeManager) Sync() {
 	}
 
 	logging.Info("LLM Runtime Manager synchronized", "providers", len(cloudProviders), "models", len(m.models))
+}
+
+// ApplyModelOverrides merges per-model agent tuning overrides from settings.yml
+// into the runtime models. Called at startup and when settings change.
+func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.ModelOverride) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, override := range overrides {
+		cfg, ok := m.models[name]
+		if !ok {
+			continue
+		}
+		if override.MaxSteps > 0 {
+			cfg.MaxSteps = override.MaxSteps
+		}
+		if override.ContextBudget > 0 {
+			cfg.ContextBudget = override.ContextBudget
+		}
+		if override.ToolCallFormat != "" {
+			cfg.ToolCallFormat = override.ToolCallFormat
+		}
+		cfg.Prefill = override.Prefill
+		m.models[name] = cfg
+	}
 }
 
 func portReady(port int) bool {
