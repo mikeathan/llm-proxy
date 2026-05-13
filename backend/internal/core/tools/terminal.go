@@ -310,7 +310,7 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 		// without permanently moving the persistent terminal's session directory.
 		// We use the absolute finalCwd to avoid relative path accumulation bugs.
 		finalCmd := cleanCmd
-		if cwd != "" {
+		if finalCwd != "" {
 			finalCmd = fmt.Sprintf("(cd %q && %s)", finalCwd, cleanCmd)
 		}
 		return t.executeShell(execCtx, finalCmd, cfg, wsID, jailPath)
