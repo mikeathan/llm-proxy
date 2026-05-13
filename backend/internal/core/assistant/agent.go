@@ -161,9 +161,8 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				return err
 			}
 
-			// DIAGNOSTIC: Log raw model response at INFO level so we can see
-			// exactly what the model produces — critical for debugging local models.
-			a.logger.Info("raw model response",
+			// Log raw model response at Debug level for troubleshooting local models.
+			a.logger.Debug("raw model response",
 				"content_len", len(msg.Content),
 				"content", msg.Content,
 				"native_tool_calls", len(msg.ToolCalls),
@@ -306,7 +305,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 						feedback = fmt.Sprintf(prompts.ParseErrorEscalationPrefix, feedback)
 					}
 
-					a.logger.Info("injecting specific parse-error feedback",
+					a.logger.Debug("injecting specific parse-error feedback",
 						"error", parseErr.Error(),
 						"streak", parseErrorStreak,
 						"feedback", feedback,
@@ -371,7 +370,7 @@ func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
 	msg.Content = cleaned // strip XML tags to save context tokens
 	if parseErr == nil && len(calls) > 0 {
 		msg.ToolCalls = append(msg.ToolCalls, calls...)
-		a.logger.Info("xml tool calls parsed from content", "count", len(calls))
+		a.logger.Debug("xml tool calls parsed from content", "count", len(calls))
 		return nil
 	}
 	return parseErr
@@ -669,7 +668,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			continue
 		}
 
-		a.logger.Info("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+		a.logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
 
 		toolsList, _ := a.provider.ListTools(ctx)
 		if err := validateToolArgs(tc, toolsList); err != nil {
@@ -723,7 +722,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		mu.Lock()
 		a.appendToolResult(history, tc, result)
 			resultStr, _ := json.Marshal(result)
-			a.logger.Info("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
+			a.logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
 		a.notifyToolResult(tc.ID, tc.Function.Name, result)
 		mu.Unlock()
 
