@@ -179,3 +179,114 @@ func TestSanitizeCommandSkipsValidationWhenGuardrailApproved(t *testing.T) {
 		t.Errorf("expected clean command 'ls', got %q", clean)
 	}
 }
+
+func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		command          string
+		allowedExternal  []string
+		jailPath         string
+		wantErr          bool
+		errContains      string
+	}{
+		{
+			name:            "absolute path within allowed external is permitted",
+			command:         "ls /home/user/projects/other",
+			allowedExternal: []string{"/home/user/projects"},
+			wantErr:         false,
+		},
+		{
+			name:            "absolute path outside allowed external is blocked",
+			command:         "ls /etc/passwd",
+			allowedExternal: []string{"/home/user/projects"},
+			wantErr:         true,
+			errContains:     "outside allowed external paths",
+		},
+		{
+			name:            "absolute path blocked when no external paths configured",
+			command:         "ls /tmp",
+			allowedExternal: nil,
+			wantErr:         true,
+			errContains:     "absolute paths are not permitted",
+		},
+		{
+			name:            "relative path allowed when no external paths",
+			command:         "ls -la",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			wantErr:         false,
+		},
+		{
+			name:            ".. traversal to allowed external path is permitted",
+			command:         "cat ../../../home/user/projects/other/file.txt",
+			allowedExternal: []string{"/home/user/projects"},
+			jailPath:        "/workspace/123",
+			wantErr:         false,
+		},
+		{
+			name:            ".. traversal outside all allowed roots is blocked",
+			command:         "cat ../../../etc/passwd",
+			allowedExternal: []string{"/home/user/projects"},
+			jailPath:        "/workspace/123",
+			wantErr:         true,
+			errContains:     "escapes the authorized workspace jail",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := models.TerminalGuardrailsConfig{
+				Enabled:              true,
+				AllowedCommands:      []string{"ls", "cat", "echo"},
+				AllowedExternalPaths: tt.allowedExternal,
+			}
+			err := ValidateTerminalCommand(tt.command, cfg, nil, tt.jailPath)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got nil")
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error '%v' does not contain '%s'", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestHasExternalAccess(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{}
+	if cfg.HasExternalAccess() {
+		t.Error("expected HasExternalAccess to be false for empty config")
+	}
+	cfg.AllowedExternalPaths = []string{"/home/user/projects"}
+	if !cfg.HasExternalAccess() {
+		t.Error("expected HasExternalAccess to be true with external paths configured")
+	}
+}
+
+func TestMergeWithAllowedExternalPaths(t *testing.T) {
+	base := &models.AgentGuardrailsConfig{
+		Terminal: models.TerminalGuardrailsConfig{
+			AllowedExternalPaths: []string{"/existing/path"},
+		},
+	}
+	override := &models.AgentGuardrailsConfig{
+		Terminal: models.TerminalGuardrailsConfig{
+			AllowedExternalPaths: []string{"/new/path", "/existing/path"},
+		},
+	}
+	base.MergeWith(override)
+	if len(base.Terminal.AllowedExternalPaths) != 2 {
+		t.Errorf("expected 2 merged paths, got %d: %v", len(base.Terminal.AllowedExternalPaths), base.Terminal.AllowedExternalPaths)
+	}
+	found := make(map[string]bool)
+	for _, p := range base.Terminal.AllowedExternalPaths {
+		found[p] = true
+	}
+	if !found["/existing/path"] || !found["/new/path"] {
+		t.Errorf("expected both paths after merge, got %v", base.Terminal.AllowedExternalPaths)
+	}
+}

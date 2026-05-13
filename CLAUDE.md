@@ -337,7 +337,7 @@ The `FilterStreamingMarkup()` function in `content_filter.go` hides `<tool_call>
 
 ### Validation Hierarchy
 1. **Global**: Secret pattern detection (API keys), user-defined blocked patterns (regex)
-2. **Terminal**: Command whitelist, blocked patterns, path jail prevention, timeout enforcement
+2. **Terminal**: Command whitelist, blocked patterns, path jail prevention, timeout enforcement, external path access (workspace-level only)
 3. **Filesystem**: Path validation, extension whitelist, filename blocking, read-only enforcement, path jail
 4. **Network**: LAN/Internet boundary, domain blocking, IP blocking
 5. **Search**: Query length limits, site blocking
@@ -358,6 +358,14 @@ When a tool call is blocked, the agent does NOT silently fail:
 4. User clicks: Allow & Remember / Allow Once / Deny
 5. Decision resolved → agent continues or fails
 6. If "Allow & Remember": override persisted to workspace `config.yaml`
+
+### External Path Access (Terminal)
+`TerminalGuardrailsConfig.AllowedExternalPaths` lets a workspace-level override grant the agent access to absolute paths outside the workspace jail (e.g. `/home/user/projects/other`). Constraints:
+- **Workspace-level only** — cannot be set in global `settings.yml` guardrails (the field exists but global config isn't auto-applied to workspace jails)
+- Agents in workspaces with non-empty `allowed_external_paths` see absolute-path and `..` traversal checks relaxed to permit the listed roots (validated via `IsSecurePath`)
+- The frontend shows amber hazard indicators: a warning dot on the workspace explorer, a hazard border on the guardrail form textarea, and a banner in workspace settings
+- `HasExternalAccess()` on `TerminalGuardrailsConfig` returns true when any external paths are configured — used by callers that need a quick safety check
+- Merged via `MergeWith()` alongside other slice fields (deduplicated union)
 
 ---
 

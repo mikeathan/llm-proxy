@@ -91,6 +91,9 @@ const terminalEnvVarsRaw = ref(
 const terminalPathExtensionsRaw = ref(
   listToString(local.value.terminal?.path_extensions, "\n"),
 );
+const terminalExternalPathsRaw = ref(
+  listToString(local.value.terminal?.allowed_external_paths, "\n"),
+);
 const fsAllowedPathsRaw = ref(
   listToString(local.value.filesystem?.allowed_paths, "\n"),
 );
@@ -159,6 +162,19 @@ watch(terminalPathExtensionsRaw, (val) => {
       max_output_size_chars: 5000,
     };
   local.value.terminal.path_extensions = stringToList(val, "\n");
+});
+watch(terminalExternalPathsRaw, (val) => {
+  if (!local.value.terminal)
+    local.value.terminal = {
+      enabled: false,
+      allowed_commands: [],
+      allowed_env_vars: [],
+      path_extensions: [],
+      timeout_seconds: 30,
+      session_idle_timeout_seconds: 1800,
+      max_output_size_chars: 5000,
+    };
+  local.value.terminal.allowed_external_paths = stringToList(val, "\n");
 });
 watch(fsAllowedPathsRaw, (val) => {
   if (!local.value.filesystem)
@@ -240,6 +256,7 @@ watch(
     sync(terminalBlockedRaw, newVal.terminal?.blocked_patterns);
     sync(terminalEnvVarsRaw, newVal.terminal?.allowed_env_vars);
     sync(terminalPathExtensionsRaw, newVal.terminal?.path_extensions);
+    sync(terminalExternalPathsRaw, newVal.terminal?.allowed_external_paths);
     sync(fsAllowedPathsRaw, newVal.filesystem?.allowed_paths);
     sync(fsAllowedExtensionsRaw, newVal.filesystem?.allowed_extensions);
     sync(fsBlockedFilenamesRaw, newVal.filesystem?.blocked_filenames);
@@ -314,6 +331,36 @@ watch(
               rows="4"
               placeholder="node_modules/.bin, .venv/bin, etc..."
             ></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label flex items-center gap-2">
+              Allowed External Paths
+              <span
+                v-if="local.terminal.allowed_external_paths?.length"
+                class="external-warning-badge"
+              >⚠ External Access</span>
+            </label>
+            <textarea
+              v-model="terminalExternalPathsRaw"
+              class="form-input font-mono text-xs"
+              :class="{ 'form-input--hazard': local.terminal.allowed_external_paths?.length }"
+              rows="3"
+              placeholder="/home/user/projects, /mnt/data, etc..."
+            ></textarea>
+          </div>
+          <div
+            v-if="local.terminal.allowed_external_paths?.length"
+            class="external-warning-banner"
+          >
+            <span class="external-warning-icon">⚠️</span>
+            <div>
+              <p class="external-warning-title">External File System Access Enabled</p>
+              <p class="external-warning-text">
+                This agent can access paths outside its workspace jail. This
+                reduces security isolation and should only be used for trusted
+                workloads.
+              </p>
+            </div>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div class="form-group">
@@ -504,8 +551,33 @@ watch(
 }
 
 .form-input {
-  @apply w-full bg-black/40 border border-gray-700 rounded px-3 py-2 text-xs text-white transition-all 
+  @apply w-full bg-black/40 border border-gray-700 rounded px-3 py-2 text-xs text-white transition-all
          focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 outline-none;
+}
+
+.form-input--hazard {
+  @apply border-amber-600/50 focus:ring-amber-500/30 focus:border-amber-500;
+}
+
+.external-warning-badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider
+         bg-amber-500/15 text-amber-400 border border-amber-500/30;
+}
+
+.external-warning-banner {
+  @apply flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3;
+}
+
+.external-warning-icon {
+  @apply text-lg shrink-0;
+}
+
+.external-warning-title {
+  @apply text-[11px] font-bold text-amber-400 uppercase tracking-wider;
+}
+
+.external-warning-text {
+  @apply text-[10px] text-amber-300/70 leading-relaxed mt-0.5;
 }
 
 .switch-row {

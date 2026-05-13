@@ -14,6 +14,7 @@ export interface TerminalGuardrailsConfig {
   allowed_env_vars?: string[]
   blocked_patterns?: string[]
   path_extensions?: string[]
+  allowed_external_paths?: string[]
   timeout_seconds: number
   session_idle_timeout_seconds: number
   max_output_size_chars: number

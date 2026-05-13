@@ -98,6 +98,7 @@ type TerminalGuardrailsConfig struct {
 	AllowedEnvVars            []string `json:"allowed_env_vars,omitempty" yaml:"allowedenvvars"`
 	BlockedPatterns           []string `json:"blocked_patterns,omitempty" yaml:"blockedpatterns"`
 	PathExtensions            []string `json:"path_extensions,omitempty" yaml:"path_extensions"`
+	AllowedExternalPaths      []string `json:"allowed_external_paths,omitempty" yaml:"allowedexternalpaths"`
 	TimeoutSeconds            int      `json:"timeout_seconds" yaml:"timeoutseconds"`
 	SessionIdleTimeoutSeconds int      `json:"session_idle_timeout_seconds" yaml:"sessionidletimeoutseconds"`
 	MaxOutputSize             int      `json:"max_output_size_chars" yaml:"maxoutputsize"`
@@ -116,6 +117,10 @@ type NetworkGuardrailsConfig struct {
 
 func (c TerminalGuardrailsConfig) IsActive() bool {
 	return c.Enabled || len(c.AllowedCommands) > 0
+}
+
+func (c TerminalGuardrailsConfig) HasExternalAccess() bool {
+	return len(c.AllowedExternalPaths) > 0
 }
 
 func (c FileSystemGuardrailsConfig) IsActive() bool {
@@ -184,6 +189,7 @@ func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	c.Terminal.AllowedEnvVars = mergeSlices(c.Terminal.AllowedEnvVars, other.Terminal.AllowedEnvVars)
 	c.Terminal.BlockedPatterns = mergeSlices(c.Terminal.BlockedPatterns, other.Terminal.BlockedPatterns)
 	c.Terminal.PathExtensions = mergeSlices(c.Terminal.PathExtensions, other.Terminal.PathExtensions)
+	c.Terminal.AllowedExternalPaths = mergeSlices(c.Terminal.AllowedExternalPaths, other.Terminal.AllowedExternalPaths)
 
 	// 3. FileSystem
 	if other.FileSystem.Enabled {

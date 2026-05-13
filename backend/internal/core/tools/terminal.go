@@ -92,7 +92,7 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 	}
 
 	// 3. Block Absolute Paths and Parent Traversal (Jail Escape Prevention)
-	return checkPathSecurity(cleanCmd, jailPath)
+	return checkPathSecurity(cleanCmd, jailPath, cfg.AllowedExternalPaths)
 }
 
 // SplitCommandSegments decomposes a chained bash command into its individual
@@ -248,36 +248,61 @@ func checkWhitelist(segments []string, allowed []string) error {
 	return nil
 }
 
-func checkPathSecurity(command string, jailPath string) error {
-	// 1. Block Absolute Paths
-	// We block any argument starting with "/" or containing " /" to prevent
-	// the agent from accessing files outside the workspace via host binaries.
+func checkPathSecurity(command string, jailPath string, allowedExternal []string) error {
+	// 1. Block Absolute Paths unless listed in allowedExternal
 	if strings.Contains(command, " /") || strings.HasPrefix(command, "/") {
-		return fmt.Errorf("security violation: absolute paths are not permitted in terminal commands")
+		absPaths := extractAbsolutePaths(command)
+		if len(allowedExternal) == 0 {
+			return fmt.Errorf("security violation: absolute paths are not permitted in terminal commands")
+		}
+		for _, absPath := range absPaths {
+			if _, err := IsSecurePath(absPath, allowedExternal); err != nil {
+				return fmt.Errorf("security violation: absolute path '%s' is outside allowed external paths", absPath)
+			}
+		}
 	}
 
-	// 2. Dynamic Path Validation: Allow '..' only if it stays within the jail
+	// 2. Dynamic Path Validation: Allow '..' only if it stays within allowed roots
 	if strings.Contains(command, "..") {
-		if jailPath == "" {
+		roots := buildAllowedRoots(jailPath, allowedExternal)
+		if len(roots) == 0 {
 			return fmt.Errorf("security violation: parent directory traversal ('..') is not permitted in this context")
 		}
 
-		// Optimized Path Check: Resolve any argument that looks like a path
 		words := strings.Fields(command)
 		for _, word := range words {
 			if !strings.Contains(word, "..") {
 				continue
 			}
 
-			// Clean and resolve path
 			cleanWord := strings.Trim(word, `"'`)
 			targetPath := filepath.Join(jailPath, cleanWord)
-			if _, err := IsSecurePath(targetPath, []string{jailPath}); err != nil {
+			if _, err := IsSecurePath(targetPath, roots); err != nil {
 				return fmt.Errorf("security violation: path '%s' escapes the authorized workspace jail", cleanWord)
 			}
 		}
 	}
 	return nil
+}
+
+func buildAllowedRoots(jailPath string, allowedExternal []string) []string {
+	roots := make([]string, 0, len(allowedExternal)+1)
+	if jailPath != "" {
+		roots = append(roots, jailPath)
+	}
+	roots = append(roots, allowedExternal...)
+	return roots
+}
+
+func extractAbsolutePaths(command string) []string {
+	var paths []string
+	for _, word := range strings.Fields(command) {
+		word = strings.Trim(word, `"'`)
+		if strings.HasPrefix(word, "/") {
+			paths = append(paths, word)
+		}
+	}
+	return paths
 }
 
 func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd string) (string, error) {
@@ -291,7 +316,7 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 	}
 
 	// 2. Resolve and Validate CWD/Shell
-	finalCwd, err := t.resolveCwd(cwd, jailPath)
+	finalCwd, err := t.resolveCwd(cwd, jailPath, cfg.AllowedExternalPaths)
 	if err != nil {
 		return "", err
 	}
@@ -418,7 +443,7 @@ func (t *TerminalTools) resolveShell(cfg models.TerminalGuardrailsConfig) string
 	return "bash"
 }
 
-func (t *TerminalTools) resolveCwd(cwd, jailPath string) (string, error) {
+func (t *TerminalTools) resolveCwd(cwd, jailPath string, allowedExternal []string) (string, error) {
 	if jailPath == "" {
 		return "", nil
 	}
@@ -427,7 +452,8 @@ func (t *TerminalTools) resolveCwd(cwd, jailPath string) (string, error) {
 	}
 
 	targetPath := filepath.Join(jailPath, cwd)
-	resolved, err := IsSecurePath(targetPath, []string{jailPath})
+	roots := buildAllowedRoots(jailPath, allowedExternal)
+	resolved, err := IsSecurePath(targetPath, roots)
 	if err != nil {
 		return "", fmt.Errorf("security violation: cwd '%s' escapes authorized workspace", cwd)
 	}
