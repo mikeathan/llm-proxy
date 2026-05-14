@@ -19,6 +19,7 @@ type SecretsStore interface {
 	GetProviderKeys(provider string) []APIKeyItem
 	SetProviderKeys(provider string, keys []APIKeyItem) error
 	DeleteProviderKey(provider, keyID string) error
+	DeleteAllProviderKeys(provider string) error
 	MaskedProviderKeys(provider string) []APIKeyItem
 
 	GetSecret(category, provider string) string
@@ -26,12 +27,20 @@ type SecretsStore interface {
 	MaskedSecret(category, provider string) string
 
 	GetResolvedProviderKey(provider, name string) (string, error)
+	GetResolvedProviderKeyInfo(provider, name string) (*ResolvedProviderKeyInfo, error)
 
 	ResolveMaskedKey(provider, maskedKey string) (string, error)
 }
 
 type SecretEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Key  string `json:"key"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Key     string `json:"key"`
+	BaseURL string `json:"base_url,omitempty"`
+}
+
+// ResolvedProviderKeyInfo holds the resolved credentials and metadata for a provider key.
+type ResolvedProviderKeyInfo struct {
+	Key     string
+	BaseURL string
 }

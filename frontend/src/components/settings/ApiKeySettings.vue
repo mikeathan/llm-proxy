@@ -12,12 +12,14 @@ const props = defineProps<{
   testLoading: boolean;
   testSuccess?: string;
   testError?: string;
+  showBaseUrl?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "update:apiKeys", keys: APIKeyItem[]): void;
-  (e: "testKey", payload: { key: string; name: string; id: string }): void;
+  (e: "testKey", payload: { key: string; name: string; id: string; base_url?: string }): void;
   (e: "clearTest"): void;
+  (e: "clearAll"): void;
 }>();
 
 import { watch } from "vue";
@@ -35,8 +37,10 @@ watch(
 const selectedId = ref<string | null>(null);
 const editName = ref("");
 const editValue = ref("");
+const editBaseUrl = ref("");
 const showValue = ref(false);
 const confirmRemove = ref(false); // inline confirm — never use window.confirm
+const confirmClearAll = ref(false);
 
 function openPanel(id: string) {
   const item = props.apiKeys.find((k) => k.id === id);
@@ -44,6 +48,7 @@ function openPanel(id: string) {
   selectedId.value = id;
   editName.value = item.name;
   editValue.value = item.key;
+  editBaseUrl.value = item.base_url || "";
   showValue.value = false;
   confirmRemove.value = false;
   emit("clearTest");
@@ -67,7 +72,14 @@ function saveEdit() {
   if (!newName || !newKey) return;
 
   const updated = props.apiKeys.map((k) =>
-    k.id === currentId ? { ...k, name: newName, key: newKey } : k,
+    k.id === currentId
+      ? {
+          ...k,
+          name: newName,
+          key: newKey,
+          base_url: editBaseUrl.value.trim() || "",
+        }
+      : k,
   );
   emit("update:apiKeys", updated);
 }
@@ -80,9 +92,19 @@ function confirmAndRemove() {
   emit("update:apiKeys", updated);
 }
 
+function clearAllKeys() {
+  confirmClearAll.value = false;
+  emit("clearAll");
+}
+
 function testSelected() {
   if (!selectedId.value) return;
-  emit("testKey", { key: editValue.value, name: editName.value, id: selectedId.value });
+  emit("testKey", {
+    key: editValue.value,
+    name: editName.value,
+    id: selectedId.value,
+    base_url: editBaseUrl.value.trim() || undefined,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -90,6 +112,7 @@ function testSelected() {
 // ─────────────────────────────────────────────────────────────
 const newKeyName = ref("");
 const newKeyValue = ref("");
+const newKeyBaseUrl = ref("");
 
 function addKey() {
   const name = newKeyName.value.trim() || `Key ${props.apiKeys.length + 1}`;
@@ -100,18 +123,25 @@ function addKey() {
     typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
       : Math.random().toString(36).substring(2, 11);
-  const newItem: APIKeyItem = { id, name, key };
+  const newItem: APIKeyItem = {
+    id,
+    name,
+    key,
+    base_url: newKeyBaseUrl.value.trim() || undefined,
+  };
 
   emit("update:apiKeys", [...props.apiKeys, newItem]);
 
   selectedId.value = id;
   editName.value = name;
   editValue.value = key;
+  editBaseUrl.value = newItem.base_url || "";
   showValue.value = false;
   confirmRemove.value = false;
 
   newKeyName.value = "";
   newKeyValue.value = "";
+  newKeyBaseUrl.value = "";
 }
 </script>
 
@@ -143,7 +173,10 @@ function addKey() {
         ></span>
         <div class="key-info">
           <div class="key-name">{{ item.name }}</div>
-          <div class="key-preview">••••••••{{ item.key.slice(-4) }}</div>
+          <div class="key-detail">
+            <span class="key-preview">••••••••{{ item.key.slice(-4) }}</span>
+            <span v-if="item.base_url" class="key-url">{{ item.base_url }}</span>
+          </div>
         </div>
         <span v-if="selectedId === item.id" class="key-badge">Selected</span>
       </button>
@@ -195,6 +228,18 @@ function addKey() {
               title="Toggle Visibility"
             />
           </div>
+        </div>
+
+        <div v-if="showBaseUrl" class="field">
+          <label class="field-label">Base URL</label>
+          <div class="form-helper">API endpoint for this key</div>
+          <input
+            v-model="editBaseUrl"
+            type="text"
+            class="form-input"
+            placeholder="https://api.openai.com/v1"
+            autocomplete="off"
+          />
         </div>
 
         <!-- Test feedback -->
@@ -256,7 +301,28 @@ function addKey() {
 
     <!-- ── Add new key ── -->
     <div class="add-section">
-      <div class="add-header">Add New API Key</div>
+      <div class="add-header">
+        <span>Add New API Key</span>
+        <div class="add-header-actions">
+          <!-- Inline clear-all confirmation -->
+          <InlineConfirm
+            v-if="confirmClearAll && apiKeys.length > 0"
+            :message="`Remove all ${apiKeys.length} key(s)?`"
+            @confirm="clearAllKeys"
+            @cancel="confirmClearAll = false"
+          />
+          <BaseButton
+            v-if="apiKeys.length > 0 && !confirmClearAll"
+            variant="ghost"
+            size="sm"
+            icon="trash"
+            @click.stop="confirmClearAll = true"
+            title="Clear All Keys"
+          >
+            Clear All
+          </BaseButton>
+        </div>
+      </div>
       <div class="add-body">
         <input
           v-model="newKeyName"
@@ -282,6 +348,15 @@ function addKey() {
           >
             Add
           </BaseButton>
+        </div>
+        <div v-if="showBaseUrl" class="add-base-url">
+          <input
+            v-model="newKeyBaseUrl"
+            type="text"
+            class="form-input"
+            placeholder="Base URL (e.g. https://api.openai.com/v1)"
+            autocomplete="off"
+          />
         </div>
       </div>
     </div>
@@ -331,8 +406,14 @@ function addKey() {
 .key-name {
   @apply text-xs font-bold text-gray-200 truncate;
 }
+.key-detail {
+  @apply flex items-center gap-2;
+}
 .key-preview {
   @apply text-[10px] text-gray-500 font-mono;
+}
+.key-url {
+  @apply text-[10px] text-blue-400/60 font-mono truncate;
 }
 .key-badge {
   @apply text-[10px] font-bold text-blue-400 bg-blue-600/15
@@ -411,10 +492,17 @@ function addKey() {
 }
 .add-header {
   @apply text-xs font-bold text-gray-400 px-3 py-2 bg-gray-800/50
-         border-b border-gray-700/50 uppercase tracking-wider;
+         border-b border-gray-700/50 uppercase tracking-wider
+         flex items-center justify-between;
+}
+.add-header-actions {
+  @apply flex items-center gap-2;
 }
 .add-body {
   @apply p-3 space-y-2;
+}
+.add-base-url {
+  @apply pt-1;
 }
 .btn-add {
   @apply bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white

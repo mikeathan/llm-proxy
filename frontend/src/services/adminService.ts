@@ -37,12 +37,9 @@ async function put<T>(url: string, body: unknown): Promise<T> {
   return handleResponse<T>(res)
 }
 
-async function del(url: string): Promise<void> {
+async function del<T = void>(url: string): Promise<T> {
   const res = await fetch(url, { method: 'DELETE' })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as Record<string, string>
-    throw new Error(err['error'] || res.statusText)
-  }
+  return handleResponse<T>(res)
 }
 
 export const AdminApiService = {
@@ -94,7 +91,10 @@ export const AdminApiService = {
 
   deleteProviderKey: (provider: string, keyId: string): Promise<void> =>
     del(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}&key_id=${encodeURIComponent(keyId)}`),
-  
+
+  deleteAllProviderKeys: (provider: string): Promise<import('../types/admin').APIKeyItem[]> =>
+    del(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`),
+
   restartSystem: (): Promise<void> =>
     post<void>(API_ENDPOINTS.restart),
     

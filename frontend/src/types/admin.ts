@@ -6,6 +6,7 @@ export interface APIKeyItem {
   id: string
   name: string
   key: string
+  base_url?: string
 }
 
 export interface TerminalGuardrailsConfig {

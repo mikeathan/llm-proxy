@@ -90,9 +90,10 @@ func (b *SecretStore) GetProviderKeys(provider string) []models.APIKeyItem {
 	res := make([]models.APIKeyItem, len(entries))
 	for i, e := range entries {
 		res[i] = models.APIKeyItem{
-			ID:   e.ID,
-			Name: e.Name,
-			Key:  e.Key,
+			ID:      e.ID,
+			Name:    e.Name,
+			Key:     e.Key,
+			BaseURL: e.BaseURL,
 		}
 	}
 	return res
@@ -101,27 +102,38 @@ func (b *SecretStore) GetProviderKeys(provider string) []models.APIKeyItem {
 func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem) error {
 	return b.updateEncrypted(func(data *models.SecretData) {
 		// Build lookup from existing keys for this provider
-		existingByID := make(map[string]string)
+		type existingInfo struct {
+			key     string
+			baseURL string
+		}
+		existingByID := make(map[string]existingInfo)
 		if providerKeys, ok := data.ProviderKeys[provider]; ok {
 			for _, e := range providerKeys {
-				existingByID[e.ID] = e.Key
+				existingByID[e.ID] = existingInfo{key: e.Key, baseURL: e.BaseURL}
 			}
 		}
 
 		newEntries := make([]models.SecretEntry, len(keys))
 		for i, k := range keys {
 			keyVal := k.Key
+			baseURL := k.BaseURL
 			if IsMasked(keyVal) {
-				if real, ok := existingByID[k.ID]; ok {
-					keyVal = real
+				if existing, ok := existingByID[k.ID]; ok {
+					keyVal = existing.key
 				} else {
 					fmt.Printf("Warning: could not resolve masked key for ID %s in provider %s\n", k.ID, provider)
 				}
 			}
+			if baseURL == "" {
+				if existing, ok := existingByID[k.ID]; ok {
+					baseURL = existing.baseURL
+				}
+			}
 			newEntries[i] = models.SecretEntry{
-				ID:   k.ID,
-				Name: k.Name,
-				Key:  keyVal,
+				ID:      k.ID,
+				Name:    k.Name,
+				Key:     keyVal,
+				BaseURL: baseURL,
 			}
 		}
 		data.ProviderKeys[provider] = newEntries
@@ -142,6 +154,10 @@ func (b *SecretStore) DeleteProviderKey(provider, keyID string) error {
 		}
 		data.ProviderKeys[provider] = filtered
 	})
+}
+
+func (b *SecretStore) DeleteAllProviderKeys(provider string) error {
+	return b.SetProviderKeys(provider, []models.APIKeyItem{})
 }
 
 func (b *SecretStore) MaskedProviderKeys(provider string) []models.APIKeyItem {
@@ -217,6 +233,30 @@ func (b *SecretStore) GetResolvedProviderKey(provider, name string) (string, err
 	}
 
 	return keys[0].Key, nil
+}
+
+func (b *SecretStore) GetResolvedProviderKeyInfo(provider, name string) (*models.ResolvedProviderKeyInfo, error) {
+	keys := b.GetProviderKeys(provider)
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("provider %q not found", provider)
+	}
+
+	if name != "" {
+		for _, k := range keys {
+			if k.Name == name || k.ID == name {
+				return &models.ResolvedProviderKeyInfo{
+					Key:     k.Key,
+					BaseURL: k.BaseURL,
+				}, nil
+			}
+		}
+		return nil, fmt.Errorf("key %q not found for provider %q", name, provider)
+	}
+
+	return &models.ResolvedProviderKeyInfo{
+		Key:     keys[0].Key,
+		BaseURL: keys[0].BaseURL,
+	}, nil
 }
 
 func (b *SecretStore) ResolveMaskedKey(provider, maskedKey string) (string, error) {

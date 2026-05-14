@@ -265,9 +265,10 @@ type AgentDefinition struct {
 }
 
 type APIKeyItem struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Key  string `json:"key"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Key     string `json:"key"`
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 type ProviderItem struct {

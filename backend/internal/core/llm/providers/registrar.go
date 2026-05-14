@@ -86,7 +86,24 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 	providerName := cfg.Provider
 	var modelDir string
 
-	// 1. Hydrate Infrastructure Defaults (URLs, IDs, Paths)
+	// 1. Resolve Secrets (API Keys) — per-key credentials + base_url override
+	if r.secrets != nil && providerName != "local" {
+		apiKey := pCfg.ProviderConfig.APIKey
+		apiKeyName := pCfg.ProviderConfig.APIKeyName
+
+		if apiKey == "" || storage.IsMasked(apiKey) {
+			realKey, keyBaseURL, err := r.resolveSecret(providerName, apiKey, apiKeyName)
+			if err == nil {
+				pCfg.ProviderConfig.APIKey = realKey
+				if keyBaseURL != "" {
+					pCfg.ProviderConfig.BaseURL = keyBaseURL
+					logging.Debug("Applied per-key base_url from secret", "provider", providerName, "url", keyBaseURL)
+				}
+			}
+		}
+	}
+
+	// 2. Hydrate Infrastructure Defaults (URLs, IDs, Paths) — only for fields not set by secrets
 	if provider, ok := r.configs[providerName]; ok {
 		if pCfg.ProviderConfig.BaseURL == "" {
 			pCfg.ProviderConfig.BaseURL = provider.BaseURL
@@ -104,20 +121,6 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 		modelDir = provider.ModelDir
 	} else {
 		logging.Debug("No registrar config found for provider", "provider", providerName)
-	}
-
-	// 2. Resolve Secrets (API Keys)
-	if r.secrets != nil && providerName != "local" {
-		apiKey := pCfg.ProviderConfig.APIKey
-		apiKeyName := pCfg.ProviderConfig.APIKeyName
-
-		if apiKey == "" || storage.IsMasked(apiKey) {
-			// Resolve by name or mask
-			realKey, err := r.resolveSecret(providerName, apiKey, apiKeyName)
-			if err == nil {
-				pCfg.ProviderConfig.APIKey = realKey
-			}
-		}
 	}
 
 	// 3. Instantiate Provider
@@ -146,24 +149,25 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 }
 
 // resolveSecret handles the logic of finding the real key for a masked or empty input.
-func (r *ProviderRegistrar) resolveSecret(provider, key, name string) (string, error) {
+// Returns (key, baseURL, error).
+func (r *ProviderRegistrar) resolveSecret(provider, key, name string) (string, string, error) {
 	if r.secrets == nil {
-		return "", fmt.Errorf("secrets store not initialized")
+		return "", "", fmt.Errorf("secrets store not initialized")
 	}
 
-	// 1. Try resolving by explicit name/ID
-	if real, err := r.secrets.GetResolvedProviderKey(provider, name); err == nil {
-		return real, nil
+	// Use GetResolvedProviderKeyInfo which returns both the key and its base_url
+	if info, err := r.secrets.GetResolvedProviderKeyInfo(provider, name); err == nil {
+		return info.Key, info.BaseURL, nil
 	}
 
-	// 2. Fallback: try resolving by pattern matching the mask
+	// Fallback: try resolving by pattern matching the mask
 	if storage.IsMasked(key) {
 		if real, err := r.secrets.ResolveMaskedKey(provider, key); err == nil {
-			return real, nil
+			return real, "", nil
 		}
 	}
 
-	return "", fmt.Errorf("could not resolve secret for %s", provider)
+	return "", "", fmt.Errorf("could not resolve secret for %s", provider)
 }
 
 // ModelHost returns the current inference host.
