@@ -47,6 +47,25 @@ func (h *AdminHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *ht
 	respondJSON(w, h.admin.Secrets().MaskedProviderKeys(provider))
 }
 
+func cascadeRemoveModelsForKey(reg *models.RegistryData, provider, keyName, keyID string, remainingKeyCount int) {
+	out := reg.Catalogue[:0]
+	for _, m := range reg.Catalogue {
+		if m.ProviderID != provider {
+			out = append(out, m)
+			continue
+		}
+		if m.CredentialID != "" && m.CredentialID != keyName && m.CredentialID != keyID {
+			out = append(out, m)
+			continue
+		}
+		if m.CredentialID == "" && remainingKeyCount > 0 {
+			out = append(out, m)
+			continue
+		}
+	}
+	reg.Catalogue = out
+}
+
 // AdminProviderKeyDeleteHandler removes a single key by ID from a provider,
 // or all keys for the provider when key_id is empty.
 func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *http.Request) {
@@ -58,28 +77,24 @@ func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *
 
 	keyID := r.URL.Query().Get("key_id")
 	if keyID == "" {
-		if err := h.admin.Secrets().DeleteAllProviderKeys(provider); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to delete keys: "+err.Error())
-			return
-		}
-
-		// Clean up orphaned model configurations — models that reference
-		// this provider no longer have any credentials to use.
-		if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
-			out := reg.Catalogue[:0]
-			for _, m := range reg.Catalogue {
-				if m.ProviderID != provider {
-					out = append(out, m)
-				}
-			}
-			reg.Catalogue = out
-		}); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to cleanup models: "+err.Error())
+		if err := h.admin.DeleteProviderWithCleanup(provider); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		respondJSON(w, h.admin.Secrets().MaskedProviderKeys(provider))
 		return
+	}
+
+	// Capture key identity before deleting so we can cascade
+	keys := h.admin.Secrets().GetProviderKeys(provider)
+	var targetName, targetID string
+	for _, k := range keys {
+		if k.ID == keyID {
+			targetName = k.Name
+			targetID = k.ID
+			break
+		}
 	}
 
 	if err := h.admin.Secrets().DeleteProviderKey(provider, keyID); err != nil {
@@ -88,6 +103,15 @@ func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *
 			return
 		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete key: "+err.Error())
+		return
+	}
+
+	// Cascade: remove models that reference this key
+	remainingKeys := h.admin.Secrets().GetProviderKeys(provider)
+	if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
+		cascadeRemoveModelsForKey(reg, provider, targetName, targetID, len(remainingKeys))
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to cleanup orphaned models: "+err.Error())
 		return
 	}
 

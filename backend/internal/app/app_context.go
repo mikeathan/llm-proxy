@@ -87,6 +87,12 @@ func (s *AppContext) registerSubscribers() {
 		logging.Info("Registry change detected, syncing LLM runtime")
 		s.manager.Sync()
 	})
+
+	// 4. Secrets Changes -> Sync LLM Runtime (credentials updated)
+	s.dataMgr.EncryptedSecretStore().OnChange(func(data models.EncryptedSecretData) {
+		logging.Info("Secrets change detected, syncing LLM runtime")
+		s.manager.Sync()
+	})
 }
 
 func (a *AppContext) SelectModels() (string, string) {
@@ -519,6 +525,27 @@ func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {
 		return explicitPath
 	}
 	return filename
+}
+
+func (s *AppContext) DeleteProviderWithCleanup(provider string) error {
+	if err := s.dataMgr.Secrets().DeleteAllProviderKeys(provider); err != nil {
+		return fmt.Errorf("failed to delete keys for provider %q: %w", provider, err)
+	}
+
+	if err := s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
+		out := reg.Catalogue[:0]
+		for _, m := range reg.Catalogue {
+			if m.ProviderID != provider {
+				out = append(out, m)
+			}
+		}
+		reg.Catalogue = out
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to cleanup models for provider %q: %w", provider, err)
+	}
+
+	return nil
 }
 
 func (s *AppContext) RefreshMetricsService() {

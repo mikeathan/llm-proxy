@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/internal/core/llm/providers"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"os"
 )
@@ -26,6 +27,10 @@ func (h *AdminHandlers) AdminUpdateModelHandler(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) AdminDeleteModelHandler(w http.ResponseWriter, r *http.Request) {
 	h.handleDeleteModel(w, r)
+}
+
+func (h *AdminHandlers) AdminDeleteAllModelsHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleDeleteAllModels(w, r)
 }
 
 // AdminRegistryHandler handles GET /admin/api/registry
@@ -462,6 +467,28 @@ func (h *AdminHandlers) handleDeleteModel(w http.ResponseWriter, r *http.Request
 	if err := h.admin.PersistDeleteModel(name); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "deleted model but failed to persist config: "+err.Error())
 		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AdminHandlers) handleDeleteAllModels(w http.ResponseWriter, r *http.Request) {
+	provider := r.URL.Query().Get("provider")
+	if provider == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing provider")
+		return
+	}
+
+	allModels := h.runtime.ListModels()
+	for _, m := range allModels {
+		if m.Provider == provider {
+			if err := h.runtime.RemoveModel(m.Name); err != nil {
+				logging.Error("Failed to remove model during bulk delete", "name", m.Name, "error", err)
+			}
+			if err := h.admin.PersistDeleteModel(m.Name); err != nil {
+				logging.Error("Failed to persist delete during bulk delete", "name", m.Name, "error", err)
+			}
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

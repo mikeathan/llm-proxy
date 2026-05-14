@@ -67,6 +67,7 @@ type AdminService interface {
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error
 	PersistDeleteModel(string) error
+	DeleteProviderWithCleanup(provider string) error
 	ResolveModelPath(string, string) string
 	AddMCPServer(models.MCPServerConfig) error
 	UpdateMCPServer(models.MCPServerConfig) error

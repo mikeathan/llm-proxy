@@ -61,6 +61,9 @@ export const AdminApiService = {
   removeModel: (name: string): Promise<void> =>
     del(`${API_ENDPOINTS.models}?name=${encodeURIComponent(name)}`),
 
+  removeAllModels: (provider: string): Promise<void> =>
+    del(`${API_ENDPOINTS.modelsAll}?provider=${encodeURIComponent(provider)}`),
+
   updateConfig: (payload: Partial<GlobalConfig>): Promise<void> =>
     put<void>(API_ENDPOINTS.config, payload),
   

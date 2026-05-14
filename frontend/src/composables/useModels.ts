@@ -1,11 +1,10 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../services/adminService'
 import { useToast } from './useToast'
-import { useConfirm } from './useConfirm'
 import type { AdminState } from '../types/admin'
 
 const { error: toastError, success: toastSuccess } = useToast()
-const { confirm } = useConfirm()
+
 
 const state = ref<AdminState | null>(null)
 
@@ -67,15 +66,6 @@ const updateModel = async (payload: any): Promise<void> => {
 }
 
 const removeModel = async (name: string): Promise<void> => {
-  const confirmed = await confirm({
-    title: 'Remove Model',
-    message: `Are you sure you want to remove model "${name}"?`,
-    type: 'error',
-    confirmText: 'Remove',
-    cancelText: 'Cancel'
-  })
-  
-  if (!confirmed) return
   try {
     await AdminApiService.removeModel(name)
     toastSuccess(`Model ${name} removed`)
@@ -86,11 +76,26 @@ const removeModel = async (name: string): Promise<void> => {
   }
 }
 
+const removeAllModels = async (provider: string): Promise<void> => {
+  try {
+    await AdminApiService.removeAllModels(provider)
+    toastSuccess(`All ${provider} models removed`)
+    await refresh()
+  } catch (e: any) {
+    console.error(e)
+    toastError(`Error removing all models: ${e.message}`)
+  }
+}
+
 const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<string[]> => {
   try {
     return await AdminApiService.fetchProviderModels(provider, apiKeyName)
   } catch (e: any) {
-    console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)
+    // Silence common configuration errors during discovery
+    const isConfigError = e.message?.includes('not configured') || e.message?.includes('401')
+    if (!isConfigError) {
+      console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)
+    }
     return []
   }
 }
@@ -108,6 +113,7 @@ export function useModels() {
     addModel,
     updateModel,
     removeModel,
+    removeAllModels,
     fetchProviderModels,
   }
 }

@@ -116,7 +116,7 @@ func NormalizeContextSieve(history []Message, budget int) []Message {
 	}
 	
 	markerMsg := Message{
-		Role:    SystemRole,
+		Role:    UserRole,
 		Content: "Memory Sieve: Older troubleshooting steps omitted. Progress so far: (Tasks completed successfully)",
 	}
 

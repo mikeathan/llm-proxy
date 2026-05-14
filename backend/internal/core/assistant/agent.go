@@ -140,7 +140,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 					newHistory := make([]proxy.Message, 0, 10)
 					newHistory = append(newHistory, currentHistory[0], currentHistory[1])
 					newHistory = append(newHistory, proxy.Message{
-						Role:    proxy.SystemRole,
+						Role:    proxy.UserRole,
 						Content: prompts.SieveSystemNote,
 					})
 					newHistory = append(newHistory, currentHistory[len(currentHistory)-10:]...)

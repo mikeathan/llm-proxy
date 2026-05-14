@@ -42,8 +42,9 @@ type MockAdminService struct {
 	GetTemplateFunc           func(string) (models.Template, error)
 	HostSettingsFunc          func() models.HostSettings
 	UpdateHostSettingsFunc    func(models.HostSettings) error
-	ResetShellFunc          func(string) error
-	ListShellSessionsFunc   func() []models.TerminalSessionView
+	ResetShellFunc            func(string) error
+	ListShellSessionsFunc     func() []models.TerminalSessionView
+	DeleteProviderWithCleanupFunc func(string) error
 }
 
 func (m *MockAdminService) GetSettings() models.UserSettings {
@@ -289,6 +290,13 @@ func (m *MockAdminService) ResetShell(workspaceID string) error {
 func (m *MockAdminService) ListShellSessions() []models.TerminalSessionView {
 	if m.ListShellSessionsFunc != nil {
 		return m.ListShellSessionsFunc()
+	}
+	return nil
+}
+
+func (m *MockAdminService) DeleteProviderWithCleanup(provider string) error {
+	if m.DeleteProviderWithCleanupFunc != nil {
+		return m.DeleteProviderWithCleanupFunc(provider)
 	}
 	return nil
 }

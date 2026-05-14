@@ -139,6 +139,10 @@ func (m *DataManager) Settings() *Store[models.UserSettings] { return m.settings
 
 func (m *DataManager) Secrets() models.SecretsStore { return m.secretsStore }
 
+func (m *DataManager) EncryptedSecretStore() *Store[models.EncryptedSecretData] {
+	return m.encSecretStore
+}
+
 func (m *DataManager) Registry() *Store[models.RegistryData] { return m.registryStore }
 func (m *DataManager) Templates() *TemplateStore             { return m.templateStore }
 

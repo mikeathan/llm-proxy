@@ -4,22 +4,26 @@ This file is written for AI coding assistants (Claude Code, Cursor, Copilot, etc
 
 ## Quick Start
 
+Go module root is `backend/`. All `go` commands run from that directory.
+
 ```bash
 cd backend
 go build ./...          # must pass
+go vet ./...            # no official linter; this is the sanity check
 go test ./...           # must pass
 go test ./internal/core/assistant/... -v   # agent loop tests
 go test ./internal/core/proxy/... -v       # parser + history tests
-go run main.go --data ./data               # start server
+go run main.go --data ./data               # start server on :4001
 ```
 
-Go module root is `backend/`. All go commands run from that directory.
+Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification is manual.
 
 ## Before You Write Any Code
 
-1. Read `CONSTITUTION.md` — it defines 12+ immutable invariants. Your change must comply with all of them.
+1. Read `CONSTITUTION.md` — it defines 12 immutable invariants. Your change must comply with all of them.
 2. If modifying the agent loop or tool parser, read `docs/SPECS/agent-loop.md` and `docs/SPECS/tool-call-parser.md`.
-3. Run `go build ./... && go test ./...` to establish a clean baseline.
+3. `.agents/rules/` has deeper Go and Vue guidance — check there if a task needs architecture-level patterns.
+4. Run `go build ./... && go test ./...` to establish a clean baseline.
 
 ## Architecture (What Lives Where)
 
@@ -101,11 +105,13 @@ When a tool call is blocked:
 - Type imports from `types/` directory (barrel exports)
 - Services are stateless — API calls only, no local state caching
 - Polling uses `mountCount` pattern: ref counts subscribers, stops when zero
+- Dev server at `localhost:5173` proxies `/admin/api` to `:4001` — start backend first
 - Build output goes to `../backend/internal/transport/http/frontend_dist/` (Go embed)
+- `npm run build` runs `vue-tsc -b` (type-check) then `vite build` — TS errors fail the build
 
 ## Common Pitfalls
 
-1. **Changing an interface without updating mocks** — The `MockManager` in `internal/testing/mocks/` must implement every method of `RuntimeManager`. Build fails on missing methods.
+1. **Changing an interface without updating mocks** — The `MockManager` in `internal/testing/mocks/` must implement every method of `RuntimeManager` interface. Build fails on missing methods.
 
 2. **Hardcoding prompt strings in logic files** — All prompts live in `templates.go`. Check there first before writing new ones.
 

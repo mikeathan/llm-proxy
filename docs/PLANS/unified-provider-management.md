@@ -16,10 +16,10 @@ Additionally, several concrete bugs were discovered during investigation:
 
 - **Fixed**: Per-key `base_url` was shadowed by provider default `BaseURL` (`registrar.go` Build step order)
 - **Fixed**: Clearing all API keys leaves orphaned model configs in the registry
-- **Unfixed**: Deleting a single API key also orphans models referencing that key
-- **Unfixed**: Two redundant model management UIs (`ModelManager` on Dashboard + `ModelCatalogue` in Settings)
-- **Unfixed**: No proactive notification when secrets change (no `OnChange` subscriber for secrets store)
-- **Dead code**: `SecretStore.mu` field declared but never used
+- **Fixed**: Deleting a single API key also orphans models referencing that key
+- **Fixed**: Two redundant model management UIs (`ModelManager` on Dashboard + `ModelCatalogue` in Settings)
+- **Fixed**: No proactive notification when secrets change (no `OnChange` subscriber for secrets store)
+- **Fixed**: `SecretStore.mu` field declared but never used
 
 ---
 
@@ -91,9 +91,9 @@ Settings → [Provider] tab
 
 ## Implementation Plan
 
-### Phase 1 — Backend: Cascade Delete + Bug Fixes
+### Phase 1 — Backend: Cascade Delete + Bug Fixes ✅
 
-#### Step 1.1: Single-key delete cascades to orphaned models
+#### Step 1.1: Single-key delete cascades to orphaned models ✅
 **File:** `internal/transport/http/secrets_handlers.go` — `AdminProviderKeyDeleteHandler`
 
 Before deleting the key, look up the key's `Name` and `ID`. After deleting, remove all models from the registry whose `CredentialID` matches either.
@@ -135,7 +135,7 @@ h.admin.UpdateRegistry(func(reg *models.RegistryData) {
 
 **Files:** `secrets_handlers.go`
 
-#### Step 1.2: Add secrets OnChange subscriber
+#### Step 1.2: Add secrets OnChange subscriber ✅
 **File:** `internal/app/app_context.go` — `registerSubscribers`
 
 Register an `OnChange` callback on the encrypted secrets store that calls `manager.Sync()` (or at minimum logs the change). This ensures the runtime is aware of credential changes without requiring a restart.
@@ -150,12 +150,12 @@ m.dataMgr.EncryptedSecretStore().OnChange(func(data models.EncryptedSecretData) 
 
 **Files:** `manager.go` (expose `EncryptedSecretStore()`), `app_context.go`
 
-#### Step 1.3: Remove dead `mu` field from `SecretStore`
+#### Step 1.3: Remove dead `mu` field from `SecretStore` ✅
 **File:** `internal/platform/storage/secrets_store.go`
 
 Remove the unused `mu sync.RWMutex` field — the underlying `Store` provides its own thread safety.
 
-#### Step 1.4: Add `DeleteAllProviderKeys` to `AdminService` interface
+#### Step 1.4: Add `DeleteAllProviderKeys` to `AdminService` interface ✅
 **File:** `internal/transport/http/services.go`
 
 Add a dedicated method to the `AdminService` interface so the cascade logic is centralized, not duplicated in the handler:
@@ -171,9 +171,9 @@ Implemented in `AppContext` — deletes all keys + cascades to models. The handl
 
 ---
 
-### Phase 2 — Frontend: Unified Provider Settings
+### Phase 2 — Frontend: Unified Provider Settings ✅
 
-#### Step 2.1: Create `ProviderModelsCard.vue`
+#### Step 2.1: Create `ProviderModelsCard.vue` ✅
 **New file:** `frontend/src/components/settings/ProviderModelsCard.vue`
 
 A new component that replaces the cloud model management currently split across `ModelManager.vue` and `ModelCatalogue.vue`. Features:
@@ -190,7 +190,7 @@ A new component that replaces the cloud model management currently split across 
 - **Edit/delete:** Inline edit panel (reuse `ModelItem.vue` patterns)
 - **Empty state:** "No models configured for this provider. Add an API key first, then add a model."
 
-#### Step 2.2: Integrate `ProviderModelsCard` into Settings
+#### Step 2.2: Integrate `ProviderModelsCard` into Settings ✅
 **File:** `frontend/src/components/settings/Settings.vue`
 
 Add the `<ProviderModelsCard>` component to each cloud provider tab, below the API keys card:
@@ -206,7 +206,7 @@ Add the `<ProviderModelsCard>` component to each cloud provider tab, below the A
 
 The `ProviderModelsCard` uses `useModels()` composable for add/update/delete operations (same API, same backend).
 
-#### Step 2.3: Simplify Dashboard cloud tab to read-only
+#### Step 2.3: Simplify Dashboard cloud tab to read-only ✅
 **File:** `frontend/src/components/dashboard/Dashboard.vue`
 
 The Cloud tab in the dashboard changes from model management to a read-only status view:
@@ -218,7 +218,7 @@ The Cloud tab in the dashboard changes from model management to a read-only stat
 
 This component stays but is only used for the Dashboard local tab. The cloud-specific logic (`CloudFields.vue` usage) becomes dead code and can be cleaned up later.
 
-#### Step 2.4: Remove `ModelCatalogue.vue` (or repurpose)
+#### Step 2.4: Remove `ModelCatalogue.vue` (or repurpose) ✅
 **File:** `frontend/src/components/settings/ModelCatalogue.vue`
 
 Once `ProviderModelsCard` is in place, the Model Catalogue tab is redundant for cloud providers. Options:
@@ -228,7 +228,7 @@ Once `ProviderModelsCard` is in place, the Model Catalogue tab is redundant for 
 
 Recommended: **Option 1** — remove the catalogue tab from the sidebar, delete the component. The functionality is now in each provider tab.
 
-#### Step 2.5: Update sidebar navigation
+#### Step 2.5: Update sidebar navigation ✅
 **File:** `frontend/src/components/settings/Settings.vue` — `settingsGroups` computed
 
 Remove the "Model Catalogue" tab from the sidebar groups. All model management is now per-provider.
@@ -239,12 +239,12 @@ Remove the catalogue entry.
 
 ---
 
-### Phase 3 — UX Improvements
+### Phase 3 — UX Improvements ✅
 
-#### Step 3.1: Key↔model count badge
+#### Step 3.1: Key↔model count badge ✅
 Show a badge on each API key in `ApiKeySettings.vue` indicating how many models reference it. Clicking the badge scrolls to the models section.
 
-#### Step 3.2: Delete key confirmation warns about models
+#### Step 3.2: Delete key confirmation warns about models ✅
 When deleting a single key that has models referencing it, show: "This key is used by N model(s). Deleting it will also remove those models."
 
 #### Step 3.3: Endpoint URL preview
@@ -303,19 +303,17 @@ This replaces the current three-step flow: add provider config → add API key �
 
 ## Undiscovered Bug Fixes Included
 
-1. **Single-key delete orphans models** — Phase 1 Step 1.1
-2. **No secrets change notification** — Phase 1 Step 1.2
-3. **Dead `mu` field in SecretStore** — Phase 1 Step 1.3
-4. **Two redundant model UIs** — Phase 2 consolidates into one
-5. **`SecretData.Version` inconsistent serialization** — The Version field is stored in the encrypted wrapper (`EncryptedSecretData.Version`) but never inside the encrypted payload. This is not a functional bug (Version is unused) but is misleading. Document or clean up in Phase 1.
+1. **Single-key delete orphans models** — ✅ Phase 1 Step 1.1
+2. **No secrets change notification** — ✅ Phase 1 Step 1.2
+3. **Dead `mu` field in SecretStore** — ✅ Phase 1 Step 1.3
+4. **Two redundant model UIs** — ✅ Phase 2 consolidates into one
+5. **`SecretData.Version` inconsistent serialization** — The Version field is stored in the encrypted wrapper (`EncryptedSecretData.Version`) but never inside the encrypted payload. This is not a functional bug (Version is unused) but is misleading. Not addressed in this pass.
 
 ---
 
 ## Rollout Strategy
 
-1. **Phase 1 first** — Backend cascade delete + bug fixes are standalone and low-risk. Ship immediately.
-2. **Phase 2 next** — Frontend unification. This is the biggest UX change. Test with both local and cloud providers.
-3. **Phase 3** — Polish. Model count badges, delete confirmations, URL preview.
-4. **Phase 4** — Optional quick-start flow. Requires the most new code.
-
-Each phase is independently shippable. The backend changes in Phase 1 are backward-compatible (new interface method, no breaking changes to existing APIs).
+1. **Phase 1 first** — Backend cascade delete + bug fixes ✅
+2. **Phase 2 next** — Frontend unification ✅
+3. **Phase 3** — Polish ✅
+4. **Phase 4** — Optional quick-start flow. Requires the most new code. Not yet implemented.

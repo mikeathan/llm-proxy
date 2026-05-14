@@ -73,6 +73,9 @@ This document defines the immutable architectural and security laws of the Antig
     *   On settings change: `ApplyModelOverrides()` re-applies overrides to all runtime models.
     *   **Never put agent tuning overrides directly in registry.json entries.**
 6.  **Secrets Are Encrypted**: API keys and tool secrets are stored in `secrets.json` encrypted with AES-256-GCM. The `SecretsStore` interface is the only access path.
+7.  **Key Deletion Cascades to Models**: Deleting a single API key automatically removes all model catalogue entries whose `CredentialID` matches the deleted key's `Name` or `ID`. Models with an empty `CredentialID` are only removed if no keys remain for the provider. Deleting all keys for a provider removes all models for that provider. This prevents orphaned model configurations that reference deleted credentials.
+8.  **Unified Provider Management**: All cloud provider configuration (API keys, provider settings, and model entries) is managed under a single provider tab in Settings. The Dashboard cloud tab is read-only — model management ("Add Model", edit, delete) is done exclusively in Settings. This eliminates the previous split where API keys were managed in Settings and models were managed in the Dashboard.
+9.  **Secrets Change Notification**: The secrets store publishes an `OnChange` event when credentials are modified. The `AppContext` subscribes to this event and triggers a runtime `Sync()` to ensure credential changes propagate without requiring a server restart.
 
 ## IV. Code Standards (The Clean Signal)
 

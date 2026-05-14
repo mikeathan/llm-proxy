@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, inject, type Ref } from "vue";
 import GlobalSettings from "./GlobalSettings.vue";
 import SecuritySettings from "./SecuritySettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
-import ModelCatalogue from "./ModelCatalogue.vue";
+import ProviderModelsCard from "./ProviderModelsCard.vue";
 import BaseButton from "../common/BaseButton.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
@@ -26,8 +26,27 @@ const {
   isLoading,
   ensureProvider,
 } = useConfig();
-const { state: adminModelsState, refresh: refreshModels } = useModels();
+const { state: adminModelsState, availableModels, refresh: refreshModels } = useModels();
 const modelsList = computed(() => adminModelsState.value?.models || []);
+const modelsByProvider = computed(() => {
+  const all = adminModelsState.value?.models || [];
+  const grouped: Record<string, typeof all> = {};
+  for (const m of all) {
+    if (!grouped[m.provider]) grouped[m.provider] = [];
+    grouped[m.provider]!.push(m);
+  }
+  return grouped;
+});
+
+function modelCountsByKey(provider: string): Record<string, number> {
+  const models = modelsByProvider.value[provider] || [];
+  const counts: Record<string, number> = {};
+  for (const m of models) {
+    const key = m.provider_config?.api_key_name || "";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
 const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
   useMcpServers();
 const { settingsTabs, getIcon, getLabel, fetchManifests } =
@@ -35,7 +54,7 @@ const { settingsTabs, getIcon, getLabel, fetchManifests } =
 const { logLevel, updateLogLevel } = useMetrics();
 const toast = useToast();
 
-const activeTab = ref<SettingsTab>("local");
+const activeTab = inject<Ref<SettingsTab>>("activeSettingsTab", ref("local"));
 const testStatus = ref<{
   [key: string]: { loading: boolean; error?: string; success?: string };
 }>({});
@@ -199,9 +218,15 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
           />
         </div>
 
-        <!-- Model Catalogue -->
-        <div v-show="activeTab === 'catalogue'">
-          <ModelCatalogue />
+        <!-- Local Models -->
+        <div v-show="activeTab === 'local-models'">
+          <ProviderModelsCard
+            :provider="'local'"
+            :apiKeys="[]"
+            :models="modelsByProvider['local'] || []"
+            :availableModels="availableModels"
+            @refresh="refreshModels"
+          />
         </div>
 
         <!-- Local Host Terminal -->
@@ -235,10 +260,20 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
                 :testLoading="!!testStatus[provider]?.loading"
                 :testSuccess="testStatus[provider]?.success"
                 :testError="testStatus[provider]?.error"
+                :modelCounts="modelCountsByKey(provider)"
                 @update:apiKeys="updateApiKeys(provider, $event)"
                 @testKey="testProvider(provider, $event)"
                 @clearTest="clearTestStatus(provider)"
                 @clearAll="clearAllApiKeys(provider)"
+              />
+
+              <div class="form-divider"></div>
+
+              <ProviderModelsCard
+                :provider="provider"
+                :apiKeys="providerKeys[provider] || []"
+                :models="modelsByProvider[provider] || []"
+                @refresh="refreshModels"
               />
 
               <div class="form-divider"></div>
@@ -428,6 +463,10 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
 
 .form-divider {
   @apply h-px bg-gray-700 my-4 mx-2 opacity-10;
+}
+
+.section-spacer {
+  @apply h-6;
 }
 
 .form-actions {
