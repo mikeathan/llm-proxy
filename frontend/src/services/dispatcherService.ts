@@ -96,5 +96,18 @@ export const DispatcherService = {
       body: JSON.stringify(config)
     })
     if (!res.ok) throw new Error('Failed to update workspace config')
+  },
+
+  async getAllWorkspaceConfigs(): Promise<Record<string, any>> {
+    const workspaces = await this.listWorkspaces()
+    const configs: Record<string, any> = {}
+    await Promise.all(workspaces.map(async (ws) => {
+      try {
+        configs[ws.id] = await this.getWorkspaceConfig(ws.id)
+      } catch {
+        // Skip workspaces that fail to load config
+      }
+    }))
+    return configs
   }
 }

@@ -8,6 +8,7 @@ const props = defineProps<{
   selectedWorkspace: string | null
   selectedFile: { workspace: string, filename: string } | null
   loading: boolean
+  workspaceExternalAccess?: Record<string, boolean>
 }>()
 
 const emit = defineEmits<{
@@ -88,10 +89,17 @@ const handleCreateFile = (workspace: string) => {
             </div>
             
             <div class="row-controls">
+              <!-- External Access Warning -->
+              <span
+                v-if="workspaceExternalAccess?.[ws.id]"
+                class="external-hazard-dot"
+                title="External file system access enabled"
+              >⚠</span>
               <!-- Guardrails Icon -->
               <button
                 @click.stop="emit('manage-guardrails', ws.id)"
                 class="icon-btn icon-btn--guard"
+                :class="{ 'icon-btn--guard-hazard': workspaceExternalAccess?.[ws.id] }"
                 title="Workspace Guardrails"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
@@ -263,6 +271,14 @@ const handleCreateFile = (workspace: string) => {
 
 .icon-btn--guard {
   @apply text-blue-400/70 hover:text-blue-400;
+}
+
+.icon-btn--guard-hazard {
+  @apply text-amber-400/80 hover:text-amber-300;
+}
+
+.external-hazard-dot {
+  @apply text-[10px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-help;
 }
 
 .icon-btn--danger {

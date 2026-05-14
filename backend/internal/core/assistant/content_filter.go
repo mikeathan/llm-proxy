@@ -11,7 +11,10 @@ import (
 // at the start of the markup and flags that a tool call is occurring.
 func FilterStreamingMarkup(content string) (displayContent string, hasToolCall bool) {
 	cutoffPatterns := []string{
-		"<function-name>", "<tools>", "functions.",
+		"<function-name>", "</function-name>", "<args-json-object>", "</args-json-object>",
+		"<tools>", "functions.",
+		"<|tool_call", "<tool_call",
+		"[TOOL_CALLS]", "[ARGS]",
 		"```json", "```",
 		"{\"name\":", "[{\"name\":",
 		"{\"target\":", "{\"mode\":", "{\"command\":",

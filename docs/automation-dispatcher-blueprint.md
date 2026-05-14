@@ -132,12 +132,15 @@ func (s *IsolatedStrategy) Prepare(ctx context.Context, workspaceID string, stat
     return ctx, nil
 }
 
-// PersistentStrategy: Includes previous state.json memory
+// PersistentStrategy: Includes previous state.json memory and persistent shell session
 type PersistentStrategy struct{}
 
 func (s *PersistentStrategy) Prepare(ctx context.Context, workspaceID string, state *models.AgentState) (context.Context, error) {
-    // Inject previous output/error into context:
+    // 1. Inject previous output/error into context:
     // "You are an agent. Previous result: {state.LastOutput}, Error: {state.LastError}"
+    
+    // 2. The Persistent Shell in the sandbox ensures 'cd' and environment state 
+    // are preserved between calls within this workspace session.
     return ctx, nil
 }
 ```

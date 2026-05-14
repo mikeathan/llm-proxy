@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"llm-proxy/models"
 	"llm-proxy/internal/platform/network"
@@ -43,9 +44,15 @@ func NormalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelCo
 	return out
 }
 
-func BuildLaunchArgs(cfg models.ModelConfig) []string {
-	args := []string{"-m", cfg.Path, "--port", fmt.Sprint(cfg.Port)}
-	return append(args, SanitizeArgs(cfg.Args)...)
+func BuildLaunchArgs(cfg models.ModelConfig, host string) []string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	sanitized := SanitizeArgs(cfg.Args)
+	
+	args := []string{"-m", cfg.Path, "--host", host, "--port", fmt.Sprint(cfg.Port)}
+	return append(args, sanitized...)
 }
 
 func SanitizeArgs(args []string) []string {
@@ -64,4 +71,14 @@ func SanitizeArgs(args []string) []string {
 		out = append(out, arg)
 	}
 	return out
+}
+
+func ValidateModelPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("model path is empty; cannot start local model")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("model file not found at %q: %w", path, err)
+	}
+	return nil
 }

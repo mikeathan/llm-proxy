@@ -20,7 +20,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
-	"llm-proxy/internal/sandbox"
+	"llm-proxy/internal/shell"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 	"llm-proxy/utils"
@@ -65,9 +65,10 @@ func (c *Container) BuildAppServices() *AppServices {
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
 	s.dispatcher = c.Dispatcher
+	s.guardrailDecisionStore = assistant.NewGuardrailDecisionStore()
 
-	// Initialize Sandboxing Subsystem
-	poolManager, streamObserver := c.initSandboxOrchestrator(s)
+	// Initialize Shell/Terminal Subsystem
+	shellManager, streamObserver := c.initShellOrchestrator(s)
 
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
 	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(
@@ -75,28 +76,30 @@ func (c *Container) BuildAppServices() *AppServices {
 		s.persistence,
 		s.nodeHerder,
 		s.logger,
-		poolManager,
+		shellManager,
 		streamObserver,
 	)
 
 	return s
 }
 
-// initSandboxOrchestrator spins up the background Warm Container Pool
+// initShellOrchestrator spins up the background persistent shell manager
 // and configures the streaming T-Junction metrics observer for the frontend.
-func (c *Container) initSandboxOrchestrator(s *AppServices) (tools.SandboxProvider, tools.StreamObserver) {
-	var poolManager tools.SandboxProvider
+func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, tools.StreamObserver) {
+	var shellManager shell.ShellProvider
 
 	settings := s.AppCtx.HostSettings()
+	// We still check if the feature is enabled in host settings for backward compatibility
+	// though it is now a native host shell rather than a WASM sandbox.
 	if !settings.Sandboxing.Enabled {
-		log.Fatal("[SECURITY] Sandboxing is required for agentic execution. Set sandboxing.enabled = true in host settings.")
+		log.Fatal("[SECURITY] Terminal execution is required for agentic execution. Set terminal.enabled = true in host settings.")
 	}
 
-	if pm, err := sandbox.NewWazeroPool(settings.Sandboxing); err == nil {
-		poolManager = pm
-		c.Infra.Logger.Info("WASM Sandbox Engine (Wazero) initialized successfully")
+	if sm, err := shell.NewHostShellManager(); err == nil {
+		shellManager = sm
+		c.Infra.Logger.Debug("Host Shell Manager initialized successfully")
 	} else {
-		log.Fatalf("[SECURITY] Failed to start WASM Sandbox Engine: %v", err)
+		log.Fatalf("[SECURITY] Failed to start Host Shell Manager: %v", err)
 	}
 
 	streamObserver := func(streamType string, chunk []byte) {
@@ -109,26 +112,27 @@ func (c *Container) initSandboxOrchestrator(s *AppServices) (tools.SandboxProvid
 		})
 	}
 
-	if pm, ok := poolManager.(metrics.SandboxSource); ok {
-		s.AppCtx.SetSandboxSource(pm)
+	if sm, ok := shellManager.(metrics.TerminalSource); ok {
+		s.AppCtx.SetTerminalSource(sm)
 	}
-	s.AppCtx.SetSandboxProvider(poolManager)
-	return poolManager, streamObserver
+	s.AppCtx.SetShellProvider(shellManager)
+	return shellManager, streamObserver
 }
 
 type AppServices struct {
-	Runtime         llm.RuntimeManager
-	AppCtx          *AppContext
-	nodeHerder      nodeherder.MCPService
-	toolProvider    assistant.ToolProvider
-	clientProvider  proxy.LLMClientProvider
-	engine          assistant.Engine
-	guardrailEngine *guardrails.GuardrailEngine
-	persistence     *persistence.WorkspaceManager
-	logger          logging.Logger
-	Clock           utils.Clock
-	dispatcher      *automation.Dispatcher
-	limiter         ratelimiter.Limiter
+	Runtime              llm.RuntimeManager
+	AppCtx               *AppContext
+	nodeHerder           nodeherder.MCPService
+	toolProvider         assistant.ToolProvider
+	clientProvider       proxy.LLMClientProvider
+	engine               assistant.Engine
+	guardrailEngine      *guardrails.GuardrailEngine
+	persistence          *persistence.WorkspaceManager
+	logger               logging.Logger
+	Clock                utils.Clock
+	dispatcher           *automation.Dispatcher
+	limiter              ratelimiter.Limiter
+	guardrailDecisionStore *assistant.GuardrailDecisionStore
 }
 
 func (s AppServices) Shutdown() {
@@ -177,6 +181,18 @@ func (s AppServices) GuardrailEngine() *guardrails.GuardrailEngine {
 	return s.guardrailEngine
 }
 
+func (s AppServices) ModelConfig(modelName string) (models.ModelConfig, bool) {
+	if s.Runtime == nil {
+		return models.ModelConfig{}, false
+	}
+	for _, m := range s.Runtime.ListModels() {
+		if m.Name == modelName {
+			return m, true
+		}
+	}
+	return models.ModelConfig{}, false
+}
+
 func (s AppServices) Persistence() *persistence.WorkspaceManager {
 	return s.persistence
 }
@@ -200,6 +216,10 @@ func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
 	s.dispatcher = d
 }
 
+func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
+	return s.guardrailDecisionStore
+}
+
 func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
@@ -207,7 +227,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	clock := utils.NewRealClock()
 
 	// 1. Load System Config for MCP/Runtime defaults
-	logging.Info("Loading system configuration...")
+	logging.Debug("Loading system configuration...")
 	sys := dataMgr.System().Get()
 
 	// 1.5 Initialize Network for Infrastructure (MCP, Cloud LLMs)
@@ -217,7 +237,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	}, logger)
 
 	// Configure MCP Service (Bridge logic: we still pass sys config parts)
-	logging.Info("Configuring MCP services...")
+	logging.Debug("Configuring MCP services...")
 	nodeHerder, err := configureMCP(dataMgr, logger, networkTools.DialContext())
 	if err != nil {
 		logging.Error("Failed to configure MCP service", "error", err)
@@ -225,17 +245,19 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	}
 
 	// 2. Initialize Runtime Manager from Registry
-	logging.Info("Initializing LLM runtime manager...")
+	logging.Debug("Initializing LLM runtime manager...")
 	registry := dataMgr.Registry().Get()
 	settings := dataMgr.Settings().Get()
 	secretsStore := dataMgr.Secrets()
-	manager := llm.NewManagerFromRegistry(registry, sys, settings, secretsStore)
+	manager := llm.NewManagerFromRegistry(registry, sys, settings, secretsStore, func() models.RegistryData {
+		return dataMgr.Registry().Get()
+	})
 
-	logging.Info("Creating server context...")
+	logging.Debug("Creating server context...")
 	appCtx := NewServer(manager, dataMgr)
 	runtime := appCtx.Manager()
 
-	logging.Info("Bootstrap phase complete", "root", dataMgr.RootDir())
+	logging.Debug("Bootstrap phase complete", "root", dataMgr.RootDir())
 
 	return &Container{
 		Core: Core{
@@ -351,8 +373,8 @@ func buildRouter(
 	router.Post("/admin/api/system/restart", admin.AdminRestartHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/host", admin.AdminHostSettingsHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/host", admin.AdminHostSettingsPutHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/host/sandbox/reset", admin.AdminSandboxResetHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/host/sandbox/sessions", admin.AdminSandboxSessionsHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/host/terminal/reset", admin.AdminTerminalResetHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host/terminal/sessions", admin.AdminTerminalSessionsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/logs", admin.AdminLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)
@@ -416,6 +438,7 @@ func buildRouter(
 
 	// Conversation API
 	router.Any("/admin/api/conversation/message", assistant)
+	router.Post("/admin/api/conversation/guardrail-decision", assistant.GuardrailDecisionHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)

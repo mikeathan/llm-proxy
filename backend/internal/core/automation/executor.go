@@ -3,8 +3,6 @@ package automation
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,10 +41,12 @@ type ExecuteResponse struct {
 type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
+	ModelConfig(modelName string) (models.ModelConfig, bool)
 	Logger() logging.Logger
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
 	GuardrailEngine() *guardrails.GuardrailEngine
+	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
@@ -69,7 +69,7 @@ func (e *DefaultTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (
 		resp.State = &models.AgentState{}
 	}
 
-	resp.State.IsRunning = true
+	resp.State.SetRunning(req.AutomationName)
 	resp.Output = "dispatcher placeholder output (Phase 3: wire LLM)"
 
 	return resp, nil
@@ -95,7 +95,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 
 	// Mark as running
-	resp.State.IsRunning = true
+	resp.State.SetRunning(req.AutomationName)
 
 	// Get LLM client
 	var client proxy.Client
@@ -110,7 +110,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.LastError = errStr
-		resp.State.IsRunning = false
+		resp.State.SetRunning("")
 		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
 		return resp, fmt.Errorf("failed to get llm client: %w", err)
 	}
@@ -120,22 +120,49 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
 	var capturedEvents []any
-	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), assistant.AgentOptions{
+	agentOpts := assistant.AgentOptions{
 		Logger:      procLog,
-		MaxSteps:    20,
+		MaxSteps:    assistant.DefaultMaxSteps,
 		Guardrails:  e.svc.GuardrailEngine(),
 		WorkspaceID: req.WorkspaceID,
 		Observer: func(ev assistant.AgentEvent) {
 			capturedEvents = append(capturedEvents, ev)
 			e.svc.Events().Publish(req.WorkspaceID, ev)
 		},
-	})
+		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
+			e.svc.GuardrailDecisionStore(),
+			func(ev assistant.AgentEvent) {
+				e.svc.Events().Publish(req.WorkspaceID, ev)
+			},
+		),
+	}
+	// Apply per-model overrides when available.
+	if req.Model != "" {
+		if cfg, ok := e.svc.ModelConfig(req.Model); ok {
+			if cfg.MaxSteps > 0 {
+				agentOpts.MaxSteps = cfg.MaxSteps
+			}
+			if cfg.ContextBudget > 0 {
+				agentOpts.ContextBudget = cfg.ContextBudget
+			}
+			if cfg.ToolCallFormat == "native" {
+				native := true
+				agentOpts.UseNativeTools = &native
+			}
+			if cfg.Prefill {
+				agentOpts.UsePrefill = true
+			}
+		}
+	}
+	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
 
-	// Build task prompt from automation info
-	prompt := e.buildPrompt(req)
+	// Load workspace-specific rules and assemble the final system prompt
+	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
+	systemPrompt := prompts.AssembleSystemPrompt(customRules)
 
 	history := []proxy.Message{
-		{Role: "user", Content: prompt},
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: e.buildPrompt(req)},
 	}
 
 	// Execute via Agent Loop
@@ -143,7 +170,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	if agErr != nil {
 		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
-		resp.State.IsRunning = false
+		resp.State.SetRunning("")
 		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
 		return resp, fmt.Errorf("agent execution failed: %w", agErr)
 	}
@@ -170,8 +197,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
 
 	output := strings.TrimSpace(runResult)
-	
-	// Smart Unwrapper: If the model wrapped the entire response in a markdown code block, 
+
+	// Smart Unwrapper: If the model wrapped the entire response in a markdown code block,
 	// strip it so our UI can actually render the markdown structure (headers, tables).
 	if strings.HasPrefix(output, "```") && strings.HasSuffix(output, "```") {
 		lines := strings.Split(output, "\n")
@@ -188,7 +215,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	resp.State.LastOutput = fullOutput
 	runResult = fullOutput
 
-	resp.State.IsRunning = false
+	resp.State.SetRunning("")
 
 	// Push a concluding message to the UI stream to clear "thinking..."
 	e.svc.Events().Publish(req.WorkspaceID, assistant.AgentEvent{
@@ -210,6 +237,9 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		return
 	}
 
+	// Prune events to prevent state.json bloat (105MB issue)
+	prunedEvents := pruneEvents(events)
+
 	run := models.AutomationRun{
 		ID:             generateRunID(),
 		WorkspaceID:    req.WorkspaceID,
@@ -219,13 +249,13 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		Error:          errStr,
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
-		Events:         events,
+		Events:         prunedEvents,
 	}
 
 	// Add to full history (capped to last 50 for performance)
 	state.History = append(state.History, run)
-	if len(state.History) > 50 {
-		state.History = state.History[len(state.History)-50:]
+	if len(state.History) > 30 { // Reduced from 50 to 30 for extra safety
+		state.History = state.History[len(state.History)-30:]
 	}
 
 	// Update per-automation latest run
@@ -244,34 +274,8 @@ func generateRunID() string {
 }
 
 func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
-	procLog := e.svc.ProcessLogger(req.WorkspaceID)
-
-	// Try to load custom workspace rules if they exist
-	rules, err := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
-	if err != nil || rules == "" {
-		rules = prompts.DefaultRules
-	}
-
-	// Calculate robust relative path from Current Working Directory to Workspaces Dir
-	// This ensures the agent uses paths that the backend can resolve from its current execution root.
-	absWs := e.svc.Persistence().BaseDir()
-	cwd, _ := os.Getwd()
-	relWs, err := filepath.Rel(cwd, absWs)
-	if err != nil {
-		relWs = absWs
-	}
-	relWs = filepath.Clean(relWs)
-
-	procLog.Debug("Automation path resolution", "abs_ws", absWs, "cwd", cwd, "rel_ws", relWs)
-
-	// Safely format rules to avoid %!(EXTRA) errors if the file doesn't contain verbs
-	formattedRules := rules
-	formattedRules = strings.ReplaceAll(formattedRules, "{{REL_WS}}", relWs)
-	formattedRules = strings.ReplaceAll(formattedRules, "{{WORKSPACE_ID}}", req.WorkspaceID)
-
 	return fmt.Sprintf(prompts.AutomationTaskPrompt,
-		formattedRules,
-		req.WorkspaceID, relWs, req.WorkspaceID, req.TaskFile, req.TaskContent)
+		req.WorkspaceID, req.TaskFile, req.TaskContent)
 }
 
 // ============================================================================
@@ -290,4 +294,33 @@ func ApplyPulseLogic(resp *ExecuteResponse) {
 		resp.Output = ""
 		resp.State.LastPulse = time.Now()
 	}
+}
+
+// pruneEvents strips heavy payloads from the event history before persistence.
+func pruneEvents(events []any) []any {
+	if len(events) == 0 {
+		return events
+	}
+	pruned := make([]any, 0, len(events))
+	for _, ev := range events {
+		// We only keep a lightweight version of events for history.
+		// Detailed payloads (like file contents) are truncated.
+		switch v := ev.(type) {
+		case assistant.AgentEvent:
+			if v.Type == assistant.EventMessage {
+				msg, ok := v.Payload.(proxy.Message)
+				if ok {
+					// Truncate message content to 1KB for history
+					if len(msg.Content) > 1024 {
+						msg.Content = msg.Content[:1024] + "... [truncated for history]"
+					}
+					v.Payload = msg
+				}
+			}
+			pruned = append(pruned, v)
+		default:
+			pruned = append(pruned, ev)
+		}
+	}
+	return pruned
 }

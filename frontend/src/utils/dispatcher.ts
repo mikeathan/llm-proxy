@@ -1,10 +1,11 @@
-import type { 
-  AgentEvent, 
-  AgentStepStartPayload, 
-  AgentMessagePayload, 
-  AgentToolCallPayload, 
+import type {
+  AgentEvent,
+  AgentStepStartPayload,
+  AgentMessagePayload,
+  AgentToolCallPayload,
   AgentToolResultPayload,
-  AgentGuardrailViolationPayload
+  AgentGuardrailViolationPayload,
+  GuardrailBlockedPayload
 } from "../types/dispatcher";
 import { getRoleLabel } from "../domain/assistant";
 
@@ -37,6 +38,8 @@ export const getMsgPayload = (ev: AgentEvent) => ev.payload as AgentMessagePaylo
 export const getToolCallPayload = (ev: AgentEvent) => ev.payload as AgentToolCallPayload;
 export const getToolResPayload = (ev: AgentEvent) => ev.payload as AgentToolResultPayload;
 export const getViolationPayload = (ev: AgentEvent) => ev.payload as AgentGuardrailViolationPayload;
+export const isGuardrailBlocked = (ev: AgentEvent) => ev.type === 'guardrail_blocked';
+export const getBlockedPayload = (ev: AgentEvent) => ev.payload as GuardrailBlockedPayload;
 
 /**
  * Formats a sequence of AgentEvents into a single plain-text log suitable for copy/paste.
@@ -70,6 +73,10 @@ export const formatEventsToText = (events: AgentEvent[]): string => {
       if (ev.type === "guardrail_violation") {
         const vp = getViolationPayload(ev);
         return `🛑 Guardrail Blocked: ${vp.tool}\n${vp.error}`;
+      }
+      if (ev.type === "guardrail_blocked") {
+        const bp = ev.payload as GuardrailBlockedPayload;
+        return `🛑 Guardrail Blocked — Awaiting Approval\nTool: ${bp.tool}\nReason: ${bp.reason}\nDecision ID: ${bp.decision_id}\nUse the approve/deny controls below to proceed.`;
       }
       return "";
     })

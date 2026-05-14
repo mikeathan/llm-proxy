@@ -1,16 +1,18 @@
 import { ref, computed } from "vue";
 import { getMsgPayload } from "../../utils/dispatcher";
-import type { AgentEvent, AgentMessagePayload } from "../../types";
+import type { AgentEvent, AgentMessagePayload, GuardrailBlockedPayload } from "../../types";
 import { generateId } from "../../utils/crypto";
+import { ApiService } from "../../services/api";
 
-export function useLiveConsole(workspaceId: () => string, isExecuting: () => boolean | undefined, historyEvents: () => AgentEvent[] | undefined) {
+export function useLiveConsole(workspaceId: () => string, _isExecuting: () => boolean | undefined, historyEvents: () => AgentEvent[] | undefined) {
   const liveEvents = ref<AgentEvent[]>([]);
   const isConnected = ref(false);
+  const pendingDecision = ref<GuardrailBlockedPayload | null>(null);
+  const handledDecisionIds = new Set<string>();
   let eventSource: EventSource | null = null;
 
   const displayEvents = computed(() => {
     if (liveEvents.value.length > 0) return liveEvents.value;
-    if (isExecuting()) return [];
     return historyEvents() || [];
   });
 
@@ -26,9 +28,32 @@ export function useLiveConsole(workspaceId: () => string, isExecuting: () => boo
       getMsgPayload(ev).content?.includes("▶ Booting automation:")
     ) {
       liveEvents.value = [];
+      pendingDecision.value = null;
       return;
     }
 
+    // Guardrail blocked — capture decision payload for approval UI
+    // Skip if this decision was already handled (e.g. SSE replay on reconnect)
+    if (ev.type === "guardrail_blocked") {
+      const payload = ev.payload as GuardrailBlockedPayload;
+      liveEvents.value.push(ev);
+      if (!handledDecisionIds.has(payload.decision_id)) {
+        pendingDecision.value = payload;
+      }
+      return;
+    }
+
+    // Guardrail invalidated — the decision was auto-resolved (e.g. automation
+    // stopped).  Clear the pending prompt so the UI does not show a stale one.
+    if (ev.type === "guardrail_invalidated") {
+      const payload = ev.payload as { decision_id: string; reason: string };
+      handledDecisionIds.add(payload.decision_id);
+      if (pendingDecision.value?.decision_id === payload.decision_id) {
+        pendingDecision.value = null;
+      }
+      liveEvents.value.push(ev);
+      return;
+    }
     // Handle streaming updates
     if (ev.type === "tool_stream") {
       const content = ev.payload as string;
@@ -75,6 +100,18 @@ export function useLiveConsole(workspaceId: () => string, isExecuting: () => boo
     liveEvents.value.push(ev);
   };
 
+  const submitDecision = async (allow: boolean, persist: boolean) => {
+    if (!pendingDecision.value) return;
+    const id = pendingDecision.value.decision_id;
+    try {
+      await ApiService.submitGuardrailDecision(id, allow, persist);
+    } catch (err) {
+      console.error("Failed to submit guardrail decision", err);
+    }
+    handledDecisionIds.add(id);
+    pendingDecision.value = null;
+  };
+
   const connect = () => {
     if (eventSource) eventSource.close();
 
@@ -104,18 +141,22 @@ export function useLiveConsole(workspaceId: () => string, isExecuting: () => boo
       eventSource.close();
       eventSource = null;
     }
+    pendingDecision.value = null;
   };
 
   const clearEvents = () => {
     liveEvents.value = [];
+    pendingDecision.value = null;
   };
 
   return {
     liveEvents,
     displayEvents,
     isConnected,
+    pendingDecision,
     connect,
     disconnect,
-    clearEvents
+    clearEvents,
+    submitDecision
   };
 }

@@ -5,15 +5,17 @@ import (
 )
 
 type MockSecretsStore struct {
-	GetProviderKeysFunc      func(provider string) []models.APIKeyItem
-	SetProviderKeysFunc      func(provider string, keys []models.APIKeyItem) error
-	DeleteProviderKeyFunc    func(provider, keyID string) error
-	MaskedProviderKeysFunc   func(provider string) []models.APIKeyItem
+	GetProviderKeysFunc         func(provider string) []models.APIKeyItem
+	SetProviderKeysFunc         func(provider string, keys []models.APIKeyItem) error
+	DeleteProviderKeyFunc       func(provider, keyID string) error
+	DeleteAllProviderKeysFunc   func(provider string) error
+	MaskedProviderKeysFunc      func(provider string) []models.APIKeyItem
 	GetSecretFunc            func(category, provider string) string
 	SetSecretFunc            func(category, provider, value string) error
 	MaskedSecretFunc         func(category, provider string) string
-	GetResolvedProviderKeyFunc func(provider, name string) (string, error)
-	ResolveMaskedKeyFunc func(provider, maskedKey string) (string, error)
+	GetResolvedProviderKeyFunc     func(provider, name string) (string, error)
+	GetResolvedProviderKeyInfoFunc func(provider, name string) (*models.ResolvedProviderKeyInfo, error)
+	ResolveMaskedKeyFunc           func(provider, maskedKey string) (string, error)
 }
 
 func (m *MockSecretsStore) GetProviderKeys(provider string) []models.APIKeyItem {
@@ -33,6 +35,13 @@ func (m *MockSecretsStore) SetProviderKeys(provider string, keys []models.APIKey
 func (m *MockSecretsStore) DeleteProviderKey(provider, keyID string) error {
 	if m.DeleteProviderKeyFunc != nil {
 		return m.DeleteProviderKeyFunc(provider, keyID)
+	}
+	return nil
+}
+
+func (m *MockSecretsStore) DeleteAllProviderKeys(provider string) error {
+	if m.DeleteAllProviderKeysFunc != nil {
+		return m.DeleteAllProviderKeysFunc(provider)
 	}
 	return nil
 }
@@ -70,6 +79,13 @@ func (m *MockSecretsStore) GetResolvedProviderKey(provider, name string) (string
 		return m.GetResolvedProviderKeyFunc(provider, name)
 	}
 	return "", nil
+}
+
+func (m *MockSecretsStore) GetResolvedProviderKeyInfo(provider, name string) (*models.ResolvedProviderKeyInfo, error) {
+	if m.GetResolvedProviderKeyInfoFunc != nil {
+		return m.GetResolvedProviderKeyInfoFunc(provider, name)
+	}
+	return nil, nil
 }
 
 func (m *MockSecretsStore) ResolveMaskedKey(provider, maskedKey string) (string, error) {

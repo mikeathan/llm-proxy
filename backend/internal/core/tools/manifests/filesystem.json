@@ -10,7 +10,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative path to list."
+            "description": "Single path to list. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple paths, emit multiple tool call tags."
           }
         },
         "required": [
@@ -25,7 +25,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative path to read."
+            "description": "Single path to read. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
           }
         },
         "required": [
@@ -40,11 +40,11 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative path to write."
+            "description": "Single path to write. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
           },
           "content": {
             "type": "string",
-            "description": "Content to write."
+            "description": "The exact string content to write to the file. For JSON files, this MUST be a JSON-formatted string, NOT a JSON object."
           }
         },
         "required": [
@@ -67,7 +67,16 @@
       ".csv",
       ".xml",
       ".yaml",
-      ".yml"
+      ".yml",
+      ".ts",
+      ".js",
+      ".py",
+      ".go",
+      ".rs",
+      ".c",
+      ".h",
+      ".cpp",
+      ".hpp"
     ],
     "blocked_filenames": [
       ".env",

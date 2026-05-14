@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import BaseToggle from '../common/BaseToggle.vue'
-import SandboxMonitor from './SandboxMonitor.vue'
+import TerminalMonitor from './TerminalMonitor.vue'
 import { AdminApiService } from '../../services/adminService'
 import { useToast } from '../../composables/useToast'
 
@@ -12,8 +12,6 @@ const isSaving = ref(false)
 const settings = ref({
   sandboxing: {
     enabled: true,
-    max_storage_gb: 2,
-    max_memory_mb: 256,
     functional: true
   }
 })
@@ -31,7 +29,7 @@ const fetchSettings = async () => {
     }
   } catch (e: any) {
     if (e.message !== "Not Found") { // Ignore 404 for existing defaults
-      toast.error(`Failed to load security settings: ${e.message}`)
+      toast.error(`Failed to load terminal settings: ${e.message}`)
     }
   } finally {
     isLoading.value = false
@@ -40,7 +38,7 @@ const fetchSettings = async () => {
 
 const handleToggle = (val: boolean) => {
   if (!val) {
-    if (!confirm("Are you sure you want to DISABLE sandboxing? This allows the agent to execute raw shell commands directly on your host machine.")) {
+    if (!confirm("Are you sure you want to DISABLE persistent terminals? This may cause the agent to lose state between tool executions.")) {
       // Revert if cancelled
       settings.value.sandboxing.enabled = true
       return
@@ -55,7 +53,7 @@ const saveSettings = async () => {
     await AdminApiService.updateHostSettings(settings.value)
     originalSettings.value = JSON.stringify(settings.value)
     hasChanges.value = false
-    toast.success('Security settings saved successfully')
+    toast.success('Terminal settings saved successfully')
   } catch (e: any) {
     toast.error(`Failed to save settings: ${e.message}`)
   } finally {
@@ -64,7 +62,7 @@ const saveSettings = async () => {
 }
 
 const handleRestart = async () => {
-    if (!confirm("Restart the backend now? This will terminate all active agent sessions.")) return
+    if (!confirm("Restart the backend now? This will terminate all active terminal sessions.")) return
     
     try {
         await AdminApiService.restartSystem()
@@ -90,27 +88,27 @@ onMounted(() => {
 <template>
   <div class="security-card">
     <div class="settings-header">
-      <h2 class="settings-title">WASM Virtual Machine</h2>
+      <h2 class="settings-title">Local Host Terminal</h2>
       <p class="settings-subtitle">
-        High-performance WebAssembly sandboxing for Agent tool execution
+        Managed persistent shell sessions for Agent tool execution
       </p>
     </div>
 
     <div v-if="isLoading" class="loading-state">
-      Initializing WASM runtime...
+      Initializing terminal provider...
     </div>
     
     <div v-else class="settings-content">
-        <!-- Sandboxing Toggle -->
+        <!-- Terminal Toggle -->
         <div class="setting-group advanced-card" :class="{ 
             'danger-zone': !settings.sandboxing.enabled,
             'functional-error': settings.sandboxing.enabled && !settings.sandboxing.functional 
         }">
           <div class="toggle-header">
             <div>
-              <span class="setting-label">Enable Global Sandboxing</span>
+              <span class="setting-label">Enable Persistent Terminals</span>
               <span class="setting-description">
-                Isolates all terminal tool executions inside a lightweight WebAssembly virtual jail (Wazero). 
+                Maintains a long-running bash session for each workspace, allowing the agent to preserve environment variables and state between commands.
               </span>
             </div>
             <BaseToggle 
@@ -123,46 +121,18 @@ onMounted(() => {
           <div v-if="!settings.sandboxing.enabled" class="alert-box alert-danger">
             <span class="alert-icon">⚠️</span>
             <div class="alert-content">
-              <strong>High-Risk Warning:</strong>
-              <p>Disabling sandboxing allows the LLM agent to execute raw shell commands directly on your host machine. This disables zero-trust isolation and allows full file system modifications.</p>
+              <strong>State Loss Warning:</strong>
+              <p>Disabling persistent terminals means each command runs in a fresh, temporary shell. Environment variables (like export PATH) or directory changes (cd) will not persist between tool calls.</p>
             </div>
           </div>
 
-          <!-- Case 2: Enabled but Unreachable (WASM crash) -->
+          <!-- Case 2: Enabled but Unreachable -->
           <div v-if="settings.sandboxing.enabled && !settings.sandboxing.functional" class="alert-box alert-functional">
             <span class="alert-icon">❌</span>
             <div class="alert-content">
-              <strong>Runtime Error: WASM Engine Failed</strong>
-              <p>WASM sandboxing is enabled but the runtime failed to initialize. The agent is currently falling back to **native host execution**. Check logs for Wazero initialization errors.</p>
+              <strong>Initialization Error</strong>
+              <p>The terminal provider failed to initialize. The agent will fall back to single-shot command execution. Check system logs for details.</p>
             </div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div class="setting-group" :class="{ 'disabled-state': !settings.sandboxing.enabled || !settings.sandboxing.functional }">
-              <label class="setting-label">Memory Limit (MB)</label>
-              <input 
-                  v-model.number="settings.sandboxing.max_memory_mb" 
-                  type="number" 
-                  class="base-input" 
-                  min="64" 
-                  max="1024"
-                  :disabled="!settings.sandboxing.enabled || !settings.sandboxing.functional"
-              />
-              <p class="setting-description mt-1">Maximum heap allocated to the WASM virtual machine.</p>
-          </div>
-
-          <div class="setting-group" :class="{ 'disabled-state': !settings.sandboxing.enabled || !settings.sandboxing.functional }">
-              <label class="setting-label">Storage Quota (GB)</label>
-              <input 
-                  v-model.number="settings.sandboxing.max_storage_gb" 
-                  type="number" 
-                  class="base-input" 
-                  min="1" 
-                  max="50"
-                  :disabled="!settings.sandboxing.enabled || !settings.sandboxing.functional"
-              />
-              <p class="setting-description mt-1">Strict jailing for workspace file system operations.</p>
           </div>
         </div>
 
@@ -174,7 +144,7 @@ onMounted(() => {
                    Unsaved Changes
                </div>
                <div v-else class="text-gray-500 text-xs font-bold uppercase tracking-wider">
-                   WASI Architecture Active
+                   Native Host Shell Active
                </div>
            </div>
 
@@ -196,11 +166,11 @@ onMounted(() => {
         </div>
         
         <div class="restart-warning text-xs text-gray-500 mt-4 italic">
-           * Note: Transitioning from legacy Docker to WASM requires a full backend restart to re-initialize the Wazero memory space.
+           * Note: Terminal sessions are isolated by workspace and use the host's native tools (node, python, go, etc.).
         </div>
 
         <!-- Session Monitor -->
-        <SandboxMonitor v-if="settings.sandboxing.enabled" />
+        <TerminalMonitor v-if="settings.sandboxing.enabled" />
     </div>
   </div>
 </template>
@@ -226,6 +196,10 @@ onMounted(() => {
   @apply p-6 space-y-6;
 }
 
+.loading-state {
+  @apply p-12 text-center text-gray-500 italic;
+}
+
 .setting-group {
   @apply space-y-2;
 }
@@ -238,10 +212,6 @@ onMounted(() => {
   @apply text-sm text-gray-400 block;
 }
 
-.base-input {
-  @apply w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors;
-}
-
 .toggle-header {
   @apply flex items-center justify-between;
 }
@@ -251,7 +221,7 @@ onMounted(() => {
 }
 
 .danger-zone {
-  @apply border-red-500/50 bg-red-950/20 shadow-[0_0_15px_rgba(239,68,68,0.1)];
+  @apply border-yellow-500/30 bg-yellow-950/10;
 }
 
 .functional-error {
@@ -270,7 +240,7 @@ onMounted(() => {
 }
 
 .alert-danger {
-  @apply bg-red-950/30 border-red-500/30 text-red-200;
+  @apply bg-yellow-950/30 border-yellow-500/30 text-yellow-200;
 }
 
 .alert-functional {
@@ -282,7 +252,7 @@ onMounted(() => {
 }
 
 .alert-content p {
-  @apply text-sm text-red-300/80 mt-1;
+  @apply text-sm text-gray-400 mt-1;
 }
 
 .action-bar {
@@ -295,9 +265,5 @@ onMounted(() => {
 
 .btn-secondary {
   @apply px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-bold rounded-lg border border-gray-700 transition-all active:scale-95;
-}
-
-.disabled-state {
-  @apply opacity-50 cursor-not-allowed grayscale pointer-events-none transition-all duration-300;
 }
 </style>

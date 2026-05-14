@@ -25,8 +25,11 @@ echo -e "${CYAN}${BOLD}==================================================${NC}"
 
 # --- Versioning (Using Git Tags) ---
 info "Retrieving version from Git tags..."
-# Get the most recent tag, or fallback to 'dev' if no tags exist
-VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+# Get the most recent tag by version number, or fallback to 'dev' if no tags exist
+VERSION=$(git tag --sort=-v:refname | head -n 1)
+if [[ -z "${VERSION}" ]]; then
+    VERSION="dev"
+fi
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

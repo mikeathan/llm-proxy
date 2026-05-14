@@ -10,4 +10,5 @@ type MCPService interface {
 	GetSystemPrompt() (string, error)
 	ListTools(ctx context.Context) ([]proxy.Tool, error)
 	CallTool(ctx context.Context, name string, args map[string]any) (any, error)
+	UseNativeTools() bool
 }

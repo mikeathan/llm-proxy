@@ -27,11 +27,13 @@ type LLMClient struct {
 
 const (
 	// DefaultResponseHeaderTimeout is the time allowed for the server to send response headers.
-	DefaultResponseHeaderTimeout = 30 * time.Second
+	// This is set to a high value to support reasoning models that think for a long time.
+	DefaultResponseHeaderTimeout = 10 * time.Minute
 	// DefaultIdleConnTimeout is the maximum amount of time an idle (keep-alive) connection will remain idle before closing itself.
 	DefaultIdleConnTimeout = 90 * time.Second
 	// DefaultStreamChunkTimeout is the time allowed between individual streaming chunks.
-	DefaultStreamChunkTimeout = 60 * time.Second
+	// Increased to 5 minutes to accommodate large-context prefill times on local models.
+	DefaultStreamChunkTimeout = 5 * time.Minute
 )
 
 var (
@@ -66,6 +68,7 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 	if req.Model == "" {
 		req.Model = c.model
 	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("LLM chat serialisation error: %s", err.Error())
@@ -101,6 +104,7 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 		req.Model = c.model
 	}
 	req.Stream = true
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("LLM stream serialisation error: %s", err.Error())
@@ -129,6 +133,13 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
+
+		// When the context is cancelled, force-close the response body so
+		// the read loop exits immediately instead of waiting for TCP teardown.
+		go func() {
+			<-ctx.Done()
+			resp.Body.Close()
+		}()
 
 		reader := io.Reader(resp.Body)
 		for {

@@ -30,6 +30,20 @@ func TestHelperFakeProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func setupModelFile(t *testing.T, path string) {
+	t.Helper()
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "/" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("failed to create model dir: %v", err)
+		}
+	}
+	if err := os.WriteFile(path, []byte("fake model"), 0644); err != nil {
+		t.Fatalf("failed to create fake model file: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+}
+
 // --- Config and lifecycle behavior tests ---
 
 func TestNewManagerFromConfig_NormalizesModels(t *testing.T) {
@@ -69,6 +83,7 @@ func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
 
 	_, err := manager.EnsureModel(context.Background(), "test")
@@ -101,6 +116,7 @@ func TestUpdateModel_StopsActiveModel(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
 	_, _ = manager.EnsureModel(context.Background(), "test")
 
@@ -124,6 +140,7 @@ func TestRemoveModel_StopsActiveModel(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
 	_, _ = manager.EnsureModel(context.Background(), "test")
 
@@ -153,6 +170,7 @@ func TestStopActive_CancelsProcessContext(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
 	_, _ = manager.EnsureModel(context.Background(), "test")
 
@@ -178,6 +196,7 @@ func TestActiveInfo_ReadyReflectsPortState(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
 	_, _ = manager.EnsureModel(context.Background(), "test")
 
@@ -225,6 +244,7 @@ func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "/tmp/model.gguf")
 	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "/tmp/model.gguf", Args: []string{"--x"}, Port: 9999},
 	}, "127.0.0.1", time.Minute)
@@ -250,6 +270,7 @@ func TestRuntimeManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "model.gguf")
 	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "model.gguf", Port: 7777},
 	}, "127.0.0.1", time.Minute)
@@ -284,8 +305,9 @@ func TestRuntimeManager_RecordActivity(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
+	setupModelFile(t, "activity.gguf")
 	m := llm.New([]models.ModelConfig{
-		{Name: "test", Path: "x", Port: 4444},
+		{Name: "test", Path: "activity.gguf", Port: 4444},
 	}, "127.0.0.1", time.Millisecond*200)
 
 	_, _ = m.EnsureModel(context.Background(), "test")
@@ -307,9 +329,10 @@ func TestRuntimeManager_IdleReaperStopsModel(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return true })
 	defer restorePort()
 
+	setupModelFile(t, "reap_test.gguf")
 	m := llm.NewWithReapInterval(
 		[]models.ModelConfig{
-			{Name: "test", Path: "x", Port: 3333},
+			{Name: "test", Path: "reap_test.gguf", Port: 3333},
 		},
 		"127.0.0.1",
 		time.Millisecond*50, // idle timeout

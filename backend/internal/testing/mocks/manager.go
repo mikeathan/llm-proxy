@@ -3,31 +3,52 @@ package mocks
 import (
 	"context"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/models"
 	"time"
 )
 
 type MockManager struct {
-	EnsureModelFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
-	GetInstanceFunc         func(ctx context.Context, name string) (llm.ModelInstance, error)
-	RecordActivityFunc      func(name string)
-	ListModelsFunc          func() []models.ModelConfig
-	AddModelFunc            func(models.ModelConfig) error
-	UpdateModelFunc         func(models.ModelConfig) error
-	RemoveModelFunc         func(string) error
-	ActiveInfoFunc          func() *llm.ActiveModelInfo
-	ActiveLogsFunc          func() string
-	LastTokensPerSecondFunc func() (float64, time.Time)
-	StopActiveFunc          func() error
-	ClearLogsFunc           func() error
-	ModelHostFunc           func() string
-	SetBinaryFunc           func(string)
-	SetModelHostFunc        func(string)
-	ListProviderModelsFunc  func(ctx context.Context, provider, apiKeyName string) ([]string, error)
-	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName string) error
-	SelectModelsFunc        func() (string, string)
-	SetSecretsFunc          func(models.SecretsStore)
-	ShutdownFunc            func()
+	EnsureModelFunc            func(ctx context.Context, name string) (llm.ModelInstance, error)
+	GetInstanceFunc            func(ctx context.Context, name string) (llm.ModelInstance, error)
+	RecordActivityFunc         func(name string)
+	ListModelsFunc             func() []models.ModelConfig
+	AddModelFunc               func(models.ModelConfig) error
+	UpdateModelFunc            func(models.ModelConfig) error
+	RemoveModelFunc            func(string) error
+	ActiveInfoFunc             func() *llm.ActiveModelInfo
+	ActiveLogsFunc             func() string
+	LastTokensPerSecondFunc    func() (float64, time.Time)
+	StopActiveFunc             func() error
+	ClearLogsFunc              func() error
+	ModelHostFunc              func() string
+	SetBinaryFunc              func(string)
+	SetModelHostFunc           func(string)
+	ListProviderModelsFunc     func(ctx context.Context, provider, apiKeyName string) ([]string, error)
+	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
+	SelectModelsFunc           func() (string, string)
+	SetSecretsFunc             func(models.SecretsStore)
+	ShutdownFunc               func()
+	RegistrarFunc              func() *providers.ProviderRegistrar
+	SyncFunc                   func()
+}
+
+func (m *MockManager) Registrar() *providers.ProviderRegistrar {
+	if m.RegistrarFunc != nil {
+		return m.RegistrarFunc()
+	}
+	return nil
+}
+
+func NewMockManager() *MockManager {
+	return (&MockManager{}).WithDefaultRegistrar()
+}
+
+func (m *MockManager) WithDefaultRegistrar() *MockManager {
+	m.RegistrarFunc = func() *providers.ProviderRegistrar {
+		return providers.NewProviderRegistrar(providers.GetRegistry(), nil, "http://localhost")
+	}
+	return m
 }
 
 func (m *MockManager) Shutdown() {
@@ -43,9 +64,9 @@ func (m *MockManager) SelectModels() (string, string) {
 	return "", ""
 }
 
-func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error {
+func (m *MockManager) TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error {
 	if m.TestProviderConnectionFunc != nil {
-		return m.TestProviderConnectionFunc(ctx, provider, apiKey, apiKeyName)
+		return m.TestProviderConnectionFunc(ctx, provider, apiKey, apiKeyName, baseURL)
 	}
 	return nil
 }
@@ -161,4 +182,15 @@ func (m *MockManager) SetModelHost(host string) {
 	if m.SetModelHostFunc != nil {
 		m.SetModelHostFunc(host)
 	}
+}
+
+func (m *MockManager) Sync() {
+	if m.SyncFunc != nil {
+		// Mock sync behavior doesn't usually need the providers, but we pass them if needed
+		m.SyncFunc()
+	}
+}
+
+func (m *MockManager) ApplyModelOverrides(overrides map[string]models.ModelOverride) {
+	// no-op for mock
 }

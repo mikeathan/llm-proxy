@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, watch, computed } from "vue";
 import { DispatcherService } from "../../../services/dispatcherService";
 import GuardrailForm from "../system/GuardrailForm.vue";
 import { useToast } from "../../../composables/useToast";
@@ -9,6 +9,11 @@ const props = defineProps<{
   workspaceId: string;
   globalGuardrails: AgentGuardrailsConfig;
 }>();
+
+const hasExternalAccess = computed(() => {
+  const paths = config.value?.guardrails?.terminal?.allowed_external_paths;
+  return Array.isArray(paths) && paths.length > 0;
+});
 
 const emit = defineEmits<{
   (e: "close"): void;
@@ -56,6 +61,13 @@ const handleSave = async () => {
   }
 };
 
+const handleReset = () => {
+  if (!config.value) return;
+  // Populate UI with a fresh copy of global guardrails
+  config.value.guardrails = JSON.parse(JSON.stringify(props.globalGuardrails));
+  toast.info("Security form reset to system baseline. Click 'Save' to apply.");
+};
+
 onMounted(loadConfig);
 watch(() => props.workspaceId, loadConfig);
 </script>
@@ -74,6 +86,9 @@ watch(() => props.workspaceId, loadConfig);
       </div>
 
       <div class="actions">
+        <button @click="handleReset" class="btn-secondary" title="Reset to global defaults">
+          Reset to Baseline
+        </button>
         <button @click="handleSave" :disabled="saving" class="btn-primary">
           {{ saving ? "Saving..." : "Save Overrides" }}
         </button>
@@ -94,6 +109,23 @@ watch(() => props.workspaceId, loadConfig);
           <strong>{{ workspaceId }}</strong> only. If a field is left empty, the
           system-wide baseline is typically inherited.
         </p>
+      </div>
+
+      <div
+        v-if="hasExternalAccess"
+        class="external-access-alert"
+      >
+        <span class="alert-icon">⚠️</span>
+        <div>
+          <p class="alert-title">External File System Access Enabled</p>
+          <p class="alert-body">
+            This workspace can access paths outside its jail:
+            <code class="alert-code">{{ config.guardrails.terminal.allowed_external_paths.join(', ') }}</code>
+          </p>
+          <p class="alert-footer">
+            Reduce scope when the task no longer requires external access.
+          </p>
+        </div>
       </div>
 
       <GuardrailForm v-model="config.guardrails" :isWorkspaceOverride="true" />
@@ -139,6 +171,11 @@ watch(() => props.workspaceId, loadConfig);
          active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
+.btn-secondary {
+  @apply bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md font-bold text-xs 
+         active:scale-95 transition-all mr-2;
+}
+
 .btn-ghost {
   @apply text-gray-400 hover:text-white px-3 py-2 text-xs font-medium transition-colors;
 }
@@ -162,5 +199,29 @@ watch(() => props.workspaceId, loadConfig);
 
 .info-icon {
   @apply text-base grayscale;
+}
+
+.external-access-alert {
+  @apply flex items-start gap-3 bg-amber-500/10 border border-amber-500/40 rounded-lg p-4;
+}
+
+.alert-icon {
+  @apply text-xl shrink-0;
+}
+
+.alert-title {
+  @apply text-xs font-black text-amber-400 uppercase tracking-widest;
+}
+
+.alert-body {
+  @apply text-[11px] text-amber-200/80 leading-relaxed mt-1;
+}
+
+.alert-code {
+  @apply bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5 text-[10px] text-amber-300 font-mono;
+}
+
+.alert-footer {
+  @apply text-[10px] text-amber-400/50 italic mt-2;
 }
 </style>

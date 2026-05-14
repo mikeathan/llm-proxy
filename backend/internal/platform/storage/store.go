@@ -36,7 +36,6 @@ func (s *Store[T]) OnChange(fn func(T)) {
 // Load reads the data from disk into memory.
 func (s *Store[T]) Load() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	data, err := os.ReadFile(s.path)
 	if err != nil {
@@ -44,26 +43,31 @@ func (s *Store[T]) Load() error {
 			// If file doesn't exist, we start with a zero value
 			var zero T
 			s.data = &zero
+			s.mu.Unlock()
 			return nil
 		}
+		s.mu.Unlock()
 		return fmt.Errorf("failed to read store file at %s: %w", s.path, err)
 	}
 
 	var val T
 	if strings.HasSuffix(s.path, ".yml") || strings.HasSuffix(s.path, ".yaml") {
 		if err := yaml.Unmarshal(data, &val); err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("failed to parse yaml store file at %s: %w", s.path, err)
 		}
 	} else {
 		if err := json.Unmarshal(data, &val); err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("failed to parse json store file at %s: %w", s.path, err)
 		}
 	}
 
 	s.data = &val
 
-	// Notify listeners
+	// Notify listeners after unlock
 	dataCopy := *s.data
+	s.mu.Unlock()
 	for _, l := range s.listeners {
 		l(dataCopy)
 	}
@@ -84,18 +88,33 @@ func (s *Store[T]) Get() T {
 }
 
 // Update modifies the data via a callback and persists it atomically.
-func (s *Store[T]) Update(fn func(*T)) error {
+func (s *Store[T]) Update(fn func(*T) error) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.data == nil {
 		var zero T
 		s.data = &zero
 	}
 
-	fn(s.data)
+	if err := fn(s.data); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 
-	return s.saveLocked()
+	err := s.saveLocked()
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+
+	// Notify listeners after unlock to avoid deadlocks
+	dataCopy := *s.data
+	s.mu.Unlock()
+	for _, l := range s.listeners {
+		l(dataCopy)
+	}
+
+	return nil
 }
 
 // saveLocked writes the data to a temporary file and renames it.
@@ -139,12 +158,7 @@ func (s *Store[T]) saveLocked() error {
 		return fmt.Errorf("failed to rename store file: %w", err)
 	}
 
-	// Notify listeners
-	dataCopy := *s.data
 	fmt.Printf(" [STORAGE] Atomically updated %s\n", filepath.Base(s.path))
-	for _, l := range s.listeners {
-		l(dataCopy)
-	}
 
 	return nil
 }

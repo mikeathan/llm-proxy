@@ -5,6 +5,7 @@ import SecuritySettings from "./SecuritySettings.vue";
 import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
+import ModelCatalogue from "./ModelCatalogue.vue";
 import BaseButton from "../common/BaseButton.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
@@ -71,6 +72,17 @@ async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
   }
 }
 
+async function clearAllApiKeys(type: ProviderType) {
+  try {
+    const saved = await AdminApiService.deleteAllProviderKeys(type);
+    providerKeys.value = { ...providerKeys.value, [type]: saved };
+    await refreshModels();
+  } catch (e: any) {
+    toast.error(`Failed to clear API keys: ${e.message}`);
+    console.error(`[Settings] Failed to clear ${type} API keys:`, e);
+  }
+}
+
 async function handleSaveConfig() {
   try {
     await updateConfig();
@@ -81,10 +93,11 @@ async function handleSaveConfig() {
   }
 }
 
-const testProvider = async (type: string, payload: { key: string; name: string; id: string }) => {
+const testProvider = async (type: string, payload: { key: string; name: string; id: string; base_url?: string }) => {
   testStatus.value[type] = { loading: true };
   try {
-    const res = await AdminApiService.testConnection(type, payload.key, payload.id);
+    const baseURL = payload.base_url || (config.value.providers as any)?.[type]?.base_url;
+    const res = await AdminApiService.testConnection(type, payload.key, payload.id, baseURL);
     testStatus.value[type] = { loading: false, success: res.message };
     setTimeout(() => {
       if (testStatus.value[type]?.success === res.message) {
@@ -95,6 +108,10 @@ const testProvider = async (type: string, payload: { key: string; name: string; 
     testStatus.value[type] = { loading: false, error: e.message };
   }
 };
+
+// OpenAI-compatible providers that support per-key base URLs
+const openAICompatibleProviders = new Set(['openai', 'openrouter', 'mulerouter', 'nvidia']);
+const providerHasBaseUrl = (p: string) => openAICompatibleProviders.has(p);
 
 function clearTestStatus(type: string) {
   testStatus.value[type] = { loading: false };
@@ -182,7 +199,12 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
           />
         </div>
 
-        <!-- Security & Sandboxing -->
+        <!-- Model Catalogue -->
+        <div v-show="activeTab === 'catalogue'">
+          <ModelCatalogue />
+        </div>
+
+        <!-- Local Host Terminal -->
         <div v-show="activeTab === 'security'">
           <SecuritySettings />
         </div>
@@ -209,12 +231,14 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
                 :apiKeys="providerKeys[provider] || []"
                 title="API Keys"
                 helperText="Select a key to test or edit it. Changes are saved automatically."
+                :showBaseUrl="providerHasBaseUrl(provider)"
                 :testLoading="!!testStatus[provider]?.loading"
                 :testSuccess="testStatus[provider]?.success"
                 :testError="testStatus[provider]?.error"
                 @update:apiKeys="updateApiKeys(provider, $event)"
                 @testKey="testProvider(provider, $event)"
                 @clearTest="clearTestStatus(provider)"
+                @clearAll="clearAllApiKeys(provider)"
               />
 
               <div class="form-divider"></div>
@@ -270,66 +294,6 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
                     type="text"
                     class="form-input"
                     required
-                  />
-                </div>
-              </template>
-
-              <template
-                v-if="provider === 'openai' && config.providers?.openai"
-              >
-                <div class="form-group">
-                  <label class="form-label"
-                    >Base URL
-                    <span class="form-optional">(Optional)</span></label
-                  >
-                  <div class="form-helper">
-                    Override for localized proxies or self-hosted engines
-                  </div>
-                  <input
-                    v-model="config.providers.openai.base_url"
-                    type="text"
-                    placeholder="https://api.openai.com/v1"
-                    class="form-input"
-                  />
-                </div>
-              </template>
-
-              <template
-                v-if="provider === 'mulerouter' && config.providers?.mulerouter"
-              >
-                <div class="form-group">
-                  <label class="form-label"
-                    >Base URL
-                    <span class="form-optional">(Optional)</span></label
-                  >
-                  <div class="form-helper">
-                    Default: https://api.mulerouter.ai/v1
-                  </div>
-                  <input
-                    v-model="config.providers.mulerouter.base_url"
-                    type="text"
-                    placeholder="https://api.mulerouter.ai/v1"
-                    class="form-input"
-                  />
-                </div>
-              </template>
-
-              <template
-                v-if="provider === 'nvidia' && config.providers?.nvidia"
-              >
-                <div class="form-group">
-                  <label class="form-label"
-                    >Base URL
-                    <span class="form-optional">(Optional)</span></label
-                  >
-                  <div class="form-helper">
-                    Default: https://integrate.api.nvidia.com/v1
-                  </div>
-                  <input
-                    v-model="config.providers.nvidia.base_url"
-                    type="text"
-                    placeholder="https://integrate.api.nvidia.com/v1"
-                    class="form-input"
                   />
                 </div>
               </template>

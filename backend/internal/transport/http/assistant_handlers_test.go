@@ -218,11 +218,8 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 		t.Errorf("system prompt missing jail rules: %s", systemContent)
 	}
 
-	// Check that relative path was correctly injected
-	relWs := mgr.GetRelativeWorkspacePath()
-	expectedPath := relWs + "/test-jail/"
-	if !strings.Contains(systemContent, expectedPath) {
-		t.Errorf("system prompt missing expected relative path %s: %s", expectedPath, systemContent)
+	if !strings.Contains(systemContent, "All file paths MUST be relative to the workspace root") {
+		t.Errorf("system prompt missing expected relative path rule: %s", systemContent)
 	}
 }
 

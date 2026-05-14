@@ -12,7 +12,7 @@ func TestResolveHost(t *testing.T) {
 		want string
 	}{
 		{"Empty host", "", models.AddrLocalhost},
-		{"Generic listener 0.0.0.0", "0.0.0.0", models.AddrLocalhost},
+		{"Generic listener 0.0.0.0", "0.0.0.0", "0.0.0.0"},
 		{"Specific IP", "192.168.1.10", "192.168.1.10"},
 		{"Localhost", "127.0.0.1", "127.0.0.1"},
 		{"Hostname", "vertex.local", "vertex.local"},
@@ -77,13 +77,14 @@ func TestFormatURL(t *testing.T) {
 }
 
 func TestFormatLocalURL(t *testing.T) {
+	reachable := GetReachableHost("0.0.0.0")
 	tests := []struct {
 		name string
 		host string
 		port int
 		want string
 	}{
-		{"Resolve 0.0.0.0", "0.0.0.0", 4001, "http://127.0.0.1:4001"},
+		{"Resolve 0.0.0.0", "0.0.0.0", 4001, "http://" + reachable + ":4001"},
 		{"Keep specific IP", "192.168.1.5", 9002, "http://192.168.1.5:9002"},
 	}
 

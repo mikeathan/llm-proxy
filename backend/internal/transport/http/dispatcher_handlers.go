@@ -129,7 +129,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 				info.LastOutput = state.LastOutput
 				info.LastError = state.LastError
 			}
-			info.IsRunning = state.IsRunning
+			info.IsRunning = state.ActiveAutomation == entry.Name
 		}
 
 		infos = append(infos, info)
@@ -139,16 +139,32 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 }
 
 // TriggerAutomation manually triggers an automation by workspace ID and name.
+// It runs the automation in the background to avoid blocking the HTTP response.
 func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Request) {
 	workspaceID, automationName, ok := h.parse(w, r, models.WorkspaceIDParam, "automation")
 	if !ok {
 		return
 	}
 
-	if err := h.dispatcher.Trigger(r.Context(), workspaceID, automationName); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+	// Fail fast if an automation is already running in this workspace
+	state, err := h.dispatcher.Persistence().ReadState(workspaceID)
+	if err == nil && state.IsRunning() {
+		respondError(w, http.StatusConflict, fmt.Sprintf("automation '%s' is already running in workspace '%s'", state.ActiveAutomation, workspaceID))
 		return
 	}
+
+	// Run in background with a new context to avoid closure when the request finishes.
+	// We use the dispatcher's internal management (activeRuns) to allow stopping it.
+	go func() {
+		// Use a background context since this outlives the request.
+		// The dispatcher's executeAutomation will handle its own timeouts and cancellation via activeRuns.
+		if err := h.dispatcher.Trigger(context.Background(), workspaceID, automationName); err != nil {
+			h.logger.Error("Async automation trigger failed", 
+				"workspace", workspaceID, 
+				"automation", automationName, 
+				"error", err)
+		}
+	}()
 
 	respondJSON(w, map[string]string{
 		"status":     "triggered",
@@ -197,7 +213,14 @@ func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Re
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, state)
+	// Wrap state to include is_running for frontend compatibility
+	respondJSON(w, struct {
+		*models.AgentState
+		IsRunning bool `json:"is_running"`
+	}{
+		AgentState: state,
+		IsRunning:  state.IsRunning(),
+	})
 }
 
 func (h *DispatcherHandlers) GetWorkspaceConfig(w http.ResponseWriter, r *http.Request) {

@@ -11,15 +11,17 @@ import (
 type ToolProvider interface {
 	ListTools(ctx context.Context) ([]proxy.Tool, error)
 	GetSystemPrompt() (string, error)
+	UseNativeTools() bool
 }
 
 // MultiToolProvider aggregates tools from multiple providers.
 type MultiToolProvider struct {
-	Providers []ToolProvider
+	Providers      []ToolProvider
+	useNativeTools bool
 }
 
-func NewMultiToolProvider(providers ...ToolProvider) *MultiToolProvider {
-	return &MultiToolProvider{Providers: providers}
+func NewMultiToolProvider(useNativeTools bool, providers ...ToolProvider) *MultiToolProvider {
+	return &MultiToolProvider{Providers: providers, useNativeTools: useNativeTools}
 }
 
 func (p *MultiToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
@@ -50,6 +52,10 @@ func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
 
 	// Join multiple prompts if multiple providers provide them
 	return strings.Join(fullPrompt, "\n\n---\n\n"), nil
+}
+
+func (p *MultiToolProvider) UseNativeTools() bool {
+	return p.useNativeTools
 }
 
 // CompositeEngine delegates tool execution to either a primary (builtin) or secondary (mcp) engine.

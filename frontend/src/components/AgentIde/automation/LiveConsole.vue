@@ -15,6 +15,7 @@ import {
   getToolCallPayload,
   getToolResPayload,
   getViolationPayload,
+  getBlockedPayload,
   formatEventsToText,
 } from "../../../utils/dispatcher";
 import { marked } from "marked";
@@ -35,9 +36,11 @@ const {
   liveEvents,
   displayEvents,
   isConnected,
+  pendingDecision,
   connect,
   disconnect,
-  clearEvents
+  clearEvents,
+  submitDecision
 } = useLiveConsole(
   () => props.workspaceId,
   () => props.isExecuting,
@@ -120,6 +123,30 @@ const formatTime = (ts?: string) => {
           iconSize="sm"
           class="btn-clear-term"
         />
+      </div>
+    </div>
+
+    <!-- Guardrail Approval Banner -->
+    <div v-if="pendingDecision" class="guardrail-approval-banner">
+      <div class="approval-header">
+        <span class="approval-icon">🛑</span>
+        <span class="approval-title">Guardrail Blocked — Action Required</span>
+      </div>
+      <div class="approval-details">
+        <div><strong>Tool:</strong> {{ pendingDecision.tool }}</div>
+        <div><strong>Reason:</strong> {{ pendingDecision.reason }}</div>
+        <div><strong>Category:</strong> {{ pendingDecision.category }}</div>
+      </div>
+      <div class="approval-actions">
+        <button class="btn-approve" @click="submitDecision(true, true)">
+          Allow &amp; Remember
+        </button>
+        <button class="btn-approve-once" @click="submitDecision(true, false)">
+          Allow Once
+        </button>
+        <button class="btn-deny" @click="submitDecision(false, false)">
+          Deny
+        </button>
       </div>
     </div>
 
@@ -220,6 +247,23 @@ const formatTime = (ts?: string) => {
             </div>
             <div class="violation-body">
               {{ getViolationPayload(ev).error }}
+            </div>
+          </div>
+
+          <!-- Guardrail Blocked (Awaiting Decision) -->
+          <div
+            v-else-if="ev.type === 'guardrail_blocked'"
+            class="line-violation"
+          >
+            <div class="violation-header">
+              <span class="violation-icon">🛑</span>
+              <span class="violation-title"
+                >Guardrail Blocked — Awaiting Approval</span
+              >
+            </div>
+            <div class="violation-body">
+              <div><strong>Tool:</strong> {{ getBlockedPayload(ev).tool }}</div>
+              <div><strong>Reason:</strong> {{ getBlockedPayload(ev).reason }}</div>
             </div>
           </div>
         </div>
@@ -428,5 +472,42 @@ const formatTime = (ts?: string) => {
 
 .violation-body {
   @apply text-[11px] text-red-100/70 pl-6 border-l border-red-500/30 py-1;
+}
+
+/* Guardrail Approval Banner */
+.guardrail-approval-banner {
+  @apply mx-4 mb-2 p-4 bg-amber-900/30 border border-amber-500/50 rounded-lg animate-in fade-in slide-in-from-top-2;
+}
+
+.approval-header {
+  @apply flex items-center gap-2 mb-3;
+}
+
+.approval-icon {
+  @apply text-lg;
+}
+
+.approval-title {
+  @apply text-amber-300 font-bold text-sm uppercase tracking-wide;
+}
+
+.approval-details {
+  @apply text-[11px] text-amber-100/80 space-y-1 mb-3 pl-6 border-l border-amber-500/30 py-1;
+}
+
+.approval-actions {
+  @apply flex gap-2 flex-wrap;
+}
+
+.btn-approve {
+  @apply px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
+}
+
+.btn-approve-once {
+  @apply px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
+}
+
+.btn-deny {
+  @apply px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
 }
 </style>

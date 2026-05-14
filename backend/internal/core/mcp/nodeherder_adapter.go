@@ -115,3 +115,7 @@ func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[stri
 	// Return raw text if not JSON
 	return textStr, nil
 }
+
+func (n *MCPNodeHerder) UseNativeTools() bool {
+	return true
+}

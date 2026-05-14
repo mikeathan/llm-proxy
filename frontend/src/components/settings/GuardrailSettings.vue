@@ -20,19 +20,31 @@ function handleFormUpdate(newGuardrails: any) {
 function handleSave() {
   emit("save");
 }
+
+function handleReset() {
+  // Clearing the guardrails property in the local config will cause the backend
+  // to return manifest defaults (since we use GetGuardrails with merging).
+  // However, to show it immediately in UI, we can emit an empty object.
+  emit("update:config", { ...toRaw(props.config), guardrails: {} as any });
+}
 </script>
 
 <template>
   <div class="guardrails-container">
     <div class="header-row">
       <h2 class="settings-title">System-Wide Guardrails</h2>
-      <BaseButton @click="handleSave" variant="primary" icon="play">
-        Save Global Policy
-      </BaseButton>
+      <div class="flex gap-2">
+        <BaseButton @click="handleReset" variant="ghost" icon="refresh">
+          Reset to Defaults
+        </BaseButton>
+        <BaseButton @click="handleSave" variant="primary" icon="play">
+          Save Global Policy
+        </BaseButton>
+      </div>
     </div>
 
-    <GuardrailForm 
-      :modelValue="config.guardrails" 
+    <GuardrailForm
+      :modelValue="config.guardrails"
       @update:modelValue="handleFormUpdate"
     />
   </div>
