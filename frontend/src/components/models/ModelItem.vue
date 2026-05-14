@@ -198,6 +198,21 @@ function saveEdit() {
           </div>
         </template>
       </div>
+      <div class="prefill-edit-row">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            :checked="editingModel.prefill"
+            @change="editingModel.prefill = ($event.target as HTMLInputElement).checked"
+            class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600"
+          />
+          <span class="text-sm text-gray-300">Prefill tool calls</span>
+        </label>
+        <p class="text-[10px] text-gray-500 mt-1 ml-6">
+          Force the assistant response to start with a tool call in automation mode.
+          Recommended for smaller local models that struggle with XML formatting.
+        </p>
+      </div>
       <div class="edit-actions">
         <button @click="$emit('cancel-edit')" class="btn-action-remove">
           Cancel
@@ -359,5 +374,9 @@ select.form-input {
 
 .form-col-3-edit {
   @apply sm:col-span-3;
+}
+
+.prefill-edit-row {
+  @apply mt-1;
 }
 </style>

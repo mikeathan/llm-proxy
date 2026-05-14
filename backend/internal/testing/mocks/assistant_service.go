@@ -67,6 +67,10 @@ func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName 
 	return m.Client.GetClientForModel(ctx, modelName)
 }
 
+func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig, bool) {
+	return models.ModelConfig{}, false
+}
+
 func (m *MockAssistantService) GuardrailEngine() *guardrails.GuardrailEngine {
 	return guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
@@ -91,6 +95,10 @@ func (p *mockToolProvider) CallTool(ctx context.Context, call proxy.ToolCall) (a
 
 func (p *mockToolProvider) GetSystemPrompt() (string, error) {
 	return p.herder.GetSystemPrompt()
+}
+
+func (p *mockToolProvider) UseNativeTools() bool {
+	return true
 }
 
 func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
@@ -119,6 +127,10 @@ func (m *MockAssistantService) MetadataDir() string {
 
 func (m *MockAssistantService) Resolver() storage.Resolver {
 	return storage.NewPathResolver(m.RootDir(), m.WorkspacesDir(), m.MetadataDir())
+}
+
+func (m *MockAssistantService) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
+	return nil
 }
 
 func (m *MockAssistantService) Events() *automation.EventBus {

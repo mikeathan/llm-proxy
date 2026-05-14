@@ -17,7 +17,7 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/platform/storage"
-	"llm-proxy/internal/sandbox"
+	"llm-proxy/internal/shell"
 	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -33,25 +33,25 @@ func (m *mockProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("proxied"))
 }
 
-type mockSandboxProvider struct {
+type mockShellProvider struct {
 	recycledID     string
-	sessions       []models.SandboxSessionView
+	sessions       []models.TerminalSessionView
 	shutdownCalled bool
 }
 
-func (m *mockSandboxProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string) (sandbox.Sandbox, error) {
+func (m *mockShellProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string, idleTimeout time.Duration, allowedEnvVars []string, pathExtensions []string) (shell.Terminal, error) {
 	return nil, nil
 }
 
-func (m *mockSandboxProvider) Recycle(ctx context.Context, workspaceID string) {
+func (m *mockShellProvider) Recycle(ctx context.Context, workspaceID string) {
 	m.recycledID = workspaceID
 }
 
-func (m *mockSandboxProvider) ListSessions() []models.SandboxSessionView {
+func (m *mockShellProvider) ListSessions() []models.TerminalSessionView {
 	return m.sessions
 }
 
-func (m *mockSandboxProvider) Shutdown() {
+func (m *mockShellProvider) Shutdown() {
 	m.shutdownCalled = true
 }
 
@@ -141,7 +141,7 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 }
 
 func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
-	srv := createTestServer(t, &mocks.MockManager{}, nil)
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
 	handlers := api.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
@@ -472,7 +472,7 @@ func TestAppContextSelectModels_FirstModel(t *testing.T) {
 }
 
 func TestAppContextResolveModelPath(t *testing.T) {
-	ctx := createTestServer(t, &mocks.MockManager{}, &models.Config{
+	ctx := createTestServer(t, mocks.NewMockManager(), &models.Config{
 		Providers: map[string]models.ProviderItem{
 			"local": {ModelDir: "/models"},
 		},
@@ -517,7 +517,7 @@ func TestAppContextUpdateSystem_Persists(t *testing.T) {
 	dataMgr, _ := storage.NewDataManager(dir)
 	dataMgr.LoadAll()
 
-	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
+	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
 
 	if err := ctx.UpdateSystem(func(c *models.SystemConfig) {
 		c.Server.Bind = ":9999"
@@ -542,7 +542,7 @@ func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
 	}
-	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
 	dir := ctx.RootDir()
 
 	// Update existing model with a new port
@@ -568,11 +568,48 @@ func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 	}
 }
 
+func TestAppContextPersistModel_IncludesArgs(t *testing.T) {
+	ctx := createTestServer(t, mocks.NewMockManager(), nil)
+	dir := ctx.RootDir()
+
+	args := []string{"--ctx-size", "4096", "--parallel", "4"}
+	cfg := models.ModelConfig{
+		Name:     "custom",
+		Filename: "model.gguf",
+		Provider: "local",
+		Args:     args,
+		Port:     8081,
+	}
+
+	if err := ctx.PersistModel(cfg); err != nil {
+		t.Fatalf("persist model: %v", err)
+	}
+
+	// Reload and verify
+	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr.LoadAll()
+	loaded := loadedMgr.Registry().Get()
+
+	m, ok := findModel(loaded.Catalogue, "custom")
+	if !ok {
+		t.Fatalf("expected custom model to be found")
+	}
+
+	if len(m.Args) != len(args) {
+		t.Fatalf("expected %d args, got %d", len(args), len(m.Args))
+	}
+	for i, v := range args {
+		if m.Args[i] != v {
+			t.Errorf("arg[%d]: expected %s, got %s", i, v, m.Args[i])
+		}
+	}
+}
+
 func TestAppContextPersistReplaceModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha", Port: 8081}},
 	}
-	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
 	dir := ctx.RootDir()
 
 	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "alpha", Filename: "new.gguf", Port: 9999}); err != nil {
@@ -600,7 +637,7 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 	cfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
 	}
-	ctx := createTestServer(t, &mocks.MockManager{}, cfg)
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
 	dir := ctx.RootDir()
 
 	if err := ctx.PersistDeleteModel("alpha"); err != nil {
@@ -624,7 +661,7 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	dataMgr, _ := storage.NewDataManager(dir)
 	_ = dataMgr.LoadAll()
 
-	ctx := app.NewServer(&mocks.MockManager{}, dataMgr)
+	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
 
 	// Update communication settings
 	req := models.SystemUpdatePayload{
@@ -667,18 +704,18 @@ func findModel(config []models.ModelRegistryEntry, name string) (models.ModelReg
 	return models.ModelRegistryEntry{}, false
 }
 
-func TestAppContext_SandboxLifecycle(t *testing.T) {
+func TestAppContext_TerminalLifecycle(t *testing.T) {
 	s := &app.AppContext{}
-	mock := &mockSandboxProvider{
-		sessions: []models.SandboxSessionView{
+	mock := &mockShellProvider{
+		sessions: []models.TerminalSessionView{
 			{WorkspaceID: "ws-123", HostPath: "/tmp/ws-123"},
 		},
 	}
 
-	s.SetSandboxProvider(mock)
+	s.SetShellProvider(mock)
 
-	t.Run("ListSandboxSessions proxies to provider", func(t *testing.T) {
-		sessions := s.ListSandboxSessions()
+	t.Run("ListShellSessions proxies to provider", func(t *testing.T) {
+		sessions := s.ListShellSessions()
 		if len(sessions) != 1 {
 			t.Fatalf("expected 1 session, got %d", len(sessions))
 		}
@@ -687,8 +724,8 @@ func TestAppContext_SandboxLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("ResetSandbox proxies Recycle to provider", func(t *testing.T) {
-		err := s.ResetSandbox("target-ws")
+	t.Run("ResetShell proxies Recycle to provider", func(t *testing.T) {
+		err := s.ResetShell("target-ws")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -704,11 +741,11 @@ func TestAppContext_SandboxLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("ResetSandbox returns error when provider missing", func(t *testing.T) {
+	t.Run("ResetShell returns error when provider missing", func(t *testing.T) {
 		s2 := &app.AppContext{}
-		err := s2.ResetSandbox("ws")
+		err := s2.ResetShell("ws")
 		if err == nil {
-			t.Error("expected error when sandbox provider is nil")
+			t.Error("expected error when terminal provider is nil")
 		}
 	})
 }

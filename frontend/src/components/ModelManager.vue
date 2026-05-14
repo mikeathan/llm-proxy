@@ -171,6 +171,7 @@ onMounted(() => {
               :provider="form.provider"
               v-model:model-id="form.model_id!"
               v-model:api-key-name="form.provider_config!.api_key_name!"
+              v-model:prefill="form.prefill!"
               :state="state"
             />
           </div>

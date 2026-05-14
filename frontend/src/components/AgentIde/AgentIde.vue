@@ -72,6 +72,7 @@ const lastTriggerResult = ref<string | null>(null);
 const workspaceHistory = ref<AutomationRun[]>([]);
 const workspaceMiddleTab = ref<"pulse" | "chat">("pulse");
 const settingsWorkspaceId = ref<string | null>(null);
+const workspaceExternalAccess = ref<Record<string, boolean>>({});
 const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
 const isMobile = ref(false);
 
@@ -102,6 +103,22 @@ const updateLayout = () => {
   isMobile.value = window.innerWidth < 1024;
 };
 
+const refreshExternalAccess = async () => {
+  try {
+    const configs = await DispatcherService.getAllWorkspaceConfigs();
+    const access: Record<string, boolean> = {};
+    for (const [wsId, cfg] of Object.entries(configs)) {
+      const paths = (cfg as any)?.guardrails?.terminal?.allowed_external_paths;
+      if (Array.isArray(paths) && paths.length > 0) {
+        access[wsId] = true;
+      }
+    }
+    workspaceExternalAccess.value = access;
+  } catch (err) {
+    console.error("Failed to refresh external access flags", err);
+  }
+};
+
 const refreshHistory = async () => {
   try {
     if (selectedWorkspace.value) {
@@ -122,6 +139,7 @@ onMounted(() => {
   fetchAutomations();
   fetchMetrics();
   fetchWorkspaces();
+  refreshExternalAccess();
   refreshModels();
   refreshHistory();
 
@@ -130,6 +148,7 @@ onMounted(() => {
   historyInterval = setInterval(() => {
     refreshHistory();
     fetchAutomations(true);
+    fetchMetrics();
   }, 10000);
 });
 
@@ -147,6 +166,11 @@ const groupedByWorkspace = computed(() => {
     groups[auto.workspace]!.push(auto);
   }
   return groups;
+});
+const anyRunningInSelectedWorkspace = computed(() => {
+  if (!selectedAutomation.value) return false;
+  const workspace = selectedAutomation.value.workspace;
+  return automations.value.some((a) => a.workspace === workspace && a.is_running);
 });
 
 const handleSelectAutomation = (auto: Automation) => {
@@ -478,6 +502,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           :selectedWorkspace="selectedWorkspace"
           :selectedFile="selectedFile"
           :loading="loading"
+          :workspaceExternalAccess="workspaceExternalAccess"
           @select-workspace="handleSelectWorkspace"
           @create-workspace="handleCreateWorkspace"
           @delete-workspace="handleDeleteWorkspace"
@@ -616,7 +641,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       <div class="action-card">
         <h3 class="action-title">Actions</h3>
         <BaseButton
-          v-if="!selectedAutomation?.is_running"
+          v-if="!anyRunningInSelectedWorkspace"
           @click="handleTrigger"
           variant="primary"
           icon="play"

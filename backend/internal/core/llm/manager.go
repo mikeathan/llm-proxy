@@ -73,10 +73,13 @@ type RuntimeManager interface {
 	ModelHost() string
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
-	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName string) error
+	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
+	Sync()
 	Shutdown()
+	Registrar() *providers.ProviderRegistrar
+	ApplyModelOverrides(overrides map[string]models.ModelOverride)
 }
 
 type LLMRuntimeManager struct {
@@ -89,35 +92,44 @@ type LLMRuntimeManager struct {
 	serverEnv         map[string]string
 	idleTimeout       time.Duration
 	stopCh            chan struct{}
+	registrySource    func() models.RegistryData
 }
 
-func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore) *LLMRuntimeManager {
+func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore, regSource func() models.RegistryData) *LLMRuntimeManager {
 	logging.Info("Initializing LLM Runtime Manager from registry", "models", len(reg.Catalogue))
 
 	registrar := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, sys.Server.ModelHost)
 	registrar.RegisterLocal(settings.Local.LlamaServerBinary, settings.Local.ModelDir, settings.Local.DefaultArgs)
 
 	m := &LLMRuntimeManager{
-		models:      make(map[string]models.ModelConfig),
-		registrar:   registrar,
-		serverEnv:   make(map[string]string),
-		idleTimeout: time.Duration(sys.Server.IdleTimeoutSecs) * time.Second,
-		stopCh:      make(chan struct{}),
+		models:         make(map[string]models.ModelConfig),
+		registrar:      registrar,
+		serverEnv:      sys.Server.Environment,
+		idleTimeout:    time.Duration(sys.Server.IdleTimeoutSecs) * time.Second,
+		stopCh:         make(chan struct{}),
+		registrySource: regSource,
 	}
 
 	// 1. Map Registry Catalogue to Runtime Models
 	for _, entry := range reg.Catalogue {
-		m.models[entry.Name] = models.ModelConfig{
+		cfg := models.ModelConfig{
 			Name:     entry.Name,
 			Provider: entry.ProviderID,
 			Filename: entry.ModelID, // Bridge: Filename is the identifier
 			Port:     entry.Port,
+			Args:     entry.Args,
+			Prefill:  entry.Prefill,
 			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: entry.CredentialID,
 			},
 		}
+		m.models[entry.Name] = normalizeModelConfig(settings.Local.ModelDir, cfg)
 	}
 
+	// 2. Apply per-model agent tuning overrides from settings.yml
+	m.ApplyModelOverrides(settings.ModelOverrides)
+
+	m.Sync()
 	go m.reapIdleModels(defaultReapPeriod)
 
 	return m
@@ -175,12 +187,13 @@ func NewWithReapInterval(modelConfigs []models.ModelConfig, modelHost string, id
 	return m
 }
 
-func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName string) error {
+func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error {
 	cfg := models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: &models.ProviderConfig{
 			APIKey:     apiKey,
 			APIKeyName: apiKeyName,
+			BaseURL:    baseURL,
 		},
 	}
 	p, err := m.registrar.Build(cfg)
@@ -390,6 +403,7 @@ func (m *LLMRuntimeManager) syncPortWithActiveLocked(cfg models.ModelConfig) mod
 
 func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelConfig) (ModelInstance, bool) {
 	if m.activeModel != nil && m.activeModel.Cfg.Name == name && portReady(m.activeModel.Cfg.Port) {
+		m.activeModel.LastUsed = time.Now()
 		return ModelInstance{
 			Name: name,
 			Host: m.registrar.ModelHost(),
@@ -436,14 +450,22 @@ func (m *LLMRuntimeManager) AddModel(cfg models.ModelConfig) error {
 	if _, ok := m.models[cfg.Name]; ok {
 		return ErrModelExists
 	}
-	m.models[cfg.Name] = normalizeModelConfig("", cfg)
+	modelDir := ""
+	if local, ok := m.registrar.ListConfigs()["local"]; ok {
+		modelDir = local.ModelDir
+	}
+	m.models[cfg.Name] = normalizeModelConfig(modelDir, cfg)
 	return nil
 }
 
 func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.models[cfg.Name] = normalizeModelConfig("", cfg)
+	modelDir := ""
+	if local, ok := m.registrar.ListConfigs()["local"]; ok {
+		modelDir = local.ModelDir
+	}
+	m.models[cfg.Name] = normalizeModelConfig(modelDir, cfg)
 	if m.activeModel != nil && m.activeModel.Cfg.Name == cfg.Name {
 		waiter := m.signalStopLocked()
 		if waiter != nil {
@@ -464,6 +486,62 @@ func (m *LLMRuntimeManager) RemoveModel(name string) error {
 		}
 	}
 	return nil
+}
+
+// Sync refreshes the runtime state by updating provider configurations and re-normalizing all models.
+func (m *LLMRuntimeManager) Sync() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cloudProviders map[string]models.ProviderRegistryEntry
+	if m.registrySource != nil {
+		cloudProviders = m.registrySource().Providers
+	}
+
+	// 1. Update cloud provider configurations in the registrar
+	for id, p := range cloudProviders {
+		item := models.ProviderItem{
+			Type:    p.Type,
+			BaseURL: p.BaseURL,
+		}
+		m.registrar.RegisterCloud(id, item)
+	}
+
+	// 2. Re-normalize all model configurations
+	modelDir := ""
+	if local, ok := m.registrar.ListConfigs()["local"]; ok {
+		modelDir = local.ModelDir
+	}
+
+	for name, cfg := range m.models {
+		m.models[name] = normalizeModelConfig(modelDir, cfg)
+	}
+
+	logging.Info("LLM Runtime Manager synchronized", "providers", len(cloudProviders), "models", len(m.models))
+}
+
+// ApplyModelOverrides merges per-model agent tuning overrides from settings.yml
+// into the runtime models. Called at startup and when settings change.
+func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.ModelOverride) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, override := range overrides {
+		cfg, ok := m.models[name]
+		if !ok {
+			continue
+		}
+		if override.MaxSteps > 0 {
+			cfg.MaxSteps = override.MaxSteps
+		}
+		if override.ContextBudget > 0 {
+			cfg.ContextBudget = override.ContextBudget
+		}
+		if override.ToolCallFormat != "" {
+			cfg.ToolCallFormat = override.ToolCallFormat
+		}
+		cfg.Prefill = override.Prefill
+		m.models[name] = cfg
+	}
 }
 
 func portReady(port int) bool {

@@ -6,7 +6,10 @@ import (
 
 type contextKey string
 
-const WorkspaceIDKey contextKey = "workspace_id"
+const (
+	WorkspaceIDKey        contextKey = "workspace_id"
+	GuardrailApprovedKey  contextKey = "guardrail_approved"
+)
 
 // GetWorkspaceID retrieves the workspace ID from the context.
 func GetWorkspaceID(ctx context.Context) string {
@@ -22,6 +25,23 @@ func GetWorkspaceID(ctx context.Context) string {
 // WithWorkspaceID injects the workspace ID into the context.
 func WithWorkspaceID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, WorkspaceIDKey, id)
+}
+
+// GetGuardrailApproved returns true if the context carries a guardrail-
+// approval marker, signalling that the caller has already validated the
+// tool call through the user-facing guardrail decision flow.
+func GetGuardrailApproved(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(GuardrailApprovedKey).(bool)
+	return v
+}
+
+// WithGuardrailApproved marks the context so downstream validators know
+// the tool call was already approved by the user.
+func WithGuardrailApproved(ctx context.Context) context.Context {
+	return context.WithValue(ctx, GuardrailApprovedKey, true)
 }
 
 type Config struct {
@@ -73,11 +93,16 @@ type FileSystemGuardrailsConfig struct {
 }
 
 type TerminalGuardrailsConfig struct {
-	Enabled         bool     `json:"enabled" yaml:"enabled"`
-	AllowedCommands []string `json:"allowed_commands" yaml:"allowedcommands"`
-	BlockedPatterns []string `json:"blocked_patterns,omitempty" yaml:"blockedpatterns"`
-	TimeoutSeconds  int      `json:"timeout_seconds" yaml:"timeoutseconds"`
-	MaxOutputSize   int      `json:"max_output_size_chars" yaml:"maxoutputsize"`
+	Enabled                   bool     `json:"enabled" yaml:"enabled"`
+	AllowedCommands           []string `json:"allowed_commands" yaml:"allowedcommands"`
+	AllowedEnvVars            []string `json:"allowed_env_vars,omitempty" yaml:"allowedenvvars"`
+	BlockedPatterns           []string `json:"blocked_patterns,omitempty" yaml:"blockedpatterns"`
+	PathExtensions            []string `json:"path_extensions,omitempty" yaml:"path_extensions"`
+	AllowedExternalPaths      []string `json:"allowed_external_paths,omitempty" yaml:"allowedexternalpaths"`
+	TimeoutSeconds            int      `json:"timeout_seconds" yaml:"timeoutseconds"`
+	SessionIdleTimeoutSeconds int      `json:"session_idle_timeout_seconds" yaml:"sessionidletimeoutseconds"`
+	MaxOutputSize             int      `json:"max_output_size_chars" yaml:"maxoutputsize"`
+	DefaultShell              string   `json:"default_shell,omitempty" yaml:"defaultshell"`
 }
 
 type NetworkGuardrailsConfig struct {
@@ -92,6 +117,10 @@ type NetworkGuardrailsConfig struct {
 
 func (c TerminalGuardrailsConfig) IsActive() bool {
 	return c.Enabled || len(c.AllowedCommands) > 0
+}
+
+func (c TerminalGuardrailsConfig) HasExternalAccess() bool {
+	return len(c.AllowedExternalPaths) > 0
 }
 
 func (c FileSystemGuardrailsConfig) IsActive() bool {
@@ -118,24 +147,102 @@ func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	if other == nil {
 		return
 	}
-	if other.Terminal.IsActive() {
-		c.Terminal = other.Terminal
+
+	// Helper to merge unique strings into a slice while ensuring a new slice is created
+	mergeSlices := func(base []string, overrides []string) []string {
+		res := make([]string, 0, len(base)+len(overrides))
+		seen := make(map[string]bool)
+		for _, s := range base {
+			if !seen[s] {
+				res = append(res, s)
+				seen[s] = true
+			}
+		}
+		for _, s := range overrides {
+			if !seen[s] {
+				res = append(res, s)
+				seen[s] = true
+			}
+		}
+		return res
 	}
-	if other.FileSystem.IsActive() {
-		c.FileSystem = other.FileSystem
+
+	// 1. Global
+	if other.Global.BlockSecrets {
+		c.Global.BlockSecrets = true
 	}
-	if other.Search.IsActive() {
-		c.Search = other.Search
+	c.Global.UserBlocked = mergeSlices(c.Global.UserBlocked, other.Global.UserBlocked)
+
+	// 2. Terminal
+	if other.Terminal.Enabled {
+		c.Terminal.Enabled = true
 	}
-	if other.Communication.IsActive() {
-		c.Communication = other.Communication
+	if other.Terminal.TimeoutSeconds > 0 {
+		c.Terminal.TimeoutSeconds = other.Terminal.TimeoutSeconds
 	}
-	if other.Global.IsActive() {
-		c.Global = other.Global
+	// We allow 0 to override manifest defaults (0 = disabled/infinite)
+	c.Terminal.SessionIdleTimeoutSeconds = other.Terminal.SessionIdleTimeoutSeconds
+	if other.Terminal.MaxOutputSize > 0 {
+		c.Terminal.MaxOutputSize = other.Terminal.MaxOutputSize
 	}
-	if other.Network.IsActive() {
-		c.Network = other.Network
+	c.Terminal.AllowedCommands = mergeSlices(c.Terminal.AllowedCommands, other.Terminal.AllowedCommands)
+	c.Terminal.AllowedEnvVars = mergeSlices(c.Terminal.AllowedEnvVars, other.Terminal.AllowedEnvVars)
+	c.Terminal.BlockedPatterns = mergeSlices(c.Terminal.BlockedPatterns, other.Terminal.BlockedPatterns)
+	c.Terminal.PathExtensions = mergeSlices(c.Terminal.PathExtensions, other.Terminal.PathExtensions)
+	c.Terminal.AllowedExternalPaths = mergeSlices(c.Terminal.AllowedExternalPaths, other.Terminal.AllowedExternalPaths)
+
+	// 3. FileSystem
+	if other.FileSystem.Enabled {
+		c.FileSystem.Enabled = true
 	}
+	if other.FileSystem.ReadOnly {
+		c.FileSystem.ReadOnly = true
+	}
+	if other.FileSystem.MaxFileSizeKB > 0 {
+		c.FileSystem.MaxFileSizeKB = other.FileSystem.MaxFileSizeKB
+	}
+	c.FileSystem.AllowedPaths = mergeSlices(c.FileSystem.AllowedPaths, other.FileSystem.AllowedPaths)
+	c.FileSystem.AllowedExtensions = mergeSlices(c.FileSystem.AllowedExtensions, other.FileSystem.AllowedExtensions)
+	c.FileSystem.BlockedFilenames = mergeSlices(c.FileSystem.BlockedFilenames, other.FileSystem.BlockedFilenames)
+
+	// 4. Search
+	if other.Search.Enabled {
+		c.Search.Enabled = true
+	}
+	if other.Search.MaxQueryLen > 0 {
+		c.Search.MaxQueryLen = other.Search.MaxQueryLen
+	}
+	c.Search.BlockedSites = mergeSlices(c.Search.BlockedSites, other.Search.BlockedSites)
+
+	// 5. Communication
+	if other.Communication.Enabled {
+		c.Communication.Enabled = true
+	}
+	if other.Communication.MaxMessages > 0 {
+		c.Communication.MaxMessages = other.Communication.MaxMessages
+	}
+	if !other.Communication.RequireReview {
+		c.Communication.RequireReview = false
+	}
+
+	// 6. Network
+	if other.Network.Enabled {
+		c.Network.Enabled = true
+	}
+	if other.Network.AllowLanAccess {
+		c.Network.AllowLanAccess = true
+	}
+	if other.Network.AllowInternetAccess {
+		c.Network.AllowInternetAccess = true
+	}
+	if other.Network.MaxFetchSizeKB > 0 {
+		c.Network.MaxFetchSizeKB = other.Network.MaxFetchSizeKB
+	}
+	if other.Network.TimeoutSeconds > 0 {
+		c.Network.TimeoutSeconds = other.Network.TimeoutSeconds
+	}
+	c.Network.BlockedDomains = mergeSlices(c.Network.BlockedDomains, other.Network.BlockedDomains)
+	c.Network.BlockedIPs = mergeSlices(c.Network.BlockedIPs, other.Network.BlockedIPs)
 }
 
 type CommunicationConfig struct {
@@ -158,9 +265,10 @@ type AgentDefinition struct {
 }
 
 type APIKeyItem struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Key  string `json:"key"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Key     string `json:"key"`
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 type ProviderItem struct {
@@ -178,7 +286,7 @@ type MCPServerConfig struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
 	Enabled   bool   `json:"enabled"`
-	TLSCACert string `json:"tls_ca_cert,omitempty"` 
+	TLSCACert string `json:"tls_ca_cert,omitempty"`
 }
 
 type ServerConfig struct {
@@ -202,6 +310,13 @@ type ModelConfig struct {
 	Environment    map[string]string `json:"environment,omitempty"`
 	ProviderConfig *ProviderConfig   `json:"provider_config,omitempty"`
 	Metadata       *ModelMetadata    `json:"metadata,omitempty"`
+
+	// Agent tuning — per-model overrides for agent loop behaviour.
+	// Zero values mean "use the global default."
+	MaxSteps      int    `json:"max_steps,omitempty"`
+	ContextBudget int    `json:"context_budget,omitempty"`
+	ToolCallFormat string `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill       bool   `json:"prefill,omitempty"`           // prefill assistant response with <tool_call> opening tag in automation mode
 }
 
 type ModelMetadata struct {

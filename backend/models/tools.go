@@ -23,6 +23,10 @@ const (
 
 	// Security/Admin
 	ToolApplyGuardrails = "security_guardrails"
+
+	// System
+	ToolSubmitFinalAnswer = "submit_final_answer"
+	ToolSystemError       = "system_error"
 )
 
 // Tool Categories
@@ -33,4 +37,5 @@ const (
 	CategoryFileSystem    = "filesystem"
 	CategoryNetwork       = "network"
 	CategoryGlobal        = "security"
+	CategorySystem        = "system"
 )

@@ -24,8 +24,8 @@ func (s *MetricsService) SetThroughputSource(src ThroughputSource) {
 	s.throughput = src
 }
 
-func (s *MetricsService) SetSandboxSource(src SandboxSource) {
-	s.sandbox = src
+func (s *MetricsService) SetTerminalSource(src TerminalSource) {
+	s.terminal = src
 }
 
 func (s *MetricsService) Snapshot() MetricsSnapshot {
@@ -70,10 +70,10 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 		}
 	}
 
-	if s.sandbox != nil {
-		idle, active := s.sandbox.HealthCheck()
-		resp.IdleSandboxes = idle
-		resp.ActiveSandboxes = active
+	if s.terminal != nil {
+		idle, active := s.terminal.HealthCheck()
+		resp.IdleTerminals = idle
+		resp.ActiveTerminals = active
 	}
 	return resp
 }

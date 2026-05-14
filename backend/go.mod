@@ -1,19 +1,19 @@
 module llm-proxy
 
-go 1.25.2
+go 1.26.2
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/gpustack/gguf-parser-go v0.24.0
 	github.com/joho/godotenv v1.5.1
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/tetratelabs/wazero v1.11.0
+	github.com/shirou/gopsutil/v3 v3.24.5
 	golang.org/x/sync v0.20.0
 )
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/gpustack/gguf-parser-go v0.24.0 // indirect
 	github.com/henvic/httpretty v0.1.4 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
@@ -21,7 +21,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/smallnest/ringbuffer v0.0.0-20241116012123-461381446e3d // indirect
 	github.com/stretchr/testify v1.11.1 // indirect

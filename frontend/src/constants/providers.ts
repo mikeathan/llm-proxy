@@ -15,6 +15,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
   "local",
   "security",
   "guardrails",
+  "catalogue",
   "gemini",
   "openai",
   "openrouter",
@@ -26,8 +27,9 @@ export const SETTINGS_TABS: SettingsTab[] = [
 
 export const PROVIDER_ICONS: Record<SettingsTab, string> = {
   local: "💻",
-  security: "🔒",
+  security: "📟",
   guardrails: "🛡️",
+  catalogue: "🗂️",
   gemini: "✨",
   openai: "🤖",
   openrouter: "🚀",
@@ -39,8 +41,9 @@ export const PROVIDER_ICONS: Record<SettingsTab, string> = {
 
 export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   local: "Local Engine",
-  security: "Sandbox & Security",
+  security: "Host Terminal",
   guardrails: "Agent Guardrails",
+  catalogue: "Model Catalogue",
   gemini: "Google Gemini",
   openai: "OpenAI / Compatible",
   openrouter: "OpenRouter",

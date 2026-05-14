@@ -3,212 +3,228 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/core/assistant/prompts"
 	"regexp"
 	"strings"
 )
 
-// These patterns match the two XML-like tool call formats used by some local
-// models (e.g. qwen2.5-coder) instead of the standard OpenAI tool_calls field.
-//
-// Format 1 – function-name / args-json-object tags:
-//
-//	<function-name>query_device</function-name>
-//	<args-json-object>{"target_name": "Living Room Light"}</args-json-object>
-//
-// Format 2 – tools tag wrapping a JSON object:
-//
-//	<tools>
-//	{"name": "query_device", "arguments": {"target_name": "Living Room Light"}}
-//	</tools>
-var (
-	reToolName  = regexp.MustCompile(`(?s)<function-name>(.*?)</function-name>`)
-	reToolArgs  = regexp.MustCompile(`(?s)<args-json-object>(.*?)</args-json-object>`)
-	reToolsTag  = regexp.MustCompile(`(?s)<tools>(.*?)</tools>`)
-	// Match functions.<name>:<id>{args} (common in vLLM/OpenAI-like local outputs)
-	reNativeFunc = regexp.MustCompile(`(?s)functions\.([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)(\{.*?\})`)
-	// Match markdown JSON blocks containing tool call arrays
-	reMarkdownJSON = regexp.MustCompile("(?s)```(?:json)?\n\\s*(\\[\\s*\\{.*?\\}\\s*\\])\\s*\n```")
-	// Match raw JSON objects (often used by models that ignore formatting instructions)
-	reRawJSON = regexp.MustCompile(`(?s)^\s*(\{.*?\})\s*$`)
-)
-
-// ParseContentToolCalls inspects a message's Content for embedded tool call
-// markup. If found, it returns a synthesised ToolCall slice and true, along
-// with a cleaned version of the content that strips the tool call markup.
-func ParseContentToolCalls(content string) (string, []ToolCall, bool) {
-	// Try format 1: <function-name> / <args-json-object>
-	if calls, ok := parseFunctionNameFormat(content); ok {
-		cleaned := reToolName.ReplaceAllString(content, "")
-		cleaned = reToolArgs.ReplaceAllString(cleaned, "")
-		return cleaned, calls, true
-	}
-	// Try format 2: <tools> wrapping a JSON object
-	if calls, ok := parseToolsTagFormat(content); ok {
-		cleaned := reToolsTag.ReplaceAllString(content, "")
-		return cleaned, calls, true
-	}
-	// Try format 3: functions.<name>:<id>{args}
-	if calls, ok := parseNativeFuncFormat(content); ok {
-		cleaned := reNativeFunc.ReplaceAllString(content, "")
-		return cleaned, calls, true
-	}
-	// Try format 4: Markdown JSON blocks
-	if calls, ok := parseMarkdownJSONFormat(content); ok {
-		cleaned := reMarkdownJSON.ReplaceAllString(content, "")
-		return cleaned, calls, true
-	}
-	// Try format 5: Raw JSON object (as a last resort)
-	if calls, ok := parseRawJSONFormat(content); ok {
-		return "", calls, true
-	}
-
-	return content, nil, false
+// ParseError describes why tool-call extraction failed so the agent can give
+// the model specific, actionable feedback instead of a generic nag.
+type ParseError struct {
+	XMLFound      bool     // true if <tool_call> tags were present
+	JSONAttempted string   // the raw string we tried to parse as JSON (may be truncated)
+	JSONError     string   // error from json.Unmarshal, if any
+	ToolName      string   // tool name extracted, if any (may be invalid)
 }
 
-// parseRawJSONFormat handles a single raw JSON object that might be tool arguments.
-func parseRawJSONFormat(content string) ([]ToolCall, bool) {
-	content = strings.TrimSpace(content)
-	if !strings.HasPrefix(content, "{") || !strings.HasSuffix(content, "}") {
-		return nil, false
+func (e *ParseError) Error() string {
+	if !e.XMLFound {
+		return "no <tool_call> tags found in response"
 	}
-
-	// We don't know the name yet, so we'll have to rely on the model 
-	// having been instructed to return the name inside the JSON or 
-	// this being a very specific edge case.
-	// Actually, some models return {"name": "...", "arguments": {...}}
-	var entry struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
+	if e.JSONError != "" {
+		return fmt.Sprintf("found <tool_call> tags but JSON parse failed: %s", e.JSONError)
 	}
-	if err := json.Unmarshal([]byte(content), &entry); err == nil && entry.Name != "" {
-		return []ToolCall{{
-			ID:   "raw-0",
-			Type: "function",
-			Function: FunctionCall{
-				Name:      entry.Name,
-				Arguments: string(entry.Arguments),
-			},
-		}}, true
+	if e.ToolName != "" {
+		return fmt.Sprintf("tool %q not recognised", e.ToolName)
 	}
-
-	return nil, false
+	return "unknown parse error"
 }
 
-// parseMarkdownJSONFormat handles tool calls embedded in markdown code blocks.
-func parseMarkdownJSONFormat(content string) ([]ToolCall, bool) {
-	match := reMarkdownJSON.FindStringSubmatch(content)
-	if len(match) == 0 {
-		return nil, false
+// Feedback returns a prompt fragment the agent can inject so the model
+// understands exactly what went wrong and how to fix it.
+func (e *ParseError) Feedback(availableTools []string) string {
+	allTools := strings.Join(availableTools, ", ")
+	if !e.XMLFound {
+		return prompts.FeedbackNoXML(allTools)
 	}
-
-	var rawCalls []struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
+	if e.JSONError != "" {
+		hint := prompts.TranslateJSONError(e.JSONError, e.JSONAttempted)
+		return prompts.FeedbackJSONError(hint, allTools)
 	}
-
-	if err := json.Unmarshal([]byte(match[1]), &rawCalls); err != nil {
-		return nil, false
+	if e.ToolName != "" {
+		return prompts.FeedbackBadTool(e.ToolName, allTools)
 	}
-
-	calls := make([]ToolCall, 0, len(rawCalls))
-	for i, rc := range rawCalls {
-		calls = append(calls, ToolCall{
-			ID:   fmt.Sprintf("md-%d", i),
-			Type: "function",
-			Function: FunctionCall{
-				Name:      rc.Name,
-				Arguments: string(rc.Arguments),
-			},
-		})
-	}
-	return calls, true
+	return prompts.FeedbackGenericFormat()
 }
 
-// parseNativeFuncFormat handles the functions.name:id{args} style.
-func parseNativeFuncFormat(content string) ([]ToolCall, bool) {
-	matches := reNativeFunc.FindAllStringSubmatch(content, -1)
+// xmlTagPattern matches the Constitution-mandated <tool_call>…</tool_call> blocks.
+// It tolerates minor variations: self-closing open tag, missing close tag, and
+// mixed-case fragments that some smaller models produce.
+var xmlTagPattern = regexp.MustCompile(`(?is)<tool(?:_call)?>\s*(.*?)\s*</?tool(?:_call)?>?`)
+
+// ParseContentToolCalls extracts tool calls from LLM text output.
+//
+// Only XML-wrapped JSON is accepted — there are no greedy fallbacks that
+// might hallucinate tool calls from conversational text.  When parsing fails
+// the returned ParseError carries enough detail for the agent loop to give
+// the model specific, actionable feedback.
+func ParseContentToolCalls(content string) (cleanedContent string, calls []ToolCall, parseErr *ParseError) {
+	matches := xmlTagPattern.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
-		return nil, false
+		return content, nil, &ParseError{XMLFound: false}
 	}
 
-	calls := make([]ToolCall, 0, len(matches))
-	for _, m := range matches {
-		name := m[1]
-		id := m[2]
-		args := m[3]
-		calls = append(calls, ToolCall{
-			ID:   id,
-			Type: "function",
-			Function: FunctionCall{
-				Name:      name,
-				Arguments: args,
-			},
-		})
-	}
-	return calls, true
-}
+	cleanedContent = content
+	for i, match := range matches {
+		fullMatch := match[0]
+		jsonStr := strings.TrimSpace(match[1])
 
-// parseFunctionNameFormat handles the <function-name>/<args-json-object> style.
-func parseFunctionNameFormat(content string) ([]ToolCall, bool) {
-	nameMatches := reToolName.FindAllStringSubmatch(content, -1)
-	if len(nameMatches) == 0 {
-		return nil, false
-	}
-
-	argsMatches := reToolArgs.FindAllStringSubmatch(content, -1)
-	calls := make([]ToolCall, 0, len(nameMatches))
-	for i, nm := range nameMatches {
-		name := strings.TrimSpace(nm[1])
-		args := "{}"
-		if i < len(argsMatches) {
-			args = strings.TrimSpace(argsMatches[i][1])
-		}
-		calls = append(calls, ToolCall{
-			ID:   fmt.Sprintf("cid-%d", i),
-			Type: "function",
-			Function: FunctionCall{
-				Name:      name,
-				Arguments: args,
-			},
-		})
-	}
-	return calls, true
-}
-
-// parseToolsTagFormat handles the <tools>{...}</tools> style where the body is
-// a JSON object with "name" and "arguments" keys.
-func parseToolsTagFormat(content string) ([]ToolCall, bool) {
-	tagMatches := reToolsTag.FindAllStringSubmatch(content, -1)
-	if len(tagMatches) == 0 {
-		return nil, false
-	}
-
-	type toolEntry struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-
-	calls := make([]ToolCall, 0, len(tagMatches))
-	for i, tm := range tagMatches {
-		body := strings.TrimSpace(tm[1])
-
-		var entry toolEntry
-		if err := json.Unmarshal([]byte(body), &entry); err != nil || entry.Name == "" {
+		call, err := parseSingleToolCall(jsonStr, i)
+		if err != nil {
+			// Use the first failure as the diagnostic — it's the one the model
+			// needs to fix first.
+			if parseErr == nil {
+				parseErr = err
+				parseErr.XMLFound = true
+			}
 			continue
 		}
 
-		calls = append(calls, ToolCall{
-			ID:   fmt.Sprintf("cid-%d", i),
-			Type: "function",
-			Function: FunctionCall{
-				Name:      entry.Name,
-				Arguments: string(entry.Arguments),
-			},
-		})
+		calls = append(calls, call)
+		cleanedContent = strings.Replace(cleanedContent, fullMatch, "", 1)
 	}
 
-	if len(calls) == 0 {
-		return nil, false
+	if len(calls) == 0 && parseErr == nil {
+		parseErr = &ParseError{XMLFound: true, JSONError: "no valid tool call JSON found in any <tool_call> block"}
 	}
-	return calls, true
+
+	if len(calls) > 0 {
+		parseErr = nil // at least one call succeeded
+	}
+
+	return strings.TrimSpace(cleanedContent), calls, parseErr
+}
+
+// sanitizeJSON fixes common JSON mistakes that smaller local models make.
+// These are normalisation steps, not greedy fallbacks — the model clearly
+// intended valid JSON and the semantic content is preserved.
+func sanitizeJSON(raw string) string {
+	s := strings.TrimSpace(raw)
+
+	// Strip markdown code fences that models sometimes wrap JSON in.
+	if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```json")
+		s = strings.TrimPrefix(s, "```")
+		s = strings.TrimSuffix(s, "```")
+		s = strings.TrimSpace(s)
+	}
+
+	// Collapse Python booleans and None.
+	s = strings.ReplaceAll(s, ": True", ": true")
+	s = strings.ReplaceAll(s, ": False", ": false")
+	s = strings.ReplaceAll(s, ": None", ": null")
+	s = strings.ReplaceAll(s, ":True", ":true")
+	s = strings.ReplaceAll(s, ":False", ":false")
+	s = strings.ReplaceAll(s, ":None", ":null")
+
+	// Fix invalid JSON escape sequences that smaller models produce.
+	// \$ and \` are not valid JSON escapes but models use them for
+	// literal dollar signs and backticks inside markdown code blocks.
+	s = strings.ReplaceAll(s, "\\$", "$")
+	s = strings.ReplaceAll(s, "\\`", "`")
+
+	// If the string starts with '{', try to extract the first complete JSON
+	// object.  Smaller models often append commentary after the closing brace.
+	if strings.HasPrefix(s, "{") {
+		depth := 0
+		inString := false
+		escaped := false
+		for i, ch := range s {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' && inString {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if ch == '{' {
+				depth++
+			} else if ch == '}' {
+				depth--
+				if depth == 0 {
+					s = strings.TrimSpace(s[:i+1])
+					break
+				}
+			}
+		}
+	}
+
+	return s
+}
+
+// parseSingleToolCall unmarshals one JSON object from inside <tool_call> tags.
+func parseSingleToolCall(jsonStr string, index int) (ToolCall, *ParseError) {
+	sanitized := sanitizeJSON(jsonStr)
+
+	var call struct {
+		Tool string          `json:"tool"`
+		Args json.RawMessage `json:"args"`
+	}
+
+	if err := json.Unmarshal([]byte(sanitized), &call); err != nil {
+		return ToolCall{}, &ParseError{
+			JSONAttempted: truncateForDiagnostic(jsonStr),
+			JSONError:     err.Error(),
+		}
+	}
+
+	if call.Tool == "" {
+		return ToolCall{}, &ParseError{
+			JSONAttempted: truncateForDiagnostic(jsonStr),
+			JSONError:     `missing required field "tool"`,
+		}
+	}
+
+	args := string(call.Args)
+	if args == "" || args == "null" {
+		args = "{}"
+	}
+
+	return ToolCall{
+		ID:       fmt.Sprintf("tc-%d", index),
+		Type:     "function",
+		Function: FunctionCall{Name: call.Tool, Arguments: args},
+	}, nil
+}
+
+// ValidateToolCall checks that the parsed tool name exists in the registry.
+// It returns a ParseError with the tool name set so the agent can give
+// targeted feedback about which names are valid.
+func ValidateToolCall(call ToolCall, available []Tool) error {
+	name := call.Function.Name
+	for _, t := range available {
+		if t.Function.Name == name {
+			return nil
+		}
+	}
+	return &ParseError{ToolName: name}
+}
+
+// AvailableToolNames returns a deduplicated, sorted slice of tool names.
+func AvailableToolNames(tools []Tool) []string {
+	names := make([]string, 0, len(tools))
+	seen := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		if !seen[t.Function.Name] {
+			names = append(names, t.Function.Name)
+			seen[t.Function.Name] = true
+		}
+	}
+	return names
+}
+
+func truncateForDiagnostic(s string) string {
+	const max = 200
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }

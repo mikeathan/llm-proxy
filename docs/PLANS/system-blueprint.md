@@ -22,6 +22,8 @@ Antigravity is a high-performance LLM proxy and agentic automation platform. It 
 ### 2. Execution Guardrails (GuardrailEngine)
 *   **Global Filters**: Prevents leakage of credentials (API keys) in model responses.
 *   **Terminal Jail**: Whitelists commands and blocks dangerous patterns (e.g., `rm -rf /`).
+*   **Persistent Shell Sessions**: All terminal execution occurs within stateful, long-lived sessions (bash). These sessions maintain `cwd` and environment variables across multiple tool calls to support complex, multi-step automation.
+*   **Automated Lifecycle Management**: Idle terminal sessions are automatically terminated by a background reaper based on a configurable `session_idle_timeout_seconds` to prevent resource leaks.
 *   **FS Jail**: Restricts file I/O to designated workspace paths using absolute path resolution.
 
 ### 3. Resource Management

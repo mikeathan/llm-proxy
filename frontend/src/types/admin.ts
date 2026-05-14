@@ -1,18 +1,23 @@
 // Global configuration types
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'mcp' | 'guardrails' | 'security'
+export type SettingsTab = ProviderType | 'mcp' | 'guardrails' | 'security' | 'catalogue'
 
 export interface APIKeyItem {
   id: string
   name: string
   key: string
+  base_url?: string
 }
 
 export interface TerminalGuardrailsConfig {
   enabled: boolean
   allowed_commands: string[]
+  allowed_env_vars?: string[]
   blocked_patterns?: string[]
+  path_extensions?: string[]
+  allowed_external_paths?: string[]
   timeout_seconds: number
+  session_idle_timeout_seconds: number
   max_output_size_chars: number
 }
 

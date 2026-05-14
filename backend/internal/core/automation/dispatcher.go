@@ -119,9 +119,9 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 	for _, ws := range workspaces {
 		// Cleanup stale execution state from previous runs
-		if ws.State.IsRunning {
+		if ws.State.IsRunning() {
 			d.logger.Warn("Stale execution state detected on startup, resetting", "workspace", ws.ID)
-			ws.State.IsRunning = false
+			ws.State.SetRunning("")
 			if err := d.persistence.WriteState(ws.ID, &ws.State); err != nil {
 				d.logger.Error("Failed to reset stale state", "workspace", ws.ID, "error", err)
 			}
@@ -312,7 +312,27 @@ func (d *Dispatcher) LoadHistory() {
 		allRuns = allRuns[len(allRuns)-MaxHistorySize:]
 	}
 	d.globalHistory = allRuns
-	d.logger.Info("Loaded global history", "count", len(d.globalHistory))
+
+	// Reset and recalculate metrics from history
+	d.metrics.mu.Lock()
+	defer d.metrics.mu.Unlock()
+	d.metrics.TotalExecutions = 0
+	d.metrics.SuccessfulExecutions = 0
+	d.metrics.FailedExecutions = 0
+	d.metrics.SkippedExecutions = 0
+	d.metrics.TotalLatency = 0
+
+	for _, run := range allRuns {
+		d.metrics.TotalExecutions++
+		d.metrics.TotalLatency += time.Duration(run.DurationMs) * time.Millisecond
+		if run.Error == "" {
+			d.metrics.SuccessfulExecutions++
+		} else {
+			d.metrics.FailedExecutions++
+		}
+	}
+
+	d.logger.Info("Loaded global history", "count", len(d.globalHistory), "total_executions", d.metrics.TotalExecutions)
 }
 
 func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {
@@ -350,7 +370,17 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 	jobFunc := func() {
 		// Check ShouldRun to avoid redundant executions
 		state, err := d.persistence.ReadState(entry.Workspace)
-		if err == nil && !entry.Trigger.ShouldRun(state.NextRunAt, time.Now()) {
+		if err != nil {
+			return
+		}
+
+		// Use per-automation last run time if available
+		var lastRun time.Time
+		if last, ok := state.LastRuns[entry.Name]; ok {
+			lastRun = last.Timestamp
+		}
+
+		if !entry.Trigger.ShouldRun(lastRun, time.Now()) {
 			return // Not time to run yet
 		}
 
@@ -401,6 +431,13 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	f, err := d.persistence.TryAcquireLock(entry.Workspace)
+	if err != nil {
+		d.metrics.RecordExecution(false, true, time.Since(start))
+		return fmt.Errorf("automation skipped (workspace locked): %w", err)
+	}
+	defer d.persistence.ReleaseLock(f)
+
 	d.runMu.Lock()
 	d.activeRuns[entry.Workspace] = cancel
 	d.runMu.Unlock()
@@ -409,13 +446,6 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		delete(d.activeRuns, entry.Workspace)
 		d.runMu.Unlock()
 	}()
-
-	f, err := d.persistence.TryAcquireLock(entry.Workspace)
-	if err != nil {
-		d.metrics.RecordExecution(false, true, time.Since(start))
-		return fmt.Errorf("automation skipped (workspace locked): %w", err)
-	}
-	defer d.persistence.ReleaseLock(f)
 
 	state, err := d.persistence.ReadState(entry.Workspace)
 	if err != nil {
@@ -433,7 +463,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		return fmt.Errorf("task file %s is empty", entry.TaskFile)
 	}
 
-	state.IsRunning = true
+	state.SetRunning(entry.Name)
 	if err := d.persistence.WriteState(entry.Workspace, state); err != nil {
 		d.metrics.RecordExecution(false, false, time.Since(start))
 		return fmt.Errorf("failed to write state: %w", err)
@@ -452,7 +482,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 
 	stratCtx, err := entry.Strategy.Prepare(execCtx, entry.Workspace, entry.Name, state)
 	if err != nil {
-		state.IsRunning = false
+		state.SetRunning("")
 		d.persistence.WriteState(entry.Workspace, state)
 		d.metrics.RecordExecution(false, false, time.Since(start))
 		return fmt.Errorf("strategy preparation failed: %w", err)
@@ -472,7 +502,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	elapsed := time.Since(start)
 
 	if err != nil {
-		state.IsRunning = false
+		state.SetRunning("")
 		state.LastError = err.Error()
 		d.persistence.WriteState(entry.Workspace, state)
 		
@@ -502,7 +532,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 			ApplyPulseLogic(resp)
 		}
 
-		state.IsRunning = false
+		state.SetRunning("")
 		if resp.Output != "" {
 			state.LastOutput = resp.Output
 		}

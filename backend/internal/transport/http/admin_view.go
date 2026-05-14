@@ -28,8 +28,9 @@ func (h *AdminHandlers) getProvidersView() map[string]adminProviderView {
 	return out
 }
 
-// getModelsView constructs a view-friendly list of models, handling path resolution
-// for local providers and ensuring consistent identifier mapping.
+// getModelsView constructs a view-friendly list of models. For local models that
+// have no cached metadata yet, it scans the GGUF header (fast — header-only via
+// SkipLargeMetadata+MMap) and persists the result so subsequent page loads are instant.
 func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeName string, activeReady bool) []adminModelView {
 	out := make([]adminModelView, 0, len(modelsList))
 	host := h.runtime.ModelHost()
@@ -48,9 +49,13 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 
 		meta := mc.Metadata
 		if meta == nil && mc.Provider == "local" && fullPath != "" {
-			// Lazy enrich metadata for existing models
+			// Header-only scan: reads ~KB not GB, completes in milliseconds.
 			if m, err := scanner.Scan(ctx, fullPath); err == nil {
 				meta = &m
+				// Persist so next page load skips the scan entirely.
+				updated := mc
+				updated.Metadata = meta
+				_ = h.admin.PersistReplaceModel(updated)
 			}
 		}
 
@@ -65,6 +70,10 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 			Ready:          mc.Name == activeName && activeReady,
 			ProviderConfig: mc.ProviderConfig,
 			Metadata:       meta,
+			Prefill:        mc.Prefill,
+			MaxSteps:       mc.MaxSteps,
+			ContextBudget:  mc.ContextBudget,
+			ToolCallFormat: mc.ToolCallFormat,
 		}
 
 		if mc.Port > 0 {

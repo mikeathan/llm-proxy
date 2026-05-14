@@ -30,6 +30,10 @@ type LocalProvider struct {
 	activeModel *RunningModel
 }
 
+func (p *LocalProvider) ActiveModel() *RunningModel {
+	return p.activeModel
+}
+
 func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir string, host string) *LocalProvider {
 	return &LocalProvider{
 		cfg:         cfg,
@@ -152,7 +156,14 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
-	args := BuildLaunchArgs(p.cfg)
+	
+	// Pre-flight check: ensure the model path is valid before attempting launch
+	if err := ValidateModelPath(p.cfg.Path); err != nil {
+		cancel()
+		return err
+	}
+
+	args := BuildLaunchArgs(p.cfg, p.host)
 	logging.Info("Starting local model (discovery)", 
 		"model", p.cfg.Name, 
 		"binary", p.llamaBinary, 

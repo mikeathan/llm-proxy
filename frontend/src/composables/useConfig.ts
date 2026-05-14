@@ -20,6 +20,7 @@ const DEFAULT_CONFIG: GlobalConfig = {
       enabled: false,
       allowed_commands: [],
       timeout_seconds: 30,
+      session_idle_timeout_seconds: 1800,
       max_output_size_chars: 10000,
     },
     search: { enabled: false, max_query_len: 200, blocked_sites: [] },

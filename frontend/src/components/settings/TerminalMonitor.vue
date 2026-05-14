@@ -10,21 +10,21 @@ let interval: any = null
 
 const fetchSessions = async () => {
   try {
-    sessions.value = await AdminApiService.fetchSandboxSessions()
+    sessions.value = await AdminApiService.fetchTerminalSessions()
   } catch (e: any) {
-    console.error('Failed to fetch sandbox sessions:', e)
+    console.error('Failed to fetch terminal sessions:', e)
   } finally {
     isLoading.value = false
   }
 }
 
-const resetSandbox = async (workspaceID: string) => {
+const resetTerminal = async (workspaceID: string) => {
   try {
-    await AdminApiService.resetSandbox(workspaceID)
-    toast.success(`Sandbox reset triggered for ${workspaceID}`)
+    await AdminApiService.resetTerminalSession(workspaceID)
+    toast.success(`Terminal session reset for ${workspaceID}`)
     fetchSessions()
   } catch (e: any) {
-    toast.error(`Failed to reset sandbox: ${e.message}`)
+    toast.error(`Failed to reset terminal: ${e.message}`)
   }
 }
 
@@ -48,7 +48,7 @@ onUnmounted(() => {
     <div class="monitor-header">
       <div class="flex items-center gap-2">
         <span class="pulse-icon" :class="{ 'active': sessions.length > 0 }"></span>
-        <h3 class="monitor-title">Active WASM Virtual Jails</h3>
+        <h3 class="monitor-title">Active Host Terminals</h3>
       </div>
       <span class="session-count">{{ sessions.length }} active</span>
     </div>
@@ -58,7 +58,7 @@ onUnmounted(() => {
     </div>
 
     <div v-else-if="sessions.length === 0" class="empty-state">
-      No active persistent sessions. Sandboxes are spawned on-demand.
+      No active persistent sessions. Terminals are spawned on-demand.
     </div>
 
     <div v-else class="session-list">
@@ -73,9 +73,9 @@ onUnmounted(() => {
         </div>
         
         <button 
-          @click="resetSandbox(s.workspace_id)"
+          @click="resetTerminal(s.workspace_id)"
           class="reset-btn"
-          title="Force kill and reset environment"
+          title="Force kill and reset session"
         >
           Reset
         </button>

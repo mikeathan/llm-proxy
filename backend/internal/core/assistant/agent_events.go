@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"context"
 	"time"
 
 	"llm-proxy/internal/core/proxy"
@@ -13,9 +14,11 @@ const (
 	EventMessage            AgentEventType = "message"
 	EventToolCall           AgentEventType = "tool_call"
 	EventToolResult         AgentEventType = "tool_result"
-	EventGuardrailViolation AgentEventType = "guardrail_violation"
-	EventError              AgentEventType = "error"
-	EventToolStream         AgentEventType = "tool_stream"
+	EventGuardrailViolation   AgentEventType = "guardrail_violation"
+	EventGuardrailBlocked     AgentEventType = "guardrail_blocked"
+	EventGuardrailInvalidated AgentEventType = "guardrail_invalidated"
+	EventError                AgentEventType = "error"
+	EventToolStream           AgentEventType = "tool_stream"
 )
 
 type AgentEvent struct {
@@ -23,6 +26,35 @@ type AgentEvent struct {
 	Payload   any            `json:"payload"`
 	Timestamp time.Time      `json:"timestamp"`
 }
+
+// GuardrailBlockedPayload is sent with EventGuardrailBlocked when the agent
+// pauses and waits for user approval.
+type GuardrailBlockedPayload struct {
+	DecisionID string `json:"decision_id"`
+	Tool       string `json:"tool"`
+	Args       string `json:"args"`
+	Reason     string `json:"reason"`
+	Category   string `json:"category"` // "terminal", "filesystem", "network", "search", "communication"
+}
+
+// GuardrailDecision is the user's response to a guardrail block.
+type GuardrailDecision struct {
+	Allow   bool `json:"allow"`   // false = cancel this tool call
+	Persist bool `json:"persist"` // update workspace override so future calls pass
+}
+
+// GuardrailInvalidatedPayload is sent when a pending guardrail decision is
+// auto-resolved (context cancelled, e.g. automation stopped).  The frontend
+// uses decision_id to clear the matching approval prompt.
+type GuardrailInvalidatedPayload struct {
+	DecisionID string `json:"decision_id"`
+	Reason     string `json:"reason"` // "context_cancelled"
+}
+
+// GuardrailDecisionCallback is called by the agent when a guardrail blocks a
+// tool call. The agent blocks until the callback returns. The callback should
+// respect ctx cancellation to avoid hanging during shutdown.
+type GuardrailDecisionCallback func(ctx context.Context, payload GuardrailBlockedPayload) (GuardrailDecision, error)
 
 type Observer func(AgentEvent)
 

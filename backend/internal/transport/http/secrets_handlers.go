@@ -47,12 +47,38 @@ func (h *AdminHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *ht
 	respondJSON(w, h.admin.Secrets().MaskedProviderKeys(provider))
 }
 
-// AdminProviderKeyDeleteHandler removes a single key by ID from a provider.
+// AdminProviderKeyDeleteHandler removes a single key by ID from a provider,
+// or all keys for the provider when key_id is empty.
 func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	provider := r.URL.Query().Get("provider")
+	if provider == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing provider")
+		return
+	}
+
 	keyID := r.URL.Query().Get("key_id")
-	if provider == "" || keyID == "" {
-		writeJSONError(w, http.StatusBadRequest, "missing provider or key_id")
+	if keyID == "" {
+		if err := h.admin.Secrets().DeleteAllProviderKeys(provider); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to delete keys: "+err.Error())
+			return
+		}
+
+		// Clean up orphaned model configurations — models that reference
+		// this provider no longer have any credentials to use.
+		if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
+			out := reg.Catalogue[:0]
+			for _, m := range reg.Catalogue {
+				if m.ProviderID != provider {
+					out = append(out, m)
+				}
+			}
+			reg.Catalogue = out
+		}); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to cleanup models: "+err.Error())
+			return
+		}
+
+		respondJSON(w, h.admin.Secrets().MaskedProviderKeys(provider))
 		return
 	}
 

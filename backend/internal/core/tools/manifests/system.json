@@ -1,0 +1,39 @@
+{
+  "tool_name": "system",
+  "description": "System-level tools for task finalization and error reporting.",
+  "version": "1.0",
+  "runtime": {
+    "submit_final_answer": {
+      "description": "Signal that the task is complete. You MUST include ALL requested outputs (e.g. tree visualizations, code snippets, sequence results) in the 'summary' field.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "A comprehensive Markdown summary of what was accomplished, including any relevant findings, file paths created, or outputs."
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      }
+    },
+    "system_error": {
+      "description": "Internal tool used by the system to report malformed tool calls back to the agent.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  },
+  "guardrails": {
+    "enabled": true
+  }
+}

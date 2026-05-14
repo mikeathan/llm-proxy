@@ -18,7 +18,7 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "target": { "type": "string", "description": "Target IP, CIDR, or a comma-separated list of IPs (e.g. '192.168.1.1, 192.168.1.5'). Leave blank for auto-detect." },
+          "target": { "type": "string", "description": "Target IP, CIDR, or a comma-separated list of IPs (e.g. '192.168.1.1, 192.168.1.5'). NATIVELY SUPPORTS BATCHING: If you have multiple IPs to scan, pass them as a comma-separated list in ONE tool call to save turns." },
           "mode": { "type": "string", "enum": ["fast", "deep"], "description": "Scan depth." },
           "ports": { "type": "array", "items": { "type": "integer" }, "description": "Optional port list." }
         }

@@ -26,10 +26,20 @@ type LocalSettings struct {
 	DefaultArgs       []string `yaml:"default_args" json:"default_args"`
 }
 
+// ModelOverride stores per-model agent tuning fields that override
+// the base values from the registry catalogue.
+type ModelOverride struct {
+	MaxSteps      int    `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
+	ContextBudget int    `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
+	ToolCallFormat string `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
+	Prefill       bool   `yaml:"prefill,omitempty" json:"prefill,omitempty"`
+}
+
 // UserSettings represents the user-level settings (Tier 2: settings.yml)
 type UserSettings struct {
-	Local      LocalSettings          `yaml:"local" json:"local"`
-	Guardrails *AgentGuardrailsConfig `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
+	Local          LocalSettings               `yaml:"local" json:"local"`
+	Guardrails     *AgentGuardrailsConfig      `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
+	ModelOverrides map[string]ModelOverride    `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
 }
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.

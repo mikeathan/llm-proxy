@@ -1,9 +1,13 @@
 # Completed Milestones
-- [x] WASM (Wazero) + "Native Capability" Bridges
-- [x] Zero-Trust Sandbox Environment (removed Docker dependency)
+
 - [x] Manifest-Driven Tool Discovery
 
 # Upcoming Tasks
-- [ ] use "github.com/gpustack/gguf-parser-go" to read gguf metadata
+
+- [x] use "github.com/gpustack/gguf-parser-go" to read gguf metadata
+- [] Supporting both raw Docker and NVIDIA OpenShell in a single architecture is a smart "Hybrid
 - [ ] agent router - that selects the right agent for the job
 - [ ] agent memory - long term memory for agents
+
+automation when sleected local provider used running local model if we have one running
+error run doesnt have copy/past in view

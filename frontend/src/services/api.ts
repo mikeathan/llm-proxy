@@ -136,5 +136,17 @@ export const ApiService = {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.error || res.statusText)
     }
+  },
+
+  async submitGuardrailDecision(decisionId: string, allow: boolean, persist: boolean): Promise<void> {
+    const res = await fetch('/admin/api/conversation/guardrail-decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision_id: decisionId, allow, persist })
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || res.statusText)
+    }
   }
 }

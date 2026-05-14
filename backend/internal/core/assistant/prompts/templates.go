@@ -1,46 +1,108 @@
 package prompts
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 )
 
 // FileSystemRules defines the standard path jail instructions.
-const FileSystemRules = `1. FILESYSTEM: All file paths MUST be relative to the application root. To access files in your current workspace, you MUST prefix the path with '{{REL_WS}}/{{WORKSPACE_ID}}/'. Example: to read 'task.md', use '{{REL_WS}}/{{WORKSPACE_ID}}/task.md'.`
+const FileSystemRules = `
+STRICT WORKSPACE RULES:
+1. FILESYSTEM: All file paths MUST be relative to the workspace root. Example: to read 'task.md', use 'task.md'.`
 
-// BuildJailPrompt constructs the strict workspace filesystem jail rules.
-func BuildJailPrompt(relWs, workspaceID string) string {
-	res := "\n\nSTRICT WORKSPACE RULES:\n" + FileSystemRules
-	res = strings.ReplaceAll(res, "{{REL_WS}}", relWs)
-	res = strings.ReplaceAll(res, "{{WORKSPACE_ID}}", workspaceID)
-	return res
+const ToolManualHeader = "# TOOL INTERFACE"
+
+// HasToolManual checks if the tool instructions are already present in the content.
+func HasToolManual(content string) bool {
+	return strings.Contains(content, ToolManualHeader)
 }
 
-// DefaultRules defines the fallback system prompt for workspace agents.
-// It is injected into automations and interactive chats if rules.md is missing.
-const DefaultRules = `SYSTEM: You are an autonomous agent executing a workspace-specific task.
-STRICT RULES:
-` + FileSystemRules + `
-2. OUTPUT FORMAT: Your response must be plain text or Markdown. NEVER return raw JSON arrays like '[{"type": "text", ...}]'. When providing your final markdown summary, do NOT wrap the entire response in markdown code blocks (e.g. using triple backticks). Provide the raw markdown directly so it can be rendered as a document.
-3. COMMUNICATIONS: Do NOT use 'notify_user' or any communication tools. These are disabled for automation.
-4. PERFORMANCE & NETWORK: You MUST use a strictly serial discovery process.
-   - PHASE 1 (Discovery): You MUST call 'get_network_info' as your ONLY action. Do NOT provide any other text or call any other tools in this turn.
-   - PHASE 2 (Scanning): ONLY after you have received the output of 'get_network_info', you may proceed to call 'scan_local_network'. 
-   - CRITICAL: You are strictly FORBIDDEN from guessing IP addresses or subnets (e.g., 192.168.1.1, 172.31.x.x). If you do not have the 'get_network_info' result, you have NO network knowledge.
-5. NO HALLUCINATIONS: Do NOT generate a final report, summary, or "Findings" section until you have actually received and analyzed the tool results in a subsequent turn. 
-   - If you are calling tools, your response should ONLY contain your technical reasoning/thinking and the tool calls themselves.
-   - Do NOT 'predict' what the scan will find. Any report generated before tool results are received is a hallucination and a critical failure.
-6. COMMAND EXECUTION: When executing terminal tools, always rely on reading the standard output directly.
- Do not use output file flags (e.g. -oN), shell pipes (|), or redirections (>) to write to /tmp or outside the authorized workspace, as these will be aggressively blocked by security guardrails.
+// InjectToolManual merges tool instructions into existing content, ensuring they are only added once.
+func InjectToolManual(content string, instructions string) string {
+	if HasToolManual(content) {
+		return content
+	}
+	if content == "" {
+		return instructions
+	}
+	return fmt.Sprintf("%s\n\n%s", content, instructions)
+}
 
-TOOL CALL FORMAT:
-To use a tool, you MUST use the following XML-like structure in your response:
-<function-name>name_of_the_tool</function-name>
-<args-json-object>{"arg1": "value1"}</args-json-object>
+// ToolInfo is a simplified version of a tool's schema for template generation.
+type ToolInfo struct {
+	Name        string
+	Description string
+	Parameters  any
+}
 
-Example:
-<function-name>execute_terminal_command</function-name>
-<args-json-object>{"command": "ls -la {{REL_WS}}/{{WORKSPACE_ID}}/"}</args-json-object>
+// BuildToolManual generates the dynamic technical manual for available tools.
+// It uses the unified JSON array format for consistency.
+func BuildToolManual(tools []ToolInfo) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("### %s\n%s\n", t.Name, t.Description))
+		params, _ := json.MarshalIndent(t.Parameters, "", "  ")
+		sb.WriteString(fmt.Sprintf("Schema:\n```json\n%s\n```\n\n", string(params)))
+	}
+	return fmt.Sprintf(UnifiedToolManual, sb.String())
+}
+
+// UnifiedToolManual defines the ONE canonical tool calling format using XML boundaries.
+const UnifiedToolManual = `## TOOL INTERFACE
+You operate in a strict Reason -> Act -> Observe loop. 
+To execute a tool, you MUST wrap a single valid JSON object inside <tool_call> tags.
+Do not use markdown block formatting (` + "```json" + `) inside the tags.
+
+Format:
+Thought: [Your reasoning here]
+Action:
+<tool_call>
+{
+  "tool": "TOOL_NAME",
+  "args": {
+    "ARG_NAME": "VALUE"
+  }
+}
+</tool_call>
+
+### Rules
+1. **Parallel Tool Execution**: Batch related actions into a single response using multiple <tool_call> tags to improve efficiency.
+2. Use ONLY the tools listed below.
+3. If a tool fails, you will receive the error. Fix it in your next turn.
+4. Finalization: You are not finished until you call 'submit_final_answer'. 
+    - **Thought**: Use this for your internal reasoning (e.g., "I have all data, I will now finalize").
+    - **Action**: Use 'submit_final_answer'. The 'summary' argument MUST be the actual comprehensive report containing all raw data, tables, and findings.
+
+### Available Tools
+%s`
+
+// DefaultRules is the operational protocol injected into the system prompt.
+const DefaultRules = `You are an autonomous agent with access to tools. Your job is to complete the given task by using tools.
+
+RULES:
+1. ReAct Loop: You MUST use the Thought -> Action sequence.
+2. Use tools to act. Do not describe what you would do — do it via the Action block.
+3. NO UI IMITATION: Never output emojis, "Executing...", or technical status markers to simulate tool execution. These are generated by the system. You only output your internal Thought and the formal <tool_call> block.
+4. Verify results. After each action, check the output before proceeding.
+5. Loop Protection: If a tool returns a repetition warning, DO NOT retry. Change your approach or finalize with available data.
+6. Finalization: When finished, call 'submit_final_answer'. 
+    - The 'summary' argument is the FINAL PRODUCT seen by the user. 
+    - It MUST include ALL requested data (e.g., full file contents, execution outputs, du tables).
+7. BEST PRACTICE: Always start by verifying your environment. If you need to run code, use 'execute_terminal_command' to check for required runtimes (e.g., node, tsc, python) in your first turn.
 `
+
+// AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.
+func AssembleSystemPrompt(customRules string) string {
+	prompt := DefaultRules
+	if customRules != "" && strings.TrimSpace(customRules) != strings.TrimSpace(DefaultRules) {
+		prompt += "\n\nWORKSPACE-SPECIFIC RULES:\n" + customRules
+	}
+	return prompt
+}
 
 // DefaultHeartbeat defines a generic placeholder automation task.
 const DefaultHeartbeat = `# Heartbeat Task
@@ -58,28 +120,145 @@ Guidelines:
 3. Stay within the authorized workspace boundaries.`
 
 // LocalAssistantPrompt defines the persona for the LocalToolRegistry.
-const LocalAssistantPrompt = `You are a helpful assistant with access to local system tools and remote MCP services.
-
-STRICT WORKSPACE RULES:
-1. NEVER attempt to read or list hidden directories (starting with '.') or system internal folders (like '.internal'). These are restricted and will cause an immediate guardrail block.
-2. Do not attempt to use tools to 'find better instructions' in the filesystem. Stick to the mission provided in your prompt.
-3. If a tool call is rejected by a guardrail, do not keep repeating it with slight variations. Try a different specialized tool or explain the limitation to the user.`
+const LocalAssistantPrompt = DefaultRules
 
 // DefaultWorkspaceConfig defines a clean, empty configuration for new workspaces.
 const DefaultWorkspaceConfig = `model: ""
 temperature: 0.7
 automations: []`
 
-// AutomationTaskPrompt defines the standard instruction wrapper for automation runs.
-const AutomationTaskPrompt = `%s
+const AutomationMarker = "TASK: You are an autonomous agent"
 
-TASK: You are an autonomous agent in workspace '%s'. 
-Execute the instructions found in '%s/%s/%s':
+func IsAutomationTask(content string) bool {
+	return strings.Contains(content, AutomationMarker)
+}
+
+// Replace the Sieve system message in agent.go (inside the totalChars > 15000 block):
+const SieveSystemNote = "[System Note: History distilled to save context. DO NOT repeat your reasoning; focus ONLY on the immediate next Action. Continue your task.]"
+
+// automationNagFormatExample is the shared format template used by nag prompts.
+// It uses angle-bracket placeholders so the model doesn't copy the example literally.
+const automationNagFormatExample = "" +
+	"FORMAT REFERENCE (use the actual tools listed in the TOOL INTERFACE section of the system prompt):\n" +
+	"<tool_call>\n" +
+	"{\"tool\": \"<TOOL_NAME>\", \"args\": {\"<ARG>\": \"<VALUE>\"}}\n" +
+	"</tool_call>"
+
+// AutomationPrefline is injected as a synthetic assistant message to force
+// the model to complete a tool call. The model receives this as the last
+// assistant message and continues generating from the cursor position.
+// It never needs to decide "should I think or act?" — it must produce a
+// valid tool name and arguments.
+const AutomationPrefline = "<tool_call>\n{\"tool\":\""
+
+// AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
+const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You already ran this exact command and it succeeded. Do the NEXT step.\n\n" +
+	"Respond with ONLY a tool call. Nothing else.\n\n" +
+	automationNagFormatExample
+
+// AutomationNagPrompt is sent when a model outputs text without any tool calls.
+const AutomationNagPrompt = "SYSTEM ERROR: You are writing text instead of using tools.\n\n" +
+	"Respond with ONLY a tool call inside <tool_call> tags. Nothing else.\n\n" +
+	automationNagFormatExample
+
+// AutomationRejectedSubmissionPrompt is sent when a model tries to call submit_final_answer along with other tools.
+const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cannot be called in the same turn as other tools. " +
+	"Complete the task. You are not finished until you successfully call the 'submit_final_answer' tool. " +
+	"YOU MUST INCLUDE ALL REQUESTED OUTPUTS (Visualizations, Data, Results) IN THE SUMMARY. " +
+	"FAILURE TO PROVIDE THESE IN THE FINAL SUMMARY IS A TASK FAILURE. " +
+	"IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs)."
+
+// It asks the model to output its intended actions as a JSON array so the backend
+// can execute the plan directly without relying on XML parsing.
+const AutomationJSONPlanPrompt = `XML tool calling failed. Switch to JSON PLAN MODE.
+Now output your full plan as a JSON array so the system can execute it.
+
+Output ONLY a JSON array. No text before or after. Each element must have "tool" and "args" fields.
+
+  {"tool": "execute_terminal_command", "args": {"command": "mkdir -p project/src"}},
+  {"tool": "write_file", "args": {"path": "project/src/main.ts", "content": "console.log('hello')"}},
+  {"tool": "execute_terminal_command", "args": {"command": "node project/src/main.js"}},
+  {"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
+]`
+
+// AutomationTaskPrompt is the user-facing task message for autonomous agents.
+// ContextSieveWarning is injected after the physical sieve prunes intermediate history.
+const ContextSieveWarning = "SYSTEM: CRITICAL - Context window full. History pruned. Continue your task and finalize when ready."
+
+// ParseErrorEscalationPrefix wraps feedback text when the model has made the same
+// parse error 3+ times consecutively.
+const ParseErrorEscalationPrefix = "THIRD ATTEMPT — same error. Read this carefully:\n\n%s\n\n" +
+	"Reply with ONLY a tool call and nothing else.\n\n" +
+	automationNagFormatExample
+
+// ── Parse-error feedback strings ──────────────────────────────────────────
+
+// FeedbackNoXML tells the model to produce a tool call (no <tool_call> tags found).
+func FeedbackNoXML(allTools string) string {
+	return fmt.Sprintf(
+		"STOP writing text. Produce a tool call NOW.\n\n"+
+			automationNagFormatExample+"\n\n"+
+			"Available tools: %s",
+		allTools,
+	)
+}
+
+// FeedbackJSONError returns a prompt explaining JSON inside <tool_call> is invalid.
+func FeedbackJSONError(hint string, allTools string) string {
+	return fmt.Sprintf(
+		"FORMAT ERROR: The JSON inside your <tool_call> tags is invalid.\n"+
+			"%s\n"+
+			"Valid tools: %s",
+		hint, allTools,
+	)
+}
+
+// FeedbackBadTool tells the model its chosen tool name is not in the registry.
+func FeedbackBadTool(toolName string, allTools string) string {
+	return fmt.Sprintf(
+		"TOOL ERROR: Unknown tool %q. Available tools: %s",
+		toolName, allTools,
+	)
+}
+
+// FeedbackGenericFormat is the fallback for unclassifiable parse errors.
+func FeedbackGenericFormat() string {
+	return "FORMAT ERROR: Could not extract a valid tool call from your response."
+}
+
+// TranslateJSONError converts Go json.Unmarshal error strings into plain-language
+// hints that a model can act on.
+func TranslateJSONError(rawError, attempted string) string {
+	low := strings.ToLower(rawError)
+
+	if strings.Contains(low, "literal true") || strings.Contains(low, "literal false") ||
+		strings.Contains(low, "literal null") {
+		return "You used Python-style True/False/None. JSON requires lowercase: true, false, null."
+	}
+
+	if strings.Contains(low, "looking for beginning of value") {
+		return "You have extra text after the closing } of your JSON object. Remove everything after the final }."
+	}
+
+	if strings.Contains(low, "unexpected end of json") {
+		return "Your JSON is incomplete — likely a missing closing } or ]."
+	}
+
+	if strings.Contains(low, "invalid character") {
+		return fmt.Sprintf(
+			"Your JSON has a syntax error: %s. Check for: missing commas between fields, "+
+				"missing colons after keys, unquoted strings, or trailing commas.",
+			rawError,
+		)
+	}
+
+	return fmt.Sprintf("JSON parse error: %s. Use double-quotes for keys and string values, no trailing commas.", rawError)
+}
+
+const AutomationTaskPrompt = AutomationMarker + ` in workspace '%s'.
+Execute the instructions found in '%s':
 ---
 %s
 ---
 
-Follow the execution steps exactly. Use your tools to perform the task. 
-SYSTEMATIC DISCOVERY: Do NOT assume any network configurations or IP addresses. Use your tools to discover the environment first.
-
-Once finished, provide a concise markdown summary of your findings. DO NOT return empty responses.`
+Use your tools to complete every step. Call submit_final_answer when done.`

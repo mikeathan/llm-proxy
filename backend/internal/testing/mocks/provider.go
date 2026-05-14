@@ -98,6 +98,10 @@ func (m *MockNodeHerder) CallTool(ctx context.Context, name string, args map[str
 	return m.callResult, nil
 }
 
+func (m *MockNodeHerder) UseNativeTools() bool {
+	return true
+}
+
 // Mock LLMClientProvider
 type MockLLMClientProvider struct {
 	Client       proxy.Client

@@ -39,9 +39,9 @@ func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 	os.MkdirAll(filepath.Join(wsPath, ".internal"), 0755)
 
 	staleState := &models.AgentState{
-		IsRunning:  true,
 		LastOutput: "previous run output",
 	}
+	staleState.SetRunning("some-automation")
 	if err := manager.WriteState(wsID, staleState); err != nil {
 		t.Fatalf("failed to write stale state: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 	deadline := 10
 	for i := 0; i < deadline; i++ {
 		state, err := manager.ReadState(wsID)
-		if err == nil && !state.IsRunning {
+		if err == nil && !state.IsRunning() {
 			// Success! State was cleaned up.
 			return
 		}
