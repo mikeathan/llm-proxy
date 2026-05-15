@@ -17,9 +17,12 @@ Additionally, several concrete bugs were discovered during investigation:
 - **Fixed**: Per-key `base_url` was shadowed by provider default `BaseURL` (`registrar.go` Build step order)
 - **Fixed**: Clearing all API keys leaves orphaned model configs in the registry
 - **Fixed**: Deleting a single API key also orphans models referencing that key
+- **Fixed**: Saving (PUT) all keys for a provider now also cascades to remove models whose CredentialID no longer matches any remaining key name
 - **Fixed**: Two redundant model management UIs (`ModelManager` on Dashboard + `ModelCatalogue` in Settings)
 - **Fixed**: No proactive notification when secrets change (no `OnChange` subscriber for secrets store)
 - **Fixed**: `SecretStore.mu` field declared but never used
+- **Fixed**: Auto-discovery watcher triggered on every key change — replaced with manual per-key "Discover Models" button
+- **Fixed**: Key-grouped model UI with per-key "Scan Endpoint for Models" for explicit control over discovery
 
 ---
 

@@ -49,6 +49,22 @@ const DEFAULT_CONFIG: GlobalConfig = {
       chat_id: '',
     },
   },
+  agent_defaults: {
+    max_steps: 25,
+    context_budget: 8000,
+    max_tokens: 3072,
+    tool_call_format: '',
+    prefill: false,
+  },
+  provider_defaults: {
+    local: { max_steps: 25, context_budget: 8000, max_tokens: 2048, tool_call_format: '', prefill: false },
+    gemini: { max_steps: 35, context_budget: 50000, max_tokens: 4096, tool_call_format: 'native', prefill: false },
+    vertex: { max_steps: 35, context_budget: 50000, max_tokens: 4096, tool_call_format: 'native', prefill: false },
+    openai: { max_steps: 35, context_budget: 50000, max_tokens: 4096, tool_call_format: 'native', prefill: false },
+    openrouter: { max_steps: 30, context_budget: 30000, max_tokens: 2048, tool_call_format: 'native', prefill: false },
+    mulerouter: { max_steps: 30, context_budget: 30000, max_tokens: 2048, tool_call_format: 'native', prefill: false },
+    nvidia: { max_steps: 30, context_budget: 20000, max_tokens: 2048, tool_call_format: 'native', prefill: false },
+  },
 }
 
 // Global state to share across components

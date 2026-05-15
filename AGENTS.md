@@ -33,12 +33,12 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 - `models/infrastructure.go` — SystemConfig, UserSettings, ModelOverride
 - `models/registry.go` — RegistryData, ModelRegistryEntry
 - `models/llm.go` — Provider interface, error sentinels
-- `models/llm_messages.go` — Message, ToolCall, ChatRequest
+- `models/llm_messages.go` — Message, ToolCall, ChatRequest (includes `MaxTokens`)
 - `models/tools.go` — Tool name constants
 - `models/workspace.go` — Workspace, AutomationRun, AgentState
 
 ### Core Systems
-- `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts
+- `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
 - `internal/core/automation/` — Scheduled task dispatch and execution
@@ -108,6 +108,7 @@ When a tool call is blocked:
 - Dev server at `localhost:5173` proxies `/admin/api` to `:4001` — start backend first
 - Build output goes to `../backend/internal/transport/http/frontend_dist/` (Go embed)
 - `npm run build` runs `vue-tsc -b` (type-check) then `vite build` — TS errors fail the build
+- Model form defaults and derived names live in `src/utils/modelUtils.ts` — reusable across components
 
 ## Common Pitfalls
 
@@ -115,7 +116,7 @@ When a tool call is blocked:
 
 2. **Hardcoding prompt strings in logic files** — All prompts live in `templates.go`. Check there first before writing new ones.
 
-3. **Saving model overrides to registry.json** — Agent tuning fields (`max_steps`, `context_budget`, `tool_call_format`, `prefill`) go to `settings.yml`, NOT `registry.json`. See Constitution III.5.
+3. **Saving model overrides to registry.json** — Agent tuning fields (`max_steps`, `context_budget`, `max_tokens`, `tool_call_format`, `prefill`) go to `settings.yml`, NOT `registry.json`. See Constitution III.5.
 
 4. **Modifying history in the normalizer** — `NormalizeHistory()` does role conversion and metadata stripping only. Nag injection and feedback belong in the agent loop (`agent.go`). See Constitution II.8.
 

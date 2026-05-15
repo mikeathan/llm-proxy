@@ -30,6 +30,7 @@ type Message struct {
 type ChatRequest struct {
 	Model      string     `json:"model"`
 	Messages   []Message  `json:"messages"`
+	MaxTokens  int        `json:"max_tokens,omitempty"`
 	Tools      []Tool     `json:"tools,omitempty"`
 	ToolChoice ToolChoice `json:"tool_choice,omitempty"`
 	Stream     bool       `json:"stream,omitempty"`

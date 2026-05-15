@@ -62,7 +62,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 		return e.validateSearch(call, cfg.Search)
 	case models.ToolNotifyUser:
 		return e.validateCommunication(call, cfg.Communication)
-	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite:
+	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
 	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
 		return e.validateNetwork(call, cfg.Network)
@@ -160,7 +160,7 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 		cfg.AllowedPaths = append([]string{wsPath}, cfg.AllowedPaths...)
 	}
 
-	isWrite := call.Function.Name == models.ToolFileWrite
+	isWrite := call.Function.Name == models.ToolFileWrite || call.Function.Name == models.ToolFileAppend
 	_, err := tools.ValidateFileSystemPath(args.Path, isWrite, cfg)
 	return err
 }

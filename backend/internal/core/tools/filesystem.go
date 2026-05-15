@@ -86,14 +86,20 @@ func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuar
 
 	// 4. Check Allowed Extensions (for both existing and new files)
 	if len(cfg.AllowedExtensions) > 0 {
-		// We check extensions for files only. 
-		// If it's an existing directory, we skip extension check.
 		fi, err := os.Stat(absPath)
 		if err == nil && fi.IsDir() {
 			return absPath, nil
 		}
 
 		ext := filepath.Ext(absPath)
+		// Skip extension check for extensionless paths in read mode.
+		// Directory paths, new directories, and paths whose stat failed
+		// may have no extension — blocking them would prevent the agent
+		// from working with directories that don't exist on disk yet.
+		if !isWrite && ext == "" {
+			return absPath, nil
+		}
+
 		allowed := false
 		for _, a := range cfg.AllowedExtensions {
 			if strings.EqualFold(a, ext) {
@@ -186,5 +192,32 @@ func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content st
 		return err
 	}
 	return os.WriteFile(absPath, []byte(content), secureFileMode)
+}
+
+func (f *FileSystemTools) AppendFile(ctx context.Context, path string, content string) error {
+	absPath, err := f.ValidatePath(ctx, path, true)
+	if err != nil {
+		return err
+	}
+
+	cfg := f.configProvider(ctx)
+
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("file does not exist: use write_file first, then append_file to add more content")
+	}
+
+	totalSize := fi.Size() + int64(len(content))
+	if cfg.MaxFileSizeKB > 0 && (totalSize/1024) > int64(cfg.MaxFileSizeKB) {
+		return fmt.Errorf("file size would exceed quota (max %d KB)", cfg.MaxFileSizeKB)
+	}
+
+	fh, err := os.OpenFile(absPath, os.O_APPEND|os.O_WRONLY, secureFileMode)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+	_, err = fh.WriteString(content)
+	return err
 }
 

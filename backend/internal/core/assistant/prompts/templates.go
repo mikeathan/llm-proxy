@@ -168,6 +168,16 @@ const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cann
 	"FAILURE TO PROVIDE THESE IN THE FINAL SUMMARY IS A TASK FAILURE. " +
 	"IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs)."
 
+// AutomationContentTooLongPrompt is sent when a write_file call fails because the
+// content argument was too large, causing JSON truncation.
+const AutomationContentTooLongPrompt = "TOO LONG: The content you tried to write exceeded the response limit.\n\n" +
+	"Use write_file for the first chunk of content, then append_file to add more to the SAME file:\n" +
+	"  1. write_file(report.md, \"...first 800 chars...\")\n" +
+	"  2. append_file(report.md, \"...next content...\")\n" +
+	"  3. append_file(report.md, \"...final section...\")\n" +
+	"All chunks go into ONE file.\n\n" +
+	"Respond with ONLY a tool call. Nothing else."
+
 // It asks the model to output its intended actions as a JSON array so the backend
 // can execute the plan directly without relying on XML parsing.
 const AutomationJSONPlanPrompt = `XML tool calling failed. Switch to JSON PLAN MODE.

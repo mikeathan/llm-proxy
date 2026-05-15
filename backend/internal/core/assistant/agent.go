@@ -19,7 +19,12 @@ const (
 	// DefaultMaxSteps is the fallback when no per-model value is set.
 	DefaultMaxSteps = 25
 	// DefaultContextBudget is the character count that triggers the physical sieve.
-	DefaultContextBudget = 15000
+	// For an 8K-token model (~16K chars at 2:1 char:token ratio), 8000 chars keeps
+	// the input under ~4000 tokens and leaves room for a 2048-token response.
+	DefaultContextBudget = 8000
+	// DefaultMaxTokens limits the LLM response length to prevent context overflow
+	// and truncation of tool call arguments (e.g. write_file with huge content).
+	DefaultMaxTokens = 3072
 	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
 	AgentGlobalTimeout = 30 * time.Minute
 	// AgentTurnTimeout is the maximum time allowed for a single LLM turn.
@@ -37,6 +42,7 @@ type Agent struct {
 	logger         logging.Logger
 	maxSteps       int
 	contextBudget  int
+	maxTokens      int
 	useNativeTools bool
 	observer       Observer
 	workspaceID    string
@@ -44,8 +50,9 @@ type Agent struct {
 }
 
 type AgentOptions struct {
-	MaxSteps                 int
-	ContextBudget            int // 0 = use DefaultContextBudget
+	MaxSteps                 int    // 0 = use DefaultMaxSteps
+	ContextBudget            int    // 0 = use DefaultContextBudget
+	MaxResponseTokens        int    // 0 = use DefaultMaxTokens
 	Logger                   logging.Logger
 	Guardrails               *guardrails.GuardrailEngine
 	Observer                 Observer
@@ -62,6 +69,9 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	}
 	if opts.ContextBudget <= 0 {
 		opts.ContextBudget = DefaultContextBudget
+	}
+	if opts.MaxResponseTokens <= 0 {
+		opts.MaxResponseTokens = DefaultMaxTokens
 	}
 	if opts.Logger == nil {
 		opts.Logger = logging.NewNopLogger()
@@ -86,6 +96,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		logger:         opts.Logger,
 		maxSteps:       opts.MaxSteps,
 		contextBudget:  opts.ContextBudget,
+		maxTokens:      opts.MaxResponseTokens,
 		useNativeTools: useNative,
 		observer:       opts.Observer,
 		workspaceID:    opts.WorkspaceID,
@@ -198,6 +209,12 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				if parseErr != nil {
 					parseErr.XMLFound = true
 					turnMsg.ToolCalls = nil // clear invalid calls
+					// If the response is huge and the JSON was truncated
+					// (typical of write_file with a full report as content),
+					// strip it so we don't bloat the retry context.
+					if len(turnMsg.Content) > 400 && isTruncationError(parseErr.JSONError) {
+						turnMsg.Content = "[Large response truncated — see next message for guidance.]"
+					}
 					return nil
 				}
 
@@ -238,6 +255,19 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 							recentCalls = recentCalls[1:]
 						}
 						recentCalls = append(recentCalls, key)
+					}
+				}
+
+				if len(turnMsg.Content) > 1000 {
+					hasWrite := false
+					for _, tc := range turnMsg.ToolCalls {
+						if tc.Function.Name == models.ToolFileWrite {
+							hasWrite = true
+							break
+						}
+					}
+					if hasWrite {
+						turnMsg.Content = "[Response trimmed — write_file content too long. See tool result feedback.]"
 					}
 				}
 
@@ -362,6 +392,11 @@ func parseErrorKind(e *proxy.ParseError) string {
 	return ""
 }
 
+func isTruncationError(errStr string) bool {
+	low := strings.ToLower(errStr)
+	return strings.Contains(low, "unexpected end") || strings.Contains(low, "missing closing")
+}
+
 func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
 	if msg.Content == "" {
 		return nil
@@ -443,8 +478,9 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	req := proxy.ChatRequest{
-		Messages: prepared,
-		Tools:    llmTools,
+		Messages:  prepared,
+		Tools:     llmTools,
+		MaxTokens: a.maxTokens,
 	}
 
 	ch, err := a.client.Stream(ctx, req)
@@ -459,9 +495,10 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 			llmTools = tools
 			prepared = a.prepareMessages(history)
 			req = proxy.ChatRequest{
-				Messages:  prepared,
-				Tools:     llmTools,
+				Messages:   prepared,
+				Tools:      llmTools,
 				ToolChoice: proxy.ToolChoiceRequired,
+				MaxTokens:  a.maxTokens,
 			}
 			ch, err = a.client.Stream(ctx, req)
 		}
@@ -579,8 +616,9 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	}
 
 	req := proxy.ChatRequest{
-		Messages: preparedHistory,
-		Tools:    llmTools,
+		Messages:  preparedHistory,
+		Tools:     llmTools,
+		MaxTokens: a.maxTokens,
 	}
 
 	if rawReq, err := json.Marshal(req); err == nil {
@@ -597,6 +635,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			Messages:   a.prepareMessages(history),
 			Tools:      llmTools,
 			ToolChoice: proxy.ToolChoiceRequired,
+			MaxTokens:  a.maxTokens,
 		}
 		resp, err = a.client.Chat(chatCtx, req)
 	}
@@ -605,7 +644,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		a.notifyFallbackWarning(err)
 		chatCtx2, cancel2 := context.WithTimeout(ctx, AgentRetryTimeout)
 		defer cancel2()
-		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{Messages: history})
+		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{Messages: history, MaxTokens: a.maxTokens})
 	}
 
 	if err != nil {
@@ -673,8 +712,12 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		toolsList, _ := a.provider.ListTools(ctx)
 		if err := validateToolArgs(tc, toolsList); err != nil {
 			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
+			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
+			if tc.Function.Name == models.ToolFileWrite && isTruncationError(err.Error()) {
+				errMsg = prompts.AutomationContentTooLongPrompt
+			}
 			mu.Lock()
-			a.appendToolResult(history, tc, map[string]string{"error": fmt.Sprintf("INVALID ARGUMENTS: %v", err)})
+			a.appendToolResult(history, tc, map[string]string{"error": errMsg})
 			mu.Unlock()
 			return nil
 		}

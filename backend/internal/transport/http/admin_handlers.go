@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"mime"
@@ -126,22 +127,34 @@ type adminStateResponse struct {
 	Config    adminConfigView       `json:"config"`
 }
 
+// adminTuningDefaults exposes the agent loop's runtime defaults to the frontend
+// so the UI can prefill model forms with values that match actual runtime behaviour.
+type adminTuningDefaults struct {
+	MaxSteps       int    `json:"max_steps"`
+	ContextBudget  int    `json:"context_budget"`
+	MaxTokens      int    `json:"max_tokens"`
+	ToolCallFormat string `json:"tool_call_format"`
+	Prefill        bool   `json:"prefill"`
+}
+
 type adminConfigView struct {
-	WorkspacesDir       string                       `json:"workspaces_dir"`
-	ModelHost           string                       `json:"model_host"`
-	IdleTimeoutSecs     int                          `json:"idle_timeout_seconds"`
-	GPUProvider         string                       `json:"gpu_provider"`
-	GPUBinary           string                       `json:"gpu_binary"`
-	GPUIndex            int                          `json:"gpu_index"`
-	DefaultArgs         []string                     `json:"default_args"`
-	ServiceClientID     string                       `json:"service_client_id,omitempty"`
-	ServiceClientSecret string                       `json:"service_client_secret,omitempty"`
-	PrimaryModel        string                       `json:"primary_model"`
-	FallbackModel       string                       `json:"fallback_model"`
-	Providers           map[string]adminProviderView `json:"providers"`
-	Guardrails          models.AgentGuardrailsConfig `json:"guardrails"`
-	Communication       models.CommunicationConfig   `json:"communication"`
-	Search              models.SearchConfig          `json:"search"`
+	WorkspacesDir       string                          `json:"workspaces_dir"`
+	ModelHost           string                          `json:"model_host"`
+	IdleTimeoutSecs     int                             `json:"idle_timeout_seconds"`
+	GPUProvider         string                          `json:"gpu_provider"`
+	GPUBinary           string                          `json:"gpu_binary"`
+	GPUIndex            int                             `json:"gpu_index"`
+	DefaultArgs         []string                        `json:"default_args"`
+	ServiceClientID     string                          `json:"service_client_id,omitempty"`
+	ServiceClientSecret string                          `json:"service_client_secret,omitempty"`
+	PrimaryModel        string                          `json:"primary_model"`
+	FallbackModel       string                          `json:"fallback_model"`
+	Providers           map[string]adminProviderView    `json:"providers"`
+	Guardrails          models.AgentGuardrailsConfig    `json:"guardrails"`
+	Communication       models.CommunicationConfig      `json:"communication"`
+	Search              models.SearchConfig             `json:"search"`
+	AgentDefaults       adminTuningDefaults             `json:"agent_defaults"`
+	ProviderDefaults    map[string]adminTuningDefaults  `json:"provider_defaults"`
 }
 
 type adminSystemView struct {
@@ -271,6 +284,14 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Guardrails:          h.admin.GetGuardrails(),
 			Communication:       reg.Communication,
 			Search:              reg.Search,
+			AgentDefaults: adminTuningDefaults{
+				MaxSteps:       assistant.DefaultMaxSteps,
+				ContextBudget:  assistant.DefaultContextBudget,
+				MaxTokens:      assistant.DefaultMaxTokens,
+				ToolCallFormat: "",
+				Prefill:        false,
+			},
+			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
 		},
 	}
 
@@ -318,4 +339,18 @@ func parseLogLevel(input string) (logging.Level, error) {
 	default:
 		return "", fmt.Errorf("invalid log level: %s", input)
 	}
+}
+
+func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[string]adminTuningDefaults {
+	out := make(map[string]adminTuningDefaults, len(in))
+	for k, v := range in {
+		out[k] = adminTuningDefaults{
+			MaxSteps:       v.MaxSteps,
+			ContextBudget:  v.ContextBudget,
+			MaxTokens:      v.MaxTokens,
+			ToolCallFormat: v.ToolCallFormat,
+			Prefill:        v.Prefill,
+		}
+	}
+	return out
 }

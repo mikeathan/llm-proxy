@@ -310,6 +310,13 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 	}) (any, error) {
 		return "File written successfully", r.FileSystem.WriteFile(ctx, args.Path, args.Content)
 	})
+
+	registerTool(r, "filesystem", models.ToolFileAppend, func(ctx context.Context, args struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}) (any, error) {
+		return "Content appended successfully", r.FileSystem.AppendFile(ctx, args.Path, args.Content)
+	})
 }
 
 func (r *LocalToolRegistry) registerNetworkTools() {

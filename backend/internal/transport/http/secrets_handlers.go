@@ -23,6 +23,8 @@ func (h *AdminHandlers) AdminProviderKeysHandler(w http.ResponseWriter, r *http.
 // Any key that carries a masked value is automatically hydrated from the store
 // (the store handles this internally in SetProviderKeys), so round-tripping
 // through the masked UI never discards a real key.
+// After saving, models whose CredentialID no longer matches any remaining key
+// are removed to prevent dead config.
 func (h *AdminHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *http.Request) {
 	provider := r.URL.Query().Get("provider")
 	if provider == "" {
@@ -40,6 +42,33 @@ func (h *AdminHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *ht
 
 	if err := h.admin.Secrets().SetProviderKeys(provider, keys); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save keys: "+err.Error())
+		return
+	}
+
+	// Cascade: remove models whose CredentialID references a key that no longer exists
+	remainingKeyNames := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		remainingKeyNames[k.Name] = true
+	}
+	if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
+		out := reg.Catalogue[:0]
+		for _, m := range reg.Catalogue {
+			if m.ProviderID != provider {
+				out = append(out, m)
+				continue
+			}
+			if m.CredentialID != "" && remainingKeyNames[m.CredentialID] {
+				out = append(out, m)
+				continue
+			}
+			if m.CredentialID == "" && len(keys) > 0 {
+				out = append(out, m)
+				continue
+			}
+		}
+		reg.Catalogue = out
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to cleanup orphaned models: "+err.Error())
 		return
 	}
 

@@ -79,6 +79,14 @@ export interface ProviderItem {
 }
 
 // Global configuration types
+export interface AgentDefaults {
+  max_steps: number
+  context_budget: number
+  max_tokens: number
+  tool_call_format: string
+  prefill: boolean
+}
+
 export interface GlobalConfig {
   providers: Record<string, ProviderItem>
   agents?: AgentDefinition[]
@@ -99,6 +107,8 @@ export interface GlobalConfig {
       chat_id: string
     }
   }
+  agent_defaults: AgentDefaults
+  provider_defaults?: Record<string, AgentDefaults>
 }
 
 export interface AgentDefinition {

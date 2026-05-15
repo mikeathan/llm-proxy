@@ -7,6 +7,22 @@ import BaseButton from "../common/BaseButton.vue";
 import { PROVIDER_STYLES } from "../../constants/providers";
 import type { APIKeyItem, ProviderType } from "../../types/admin";
 import type { Model, AvailableModel } from "../../types/model";
+import {
+  getDefaultModelSettings,
+  deriveModelName,
+  createEmptyModelForm,
+} from "../../utils/modelUtils";
+import type { ModelForm } from "../../utils/modelUtils";
+
+const {
+  state,
+  addModel,
+  updateModel,
+  removeModel,
+  removeAllModels,
+  fetchProviderModels,
+} = useModels();
+const { confirm } = useConfirm();
 
 const props = defineProps<{
   provider: ProviderType;
@@ -19,23 +35,24 @@ const emit = defineEmits<{
   (e: "refresh"): void;
 }>();
 
-const { addModel, updateModel, removeModel, removeAllModels, fetchProviderModels } = useModels();
-const { confirm } = useConfirm();
+const agentDefaults = computed(() => {
+  const pd = state.value?.config?.provider_defaults?.[props.provider];
+  if (pd) return pd;
+  return state.value?.config?.agent_defaults ?? {
+    max_steps: 25,
+    context_budget: 8000,
+    max_tokens: 3072,
+    tool_call_format: '',
+    prefill: false,
+  };
+});
 
 const providerModels = ref<string[]>([]);
 const isLoadingModels = ref(false);
 const editingModel = ref<Partial<Model> | null>(null);
 const isAddingNew = ref(false);
-const newModelKey = ref("");
-const newModelId = ref("");
-const newModelName = ref("");
-const newFilename = ref("");
-const newPort = ref(8081);
-const newArgs = ref("");
-const newMaxSteps = ref(0);
-const newContextBudget = ref(0);
-const newToolCallFormat = ref("");
-const newPrefill = ref(false);
+const modelForm = ref<ModelForm>(createEmptyModelForm(props.provider, props.models, agentDefaults.value));
+
 const filterText = ref("");
 const lastDerivedName = ref("");
 
@@ -45,41 +62,65 @@ const filteredProviderModels = computed(() => {
   return providerModels.value.filter((m) => m.toLowerCase().includes(q));
 });
 
-const modelsByKey = computed(() => {
-  const grouped: Record<string, Model[]> = {};
-  for (const m of props.models) {
-    if (m.provider !== props.provider) continue;
-    const key = m.provider_config?.api_key_name || "";
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(m);
+const groupsByKey = computed(() => {
+  const groups: { keyName: string; models: Model[] }[] = [];
+  
+  if (props.provider === 'local') {
+    const localModels = props.models.filter(m => m.provider === 'local');
+    if (localModels.length > 0) {
+      groups.push({ keyName: "Local Models", models: localModels });
+    }
+    return groups;
   }
-  return grouped;
+  
+  // Create a group for every API key
+  for (const key of props.apiKeys) {
+    groups.push({
+      keyName: key.name,
+      models: props.models.filter(m => m.provider === props.provider && m.provider_config?.api_key_name === key.name)
+    });
+  }
+  
+  // Find models that have no matching API key
+  const noKeyModels = props.models.filter(m => {
+    if (m.provider !== props.provider) return false;
+    const keyName = m.provider_config?.api_key_name;
+    return !keyName || !props.apiKeys.some(k => k.name === keyName);
+  });
+  
+  if (noKeyModels.length > 0) {
+    groups.push({
+      keyName: "", // "No key assigned"
+      models: noKeyModels
+    });
+  }
+  
+  return groups;
 });
 
 watch(
   () => props.apiKeys,
   () => {
-    if (newModelKey.value) {
+    if (modelForm.value.key) {
       const stillExists = props.apiKeys.some(
-        (k) => k.id === newModelKey.value || k.name === newModelKey.value,
+        (k) => k.id === modelForm.value.key || k.name === modelForm.value.key,
       );
-      if (!stillExists) newModelKey.value = "";
+      if (!stillExists) modelForm.value.key = "";
     }
   },
   { deep: true },
 );
 
-watch(newModelId, (id) => {
+watch(() => modelForm.value.id, (id) => {
   if (!id || !isAddingNew.value) return;
-  const parts = id.split("/");
-  const derived = parts[parts.length - 1] || "";
-  if (!newModelName.value || newModelName.value === lastDerivedName.value) {
-    newModelName.value = derived;
+  const derived = deriveModelName(id);
+  if (!modelForm.value.name || modelForm.value.name === lastDerivedName.value) {
+    modelForm.value.name = derived;
     lastDerivedName.value = derived;
   }
 });
 
-watch(newModelKey, (keyName) => {
+watch(() => modelForm.value.key, (keyName) => {
   if (isAddingNew.value && props.provider !== "local") {
     loadModels(keyName);
   }
@@ -91,48 +132,41 @@ async function loadModels(apiKeyName?: string) {
   providerModels.value = [];
   filterText.value = "";
   try {
-    const list = await fetchProviderModels(props.provider, apiKeyName || newModelKey.value);
+    const list = await fetchProviderModels(props.provider, apiKeyName || modelForm.value.key);
     providerModels.value = list;
   } finally {
     isLoadingModels.value = false;
   }
 }
 
-function nextLocalPort(): number {
-  const localModels = props.models.filter((m) => m.provider === "local");
-  let port = 8081;
-  for (const m of localModels) {
-    if (m.port && m.port >= port) port = m.port + 1;
-  }
-  return port;
-}
-
 function startAdd() {
+  const defaults = getDefaultModelSettings(props.provider, agentDefaults.value);
+  modelForm.value = createEmptyModelForm(props.provider, props.models, agentDefaults.value);
+  
   editingModel.value = {
     name: "",
     provider: props.provider,
     filename: "",
     model_id: "",
     args: [],
-    prefill: false,
+    prefill: defaults.prefill,
     provider_config: { api_key_name: "" },
   };
-  newModelKey.value = "";
-  newModelId.value = "";
-  newModelName.value = "";
-  newFilename.value = "";
-  newPort.value = nextLocalPort();
-  newArgs.value = "";
-  newMaxSteps.value = 0;
-  newContextBudget.value = 0;
-  newToolCallFormat.value = "";
-  newPrefill.value = false;
+  
   lastDerivedName.value = "";
   filterText.value = "";
   isAddingNew.value = true;
+  
   if (props.provider !== "local") {
     loadModels();
   }
+}
+
+function scanAndAdd(keyName: string) {
+  startAdd();
+  modelForm.value.key = keyName;
+  // loadModels is automatically triggered by watch(modelForm.value.key)
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cancelEdit() {
@@ -141,28 +175,27 @@ function cancelEdit() {
 }
 
 async function saveNewModel() {
+  const { name, key, id, filename, port, args, ...tuning } = modelForm.value;
+  const finalName = name || deriveModelName(id, filename);
+  
   if (props.provider === "local") {
-    if (!newFilename.value) return;
-    const name = newModelName.value || newFilename.value.replace(/\.gguf$/i, "").split("/").pop() || newFilename.value;
+    if (!filename) return;
     await addModel({
-      name,
+      name: finalName,
       provider: "local",
-      filename: newFilename.value,
-      port: newPort.value,
-      args: newArgs.value ? newArgs.value.split(/\s+/).filter(Boolean) : [],
-      prefill: newPrefill.value,
-      max_steps: newMaxSteps.value || undefined,
-      context_budget: newContextBudget.value || undefined,
-      tool_call_format: newToolCallFormat.value || undefined,
+      filename,
+      port,
+      args: args ? args.split(/\s+/).filter(Boolean) : [],
+      ...tuning
     });
   } else {
-    if (!newModelId.value) return;
-    const name = newModelName.value || newModelId.value.split("/").pop() || newModelId.value;
+    if (!id) return;
     await addModel({
-      name,
+      name: finalName,
       provider: props.provider,
-      model_id: newModelId.value,
-      provider_config: { api_key_name: newModelKey.value },
+      model_id: id,
+      provider_config: { api_key_name: key },
+      ...tuning
     });
   }
   cancelEdit();
@@ -179,13 +212,7 @@ const alreadyConfiguredFilenames = computed(() => {
   );
 });
 
-watch(() => props.apiKeys, (newKeys, oldKeys) => {
-  if (props.provider === 'local') return;
-  // Only auto-discover when keys are ADDED
-  if ((newKeys?.length || 0) > (oldKeys?.length || 0)) {
-    discoverAllEndpointModels();
-  }
-}, { deep: true });
+// Manual discovery triggered by user via button instead of watcher
 
 onMounted(() => {
   if (props.provider === 'local') {
@@ -197,22 +224,19 @@ function addDiscoveredModel(m: AvailableModel) {
   if (alreadyConfiguredFilenames.value.has(m.filename)) return;
   
   isAddingNew.value = true;
+  const name = m.metadata?.name || m.name;
+  modelForm.value = createEmptyModelForm("local", props.models, agentDefaults.value);
+  modelForm.value.name = name;
+  modelForm.value.filename = m.filename;
+  
   editingModel.value = {
-    name: m.metadata?.name || m.name,
+    name,
     provider: "local",
     filename: m.filename,
     args: [],
-    prefill: false,
+    prefill: modelForm.value.prefill,
     provider_config: { api_key_name: "" },
   };
-  newFilename.value = m.filename;
-  newModelName.value = m.metadata?.name || m.name;
-  newPort.value = nextLocalPort();
-  newArgs.value = "";
-  newMaxSteps.value = 0;
-  newContextBudget.value = 0;
-  newToolCallFormat.value = "";
-  newPrefill.value = false;
   
   // Scroll to form
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -268,39 +292,14 @@ async function handleRemove(name: string) {
 const isSubmitDisabled = computed(() => {
   if (isAddingNew.value) {
     if (props.provider === "local") {
-      return !newFilename.value;
+      return !modelForm.value.filename;
     }
-    return !newModelId.value;
+    return !modelForm.value.id;
   }
   return !editingModel.value?.name;
 });
 
-const discoveredModels = ref<{ modelId: string; keyName: string }[]>([]);
-const isDiscovering = ref(false);
-
-async function discoverAllEndpointModels() {
-  if (props.provider === 'local') return;
-  
-  const keys = props.apiKeys || [];
-  if (keys.length === 0) {
-    discoveredModels.value = [];
-    return;
-  }
-  
-  isDiscovering.value = true;
-  try {
-    const allDiscovered: { modelId: string; keyName: string }[] = [];
-    for (const key of keys) {
-      const models = await fetchProviderModels(props.provider, key.name);
-      const mapped = models.map(m => ({ modelId: m, keyName: key.name }));
-      allDiscovered.push(...mapped);
-    }
-    discoveredModels.value = allDiscovered;
-  } finally {
-    isDiscovering.value = false;
-  }
-}
-
+// Redundant discovery logic removed in favor of native loadModels function
 </script>
 
 <template>
@@ -341,7 +340,7 @@ async function discoverAllEndpointModels() {
             <div class="form-group">
               <label class="form-label">Model Filename</label>
               <input
-                v-model="newFilename"
+                v-model="modelForm.filename"
                 type="text"
                 class="form-input"
                 placeholder="e.g. qwen2.5-7b-instruct-q4_k_m.gguf"
@@ -350,7 +349,7 @@ async function discoverAllEndpointModels() {
             <div class="form-group">
               <label class="form-label">Friendly Name</label>
               <input
-                v-model="newModelName"
+                v-model="modelForm.name"
                 type="text"
                 class="form-input"
                 placeholder="Auto-derived from filename if empty"
@@ -359,7 +358,7 @@ async function discoverAllEndpointModels() {
             <div class="form-group">
               <label class="form-label">Port</label>
               <input
-                v-model.number="newPort"
+                v-model.number="modelForm.port"
                 type="number"
                 class="form-input"
               />
@@ -367,7 +366,7 @@ async function discoverAllEndpointModels() {
             <div class="form-group">
               <label class="form-label">Custom Arguments</label>
               <input
-                v-model="newArgs"
+                v-model="modelForm.args"
                 type="text"
                 class="form-input"
                 placeholder="--ctx-size 8192 --gpu-layers 32"
@@ -378,7 +377,7 @@ async function discoverAllEndpointModels() {
               <div class="form-group">
                 <label class="form-label">Max Steps</label>
                 <input
-                  v-model.number="newMaxSteps"
+                  v-model.number="modelForm.max_steps"
                   type="number"
                   class="form-input"
                   placeholder="25 (default)"
@@ -388,16 +387,16 @@ async function discoverAllEndpointModels() {
               <div class="form-group">
                 <label class="form-label">Context Budget (chars)</label>
                 <input
-                  v-model.number="newContextBudget"
+                  v-model.number="modelForm.context_budget"
                   type="number"
                   class="form-input"
-                  placeholder="15000 (default)"
+                  placeholder="8000"
                   min="1000" max="100000" step="1000"
                 />
               </div>
               <div class="form-group">
                 <label class="form-label">Tool Call Format</label>
-                <select v-model="newToolCallFormat" class="form-input">
+                <select v-model="modelForm.tool_call_format" class="form-input">
                   <option value="">Default (native)</option>
                   <option value="native">Native Tools</option>
                   <option value="xml">XML Text</option>
@@ -408,7 +407,7 @@ async function discoverAllEndpointModels() {
                 <label class="flex items-center gap-2 cursor-pointer mt-2">
                   <input
                     type="checkbox"
-                    v-model="newPrefill"
+                    v-model="modelForm.prefill"
                     class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600"
                   />
                   <span class="text-sm text-gray-300">Prefill tool calls</span>
@@ -419,7 +418,7 @@ async function discoverAllEndpointModels() {
           <template v-else>
             <div class="form-group">
               <label class="form-label">API Key</label>
-              <select v-model="newModelKey" class="form-input">
+              <select v-model="modelForm.key" class="form-input">
                 <option value="">No key (use default)</option>
                 <option
                   v-for="key in apiKeys"
@@ -440,7 +439,7 @@ async function discoverAllEndpointModels() {
                   placeholder="Type to filter models..."
                 />
                 <select
-                  v-model="newModelId"
+                  v-model="modelForm.id"
                   class="form-input model-filter-select"
                   size="5"
                 >
@@ -470,22 +469,75 @@ async function discoverAllEndpointModels() {
                   />
                 </div>
               </div>
-              <input
-                v-else
-                v-model="newModelId"
-                type="text"
-                class="form-input"
-                placeholder="e.g. gpt-4o"
-              />
-            </div>
+                <div v-else class="flex flex-col gap-2">
+                  <input
+                    v-model="modelForm.id"
+                    type="text"
+                    class="form-input"
+                    placeholder="e.g. gpt-4o"
+                  />
+                  <BaseButton
+                    variant="secondary"
+                    size="sm"
+                    icon="spinner"
+                    :loading="isLoadingModels"
+                    @click="loadModels(modelForm.key)"
+                    class="w-fit"
+                  >
+                    Scan Endpoint for Models
+                  </BaseButton>
+                </div>
+              </div>
             <div class="form-group">
               <label class="form-label">Friendly Name</label>
               <input
-                v-model="newModelName"
+                v-model="modelForm.name"
                 type="text"
                 class="form-input"
                 placeholder="Auto-derived from model ID"
               />
+            </div>
+            <div class="form-section-divider">Agent Tuning (per-model overrides)</div>
+            <div class="tuning-grid">
+              <div class="form-group">
+                <label class="form-label">Max Steps</label>
+                <input
+                  v-model.number="modelForm.max_steps"
+                  type="number"
+                  class="form-input"
+                  placeholder="25 (default)"
+                  min="1" max="100"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Context Budget (chars)</label>
+                <input
+                  v-model.number="modelForm.context_budget"
+                  type="number"
+                  class="form-input"
+                  placeholder="8000"
+                  min="1000" max="100000" step="1000"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tool Call Format</label>
+                <select v-model="modelForm.tool_call_format" class="form-input">
+                  <option value="">Default (native)</option>
+                  <option value="native">Native Tools</option>
+                  <option value="xml">XML Text</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Prefill</label>
+                <label class="flex items-center gap-2 cursor-pointer mt-2">
+                  <input
+                    type="checkbox"
+                    v-model="modelForm.prefill"
+                    class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600"
+                  />
+                  <span class="text-sm text-gray-300">Prefill tool calls</span>
+                </label>
+              </div>
             </div>
           </template>
         </template>
@@ -542,7 +594,7 @@ async function discoverAllEndpointModels() {
                   v-model.number="editingModel.context_budget"
                   type="number"
                   class="form-input"
-                  placeholder="15000 (default)"
+                  placeholder="8000"
                   min="1000" max="100000" step="1000"
                 />
               </div>
@@ -577,7 +629,9 @@ async function discoverAllEndpointModels() {
               />
             </div>
             <div class="form-group">
-              <label class="form-label">Model ID</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="form-label mb-0">Model ID</label>
+              </div>
               <input
                 v-model="editingModel.model_id"
                 type="text"
@@ -618,7 +672,7 @@ async function discoverAllEndpointModels() {
                   v-model.number="editingModel.context_budget"
                   type="number"
                   class="form-input"
-                  placeholder="15000 (default)"
+                  placeholder="8000"
                   min="1000" max="100000" step="1000"
                 />
               </div>
@@ -663,10 +717,7 @@ async function discoverAllEndpointModels() {
 
     <!-- Model list -->
     <div v-if="!editingModel" class="models-list">
-      <div v-if="props.models.length === 0" class="models-empty">
-        No models configured for {{ provider }}.
-        <button class="link-btn" @click="startAdd">Add one now.</button>
-      </div>
+
 
       <!-- Discovered GGUF (local only) -->
       <div
@@ -723,27 +774,38 @@ async function discoverAllEndpointModels() {
         </div>
       </div>
 
-      <!-- Discovered via API (cloud only) - Removed in favor of dropdown autocomplete -->
-      <div v-if="isDiscovering" class="px-4 py-3 text-center">
-        <span class="text-[10px] text-gray-500 flex items-center justify-center gap-2">
-          <svg class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-          Scanning endpoint for models...
-        </span>
-      </div>
+
 
       <div
-        v-for="(group, keyName) in modelsByKey"
-        :key="keyName"
+        v-for="group in groupsByKey"
+        :key="group.keyName || 'no-key'"
         class="model-group"
       >
         <div class="group-header">
-          <span class="group-key-label">
-            {{ keyName || "No key assigned" }}
-          </span>
-          <span class="group-count">{{ group.length }} model(s)</span>
+          <div class="flex items-center gap-3">
+            <span class="group-key-label">
+              {{ group.keyName || "No key assigned" }}
+            </span>
+            <span class="group-count">{{ group.models.length }} model(s)</span>
+          </div>
+          <BaseButton
+            v-if="group.keyName"
+            variant="ghost"
+            size="sm"
+            icon="search"
+            @click="scanAndAdd(group.keyName)"
+            title="Scan this endpoint and add a model"
+          >
+            Discover Models
+          </BaseButton>
         </div>
+        
+        <div v-if="group.models.length === 0" class="py-3 px-4 text-xs text-gray-500 italic border border-dashed border-gray-700/50 rounded-lg mx-2 my-2 bg-gray-800/30">
+          No models configured for this endpoint yet.
+        </div>
+
         <div
-          v-for="m in group"
+          v-for="m in group.models"
           :key="m.name"
           class="model-row"
         >

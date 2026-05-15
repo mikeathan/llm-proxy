@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../services/adminService'
 import { useToast } from './useToast'
-import type { AdminState } from '../types/admin'
+import type { AdminState, AgentDefaults } from '../types/admin'
 
 const { error: toastError, success: toastSuccess } = useToast()
 
@@ -12,6 +12,13 @@ const activeModel = computed(() => state.value?.active)
 const availableModels = computed(() => state.value?.available ?? [])
 const models = computed(() => state.value?.models ?? [])
 const nextPort = computed(() => state.value?.next_port ?? 9000)
+const agentDefaults = computed<AgentDefaults>(() => state.value?.config?.agent_defaults ?? {
+  max_steps: 25,
+  context_budget: 8000,
+  max_tokens: 3072,
+  tool_call_format: '',
+  prefill: false,
+})
 
 const refresh = async (): Promise<void> => {
   try {
@@ -107,6 +114,7 @@ export function useModels() {
     activeModel,
     availableModels,
     nextPort,
+    agentDefaults,
     refresh,
     startModel,
     stopModel,

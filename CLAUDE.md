@@ -56,7 +56,7 @@ Tier 3: registry.json       — Dynamic state (models, providers, MCP servers, p
 | Workspace config | `{metadata}/{id}/config.yaml` | Guardrails, automations per workspace |
 | Templates | `data/templates/` | Task playbook templates |
 
-**Model overrides** — Agent tuning fields (max_steps, context_budget, tool_call_format, prefill) are saved to `settings.yml` under `model_overrides:`, NOT to `registry.json`. At startup, overrides are merged onto the base model catalogue from the registry. See invariant #11.
+**Model overrides** — Agent tuning fields (max_steps, context_budget, max_tokens, tool_call_format, prefill) are saved to `settings.yml` under `model_overrides:`, NOT to `registry.json`. At startup, overrides are merged onto the base model catalogue from the registry. See invariant #11.
 
 ---
 
@@ -84,12 +84,13 @@ backend/
     │   └── bootstrap.go             — bootstrap(): wires all services, builds HTTP router
     ├── buildinfo/                   — Version, Commit, BuildDate
     ├── core/
-    │   ├── assistant/               — Agent loop and tool orchestration
-    │   │   ├── agent.go             — Agent struct, Execute(), processToolCalls(), computeNextResponse()
-    │   │   ├── agent_events.go      — AgentEvent type, Observer interface, event constants
-    │   │   ├── engine.go            — Engine interface (ExecuteTool)
-    │   │   ├── registry.go          — LocalToolRegistry, InitializeAgentStack(), tool registration
-    │   │   ├── tool_provider.go     — ToolProvider interface, MultiToolProvider, CompositeEngine
+│   ├── assistant/               — Agent loop and tool orchestration
+│   │   ├── agent.go             — Agent struct, Execute(), processToolCalls(), computeNextResponse()
+│   │   ├── agent_events.go      — AgentEvent type, Observer interface, event constants
+│   │   ├── engine.go            — Engine interface (ExecuteTool)
+│   │   ├── registry.go          — LocalToolRegistry, InitializeAgentStack(), tool registration
+│   │   ├── tiers.go             — ProviderTuningDefaults, ProviderTiers() — per-provider agent tuning defaults
+│   │   ├── tool_provider.go     — ToolProvider interface, MultiToolProvider, CompositeEngine
     │   │   ├── guardrail_decision.go — GuardrailDecisionStore, NewGuardrailDecisionCallback
     │   │   ├── content_filter.go    — FilterStreamingMarkup (hides <tool_call> from UI during streaming)
     │   │   ├── guardrails/
@@ -133,7 +134,7 @@ backend/
     │   │   └── utils.go             — TruncateResult(), TruncateLines()
     │   └── tools/                   — Agent tool implementations
     │       ├── terminal.go          — TerminalTools: command execution with jailed shell sessions
-    │       ├── filesystem.go        — FileSystemTools: list, read, write (path validation + extension whitelist)
+    │       ├── filesystem.go        — FileSystemTools: list, read, write, append (path validation + extension whitelist)
     │       ├── network.go           — NetworkTools: fetch_url, scan_local_network, get_network_info
     │       ├── search.go            — InternetTools: web search via Tavily API
     │       ├── communication.go     — CommunicationTools: notify_user (Telegram, etc.)
@@ -195,10 +196,11 @@ Parser accepts only: `<tool_call>{"tool":"name","args":{...}}</tool_call>`
 Nag injection belongs in the agent loop (`agent.go`), NOT in `NormalizeHistory()`. Nags are: prompt corrections when the model produces malformed tool calls, duplicate detection, feedback injection.
 
 ### 4. Per-Model Config Flow
-`ModelConfig.MaxSteps`, `ContextBudget`, `ToolCallFormat`, `Prefill` are:
+`ModelConfig.MaxSteps`, `MaxTokens`, `ContextBudget`, `ToolCallFormat`, `Prefill` are:
 - Read by the executor from `Runtime.ListModels()`
 - Passed to `AgentOptions` when creating the Agent
 - The agent uses them directly (no global defaults override per-model settings)
+- Provider-tier defaults defined in `assistant/tiers.go` (`ProviderTiers()`) set baseline values for each provider type (local, gemini, openai, etc.) and are exposed via the admin API for the frontend to prefill model forms
 
 ### 5. Repetition Detection Survives Context Sieve
 - `recentCalls` is never reset on context pruning
@@ -230,8 +232,8 @@ All network interaction passes through `NetworkTools`. Raw `http.Client` or `net
 Metadata extraction uses the authorized GGUF parsing library. No filename-based regex extraction. The scanner reads only the GGUF header (KB, not GB) using SkipLargeMetadata+MMap.
 
 ### 11. Model Persistence (Two-Tier)
-- **Base model info** (name, provider, filename, port, args) → `registry.json`
-- **Agent tuning overrides** (max_steps, context_budget, tool_call_format, prefill) → `settings.yml` under `model_overrides:`
+- **Base model info** (name, provider, filename, port, args, credential_id) → `registry.json`
+- **Agent tuning overrides** (max_steps, context_budget, max_tokens, tool_call_format, prefill) → `settings.yml` under `model_overrides:`
 - On save: both updated simultaneously
 - On load: registry.json base + settings.yml overrides merged at startup in `NewManagerFromRegistry()`
 - On settings change: `ApplyModelOverrides()` re-applies overrides to runtime models
@@ -256,7 +258,7 @@ The agent loop is in `internal/core/assistant/agent.go`, method `Execute()` (lin
 2. **Loop** for up to `maxSteps` iterations (default 25, per-model override possible):
    a. Publish `step_start` event
    b. Create per-turn context with 10-minute timeout
-   c. **Physical Sieve**: If history chars > `contextBudget` (default 15000):
+   c. **Physical Sieve**: If history chars > `contextBudget` (default 8000):
       - Keep: system prompt + first user message + last 3 turns
       - Drop: all middle turns
       - Insert `SieveSystemNote` (explains pruning) and `ContextSieveWarning`
@@ -305,7 +307,8 @@ The `FilterStreamingMarkup()` function in `content_filter.go` hides `<tool_call>
 | `ToolTerminalExecute` | `execute_terminal_command` | terminal | Run shell commands in jailed session |
 | `ToolListDirectory` | `list_directory` | filesystem | List directory contents |
 | `ToolFileRead` | `read_file` | filesystem | Read file contents |
-| `ToolFileWrite` | `write_file` | filesystem | Write/create files |
+| `ToolFileWrite` | `write_file` | filesystem | Write/create files (max 800 chars per call); use `append_file` for longer output |
+| `ToolFileAppend` | `append_file` | filesystem | Append content to existing file (max 1200 chars per call) |
 | `ToolNetworkFetch` | `fetch_url` | network | HTTP GET request |
 | `ToolNetworkScan` | `scan_local_network` | network | Scan LAN for devices |
 | `ToolNetworkInfo` | `get_network_info` | network | Get local IP/subnet |

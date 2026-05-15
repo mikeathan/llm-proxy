@@ -28,7 +28,7 @@ This document defines the immutable architectural and security laws of the Antig
     *   The HTTP client does NOT strip tools — the agent controls this decision.
     *   Both paths coexist: native tool_calls are accumulated from streaming deltas; the XML parser runs as fallback on text content for non-function-calling responses.
     *   When `ToolCallFormat: "xml"` is set on a config, XML mode is forced even if the provider supports native tools.
-6.  **Token Budgeting & Structural Sieve**: To prevent context size overflow and 400-series errors, the system enforces a configurable character-based history budget (default 15,000 characters, overridable per-model via `ModelConfig.ContextBudget`).
+6.  **Token Budgeting & Structural Sieve**: To prevent context size overflow and 400-series errors, the system enforces a configurable character-based history budget (default 8,000 characters, overridable per-model via `ModelConfig.ContextBudget`).
     *   **Locked Head**: The System Prompt and the User's Initial Task are immutable and never pruned.
     *   **Structural Sieve**: When the budget is exceeded, the history is physically pruned by keeping the Locked Head and the last 3 turns (Priority Tail), while omitting all intermediate turns. This preserves the original goal and the immediate state while ensuring the context window is never overwhelmed.
     *   **Repetition Detection**: The repetition detector (`recentCalls`, `duplicateStreak`) survives sieve boundaries to prevent loops from spanning across prune events. After 3 consecutive identical (tool + args) calls, inject a duplicate nag. After 5+, abort with "infinite loop detected."
@@ -45,10 +45,11 @@ This document defines the immutable architectural and security laws of the Antig
     *   User approves/denies via `POST /admin/api/conversation/guardrail-decision`.
     *   If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
     *   In automation mode (no user present), the callback is nil and guardrail violations fail immediately.
-11. **Per-Model Config Flow**: `ModelConfig.MaxSteps`, `ContextBudget`, `ToolCallFormat`, and `Prefill` flow from the runtime to the agent without global defaults interfering.
-    *   Read by the executor from `Runtime.ListModels()`.
-    *   Passed to `AgentOptions` when creating the Agent.
-    *   The agent uses them directly — no global defaults override per-model settings.
+11. **Per-Model Config Flow**: `ModelConfig.MaxSteps`, `ContextBudget`, `MaxTokens`, `ToolCallFormat`, and `Prefill` flow from the runtime to the agent without global defaults interfering.
+     *   Read by the executor from `Runtime.ListModels()`.
+     *   Passed to `AgentOptions` when creating the Agent.
+     *   The agent uses them directly — no global defaults override per-model settings.
+     *   Provider-tier defaults (`assistant/tiers.go`) define baseline values for each provider type (local, gemini, openai, openrouter, etc.). These defaults are applied when creating new model entries but do not override explicitly set per-model values.
 12. **Prompt Centralization** (SINGLE SOURCE OF TRUTH): `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings.
     *   System messages, nag prompts, parse-error feedback, JSON error translations.
     *   Escalation prefixes, protocol instructions, system rule text.
@@ -73,7 +74,7 @@ This document defines the immutable architectural and security laws of the Antig
     *   On settings change: `ApplyModelOverrides()` re-applies overrides to all runtime models.
     *   **Never put agent tuning overrides directly in registry.json entries.**
 6.  **Secrets Are Encrypted**: API keys and tool secrets are stored in `secrets.json` encrypted with AES-256-GCM. The `SecretsStore` interface is the only access path.
-7.  **Key Deletion Cascades to Models**: Deleting a single API key automatically removes all model catalogue entries whose `CredentialID` matches the deleted key's `Name` or `ID`. Models with an empty `CredentialID` are only removed if no keys remain for the provider. Deleting all keys for a provider removes all models for that provider. This prevents orphaned model configurations that reference deleted credentials.
+7.  **Key Deletion/Update Cascades to Models**: Deleting or updating API keys automatically removes all model catalogue entries whose `CredentialID` no longer matches any remaining key name. Models with an empty `CredentialID` are only removed if no keys remain for the provider. This prevents orphaned model configurations that reference deleted or renamed credentials. Cascade applies on both `DELETE /admin/api/secrets/keys` (single-key) and `PUT /admin/api/secrets/keys` (batch save).
 8.  **Unified Provider Management**: All cloud provider configuration (API keys, provider settings, and model entries) is managed under a single provider tab in Settings. The Dashboard cloud tab is read-only — model management ("Add Model", edit, delete) is done exclusively in Settings. This eliminates the previous split where API keys were managed in Settings and models were managed in the Dashboard.
 9.  **Secrets Change Notification**: The secrets store publishes an `OnChange` event when credentials are modified. The `AppContext` subscribes to this event and triggers a runtime `Sync()` to ensure credential changes propagate without requiring a server restart.
 

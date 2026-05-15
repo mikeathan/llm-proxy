@@ -11,7 +11,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Global timeout: 30 minutes. Per-turn timeout: 10 minutes.
 
 ### 2. Context Budget & Physical Sieve (Constitution II.6)
-- Default budget: 15,000 characters (overridable via `ModelConfig.ContextBudget`).
+- Default budget: 8,000 characters (overridable via `ModelConfig.ContextBudget`).
 - When exceeded: keep system message + first user message (Locked Head), insert sieve marker, keep last 10 messages (Priority Tail).
 - **Critical**: `recentCalls` (repetition detector) MUST survive the sieve boundary.
 
@@ -43,6 +43,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Parse errors: inject `ParseError.Feedback(availableTools)` — specific format guidance with valid tool names.
 - No parse error but no tool calls: inject `AutomationNagPrompt`.
 - Tool validation failure: treat as parse error, clear invalid tool calls, inject feedback.
+- Content too long (write exceeds model output limits): inject `AutomationContentTooLongPrompt` — instructs the model to use `write_file` for the first chunk, then `append_file` for subsequent chunks.
 
 ### 7. Native Tool Support (Constitution II.5)
 - Controlled by `Agent.useNativeTools` (resolved from `AgentOptions.UseNativeTools` > `ToolProvider.UseNativeTools()`).
@@ -100,8 +101,11 @@ Executor → Agent.Execute()
 | Field | Default | Purpose |
 |---|---|---|
 | `ModelConfig.MaxSteps` | 25 | Max agent loop iterations |
-| `ModelConfig.ContextBudget` | 15000 | Char count triggering sieve |
+| `ModelConfig.ContextBudget` | 8000 | Char count triggering sieve |
 | `ModelConfig.ToolCallFormat` | (empty) | `"native"` to force native tools |
+| `ModelConfig.MaxTokens` | 3072 | Per-request token limit sent in `max_tokens` to the LLM |
+
+Provider-specific defaults are defined in `assistant/tiers.go` (`ProviderTiers()`) and exposed to the frontend via `adminTuningDefaults` in `GET /admin/api/state`. The UI uses these to prefill model forms with reasonable values per provider (e.g. Gemini/Vertex/OpenAI get 4096 tokens and `native` tools; local models get 2048 tokens and XML text mode).
 
 ## IV. Testing Strategy
 - Unit tests: `agent_test.go` covers simple execution, tool calls, loop detection, streaming, premature termination, `precededByToolResult`.

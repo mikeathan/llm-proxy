@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useModels } from "../../composables/useModels";
+import { getDefaultModelSettings } from "../../utils/modelUtils";
 import BaseButton from "../common/BaseButton.vue";
 import type { Model, AvailableModel } from "../../types/model";
 
@@ -11,6 +12,7 @@ const {
   updateModel,
   removeModel,
   nextPort,
+  agentDefaults,
 } = useModels();
 
 const editingModel = ref<Partial<Model> | null>(null);
@@ -29,6 +31,7 @@ function handleEdit(model: Model) {
 }
 
 function handleAddNew(available?: AvailableModel) {
+  const tuning = getDefaultModelSettings("local", agentDefaults.value);
   if (available) {
     editingModel.value = {
       name: available.name,
@@ -37,6 +40,7 @@ function handleAddNew(available?: AvailableModel) {
       port: nextPort.value,
       args: [],
       metadata: available.metadata,
+      ...tuning,
     };
   } else {
     editingModel.value = {
@@ -45,6 +49,7 @@ function handleAddNew(available?: AvailableModel) {
       filename: "",
       port: nextPort.value,
       args: [],
+      ...tuning,
     };
   }
   rawArgs.value = "";
@@ -181,7 +186,7 @@ const formatSize = (bytes: number) => {
             v-model.number="editingModel.context_budget"
             type="number"
             class="form-input"
-            placeholder="15000 (default)"
+            placeholder="8000"
             min="1000"
             max="100000"
             step="1000"

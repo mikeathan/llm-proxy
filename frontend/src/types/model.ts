@@ -64,4 +64,7 @@ export interface NewModelForm {
   provider_config?: ProviderConfig
   metadata?: ModelMetadata
   prefill?: boolean
+  max_steps?: number
+  context_budget?: number
+  tool_call_format?: string
 }
