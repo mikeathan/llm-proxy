@@ -11,6 +11,7 @@ import {
   getDefaultModelSettings,
   deriveModelName,
   createEmptyModelForm,
+  computeDefaultsFromContext,
 } from "../../utils/modelUtils";
 import type { ModelForm } from "../../utils/modelUtils";
 
@@ -118,6 +119,17 @@ watch(() => modelForm.value.id, (id) => {
   if (!modelForm.value.name || modelForm.value.name === lastDerivedName.value) {
     modelForm.value.name = derived;
     lastDerivedName.value = derived;
+  }
+  const selected = providerModels.value.find(m => m.id === id);
+  // Pre-fill context_budget and max_tokens from model metadata so the form
+  // shows realistic values before the user clicks Save.  The backend also
+  // runs ApplyMetadataDefaults, but by pre-filling here the user sees the
+  // actual values and can adjust before submitting.
+  const ctx = selected?.meta?.n_ctx_train || selected?.limits?.context;
+  const defaults = computeDefaultsFromContext(ctx);
+  if (defaults) {
+    modelForm.value.context_budget = defaults.context_budget;
+    modelForm.value.max_tokens = defaults.max_tokens;
   }
 });
 

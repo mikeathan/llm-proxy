@@ -11,6 +11,7 @@ import {
   filterModelsByTab,
   deriveFriendlyName,
 } from "../utils/models";
+import { computeDefaultsFromContext } from "../utils/modelUtils";
 import type { AdminState, AvailableModel, NewModelForm, Model } from "../types";
 
 const props = defineProps<{
@@ -77,6 +78,12 @@ function submitModel() {
 
 function onCloudModelSelect(sel: any) {
   cloudSelection = sel;
+  const ctx = sel?.meta?.n_ctx_train || sel?.limits?.context;
+  const defaults = computeDefaultsFromContext(ctx);
+  if (defaults) {
+    form.value.context_budget = defaults.context_budget;
+    form.value.max_tokens = defaults.max_tokens;
+  }
 }
 
 function selectAvailableModel(model: AvailableModel) {

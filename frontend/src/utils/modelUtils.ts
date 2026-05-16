@@ -75,6 +75,21 @@ export function deriveModelName(modelId?: string, filename?: string): string {
 }
 
 /**
+ * Given a model's context length (n_ctx_train or limits.context),
+ * returns the suggested form defaults for max_tokens and context_budget.
+ * Called when the user picks a model from the provider dropdown — the
+ * backend runs the same computation in ApplyMetadataDefaults on save,
+ * but showing the values upfront lets the user adjust before submitting.
+ */
+export function computeDefaultsFromContext(ctxLen?: number): { context_budget: number; max_tokens: number } | null {
+  if (!ctxLen || ctxLen <= 0) return null;
+  return {
+    context_budget: ctxLen * 2,
+    max_tokens: Math.floor(ctxLen / 4),
+  };
+}
+
+/**
  * Creates a fresh model form object with provider-specific defaults.
  */
 export function createEmptyModelForm(
