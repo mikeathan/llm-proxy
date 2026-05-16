@@ -119,11 +119,7 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 //	context_budget   = context * 2       (chars at ~2 chars/token)
 //	reasoning_budget = context / 8       only when name suggests reasoning
 func ApplyMetadataDefaults(cfg *models.ModelConfig) {
-	ctxLen := knownContextLength(cfg.Name, cfg.Filename)
-	if ctxLen == 0 && cfg.Metadata != nil && cfg.Metadata.ContextLength > 0 {
-		ctxLen = cfg.Metadata.ContextLength
-	}
-
+	ctxLen := resolveContextLength(cfg)
 	if ctxLen <= 0 {
 		return
 	}
@@ -142,39 +138,47 @@ func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 	}
 }
 
-var knownCtx = map[string]int{
-	"gemini-2.5-pro":             1_048_576,
-	"gemini-2.5-flash":           1_048_576,
-	"gemini-2.0-flash":           1_048_576,
-	"gemini-2.5-flash-lite":      1_048_576,
-	"gemini-1.5-pro":             2_097_152,
-	"gemini-1.5-flash":           1_048_576,
-	"gpt-4o":                     128_000,
-	"gpt-4o-mini":                128_000,
-	"gpt-5":                      128_000,
-	"gpt-5-mini":                 128_000,
-	"gpt-5-nano":                 128_000,
-	"o3":                         200_000,
-	"o3-mini":                    200_000,
-	"o4-mini":                    200_000,
-	"nemotron-3-super":           128_000,
-	"nemotron-family":            128_000,
-	"llama-3.3-70b":              128_000,
-	"claude-sonnet-4":            200_000,
-	"claude-opus-4":              200_000,
-	"claude-3.5-sonnet":          200_000,
-	"deepseek-r1":                128_000,
-	"deepseek-v3":                 64_000,
-	"deepseek-v5":                128_000,
-	"qwen3-coder":                128_000,
+var providerCtxDefaults = map[string]int{
+	"gemini":     1_048_576,
+	"openai":     128_000,
+	"nvidia":     128_000,
+	"vertex":     1_048_576,
+	"openrouter": 128_000,
+	"mulerouter": 128_000,
+	"local":      8192,
 }
 
-func knownContextLength(name, filename string) int {
-	search := strings.ToLower(name + " " + filename)
+var knownCtx = map[string]int{
+	"deepseek-v3":        64_000,
+	"deepseek-r1":        128_000,
+	"claude-sonnet":      200_000,
+	"claude-opus":        200_000,
+	"claude-3.5":         200_000,
+	"o3":                 200_000,
+	"o4":                 200_000,
+	"gemini-1.5-pro":     2_097_152,
+	"mistral-large":      128_000,
+	"mistral-small":      32_000,
+	"qwen":               128_000,
+	"kimi":               128_000,
+	"deepseek":           128_000,
+	"llama":              128_000,
+}
+
+func resolveContextLength(cfg *models.ModelConfig) int {
+	if cfg.Metadata != nil && cfg.Metadata.ContextLength > 0 {
+		return cfg.Metadata.ContextLength
+	}
+
+	name := strings.ToLower(cfg.Name + " " + cfg.Filename)
 	for fragment, ctx := range knownCtx {
-		if strings.Contains(search, fragment) {
+		if strings.Contains(name, fragment) {
 			return ctx
 		}
+	}
+
+	if ctx, ok := providerCtxDefaults[cfg.Provider]; ok {
+		return ctx
 	}
 	return 0
 }

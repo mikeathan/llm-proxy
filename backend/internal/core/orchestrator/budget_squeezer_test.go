@@ -199,3 +199,73 @@ func TestResolveICUWeight_Local_NoMetadata(t *testing.T) {
 		t.Fatal("expected default 1.0 for local without metadata")
 	}
 }
+
+func TestResolveContextLength_Metadata(t *testing.T) {
+	cfg := &models.ModelConfig{
+		Metadata: &models.ModelMetadata{ContextLength: 8192},
+	}
+	if resolveContextLength(cfg) != 8192 {
+		t.Fatalf("expected 8192 from metadata, got %d", resolveContextLength(cfg))
+	}
+}
+
+func TestResolveContextLength_MetadataWinsOverFragment(t *testing.T) {
+	cfg := &models.ModelConfig{
+		Name:     "deepseek-v3",
+		Metadata: &models.ModelMetadata{ContextLength: 128000},
+	}
+	if resolveContextLength(cfg) != 128000 {
+		t.Fatalf("expected metadata 128000 to win, got %d", resolveContextLength(cfg))
+	}
+}
+
+func TestResolveContextLength_FragmentMatch(t *testing.T) {
+	cfg := &models.ModelConfig{Name: "deepseek-v3"}
+	if resolveContextLength(cfg) != 64_000 {
+		t.Fatalf("expected 64K for deepseek-v3, got %d", resolveContextLength(cfg))
+	}
+}
+
+func TestResolveContextLength_ProviderDefault(t *testing.T) {
+	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "nvidia"}
+	if resolveContextLength(cfg) != 128_000 {
+		t.Fatalf("expected 128K for nvidia, got %d", resolveContextLength(cfg))
+	}
+}
+
+func TestResolveContextLength_NoMatch(t *testing.T) {
+	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "unknown"}
+	if resolveContextLength(cfg) != 0 {
+		t.Fatalf("expected 0 for unknown, got %d", resolveContextLength(cfg))
+	}
+}
+
+func TestApplyMetadataDefaults_AllZero(t *testing.T) {
+	cfg := &models.ModelConfig{
+		Name:     "test-model",
+		Provider: "nvidia",
+	}
+	ApplyMetadataDefaults(cfg)
+	if cfg.MaxTokens != 128_000/4 {
+		t.Fatalf("expected max_tokens=%d, got %d", 128_000/4, cfg.MaxTokens)
+	}
+	if cfg.ContextBudget != 128_000*2 {
+		t.Fatalf("expected context_budget=%d, got %d", 128_000*2, cfg.ContextBudget)
+	}
+}
+
+func TestApplyMetadataDefaults_NoOverwriteExisting(t *testing.T) {
+	cfg := &models.ModelConfig{
+		Name:           "test-model",
+		Provider:       "nvidia",
+		MaxTokens:      4096,
+		ContextBudget:  8192,
+	}
+	ApplyMetadataDefaults(cfg)
+	if cfg.MaxTokens != 4096 {
+		t.Fatalf("existing max_tokens should not be overwritten, got %d", cfg.MaxTokens)
+	}
+	if cfg.ContextBudget != 8192 {
+		t.Fatalf("existing context_budget should not be overwritten, got %d", cfg.ContextBudget)
+	}
+}
