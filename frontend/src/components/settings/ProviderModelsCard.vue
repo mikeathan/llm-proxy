@@ -203,6 +203,7 @@ async function saveNewModel() {
     });
   } else {
     if (!id) return;
+    if (!modelForm.value.key) return;
     const selected = providerModels.value.find(m => m.id === id);
     await addModel({
       name: finalName,
@@ -311,7 +312,7 @@ const isSubmitDisabled = computed(() => {
     if (props.provider === "local") {
       return !modelForm.value.filename;
     }
-    return !modelForm.value.id;
+    return !modelForm.value.id || !modelForm.value.key;
   }
   return !editingModel.value?.name;
 });

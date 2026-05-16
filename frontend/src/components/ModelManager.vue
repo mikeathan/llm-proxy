@@ -198,7 +198,7 @@ onMounted(() => {
           <button
             type="submit"
             class="btn-add"
-            :disabled="form.provider !== 'local' && !form.model_id"
+            :disabled="form.provider !== 'local' && (!form.model_id || !form.provider_config?.api_key_name)"
           >
             Add to Configuration
           </button>
