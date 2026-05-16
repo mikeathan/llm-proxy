@@ -29,10 +29,14 @@ type LocalSettings struct {
 // ModelOverride stores per-model agent tuning fields that override
 // the base values from the registry catalogue.
 type ModelOverride struct {
-	MaxSteps      int    `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
-	ContextBudget int    `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
-	ToolCallFormat string `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
-	Prefill       bool   `yaml:"prefill,omitempty" json:"prefill,omitempty"`
+	MaxSteps        int     `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
+	ContextBudget   int     `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
+	MaxTokens       int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	ToolCallFormat  string  `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
+	Prefill         bool    `yaml:"prefill,omitempty" json:"prefill,omitempty"`
+	ReasoningBudget int     `yaml:"reasoning_budget,omitempty" json:"reasoning_budget,omitempty"`
+	SlotTimeout     int     `yaml:"slot_timeout,omitempty" json:"slot_timeout,omitempty"`
+	ICUWeight       float64 `yaml:"icu_weight,omitempty" json:"icu_weight,omitempty"`
 }
 
 // UserSettings represents the user-level settings (Tier 2: settings.yml)

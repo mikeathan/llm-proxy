@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -50,6 +51,7 @@ type LLMServiceProvider interface {
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
+	Orchestrator() *orchestrator.Orchestrator
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -125,6 +127,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		MaxSteps:    assistant.DefaultMaxSteps,
 		Guardrails:  e.svc.GuardrailEngine(),
 		WorkspaceID: req.WorkspaceID,
+		Orchestrator: e.svc.Orchestrator(),
+		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
 			capturedEvents = append(capturedEvents, ev)
 			e.svc.Events().Publish(req.WorkspaceID, ev)
@@ -139,11 +143,18 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	// Apply per-model overrides when available.
 	if req.Model != "" {
 		if cfg, ok := e.svc.ModelConfig(req.Model); ok {
+			agentOpts.ProviderType = cfg.Provider
 			if cfg.MaxSteps > 0 {
 				agentOpts.MaxSteps = cfg.MaxSteps
 			}
 			if cfg.ContextBudget > 0 {
 				agentOpts.ContextBudget = cfg.ContextBudget
+			}
+			if cfg.MaxTokens > 0 {
+				agentOpts.MaxResponseTokens = cfg.MaxTokens
+			}
+			if cfg.ReasoningBudget > 0 {
+				agentOpts.ReasoningBudget = cfg.ReasoningBudget
 			}
 			if cfg.ToolCallFormat == "native" {
 				native := true

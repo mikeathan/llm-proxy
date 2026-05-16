@@ -42,12 +42,13 @@ const agentDefaults = computed(() => {
     max_steps: 25,
     context_budget: 8000,
     max_tokens: 3072,
+    reasoning_budget: 0,
     tool_call_format: '',
     prefill: false,
   };
 });
 
-const providerModels = ref<string[]>([]);
+const providerModels = ref<import('../../types/model').ProviderModelInfo[]>([]);
 const isLoadingModels = ref(false);
 const editingModel = ref<Partial<Model> | null>(null);
 const isAddingNew = ref(false);
@@ -59,7 +60,7 @@ const lastDerivedName = ref("");
 const filteredProviderModels = computed(() => {
   if (!filterText.value) return providerModels.value;
   const q = filterText.value.toLowerCase();
-  return providerModels.value.filter((m) => m.toLowerCase().includes(q));
+  return providerModels.value.filter((m) => m.id.toLowerCase().includes(q));
 });
 
 const groupsByKey = computed(() => {
@@ -445,10 +446,10 @@ const isSubmitDisabled = computed(() => {
                 >
                   <option
                     v-for="m in filteredProviderModels"
-                    :key="m"
-                    :value="m"
+                    :key="m.id"
+                    :value="m.id"
                   >
-                    {{ m }}
+                    {{ m.id }}
                   </option>
                 </select>
                 <div v-if="filteredProviderModels.length === 0 && filterText" class="filter-no-results">

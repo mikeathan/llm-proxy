@@ -16,6 +16,7 @@ const agentDefaults = computed<AgentDefaults>(() => state.value?.config?.agent_d
   max_steps: 25,
   context_budget: 8000,
   max_tokens: 3072,
+  reasoning_budget: 0,
   tool_call_format: '',
   prefill: false,
 })
@@ -94,11 +95,10 @@ const removeAllModels = async (provider: string): Promise<void> => {
   }
 }
 
-const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<string[]> => {
+const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<import('../types/model').ProviderModelInfo[]> => {
   try {
-    return await AdminApiService.fetchProviderModels(provider, apiKeyName)
+    return await AdminApiService.fetchProviderModels(provider, apiKeyName) || []
   } catch (e: any) {
-    // Silence common configuration errors during discovery
     const isConfigError = e.message?.includes('not configured') || e.message?.includes('401')
     if (!isConfigError) {
       console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)

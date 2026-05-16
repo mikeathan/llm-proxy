@@ -32,6 +32,7 @@ This document defines the immutable architectural and security laws of the Antig
     *   **Locked Head**: The System Prompt and the User's Initial Task are immutable and never pruned.
     *   **Structural Sieve**: When the budget is exceeded, the history is physically pruned by keeping the Locked Head and the last 3 turns (Priority Tail), while omitting all intermediate turns. This preserves the original goal and the immediate state while ensuring the context window is never overwhelmed.
     *   **Repetition Detection**: The repetition detector (`recentCalls`, `duplicateStreak`) survives sieve boundaries to prevent loops from spanning across prune events. After 3 consecutive identical (tool + args) calls, inject a duplicate nag. After 5+, abort with "infinite loop detected."
+    *   **Resource-Aware Orchestration**: A higher-level token and cost budgeting system (see Section VI) may further constrain model usage. The Structural Sieve reduces context pressure; the Orchestrator enforces hard ICU caps and applies adaptive squeezing when approaching those caps. Both systems coexist — the Sieve prunes history, the Orchestrator limits per-request and per-window token consumption.
 7.  **Explicit Task Completion**: The `submit_final_answer` tool is the canonical path to task completion in automation mode. In chat mode, the agent exits after a tool-result→assistant-reply cycle or after detecting premature termination (empty/repeated output). Heuristic keyword matching ("task complete", "summary") is not used.
 8.  **Context-Preserving Normalization**: Messages transmitted to LLM engines must be stripped of non-essential metadata fields. `role`, `content`, `tool_calls`, and `tool_call_id` are preserved.
     *   When native tools are disabled: `tool` role → `user` role with tool_call_id embedded in content (`Tool result [call_N]: <json>`) to maintain call/result association while avoiding Jinja template errors in llama.cpp backends.
@@ -91,3 +92,23 @@ This document defines the immutable architectural and security laws of the Antig
 1.  **Constitution over Convenience**: If a feature requires violating these laws, the law must be formally amended in the Constitution after a security review, rather than bypassed in the implementation.
 2.  **Spec-First Development**: Before modifying the agent subsystem, read `docs/SPECS/agent-loop.md` and `docs/SPECS/tool-call-parser.md`. After implementing, update the relevant spec and amend this Constitution if architectural rules changed.
 3.  **No Half-Finished Implementations**: Complete the feature or don't start. No stubs, no `// TODO`, no feature flags for incomplete work.
+
+## VI. Resource-Aware Orchestration (The Budget Deck)
+
+The Orchestration Layer (`internal/core/orchestrator/`) provides a unified token and cost budgeting system that treats VRAM slots and financial tokens as a single Computational Capital.
+
+1.  **ICU (Internal Credit Unit) Standard**: All model usage is denominated in ICUs. 1 ICU = 1 input token on a local 7B model. Cloud providers carry weights (e.g. local 7B = 1.0x, GPT-4o = 2.5x, Gemini Flash = 0.1x) defined in `provider_weights.go`.
+
+2.  **Pre-Flight Check**: Before every LLM request, the orchestrator debits the projected ICU cost from the workspace balance. If the projected cost exceeds the remaining cap, the Budget Squeezer applies an adaptive reduction factor (hard floor: 0.2x). If even the squeezed request exceeds the cap, the request is rejected with `BUDGET_EXCEEDED`.
+
+3.  **Atomic ICU Refunds**: ICU debits recorded by the pre-flight check are refunded via `defer` if the downstream LLM request fails (network timeout, 5xx). Double-refunds are idempotent.
+
+4.  **Stream Interception with Code Awareness**: Every SSE chunk in `processStream()` passes through the `StreamInterceptor`. Token counting uses an adaptive ratio: 0.5 chars/token for prose, 1.0 chars/token for content inside triple-backtick fences. The interceptor may terminate a stream mid-response if token budgets are exhausted.
+
+5.  **Slot Persistence for llama.cpp**: Local model KV caches are tracked in SQLite (`orchestrator.db`, WAL mode) to avoid re-processing the system prompt on repeated requests. Cache keys include sampling parameters (temperature, top-p, presence penalty) to prevent KV cache state corruption.
+
+6.  **Storage**: The orchestrator uses SQLite in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and future-proof `entity_metadata` for Memory/Knowledge modules.
+
+7.  **Optional Integration**: The orchestrator is nil-safe. When `Agent.orch == nil` (tests, simple deployments), all budget checks are no-ops. The agent loop operates identically with or without the orchestrator active, meeting the zero-latency-impact regression gate (±1ms).
+
+8.  **Per-Model Configuration**: `ReasoningBudget`, `SlotTimeout`, and `ICUWeight` flow through the existing `ModelConfig` → `AgentOptions` pipeline alongside `MaxSteps` and `ContextBudget`. Provider-tier defaults live in `tiers.go`. Per-model overrides live in `settings.yml → model_overrides:` via `ApplyModelOverrides`. All new fields are zero-value-safe (0 = "use provider default").

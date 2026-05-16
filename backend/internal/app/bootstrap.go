@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/mcp"
 	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
@@ -193,6 +194,13 @@ func (s AppServices) ModelConfig(modelName string) (models.ModelConfig, bool) {
 	return models.ModelConfig{}, false
 }
 
+func (s AppServices) Orchestrator() *orchestrator.Orchestrator {
+	if s.AppCtx != nil {
+		return s.AppCtx.Orchestrator()
+	}
+	return nil
+}
+
 func (s AppServices) Persistence() *persistence.WorkspaceManager {
 	return s.persistence
 }
@@ -337,7 +345,7 @@ func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServer
 func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
-	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
+	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
 	var dispatcherHandlers *api.DispatcherHandlers
@@ -393,6 +401,7 @@ func buildRouter(
 	router.Get("/admin/api/providers/models", admin.AdminListProviderModelsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/manifests", admin.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/orchestrator/balance", admin.AdminICUBalanceHandler, jsonMethodNotAllowed)
 
 	// Templates
 	router.Get("/admin/api/templates", admin.ListTemplatesHandler, jsonMethodNotAllowed)

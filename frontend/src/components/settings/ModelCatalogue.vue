@@ -41,6 +41,9 @@ function handleAddNew(available?: AvailableModel) {
       args: [],
       metadata: available.metadata,
       ...tuning,
+      max_tokens: tuning.max_tokens,
+      reasoning_budget: tuning.reasoning_budget,
+      slot_timeout: 0,
     };
   } else {
     editingModel.value = {
@@ -50,6 +53,9 @@ function handleAddNew(available?: AvailableModel) {
       port: nextPort.value,
       args: [],
       ...tuning,
+      max_tokens: tuning.max_tokens,
+      reasoning_budget: tuning.reasoning_budget,
+      slot_timeout: 0,
     };
   }
   rawArgs.value = "";
@@ -192,6 +198,48 @@ const formatSize = (bytes: number) => {
             step="1000"
           />
           <p class="helper-text">Character count that triggers context pruning.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Max Tokens (output)</label>
+          <input
+            v-model.number="editingModel.max_tokens"
+            type="number"
+            class="form-input"
+            placeholder="2048"
+            min="64"
+            max="32768"
+            step="256"
+          />
+          <p class="helper-text">Limits LLM response length per turn.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Reasoning Budget</label>
+          <input
+            v-model.number="editingModel.reasoning_budget"
+            type="number"
+            class="form-input"
+            placeholder="0 (provider default)"
+            min="0"
+            max="32768"
+            step="512"
+          />
+          <p class="helper-text">Max thinking tokens for reasoning models. 0 = unlimited.</p>
+        </div>
+
+        <div class="form-group" v-if="editingModel.provider === 'local'">
+          <label>Slot Timeout (seconds)</label>
+          <input
+            v-model.number="editingModel.slot_timeout"
+            type="number"
+            class="form-input"
+            placeholder="0 (disabled)"
+            min="0"
+            max="86400"
+            step="60"
+          />
+          <p class="helper-text">How long to keep the llama.cpp KV cache slot alive between requests.</p>
         </div>
 
         <div class="form-group">

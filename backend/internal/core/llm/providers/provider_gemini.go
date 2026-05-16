@@ -38,7 +38,7 @@ func (p *GeminiProvider) EnsureReady(ctx context.Context) error {
 	return nil
 }
 
-func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
+func (p *GeminiProvider) ListModels(ctx context.Context) ([]models.ProviderModelInfo, error) {
 	if p.cfg.ProviderConfig.APIKey == "" {
 		return nil, fmt.Errorf("gemini API key is not configured")
 	}
@@ -65,14 +65,13 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	var models []string
+	var out []models.ProviderModelInfo
 	for _, m := range data.Models {
-		// Names come in format "models/gemini-pro", we just want "gemini-pro"
 		name := strings.TrimPrefix(m.Name, "models/")
-		models = append(models, name)
+		out = append(out, models.ProviderModelInfo{ID: name})
 	}
 
-	return models, nil
+	return out, nil
 }
 
 func (p *GeminiProvider) TestConnection(ctx context.Context) error {

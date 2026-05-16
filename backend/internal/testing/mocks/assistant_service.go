@@ -6,6 +6,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -138,6 +139,10 @@ func (m *MockAssistantService) Events() *automation.EventBus {
 		return m.EventBusRef
 	}
 	return automation.NewEventBus()
+}
+
+func (m *MockAssistantService) Orchestrator() *orchestrator.Orchestrator {
+	return nil
 }
 
 func NewMockAssistantService(

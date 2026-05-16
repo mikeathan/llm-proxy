@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
@@ -35,24 +36,31 @@ const (
 
 // Agent represents a unified, stateful assistant that can use tools.
 type Agent struct {
-	client         proxy.Client
-	provider       ToolProvider
-	engine         Engine
-	guardrails     *guardrails.GuardrailEngine
-	logger         logging.Logger
-	maxSteps       int
-	contextBudget  int
-	maxTokens      int
-	useNativeTools bool
-	observer       Observer
-	workspaceID    string
-	onGuardrail    GuardrailDecisionCallback
+	client          proxy.Client
+	provider        ToolProvider
+	engine          Engine
+	guardrails      *guardrails.GuardrailEngine
+	logger          logging.Logger
+	maxSteps        int
+	contextBudget   int
+	maxTokens       int
+	reasoningBudget int
+	icuWeight       float64
+	useNativeTools  bool
+	observer        Observer
+	workspaceID     string
+	onGuardrail     GuardrailDecisionCallback
+	orch            *orchestrator.Orchestrator
+	modelName       string
+	providerType    string
 }
 
 type AgentOptions struct {
-	MaxSteps                 int    // 0 = use DefaultMaxSteps
-	ContextBudget            int    // 0 = use DefaultContextBudget
-	MaxResponseTokens        int    // 0 = use DefaultMaxTokens
+	MaxSteps                 int     // 0 = use DefaultMaxSteps
+	ContextBudget            int     // 0 = use DefaultContextBudget
+	MaxResponseTokens        int     // 0 = use DefaultMaxTokens
+	ReasoningBudget          int     // 0 = use provider default (no cap)
+	ICUWeight                float64 // 0 = default 1.0
 	Logger                   logging.Logger
 	Guardrails               *guardrails.GuardrailEngine
 	Observer                 Observer
@@ -60,6 +68,9 @@ type AgentOptions struct {
 	UseNativeTools           *bool // nil = delegate to provider; explicit true/false overrides
 	UsePrefill               bool  // ignored; prefill is always on for automation + text tools
 	GuardrailDecisionHandler GuardrailDecisionCallback
+	Orchestrator             *orchestrator.Orchestrator
+	ModelName                string
+	ProviderType             string
 }
 
 // NewAgent creates a new unified agent.
@@ -72,6 +83,9 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	}
 	if opts.MaxResponseTokens <= 0 {
 		opts.MaxResponseTokens = DefaultMaxTokens
+	}
+	if opts.ICUWeight <= 0 {
+		opts.ICUWeight = 1.0
 	}
 	if opts.Logger == nil {
 		opts.Logger = logging.NewNopLogger()
@@ -89,18 +103,23 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	}
 
 	return &Agent{
-		client:         client,
-		provider:       provider,
-		engine:         engine,
-		guardrails:     gr,
-		logger:         opts.Logger,
-		maxSteps:       opts.MaxSteps,
-		contextBudget:  opts.ContextBudget,
-		maxTokens:      opts.MaxResponseTokens,
-		useNativeTools: useNative,
-		observer:       opts.Observer,
-		workspaceID:    opts.WorkspaceID,
-		onGuardrail:    opts.GuardrailDecisionHandler,
+		client:          client,
+		provider:        provider,
+		engine:          engine,
+		guardrails:      gr,
+		logger:          opts.Logger,
+		maxSteps:        opts.MaxSteps,
+		contextBudget:   opts.ContextBudget,
+		maxTokens:       opts.MaxResponseTokens,
+		reasoningBudget: opts.ReasoningBudget,
+		icuWeight:       opts.ICUWeight,
+		useNativeTools:  useNative,
+		observer:        opts.Observer,
+		workspaceID:     opts.WorkspaceID,
+		onGuardrail:     opts.GuardrailDecisionHandler,
+		orch:            opts.Orchestrator,
+		modelName:       opts.ModelName,
+		providerType:    opts.ProviderType,
 	}
 }
 
@@ -483,12 +502,54 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		MaxTokens: a.maxTokens,
 	}
 
-	ch, err := a.client.Stream(ctx, req)
-	if err != nil {
-		// llama.cpp with enable_thinking rejects prefill assistant messages.
-		// Switch to native tools with tool_choice=required — this forces the
-		// model to call a tool on every turn without needing XML prefill.
-		if prefill != "" && isPrefillThinkingError(err) {
+	// Pre-flight budget check: debit projected ICU cost before the LLM
+	// call. If the stream fails, the defer block below refunds it so
+	// transient errors don't consume the workspace budget.
+	var txnID string
+	if a.orch != nil && a.orch.Budget != nil {
+		totalChars := 0
+		for _, m := range history {
+			totalChars += len(m.Content)
+		}
+		preflight, pfErr := a.orch.Budget.PreFlightCheck(ctx, a.workspaceID, orchestrator.PreFlightRequest{
+			ModelName:       a.modelName,
+			ProviderType:    a.providerType,
+			ContextChars:    totalChars,
+			MaxTokens:       a.maxTokens,
+			ReasoningBudget: a.reasoningBudget,
+			ICUWeight:       a.icuWeight,
+		})
+		if pfErr != nil {
+			return proxy.Message{}, fmt.Errorf("budget error: %w", pfErr)
+		}
+		if !preflight.Allowed {
+			return proxy.Message{}, fmt.Errorf("budget exceeded: %s", preflight.Reason)
+		}
+		txnID = preflight.TransactionID
+		if preflight.SqueezeFactor < 1.0 {
+			a.maxTokens = preflight.AdjustedMaxTokens
+			a.reasoningBudget = preflight.AdjustedReasoning
+			req.MaxTokens = a.maxTokens
+			a.logger.Warn("budget squeeze applied", "factor", preflight.SqueezeFactor)
+		}
+	}
+
+	ch, streamErr := a.client.Stream(ctx, req)
+
+	if a.orch != nil && a.orch.Budget != nil && txnID != "" {
+		defer func() {
+			if streamErr != nil {
+				if refErr := a.orch.Budget.Refund(ctx, txnID); refErr != nil {
+					a.logger.Warn("ICU refund failed", "txn", txnID, "error", refErr)
+				} else {
+					a.logger.Warn("ICU refunded due to stream failure", "txn", txnID)
+				}
+			}
+		}()
+	}
+
+	if streamErr != nil {
+		if prefill != "" && isPrefillThinkingError(streamErr) {
 			a.logger.Info("prefill rejected by server (thinking mode active), switching to native tools")
 			a.useNativeTools = true
 			prefill = ""
@@ -500,18 +561,18 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 				ToolChoice: proxy.ToolChoiceRequired,
 				MaxTokens:  a.maxTokens,
 			}
-			ch, err = a.client.Stream(ctx, req)
+			ch, streamErr = a.client.Stream(ctx, req)
 		}
-		if err != nil {
-			a.logger.Warn("streaming not supported or failed, falling back to non-streaming", "error", err)
+		if streamErr != nil {
+			a.logger.Warn("streaming not supported or failed, falling back to non-streaming", "error", streamErr)
 			return a.computeNextResponseNonStreaming(ctx, history, tools)
 		}
 	}
 
 	var fullMsg proxy.Message
 	fullMsg.Role = proxy.AssistantRole
-	if err := a.processStream(ctx, ch, &fullMsg); err != nil {
-		return proxy.Message{}, err
+	if streamErr = a.processStream(ctx, ch, &fullMsg); streamErr != nil {
+		return proxy.Message{}, streamErr
 	}
 
 	if prefill != "" {
@@ -532,7 +593,11 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	return fullMsg, nil
 }
 
+// processStream reads SSE chunks from the LLM stream, accumulating
+// content and reasoning tokens.  When the orchestrator is active it also
+// runs token counting via the stream interceptor for budget enforcement.
 func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) error {
+	var tokUsed, reasonUsed int
 	for {
 		select {
 		case <-ctx.Done():
@@ -551,6 +616,25 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				if reasoningChunk == "" && choice.Message.ReasoningContent != "" {
 					reasoningChunk = choice.Message.ReasoningContent
 				}
+
+				if a.orch != nil && a.orch.Interceptor != nil {
+					result := a.orch.Interceptor.InterceptChunk(orchestrator.StreamChunk{
+						Content:          chunkContent,
+						ReasoningContent: reasoningChunk,
+						ProviderType:     a.providerType,
+					})
+					tokUsed += result.TokensUsed
+					reasonUsed += result.ReasoningUsed
+
+					term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
+						orchestrator.StreamChunk{},
+						tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
+					)
+					if term.ShouldTerminate {
+						return fmt.Errorf("stream terminated: token budget exceeded (%d tokens used)", tokUsed)
+					}
+				}
+
 				totalChunk := chunkContent + reasoningChunk
 				if totalChunk != "" {
 					fullMsg.Content += totalChunk

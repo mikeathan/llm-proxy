@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
@@ -19,6 +20,7 @@ import (
 
 type AppContext struct {
 	manager      llm.RuntimeManager
+	orch         *orchestrator.Orchestrator
 	dataMgr      *storage.DataManager
 	resolver     *storage.PathResolver
 	rootDir      string
@@ -43,6 +45,8 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		gpuConfig:    sys.Metrics.GPU,
 		hostSettings: storage.NewHostSettingsStore(),
 	}
+
+	s.initOrchestrator()
 
 	// Link manager to secrets
 	if m, ok := mgr.(*llm.LLMRuntimeManager); ok {
@@ -112,6 +116,21 @@ func (a *AppContext) SelectModels() (string, string) {
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
+}
+
+func (s *AppContext) Orchestrator() *orchestrator.Orchestrator {
+	return s.orch
+}
+
+func (s *AppContext) initOrchestrator() {
+	dbPath := filepath.Join(s.rootDir, "orchestrator.db")
+	orch, err := orchestrator.NewOrchestrator(dbPath)
+	if err != nil {
+		logging.Warn("failed to initialize orchestrator, running without budget control", "error", err)
+		return
+	}
+	s.orch = orch
+	logging.Info("Orchestrator initialized", "db", dbPath)
 }
 
 func (s *AppContext) refreshMetricsService() {

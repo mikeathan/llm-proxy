@@ -20,16 +20,28 @@ const (
 	ProviderStatusError   ProviderStatus = "error"
 )
 
+type ModelPricing struct {
+	Prompt     string `json:"prompt"`
+	Completion string `json:"completion"`
+}
+
+type ModelLimits struct {
+	Context int `json:"context,omitempty"`
+}
+
+type ProviderModelInfo struct {
+	ID      string        `json:"id"`
+	Pricing *ModelPricing `json:"pricing,omitempty"`
+	Limits  *ModelLimits  `json:"limits,omitempty"`
+}
+
 type Provider interface {
-
-
 	Generate(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 	GetStatus() ProviderStatus
 	Shutdown() error
 
-	// For administrative and proxy management
 	EnsureReady(ctx context.Context) error
 	GetEndpoint(ctx context.Context) (string, http.Header, error)
-	ListModels(ctx context.Context) ([]string, error)
+	ListModels(ctx context.Context) ([]ProviderModelInfo, error)
 	TestConnection(ctx context.Context) error
 }

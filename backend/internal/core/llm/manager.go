@@ -72,7 +72,7 @@ type RuntimeManager interface {
 	ClearLogs() error
 	ModelHost() string
 	SetModelHost(host string)
-	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]string, error)
+	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
@@ -203,7 +203,7 @@ func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, provider
 	return p.TestConnection(ctx)
 }
 
-func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]string, error) {
+func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]models.ProviderModelInfo, error) {
 	p, err := m.registrar.Build(models.ModelConfig{
 		Provider: providerName,
 		ProviderConfig: &models.ProviderConfig{
@@ -535,6 +535,21 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		}
 		if override.ContextBudget > 0 {
 			cfg.ContextBudget = override.ContextBudget
+		}
+		if override.MaxTokens > 0 {
+			cfg.MaxTokens = override.MaxTokens
+		}
+		if override.ReasoningBudget > 0 {
+			cfg.ReasoningBudget = override.ReasoningBudget
+		}
+		if override.SlotTimeout > 0 {
+			cfg.SlotTimeout = override.SlotTimeout
+		}
+		if override.ICUWeight > 0 {
+			if cfg.ProviderConfig == nil {
+				cfg.ProviderConfig = &models.ProviderConfig{}
+			}
+			cfg.ProviderConfig.InternalCreditWeight = override.ICUWeight
 		}
 		if override.ToolCallFormat != "" {
 			cfg.ToolCallFormat = override.ToolCallFormat

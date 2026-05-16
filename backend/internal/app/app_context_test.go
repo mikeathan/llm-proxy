@@ -271,7 +271,7 @@ func TestAdminStateHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
 
@@ -326,7 +326,7 @@ func TestAdminStartHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -352,7 +352,7 @@ func TestAdminStopHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -376,7 +376,7 @@ func TestAdminStopHandler_Error(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
@@ -414,7 +414,7 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, cfg)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{})
+	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
 	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	req.Header.Set("Content-Type", "application/json")

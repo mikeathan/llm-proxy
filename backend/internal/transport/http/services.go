@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
@@ -31,7 +32,7 @@ type RuntimeService interface {
 	ClearLogs() error
 	ModelHost() string
 	SetModelHost(string)
-	ListProviderModels(context.Context, string, string) ([]string, error)
+	ListProviderModels(context.Context, string, string) ([]models.ProviderModelInfo, error)
 	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
 }
@@ -100,6 +101,7 @@ type AssistantService interface {
 	Persistence() *persistence.WorkspaceManager
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
+	Orchestrator() *orchestrator.Orchestrator
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
 	Events() *automation.EventBus

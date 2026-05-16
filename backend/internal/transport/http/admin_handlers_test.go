@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -608,18 +609,15 @@ func newAdminHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService)
 	if admin.GetRegistryFunc == nil {
 		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
 	}
-	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
-}
+	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"}, nil)
 
-func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger *mocks.MockLogger) *api.AdminHandlers {
-	if runtime.ModelHostFunc == nil {
-		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
-	}
+}
+func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger logging.Logger) *api.AdminHandlers {
 	if admin.GetSystemFunc == nil {
 		admin.GetSystemFunc = func() models.SystemConfig { return models.SystemConfig{} }
 	}
 	if admin.GetRegistryFunc == nil {
 		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
 	}
-	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
+	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"}, nil)
 }

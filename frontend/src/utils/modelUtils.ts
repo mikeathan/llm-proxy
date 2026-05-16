@@ -10,6 +10,9 @@ export interface ModelForm {
   args: string;
   max_steps: number;
   context_budget: number;
+  max_tokens: number;
+  reasoning_budget: number;
+  slot_timeout: number;
   tool_call_format: string;
   prefill: boolean;
 }
@@ -32,11 +35,13 @@ function providerTuningHints(provider: ProviderType): { tool_call_format: string
 export function getDefaultModelSettings(
   provider: ProviderType,
   defaults: AgentDefaults,
-): { max_steps: number; context_budget: number; tool_call_format: string; prefill: boolean } {
+): { max_steps: number; context_budget: number; max_tokens: number; reasoning_budget: number; tool_call_format: string; prefill: boolean } {
   const hints = providerTuningHints(provider);
   return {
     max_steps: defaults.max_steps,
     context_budget: defaults.context_budget,
+    max_tokens: defaults.max_tokens,
+    reasoning_budget: defaults.reasoning_budget,
     tool_call_format: hints.tool_call_format,
     prefill: hints.prefill,
   };
@@ -86,5 +91,8 @@ export function createEmptyModelForm(
     port: getNextLocalPort(existingModels),
     args: "",
     ...tuning,
+    max_tokens: tuning.max_tokens,
+    reasoning_budget: tuning.reasoning_budget,
+    slot_timeout: 0,
   };
 }

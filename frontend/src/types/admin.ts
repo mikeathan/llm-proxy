@@ -83,6 +83,7 @@ export interface AgentDefaults {
   max_steps: number
   context_budget: number
   max_tokens: number
+  reasoning_budget: number
   tool_call_format: string
   prefill: boolean
 }

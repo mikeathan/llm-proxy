@@ -67,10 +67,10 @@ export const AdminApiService = {
   updateConfig: (payload: Partial<GlobalConfig>): Promise<void> =>
     put<void>(API_ENDPOINTS.config, payload),
   
-  fetchProviderModels: (provider: string, apiKeyName?: string): Promise<string[]> => {
+  fetchProviderModels: (provider: string, apiKeyName?: string): Promise<import('../types/model').ProviderModelInfo[]> => {
     const params = new URLSearchParams({ provider })
     if (apiKeyName) params.set('api_key_name', apiKeyName)
-    return get<string[]>(`${API_ENDPOINTS.providerModels}?${params.toString()}`)
+    return get<import('../types/model').ProviderModelInfo[]>(`${API_ENDPOINTS.providerModels}?${params.toString()}`)
   },
 
   fetchProviderManifests: (): Promise<any[]> =>

@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/internal/core/llm/providers"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"os"
@@ -140,13 +141,13 @@ func (h *AdminHandlers) AdminListProviderModelsHandler(w http.ResponseWriter, r 
 	}
 
 	apiKeyName := r.URL.Query().Get("api_key_name")
-	models, err := h.runtime.ListProviderModels(r.Context(), provider, apiKeyName)
+	infos, err := h.runtime.ListProviderModels(r.Context(), provider, apiKeyName)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to list models: "+err.Error())
 		return
 	}
 
-	respondJSON(w, models)
+	respondJSON(w, infos)
 }
 
 func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter, r *http.Request) {
@@ -169,21 +170,30 @@ func (h *AdminHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter
 	respondJSON(w, map[string]string{"status": "ok", "message": "Connection successful"})
 }
 
+// handleAddModel registers a new model in the runtime and persists it.
+// For OpenRouter (and similar providers that return pricing), it
+// auto-computes InternalCreditWeight from the pricing data so ICU weight
+// is accurate without manual configuration.
 func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string                `json:"name"`
-		Provider       string                `json:"provider"`
-		Filename       string                `json:"filename"`
-		ModelID        string                `json:"model_id"`
-		Path           string                `json:"path"`
-		Args           []string              `json:"args"`
-		Port           int                   `json:"port"`
-		ProviderConfig models.ProviderConfig `json:"provider_config"`
-		Metadata       *models.ModelMetadata `json:"metadata"`
-		Prefill        bool                  `json:"prefill"`
-		MaxSteps       int                   `json:"max_steps"`
-		ContextBudget  int                   `json:"context_budget"`
-		ToolCallFormat string                `json:"tool_call_format"`
+		Name                 string                `json:"name"`
+		Provider             string                `json:"provider"`
+		Filename             string                `json:"filename"`
+		ModelID              string                `json:"model_id"`
+		Path                 string                `json:"path"`
+		Args                 []string              `json:"args"`
+		Port                 int                   `json:"port"`
+		ProviderConfig       models.ProviderConfig `json:"provider_config"`
+		Metadata             *models.ModelMetadata `json:"metadata"`
+		Prefill              bool                  `json:"prefill"`
+		MaxSteps             int                   `json:"max_steps"`
+		ContextBudget        int                   `json:"context_budget"`
+		MaxTokens            int                   `json:"max_tokens"`
+		ReasoningBudget      int                   `json:"reasoning_budget"`
+		SlotTimeout          int                   `json:"slot_timeout"`
+		ToolCallFormat       string                `json:"tool_call_format"`
+		Pricing              *models.ModelPricing  `json:"pricing"`
+		Limits               *models.ModelLimits   `json:"limits"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -236,21 +246,33 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		runtimeArgs = append([]string(nil), req.Args...)
 	}
 
-	runtimeCfg := models.ModelConfig{
-		Name:           req.Name,
-		Provider:       req.Provider,
-		Filename:       filename,
-		Path:           fullPath,
-		Args:           runtimeArgs,
-		Port:           req.Port,
-		Environment:    h.admin.Environment(),
-		ProviderConfig: &req.ProviderConfig,
-		Metadata:       req.Metadata,
-		Prefill:        req.Prefill,
-		MaxSteps:       req.MaxSteps,
-		ContextBudget:  req.ContextBudget,
-		ToolCallFormat: req.ToolCallFormat,
+	if req.Provider != "local" && req.Pricing != nil && req.ProviderConfig.InternalCreditWeight <= 0 {
+		req.ProviderConfig.InternalCreditWeight = orchestrator.ComputeICUWeightFromPricing(req.Pricing)
 	}
+
+	if req.Metadata == nil && req.Limits != nil && req.Limits.Context > 0 {
+		req.Metadata = &models.ModelMetadata{ContextLength: req.Limits.Context}
+	}
+
+	runtimeCfg := models.ModelConfig{
+		Name:             req.Name,
+		Provider:         req.Provider,
+		Filename:         filename,
+		Path:             fullPath,
+		Args:             runtimeArgs,
+		Port:             req.Port,
+		Environment:      h.admin.Environment(),
+		ProviderConfig:   &req.ProviderConfig,
+		Metadata:         req.Metadata,
+		Prefill:          req.Prefill,
+		MaxSteps:         req.MaxSteps,
+		ContextBudget:    req.ContextBudget,
+		MaxTokens:        req.MaxTokens,
+		ReasoningBudget:  req.ReasoningBudget,
+		SlotTimeout:      req.SlotTimeout,
+		ToolCallFormat:   req.ToolCallFormat,
+	}
+	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
 
 	if err := h.runtime.AddModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
@@ -272,6 +294,9 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		Prefill:        req.Prefill,
 		MaxSteps:       req.MaxSteps,
 		ContextBudget:  req.ContextBudget,
+		MaxTokens:      req.MaxTokens,
+		ReasoningBudget: req.ReasoningBudget,
+		SlotTimeout:    req.SlotTimeout,
 		ToolCallFormat: req.ToolCallFormat,
 	}
 
@@ -281,16 +306,20 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save agent tuning overrides to settings.yml (user-level, not registry.json)
-	if req.MaxSteps > 0 || req.ContextBudget > 0 || req.ToolCallFormat != "" || req.Prefill {
+	if req.MaxSteps > 0 || req.ContextBudget > 0 || req.MaxTokens > 0 || req.ReasoningBudget > 0 || req.SlotTimeout > 0 || req.ToolCallFormat != "" || req.Prefill || req.ProviderConfig.InternalCreditWeight > 0 {
 		_ = h.admin.UpdateSettings(func(s *models.UserSettings) {
 			if s.ModelOverrides == nil {
 				s.ModelOverrides = make(map[string]models.ModelOverride)
 			}
 			s.ModelOverrides[req.Name] = models.ModelOverride{
-				MaxSteps:      req.MaxSteps,
-				ContextBudget: req.ContextBudget,
-				ToolCallFormat: req.ToolCallFormat,
-				Prefill:        req.Prefill,
+				MaxSteps:        req.MaxSteps,
+				ContextBudget:   req.ContextBudget,
+				MaxTokens:       req.MaxTokens,
+				ReasoningBudget: req.ReasoningBudget,
+				SlotTimeout:     req.SlotTimeout,
+				ICUWeight:       req.ProviderConfig.InternalCreditWeight,
+				ToolCallFormat:  req.ToolCallFormat,
+				Prefill:         req.Prefill,
 			}
 		})
 	}
@@ -298,21 +327,29 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, runtimeCfg)
 }
 
+// handleUpdateModel updates an existing model in both runtime and
+// registry persistence.  Like handleAddModel, it auto-computes ICU weight
+// from pricing data when available.
 func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string                `json:"name"`
-		Provider       string                `json:"provider"`
-		Filename       string                `json:"filename"`
-		ModelID        string                `json:"model_id"`
-		Path           string                `json:"path"`
-		Args           []string              `json:"args"`
-		Port           int                   `json:"port"`
-		ProviderConfig models.ProviderConfig `json:"provider_config"`
-		Metadata       *models.ModelMetadata `json:"metadata"`
-		Prefill        bool                  `json:"prefill"`
-		MaxSteps       int                   `json:"max_steps"`
-		ContextBudget  int                   `json:"context_budget"`
-		ToolCallFormat string                `json:"tool_call_format"`
+		Name                 string                `json:"name"`
+		Provider             string                `json:"provider"`
+		Filename             string                `json:"filename"`
+		ModelID              string                `json:"model_id"`
+		Path                 string                `json:"path"`
+		Args                 []string              `json:"args"`
+		Port                 int                   `json:"port"`
+		ProviderConfig       models.ProviderConfig `json:"provider_config"`
+		Metadata             *models.ModelMetadata `json:"metadata"`
+		Prefill              bool                  `json:"prefill"`
+		MaxSteps             int                   `json:"max_steps"`
+		ContextBudget        int                   `json:"context_budget"`
+		MaxTokens            int                   `json:"max_tokens"`
+		ReasoningBudget      int                   `json:"reasoning_budget"`
+		SlotTimeout          int                   `json:"slot_timeout"`
+		ToolCallFormat       string                `json:"tool_call_format"`
+		Pricing              *models.ModelPricing  `json:"pricing"`
+		Limits               *models.ModelLimits   `json:"limits"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -366,6 +403,14 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		runtimeArgs = append([]string(nil), req.Args...)
 	}
 
+	if req.Provider != "local" && req.Pricing != nil && req.ProviderConfig.InternalCreditWeight <= 0 {
+		req.ProviderConfig.InternalCreditWeight = orchestrator.ComputeICUWeightFromPricing(req.Pricing)
+	}
+
+	if req.Metadata == nil && req.Limits != nil && req.Limits.Context > 0 {
+		req.Metadata = &models.ModelMetadata{ContextLength: req.Limits.Context}
+	}
+
 	fullPath := ""
 	if req.Provider == "local" {
 		fullPath = h.admin.ResolveModelPath(req.Filename, req.Path)
@@ -376,20 +421,24 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	runtimeCfg := models.ModelConfig{
-		Name:           req.Name,
-		Provider:       req.Provider,
-		Filename:       req.Filename,
-		Path:           fullPath,
-		Args:           runtimeArgs,
-		Port:           req.Port,
-		Environment:    h.admin.Environment(),
-		ProviderConfig: &req.ProviderConfig,
-		Metadata:       req.Metadata,
-		Prefill:        req.Prefill,
-		MaxSteps:       req.MaxSteps,
-		ContextBudget:  req.ContextBudget,
-		ToolCallFormat: req.ToolCallFormat,
+		Name:             req.Name,
+		Provider:         req.Provider,
+		Filename:         req.Filename,
+		Path:             fullPath,
+		Args:             runtimeArgs,
+		Port:             req.Port,
+		Environment:      h.admin.Environment(),
+		ProviderConfig:   &req.ProviderConfig,
+		Metadata:         req.Metadata,
+		Prefill:          req.Prefill,
+		MaxSteps:         req.MaxSteps,
+		ContextBudget:    req.ContextBudget,
+		MaxTokens:        req.MaxTokens,
+		ReasoningBudget:  req.ReasoningBudget,
+		SlotTimeout:      req.SlotTimeout,
+		ToolCallFormat:   req.ToolCallFormat,
 	}
+	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, llm.ErrUnknownModel) {
@@ -400,17 +449,20 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	persistCfg := models.ModelConfig{
-		Name:           req.Name,
-		Provider:       req.Provider,
-		Filename:       req.Filename,
-		Args:           append([]string{}, req.Args...),
-		Port:           req.Port,
-		ProviderConfig: &req.ProviderConfig,
-		Metadata:       req.Metadata,
-		Prefill:        req.Prefill,
-		MaxSteps:       req.MaxSteps,
-		ContextBudget:  req.ContextBudget,
-		ToolCallFormat: req.ToolCallFormat,
+		Name:             req.Name,
+		Provider:         req.Provider,
+		Filename:         req.Filename,
+		Args:             append([]string{}, req.Args...),
+		Port:             req.Port,
+		ProviderConfig:   &req.ProviderConfig,
+		Metadata:         req.Metadata,
+		Prefill:          req.Prefill,
+		MaxSteps:         req.MaxSteps,
+		ContextBudget:    req.ContextBudget,
+		MaxTokens:        req.MaxTokens,
+		ReasoningBudget:  req.ReasoningBudget,
+		SlotTimeout:      req.SlotTimeout,
+		ToolCallFormat:   req.ToolCallFormat,
 	}
 
 	if err := h.admin.PersistReplaceModel(persistCfg); err != nil {
@@ -419,16 +471,20 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 
 	// Save agent tuning overrides to settings.yml (user-level, not registry.json)
-	if req.MaxSteps > 0 || req.ContextBudget > 0 || req.ToolCallFormat != "" || req.Prefill {
+	if req.MaxSteps > 0 || req.ContextBudget > 0 || req.MaxTokens > 0 || req.ReasoningBudget > 0 || req.SlotTimeout > 0 || req.ToolCallFormat != "" || req.Prefill || req.ProviderConfig.InternalCreditWeight > 0 {
 		_ = h.admin.UpdateSettings(func(s *models.UserSettings) {
 			if s.ModelOverrides == nil {
 				s.ModelOverrides = make(map[string]models.ModelOverride)
 			}
 			s.ModelOverrides[req.Name] = models.ModelOverride{
-				MaxSteps:      req.MaxSteps,
-				ContextBudget: req.ContextBudget,
-				ToolCallFormat: req.ToolCallFormat,
-				Prefill:        req.Prefill,
+				MaxSteps:        req.MaxSteps,
+				ContextBudget:   req.ContextBudget,
+				MaxTokens:       req.MaxTokens,
+				ReasoningBudget: req.ReasoningBudget,
+				SlotTimeout:     req.SlotTimeout,
+				ICUWeight:       req.ProviderConfig.InternalCreditWeight,
+				ToolCallFormat:  req.ToolCallFormat,
+				Prefill:         req.Prefill,
 			}
 		})
 	}

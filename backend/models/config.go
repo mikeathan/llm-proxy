@@ -1,3 +1,7 @@
+// Package models defines all shared types for the llm-proxy system:
+// model configs, provider definitions, guardrail rules, LLM messages,
+// workspace state, and the resource-aware orchestration types.
+
 package models
 
 import (
@@ -313,10 +317,15 @@ type ModelConfig struct {
 
 	// Agent tuning — per-model overrides for agent loop behaviour.
 	// Zero values mean "use the global default."
-	MaxSteps      int    `json:"max_steps,omitempty"`
-	ContextBudget int    `json:"context_budget,omitempty"`
-	ToolCallFormat string `json:"tool_call_format,omitempty"` // "xml" or "native"
-	Prefill       bool   `json:"prefill,omitempty"`           // prefill assistant response with <tool_call> opening tag in automation mode
+	MaxSteps        int    `json:"max_steps,omitempty"`
+	ContextBudget   int    `json:"context_budget,omitempty"`
+	MaxTokens       int    `json:"max_tokens,omitempty"`
+	ToolCallFormat  string `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill         bool   `json:"prefill,omitempty"`
+
+	// Resource-aware orchestration. Zero values mean "use provider default."
+	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens
+	SlotTimeout     int `json:"slot_timeout,omitempty"`     // seconds to keep llama.cpp slot alive
 }
 
 type ModelMetadata struct {
@@ -330,11 +339,12 @@ type ModelMetadata struct {
 }
 
 type ProviderConfig struct {
-	APIKey     string `json:"-"`
-	APIKeyName string `json:"api_key_name,omitempty"`
-	BaseURL    string `json:"base_url,omitempty"`
-	ProjectID  string `json:"project_id,omitempty"`
-	Region     string `json:"region,omitempty"`
+	APIKey               string  `json:"-"`
+	APIKeyName           string  `json:"api_key_name,omitempty"`
+	BaseURL              string  `json:"base_url,omitempty"`
+	ProjectID            string  `json:"project_id,omitempty"`
+	Region               string  `json:"region,omitempty"`
+	InternalCreditWeight float64 `json:"internal_credit_weight,omitempty"` // ICU multiplier per token
 }
 
 type MetricsConfig struct {

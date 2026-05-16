@@ -33,10 +33,12 @@ func (p *VertexProvider) EnsureReady(ctx context.Context) error {
 	return nil
 }
 
-func (p *VertexProvider) ListModels(ctx context.Context) ([]string, error) {
-	// Vertex AI model listing requires custom OAuth/Service Account handling
-	// Returning a placeholder for now
-	return []string{"gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"}, nil
+func (p *VertexProvider) ListModels(ctx context.Context) ([]models.ProviderModelInfo, error) {
+	return []models.ProviderModelInfo{
+		{ID: "gemini-1.5-pro"},
+		{ID: "gemini-1.5-flash"},
+		{ID: "gemini-1.0-pro"},
+	}, nil
 }
 
 func (p *VertexProvider) TestConnection(ctx context.Context) error {

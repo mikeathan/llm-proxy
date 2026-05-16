@@ -15,6 +15,7 @@ export interface ProviderConfig {
   base_url?: string
   project_id?: string
   region?: string
+  internal_credit_weight?: number
 }
 
 export interface Model {
@@ -33,6 +34,9 @@ export interface Model {
   prefill?: boolean
   max_steps?: number
   context_budget?: number
+  max_tokens?: number
+  reasoning_budget?: number
+  slot_timeout?: number
   tool_call_format?: string
 }
 
@@ -54,6 +58,21 @@ export interface AvailableModel {
   metadata: ModelMetadata
 }
 
+export interface ModelPricing {
+  prompt: string
+  completion: string
+}
+
+export interface ModelLimits {
+  context?: number
+}
+
+export interface ProviderModelInfo {
+  id: string
+  pricing?: ModelPricing
+  limits?: ModelLimits
+}
+
 export interface NewModelForm {
   name: string
   provider: import('./admin').ProviderType
@@ -66,5 +85,8 @@ export interface NewModelForm {
   prefill?: boolean
   max_steps?: number
   context_budget?: number
+  max_tokens?: number
+  reasoning_budget?: number
+  slot_timeout?: number
   tool_call_format?: string
 }

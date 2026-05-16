@@ -1,3 +1,7 @@
+// OpenAICompatibleProvider handles any OpenAI-compatible API endpoint,
+// including OpenRouter and NVIDIA.  The ListModels method parses the
+// optional pricing block from the response so ICU weights can be
+// auto-computed at model registration time — no static cost tables.
 package providers
 
 import (
@@ -48,7 +52,7 @@ func (p *OpenAICompatibleProvider) GetEndpoint(ctx context.Context) (string, htt
 	return url, header, nil
 }
 
-func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]string, error) {
+func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]models.ProviderModelInfo, error) {
 	baseURL := p.cfg.ProviderConfig.BaseURL
 	if baseURL == "" {
 		baseURL = p.manifest.DefaultBaseURL
@@ -79,7 +83,9 @@ func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]string, er
 
 	var data struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID      string              `json:"id"`
+			Pricing *models.ModelPricing `json:"pricing,omitempty"`
+			Limits  *models.ModelLimits  `json:"limits,omitempty"`
 		} `json:"data"`
 	}
 
@@ -87,12 +93,16 @@ func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]string, er
 		return nil, err
 	}
 
-	var models []string
+	var out []models.ProviderModelInfo
 	for _, m := range data.Data {
-		models = append(models, m.ID)
+		out = append(out, models.ProviderModelInfo{
+			ID:      m.ID,
+			Pricing: m.Pricing,
+			Limits:  m.Limits,
+		})
 	}
 
-	return models, nil
+	return out, nil
 }
 
 func (p *OpenAICompatibleProvider) setAuthHeaders(header http.Header) {

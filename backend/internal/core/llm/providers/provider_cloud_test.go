@@ -60,12 +60,12 @@ func TestDynamicProviderRegistry(t *testing.T) {
 	cfg.ProviderConfig.BaseURL = server.URL
 	p = providers.NewOpenAICompatibleProvider(cfg, m)
 
-	models, err := p.ListModels(context.Background())
+	infos, err := p.ListModels(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(models) != 2 || models[0] != "model1" || models[1] != "model2" {
-		t.Errorf("unexpected models: %v", models)
+	if len(infos) != 2 || infos[0].ID != "model1" || infos[1].ID != "model2" {
+		t.Errorf("unexpected models: %v", infos)
 	}
 }
 
