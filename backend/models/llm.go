@@ -29,10 +29,16 @@ type ModelLimits struct {
 	Context int `json:"context,omitempty"`
 }
 
+type ModelMeta struct {
+	ContextLength int   `json:"n_ctx_train,omitempty"`
+	Parameters    int64 `json:"n_params,omitempty"`
+}
+
 type ProviderModelInfo struct {
 	ID      string        `json:"id"`
 	Pricing *ModelPricing `json:"pricing,omitempty"`
 	Limits  *ModelLimits  `json:"limits,omitempty"`
+	Meta    *ModelMeta    `json:"meta,omitempty"`
 }
 
 type Provider interface {

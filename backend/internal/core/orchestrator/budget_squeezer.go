@@ -149,20 +149,15 @@ var providerCtxDefaults = map[string]int{
 }
 
 var knownCtx = map[string]int{
-	"deepseek-v3":        64_000,
-	"deepseek-r1":        128_000,
-	"claude-sonnet":      200_000,
-	"claude-opus":        200_000,
-	"claude-3.5":         200_000,
-	"o3":                 200_000,
-	"o4":                 200_000,
-	"gemini-1.5-pro":     2_097_152,
-	"mistral-large":      128_000,
-	"mistral-small":      32_000,
-	"qwen":               128_000,
-	"kimi":               128_000,
-	"deepseek":           128_000,
-	"llama":              128_000,
+	// Exceptional models — context length differs from their provider default.
+	"deepseek-v3":    64_000,   // V3 has 64K, all other DeepSeek models default to 128K
+	"claude-sonnet":  200_000,  // Claude 4 Sonnet
+	"claude-opus":    200_000,  // Claude 4 Opus
+	"claude-3.5":     200_000,  // Claude 3.5 Sonnet
+	"o3":             200_000,  // o-series has 200K, not standard OpenAI 128K
+	"o4":             200_000,
+	"gemini-1.5-pro": 2_097_152, // 2M — only Gemini model above the 1M provider default
+	"mistral-small":  32_000,    // 32K — unusually small in Mistral family
 }
 
 func resolveContextLength(cfg *models.ModelConfig) int {

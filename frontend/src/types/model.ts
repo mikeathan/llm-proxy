@@ -67,10 +67,16 @@ export interface ModelLimits {
   context?: number
 }
 
+export interface ModelMeta {
+  n_ctx_train?: number
+  n_params?: number
+}
+
 export interface ProviderModelInfo {
   id: string
   pricing?: ModelPricing
   limits?: ModelLimits
+  meta?: ModelMeta
 }
 
 export interface NewModelForm {

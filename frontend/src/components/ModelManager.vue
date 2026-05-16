@@ -44,6 +44,8 @@ watch(
 
 // Auto-default model name from ID when selected
 const lastDerivedName = ref("");
+let cloudSelection: Record<string, any> = {};
+
 watch(
   () => form.value.model_id,
   (newId) => {
@@ -64,8 +66,17 @@ const filteredModels = computed(() =>
 );
 
 function submitModel() {
-  emit("addModel", form.value);
+  const payload = { ...form.value };
+  if (cloudSelection.pricing) (payload as any).pricing = cloudSelection.pricing;
+  if (cloudSelection.limits) (payload as any).limits = cloudSelection.limits;
+  if (cloudSelection.meta) (payload as any).meta = cloudSelection.meta;
+  emit("addModel", payload);
   form.value = makeEmptyForm(form.value.provider);
+  cloudSelection = {};
+}
+
+function onCloudModelSelect(sel: any) {
+  cloudSelection = sel;
 }
 
 function selectAvailableModel(model: AvailableModel) {
@@ -173,6 +184,7 @@ onMounted(() => {
               v-model:api-key-name="form.provider_config!.api_key_name!"
               v-model:prefill="form.prefill!"
               :state="state"
+              @select="onCloudModelSelect"
             />
           </div>
 

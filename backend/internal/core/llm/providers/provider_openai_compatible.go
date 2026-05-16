@@ -86,6 +86,7 @@ func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]models.Pro
 			ID      string              `json:"id"`
 			Pricing *models.ModelPricing `json:"pricing,omitempty"`
 			Limits  *models.ModelLimits  `json:"limits,omitempty"`
+			Meta    *models.ModelMeta    `json:"meta,omitempty"`
 		} `json:"data"`
 	}
 
@@ -99,6 +100,7 @@ func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]models.Pro
 			ID:      m.ID,
 			Pricing: m.Pricing,
 			Limits:  m.Limits,
+			Meta:    m.Meta,
 		})
 	}
 

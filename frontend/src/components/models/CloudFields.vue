@@ -63,7 +63,7 @@ function onModelSelect(id: string) {
   emit("update:modelId", id);
   const selected = providerModels.value.find((m) => m.id === id);
   if (selected) {
-    emit("select", { id: selected.id, pricing: selected.pricing, limits: selected.limits } as any);
+    emit("select", { id: selected.id, pricing: selected.pricing, limits: selected.limits, meta: selected.meta } as any);
   }
 }
 

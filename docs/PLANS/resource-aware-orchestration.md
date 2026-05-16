@@ -427,44 +427,56 @@ IF agent.orchestrator != nil:
 
 ## 5. ICU Weight Resolution
 
-Internal Credit Units normalize the "cost" of using different models. 1 ICU = 1 input token on a local 7B model. All other weights are multipliers.
-
-No static lookup table. Weights are resolved from data the system already has:
+Internal Credit Units normalize the "cost" of using different models. 1 ICU = 1 input token on a local 7B model.
 
 ```
-func ResolveICUWeight(cfg ModelConfig) float64:
+ResolveICUWeight(cfg ModelConfig) float64:
     1. ProviderConfig.InternalCreditWeight > 0  → use it (user/admin override wins)
     2. Local model with Metadata.Parameters     → derive from parameter count:
-         < 4B    → 0.5
-         4-8B    → 1.0
-         8-20B   → 1.5
-         20-40B  → 2.5
-         > 40B   → 4.0
+         < 4B    → 0.5    4-8B    → 1.0
+         8-20B   → 1.5    20-40B  → 2.5    > 40B  → 4.0
     3. Fallback                                  → 1.0 (safe default)
 ```
 
 ### How cloud model weights are set
 
-For OpenRouter (which returns pricing in its `/models` API response), the weight is auto-computed once at registration time:
+For OpenRouter (returns pricing in its `/models` API), weight is auto-computed once at registration time:
 
 ```
 ComputeICUWeightFromPricing(pricing):
-    totalPerToken = ParseFloat(prompt) + ParseFloat(completion)
-    return totalPerToken / 0.000001
+    return (prompt + completion) / 0.000001
 ```
 
-This converts real dollar pricing to an ICU weight. Example: `prompt="$0.0000025"`, `completion="$0.00001"` → `ICU weight = 12.5`.
+Called in `registry_handlers.go:handleAddModel`. Any model's weight can be overridden in Settings.
 
-The handler in `registry_handlers.go:handleAddModel` calls `ComputeICUWeightFromPricing` and sets `ProviderConfig.InternalCreditWeight` before persisting. Any model can be manually tuned via the Settings UI.
+### Context Length Resolution (4-Tier)
 
-For all other cloud providers (OpenAI, Gemini, NVIDIA, etc.) that don't return pricing in their model-list API, the default weight is 1.0. Admins set explicit weights per model via Settings.
+Determines `max_tokens`, `context_budget`, and `reasoning_budget` for every model.
 
-### Why no static manifest
+```
+resolveContextLength(cfg):
+    1. Metadata.ContextLength          → GGUF scanner (local models, exact per-model)
+    2. knownCtx fragment match          → 8 exceptions (deepseek-v3=64K, o3=200K, etc.)
+    3. providerCtxDefaults[Provider]    → one line per provider covers all future models:
+         gemini/vertex = 1M    openai = 128K
+         openrouter/mulerouter/nvidia = 128K    local = 8K
+    4. 0                                → ProviderTiers fallback (2048-4096 tokens, safe for any model)
+```
 
-- OpenRouter's API returns current pricing for every model they support, including models added tomorrow
-- Local model parameter counts come from GGUF metadata, already scanned at discovery time
-- Static weight tables go stale immediately — new models fall through to defaults
-- Per-model config override gives precise control without code changes
+`ApplyMetadataDefaults()` runs at model registration time. Only sets fields that haven't been explicitly configured. User overrides always win.
+
+### Meta Parsing from Any OpenAI-Compatible Endpoint
+
+llama.cpp's `/v1/models` returns `meta.n_ctx_train` and `meta.n_params`. These are parsed through `ProviderModelInfo.Meta` and flow to `Metadata.ContextLength` / `Metadata.Parameters` at registration time. No static table needed — the server provides exact per-model data.
+
+### Why no static cost manifest
+
+Static manifests go stale the day after you commit. The system uses three self-updating sources:
+- OpenRouter API (pricing + limits for 300+ models, always current)
+- GGUF metadata (context length + parameters for local models, exact per-file)
+- llama.cpp API (`n_ctx_train` + `n_params` returned directly by the server)
+
+Per-model config override gives precise control without code changes. A ~20 entry fragment map handles the few models whose context differs from their provider default (deepseek-v3=64K, claude=200K, o3/o4=200K, mistral-small=32K, gemini-1.5-pro=2M).
 
 ---
 
@@ -821,30 +833,32 @@ func TestRegression_StandardCompletionsIdentical(t *testing.T) {
 
 ## 10. Implementation Status
 
-**Phase 0** — Partial: mock streams, regression suite. Benchmark script pending.
-
 | Phase | Status |
 |---|---|
 | **A** — `models/config.go` + `models/infrastructure.go` extensions | Done |
-| **B** — `internal/platform/ledger/store.go` (SQLite WAL, extracted from orchestrator) | Done |
-| **C** — ICU weight resolution (pricing-based, no static table) | Done |
-| **D** — `budget_manager.go` (pre-flight + refund) | Done |
+| **B** — `internal/platform/ledger/store.go` (SQLite WAL, decoupled) | Done |
+| **C** — ICU weight resolution (pricing-based, GGUF-based, no static table) | Done |
+| **D** — `budget_manager.go` (pre-flight + refund, 4-tier context resolution) | Done |
 | **E** — `budget_squeezer.go` (adaptive squeeze + hard floor) | Done |
 | **F** — `stream_interceptor.go` (code-aware token counter) | Done |
 | **G** — Wire orchestrator into agent.go with defer refund | Done |
-| **H** — `reasoning_normalizer.go` (provider detection + token accumulation) | Done |
-| **I** — `slot_manager.go` (llama.cpp slot save/restore, sampling-aware cache keys) | Done |
+| **H** — `reasoning_normalizer.go` (stream-mode detection, no provider-name mapping) | Done |
+| **I** — `slot_manager.go` (llama.cpp slot save/restore, sampling-aware keys) | Done |
 | **J** — Bootstrap in AppContext + AppServices | Done |
 | **K** — MockManager, tiers, handlers, admin views updated | Done |
-| **L** — 70+ tests, all 23 packages pass | Done |
-| **M** — Frontend Vue fields | Pending |
+| **L** — 80+ tests, all 23 packages pass | Done |
+| **M** — Frontend Vue fields (reasoning budget, slot timeout, meta/passing pricing/limits) | Done |
 | **N** — Baseline comparison | Pending |
 
-### Package Layout (Final)
+### Package Layout
 
 ```
-internal/platform/ledger/     (2 files)  — store.go + store_test.go
+internal/platform/ledger/     (2 files)  — store.go + store_test.go (decoupled SQLite)
 internal/core/orchestrator/    (13 files) — budget + squeezer + stream + normalizer + slots + tests
+
+Context length resolution: 4 tiers (metadata → fragment → provider default → tiers fallback)
+ICU weight resolution:    3 tiers (config override → GGUF params → default 1.0)
+Reasoning detection:      stream-mode from data (not provider name mapping)
 ```
 
 ---
@@ -856,6 +870,6 @@ internal/core/orchestrator/    (13 files) — budget + squeezer + stream + norma
 | SQLite write contention under high-frequency loops | WAL mode + NORMAL synchronous; benchmarked at 10 concurrent writers. If contention: batch writes with in-memory ring buffer + periodic flush |
 | Stream interception adds latency | Interceptor does only integer math + one comparison (<5µs). Pre-allocation of counters. No allocations in hot path |
 | llama.cpp slot API changes | Abstract behind `SlotManager` interface; feature-gate with `SlotTimeout > 0` check |
-| ICU weight calibration wrong | All weights are configurable via `provider_weights.go` constants; expose via admin API for runtime tuning |
+| ICU weight / context length wrong for new models | 3-tier resolution with auto-compute from OpenRouter API + GGUF metadata + llama.cpp meta. Provider-level defaults cover all future models without maintenance. ~8 fragment overrides for known exceptions. User-correctable via Settings. |
 | Breaking existing agent tests | Orchestrator is optional (nil check before use). Agent tests without orchestrator work unchanged |
 | Reasoning token counting inaccurate | Use conservative char/2 estimation for text, char for code blocks. Provider-reported actuals (when available) take precedence |

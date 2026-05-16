@@ -97,18 +97,27 @@ This document defines the immutable architectural and security laws of the Antig
 
 The Orchestration Layer (`internal/core/orchestrator/`) provides a unified token and cost budgeting system that treats VRAM slots and financial tokens as a single Computational Capital.
 
-1.  **ICU (Internal Credit Unit) Standard**: All model usage is denominated in ICUs. 1 ICU = 1 input token on a local 7B model. Cloud providers carry weights (e.g. local 7B = 1.0x, GPT-4o = 2.5x, Gemini Flash = 0.1x) defined in `provider_weights.go`.
+1.  **ICU (Internal Credit Unit) Standard**: All model usage is denominated in ICUs. 1 ICU = 1 input token on a local 7B model. ICU weight resolution is 3-tier: user override (`InternalCreditWeight`) → GGUF parameter count (local models) → default 1.0. No static weight table exists — `provider_weights.go` was removed as stale. Weights are resolved at runtime from available data, not from a baked-in manifest.
 
-2.  **Pre-Flight Check**: Before every LLM request, the orchestrator debits the projected ICU cost from the workspace balance. If the projected cost exceeds the remaining cap, the Budget Squeezer applies an adaptive reduction factor (hard floor: 0.2x). If even the squeezed request exceeds the cap, the request is rejected with `BUDGET_EXCEEDED`.
+2.  **Context Length Resolution (4-Tier)**: `max_tokens`, `context_budget`, and `reasoning_budget` are auto-computed at model registration time via `ApplyMetadataDefaults()`:
+    - **Tier 1** — `Metadata.ContextLength` from GGUF scanner (local models, exact per-file)
+    - **Tier 2** — `knownCtx` fragment map (~8 entries for models whose context differs from provider default: deepseek-v3=64K, o3/o4/claude=200K, gemini-1.5-pro=2M, mistral-small=32K)
+    - **Tier 3** — `providerCtxDefaults[Provider]` (one line per provider covers all future models: gemini/vertex=1M, openai/openrouter/nvidia/mulerouter=128K, local=8K)
+    - **Tier 4** — `ProviderTiers` fallback (2048-4096 tokens, always safe for any modern model)
+    - Only fields that are still 0 are set — user-customized values are never overwritten.
 
-3.  **Atomic ICU Refunds**: ICU debits recorded by the pre-flight check are refunded via `defer` if the downstream LLM request fails (network timeout, 5xx). Double-refunds are idempotent.
+3.  **Meta Parsing from Any OpenAI-Compatible Endpoint**: llama.cpp and similar servers return `meta.n_ctx_train` (context length) and `meta.n_params` (parameter count) in their `/v1/models` response. The `OpenAICompatibleProvider.ListModels()` parses these into `ProviderModelInfo.Meta`. When the user adds a model from the dropdown, the meta flows through the frontend → `handleAddModel` → `Metadata.ContextLength` / `Metadata.Parameters`. This provides exact per-model data without any static table or user input. Works for any server that exposes this metadata — not just llama.cpp.
 
-4.  **Stream Interception with Code Awareness**: Every SSE chunk in `processStream()` passes through the `StreamInterceptor`. Token counting uses an adaptive ratio: 0.5 chars/token for prose, 1.0 chars/token for content inside triple-backtick fences. The interceptor may terminate a stream mid-response if token budgets are exhausted.
+4.  **Pre-Flight Check**: Before every LLM request, the orchestrator debits the projected ICU cost from the workspace balance. If the projected cost exceeds the remaining cap, the Budget Squeezer applies an adaptive reduction factor (hard floor: 0.2x). If even the squeezed request exceeds the cap, the request is rejected with `BUDGET_EXCEEDED`.
 
-5.  **Slot Persistence for llama.cpp**: Local model KV caches are tracked in SQLite (`orchestrator.db`, WAL mode) to avoid re-processing the system prompt on repeated requests. Cache keys include sampling parameters (temperature, top-p, presence penalty) to prevent KV cache state corruption.
+5.  **Atomic ICU Refunds**: ICU debits recorded by the pre-flight check are refunded via `defer` if the downstream LLM request fails (network timeout, 5xx). Double-refunds are idempotent at the SQL level via `refund_status = 'none'` check.
 
-6.  **Storage**: The orchestrator uses SQLite in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and future-proof `entity_metadata` for Memory/Knowledge modules.
+6.  **Stream Interception with Code Awareness**: Every SSE chunk in `processStream()` passes through the `StreamInterceptor`. Token counting uses an adaptive ratio: 0.5 chars/token for prose, 1.0 chars/token inside code fences. The interceptor calls `ReasoningNormalizer.Accumulate()` to separate reasoning tokens from content tokens regardless of provider — detection is from stream data, not a provider-name-to-format mapping. The interceptor may terminate a stream mid-response if per-turn budgets are exhausted.
 
-7.  **Optional Integration**: The orchestrator is nil-safe. When `Agent.orch == nil` (tests, simple deployments), all budget checks are no-ops. The agent loop operates identically with or without the orchestrator active, meeting the zero-latency-impact regression gate (±1ms).
+7.  **Slot Persistence for llama.cpp**: Local model KV caches are tracked in SQLite (`orchestrator.db`, WAL mode) to avoid re-processing the system prompt on repeated requests. Cache keys include sampling parameters (temperature, top-p, presence penalty) to prevent KV cache state corruption. The slot manager calls `POST /slots/{n}?action=save|restore` on the llama.cpp server.
 
-8.  **Per-Model Configuration**: `ReasoningBudget`, `SlotTimeout`, and `ICUWeight` flow through the existing `ModelConfig` → `AgentOptions` pipeline alongside `MaxSteps` and `ContextBudget`. Provider-tier defaults live in `tiers.go`. Per-model overrides live in `settings.yml → model_overrides:` via `ApplyModelOverrides`. All new fields are zero-value-safe (0 = "use provider default").
+8.  **Storage**: The ledger package (`internal/platform/ledger/`) is a decoupled SQLite store in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and `entity_metadata` (entity_type/entity_id/key/value — generic, reusable by future Memory/Knowledge modules without schema changes). The orchestrator imports ledger; future memory modules will import ledger directly — no circular dependency.
+
+9.  **Nil-Safe Orchestrator**: When `Agent.orch == nil` (tests, simple deployments), all budget and slot checks are no-ops. The agent loop operates identically with or without the orchestrator active, meeting the zero-latency-impact regression gate.
+
+10. **Per-Model Configuration**: `ReasoningBudget`, `SlotTimeout`, `MaxTokens`, and `ICUWeight` flow through the existing `ModelConfig` → `AgentOptions` pipeline alongside `MaxSteps` and `ContextBudget`. `ReasoningNormalizer` detects the stream mode from data — models routed through OpenRouter, NVIDIA, or any gateway are handled transparently without maintaining a provider→format mapping.

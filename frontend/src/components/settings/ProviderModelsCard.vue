@@ -191,12 +191,16 @@ async function saveNewModel() {
     });
   } else {
     if (!id) return;
+    const selected = providerModels.value.find(m => m.id === id);
     await addModel({
       name: finalName,
       provider: props.provider,
       model_id: id,
       provider_config: { api_key_name: key },
-      ...tuning
+      ...tuning,
+      ...(selected?.pricing ? { pricing: selected.pricing } : {}),
+      ...(selected?.limits ? { limits: selected.limits } : {}),
+      ...(selected?.meta ? { meta: selected.meta } : {}),
     });
   }
   cancelEdit();

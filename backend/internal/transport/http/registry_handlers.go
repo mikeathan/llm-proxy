@@ -194,6 +194,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		ToolCallFormat       string                `json:"tool_call_format"`
 		Pricing              *models.ModelPricing  `json:"pricing"`
 		Limits               *models.ModelLimits   `json:"limits"`
+		Meta                 *models.ModelMeta     `json:"meta"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -252,6 +253,13 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	if req.Metadata == nil && req.Limits != nil && req.Limits.Context > 0 {
 		req.Metadata = &models.ModelMetadata{ContextLength: req.Limits.Context}
+	}
+	if req.Metadata == nil && req.Meta != nil && req.Meta.ContextLength > 0 {
+		req.Metadata = &models.ModelMetadata{ContextLength: req.Meta.ContextLength, Parameters: req.Meta.Parameters}
+	}
+	if req.Metadata != nil && req.Meta != nil && req.Meta.ContextLength > 0 {
+		req.Metadata.ContextLength = req.Meta.ContextLength
+		req.Metadata.Parameters = req.Meta.Parameters
 	}
 
 	runtimeCfg := models.ModelConfig{
@@ -350,6 +358,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		ToolCallFormat       string                `json:"tool_call_format"`
 		Pricing              *models.ModelPricing  `json:"pricing"`
 		Limits               *models.ModelLimits   `json:"limits"`
+		Meta                 *models.ModelMeta     `json:"meta"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -409,6 +418,13 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 
 	if req.Metadata == nil && req.Limits != nil && req.Limits.Context > 0 {
 		req.Metadata = &models.ModelMetadata{ContextLength: req.Limits.Context}
+	}
+	if req.Metadata == nil && req.Meta != nil && req.Meta.ContextLength > 0 {
+		req.Metadata = &models.ModelMetadata{ContextLength: req.Meta.ContextLength, Parameters: req.Meta.Parameters}
+	}
+	if req.Metadata != nil && req.Meta != nil && req.Meta.ContextLength > 0 {
+		req.Metadata.ContextLength = req.Meta.ContextLength
+		req.Metadata.Parameters = req.Meta.Parameters
 	}
 
 	fullPath := ""
