@@ -3,6 +3,7 @@ import { ref, nextTick, watch } from "vue";
 import LogLevelPanel from "../settings/LogLevelPanel.vue";
 import { useLogs } from "../../composables/useLogs";
 import { useMetrics } from "../../composables/useMetrics";
+import { useAutoScroll } from "../../composables/useAutoScroll";
 
 type LogTab = "app" | "process";
 const activeTab = ref<LogTab>("app");
@@ -25,25 +26,22 @@ const { logLevel, updateLogLevel } = useMetrics();
 const processLogEl = ref<HTMLElement | null>(null);
 const appLogEl = ref<HTMLElement | null>(null);
 
-const scrollToBottom = (el: HTMLElement | null) => {
-  if (el) el.scrollTop = el.scrollHeight;
-};
+const scroller = useAutoScroll();
 
 // Toggle lazy app log loading based on tab
 watch(activeTab, (val) => {
   appLogsActive.value = (val === "app");
 }, { immediate: true });
 
-// Unified auto-scroll logic
 const isActive = (tab: LogTab) => activeTab.value === tab;
-const handleAutoScroll = async () => {
-  await nextTick();
-  const el = isActive("app") ? appLogEl.value : processLogEl.value;
-  scrollToBottom(el);
-};
 
 // Watch for content or tab changes to trigger scroll
-watch([appLogLines, processLogLines, activeTab], handleAutoScroll);
+watch([appLogLines, processLogLines, activeTab], async () => {
+  const el = isActive("app") ? appLogEl.value : processLogEl.value;
+  scroller.capturePosition(el);
+  await nextTick();
+  scroller.scrollIfNearBottom(el, "auto");
+});
 
 const handleClear = () => {
   if (isActive("app")) clearAppLogs();

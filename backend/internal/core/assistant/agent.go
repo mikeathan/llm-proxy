@@ -586,16 +586,16 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	if streamErr != nil {
 		if prefill != "" && isPrefillThinkingError(streamErr) {
-			a.logger.Info("prefill rejected by server (thinking mode active), switching to native tools")
-			a.useNativeTools = true
+			a.logger.Info("prefill rejected by server (thinking mode active), retrying without prefill in XML mode")
 			prefill = ""
-			llmTools = tools
 			prepared = a.prepareMessages(history)
+			if len(tools) > 0 {
+				prepared = a.injectToolInstructions(prepared, tools)
+			}
 			req = proxy.ChatRequest{
-				Messages:   prepared,
-				Tools:      llmTools,
-				ToolChoice: proxy.ToolChoiceRequired,
-				MaxTokens:  a.maxTokens,
+				Messages:  prepared,
+				Tools:     nil,
+				MaxTokens: a.maxTokens,
 			}
 			ch, streamErr = a.client.Stream(ctx, req)
 		}
@@ -747,15 +747,16 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 	resp, err := a.client.Chat(chatCtx, req)
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
-		a.logger.Info("prefill rejected by server (thinking mode), switching to native tools (non-stream)")
-		a.useNativeTools = true
+		a.logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
 		prefill = ""
-		llmTools = tools
+		preparedHistory = a.prepareMessages(history)
+		if len(tools) > 0 {
+			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
+		}
 		req = proxy.ChatRequest{
-			Messages:   a.prepareMessages(history),
-			Tools:      llmTools,
-			ToolChoice: proxy.ToolChoiceRequired,
-			MaxTokens:  a.maxTokens,
+			Messages:  preparedHistory,
+			Tools:     nil,
+			MaxTokens: a.maxTokens,
 		}
 		resp, err = a.client.Chat(chatCtx, req)
 	}
