@@ -212,50 +212,92 @@ func (r *modelFormRequest) enrichMetadataFromProviders() {
 		r.Metadata = &models.ModelMetadata{ContextLength: r.Limits.Context}
 		logging.Debug("[enrich] metadata from limits", "context", r.Limits.Context)
 	}
-	if r.Metadata == nil && r.Meta != nil && r.Meta.ContextLength > 0 {
-		r.Metadata = &models.ModelMetadata{ContextLength: r.Meta.ContextLength, Parameters: r.Meta.Parameters}
-		logging.Info("[enrich] metadata from meta", "context", r.Meta.ContextLength, "params", r.Meta.Parameters)
+
+	// Resolve context length from model meta.  Prefer n_ctx (serving
+	// context) over n_ctx_train (training context).  n_ctx_train values
+	// above 128K are never serving contexts for current cloud models
+	// and indicate a local llama.cpp where training context dwarfs the
+	// actual --ctx-size.  When only n_ctx_train is available and it
+	// exceeds 128K, keep the provider-tier defaults.
+	metaCtx := 0
+	if r.Meta != nil {
+		if r.Meta.Nctx > 0 {
+			metaCtx = r.Meta.Nctx
+			logging.Debug("[enrich] using n_ctx (serving context)", "ctx", metaCtx)
+		} else if r.Meta.ContextLength > 0 && r.Meta.ContextLength <= 128_000 {
+			metaCtx = r.Meta.ContextLength
+			logging.Debug("[enrich] using n_ctx_train", "ctx", metaCtx)
+		} else if r.Meta.ContextLength > 128_000 {
+			logging.Warn("[enrich] n_ctx_train too large, keeping tier defaults",
+				"n_ctx_train", r.Meta.ContextLength,
+				"provider", r.Provider)
+		}
 	}
-	if r.Metadata != nil && r.Meta != nil && r.Meta.ContextLength > 0 {
-		r.Metadata.ContextLength = r.Meta.ContextLength
+
+	if r.Metadata == nil && metaCtx > 0 {
+		r.Metadata = &models.ModelMetadata{ContextLength: metaCtx, Parameters: r.Meta.Parameters}
+	}
+	if r.Metadata != nil && metaCtx > 0 {
+		r.Metadata.ContextLength = metaCtx
 		r.Metadata.Parameters = r.Meta.Parameters
 	}
 	if r.Metadata != nil && r.Metadata.ContextLength > 0 {
-		logging.Debug("[enrich] zeroing tier defaults", "ctx_len", r.Metadata.ContextLength,
-			"original_max_tokens", r.MaxTokens, "original_ctx_budget", r.ContextBudget)
-		if r.MaxTokens <= 4096 {
-			r.MaxTokens = 0
-		}
-		if r.ContextBudget <= 50000 {
-			r.ContextBudget = 0
-		}
-		if r.ReasoningBudget <= 8192 {
-			r.ReasoningBudget = 0
-		}
+		logging.Info("[enrich] zeroing tier defaults for metadata-driven recomputation",
+			"ctx_len", r.Metadata.ContextLength,
+			"original_max_tokens", r.MaxTokens,
+			"original_ctx_budget", r.ContextBudget)
+		// Zero ALL tier defaults when we have trusted metadata to
+		// recompute from.  The threshold-based approach (only zero
+		// if below a threshold like <=50000) breaks when the frontend
+		// pre-fills the form with values derived from n_ctx_train
+		// (e.g. 524288 from 262144 training context), because those
+		// exceed the threshold and never get recomputed.
+		r.MaxTokens = 0
+		r.ContextBudget = 0
+		r.ReasoningBudget = 0
+	} else if r.Meta != nil && metaCtx <= 0 {
+		// Meta was sent by the frontend but we couldn't extract a
+		// reliable context length (/slots unreachable, n_ctx_train
+		// inflated >128K).  Still zero the tier defaults so
+		// ApplyMetadataDefaults recomputes from provider defaults
+		// instead of persisting the form's pre-filled values.
+		logging.Warn("[enrich] unreliable metadata, zeroing tier defaults",
+			"meta", r.Meta)
+		r.MaxTokens = 0
+		r.ContextBudget = 0
+		r.ReasoningBudget = 0
 	} else {
 		logging.Info("[enrich] no context length available, keeping tier defaults")
 	}
 }
 
 // writeModelOverrides persists agent-tuning fields to settings.yml
-// (model_overrides) when any non-zero value is present.  Zero values are
-// silently skipped so per-model defaults from ApplyModelOverrides stay
-// active until the user explicitly changes them.
-func writeModelOverrides(name string, r modelFormRequest, updateFn func(func(*models.UserSettings)) error) {
-	if r.MaxSteps > 0 || r.ContextBudget > 0 || r.MaxTokens > 0 || r.ReasoningBudget > 0 || r.SlotTimeout > 0 || r.ToolCallFormat != "" || r.Prefill || r.ProviderConfig.InternalCreditWeight > 0 {
+// (model_overrides) when any non-zero value is present.  It uses the
+// computed ModelConfig (post-ApplyMetadataDefaults) rather than the raw
+// form request, because enrichMetadataFromProviders zeros the form values
+// and the recomputed values must replace any stale overrides.
+//
+// Zero values are silently skipped so per-model defaults stay active
+// until the user explicitly changes them.
+func writeModelOverrides(name string, cfg models.ModelConfig, updateFn func(func(*models.UserSettings)) error) {
+	if cfg.MaxSteps > 0 || cfg.ContextBudget > 0 || cfg.MaxTokens > 0 || cfg.ReasoningBudget > 0 || cfg.SlotTimeout > 0 || cfg.ToolCallFormat != "" || cfg.Prefill || (cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0) {
 		_ = updateFn(func(s *models.UserSettings) {
 			if s.ModelOverrides == nil {
 				s.ModelOverrides = make(map[string]models.ModelOverride)
 			}
+			weight := float64(0)
+			if cfg.ProviderConfig != nil {
+				weight = cfg.ProviderConfig.InternalCreditWeight
+			}
 			s.ModelOverrides[name] = models.ModelOverride{
-				MaxSteps:        r.MaxSteps,
-				ContextBudget:   r.ContextBudget,
-				MaxTokens:       r.MaxTokens,
-				ReasoningBudget: r.ReasoningBudget,
-				SlotTimeout:     r.SlotTimeout,
-				ICUWeight:       r.ProviderConfig.InternalCreditWeight,
-				ToolCallFormat:  r.ToolCallFormat,
-				Prefill:         r.Prefill,
+				MaxSteps:        cfg.MaxSteps,
+				ContextBudget:   cfg.ContextBudget,
+				MaxTokens:       cfg.MaxTokens,
+				ReasoningBudget: cfg.ReasoningBudget,
+				SlotTimeout:     cfg.SlotTimeout,
+				ICUWeight:       weight,
+				ToolCallFormat:  cfg.ToolCallFormat,
+				Prefill:         cfg.Prefill,
 			}
 		})
 	}
@@ -378,7 +420,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeModelOverrides(req.Name, req, h.admin.UpdateSettings)
+	writeModelOverrides(req.Name, runtimeCfg, h.admin.UpdateSettings)
 
 	respondJSON(w, runtimeCfg)
 }
@@ -508,7 +550,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeModelOverrides(req.Name, req, h.admin.UpdateSettings)
+	writeModelOverrides(req.Name, runtimeCfg, h.admin.UpdateSettings)
 
 	respondJSON(w, runtimeCfg)
 }

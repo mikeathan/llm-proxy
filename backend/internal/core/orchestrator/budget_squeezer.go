@@ -115,9 +115,9 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 //
 // Rules:
 //
-//	max_tokens       = context / 4       (leave 75% for prompt + history)
-//	context_budget   = context * 2       (chars at ~2 chars/token)
-//	reasoning_budget = context / 8       only when name suggests reasoning
+//	max_tokens       = context / 4                  (leave 75% for prompt + history)
+//	context_budget   = (context - maxTokens) * 2    (chars at ~2 chars/token, reserve response space)
+//	reasoning_budget = context / 8                   only when name suggests reasoning
 func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 	ctxLen := resolveContextLength(cfg)
 	if ctxLen <= 0 {
@@ -128,7 +128,13 @@ func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 		cfg.MaxTokens = ctxLen / 4
 	}
 	if cfg.ContextBudget == 0 {
-		cfg.ContextBudget = ctxLen * 2
+		// Reserve max_tokens space in the context window for the response.
+		// At ~2 chars/token, the prompt can safely use (ctxLen - maxTokens) * 2 chars.
+		availableCtx := ctxLen - cfg.MaxTokens
+		if availableCtx <= 0 {
+			availableCtx = ctxLen / 2
+		}
+		cfg.ContextBudget = availableCtx * 2
 	}
 	if cfg.ReasoningBudget == 0 {
 		name := strings.ToLower(cfg.Name + " " + cfg.Filename)
@@ -162,7 +168,14 @@ var knownCtx = map[string]int{
 
 func resolveContextLength(cfg *models.ModelConfig) int {
 	if cfg.Metadata != nil && cfg.Metadata.ContextLength > 0 {
-		return cfg.Metadata.ContextLength
+		ctxLen := cfg.Metadata.ContextLength
+		// Guard against inflated training-context values (n_ctx_train
+		// from llama.cpp can be 262K while actual serving is 8K).
+		// If metadata exceeds the provider's known max, cap it.
+		if maxCtx, ok := providerCtxDefaults[cfg.Provider]; ok && ctxLen > maxCtx {
+			return maxCtx
+		}
+		return ctxLen
 	}
 
 	name := strings.ToLower(cfg.Name + " " + cfg.Filename)

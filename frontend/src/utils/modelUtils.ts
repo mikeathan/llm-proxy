@@ -80,12 +80,19 @@ export function deriveModelName(modelId?: string, filename?: string): string {
  * Called when the user picks a model from the provider dropdown — the
  * backend runs the same computation in ApplyMetadataDefaults on save,
  * but showing the values upfront lets the user adjust before submitting.
+ *
+ * Budget reserves max_tokens space in the context window for the response
+ * output.  The result is rounded to the nearest 1000 to satisfy the
+ * step="1000" constraint on the form inputs.
  */
 export function computeDefaultsFromContext(ctxLen?: number): { context_budget: number; max_tokens: number } | null {
   if (!ctxLen || ctxLen <= 0) return null;
+  const maxTokens = Math.floor(ctxLen / 4);
+  const availableCtx = ctxLen - maxTokens;
+  const budget = availableCtx * 2;
   return {
-    context_budget: ctxLen * 2,
-    max_tokens: Math.floor(ctxLen / 4),
+    context_budget: Math.round(budget / 1000) * 1000,
+    max_tokens: maxTokens,
   };
 }
 

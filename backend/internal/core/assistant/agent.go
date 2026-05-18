@@ -311,6 +311,30 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			if err.Error() == "TASK_SUBMITTED" {
 				return turnMsg.Content, currentHistory, nil
 			}
+			// Reactive sieve: when the LLM returns a context-size error,
+			// prune history aggressively (keep only system + task + last
+			// 3 turns) and retry instead of terminating.  This catches
+			// cases where the character-budget sieve didn't fire because
+			// the model's actual token context is smaller than expected
+			// (e.g. llama.cpp with --ctx-size 8192 but n_ctx_train 262K).
+			if isContextSizeError(err) {
+				a.logger.Warn("context size overflow detected, applying reactive sieve")
+				if len(currentHistory) > 8 {
+					sieved := make([]proxy.Message, 0, 8)
+					sieved = append(sieved, currentHistory[0], currentHistory[1])
+					sieved = append(sieved, proxy.Message{
+						Role:    proxy.UserRole,
+						Content: prompts.SieveSystemNote,
+					})
+					tail := 6
+					if len(currentHistory) < tail+2 {
+						tail = len(currentHistory) - 2
+					}
+					sieved = append(sieved, currentHistory[len(currentHistory)-tail:]...)
+					currentHistory = sieved
+				}
+				continue
+			}
 			return "", currentHistory, err
 		}
 
@@ -414,6 +438,18 @@ func parseErrorKind(e *proxy.ParseError) string {
 func isTruncationError(errStr string) bool {
 	low := strings.ToLower(errStr)
 	return strings.Contains(low, "unexpected end") || strings.Contains(low, "missing closing")
+}
+
+func isContextSizeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "context size") ||
+		strings.Contains(low, "context_length_exceeded") ||
+		strings.Contains(low, "maximum context length") ||
+		strings.Contains(low, "reduce the length") ||
+		strings.Contains(low, "too many tokens")
 }
 
 func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {

@@ -68,7 +68,9 @@ func (s *AppContext) registerSubscribers() {
 	// 1. Settings Changes -> Sync LLM Runtime & Local Paths
 	s.dataMgr.Settings().OnChange(func(u models.UserSettings) {
 		logging.Info("Settings change detected, syncing LLM runtime", "modelDir", u.Local.ModelDir)
-		s.manager.Registrar().RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
+		if reg := s.manager.Registrar(); reg != nil {
+			reg.RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
+		}
 		s.manager.Sync()
 		s.manager.ApplyModelOverrides(u.ModelOverrides)
 	})

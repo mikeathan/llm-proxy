@@ -246,11 +246,73 @@ func TestApplyMetadataDefaults_AllZero(t *testing.T) {
 		Provider: "nvidia",
 	}
 	ApplyMetadataDefaults(cfg)
-	if cfg.MaxTokens != 128_000/4 {
-		t.Fatalf("expected max_tokens=%d, got %d", 128_000/4, cfg.MaxTokens)
+	expectedTokens := 128_000 / 4
+	expectedBudget := (128_000 - expectedTokens) * 2
+	if cfg.MaxTokens != expectedTokens {
+		t.Fatalf("expected max_tokens=%d, got %d", expectedTokens, cfg.MaxTokens)
 	}
-	if cfg.ContextBudget != 128_000*2 {
-		t.Fatalf("expected context_budget=%d, got %d", 128_000*2, cfg.ContextBudget)
+	if cfg.ContextBudget != expectedBudget {
+		t.Fatalf("expected context_budget=%d (reserving %d for response), got %d",
+			expectedBudget, expectedTokens, cfg.ContextBudget)
+	}
+}
+
+func TestApplyMetadataDefaults_BudgetReservesResponseSpace(t *testing.T) {
+	// A model with 8192 context and default max_tokens=2048 should get
+	// budget = (8192-2048)*2 = 12288 chars, NOT 8192*2 = 16384.
+	cfg := &models.ModelConfig{
+		Name:     "qwen3.5-4b-instruct-q4_k_m.gguf",
+		Provider: "local",
+		Metadata: &models.ModelMetadata{ContextLength: 8192},
+	}
+	ApplyMetadataDefaults(cfg)
+	expectedBudget := (8192 - cfg.MaxTokens) * 2
+	if cfg.ContextBudget != expectedBudget {
+		t.Fatalf("expected context_budget=%d (leaves %d tokens for response), got %d",
+			expectedBudget, cfg.MaxTokens, cfg.ContextBudget)
+	}
+	// Verify the budget would keep prompt + response within 8192 tokens
+	promptTokens := cfg.ContextBudget / 2 // ~2 chars/token
+	if promptTokens+cfg.MaxTokens > 8192 {
+		t.Fatalf("budget allows %d prompt tokens + %d response = %d, exceeds 8192 ctx",
+			promptTokens, cfg.MaxTokens, promptTokens+cfg.MaxTokens)
+	}
+}
+
+func TestApplyMetadataDefaults_ExplicitMaxTokensStillReserves(t *testing.T) {
+	// User set max_tokens=512 explicitly, budget should compute from that.
+	cfg := &models.ModelConfig{
+		Name:       "small-context-model",
+		Provider:   "local",
+		MaxTokens:  512,
+		Metadata:   &models.ModelMetadata{ContextLength: 4096},
+	}
+	ApplyMetadataDefaults(cfg)
+	if cfg.MaxTokens != 512 {
+		t.Fatalf("explicit max_tokens should not be overwritten, got %d", cfg.MaxTokens)
+	}
+	expectedBudget := (4096 - 512) * 2 // 7168
+	if cfg.ContextBudget != expectedBudget {
+		t.Fatalf("expected context_budget=%d (reserving %d response tokens), got %d",
+			expectedBudget, cfg.MaxTokens, cfg.ContextBudget)
+	}
+}
+
+func TestApplyMetadataDefaults_MaxTokensEqualsContext(t *testing.T) {
+	// Edge case: max_tokens >= ctxLen. Should not produce negative budget.
+	cfg := &models.ModelConfig{
+		Name:       "test",
+		Provider:   "local",
+		MaxTokens:  8192,
+		Metadata:   &models.ModelMetadata{ContextLength: 4096},
+	}
+	ApplyMetadataDefaults(cfg)
+	if cfg.ContextBudget <= 0 {
+		t.Fatalf("context_budget should not be negative or zero, got %d", cfg.ContextBudget)
+	}
+	// Fallback should kick in: ctxLen/2 * 2 = ctxLen = 4096
+	if cfg.ContextBudget != 4096 {
+		t.Fatalf("expected fallback budget 4096, got %d", cfg.ContextBudget)
 	}
 }
 

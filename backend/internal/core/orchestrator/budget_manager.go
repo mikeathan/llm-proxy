@@ -82,7 +82,7 @@ func (b *BudgetManager) PreFlightCheck(ctx context.Context, workspaceID string, 
 	if !hasCap {
 		return PreFlightResult{
 			Allowed:           true,
-			TransactionID:     fmt.Sprintf("txn_%d", time.Now().UnixNano()),
+			TransactionID:     "",
 			SqueezeFactor:     1.0,
 			AdjustedMaxTokens: req.MaxTokens,
 			AdjustedReasoning: req.ReasoningBudget,

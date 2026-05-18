@@ -45,8 +45,8 @@ func TestBudgetManager_PreFlightCheck_NoCap_Allows(t *testing.T) {
 	if !result.Allowed {
 		t.Fatal("expected allowed when no cap set")
 	}
-	if result.TransactionID == "" {
-		t.Fatal("expected transaction ID")
+	if result.TransactionID != "" {
+		t.Fatal("expected empty transaction ID when no cap set")
 	}
 }
 

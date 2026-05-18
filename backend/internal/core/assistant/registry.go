@@ -166,7 +166,7 @@ func InitializeAgentStack(
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
 
 	// 6. Aggregate Tools: Local Registry + Remote MCP
-	provider := NewMultiToolProvider(true, localRegistry, mcp)
+	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
 
@@ -198,7 +198,7 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 // models with API-level tool definitions they cannot process.  Models that
 // support native function calling can opt in via ModelConfig.ToolCallFormat.
 func (r *LocalToolRegistry) UseNativeTools() bool {
-	return true
+	return false
 }
 
 // FormatToolsForPrompt converts the tool definitions into a readable format.

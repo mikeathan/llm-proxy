@@ -125,7 +125,7 @@ watch(() => modelForm.value.id, (id) => {
   // shows realistic values before the user clicks Save.  The backend also
   // runs ApplyMetadataDefaults, but by pre-filling here the user sees the
   // actual values and can adjust before submitting.
-  const ctx = selected?.meta?.n_ctx_train || selected?.limits?.context;
+  const ctx = selected?.meta?.n_ctx || selected?.meta?.n_ctx_train || selected?.limits?.context;
   const defaults = computeDefaultsFromContext(ctx);
   if (defaults) {
     modelForm.value.context_budget = defaults.context_budget;

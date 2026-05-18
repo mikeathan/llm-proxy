@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"llm-proxy/models"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -104,7 +105,73 @@ func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]models.Pro
 		})
 	}
 
+	// Query /slots to get the actual serving context (n_ctx).
+	// llama.cpp reports n_ctx_train in /v1/models (training context,
+	// often 262K) but the real serving context is n_ctx (e.g. 8K).
+	// This is the same approach production frameworks use: probe all
+	// available endpoints to resolve the true context window.
+	if slotCtx := p.fetchSlotsContext(ctx, baseURL); slotCtx > 0 {
+		for i := range out {
+			if out[i].Meta == nil {
+				out[i].Meta = &models.ModelMeta{Nctx: slotCtx}
+			} else if out[i].Meta.Nctx == 0 {
+				out[i].Meta.Nctx = slotCtx
+			}
+		}
+	}
+
 	return out, nil
+}
+
+// fetchSlotsContext queries GET /slots on a llama.cpp server and returns
+// n_ctx from the first idle slot, or 0 if the endpoint is unavailable.
+// The baseURL may include a path prefix (e.g. /v1) that MUST be stripped
+// since /slots lives at the server root, not under /v1.
+func (p *OpenAICompatibleProvider) fetchSlotsContext(ctx context.Context, baseURL string) int {
+	// Try /slots first (llama.cpp root endpoint)
+	if n := p.trySlotsURL(ctx, baseURL, "/slots"); n > 0 {
+		return n
+	}
+	// Fallback: try /v1/slots (some servers expose it there)
+	return p.trySlotsURL(ctx, baseURL, "/v1/slots")
+}
+
+func (p *OpenAICompatibleProvider) trySlotsURL(ctx context.Context, baseURL, path string) int {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return 0
+	}
+	u.RawPath = ""
+	u.Path = path
+	slotsURL := u.String()
+	req, err := http.NewRequestWithContext(ctx, "GET", slotsURL, nil)
+	if err != nil {
+		return 0
+	}
+	p.setAuthHeaders(req.Header)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+
+	var slots []struct {
+		Nctx int `json:"n_ctx"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&slots); err != nil {
+		return 0
+	}
+	for _, s := range slots {
+		if s.Nctx > 0 {
+			return s.Nctx
+		}
+	}
+	return 0
 }
 
 func (p *OpenAICompatibleProvider) setAuthHeaders(header http.Header) {

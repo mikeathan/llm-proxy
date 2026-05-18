@@ -69,6 +69,7 @@ export interface ModelLimits {
 
 export interface ModelMeta {
   n_ctx_train?: number
+  n_ctx?: number
   n_params?: number
 }
 

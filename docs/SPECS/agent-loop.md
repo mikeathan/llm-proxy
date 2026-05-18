@@ -14,6 +14,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Default budget: 8,000 characters (overridable via `ModelConfig.ContextBudget`).
 - When exceeded: keep system message + first user message (Locked Head), insert sieve marker, keep last 10 messages (Priority Tail).
 - **Critical**: `recentCalls` (repetition detector) MUST survive the sieve boundary.
+- **Reactive Sieve**: When the LLM returns a context-size overflow error (e.g. `request exceeds the available context size`), the agent applies an aggressive sieve (keep only system + task + last 3 turns) and retries.  This catches cases where the character-budget sieve didn't fire because the model's actual token context is smaller than expected (e.g. llama.cpp with `--ctx-size 8192` but `n_ctx_train` reporting 262K).
 
 ### 3. Tool Call Extraction (Constitution II.4)
 - XML-only: `<tool_call>{"tool":"...","args":{...}}</tool_call>`.

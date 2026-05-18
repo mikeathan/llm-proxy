@@ -64,8 +64,8 @@ func TestOrchestrator_PreFlightThenStream_NilSafe(t *testing.T) {
 	if !result.Allowed {
 		t.Fatal("expected allowed without cap")
 	}
-	if result.TransactionID == "" {
-		t.Fatal("expected TransactionID")
+	if result.TransactionID != "" {
+		t.Fatal("expected empty TransactionID without cap")
 	}
 
 	siResult := orch.Interceptor.InterceptChunk(StreamChunk{

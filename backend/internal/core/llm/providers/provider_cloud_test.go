@@ -45,6 +45,10 @@ func TestDynamicProviderRegistry(t *testing.T) {
 
 	// Test ListModels with mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slots" || r.URL.Path == "/v1/slots" {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/models" {
 			t.Errorf("expected path /models, got %s", r.URL.Path)
 		}

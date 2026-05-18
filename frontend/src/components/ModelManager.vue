@@ -78,7 +78,7 @@ function submitModel() {
 
 function onCloudModelSelect(sel: any) {
   cloudSelection = sel;
-  const ctx = sel?.meta?.n_ctx_train || sel?.limits?.context;
+  const ctx = sel?.meta?.n_ctx || sel?.meta?.n_ctx_train || sel?.limits?.context;
   const defaults = computeDefaultsFromContext(ctx);
   if (defaults) {
     form.value.context_budget = defaults.context_budget;
