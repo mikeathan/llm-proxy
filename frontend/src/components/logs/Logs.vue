@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from "vue";
+import { ref, nextTick, watch, onMounted } from "vue";
 import LogLevelPanel from "../settings/LogLevelPanel.vue";
 import { useLogs } from "../../composables/useLogs";
 import { useMetrics } from "../../composables/useMetrics";
@@ -41,6 +41,11 @@ watch([appLogLines, processLogLines, activeTab], async () => {
   scroller.capturePosition(el);
   await nextTick();
   scroller.scrollIfNearBottom(el, "auto");
+});
+
+onMounted(() => {
+  const el = isActive("app") ? appLogEl.value : processLogEl.value;
+  if (el) el.scrollTop = el.scrollHeight;
 });
 
 const handleClear = () => {
@@ -96,13 +101,13 @@ const handleClear = () => {
 
     <!-- ── Content Panes ── -->
     <main class="logs-content">
-      <div v-show="isActive('app')" class="logs-pane" ref="appLogEl">
+      <div v-show="isActive('app')" class="logs-pane" ref="appLogEl" @scroll="scroller.updateWasNearBottom(appLogEl)">
         <pre class="log-text">{{ 
           appLogLines || (appLogsFetched ? "No application logs available." : "Loading application logs...") 
         }}</pre>
       </div>
 
-      <div v-show="isActive('process')" class="logs-pane" ref="processLogEl">
+      <div v-show="isActive('process')" class="logs-pane" ref="processLogEl" @scroll="scroller.updateWasNearBottom(processLogEl)">
         <pre class="log-text">{{ processLogLines || "No process logs available." }}</pre>
       </div>
     </main>

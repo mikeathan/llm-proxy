@@ -47,9 +47,10 @@ type Agent struct {
 	reasoningBudget int
 	icuWeight       float64
 	useNativeTools  bool
-	observer        Observer
-	workspaceID     string
-	onGuardrail     GuardrailDecisionCallback
+	observer          Observer
+	workspaceID       string
+	onGuardrail       GuardrailDecisionCallback
+	prefillDisabled   bool
 	orch            *orchestrator.Orchestrator
 	modelName       string
 	providerType    string
@@ -524,7 +525,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	// acting.  It receives `<tool_call>\n{"tool":"` as the last assistant
 	// message and must complete the JSON with a tool name and arguments.
 	var prefill string
-	if isAutomationCtx && !a.useNativeTools {
+	if a.shouldPrefill(isAutomationCtx) {
 		prefill = prompts.AutomationPrefline
 		prepared = append(prepared, proxy.Message{
 			Role:    proxy.AssistantRole,
@@ -587,6 +588,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	if streamErr != nil {
 		if prefill != "" && isPrefillThinkingError(streamErr) {
 			a.logger.Info("prefill rejected by server (thinking mode active), retrying without prefill in XML mode")
+			a.prefillDisabled = true
 			prefill = ""
 			prepared = a.prepareMessages(history)
 			if len(tools) > 0 {
@@ -727,7 +729,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	// never has to choose between thinking and acting.  This is
 	// on by default for all text-based tool calling.
 	var prefill string
-	if isAutomationCtx && !a.useNativeTools {
+	if a.shouldPrefill(isAutomationCtx) {
 		prefill = prompts.AutomationPrefline
 		preparedHistory = append(preparedHistory, proxy.Message{
 			Role:    proxy.AssistantRole,
@@ -748,6 +750,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	resp, err := a.client.Chat(chatCtx, req)
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
 		a.logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
+		a.prefillDisabled = true
 		prefill = ""
 		preparedHistory = a.prepareMessages(history)
 		if len(tools) > 0 {
@@ -1020,6 +1023,10 @@ func isPrefillThinkingError(err error) bool {
 	lowErr := strings.ToLower(err.Error())
 	return strings.Contains(lowErr, "prefill") &&
 		strings.Contains(lowErr, "thinking")
+}
+
+func (a *Agent) shouldPrefill(isAutomationCtx bool) bool {
+	return !a.prefillDisabled && isAutomationCtx && !a.useNativeTools
 }
 
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {

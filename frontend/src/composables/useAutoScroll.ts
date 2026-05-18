@@ -71,6 +71,15 @@ export function useAutoScroll(threshold = 50) {
   }
 
   /**
+   * Re-evaluate wasNearBottom from the element's current scroll position.
+   * Bind this to @scroll on scrollable containers so that scrolling back to
+   * the bottom immediately re-arms auto-scroll (no need to wait for a data change).
+   */
+  function updateWasNearBottom(el?: HTMLElement | null) {
+    wasNearBottom = isNearBottom(el ?? container.value ?? null);
+  }
+
+  /**
    * Scroll in the current direction, then flip the arrow for next click.
    *   • down → scrolls to bottom, flips to up
    *   • up   → scrolls to top, flips to down
@@ -96,5 +105,6 @@ export function useAutoScroll(threshold = 50) {
     toggleScroll,
     scrollDirection,
     isNearBottom,
+    updateWasNearBottom,
   };
 }

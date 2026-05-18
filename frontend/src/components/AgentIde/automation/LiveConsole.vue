@@ -32,7 +32,7 @@ const props = defineProps<{
   historyEvents?: AgentEvent[];
 }>();
 
-const { container: scrollContainer, capturePosition, scrollIfNearBottom, toggleScroll, scrollDirection } = useAutoScroll();
+const { container: scrollContainer, capturePosition, scrollIfNearBottom, scrollToBottom, toggleScroll, scrollDirection, updateWasNearBottom } = useAutoScroll();
 void scrollContainer; // template ref binding
 
 const {
@@ -52,6 +52,7 @@ const {
 
 onMounted(() => {
   connect();
+  scrollToBottom(undefined, "instant");
 });
 
 onUnmounted(() => {
@@ -68,16 +69,15 @@ watch(
 );
 
 watch(
-  displayEvents,
-  async (_events, _oldEvents, onCleanup) => {
+  () => displayEvents.value.length,
+  async (_newLen, _oldLen, onCleanup) => {
     let cancelled = false;
     onCleanup(() => { cancelled = true; });
     capturePosition();
     await nextTick();
     if (cancelled) return;
-    scrollIfNearBottom();
+    scrollIfNearBottom(undefined, "instant");
   },
-  { deep: true },
 );
 
 const fullTerminalText = computed(() =>
@@ -150,7 +150,7 @@ const formatTime = (ts?: string) => {
       </div>
     </div>
 
-    <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer">
+    <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer" @scroll="updateWasNearBottom()">
       <div v-if="displayEvents.length === 0" class="term-empty">
         Waiting for activity in {{ workspaceId }}...
       </div>
