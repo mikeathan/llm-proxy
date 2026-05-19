@@ -137,6 +137,8 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	const maxDuplicateStreak = 3
 	parseErrorStreak := 0
 	var lastParseErrorKind string // "no_xml", "json", or "tool_name"
+	totalErrorStreak := 0
+	modelCompatNotified := false
 
 	for steps < a.maxSteps {
 		steps++
@@ -250,9 +252,11 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				}
 				turnMsg.ToolCalls = uniqueCalls
 
-				// Tool calls parsed and validated successfully — reset the error streak.
+				// Tool calls parsed and validated successfully — reset the error streaks.
 				parseErrorStreak = 0
 				lastParseErrorKind = ""
+				totalErrorStreak = 0
+				modelCompatNotified = false
 
 				for _, tc := range turnMsg.ToolCalls {
 					key := toolKey{tc.Function.Name, tc.Function.Arguments}
@@ -336,6 +340,21 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 				}
 				continue
 			}
+
+			if isToolCallParseError(err) {
+				a.logger.Warn("server-side tool call JSON parse error, sending length feedback to model", "error", err)
+				totalErrorStreak++
+				if totalErrorStreak >= 5 && !modelCompatNotified {
+					modelCompatNotified = true
+					a.notifyModelCompatWarning(a.useNativeTools)
+				}
+				currentHistory = append(currentHistory, proxy.Message{
+					Role:    proxy.UserRole,
+					Content: prompts.AutomationContentTooLongPrompt,
+				})
+				continue
+			}
+
 			return "", currentHistory, err
 		}
 
@@ -367,6 +386,11 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 					} else {
 						parseErrorStreak = 0
 						lastParseErrorKind = errKind
+					}
+					totalErrorStreak++
+					if totalErrorStreak >= 5 && !modelCompatNotified {
+						modelCompatNotified = true
+						a.notifyModelCompatWarning(a.useNativeTools)
 					}
 
 					availableNames := proxy.AvailableToolNames(toolsList)
@@ -439,6 +463,14 @@ func parseErrorKind(e *proxy.ParseError) string {
 func isTruncationError(errStr string) bool {
 	low := strings.ToLower(errStr)
 	return strings.Contains(low, "unexpected end") || strings.Contains(low, "missing closing")
+}
+
+func isToolCallParseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "failed to parse tool call arguments")
 }
 
 func isContextSizeError(err error) bool {
@@ -589,6 +621,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		if prefill != "" && isPrefillThinkingError(streamErr) {
 			a.logger.Info("prefill rejected by server (thinking mode active), retrying without prefill in XML mode")
 			a.prefillDisabled = true
+			a.notifyPrefillDisabled()
 			prefill = ""
 			prepared = a.prepareMessages(history)
 			if len(tools) > 0 {
@@ -751,6 +784,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
 		a.logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
 		a.prefillDisabled = true
+		a.notifyPrefillDisabled()
 		prefill = ""
 		preparedHistory = a.prepareMessages(history)
 		if len(tools) > 0 {

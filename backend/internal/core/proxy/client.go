@@ -88,6 +88,14 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 	}
 	defer resp.Body.Close()
 
+	// When the context is cancelled, force-close the response body so
+	// that blocked reads (ReadAll, Decode) exit immediately instead of
+	// waiting for the server to finish or TCP teardown.
+	go func() {
+		<-ctx.Done()
+		resp.Body.Close()
+	}()
+
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("LLM chat error %d: %s", resp.StatusCode, string(b))
