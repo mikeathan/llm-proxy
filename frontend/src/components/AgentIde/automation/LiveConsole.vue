@@ -32,8 +32,8 @@ const props = defineProps<{
   historyEvents?: AgentEvent[];
 }>();
 
-const { container: scrollContainer, capturePosition, scrollIfNearBottom, scrollToBottom, toggleScroll, scrollDirection, updateWasNearBottom } = useAutoScroll();
-void scrollContainer; // template ref binding
+const { container: scrollContainer, scrollToBottom, toggleScroll, scrollDirection, capturePosition, scrollIfNearBottom, updateWasNearBottom } = useAutoScroll();
+void scrollContainer;
 
 const {
   liveEvents,
@@ -52,13 +52,12 @@ const {
 
 onMounted(() => {
   connect();
-  scrollToBottom(undefined, "instant");
+  nextTick(() => scrollToBottom(undefined, "instant"));
 });
 
 onUnmounted(() => {
   disconnect();
 });
-
 
 watch(
   () => props.workspaceId,
@@ -69,15 +68,23 @@ watch(
 );
 
 watch(
-  () => displayEvents.value.length,
-  async (_newLen, _oldLen, onCleanup) => {
-    let cancelled = false;
-    onCleanup(() => { cancelled = true; });
-    capturePosition();
-    await nextTick();
-    if (cancelled) return;
-    scrollIfNearBottom(undefined, "instant");
+  () => props.isExecuting,
+  (executing) => {
+    if (executing) {
+      nextTick(() => scrollToBottom(undefined, "instant"));
+    }
   },
+);
+
+watch(
+  displayEvents,
+  () => {
+    capturePosition();
+    nextTick(() => {
+      scrollIfNearBottom(undefined, "instant");
+    });
+  },
+  { deep: true },
 );
 
 const fullTerminalText = computed(() =>
@@ -112,7 +119,7 @@ const formatTime = (ts?: string) => {
           v-if="displayEvents.length > 0"
           class="scroll-btn"
           :title="scrollDirection === 'down' ? 'Scroll to bottom' : 'Scroll to top'"
-          @click="toggleScroll()"
+          @click="toggleScroll(scrollContainer)"
         >
           <Icon v-if="scrollDirection === 'down'" name="arrow-down" size="sm" />
           <Icon v-else name="arrow-up" size="sm" />
