@@ -120,3 +120,29 @@ Provider-specific defaults are defined in `assistant/tiers.go` (`ProviderTiers()
 - II.7: Explicit Task Completion (submit_final_answer)
 - II.8: Context-Preserving Normalization
 - II.10: Guardrail Decision Flow (user approval for blocked tool calls)
+
+## VI. Shell Session Lifecycle
+
+The shell provider (`internal/shell/terminal.go`) manages persistent bash sessions per workspace.
+
+### Process Group Isolation
+Each bash session is started with `Setpgid: true` (`syscall.SysProcAttr`), creating a dedicated process group. This ensures that when the session is terminated, all child processes (running commands) are killed alongside the bash shell — orphaned processes are prevented.
+
+### Stop / Context Cancellation
+When the user clicks "Stop Automation" or the agent's context is cancelled:
+
+1. `StopAutomation` calls `cancel()` on the execution context
+2. The agent loop checks `execCtx.Err()` on the next iteration and exits
+3. If the agent is blocked inside a running shell command:
+   - A kill goroutine (started per-`Execute` call) receives `ctx.Done()` and calls `killAll()` → `syscall.Kill(-pgid, SIGTERM)`
+   - The SIGTERM terminates bash and any running child processes
+   - The blocked `stdout.ReadString` returns with an error (pipe closed)
+   - `Execute` returns the partial output and a context-cancelled error
+   - The agent exits
+
+The background `HostShellManager` reaper also uses `killAll` to cleanly terminate sessions on shutdown or recycle, ensuring no orphaned processes remain.
+
+### Cleanup Sequence
+1. Close stdin (signals bash to exit after current command)
+2. Wait for bash process to exit (`ps.done` channel)
+3. If context is cancelled while waiting, `killAll` terminates the process group

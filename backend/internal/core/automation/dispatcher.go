@@ -660,6 +660,23 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 
 	cancel()
 	d.logger.Info("Automation stopped by user request", "workspace", workspaceID)
+
+	// Monitor the run: if it hasn't left activeRuns within 30s,
+	// the cancellation didn't propagate (likely a tool/hanging shell
+	// command ignoring the context).  Log a diagnostic warning so we
+	// can identify what's blocking.
+	go func() {
+		time.Sleep(30 * time.Second)
+		d.runMu.Lock()
+		_, stillRunning := d.activeRuns[workspaceID]
+		d.runMu.Unlock()
+		if stillRunning {
+			d.logger.Warn("automation stop: cancellation did not terminate the run within 30s",
+				"workspace", workspaceID,
+			)
+		}
+	}()
+
 	return nil
 }
 

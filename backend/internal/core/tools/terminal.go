@@ -380,7 +380,24 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	// This allows environment variables and state to persist across calls.
 	outStream, errStream, err := ts.Execute(ctx, []string{command})
 	if err != nil {
-		return "", fmt.Errorf("shell execution failed: %w", err)
+		// If the underlying shell process has exited (e.g. killed by a prior
+		// context cancellation), recycle the stale session and retry once.
+		if strings.Contains(err.Error(), "shell process exited unexpectedly") {
+			// Use a background context so Cleanup doesn't propagate
+			// a cancelled context but add a short timeout so we never
+			// block the agent turn waiting for process exit.
+			recycleCtx, recycleCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer recycleCancel()
+			t.shellPool.Recycle(recycleCtx, wsID)
+			ts, err = t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
+			if err != nil {
+				return "", fmt.Errorf("failed to recreate shell session: %w", err)
+			}
+			outStream, errStream, err = ts.Execute(ctx, []string{command})
+		}
+		if err != nil {
+			return "", fmt.Errorf("shell execution failed: %w", err)
+		}
 	}
 
 	// We use a combined buffer to ensure we capture both stdout and stderr in order
