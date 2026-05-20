@@ -5,13 +5,26 @@ The tool call parser (`proxy/tool_call_parser.go`) extracts structured tool call
 
 ## II. Functional Requirements
 
-### 1. Accepted Format
-Only this pattern is recognized:
+### 1. Accepted Formats
+
+**Standard XML-wrapped JSON** (primary):
 ```
 <tool_call>
 {"tool": "tool_name", "args": {"arg1": "value1"}}
 </tool_call>
 ```
+
+**Native format** (fallback when `useNativeTools` is active): used when
+LLM-native tool calling (e.g. Qwen's Jinja template) streams tool calls as
+text content instead of structured `tool_calls` deltas.
+```
+<function=execute_terminal_command>
+<parameter=command>npm init -y</parameter>
+</function>
+```
+
+Also supported: `<tool name="name"><parameter name="arg">val</parameter></tool>`
+and `<function name="name"><parameter name="arg">val</parameter></function>`.
 
 The regex tolerates minor variations that smaller models produce:
 - Self-closing open tag: `<tool_call/>` or `<tool_call>`
@@ -53,14 +66,24 @@ A separate prompt (`AutomationContentTooLongPrompt` in `templates.go`) handles t
 - `AvailableToolNames(tools)`: returns deduplicated, sorted tool names for feedback messages.
 - `truncateForDiagnostic(s)`: caps diagnostic strings at 200 characters.
 
-## III. Why No Greedy Fallbacks
+## III. Why No Greedy Fallbacks (XML-Only)
 
-The original parser had 3 phases:
-1. XML tags (kept)
-2. Naked JSON: grabbed from the first `{` to the last `}` in the entire response — created phantom tool calls from text like "I checked the {config file}"
-3. Ultra-greedy key-value: wrapped content in `{...}` if it contained `"tool":` and `"args":` anywhere
+The parser accepts ONLY structured XML-delimited content — no greedy fallbacks
+that might hallucinate tool calls from conversational text:
 
-Phases 2 and 3 caused more false positives than true recoveries. If a model can't produce valid `<tool_call>` XML, the correct response is specific format feedback, not desperate guesswork.
+1. **Standard format** (primary): `<tool_call>{"tool":"name","args":{...}}</tool_call>`
+2. **Native format** (fallback): `<function=name><parameter>val</parameter></function>` —
+   used when LLM-native tool calling (Jinja templates) streams tool calls as
+   text content instead of structured `tool_calls` deltas. Only attempted
+   when `useNativeTools` is active.
+3. **Attributes format**: `<tool name="name"><parameter name="arg">val</parameter></tool>`
+
+Structured XML boundaries prevent false positives. If a model can't produce
+valid `<tool_call>` XML or its native equivalent, the correct response is
+specific format feedback, not desperate guesswork.
+
+The deprecated greedy phases (naked JSON detection, key-value scanning) were
+removed because they caused more false positives than true recoveries.
 
 ## IV. Testing Strategy
 - Table-driven tests in `tool_call_parser_test.go`.

@@ -136,6 +136,7 @@ func TestExtractBaseCommands(t *testing.T) {
 		{"chained with |", "cat file | grep foo", []string{"cat", "grep"}},
 		{"chained with ||", "make || echo failed", []string{"make", "echo"}},
 		{"mixed chain", "mkdir -p dir && echo test > dir/file && sh dir/file", []string{"mkdir", "echo", "sh"}},
+		{"find with escaped semicolon", "find . -type f -exec ls -lh {} \\; 2>/dev/null", []string{"find"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

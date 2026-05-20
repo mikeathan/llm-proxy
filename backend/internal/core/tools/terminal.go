@@ -170,7 +170,27 @@ func splitCommandSegments(command string) []string {
 			}
 		}
 
-		// Split on delimiters only if outside quotes/heredocs
+		// Handle backslash-escaped delimiters (e.g., \; in find -exec)
+	if c == '\\' && i+1 < len(chars) && !inSingleQuote && !inDoubleQuote && !inHeredoc {
+		next := string(chars[i+1])
+		if next == ";" || next == "|" {
+			current.WriteRune(c)
+			current.WriteRune(chars[i+1])
+			i++
+			continue
+		}
+		if i+2 < len(chars) {
+			two := string(chars[i+1]) + string(chars[i+2])
+			if two == "&&" || two == "||" {
+				current.WriteRune(c)
+				current.WriteString(two)
+				i += 2
+				continue
+			}
+		}
+	}
+
+	// Split on delimiters only if outside quotes/heredocs
 		if !inSingleQuote && !inDoubleQuote && !inHeredoc {
 			isDelim := false
 			// Check longest delimiters first (&&, ||)

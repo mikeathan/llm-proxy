@@ -80,6 +80,55 @@ Action:
 ### Available Tools
 %s`
 
+// NativeToolReference lists available tools without XML format instructions.
+// Used when native tool calling is active — the LLM receives tool schemas
+// via the API but still needs text context about which tools exist.
+const NativeToolReference = `## AVAILABLE TOOLS
+You have access to the following tools. Use them by their exact names.
+
+%s
+
+### Rules
+1. Use ONLY the tools listed above.
+2. You are not finished until you call 'submit_final_answer'.
+   The 'summary' argument IS the final report the user sees.
+   It must contain the actual findings, tables, and analysis — not a description
+   of what was done. If the task asks for a file, write it too, but the summary
+   must still include all the report content.
+3. If a tool fails, you will receive the error. Fix it in your next turn.
+`
+
+// BuildNativeToolReference generates a lightweight tool list for native mode.
+func BuildNativeToolReference(tools []ToolInfo) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", t.Name, t.Description))
+	}
+	return fmt.Sprintf(NativeToolReference, sb.String())
+}
+
+// ToolReferenceHeader is used to detect if a tool reference is already present.
+const ToolReferenceHeader = "## AVAILABLE TOOLS"
+
+// HasToolReference checks if the tool reference is already present.
+func HasToolReference(content string) bool {
+	return strings.Contains(content, ToolReferenceHeader)
+}
+
+// InjectToolReference merges the lightweight tool reference into existing content.
+func InjectToolReference(content string, reference string) string {
+	if HasToolReference(content) || HasToolManual(content) {
+		return content
+	}
+	if content == "" {
+		return reference
+	}
+	return fmt.Sprintf("%s\n\n%s", content, reference)
+}
+
 // DefaultRules is the operational protocol injected into the system prompt.
 const DefaultRules = `You are an autonomous agent with access to tools. Your job is to complete the given task by using tools.
 

@@ -3,9 +3,11 @@ package assistant
 import (
 	"context"
 	"fmt"
-	"llm-proxy/internal/core/proxy"
-	"llm-proxy/models"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 	"strings"
 	"testing"
 	"time"
@@ -1009,5 +1011,467 @@ func TestNotifyModelCompatWarning(t *testing.T) {
 				t.Errorf("expected suggestion to contain '%s', got '%s'", tt.wantSuggest, msg.Content)
 			}
 		})
+	}
+}
+
+func TestAgent_PhysicalContextSieve(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{Role: "assistant", Content: "# Summary\nDone"}},
+			},
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		ContextBudget: 100,
+	})
+
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "System: You are an assistant."},
+		{Role: proxy.UserRole, Content: "Task: write code"},
+	}
+	for i := 0; i < 12; i++ {
+		history = append(history, proxy.Message{
+			Role:    proxy.AssistantRole,
+			Content: fmt.Sprintf("Intermediate message content that is relatively long %d", i),
+		})
+	}
+
+	_, finalHistory, err := agent.Execute(context.Background(), history)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	foundSieveNote := false
+	foundSieveWarning := false
+	for _, msg := range finalHistory {
+		if strings.Contains(msg.Content, prompts.SieveSystemNote) {
+			foundSieveNote = true
+		}
+		if strings.Contains(msg.Content, prompts.ContextSieveWarning) {
+			foundSieveWarning = true
+		}
+	}
+
+	if !foundSieveNote {
+		t.Error("Expected prompts.SieveSystemNote in sieved history")
+	}
+	if !foundSieveWarning {
+		t.Error("Expected prompts.ContextSieveWarning in sieved history")
+	}
+}
+
+func TestAgent_ValidateToolArgs(t *testing.T) {
+	tools := []proxy.Tool{
+		{
+			Type: "function",
+			Function: proxy.FunctionSchema{
+				Name:        "test_tool",
+				Description: "A test tool",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"req_param": map[string]any{"type": "string"},
+						"opt_param": map[string]any{"type": "string"},
+					},
+					"required": []any{"req_param"},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		tc      proxy.ToolCall
+		wantErr string
+	}{
+		{
+			name: "valid args",
+			tc: proxy.ToolCall{
+				Function: proxy.FunctionCall{
+					Name:      "test_tool",
+					Arguments: `{"req_param": "hello"}`,
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "missing required",
+			tc: proxy.ToolCall{
+				Function: proxy.FunctionCall{
+					Name:      "test_tool",
+					Arguments: `{"opt_param": "hello"}`,
+				},
+			},
+			wantErr: "missing required parameter 'req_param'",
+		},
+		{
+			name: "empty required",
+			tc: proxy.ToolCall{
+				Function: proxy.FunctionCall{
+					Name:      "test_tool",
+					Arguments: `{"req_param": "  "}`,
+				},
+			},
+			wantErr: "parameter 'req_param' cannot be empty",
+		},
+		{
+			name: "invalid json",
+			tc: proxy.ToolCall{
+				Function: proxy.FunctionCall{
+					Name:      "test_tool",
+					Arguments: `{"req_param": "hello"`,
+				},
+			},
+			wantErr: "failed to parse arguments as JSON",
+		},
+		{
+			name: "unknown tool",
+			tc: proxy.ToolCall{
+				Function: proxy.FunctionCall{
+					Name:      "unknown_tool",
+					Arguments: `{}`,
+				},
+			},
+			wantErr: "tool 'unknown_tool' not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateToolArgs(tt.tc, tools)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("expected no error, got %v", err)
+				}
+			} else {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+			}
+		})
+	}
+}
+
+func TestAgent_Execute_BatchedSubmissionRejection(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_submit",
+								Function: proxy.FunctionCall{
+									Name:      models.ToolSubmitFinalAnswer,
+									Arguments: `{"summary": "Task complete"}`,
+								},
+							},
+							{
+								ID: "call_other",
+								Function: proxy.FunctionCall{
+									Name:      "read_file",
+									Arguments: `{"path": "test.txt"}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+		},
+	}
+	engine := &MockEngine{}
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+
+	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		return &client.Response, nil
+	}
+
+	_, finalHistory, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Run task"}})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	foundRejectionError := 0
+	for _, msg := range finalHistory {
+		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, prompts.AutomationRejectedSubmissionPrompt) {
+			foundRejectionError++
+		}
+	}
+	if foundRejectionError != 2 {
+		t.Errorf("expected 2 rejection error results in final history, got %d", foundRejectionError)
+	}
+}
+
+func TestAgent_Execute_GuardrailDecisionApproval(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_blocked",
+								Function: proxy.FunctionCall{
+									Name:      "test_tool",
+									Arguments: `{"secret": "sk-12345678901234567890123456789012"}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		},
+	}
+	engine := &MockEngine{Result: "success"}
+
+	gr := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{
+			Global: models.GlobalGuardrailsConfig{
+				BlockSecrets: true,
+			},
+		}
+	}, storage.NewPathResolver("", "", ""), nil)
+
+	var callbackPayload GuardrailBlockedPayload
+	var callbackCalled bool
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:   5,
+		Guardrails: gr,
+		GuardrailDecisionHandler: func(ctx context.Context, p GuardrailBlockedPayload) (GuardrailDecision, error) {
+			callbackCalled = true
+			callbackPayload = p
+			return GuardrailDecision{Allow: true, Persist: false}, nil
+		},
+	})
+
+	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		if client.Calls == 1 {
+			return &client.Response, nil
+		}
+		return &proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_submit",
+								Function: proxy.FunctionCall{
+									Name:      models.ToolSubmitFinalAnswer,
+									Arguments: `{"summary": "Succeeded"}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Run with secret"}})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if !callbackCalled {
+		t.Error("Expected guardrail decision callback to be called")
+	}
+	if callbackPayload.Tool != "test_tool" {
+		t.Errorf("Expected tool test_tool, got %s", callbackPayload.Tool)
+	}
+}
+
+func TestAgent_Execute_GuardrailDecisionDenial(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_blocked",
+								Function: proxy.FunctionCall{
+									Name:      "test_tool",
+									Arguments: `{"secret": "sk-12345678901234567890123456789012"}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		},
+	}
+	engine := &MockEngine{Result: "success"}
+
+	gr := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{
+			Global: models.GlobalGuardrailsConfig{
+				BlockSecrets: true,
+			},
+		}
+	}, storage.NewPathResolver("", "", ""), nil)
+
+	var callbackCalled bool
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:   5,
+		Guardrails: gr,
+		GuardrailDecisionHandler: func(ctx context.Context, p GuardrailBlockedPayload) (GuardrailDecision, error) {
+			callbackCalled = true
+			return GuardrailDecision{Allow: false, Persist: false}, nil
+		},
+	})
+
+	var secondCallReq *proxy.ChatRequest
+	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		if client.Calls == 1 {
+			return &client.Response, nil
+		}
+		secondCallReq = &req
+		return &proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID: "call_submit",
+								Function: proxy.FunctionCall{
+									Name:      models.ToolSubmitFinalAnswer,
+									Arguments: `{"summary": "Denied"}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Run with secret"}})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if !callbackCalled {
+		t.Error("Expected guardrail decision callback to be called")
+	}
+	if secondCallReq == nil {
+		t.Fatal("Expected second call request to be captured")
+	}
+
+	foundViolationError := false
+	for _, msg := range secondCallReq.Messages {
+		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, "Guardrail violation") {
+			foundViolationError = true
+			break
+		}
+	}
+	if !foundViolationError {
+		t.Error("Expected guardrail violation error message in the next request's history")
+	}
+}
+
+func TestAgent_NativeToolsNoXMLManualInAutomation(t *testing.T) {
+	manualCheckDone := false
+	foundNativeRef := false
+	streamCount := 0
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			if !manualCheckDone {
+				manualCheckDone = true
+				for _, m := range req.Messages {
+					if strings.Contains(m.Content, "TOOL INTERFACE") {
+						t.Error("XML TOOL INTERFACE manual should NOT be in messages when native tools are enabled")
+					}
+					if strings.Contains(m.Content, prompts.ToolReferenceHeader) {
+						foundNativeRef = true
+					}
+				}
+			}
+			streamCount++
+			ch := make(chan *proxy.ChatResponse, 3)
+			go func() {
+				defer close(ch)
+				if streamCount == 1 {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Let me read the file.\n"}}}}
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
+{"tool": "read_file", "args": {"path": "test.txt"}}
+</tool_call>`}}}}
+				} else {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "File read.\n"}}}}
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
+{"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
+</tool_call>`}}}}
+				}
+			}()
+			return ch, nil
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID: "call_submit",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "Task complete"}`,
+							},
+						}},
+					}},
+				},
+			}, nil
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: `"file contents"`}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " read test.txt and answer"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !manualCheckDone {
+		t.Error("manual check for TOOL INTERFACE was never performed")
+	}
+	if !foundNativeRef {
+		t.Error("expected AVAILABLE TOOLS native reference in messages when native tools are enabled")
 	}
 }
