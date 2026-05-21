@@ -314,14 +314,10 @@ func (s *ShellSession) Execute(ctx context.Context, cmd []string) (io.ReadCloser
 	output, err := s.shell.Execute(ctx, rawCommand)
 
 	outReader := io.NopCloser(strings.NewReader(output))
-	var errReader io.ReadCloser
 	if err != nil {
-		errReader = io.NopCloser(strings.NewReader(err.Error()))
-	} else {
-		errReader = io.NopCloser(strings.NewReader(""))
+		return outReader, nil, fmt.Errorf("shell execution failed: %w", err)
 	}
-
-	return outReader, errReader, nil
+	return outReader, nil, nil
 }
 
 func (s *ShellSession) Cleanup(ctx context.Context) error {

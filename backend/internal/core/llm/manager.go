@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/llm/providers"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
@@ -126,10 +127,13 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 		m.models[entry.Name] = normalizeModelConfig(settings.Local.ModelDir, cfg)
 	}
 
-	// 2. Apply per-model agent tuning overrides from settings.yml
+	// 2. Sync first to compute defaults from model metadata (context length, etc.)
+	m.Sync()
+
+	// 3. Apply per-model agent tuning overrides from settings.yml — these take
+	//    precedence over computed defaults so explicit user config wins.
 	m.ApplyModelOverrides(settings.ModelOverrides)
 
-	m.Sync()
 	go m.reapIdleModels(defaultReapPeriod)
 
 	return m
@@ -439,6 +443,7 @@ func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
 	defer m.mu.Unlock()
 	list := make([]models.ModelConfig, 0, len(m.models))
 	for _, mc := range m.models {
+		logging.Info("ListModels returning", "model", mc.Name, "max_tokens", mc.MaxTokens, "context_budget", mc.ContextBudget)
 		list = append(list, mc)
 	}
 	return list
@@ -514,7 +519,13 @@ func (m *LLMRuntimeManager) Sync() {
 	}
 
 	for name, cfg := range m.models {
-		m.models[name] = normalizeModelConfig(modelDir, cfg)
+		cfg = normalizeModelConfig(modelDir, cfg)
+		cfg.MaxTokens = 0
+		cfg.ContextBudget = 0
+		cfg.ReasoningBudget = 0
+		orchestrator.ApplyMetadataDefaults(&cfg)
+		logging.Info("Sync: model metadata applied", "model", name, "max_tokens", cfg.MaxTokens, "context_budget", cfg.ContextBudget, "reasoning_budget", cfg.ReasoningBudget, "provider", cfg.Provider)
+		m.models[name] = cfg
 	}
 
 	logging.Info("LLM Runtime Manager synchronized", "providers", len(cloudProviders), "models", len(m.models))
@@ -525,9 +536,11 @@ func (m *LLMRuntimeManager) Sync() {
 func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.ModelOverride) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	logging.Info("ApplyModelOverrides called", "override_count", len(overrides))
 	for name, override := range overrides {
 		cfg, ok := m.models[name]
 		if !ok {
+			logging.Info("ApplyModelOverrides: model not found", "model", name)
 			continue
 		}
 		if override.MaxSteps > 0 {
@@ -538,6 +551,7 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		}
 		if override.MaxTokens > 0 {
 			cfg.MaxTokens = override.MaxTokens
+			logging.Info("ApplyModelOverrides: MaxTokens override applied", "model", name, "value", override.MaxTokens)
 		}
 		if override.ReasoningBudget > 0 {
 			cfg.ReasoningBudget = override.ReasoningBudget
@@ -553,6 +567,9 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		}
 		if override.ToolCallFormat != "" {
 			cfg.ToolCallFormat = override.ToolCallFormat
+		}
+		if override.TimeoutMinutes > 0 {
+			cfg.TimeoutMinutes = override.TimeoutMinutes
 		}
 		cfg.Prefill = override.Prefill
 		m.models[name] = cfg

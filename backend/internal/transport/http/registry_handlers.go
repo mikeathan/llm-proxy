@@ -279,8 +279,24 @@ func (r *modelFormRequest) enrichMetadataFromProviders() {
 //
 // Zero values are silently skipped so per-model defaults stay active
 // until the user explicitly changes them.
+//
+// MaxTokens and ContextBudget are deliberately excluded — they are
+// metadata-derived values that ApplyMetadataDefaults recomputes from the
+// model's context length on every startup.  Persisting them would freeze
+// stale values that override future computation.
+
+// hasModelOverrides returns true when the model config contains at least one
+// non-zero agent-tuning field that should be persisted as a user override.
+// Computed fields (MaxTokens, ContextBudget) are excluded — they are
+// derived from metadata and must not be frozen in settings.yml.
+func hasModelOverrides(cfg models.ModelConfig) bool {
+	return cfg.MaxSteps > 0 || cfg.ReasoningBudget > 0 || cfg.SlotTimeout > 0 ||
+		cfg.ToolCallFormat != "" || cfg.Prefill || cfg.TimeoutMinutes > 0 ||
+		(cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0)
+}
+
 func writeModelOverrides(name string, cfg models.ModelConfig, updateFn func(func(*models.UserSettings)) error) {
-	if cfg.MaxSteps > 0 || cfg.ContextBudget > 0 || cfg.MaxTokens > 0 || cfg.ReasoningBudget > 0 || cfg.SlotTimeout > 0 || cfg.ToolCallFormat != "" || cfg.Prefill || (cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0) {
+	if hasModelOverrides(cfg) {
 		_ = updateFn(func(s *models.UserSettings) {
 			if s.ModelOverrides == nil {
 				s.ModelOverrides = make(map[string]models.ModelOverride)
@@ -291,13 +307,12 @@ func writeModelOverrides(name string, cfg models.ModelConfig, updateFn func(func
 			}
 			s.ModelOverrides[name] = models.ModelOverride{
 				MaxSteps:        cfg.MaxSteps,
-				ContextBudget:   cfg.ContextBudget,
-				MaxTokens:       cfg.MaxTokens,
 				ReasoningBudget: cfg.ReasoningBudget,
 				SlotTimeout:     cfg.SlotTimeout,
 				ICUWeight:       weight,
 				ToolCallFormat:  cfg.ToolCallFormat,
 				Prefill:         cfg.Prefill,
+				TimeoutMinutes:  cfg.TimeoutMinutes,
 			}
 		})
 	}

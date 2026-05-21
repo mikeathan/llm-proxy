@@ -28,12 +28,14 @@ type Message struct {
 
 // Chat Request
 type ChatRequest struct {
-	Model      string     `json:"model"`
-	Messages   []Message  `json:"messages"`
-	MaxTokens  int        `json:"max_tokens,omitempty"`
-	Tools      []Tool     `json:"tools,omitempty"`
-	ToolChoice ToolChoice `json:"tool_choice,omitempty"`
-	Stream     bool       `json:"stream,omitempty"`
+	Model           string     `json:"model"`
+	Messages        []Message  `json:"messages"`
+	MaxTokens       int        `json:"max_tokens,omitempty"`
+	Temperature     float64    `json:"temperature,omitempty"`
+	ReasoningBudget int        `json:"reasoning_budget,omitempty"`
+	Tools           []Tool     `json:"tools,omitempty"`
+	ToolChoice      ToolChoice `json:"tool_choice,omitempty"`
+	Stream          bool       `json:"stream,omitempty"`
 }
 
 type ToolCall struct {

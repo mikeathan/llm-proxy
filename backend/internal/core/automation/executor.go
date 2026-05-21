@@ -163,6 +163,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 			if cfg.Prefill {
 				agentOpts.UsePrefill = true
 			}
+			if cfg.TimeoutMinutes > 0 {
+				agentOpts.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
+			}
+			procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
 		}
 	}
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)

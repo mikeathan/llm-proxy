@@ -72,7 +72,9 @@ func (s *AppContext) registerSubscribers() {
 			reg.RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
 		}
 		s.manager.Sync()
+		logging.Info("Settings change: Sync completed, applying model overrides", "override_count", len(u.ModelOverrides))
 		s.manager.ApplyModelOverrides(u.ModelOverrides)
+		logging.Info("Settings change: model overrides applied")
 	})
 
 	// 2. System Config Changes -> Sync Infrastructure & Environment

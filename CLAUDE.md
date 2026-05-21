@@ -218,6 +218,11 @@ Nag injection belongs in the agent loop (`agent.go`), NOT in `NormalizeHistory()
 - Local models: default to text/XML; can opt into native via `ModelConfig.ToolCallFormat = "native"`
 - The HTTP client does NOT strip tools — the agent controls this decision
 - When native tools are enabled, XML parser still runs as fallback for non-function-calling responses
+- Automation mode with native tools sends `tool_choice: "required"`, `temperature: 0.1`, and
+  `reasoning_budget: max_tokens/2` on the `ChatRequest` to force the model to always call a tool
+  (preventing thinking-only EOS responses) and cap wasted thinking tokens so the model has budget
+  left for the actual tool call. These fields are omitted for XML mode or non-automation contexts
+  via `omitempty`.
 
 ### 8. Prompts Centralized (SINGLE SOURCE OF TRUTH)
 `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings:

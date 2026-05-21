@@ -26,6 +26,11 @@ const (
 	// DefaultMaxTokens limits the LLM response length to prevent context overflow
 	// and truncation of tool call arguments (e.g. write_file with huge content).
 	DefaultMaxTokens = 3072
+	// DefaultStarvationLimit is the max consecutive no-tool turns before the agent
+	// is considered stalled and fails.  Tool-call failures and retries still count
+	// as "steps" but turns without ANY tool call are tracked separately so the
+	// agent can't loop forever on text-only rambling.
+	DefaultStarvationLimit = 15
 	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
 	AgentGlobalTimeout = 30 * time.Minute
 	// AgentTurnTimeout is the maximum time allowed for a single LLM turn.
@@ -46,6 +51,7 @@ type Agent struct {
 	maxTokens       int
 	reasoningBudget int
 	icuWeight       float64
+	globalTimeout   time.Duration
 	useNativeTools  bool
 	observer          Observer
 	workspaceID       string
@@ -57,11 +63,11 @@ type Agent struct {
 }
 
 type AgentOptions struct {
-	MaxSteps                 int     // 0 = use DefaultMaxSteps
-	ContextBudget            int     // 0 = use DefaultContextBudget
-	MaxResponseTokens        int     // 0 = use DefaultMaxTokens
-	ReasoningBudget          int     // 0 = use provider default (no cap)
-	ICUWeight                float64 // 0 = default 1.0
+	MaxSteps                 int           // 0 = use DefaultMaxSteps
+	ContextBudget            int           // 0 = use DefaultContextBudget
+	MaxResponseTokens        int           // 0 = use DefaultMaxTokens
+	ReasoningBudget          int           // 0 = use provider default (no cap)
+	ICUWeight                float64       // 0 = default 1.0
 	Logger                   logging.Logger
 	Guardrails               *guardrails.GuardrailEngine
 	Observer                 Observer
@@ -72,38 +78,49 @@ type AgentOptions struct {
 	Orchestrator             *orchestrator.Orchestrator
 	ModelName                string
 	ProviderType             string
+	GlobalTimeout            time.Duration // 0 = use DefaultAgentGlobalTimeout
+}
+
+// applyDefaults fills in zero-valued fields with their global defaults
+// so callers don't need to repeat this boilerplate for every agent instance.
+func (o *AgentOptions) applyDefaults() {
+	if o.MaxSteps <= 0 {
+		o.MaxSteps = DefaultMaxSteps
+	}
+	if o.ContextBudget <= 0 {
+		o.ContextBudget = DefaultContextBudget
+	}
+	if o.MaxResponseTokens <= 0 {
+		o.MaxResponseTokens = DefaultMaxTokens
+	}
+	if o.ICUWeight <= 0 {
+		o.ICUWeight = 1.0
+	}
+	if o.Logger == nil {
+		o.Logger = logging.NewNopLogger()
+	}
+	if o.GlobalTimeout <= 0 {
+		o.GlobalTimeout = AgentGlobalTimeout
+	}
 }
 
 // NewAgent creates a new unified agent.
 func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts AgentOptions) *Agent {
-	if opts.MaxSteps <= 0 {
-		opts.MaxSteps = DefaultMaxSteps
-	}
-	if opts.ContextBudget <= 0 {
-		opts.ContextBudget = DefaultContextBudget
-	}
-	if opts.MaxResponseTokens <= 0 {
-		opts.MaxResponseTokens = DefaultMaxTokens
-	}
-	if opts.ICUWeight <= 0 {
-		opts.ICUWeight = 1.0
-	}
-	if opts.Logger == nil {
-		opts.Logger = logging.NewNopLogger()
-	}
-	// Default guardrail engine if none provided
+	opts.applyDefaults()
+
+	// Guardrails: default engine if none provided.
 	gr := opts.Guardrails
 	if gr == nil {
 		gr = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
 	}
 
-	// Resolve UseNativeTools: explicit override takes precedence, otherwise ask provider
+	// Resolve UseNativeTools: explicit override takes precedence, otherwise ask provider.
 	useNative := provider.UseNativeTools()
 	if opts.UseNativeTools != nil {
 		useNative = *opts.UseNativeTools
 	}
 
-	return &Agent{
+	a := &Agent{
 		client:          client,
 		provider:        provider,
 		engine:          engine,
@@ -114,6 +131,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		maxTokens:       opts.MaxResponseTokens,
 		reasoningBudget: opts.ReasoningBudget,
 		icuWeight:       opts.ICUWeight,
+		globalTimeout:   opts.GlobalTimeout,
 		useNativeTools:  useNative,
 		observer:        opts.Observer,
 		workspaceID:     opts.WorkspaceID,
@@ -122,9 +140,12 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		modelName:       opts.ModelName,
 		providerType:    opts.ProviderType,
 	}
+	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
+	return a
 }
 
-// Execute runs the agentic loop for a given conversation history.
+// ── Repetition Detection ──────────────────────────────────────────────────
+
 type toolKey struct {
 	name string
 	args string
@@ -135,6 +156,8 @@ type repetitionDetector struct {
 	duplicateStreak int
 }
 
+// check returns a nag prompt at streak 1-2, a fatal error at streak >= 3.
+// submit_final_answer and system_error are excluded from tracking.
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
 	for _, tc := range toolCalls {
 		key := toolKey{tc.Function.Name, tc.Function.Arguments}
@@ -156,12 +179,16 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 	return false, "", nil
 }
 
-// Execute runs the agentic loop for a given conversation history.
+// ── Main Agentic Loop ─────────────────────────────────────────────────────
+// Execute runs the agentic loop until maxSteps, submit_final_answer, or error.
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
-	execCtx, cancel := context.WithTimeout(ctx, AgentGlobalTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, a.globalTimeout)
 	defer cancel()
 
 	steps := 0
+	sieveStreak := 0
+	starvationCount := 0
+	warnedAdvisory := false
 	currentHistory := append([]proxy.Message{}, history...)
 	rd := repetitionDetector{}
 
@@ -178,19 +205,49 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 		}
 	}
 
-	for steps < a.maxSteps {
+	for {
 		steps++
 		if err := execCtx.Err(); err != nil {
 			return "", currentHistory, fmt.Errorf("agent execution halted: %w", err)
 		}
 
+		if steps >= a.maxSteps && !warnedAdvisory {
+			warnedAdvisory = true
+			a.logger.Warn("agent exceeded advisory step limit, continuing", "steps", steps)
+		}
+
 		a.notifyStepStart(steps)
 		a.notifyThinking()
 
+		// ── Execute One Turn ────────────────────────────────────────────
+		// Calls the LLM, parses tool calls from the response, validates them.
 		turnMsg, parseErr, toolsList, err := a.executeTurn(execCtx, &currentHistory)
 		if err != nil {
+			starvationCount++
+			if starvationCount >= DefaultStarvationLimit {
+				return "", currentHistory, fmt.Errorf("agent stalled: %w", err)
+			}
 			if isContextSizeError(err) {
-				currentHistory = a.applyReactiveSieve(currentHistory)
+				sieveStreak++
+				if sieveStreak >= 3 {
+					return "", currentHistory, fmt.Errorf("agent execution failed: model stuck in reasoning loop after %d sieve retries", sieveStreak)
+				}
+				if sieveStreak == 1 {
+					currentHistory = a.applyReactiveSieve(currentHistory)
+					currentHistory = append(currentHistory, proxy.Message{
+						Role:    proxy.UserRole,
+						Content: prompts.ReasoningStuckNag,
+					})
+				} else {
+					if len(currentHistory) <= 2 {
+						return "", currentHistory, fmt.Errorf("agent execution failed: cannot recover from reasoning loop")
+					}
+					currentHistory = a.applyAggressiveSieve(currentHistory)
+					currentHistory = append(currentHistory, proxy.Message{
+						Role:    proxy.UserRole,
+						Content: prompts.ReasoningStuckEscalatedNag,
+					})
+				}
 				continue
 			}
 
@@ -211,7 +268,12 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			return "", currentHistory, err
 		}
 
+		sieveStreak = 0
+
+		// ── Tool Calls Produced ─────────────────────────────────────────
+		// Deduplicate, check for loops, execute, check for submit_final_answer.
 		if len(turnMsg.ToolCalls) > 0 {
+			starvationCount = 0
 			parseErrorStreak = 0
 			lastParseErrorKind = ""
 			totalErrorStreak = 0
@@ -263,7 +325,14 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			if hasFinalSubmit {
 				return turnMsg.Content, currentHistory, nil
 			}
+		// ── No Tool Calls ──────────────────────────────────────────────
+		// Exit heuristics for pure-text responses: premature termination,
+		// parse error feedback, or generic nag.
 		} else {
+			starvationCount++
+			if starvationCount >= DefaultStarvationLimit {
+				return "", currentHistory, fmt.Errorf("agent stalled: no tool calls in %d consecutive turns", starvationCount)
+			}
 			reply, shouldExit, err := a.handleNoToolCalls(
 				turnMsg,
 				&currentHistory,
@@ -287,7 +356,11 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	return "", currentHistory, fmt.Errorf("agent exceeded max steps (%d)", a.maxSteps)
 }
 
-// applyPhysicalSieve prunes the middle of history if total characters exceed ContextBudget.
+// ── Context Pressure Sieves ───────────────────────────────────────────────
+// These keep the LLM's input under the context window by pruning old messages.
+
+// applyPhysicalSieve is called before EVERY LLM turn.  Keeps first 2 + last 10
+// messages when total characters exceed a.contextBudget.
 func (a *Agent) applyPhysicalSieve(history []proxy.Message) []proxy.Message {
 	totalChars := 0
 	for _, m := range history {
@@ -335,7 +408,25 @@ func (a *Agent) applyReactiveSieve(history []proxy.Message) []proxy.Message {
 	return append(sieved, history[len(history)-tail:]...)
 }
 
-// executeTurn runs a single turn of the agentic loop, returning the assistant message or an error.
+// applyAggressiveSieve prunes even more aggressively for the 2nd consecutive
+// stuck event — keeps only the first 2 messages + the last 3.
+func (a *Agent) applyAggressiveSieve(history []proxy.Message) []proxy.Message {
+	a.logger.Warn("aggressive sieve applied — model stuck after prior recovery attempt")
+	sieved := make([]proxy.Message, 0, 6)
+	sieved = append(sieved, history[0], history[1])
+	sieved = append(sieved, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: prompts.SieveSystemNote,
+	})
+	tail := 3
+	if len(history) < tail+2 {
+		tail = len(history) - 2
+	}
+	return append(sieved, history[len(history)-tail:]...)
+}
+
+// ── Single Turn ───────────────────────────────────────────────────────────
+// executeTurn runs one LLM call, parses tool calls, validates & deduplicates.
 func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (proxy.Message, *proxy.ParseError, []proxy.Tool, error) {
 	turnCtx, turnCancel := context.WithTimeout(ctx, AgentTurnTimeout)
 	defer turnCancel()
@@ -403,7 +494,9 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	return turnMsg, parseErr, toolsList, nil
 }
 
-// handleNoToolCalls manages exit heuristics, nags, and termination checks when the turn yielded no tool calls.
+// ── No-Tool-Call Handling ─────────────────────────────────────────────────
+// When the LLM produces text only (no tool calls), decide whether to exit
+// (premature termination) or nag the model to produce a tool call.
 func (a *Agent) handleNoToolCalls(
 	turnMsg proxy.Message,
 	history *[]proxy.Message,
@@ -524,9 +617,13 @@ func isContextSizeError(err error) bool {
 		strings.Contains(low, "context_length_exceeded") ||
 		strings.Contains(low, "maximum context length") ||
 		strings.Contains(low, "reduce the length") ||
-		strings.Contains(low, "too many tokens")
+		strings.Contains(low, "too many tokens") ||
+		strings.Contains(low, "reasoning stuck")
 }
 
+// ── Content Tool Call Parsing ─────────────────────────────────────────────
+// Parses <tool_call> XML blocks from generated text.  Native tool calls from
+// API deltas are already in msg.ToolCalls by this point.
 func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
 	if msg.Content == "" {
 		return nil
@@ -586,7 +683,15 @@ func (a *Agent) countConsecutiveChat(history []proxy.Message) int {
 	return chatCount
 }
 
+// ── LLM Calls (Streaming + Non-Streaming) ─────────────────────────────────
+// computeNextResponse tries streaming first, with these fallback layers:
+//   1. prefill rejected by server (thinking mode) → retry streaming without prefill
+//   2. stream error → non-streaming with same tools
+//   3. stream returned empty with native tools → non-streaming with tools (NOT nil)
+//   4. stream returned empty without native tools → non-streaming with tools
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
+	// Decide whether to pass tool definitions via API (native) or embed them
+	// as XML instructions in the system prompt (text-based).
 	llmTools := tools
 	if !a.useNativeTools {
 		llmTools = nil
@@ -607,10 +712,10 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
-	// In automation mode with text-based tools, prefill the assistant
-	// response so the model never needs to decide between thinking and
-	// acting.  It receives `<tool_call>\n{"tool":"` as the last assistant
-	// message and must complete the JSON with a tool name and arguments.
+	// Prefill: in automation mode with text-based tools, inject a synthetic
+	// assistant message (<tool_call>\n{"tool":") so the model completes a tool
+	// call instead of deciding whether to think or act.  NOT used with native
+	// tools — llama.cpp handles native tool deltas natively.
 	var prefill string
 	if a.shouldPrefill(isAutomationCtx) {
 		prefill = prompts.AutomationPrefline
@@ -625,11 +730,23 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		Tools:     llmTools,
 		MaxTokens: a.maxTokens,
 	}
+	if a.useNativeTools && isAutomationCtx {
+		req.ToolChoice = proxy.ToolChoiceRequired
+	}
+	if isAutomationCtx {
+		req.Temperature = 0.1
+		if a.reasoningBudget > 0 {
+			req.ReasoningBudget = a.reasoningBudget
+		} else {
+			req.ReasoningBudget = a.maxTokens / 4
+		}
+	}
 
 	// Pre-flight budget check: debit projected ICU cost before the LLM
 	// call. If the stream fails, the defer block below refunds it so
 	// transient errors don't consume the workspace budget.
 	var txnID string
+	a.logger.Info("computeNextResponse: before budget check", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget)
 	if a.orch != nil && a.orch.Budget != nil {
 		totalChars := 0
 		for _, m := range history {
@@ -654,12 +771,13 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 			a.maxTokens = preflight.AdjustedMaxTokens
 			a.reasoningBudget = preflight.AdjustedReasoning
 			req.MaxTokens = a.maxTokens
-			a.logger.Warn("budget squeeze applied", "factor", preflight.SqueezeFactor)
+			a.logger.Warn("budget squeeze applied", "factor", preflight.SqueezeFactor, "adjusted_max_tokens", a.maxTokens, "adjusted_reasoning", a.reasoningBudget)
 		}
+		a.logger.Info("computeNextResponse: after budget check", "max_tokens", a.maxTokens, "squeeze_factor", preflight.SqueezeFactor, "budget_exists", a.orch != nil)
 	}
 
 	ch, streamErr := a.client.Stream(ctx, req)
-
+a.logger.Info("stream request sent", "model", a.modelName, "max_tokens", a.maxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
 	if a.orch != nil && a.orch.Budget != nil && txnID != "" {
 		defer func() {
 			if streamErr != nil {
@@ -683,9 +801,11 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 				prepared = a.injectToolInstructions(prepared, tools)
 			}
 			req = proxy.ChatRequest{
-				Messages:  prepared,
-				Tools:     nil,
-				MaxTokens: a.maxTokens,
+				Messages:         prepared,
+				Tools:            nil,
+				MaxTokens:        a.maxTokens,
+				Temperature:      0.1,
+				ReasoningBudget:  a.maxTokens / 4,
 			}
 			ch, streamErr = a.client.Stream(ctx, req)
 		}
@@ -705,11 +825,19 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		fullMsg.Content = prefill + fullMsg.Content
 	}
 
+	a.logger.Info("stream completed", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent), "tool_calls", len(fullMsg.ToolCalls))
+
+	// Fallback 1: native tools + empty stream + no native tool deltas.
+	// Common when reasoning consumes the token budget before the tool call
+	// starts. Retry non-streaming WITH tools (not nil) so the model still
+	// has tool context and can produce a valid tool call.
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 && llmTools != nil {
 		a.logger.Info("empty response with native tools, retrying without them")
-		return a.computeNextResponseNonStreaming(ctx, history, nil)
+		return a.computeNextResponseNonStreaming(ctx, history, tools)
 	}
 
+	// Fallback 2: non-native mode, empty stream. Retry non-streaming with
+	// XML tool instructions (tools are injected into the system prompt).
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
 		a.logger.Info("stream returned no content, falling back to non-streaming retry")
 		return a.computeNextResponseNonStreaming(ctx, history, tools)
@@ -719,11 +847,30 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	return fullMsg, nil
 }
 
-// processStream reads SSE chunks from the LLM stream, accumulating
-// content and reasoning tokens.  When the orchestrator is active it also
-// runs token counting via the stream interceptor for budget enforcement.
+// ── Stream Processing ─────────────────────────────────────────────────────
+// Consumes SSE chunks from the LLM stream.  Content goes to fullMsg.Content,
+// reasoning to fullMsg.ReasoningContent, and native tool deltas to
+// fullMsg.ToolCalls.  Both content and reasoning are sent to the UI via
+// EventToolStream but only Content and ToolCalls enter the conversation
+// history — ReasoningContent is stripped by SanitizeHistory.
 func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) error {
 	var tokUsed, reasonUsed int
+
+	// Progress indicator: log every 30s during long streams so the user
+	// knows the agent is still working and not hung.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				a.logger.Info("stream still generating", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent))
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -743,6 +890,7 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					reasoningChunk = choice.Message.ReasoningContent
 				}
 
+				// Budget tracking: count tokens used vs. maxTokens + reasoningBudget.
 				if a.orch != nil && a.orch.Interceptor != nil {
 					result := a.orch.Interceptor.InterceptChunk(orchestrator.StreamChunk{
 						Content:          chunkContent,
@@ -761,16 +909,33 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					}
 				}
 
-				totalChunk := chunkContent + reasoningChunk
-				if totalChunk != "" {
-					fullMsg.Content += totalChunk
-					displayContent, hasToolCall := FilterStreamingMarkup(fullMsg.Content)
-					if hasToolCall {
-						a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
-					} else {
-						a.notify(EventToolStream, displayContent)
-					}
+			// Reasoning stuck check: scales with max_tokens so larger models
+			// get more room to reason before being cut off. Defaults to 2000
+			// chars (~500 tokens at 4 chars/token) when max_tokens is not set.
+			stuckThreshold := a.maxTokens
+			if stuckThreshold <= 0 {
+				stuckThreshold = 2000
+			}
+			if len(fullMsg.ReasoningContent) > stuckThreshold && len(fullMsg.Content) == 0 && len(fullMsg.ToolCalls) == 0 {
+				a.logger.Warn("reasoning stuck detected, aborting stream", "reasoning_chars", len(fullMsg.ReasoningContent))
+				return fmt.Errorf("reasoning stuck: model generates only thinking without tool calls")
+			}
+
+			if chunkContent != "" {
+				fullMsg.Content += chunkContent
+			}
+			if reasoningChunk != "" {
+				fullMsg.ReasoningContent += reasoningChunk
+			}
+			if chunkContent != "" || reasoningChunk != "" {
+				displayText := fullMsg.ReasoningContent + fullMsg.Content
+				displayContent, hasToolCall := FilterStreamingMarkup(displayText)
+				if hasToolCall {
+					a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
+				} else {
+					a.notify(EventToolStream, displayContent)
 				}
+			}
 				if len(choice.Delta.ToolCalls) > 0 {
 					// Native tool-call delta accumulation.  This path only activates
 					// when useNativeTools is true (cloud models using native tool
@@ -791,6 +956,9 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 	}
 }
 
+// computeNextResponseNonStreaming is the fallback when streaming fails or
+// returns empty.  Receives the same tools list so the model still has tool
+// context (API-level native tools or injected XML instructions).
 func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, AgentTurnTimeout)
 	defer cancel()
@@ -832,10 +1000,23 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		Tools:     llmTools,
 		MaxTokens: a.maxTokens,
 	}
+	if a.useNativeTools && isAutomationCtx {
+		req.ToolChoice = proxy.ToolChoiceRequired
+	}
+	if isAutomationCtx {
+		req.Temperature = 0.1
+		if a.reasoningBudget > 0 {
+			req.ReasoningBudget = a.reasoningBudget
+		} else {
+			req.ReasoningBudget = a.maxTokens / 4
+		}
+	}
 
 	if rawReq, err := json.Marshal(req); err == nil {
 		a.logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
 	}
+
+	a.logger.Info("non-stream request sent", "model", a.modelName, "max_tokens", a.maxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
 
 	resp, err := a.client.Chat(chatCtx, req)
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
@@ -848,12 +1029,14 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
 		}
 		req = proxy.ChatRequest{
-			Messages:  preparedHistory,
-			Tools:     nil,
-			MaxTokens: a.maxTokens,
+				Messages:         preparedHistory,
+				Tools:            nil,
+				MaxTokens:        a.maxTokens,
+				Temperature:      0.1,
+				ReasoningBudget:  a.maxTokens / 4,
+			}
+			resp, err = a.client.Chat(chatCtx, req)
 		}
-		resp, err = a.client.Chat(chatCtx, req)
-	}
 	if err != nil && isToolSupportError(err) {
 		a.logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
@@ -877,9 +1060,19 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	return msg, nil
 }
 
+// ── Termination Heuristics ────────────────────────────────────────────────
+
+// isPrematureTermination detects when the model produced empty or repetitive
+// output (3 identical assistant messages in a row).
 func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Message) bool {
 	content := strings.TrimSpace(msg.Content)
 	if content == "" {
+		// Model generated only reasoning (no content, no tool calls). This is
+		// not premature termination — the model was thinking but needs a nag
+		// to stop thinking and produce an action.
+		if len(msg.ReasoningContent) > 0 {
+			return false
+		}
 		return len(msg.ToolCalls) == 0
 	}
 	if len(history) >= 2 {
@@ -894,6 +1087,8 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 	return false
 }
 
+// ── Tool Execution ────────────────────────────────────────────────────────
+// Validates against schema, runs guardrails, executes via Engine.
 func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
 	var mu sync.Mutex
 	hasSubmit := false
@@ -923,6 +1118,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		}
 
 		a.logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+		a.logger.Info("executing tool", "name", tc.Function.Name)
 
 		toolsList, _ := a.provider.ListTools(ctx)
 		if err := validateToolArgs(tc, toolsList); err != nil {
@@ -981,6 +1177,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		a.appendToolResult(history, tc, result)
 			resultStr, _ := json.Marshal(result)
 			a.logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
+		a.logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
 		a.notifyToolResult(tc.ID, tc.Function.Name, result)
 		mu.Unlock()
 
@@ -1116,14 +1313,25 @@ func isPrefillThinkingError(err error) bool {
 		strings.Contains(lowErr, "thinking")
 }
 
+// ── Message Preparation ───────────────────────────────────────────────────
+
+// shouldPrefill returns true when:
+//   - prefill hasn't been disabled by a server-side thinking-mode rejection
+//   - we're in automation context (not interactive chat)
+//   - native tools are NOT active (prefill is an XML-only mechanism)
 func (a *Agent) shouldPrefill(isAutomationCtx bool) bool {
 	return !a.prefillDisabled && isAutomationCtx && !a.useNativeTools
 }
 
+// prepareMessages normalizes history roles and strips fields incompatible
+// with the current tool-calling mode (native vs XML).
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
 	return proxy.NormalizeHistory(history, a.useNativeTools)
 }
 
+// injectToolInstructions adds the XML tool-call format manual to the system
+// prompt.  Used when native tools are disabled (text-mode tool calling via
+// <tool_call> blocks in generated text).
 func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
 	if len(tools) == 0 {
 		return history
@@ -1158,6 +1366,9 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 	return newHistory
 }
 
+// injectNativeToolReference adds a lightweight tool-name reference to the
+// system prompt.  Used when native tools are active — the LLM receives tool
+// definitions via the API but still benefits from textual context.
 func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
 	if len(tools) == 0 {
 		return history

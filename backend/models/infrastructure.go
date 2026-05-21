@@ -37,6 +37,7 @@ type ModelOverride struct {
 	ReasoningBudget int     `yaml:"reasoning_budget,omitempty" json:"reasoning_budget,omitempty"`
 	SlotTimeout     int     `yaml:"slot_timeout,omitempty" json:"slot_timeout,omitempty"`
 	ICUWeight       float64 `yaml:"icu_weight,omitempty" json:"icu_weight,omitempty"`
+	TimeoutMinutes  int     `yaml:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"`
 }
 
 // UserSettings represents the user-level settings (Tier 2: settings.yml)

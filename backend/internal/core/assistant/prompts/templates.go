@@ -90,12 +90,14 @@ You have access to the following tools. Use them by their exact names.
 
 ### Rules
 1. Use ONLY the tools listed above.
-2. You are not finished until you call 'submit_final_answer'.
+2. Batch related tool calls into a single response for efficiency.
+3. Use Thought -> Action -> Observation loop. Verify results before proceeding.
+4. You are not finished until you call 'submit_final_answer'.
    The 'summary' argument IS the final report the user sees.
    It must contain the actual findings, tables, and analysis — not a description
    of what was done. If the task asks for a file, write it too, but the summary
    must still include all the report content.
-3. If a tool fails, you will receive the error. Fix it in your next turn.
+5. If a tool fails, you will receive the error. Fix it in your next turn.
 `
 
 // BuildNativeToolReference generates a lightweight tool list for native mode.
@@ -146,7 +148,7 @@ RULES:
 
 // AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.
 func AssembleSystemPrompt(customRules string) string {
-	prompt := DefaultRules
+	prompt := DefaultRules + "\n" + FileSystemRules
 	if customRules != "" && strings.TrimSpace(customRules) != strings.TrimSpace(DefaultRules) {
 		prompt += "\n\nWORKSPACE-SPECIFIC RULES:\n" + customRules
 	}
@@ -239,6 +241,19 @@ Output ONLY a JSON array. No text before or after. Each element must have "tool"
   {"tool": "execute_terminal_command", "args": {"command": "node project/src/main.js"}},
   {"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
 ]`
+
+// ReasoningStuckNag is injected after the first reasoning-stuck event. Tells the model
+// to stop thinking and execute a tool immediately.
+const ReasoningStuckNag = "SYSTEM: You are generating analysis without executing any tool.\n\n" +
+	"Stop analyzing. Call a tool immediately.\n\n" +
+	automationNagFormatExample
+
+// ReasoningStuckEscalatedNag is injected after a second consecutive reasoning-stuck
+// event. Stronger instruction to force the model to act.
+const ReasoningStuckEscalatedNag = "CRITICAL: You are stuck in an analysis loop and ignored the previous warning.\n\n" +
+	"All analysis steps are complete. You have all the information you need.\n" +
+	"Call the appropriate tool NOW with the data you already have. No further processing.\n\n" +
+	automationNagFormatExample
 
 // AutomationTaskPrompt is the user-facing task message for autonomous agents.
 // ContextSieveWarning is injected after the physical sieve prunes intermediate history.

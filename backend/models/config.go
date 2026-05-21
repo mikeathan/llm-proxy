@@ -317,11 +317,12 @@ type ModelConfig struct {
 
 	// Agent tuning — per-model overrides for agent loop behaviour.
 	// Zero values mean "use the global default."
-	MaxSteps        int    `json:"max_steps,omitempty"`
-	ContextBudget   int    `json:"context_budget,omitempty"`
-	MaxTokens       int    `json:"max_tokens,omitempty"`
-	ToolCallFormat  string `json:"tool_call_format,omitempty"` // "xml" or "native"
-	Prefill         bool   `json:"prefill,omitempty"`
+	MaxSteps         int    `json:"max_steps,omitempty"`
+	ContextBudget    int    `json:"context_budget,omitempty"`
+	MaxTokens        int    `json:"max_tokens,omitempty"`
+	ToolCallFormat   string `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill          bool   `json:"prefill,omitempty"`
+	TimeoutMinutes   int    `json:"timeout_minutes,omitempty"` // per-execution timeout, 0 = use global default (30 min)
 
 	// Resource-aware orchestration. Zero values mean "use provider default."
 	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens

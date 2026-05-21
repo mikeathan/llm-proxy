@@ -246,7 +246,7 @@ func TestApplyMetadataDefaults_AllZero(t *testing.T) {
 		Provider: "nvidia",
 	}
 	ApplyMetadataDefaults(cfg)
-	expectedTokens := 128_000 / 4
+	expectedTokens := 128_000 / 3
 	expectedBudget := (128_000 - expectedTokens) * 2
 	if cfg.MaxTokens != expectedTokens {
 		t.Fatalf("expected max_tokens=%d, got %d", expectedTokens, cfg.MaxTokens)

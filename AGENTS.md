@@ -130,6 +130,12 @@ When a tool call is blocked:
 
 7. **Removing the XML parser** — Even with native tools enabled globally, the XML parser must remain as fallback for non-function-calling responses. Both paths coexist.
 
+8. **Forgetting `tool_choice: "required"` for native tools in automation** — When `useNativeTools` is true and the request is an automation task, the agent sets `tool_choice: "required"`, `temperature: 0.1`, and `reasoning_budget: max_tokens/4` on the `ChatRequest`. This forces the LLM to always call a tool (preventing thinking-only EOS responses) and caps wasted thinking tokens so the model has budget left for the actual tool call. The `omitempty` tags ensure these fields are omitted for XML mode or non-automation contexts.
+
+9. **Reasoning-stuck detection in `processStream`** — When a model generates more than 2000 chars of reasoning content without any text output or native tool call deltas, the stream is aborted early. This prevents infinite thinking loops that occur when the server-side `reasoning_budget` is not enforced as a hard cap. The aborted stream triggers the empty-response fallback, which retries non-streaming — a fundamentally different code path that breaks the reasoning loop. See `agent.go` `processStream()`.
+
+10. **Progressive sieve recovery on consecutive stuck events** — On the 1st reasoning-stuck event, the reactive sieve (first 2 + last 6 messages) is applied and a nag prompt ("Stop analyzing, call a tool") is added to the history. On the 2nd consecutive stuck event, an aggressive sieve (first 2 + last 3 messages) is applied with a stronger nag prompt. On the 3rd consecutive stuck event, the agent fails with a clear error ("model stuck in reasoning loop"). This prevents infinite spinning while giving verbose models (Gemma 4) multiple chances to recover.
+
 ## File Change Checklist
 
 When adding a new model-level field, update these files:
