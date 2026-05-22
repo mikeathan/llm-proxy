@@ -2,7 +2,8 @@
   "server": {
     "bind": "0.0.0.0:4001",
     "model_host": "0.0.0.0",
-    "idle_timeout_seconds": 1800
+    "idle_timeout_seconds": 1800,
+    "log_level": "DEBUG"
   },
   "workspaces_dir": "workspaces",
   "metrics": {

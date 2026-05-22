@@ -113,6 +113,13 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 // For local models the GGUF scanner provides context length; for
 // OpenRouter it comes from the limits block in the model list response.
 //
+// Context length resolution priority (resolveContextLength):
+//   1. cfg.Metadata.Nctx           — serving context from llama.cpp /slots
+//   2. cfg.Metadata.ContextLength  — training context from GGUF metadata
+//   3. knownCtx model-name match   — exceptional models by name
+//   4. providerCtxDefaults         — per-provider fallback (e.g. openai=128K)
+//   5. 0                           — unknown
+//
 // Rules:
 //
 //	max_tokens       = context / 3                  (leave 2/3 for prompt + history)
@@ -171,17 +178,28 @@ var knownCtx = map[string]int{
 }
 
 func resolveContextLength(cfg *models.ModelConfig) int {
-	if cfg.Metadata != nil && cfg.Metadata.ContextLength > 0 {
-		ctxLen := cfg.Metadata.ContextLength
-		// Guard against inflated training-context values (n_ctx_train
-		// from llama.cpp can be 262K while actual serving is 8K).
-		// If metadata exceeds the provider's known max, cap it.
+	// Priority 1: serving context from llama.cpp /slots endpoint
+	// (n_ctx, captured by OpenAICompatibleProvider.fetchSlotsContext).
+	if cfg.Metadata != nil && cfg.Metadata.Nctx > 0 {
+		ctxLen := cfg.Metadata.Nctx
 		if maxCtx, ok := providerCtxDefaults[cfg.Provider]; ok && ctxLen > maxCtx {
 			return maxCtx
 		}
 		return ctxLen
 	}
 
+	// Priority 2: training context from GGUF metadata (n_ctx_train).
+	// Guard against inflated training-context values that exceed the
+	// provider's known max — cap to the provider default.
+	if cfg.Metadata != nil && cfg.Metadata.ContextLength > 0 {
+		ctxLen := cfg.Metadata.ContextLength
+		if maxCtx, ok := providerCtxDefaults[cfg.Provider]; ok && ctxLen > maxCtx {
+			return maxCtx
+		}
+		return ctxLen
+	}
+
+	// Priority 3: exceptional models keyed by name fragment.
 	name := strings.ToLower(cfg.Name + " " + cfg.Filename)
 	for fragment, ctx := range knownCtx {
 		if strings.Contains(name, fragment) {
@@ -189,9 +207,12 @@ func resolveContextLength(cfg *models.ModelConfig) int {
 		}
 	}
 
+	// Priority 4: per-provider default (e.g. openai=128K, local=8K).
 	if ctx, ok := providerCtxDefaults[cfg.Provider]; ok {
 		return ctx
 	}
+
+	// Priority 5: unknown — caller defaults to 0 (no budget applied).
 	return 0
 }
 // 1. Explicit ProviderConfig.InternalCreditWeight override

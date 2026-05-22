@@ -10,10 +10,11 @@ const (
 // SystemConfig represents the infrastructure-level settings (Tier 1: config.json)
 type SystemConfig struct {
 	Server struct {
-		Bind            string `json:"bind"`
-		ModelHost       string `json:"model_host"`
-		IdleTimeoutSecs int    `json:"idle_timeout_seconds"`
+		Bind            string            `json:"bind"`
+		ModelHost       string            `json:"model_host"`
+		IdleTimeoutSecs int               `json:"idle_timeout_seconds"`
 		Environment     map[string]string `json:"environment,omitempty"`
+		LogLevel        string            `json:"log_level,omitempty"`
 	} `json:"server"`
 
 	WorkspacesDir string `json:"workspaces_dir"`

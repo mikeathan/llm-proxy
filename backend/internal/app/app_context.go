@@ -453,33 +453,35 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 				if cfg.ProviderConfig != nil {
 					credID = cfg.ProviderConfig.APIKeyName
 				}
-				c.Catalogue[i] = models.ModelRegistryEntry{
-					ID:           cfg.Name,
-					Name:         cfg.Name,
-					ProviderID:   cfg.Provider,
-					ModelID:      cfg.Filename,
-					CredentialID: credID,
-					Port:         cfg.Port,
-					Args:         cfg.Args,
-					Prefill:      cfg.Prefill,
-				}
-				return nil
+			c.Catalogue[i] = models.ModelRegistryEntry{
+				ID:           cfg.Name,
+				Name:         cfg.Name,
+				ProviderID:   cfg.Provider,
+				ModelID:      cfg.Filename,
+				CredentialID: credID,
+				Port:         cfg.Port,
+				Args:         cfg.Args,
+				Prefill:      cfg.Prefill,
+				Metadata:     cfg.Metadata,
 			}
+			return nil
 		}
-		credID := ""
-		if cfg.ProviderConfig != nil {
-			credID = cfg.ProviderConfig.APIKeyName
-		}
-		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
-			ID:           cfg.Name,
-			Name:         cfg.Name,
-			ProviderID:   cfg.Provider,
-			ModelID:      cfg.Filename,
-			CredentialID: credID,
-			Port:         cfg.Port,
-			Args:         cfg.Args,
-			Prefill:      cfg.Prefill,
-		})
+	}
+	credID := ""
+	if cfg.ProviderConfig != nil {
+		credID = cfg.ProviderConfig.APIKeyName
+	}
+	c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
+		ID:           cfg.Name,
+		Name:         cfg.Name,
+		ProviderID:   cfg.Provider,
+		ModelID:      cfg.Filename,
+		CredentialID: credID,
+		Port:         cfg.Port,
+		Args:         cfg.Args,
+		Prefill:      cfg.Prefill,
+		Metadata:     cfg.Metadata,
+	})
 		return nil
 	})
 }
@@ -493,14 +495,16 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 			credID = cfg.ProviderConfig.APIKeyName
 		}
 		newEntry := models.ModelRegistryEntry{
-			ID:           cfg.Name,
-			Name:         cfg.Name,
-			ProviderID:   cfg.Provider,
-			ModelID:      cfg.Filename,
-			CredentialID: credID,
-			Port:         cfg.Port,
-			Args:         cfg.Args,
-			Prefill:      cfg.Prefill,
+			ID:             cfg.Name,
+			Name:           cfg.Name,
+			ProviderID:     cfg.Provider,
+			ModelID:        cfg.Filename,
+			CredentialID:   credID,
+			Port:           cfg.Port,
+			Args:           cfg.Args,
+			Prefill:        cfg.Prefill,
+			TimeoutMinutes: cfg.TimeoutMinutes,
+			Metadata:       cfg.Metadata,
 		}
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {

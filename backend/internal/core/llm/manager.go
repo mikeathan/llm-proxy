@@ -120,6 +120,7 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 			Port:     entry.Port,
 			Args:     entry.Args,
 			Prefill:  entry.Prefill,
+			Metadata: entry.Metadata,
 			ProviderConfig: &models.ProviderConfig{
 				APIKeyName: entry.CredentialID,
 			},

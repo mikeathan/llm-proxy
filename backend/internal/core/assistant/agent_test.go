@@ -6,6 +6,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"strings"
@@ -414,20 +415,19 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 20})
-	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 	})
-	// The reasoning stuck error triggers the reactive sieve, then aggressive sieve,
-	// then fails fast when recovery is impossible. The important check is that
-	// multiple stream attempts were made before failing.
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	// Under the new fallback mechanism, the reasoning stuck stream abort
+	// triggers the non-streaming fallback, which succeeds.
+	if err != nil {
+		t.Fatalf("expected successful recovery via non-streaming fallback, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "reasoning loop") && !strings.Contains(err.Error(), "cannot recover") {
-		t.Fatalf("expected reasoning loop error, got: %v", err)
+	if !strings.Contains(reply, "Task complete") {
+		t.Errorf("expected final answer reply, got '%s'", reply)
 	}
-	if streamCount < 2 {
-		t.Errorf("expected at least 2 stream retries due to sieve, got %d", streamCount)
+	if streamCount < 1 {
+		t.Errorf("expected stream to be attempted at least once, got %d", streamCount)
 	}
 }
 
@@ -1724,5 +1724,190 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	}
 	if capturedReq.ReasoningBudget == 0 {
 		t.Errorf("expected non-zero ReasoningBudget for XML mode (automation), got %d", capturedReq.ReasoningBudget)
+	}
+}
+
+func TestRepetitionDetector_StreakReset(t *testing.T) {
+	logger := logging.NewNopLogger()
+	rd := repetitionDetector{}
+
+	// Call tool A
+	toolCallsA := []proxy.ToolCall{
+		{
+			ID:   "1",
+			Type: "function",
+			Function: proxy.FunctionCall{
+				Name:      "toolA",
+				Arguments: `{"arg": 1}`,
+			},
+		},
+	}
+	isDup, nag, err := rd.check(logger, toolCallsA)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if isDup {
+		t.Error("expected first call to tool A not to be duplicate")
+	}
+	if rd.duplicateStreak != 0 {
+		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
+	}
+
+	// Call tool A again -> duplicate
+	isDup, nag, err = rd.check(logger, toolCallsA)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !isDup {
+		t.Error("expected second consecutive call to tool A to be duplicate")
+	}
+	if nag != prompts.AutomationDuplicateNagPrompt {
+		t.Errorf("expected nag prompt, got %q", nag)
+	}
+	if rd.duplicateStreak != 1 {
+		t.Errorf("expected duplicateStreak to be 1, got %d", rd.duplicateStreak)
+	}
+
+	// Call tool B -> resets streak
+	toolCallsB := []proxy.ToolCall{
+		{
+			ID:   "2",
+			Type: "function",
+			Function: proxy.FunctionCall{
+				Name:      "toolB",
+				Arguments: `{"arg": 2}`,
+			},
+		},
+	}
+	isDup, nag, err = rd.check(logger, toolCallsB)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if isDup {
+		t.Error("expected call to tool B not to be duplicate")
+	}
+	if rd.duplicateStreak != 0 {
+		t.Errorf("expected duplicateStreak to reset to 0, got %d", rd.duplicateStreak)
+	}
+
+	// Call tool A again -> not a duplicate of tool B
+	isDup, nag, err = rd.check(logger, toolCallsA)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if isDup {
+		t.Error("expected tool A call after tool B not to be duplicate")
+	}
+	if rd.duplicateStreak != 0 {
+		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
+	}
+
+	// Call tool A again -> duplicate (streak = 1)
+	isDup, _, _ = rd.check(logger, toolCallsA)
+	if !isDup || rd.duplicateStreak != 1 {
+		t.Errorf("expected duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
+	}
+
+	// Call tool A again -> duplicate (streak = 2)
+	isDup, _, _ = rd.check(logger, toolCallsA)
+	if !isDup || rd.duplicateStreak != 2 {
+		t.Errorf("expected duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
+	}
+
+	// Call tool A again -> infinite loop error (streak = 3)
+	isDup, _, err = rd.check(logger, toolCallsA)
+	if err == nil {
+		t.Error("expected error on third consecutive duplicate, got nil")
+	} else if !strings.Contains(err.Error(), "infinite loop detected") {
+		t.Errorf("expected infinite loop error, got %v", err)
+	}
+}
+
+func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			hasToolResult := false
+			var toolResultContent string
+			for _, msg := range req.Messages {
+				if msg.Role == proxy.ToolRole {
+					hasToolResult = true
+					toolResultContent = msg.Content
+				}
+			}
+
+			if !hasToolResult {
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{{
+						Message: proxy.Message{
+							Role: "assistant",
+							ToolCalls: []proxy.ToolCall{{
+								ID:   "call_err",
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      "test_tool",
+									Arguments: `{"param": 1}`,
+								},
+							}},
+						},
+					}},
+				}, nil
+			}
+
+			if !strings.Contains(toolResultContent, `"error"`) || !strings.Contains(toolResultContent, "simulated tool failure") {
+				return nil, fmt.Errorf("expected tool error feedback in history, got: %s", toolResultContent)
+			}
+
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "completed with failure handled"}`,
+							},
+						}},
+					},
+				}},
+			}, nil
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+
+	engine := &MockEngine{
+		Result: nil,
+		Err:    fmt.Errorf("simulated tool failure"),
+	}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+
+	reply, history, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " run tool error test"},
+	})
+
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if reply != "completed with failure handled" {
+		t.Errorf("expected reply 'completed with failure handled', got %q", reply)
+	}
+
+	foundToolError := false
+	for _, msg := range history {
+		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, "simulated tool failure") {
+			foundToolError = true
+			break
+		}
+	}
+	if !foundToolError {
+		t.Error("expected tool error to be recorded in history")
 	}
 }

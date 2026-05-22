@@ -333,6 +333,7 @@ type ModelMetadata struct {
 	Name          string `json:"name"`
 	Architecture  string `json:"architecture"`
 	ContextLength int    `json:"context_length"`
+	Nctx          int    `json:"n_ctx,omitempty"`
 	Parameters    int64  `json:"parameters"`
 	Quantization  string `json:"quantization"`
 	Author        string `json:"author,omitempty"`

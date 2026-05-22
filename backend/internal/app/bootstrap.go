@@ -238,6 +238,11 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	logging.Debug("Loading system configuration...")
 	sys := dataMgr.System().Get()
 
+	// 1.1 Apply persisted log level
+	if sys.Server.LogLevel != "" {
+		logger.SetLevel(logging.Level(sys.Server.LogLevel))
+	}
+
 	// 1.5 Initialize Network for Infrastructure (MCP, Cloud LLMs)
 	networkTools := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
 		// Use global guardrails from data manager

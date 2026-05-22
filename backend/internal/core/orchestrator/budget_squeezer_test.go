@@ -240,6 +240,64 @@ func TestResolveContextLength_NoMatch(t *testing.T) {
 	}
 }
 
+func TestResolveContextLength_NctxTakesPriority(t *testing.T) {
+	// Nctx (serving context) should win over ContextLength (training context).
+	// This is the typical scenario for local GGUF models served by llama.cpp
+	// where n_ctx_train=262K but n_ctx=8K.
+	cfg := &models.ModelConfig{
+		Provider: "openai",
+		Metadata: &models.ModelMetadata{
+			ContextLength: 262_144,
+			Nctx:          8192,
+		},
+	}
+	if got := resolveContextLength(cfg); got != 8192 {
+		t.Fatalf("expected 8192 from Nctx, got %d", got)
+	}
+}
+
+func TestResolveContextLength_NctxOnly(t *testing.T) {
+	// Nctx set, ContextLength unset — common for external API models
+	// where the proxy discovered n_ctx via /slots but has no GGUF metadata.
+	cfg := &models.ModelConfig{
+		Provider: "openai",
+		Metadata: &models.ModelMetadata{
+			Nctx: 8192,
+		},
+	}
+	if got := resolveContextLength(cfg); got != 8192 {
+		t.Fatalf("expected 8192 from Nctx, got %d", got)
+	}
+}
+
+func TestResolveContextLength_NctxBelowProviderDefault(t *testing.T) {
+	// Nctx is smaller than the provider default (openai=128K). Should
+	// return Nctx — the actual serving limit is the authoritative value.
+	cfg := &models.ModelConfig{
+		Provider: "openai",
+		Metadata: &models.ModelMetadata{
+			Nctx: 8192,
+		},
+	}
+	if got := resolveContextLength(cfg); got != 8192 {
+		t.Fatalf("expected 8192 (below 128K default), got %d", got)
+	}
+}
+
+func TestResolveContextLength_NctxAboveProviderDefault(t *testing.T) {
+	// Nctx above the provider default should be capped, same as
+	// ContextLength. Edge case — unlikely in practice.
+	cfg := &models.ModelConfig{
+		Provider: "openai",
+		Metadata: &models.ModelMetadata{
+			Nctx: 1_000_000,
+		},
+	}
+	if got := resolveContextLength(cfg); got != 128_000 {
+		t.Fatalf("expected 128K (capped to openai provider default), got %d", got)
+	}
+}
+
 func TestApplyMetadataDefaults_AllZero(t *testing.T) {
 	cfg := &models.ModelConfig{
 		Name:     "test-model",
@@ -313,6 +371,45 @@ func TestApplyMetadataDefaults_MaxTokensEqualsContext(t *testing.T) {
 	// Fallback should kick in: ctxLen/2 * 2 = ctxLen = 4096
 	if cfg.ContextBudget != 4096 {
 		t.Fatalf("expected fallback budget 4096, got %d", cfg.ContextBudget)
+	}
+}
+
+func TestApplyMetadataDefaults_NctxDrivesMaxTokens(t *testing.T) {
+	// When Nctx is set (from /slots discovery), ApplyMetadataDefaults
+	// must compute max_tokens from Nctx, not the provider default.
+	cfg := &models.ModelConfig{
+		Name:     "qwen3.5-4b-instruct-q4_k_m.gguf",
+		Provider: "openai",
+		Metadata: &models.ModelMetadata{
+			Nctx: 8192,
+		},
+	}
+	ApplyMetadataDefaults(cfg)
+	expectedTokens := 8192 / 3 // 2730
+	if cfg.MaxTokens != expectedTokens {
+		t.Fatalf("expected max_tokens=%d (from Nctx=8192), got %d", expectedTokens, cfg.MaxTokens)
+	}
+	if cfg.ContextBudget == 170_668 {
+		t.Fatal("context_budget should NOT be the provider default (170668) when Nctx is set")
+	}
+}
+
+func TestApplyMetadataDefaults_NctxOverInflatedContextLength(t *testing.T) {
+	// Nctx 8192 should take priority over ContextLength 262144.
+	// max_tokens = 2730, not 128000/3 = 42666.
+	cfg := &models.ModelConfig{
+		Name:     "qwen3.5-4b-instruct-q4_k_m.gguf",
+		Provider: "openai",
+		Metadata: &models.ModelMetadata{
+			ContextLength: 262_144,
+			Nctx:          8192,
+		},
+	}
+	ApplyMetadataDefaults(cfg)
+	expectedTokens := 8192 / 3
+	if cfg.MaxTokens != expectedTokens {
+		t.Fatalf("expected max_tokens=%d (from Nctx=8192, overriding 262K ContextLength), got %d",
+			expectedTokens, cfg.MaxTokens)
 	}
 }
 

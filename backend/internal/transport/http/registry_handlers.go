@@ -235,10 +235,10 @@ func (r *modelFormRequest) enrichMetadataFromProviders() {
 	}
 
 	if r.Metadata == nil && metaCtx > 0 {
-		r.Metadata = &models.ModelMetadata{ContextLength: metaCtx, Parameters: r.Meta.Parameters}
+		r.Metadata = &models.ModelMetadata{ContextLength: r.Meta.ContextLength, Nctx: metaCtx, Parameters: r.Meta.Parameters}
 	}
 	if r.Metadata != nil && metaCtx > 0 {
-		r.Metadata.ContextLength = metaCtx
+		r.Metadata.Nctx = metaCtx
 		r.Metadata.Parameters = r.Meta.Parameters
 	}
 	if r.Metadata != nil && r.Metadata.ContextLength > 0 {

@@ -24,6 +24,16 @@ import { formatTime, formatDate } from "../../../utils/time";
 const getStatusClass = (run: AutomationRun) => {
   return run.error ? "border-l-red-500" : "border-l-green-500";
 };
+
+const formatDuration = (ms: number): string => {
+  if (ms < 1000) return `${ms}ms`;
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return `${mins}m ${remSecs}s`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m ${remSecs}s`;
+};
 </script>
 
 <template>
@@ -58,6 +68,10 @@ const getStatusClass = (run: AutomationRun) => {
             <div class="meta-item">
               <span class="meta-label">ID:</span>
               <span class="meta-val">{{ run.id.slice(-6) }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Time:</span>
+              <span class="meta-val">{{ formatDuration(run.duration_ms) }}</span>
             </div>
             <span class="latest-date">{{ formatDate(run.timestamp) }}</span>
           </div>

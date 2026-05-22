@@ -398,25 +398,23 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 
 	// For persistent sessions, we send the command directly to the shell's stdin.
 	// This allows environment variables and state to persist across calls.
-	outStream, errStream, err := ts.Execute(ctx, []string{command})
-	if err != nil {
+	outStream, errStream, execErr := ts.Execute(ctx, []string{command})
+	if execErr != nil {
 		// If the underlying shell process has exited (e.g. killed by a prior
 		// context cancellation), recycle the stale session and retry once.
-		if strings.Contains(err.Error(), "shell process exited unexpectedly") {
+		if strings.Contains(execErr.Error(), "shell process exited unexpectedly") {
 			// Use a background context so Cleanup doesn't propagate
 			// a cancelled context but add a short timeout so we never
 			// block the agent turn waiting for process exit.
 			recycleCtx, recycleCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer recycleCancel()
 			t.shellPool.Recycle(recycleCtx, wsID)
-			ts, err = t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
-			if err != nil {
-				return "", fmt.Errorf("failed to recreate shell session: %w", err)
+			var getErr error
+			ts, getErr = t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
+			if getErr != nil {
+				return "", fmt.Errorf("failed to recreate shell session: %w", getErr)
 			}
-			outStream, errStream, err = ts.Execute(ctx, []string{command})
-		}
-		if err != nil {
-			return "", fmt.Errorf("shell execution failed: %w", err)
+			outStream, errStream, execErr = ts.Execute(ctx, []string{command})
 		}
 	}
 
@@ -452,7 +450,11 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	readAndTee(errStream, "stderr")
 
 	wg.Wait()
-	return t.truncateOutput(buf.String(), cfg.MaxOutputSize), nil
+	output := t.truncateOutput(buf.String(), cfg.MaxOutputSize)
+	if execErr != nil {
+		return output, fmt.Errorf("shell execution failed: %w", execErr)
+	}
+	return output, nil
 }
 
 func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd string, cfg models.TerminalGuardrailsConfig) (string, error) {

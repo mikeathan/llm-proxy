@@ -97,6 +97,12 @@ When a tool call is blocked:
 - All terminal execution via `ShellProvider` (never raw `os/exec`).
 - All file paths validated with `IsSecurePath` for workspace jailing.
 
+### Cyclomatic Complexity & Readability
+- Keep functions short and focused: limit any function to a maximum of 80 lines. If a function grows larger, extract sub-logic into small, well-named helper functions.
+- Keep cyclomatic complexity under 10 per function. Avoid nested conditionals deeper than 3 levels; instead, structure flow with early returns and guard clauses ("happy path to the left").
+- Encapsulate transient loop or session state in temporary structs (e.g. `agentRunner`) instead of passing multiple pointers to simple type counters (like `*int`, `*bool`) between functions.
+- Decouple orchestration logic from data parsing/formatting. Put parsing and validation logic in dedicated helper types/functions.
+
 ## Coding Rules (TypeScript/Vue — Frontend)
 
 - `frontend/` is a Vue 3 + Vite + TypeScript SPA
@@ -132,9 +138,15 @@ When a tool call is blocked:
 
 8. **Forgetting `tool_choice: "required"` for native tools in automation** — When `useNativeTools` is true and the request is an automation task, the agent sets `tool_choice: "required"`, `temperature: 0.1`, and `reasoning_budget: max_tokens/4` on the `ChatRequest`. This forces the LLM to always call a tool (preventing thinking-only EOS responses) and caps wasted thinking tokens so the model has budget left for the actual tool call. The `omitempty` tags ensure these fields are omitted for XML mode or non-automation contexts.
 
-9. **Reasoning-stuck detection in `processStream`** — When a model generates more than 2000 chars of reasoning content without any text output or native tool call deltas, the stream is aborted early. This prevents infinite thinking loops that occur when the server-side `reasoning_budget` is not enforced as a hard cap. The aborted stream triggers the empty-response fallback, which retries non-streaming — a fundamentally different code path that breaks the reasoning loop. See `agent.go` `processStream()`.
+9. **Reasoning-stuck detection in `processStream`** — When a model generates more than `DefaultReasoningStuckThreshold` (2000) chars of reasoning content without any text output or native tool call deltas, the stream is aborted early. This prevents infinite thinking loops that occur when the server-side `reasoning_budget` is not enforced as a hard cap. The aborted stream triggers the empty-response fallback, which retries non-streaming — a fundamentally different code path that breaks the reasoning loop. See `agent.go` `processStream()`.
 
 10. **Progressive sieve recovery on consecutive stuck events** — On the 1st reasoning-stuck event, the reactive sieve (first 2 + last 6 messages) is applied and a nag prompt ("Stop analyzing, call a tool") is added to the history. On the 2nd consecutive stuck event, an aggressive sieve (first 2 + last 3 messages) is applied with a stronger nag prompt. On the 3rd consecutive stuck event, the agent fails with a clear error ("model stuck in reasoning loop"). This prevents infinite spinning while giving verbose models (Gemma 4) multiple chances to recover.
+
+11. **Context resolution order in `resolveContextLength`** — The priority is `Metadata.Nctx` (serving context from llama.cpp `/slots`) → `Metadata.ContextLength` (training context from GGUF) → `knownCtx` (model name fragment) → `providerCtxDefaults` (per-provider). Forgetting to check `Nctx` first causes the proxy to ignore the detected server context size and fall through to the provider default (128K), resulting in `max_tokens` and `reasoning_budget` that exceed the actual server capacity. See `internal/core/orchestrator/budget_squeezer.go`.
+
+12. **`ApplyMetadataDefaults` sets `ToolCallFormat` to `"native"` when empty** — This matches the UI's "Default" value for cloud provider tiers. Models that need XML text mode must explicitly set `tool_call_format: xml` in the settings.yml override. The stuck-detector fix (Gemini) ensures that models that struggle with native tools gracefully fall back to non-streaming rather than triggering the death spiral. See `internal/core/orchestrator/budget_squeezer.go`.
+
+13. **Settings override `tool_call_format: ""` blocks the default** — When the UI saves "Default" for an existing model, the save handler writes `tool_call_format: ""` to settings.yml. This empty string override takes highest priority and blocks `ApplyMetadataDefaults` from filling in `"native"`. The model silently switches to XML text mode. If you see a model unexpectedly failing with XML parse errors, check settings.yml for `tool_call_format: ""` and either remove it or set it to `"native"`.
 
 ## File Change Checklist
 

@@ -224,7 +224,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		}
 	}
 
-	fullOutput := fmt.Sprintf("%s### Final Report\n\n%s", header, output)
+	elapsed := time.Since(startTime)
+	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
 
 	resp.Output = fullOutput
 	resp.State.LastOutput = fullOutput
@@ -245,6 +246,22 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
 
 	return resp, nil
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	s := int(d.Seconds())
+	if s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	m := s / 60
+	s %= 60
+	if m < 60 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	h := m / 60
+	m %= 60
+	return fmt.Sprintf("%dh %dm %ds", h, m, s)
 }
 
 func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any) {
