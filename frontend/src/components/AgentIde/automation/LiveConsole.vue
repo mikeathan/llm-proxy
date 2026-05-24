@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from "vue";
+import { onMounted, onUnmounted, watch, computed, nextTick } from "vue";
 import type {
   AgentEvent,
 } from "../../../types/dispatcher";
@@ -22,6 +22,8 @@ import { marked } from "marked";
 import CopyButton from "../../common/CopyButton.vue";
 
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
+import { useAutoScroll } from "../../../composables/useAutoScroll";
+import Icon from "../../../components/icons/Icon.vue";
 
 const props = defineProps<{
   workspaceId: string;
@@ -30,7 +32,8 @@ const props = defineProps<{
   historyEvents?: AgentEvent[];
 }>();
 
-const scrollContainer = ref<HTMLElement | null>(null);
+const { container: scrollContainer, scrollToBottom, toggleScroll, scrollDirection, capturePosition, scrollIfNearBottom, updateWasNearBottom } = useAutoScroll();
+void scrollContainer;
 
 const {
   liveEvents,
@@ -47,23 +50,12 @@ const {
   () => props.historyEvents
 );
 
-const scrollToBottom = () => {
-  if (scrollContainer.value) {
-    scrollContainer.value.scrollTo({
-      top: scrollContainer.value.scrollHeight,
-      behavior: "smooth",
-    });
-  }
-};
-
-let isUnmounted = false;
-
 onMounted(() => {
   connect();
+  nextTick(() => scrollToBottom(undefined, "instant"));
 });
 
 onUnmounted(() => {
-  isUnmounted = true;
   disconnect();
 });
 
@@ -76,15 +68,21 @@ watch(
 );
 
 watch(
+  () => props.isExecuting,
+  (executing) => {
+    if (executing) {
+      nextTick(() => scrollToBottom(undefined, "instant"));
+    }
+  },
+);
+
+watch(
   displayEvents,
-  async () => {
-    if (isUnmounted) return;
-    await nextTick();
-    if (isUnmounted) return;
-    // Use a small timeout to ensure DOM is fully rendered
-    setTimeout(() => {
-       if (!isUnmounted) scrollToBottom();
-    }, 50);
+  () => {
+    capturePosition();
+    nextTick(() => {
+      scrollIfNearBottom(undefined, "instant");
+    });
   },
   { deep: true },
 );
@@ -117,6 +115,15 @@ const formatTime = (ts?: string) => {
         </span>
       </div>
       <div class="flex items-center gap-4">
+        <button
+          v-if="displayEvents.length > 0"
+          class="scroll-btn"
+          :title="scrollDirection === 'down' ? 'Scroll to bottom' : 'Scroll to top'"
+          @click="toggleScroll(scrollContainer)"
+        >
+          <Icon v-if="scrollDirection === 'down'" name="arrow-down" size="sm" />
+          <Icon v-else name="arrow-up" size="sm" />
+        </button>
         <CopyButton
           v-if="displayEvents.length > 0"
           :text="fullTerminalText"
@@ -150,7 +157,7 @@ const formatTime = (ts?: string) => {
       </div>
     </div>
 
-    <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer">
+    <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer" @scroll="updateWasNearBottom()">
       <div v-if="displayEvents.length === 0" class="term-empty">
         Waiting for activity in {{ workspaceId }}...
       </div>
@@ -299,6 +306,18 @@ const formatTime = (ts?: string) => {
 
 .btn-clear-term {
   @apply text-[10px] text-gray-500 hover:text-white uppercase font-bold tracking-widest transition-colors;
+}
+
+.scroll-btn {
+  @apply text-gray-500 hover:text-white transition-all flex items-center justify-center p-1 rounded;
+}
+
+.scroll-btn:hover {
+  @apply bg-gray-700/50;
+}
+
+.scroll-btn:active {
+  @apply bg-gray-600/50;
 }
 
 .terminal-body {

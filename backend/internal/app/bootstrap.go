@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -13,8 +14,11 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/mcp"
 	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/proxy/recorder"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/recordings"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
@@ -41,6 +45,7 @@ type Container struct {
 	Core       Core
 	Infra      Infra
 	Dispatcher *automation.Dispatcher
+	RecordDir  string
 }
 
 // Building automation task executor
@@ -49,18 +54,34 @@ func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskE
 }
 
 func (c *Container) BuildAppServices() *AppServices {
+	var recordingStore *recordings.RecordingStore
+	if c.RecordDir != "" {
+		var rsErr error
+		recordingStore, rsErr = recordings.NewRecordingStore(c.RecordDir)
+		if rsErr != nil {
+			logging.Warn("Failed to init recording store", "dir", c.RecordDir, "error", rsErr)
+		}
+	}
+
 	s := &AppServices{
-		Runtime:     c.Core.Runtime,
-		AppCtx:      c.Core.AppCtx,
-		nodeHerder:  c.Infra.NodeHerder,
-		logger:      c.Infra.Logger,
-		Clock:       c.Infra.Clock,
-		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
-		limiter:     ratelimiter.NewLimiter(c.Infra.Clock),
+		Runtime:        c.Core.Runtime,
+		AppCtx:         c.Core.AppCtx,
+		nodeHerder:     c.Infra.NodeHerder,
+		logger:         c.Infra.Logger,
+		Clock:          c.Infra.Clock,
+		persistence:    persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
+		limiter:        ratelimiter.NewLimiter(c.Infra.Clock),
+		RecordingStore: recordingStore,
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
-		return proxy.NewLLMClient(baseURL, model, nil, headers)
+		client := proxy.NewLLMClient(baseURL, model, nil, headers)
+		if c.RecordDir != "" {
+			wrapped := recorder.New(client, c.RecordDir, model)
+			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
+			return wrapped
+		}
+		return client
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
@@ -133,6 +154,7 @@ type AppServices struct {
 	dispatcher           *automation.Dispatcher
 	limiter              ratelimiter.Limiter
 	guardrailDecisionStore *assistant.GuardrailDecisionStore
+	RecordingStore       *recordings.RecordingStore
 }
 
 func (s AppServices) Shutdown() {
@@ -193,6 +215,13 @@ func (s AppServices) ModelConfig(modelName string) (models.ModelConfig, bool) {
 	return models.ModelConfig{}, false
 }
 
+func (s AppServices) Orchestrator() *orchestrator.Orchestrator {
+	if s.AppCtx != nil {
+		return s.AppCtx.Orchestrator()
+	}
+	return nil
+}
+
 func (s AppServices) Persistence() *persistence.WorkspaceManager {
 	return s.persistence
 }
@@ -220,7 +249,22 @@ func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore 
 	return s.guardrailDecisionStore
 }
 
-func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
+func (s AppServices) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
+	if s.RecordingStore == nil {
+		return nil, fmt.Errorf("recording store not available (start server with --record-dir)")
+	}
+	meta, ok := s.RecordingStore.Get(ref)
+	if !ok {
+		return nil, fmt.Errorf("recording %q not found", ref)
+	}
+	pc, err := recordings.NewPlaybackClient(meta.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("load recording %s: %w", meta.FilePath, err)
+	}
+	return NewPlaybackBridge(pc), nil
+}
+
+func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordDir string) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
@@ -229,6 +273,11 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 	// 1. Load System Config for MCP/Runtime defaults
 	logging.Debug("Loading system configuration...")
 	sys := dataMgr.System().Get()
+
+	// 1.1 Apply persisted log level
+	if sys.Server.LogLevel != "" {
+		logger.SetLevel(logging.Level(sys.Server.LogLevel))
+	}
 
 	// 1.5 Initialize Network for Infrastructure (MCP, Cloud LLMs)
 	networkTools := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
@@ -269,6 +318,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 			Clock:      clock,
 			NodeHerder: nodeHerder,
 		},
+		RecordDir: recordDir,
 	}
 }
 
@@ -337,7 +387,7 @@ func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServer
 func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
 	assistant := api.NewAssistantMessageHandler(s)
 
-	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo)
+	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
 	proxyHandlers := api.NewProxyHandlers(s.Runtime)
 
 	var dispatcherHandlers *api.DispatcherHandlers
@@ -345,7 +395,9 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 		dispatcherHandlers = api.NewDispatcherHandlers(disp, s.logger)
 	}
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers)
+	recordingHandlers := api.NewRecordingHandlers(s.RecordingStore)
+
+	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers)
 }
 
 func buildRouter(
@@ -353,6 +405,7 @@ func buildRouter(
 	proxyHandlers *api.ProxyHandlers,
 	assistant *api.AssistantMessageHandler,
 	dispatcherHandlers *api.DispatcherHandlers,
+	recordings *api.RecordingHandlers,
 ) http.Handler {
 
 	router := api.NewRouter()
@@ -368,6 +421,7 @@ func buildRouter(
 	router.Post("/admin/api/models", admin.AdminAddModelHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/models", admin.AdminUpdateModelHandler, jsonMethodNotAllowed)
 	router.Delete("/admin/api/models", admin.AdminDeleteModelHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/models/all", admin.AdminDeleteAllModelsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/restart", admin.AdminRestartHandler, jsonMethodNotAllowed)
@@ -392,6 +446,7 @@ func buildRouter(
 	router.Get("/admin/api/providers/models", admin.AdminListProviderModelsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/manifests", admin.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/orchestrator/balance", admin.AdminICUBalanceHandler, jsonMethodNotAllowed)
 
 	// Templates
 	router.Get("/admin/api/templates", admin.ListTemplatesHandler, jsonMethodNotAllowed)
@@ -405,6 +460,14 @@ func buildRouter(
 	// Secrets — tool secrets (search, communication, etc.)
 	router.Get("/admin/api/secrets/tools", admin.AdminToolSecretHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/secrets/tools", admin.AdminToolSecretPutHandler, jsonMethodNotAllowed)
+
+	// Recordings
+	if recordings != nil {
+		router.Get("/admin/api/recordings", recordings.List, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/status", recordings.Status, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/{id}", recordings.Get, jsonMethodNotAllowed)
+		router.Delete("/admin/api/recordings/{id}", recordings.Delete, jsonMethodNotAllowed)
+	}
 
 	// Dispatcher
 	if dispatcherHandlers != nil {

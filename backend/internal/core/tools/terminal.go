@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
@@ -67,7 +68,7 @@ func (t *TerminalTools) Validate(ctx context.Context, command string) error {
 }
 
 // ValidateTerminalCommand is a standalone-like validator that checks a command against guardrails.
-func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig, cache *sync.Map, jailPath string) error {
+func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig, cache *sync.Map, jailPath string, effectiveCwd ...string) error {
 	if !cfg.Enabled {
 		return fmt.Errorf("terminal tools are disabled in configuration")
 	}
@@ -78,8 +79,15 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 		return fmt.Errorf("empty command")
 	}
 
+	cwd := ""
+	if len(effectiveCwd) > 0 {
+		cwd = effectiveCwd[0]
+	}
+	logging.Debug("validating terminal command", "command", cleanCmd, "jailPath", jailPath, "effectiveCwd", cwd)
+
 	// 1. Check Blocked Patterns
 	if err := checkBlockedPatterns(cleanCmd, cfg.BlockedPatterns, cache); err != nil {
+		logging.Debug("guardrail blocked", "rule", "blocked_pattern", "error", err.Error())
 		return err
 	}
 
@@ -87,12 +95,17 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 	if len(cfg.AllowedCommands) > 0 {
 		segments := splitCommandSegments(cleanCmd)
 		if err := checkWhitelist(segments, cfg.AllowedCommands); err != nil {
+			logging.Debug("guardrail blocked", "rule", "whitelist", "error", err.Error())
 			return err
 		}
 	}
 
 	// 3. Block Absolute Paths and Parent Traversal (Jail Escape Prevention)
-	return checkPathSecurity(cleanCmd, jailPath, cfg.AllowedExternalPaths)
+	if err := checkPathSecurity(cleanCmd, jailPath, cfg.AllowedExternalPaths, cwd); err != nil {
+		logging.Debug("guardrail blocked", "rule", "path_security", "error", err.Error())
+		return err
+	}
+	return nil
 }
 
 // SplitCommandSegments decomposes a chained bash command into its individual
@@ -170,7 +183,27 @@ func splitCommandSegments(command string) []string {
 			}
 		}
 
-		// Split on delimiters only if outside quotes/heredocs
+		// Handle backslash-escaped delimiters (e.g., \; in find -exec)
+	if c == '\\' && i+1 < len(chars) && !inSingleQuote && !inDoubleQuote && !inHeredoc {
+		next := string(chars[i+1])
+		if next == ";" || next == "|" {
+			current.WriteRune(c)
+			current.WriteRune(chars[i+1])
+			i++
+			continue
+		}
+		if i+2 < len(chars) {
+			two := string(chars[i+1]) + string(chars[i+2])
+			if two == "&&" || two == "||" {
+				current.WriteRune(c)
+				current.WriteString(two)
+				i += 2
+				continue
+			}
+		}
+	}
+
+	// Split on delimiters only if outside quotes/heredocs
 		if !inSingleQuote && !inDoubleQuote && !inHeredoc {
 			isDelim := false
 			// Check longest delimiters first (&&, ||)
@@ -248,21 +281,27 @@ func checkWhitelist(segments []string, allowed []string) error {
 	return nil
 }
 
-func checkPathSecurity(command string, jailPath string, allowedExternal []string) error {
-	// 1. Block Absolute Paths unless listed in allowedExternal
+func checkPathSecurity(command string, jailPath string, allowedExternal []string, effectiveCwd string) error {
+	// 1. Block Absolute Paths unless they're within the workspace jail or explicitly allowed.
+	//    buildAllowedRoots includes jailPath + allowedExternal, ensuring the workspace
+	//    root is always trusted without requiring explicit AllowedExternalPaths config.
 	if strings.Contains(command, " /") || strings.HasPrefix(command, "/") {
 		absPaths := extractAbsolutePaths(command)
-		if len(allowedExternal) == 0 {
+		roots := buildAllowedRoots(jailPath, allowedExternal)
+		if len(roots) == 0 {
 			return fmt.Errorf("security violation: absolute paths are not permitted in terminal commands")
 		}
 		for _, absPath := range absPaths {
-			if _, err := IsSecurePath(absPath, allowedExternal); err != nil {
-				return fmt.Errorf("security violation: absolute path '%s' is outside allowed external paths", absPath)
+			if _, err := IsSecurePath(absPath, roots); err != nil {
+				return fmt.Errorf("security violation: absolute path '%s' is outside allowed paths", absPath)
 			}
 		}
 	}
 
-	// 2. Dynamic Path Validation: Allow '..' only if it stays within allowed roots
+	// 2. Dynamic Path Validation: Allow '..' only if it stays within allowed roots.
+	//    Uses effectiveCwd (the actual execution directory) as the resolution base
+	//    so that '../tsconfig.json' from ts-logic-test/ resolves to the workspace root
+	//    (within jail) rather than above the jail.
 	if strings.Contains(command, "..") {
 		roots := buildAllowedRoots(jailPath, allowedExternal)
 		if len(roots) == 0 {
@@ -276,10 +315,25 @@ func checkPathSecurity(command string, jailPath string, allowedExternal []string
 			}
 
 			cleanWord := strings.Trim(word, `"'`)
+
+			// Try resolving against the workspace root (jailPath) first.
 			targetPath := filepath.Join(jailPath, cleanWord)
-			if _, err := IsSecurePath(targetPath, roots); err != nil {
-				return fmt.Errorf("security violation: path '%s' escapes the authorized workspace jail", cleanWord)
+			if _, err := IsSecurePath(targetPath, roots); err == nil {
+				continue
 			}
+
+			// Then try the effective CWD — the directory where the command
+			// will actually execute (e.g. after a "cd subdir &&" prefix).
+			// This handles paths like ../config.json from within a subdirectory
+			// that the model explicitly changes into within the command.
+			if effectiveCwd != "" && effectiveCwd != jailPath {
+				targetPath = filepath.Join(effectiveCwd, cleanWord)
+				if _, err := IsSecurePath(targetPath, roots); err == nil {
+					continue
+				}
+			}
+
+			return fmt.Errorf("security violation: path '%s' escapes the authorized workspace jail", cleanWord)
 		}
 	}
 	return nil
@@ -309,17 +363,25 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 	cfg := t.configProvider(ctx)
 	wsID, jailPath := t.resolveWorkspace(ctx)
 
-	// 1. Sanitize and Validate Command
-	cleanCmd, err := t.sanitizeCommand(ctx, command, cfg, jailPath)
-	if err != nil {
-		return "", err
-	}
+	logging.Debug("ExecuteCommand: start", "command", command, "cwd", cwd, "jailPath", jailPath)
 
-	// 2. Resolve and Validate CWD/Shell
+	// 1. Resolve CWD first — the effective execution directory is needed by
+	//    the path security check so that '..' paths are resolved against the
+	//    actual CWD (e.g. cd subdir &&) rather than always against the jail root.
 	finalCwd, err := t.resolveCwd(cwd, jailPath, cfg.AllowedExternalPaths)
 	if err != nil {
+		logging.Debug("ExecuteCommand: resolveCwd failed", "cwd", cwd, "jailPath", jailPath, "error", err.Error())
 		return "", err
 	}
+	logging.Debug("ExecuteCommand: CWD resolved", "finalCwd", finalCwd)
+
+	// 2. Sanitize and Normalize Command (path forgiveness)
+	cleanCmd, err := t.sanitizeCommand(ctx, command, cfg, jailPath)
+	if err != nil {
+		logging.Debug("ExecuteCommand: sanitize failed", "error", err.Error())
+		return "", err
+	}
+	logging.Debug("ExecuteCommand: command sanitized", "cleanCmd", cleanCmd)
 	shell := t.resolveShell(cfg)
 
 	// 3. Apply hard timeout
@@ -338,29 +400,29 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 		if finalCwd != "" {
 			finalCmd = fmt.Sprintf("(cd %q && %s)", finalCwd, cleanCmd)
 		}
+		logging.Debug("ExecuteCommand: executing via shell pool", "finalCmd", finalCmd)
 		return t.executeShell(execCtx, finalCmd, cfg, wsID, jailPath)
 	}
 
+	logging.Debug("ExecuteCommand: executing locally", "shell", shell, "command", cleanCmd, "cwd", finalCwd)
 	return t.executeLocal(execCtx, shell, cleanCmd, finalCwd, cfg)
 }
 
-// sanitizeCommand handles path forgiveness, traversal validation, and guardrail enforcement in a single pipeline.
+// sanitizeCommand handles path forgiveness and normalization.
+// Guardrail validation is handled by the guardrail engine before execution.
 func (t *TerminalTools) sanitizeCommand(ctx context.Context, command string, cfg models.TerminalGuardrailsConfig, jailPath string) (string, error) {
-	// 1. Initial Guardrail Validation (Whitelist / Blocked Patterns)
-	// Skip when the agent already approved this call via the guardrail decision
-	// flow — running the same validation twice would reject "Allow Once" approvals.
-	if !models.GetGuardrailApproved(ctx) {
-		if err := ValidateTerminalCommand(command, cfg, &t.regexCache, jailPath); err != nil {
-			return "", err
-		}
-	}
-
-	// 2. Path Forgiveness: Strip redundant workspace prefixes
+	// Path Forgiveness: Strip redundant workspace prefixes.
+	// Replaces the full absolute jail path first, then the relative-from-CWD
+	// prefix (e.g. "data/workspaces/workspace-1/") as a secondary fallback.
 	if jailPath != "" {
+		sep := string(filepath.Separator)
+		jailSlash := jailPath + sep
+
+		command = strings.ReplaceAll(command, jailSlash, "./")
+		command = strings.ReplaceAll(command, jailPath, ".")
+
 		cwd, _ := os.Getwd()
 		if relPrefix, err := filepath.Rel(cwd, jailPath); err == nil {
-			// Normalize separators for the replacement
-			sep := string(filepath.Separator)
 			prefixWithSlash := relPrefix + sep
 			command = strings.ReplaceAll(command, prefixWithSlash, "./")
 			command = strings.ReplaceAll(command, relPrefix, ".")
@@ -375,12 +437,28 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	if err != nil {
 		return "", fmt.Errorf("failed to get/create shell session for workspace %s: %w", wsID, err)
 	}
+	logging.Debug("executeShell: running command", "wsID", wsID, "jailPath", jailPath, "command", command)
 
 	// For persistent sessions, we send the command directly to the shell's stdin.
 	// This allows environment variables and state to persist across calls.
-	outStream, errStream, err := ts.Execute(ctx, []string{command})
-	if err != nil {
-		return "", fmt.Errorf("shell execution failed: %w", err)
+	outStream, errStream, execErr := ts.Execute(ctx, []string{command})
+	if execErr != nil {
+		// If the underlying shell process has exited (e.g. killed by a prior
+		// context cancellation), recycle the stale session and retry once.
+		if strings.Contains(execErr.Error(), "shell process exited unexpectedly") {
+			// Use a background context so Cleanup doesn't propagate
+			// a cancelled context but add a short timeout so we never
+			// block the agent turn waiting for process exit.
+			recycleCtx, recycleCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer recycleCancel()
+			t.shellPool.Recycle(recycleCtx, wsID)
+			var getErr error
+			ts, getErr = t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
+			if getErr != nil {
+				return "", fmt.Errorf("failed to recreate shell session: %w", getErr)
+			}
+			outStream, errStream, execErr = ts.Execute(ctx, []string{command})
+		}
 	}
 
 	// We use a combined buffer to ensure we capture both stdout and stderr in order
@@ -415,7 +493,17 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	readAndTee(errStream, "stderr")
 
 	wg.Wait()
-	return t.truncateOutput(buf.String(), cfg.MaxOutputSize), nil
+	output := t.truncateOutput(buf.String(), cfg.MaxOutputSize)
+	if execErr != nil {
+		logging.Debug("executeShell: error", "output_len", len(output), "error", execErr.Error())
+		return output, fmt.Errorf("shell execution failed: %w", execErr)
+	}
+	if output == "" {
+		logging.Debug("executeShell: success, no output")
+		return "[Command executed successfully with no output]", nil
+	}
+	logging.Debug("executeShell: success", "output_len", len(output))
+	return output, nil
 }
 
 func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd string, cfg models.TerminalGuardrailsConfig) (string, error) {
@@ -423,16 +511,24 @@ func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd st
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	logging.Debug("executeLocal: running", "shell", shell, "command", command, "cwd", cwd)
 	out, err := cmd.CombinedOutput()
 	result := t.truncateOutput(string(out), cfg.MaxOutputSize)
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
+			logging.Debug("executeLocal: timed out", "output_len", len(result))
 			return result, fmt.Errorf("command timed out after %ds", cfg.TimeoutSeconds)
 		}
+		logging.Debug("executeLocal: error", "output_len", len(result), "error", err.Error())
 		return result, fmt.Errorf("execution failed: %w", err)
 	}
 
+	if result == "" {
+		logging.Debug("executeLocal: success, no output")
+		return "[Command executed successfully with no output]", nil
+	}
+	logging.Debug("executeLocal: success", "output_len", len(result))
 	return result, nil
 }
 
@@ -445,9 +541,11 @@ func (t *TerminalTools) resolveShell(cfg models.TerminalGuardrailsConfig) string
 
 func (t *TerminalTools) resolveCwd(cwd, jailPath string, allowedExternal []string) (string, error) {
 	if jailPath == "" {
+		logging.Debug("resolveCwd: no jailPath", "cwd", cwd)
 		return "", nil
 	}
 	if cwd == "" {
+		logging.Debug("resolveCwd: no cwd, defaulting to jailPath", "jailPath", jailPath)
 		return jailPath, nil
 	}
 
@@ -455,8 +553,16 @@ func (t *TerminalTools) resolveCwd(cwd, jailPath string, allowedExternal []strin
 	roots := buildAllowedRoots(jailPath, allowedExternal)
 	resolved, err := IsSecurePath(targetPath, roots)
 	if err != nil {
+		logging.Debug("resolveCwd: rejected", "cwd", cwd, "jailPath", jailPath, "resolvedPath", targetPath, "error", err.Error())
 		return "", fmt.Errorf("security violation: cwd '%s' escapes authorized workspace", cwd)
 	}
+
+	if info, statErr := os.Stat(resolved); statErr != nil || !info.IsDir() {
+		logging.Debug("resolveCwd: resolved path does not exist, falling back to jailPath", "cwd", cwd, "jailPath", jailPath, "resolvedPath", resolved)
+		return jailPath, nil
+	}
+
+	logging.Debug("resolveCwd: resolved", "cwd", cwd, "jailPath", jailPath, "finalCwd", resolved)
 	return resolved, nil
 }
 

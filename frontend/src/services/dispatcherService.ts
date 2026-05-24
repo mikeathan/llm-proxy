@@ -1,6 +1,7 @@
-import type { Automation, DispatcherMetrics, TriggerResponse } from '../types/dispatcher'
+import type { Automation, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../types/dispatcher'
 
 const BASE_URL = '/admin/api/dispatcher'
+const RECORDINGS_URL = '/admin/api/recordings'
 
 export const DispatcherService = {
   async listAutomations(): Promise<Automation[]> {
@@ -9,8 +10,12 @@ export const DispatcherService = {
     return res.json()
   },
 
-  async triggerAutomation(workspace: string, automation: string): Promise<TriggerResponse> {
-    const res = await fetch(`${BASE_URL}/trigger/${workspace}/${automation}`, {
+  async triggerAutomation(workspace: string, automation: string, recordingRef?: string): Promise<TriggerResponse> {
+    let url = `${BASE_URL}/trigger/${workspace}/${automation}`
+    if (recordingRef) {
+      url += `?recording_ref=${encodeURIComponent(recordingRef)}`
+    }
+    const res = await fetch(url, {
       method: 'POST',
     })
     if (!res.ok) throw new Error('Failed to trigger automation')
@@ -109,5 +114,50 @@ export const DispatcherService = {
       }
     }))
     return configs
+  },
+
+  // --- Recordings ---
+
+  async getRecordingStatus(): Promise<RecordingStatus> {
+    const res = await fetch(`${RECORDINGS_URL}/status`)
+    if (!res.ok) throw new Error('Failed to fetch recording status')
+    return res.json()
+  },
+
+  async listRecordings(automation?: string): Promise<RecordingMeta[]> {
+    const qs = automation ? `?automation=${encodeURIComponent(automation)}` : ''
+    const res = await fetch(`${RECORDINGS_URL}${qs}`)
+    if (!res.ok) throw new Error('Failed to fetch recordings')
+    return res.json()
+  },
+
+  async getRecording(id: string): Promise<RecordingMeta> {
+    const res = await fetch(`${RECORDINGS_URL}/${encodeURIComponent(id)}`)
+    if (!res.ok) throw new Error('Recording not found')
+    return res.json()
+  },
+
+  async deleteRecording(id: string): Promise<void> {
+    const res = await fetch(`${RECORDINGS_URL}/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) throw new Error('Failed to delete recording')
+  },
+
+  async setAutomationRecordingRef(workspace: string, automation: string, recordingRef: string): Promise<void> {
+    // Get current automations from workspace config, update the ref, save
+    const config = await this.getWorkspaceConfig(workspace)
+    const auto = config.automations?.find((a: any) => a.name === automation)
+    if (!auto) throw new Error('Automation not found in config')
+    auto.recording_ref = recordingRef
+    await this.updateWorkspaceConfig(workspace, config)
+  },
+
+  async clearAutomationRecordingRef(workspace: string, automation: string): Promise<void> {
+    const config = await this.getWorkspaceConfig(workspace)
+    const auto = config.automations?.find((a: any) => a.name === automation)
+    if (!auto) throw new Error('Automation not found in config')
+    delete auto.recording_ref
+    await this.updateWorkspaceConfig(workspace, config)
   }
 }

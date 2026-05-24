@@ -16,20 +16,21 @@ const emit = defineEmits<{
   (e: "update:modelId", value: string): void;
   (e: "update:apiKeyName", value: string): void;
   (e: "update:prefill", value: boolean): void;
+  (e: "select", value: any): void;
 }>();
 
 const setActiveTab = inject<(tab: string) => void>("setActiveTab");
 
 const { cloudProviders } = useProviders();
 const { fetchProviderModels } = useModels();
-const providerModels = ref<string[]>([]);
+const providerModels = ref<import('../../types/model').ProviderModelInfo[]>([]);
 const isLoadingModels = ref(false);
 const filterText = ref("");
 
 const filteredProviderModels = computed(() => {
   if (!filterText.value) return providerModels.value;
   const search = filterText.value.toLowerCase();
-  return providerModels.value.filter((m) => m.toLowerCase().includes(search));
+  return providerModels.value.filter((m) => m.id.toLowerCase().includes(search));
 });
 
 const isProviderConfigured = computed(() => {
@@ -55,6 +56,14 @@ async function loadProviderModels() {
     providerModels.value = list;
   } finally {
     isLoadingModels.value = false;
+  }
+}
+
+function onModelSelect(id: string) {
+  emit("update:modelId", id);
+  const selected = providerModels.value.find((m) => m.id === id);
+  if (selected) {
+    emit("select", { id: selected.id, pricing: selected.pricing, limits: selected.limits, meta: selected.meta } as any);
   }
 }
 
@@ -90,8 +99,8 @@ watch(
 // Auto-select first model from FILTERED list if current selection is invalid or empty
 watch(filteredProviderModels, (newFiltered) => {
   const first = newFiltered[0];
-  if (first && (!props.modelId || !newFiltered.includes(props.modelId))) {
-    emit("update:modelId", first);
+  if (first && (!props.modelId || !newFiltered.some(m => m.id === props.modelId))) {
+    emit("update:modelId", first.id);
   }
 });
 
@@ -201,16 +210,14 @@ watch(isProviderConfigured, (configured) => {
     <template v-if="providerModels.length > 0">
       <select
         :value="modelId"
-        @change="
-          emit('update:modelId', ($event.target as HTMLSelectElement).value)
-        "
+        @change="onModelSelect(($event.target as HTMLSelectElement).value)"
         class="form-input"
         required
         :disabled="!isProviderConfigured"
       >
         <option value="" disabled>Select a model...</option>
-        <option v-for="m in filteredProviderModels" :key="m" :value="m">
-          {{ m }}
+        <option v-for="m in filteredProviderModels" :key="m.id" :value="m.id">
+          {{ m.id }}
         </option>
       </select>
       <div v-if="filteredProviderModels.length === 0" class="helper-text">

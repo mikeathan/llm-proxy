@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"llm-proxy/models"
-	"sync"
 )
 
 // SecretStore implements models.SecretsStore using a technical Store[models.EncryptedSecretData].
@@ -12,7 +11,6 @@ import (
 type SecretStore struct {
 	store     *Store[models.EncryptedSecretData]
 	masterKey []byte
-	mu        sync.RWMutex
 }
 
 func NewSecretStore(store *Store[models.EncryptedSecretData], masterKey []byte) *SecretStore {

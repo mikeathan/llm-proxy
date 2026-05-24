@@ -127,6 +127,11 @@ func (h *AdminHandlers) AdminLogLevelUpdateHandler(w http.ResponseWriter, r *htt
 	h.logger.Info("log level updated", "level", level)
 
 	h.logger.SetLevel(level)
+
+	h.admin.UpdateSystem(func(sys *models.SystemConfig) {
+		sys.Server.LogLevel = string(level)
+	})
+
 	resp := adminLogLevelResponse{Level: string(level)}
 	respondJSON(w, resp)
 }

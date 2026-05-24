@@ -4,13 +4,13 @@
   "version": "1.0",
   "runtime": {
     "submit_final_answer": {
-      "description": "Signal that the task is complete. You MUST include ALL requested outputs (e.g. tree visualizations, code snippets, sequence results) in the 'summary' field.",
+      "description": "Finalize the task. The 'summary' argument IS the final report the user sees — include all findings, tables, and analysis directly here.",
       "parameters": {
         "type": "object",
         "properties": {
           "summary": {
             "type": "string",
-            "description": "A comprehensive Markdown summary of what was accomplished, including any relevant findings, file paths created, or outputs."
+            "description": "The final report itself. Include the complete output with all findings, tables, and analysis. This is what the user sees — not a description of what was done."
           }
         },
         "required": [

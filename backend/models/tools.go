@@ -14,6 +14,7 @@ const (
 	// FileSystem
 	ToolFileRead      = "read_file"
 	ToolFileWrite     = "write_file"
+	ToolFileAppend    = "append_file"
 	ToolDirectoryList = "list_directory"
 	
 	// Network

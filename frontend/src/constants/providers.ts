@@ -13,9 +13,9 @@ export const ALL_PROVIDERS: ProviderType[] = ["local", ...CLOUD_PROVIDERS];
 
 export const SETTINGS_TABS: SettingsTab[] = [
   "local",
+  "local-models",
   "security",
   "guardrails",
-  "catalogue",
   "gemini",
   "openai",
   "openrouter",
@@ -27,9 +27,9 @@ export const SETTINGS_TABS: SettingsTab[] = [
 
 export const PROVIDER_ICONS: Record<SettingsTab, string> = {
   local: "💻",
+  "local-models": "🤖",
   security: "📟",
   guardrails: "🛡️",
-  catalogue: "🗂️",
   gemini: "✨",
   openai: "🤖",
   openrouter: "🚀",
@@ -41,9 +41,9 @@ export const PROVIDER_ICONS: Record<SettingsTab, string> = {
 
 export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   local: "Local Engine",
+  "local-models": "Local Models",
   security: "Host Terminal",
   guardrails: "Agent Guardrails",
-  catalogue: "Model Catalogue",
   gemini: "Google Gemini",
   openai: "OpenAI / Compatible",
   openrouter: "OpenRouter",

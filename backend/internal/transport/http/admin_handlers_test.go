@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/testing/mocks"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -472,6 +473,79 @@ func TestAdminDeleteModelHandler_PersistError(t *testing.T) {
 	}
 }
 
+func TestAdminStateHandler_AgentDefaults(t *testing.T) {
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{
+		GetGuardrailsFunc: func() models.AgentGuardrailsConfig {
+			return models.AgentGuardrailsConfig{}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/state", nil)
+	rr := httptest.NewRecorder()
+	handler.AdminStateHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Config struct {
+			AgentDefaults struct {
+				MaxSteps       int    `json:"max_steps"`
+				ContextBudget  int    `json:"context_budget"`
+				MaxTokens      int    `json:"max_tokens"`
+				ToolCallFormat string `json:"tool_call_format"`
+				Prefill        bool   `json:"prefill"`
+			} `json:"agent_defaults"`
+			ProviderDefaults map[string]struct {
+				MaxSteps       int    `json:"max_steps"`
+				ContextBudget  int    `json:"context_budget"`
+				MaxTokens      int    `json:"max_tokens"`
+				ToolCallFormat string `json:"tool_call_format"`
+				Prefill        bool   `json:"prefill"`
+			} `json:"provider_defaults"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.Config.AgentDefaults.MaxSteps != 25 {
+		t.Errorf("expected max_steps 25, got %d", resp.Config.AgentDefaults.MaxSteps)
+	}
+	if resp.Config.AgentDefaults.ContextBudget != 8000 {
+		t.Errorf("expected context_budget 8000, got %d", resp.Config.AgentDefaults.ContextBudget)
+	}
+	if resp.Config.AgentDefaults.MaxTokens != 3072 {
+		t.Errorf("expected max_tokens 3072, got %d", resp.Config.AgentDefaults.MaxTokens)
+	}
+	if resp.Config.AgentDefaults.Prefill {
+		t.Errorf("expected prefill false, got true")
+	}
+
+	gemini, ok := resp.Config.ProviderDefaults["gemini"]
+	if !ok {
+		t.Fatal("expected provider_defaults.gemini")
+	}
+	if gemini.ContextBudget != 50000 {
+		t.Errorf("expected gemini context_budget 50000, got %d", gemini.ContextBudget)
+	}
+	if gemini.MaxSteps != 35 {
+		t.Errorf("expected gemini max_steps 35, got %d", gemini.MaxSteps)
+	}
+	if gemini.MaxTokens != 4096 {
+		t.Errorf("expected gemini max_tokens 4096, got %d", gemini.MaxTokens)
+	}
+
+	local, ok := resp.Config.ProviderDefaults["local"]
+	if !ok {
+		t.Fatal("expected provider_defaults.local")
+	}
+	if local.ContextBudget != 8000 {
+		t.Errorf("expected local context_budget 8000, got %d", local.ContextBudget)
+	}
+}
+
 func TestAdminLogLevelHandler(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	handler := newAdminHandlersWithLogger(&mocks.MockManager{}, &mocks.MockAdminService{}, logger)
@@ -535,18 +609,15 @@ func newAdminHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService)
 	if admin.GetRegistryFunc == nil {
 		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
 	}
-	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
-}
+	return api.NewAdminHandlers(runtime, admin, &mocks.MockLogger{}, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"}, nil)
 
-func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger *mocks.MockLogger) *api.AdminHandlers {
-	if runtime.ModelHostFunc == nil {
-		runtime.ModelHostFunc = func() string { return "127.0.0.1" }
-	}
+}
+func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger logging.Logger) *api.AdminHandlers {
 	if admin.GetSystemFunc == nil {
 		admin.GetSystemFunc = func() models.SystemConfig { return models.SystemConfig{} }
 	}
 	if admin.GetRegistryFunc == nil {
 		admin.GetRegistryFunc = func() models.RegistryData { return models.RegistryData{} }
 	}
-	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"})
+	return api.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"}, nil)
 }

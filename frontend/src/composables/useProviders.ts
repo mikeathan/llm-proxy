@@ -41,7 +41,7 @@ export function useProviders() {
   const settingsTabs = computed<SettingsTab[]>(() => {
     // We want to preserve the order from SETTINGS_TABS while ensuring 
     // any dynamically discovered cloud providers are also included.
-    const base = ['local', 'guardrails', 'catalogue', ...cloudProviders.value, 'mcp']
+    const base = ['local', 'local-models', 'guardrails', ...cloudProviders.value, 'mcp']
     return Array.from(new Set(base)) as SettingsTab[]
   })
 

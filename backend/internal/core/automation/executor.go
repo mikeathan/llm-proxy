@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -28,6 +29,7 @@ type ExecuteRequest struct {
 	Strategy       ExecutionStrategy
 	State          *models.AgentState
 	Model          string // Optional model override
+	RecordingRef   string // Recording file ID for playback (empty = live LLM)
 }
 
 type ExecuteResponse struct {
@@ -50,6 +52,8 @@ type LLMServiceProvider interface {
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
+	Orchestrator() *orchestrator.Orchestrator
+	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -97,22 +101,35 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	// Mark as running
 	resp.State.SetRunning(req.AutomationName)
 
-	// Get LLM client
+	// Get LLM client (real or playback from recording)
 	var client proxy.Client
 	var err error
-	if req.Model != "" {
-		client, err = e.svc.GetClientForModel(ctx, req.Model)
-	} else {
-		clientProvider := e.svc.ClientProvider()
-		client, err = clientProvider.GetClient(ctx)
-	}
 
-	if err != nil {
-		errStr := fmt.Sprintf("failed to get llm client: %v", err)
-		resp.State.LastError = errStr
-		resp.State.SetRunning("")
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
-		return resp, fmt.Errorf("failed to get llm client: %w", err)
+	if req.RecordingRef != "" {
+		client, err = e.svc.GetPlaybackClient(ctx, req.RecordingRef)
+		if err != nil {
+			errStr := fmt.Sprintf("failed to load recording %s: %v", req.RecordingRef, err)
+			resp.State.LastError = errStr
+			resp.State.SetRunning("")
+			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+			return resp, fmt.Errorf("failed to load recording: %w", err)
+		}
+		procLog := e.svc.ProcessLogger(req.WorkspaceID)
+		procLog.Info("Running automation from recording", "recording", req.RecordingRef)
+	} else {
+		if req.Model != "" {
+			client, err = e.svc.GetClientForModel(ctx, req.Model)
+		} else {
+			clientProvider := e.svc.ClientProvider()
+			client, err = clientProvider.GetClient(ctx)
+		}
+		if err != nil {
+			errStr := fmt.Sprintf("failed to get llm client: %v", err)
+			resp.State.LastError = errStr
+			resp.State.SetRunning("")
+			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+			return resp, fmt.Errorf("failed to get llm client: %w", err)
+		}
 	}
 
 	// Initialize the unified Agent
@@ -125,6 +142,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		MaxSteps:    assistant.DefaultMaxSteps,
 		Guardrails:  e.svc.GuardrailEngine(),
 		WorkspaceID: req.WorkspaceID,
+		Orchestrator: e.svc.Orchestrator(),
+		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
 			capturedEvents = append(capturedEvents, ev)
 			e.svc.Events().Publish(req.WorkspaceID, ev)
@@ -139,19 +158,30 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	// Apply per-model overrides when available.
 	if req.Model != "" {
 		if cfg, ok := e.svc.ModelConfig(req.Model); ok {
+			agentOpts.ProviderType = cfg.Provider
 			if cfg.MaxSteps > 0 {
 				agentOpts.MaxSteps = cfg.MaxSteps
 			}
 			if cfg.ContextBudget > 0 {
 				agentOpts.ContextBudget = cfg.ContextBudget
 			}
+			if cfg.MaxTokens > 0 {
+				agentOpts.MaxResponseTokens = cfg.MaxTokens
+			}
+			if cfg.ReasoningBudget > 0 {
+				agentOpts.ReasoningBudget = cfg.ReasoningBudget
+			}
 			if cfg.ToolCallFormat == "native" {
 				native := true
 				agentOpts.UseNativeTools = &native
 			}
-			if cfg.Prefill {
+			if cfg.Prefill != nil && *cfg.Prefill {
 				agentOpts.UsePrefill = true
 			}
+			if cfg.TimeoutMinutes > 0 {
+				agentOpts.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
+			}
+			procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
 		}
 	}
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
@@ -165,8 +195,11 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		{Role: "user", Content: e.buildPrompt(req)},
 	}
 
-	// Execute via Agent Loop
-	finalReply, fullHistory, agErr := agent.Execute(ctx, history)
+	// Inject task name and unique run ID for recording organisation
+	execCtx := models.WithTaskName(ctx, req.AutomationName)
+	execCtx = models.WithRunID(execCtx, generateRunID())
+
+	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
 	if agErr != nil {
 		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
@@ -209,7 +242,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		}
 	}
 
-	fullOutput := fmt.Sprintf("%s### Final Report\n\n%s", header, output)
+	elapsed := time.Since(startTime)
+	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
 
 	resp.Output = fullOutput
 	resp.State.LastOutput = fullOutput
@@ -232,6 +266,22 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	return resp, nil
 }
 
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	s := int(d.Seconds())
+	if s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	m := s / 60
+	s %= 60
+	if m < 60 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	h := m / 60
+	m %= 60
+	return fmt.Sprintf("%dh %dm %ds", h, m, s)
+}
+
 func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any) {
 	if state == nil {
 		return
@@ -249,6 +299,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		Error:          errStr,
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
+		RecordingRef:   req.RecordingRef,
 		Events:         prunedEvents,
 	}
 

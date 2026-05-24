@@ -10,13 +10,14 @@ import (
 
 // AutomationEntry holds a registered automation with its parsed
 type AutomationEntry struct {
-	ID        string // "workspaceID/automationName"
-	Workspace string
-	Name      string
-	Trigger   Trigger
-	TaskFile  string
-	Strategy  ExecutionStrategy
-	Model     string
+	ID           string // "workspaceID/automationName"
+	Workspace    string
+	Name         string
+	Trigger      Trigger
+	TaskFile     string
+	Strategy     ExecutionStrategy
+	Model        string
+	RecordingRef string
 }
 
 // AutomationRegistry manages registered automations.
@@ -46,13 +47,14 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 	strategy := StrategyFromAutomation(auto)
 
 	entry := &AutomationEntry{
-		ID:        key(workspaceID, auto.Name),
-		Workspace: workspaceID,
-		Name:      auto.Name,
-		Trigger:   tr,
-		TaskFile:  auto.TaskFile,
-		Strategy:  strategy,
-		Model:     auto.Model,
+		ID:           key(workspaceID, auto.Name),
+		Workspace:    workspaceID,
+		Name:         auto.Name,
+		Trigger:      tr,
+		TaskFile:     auto.TaskFile,
+		Strategy:     strategy,
+		Model:        auto.Model,
+		RecordingRef: auto.RecordingRef,
 	}
 
 	r.mu.Lock()

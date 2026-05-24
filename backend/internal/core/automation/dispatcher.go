@@ -222,13 +222,13 @@ func (d *Dispatcher) UnregisterWorkspace(workspaceID string) {
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName string) error {
+func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName, recordingRef string) error {
 	entry, ok := d.registry.Get(workspaceID, automationName)
 	if !ok {
 		return fmt.Errorf("automation not found: %s/%s", workspaceID, automationName)
 	}
 
-	return d.executeAutomation(ctx, entry)
+	return d.executeAutomation(ctx, entry, recordingRef)
 }
 
 func (d *Dispatcher) Events() *EventBus {
@@ -387,7 +387,7 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		if err := d.executeAutomation(ctx, entry); err != nil {
+		if err := d.executeAutomation(ctx, entry, ""); err != nil {
 			d.logger.Error("Automation execution failed",
 				"workspace", entry.Workspace,
 				"automation", entry.Name,
@@ -424,7 +424,7 @@ func (d *Dispatcher) triggerToCron(tr Trigger) string {
 	}
 }
 
-func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEntry) error {
+func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEntry, recordingRefOverride string) error {
 	start := time.Now()
 
 	// 0. Setup Cancellation
@@ -488,6 +488,10 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		return fmt.Errorf("strategy preparation failed: %w", err)
 	}
 
+	recordingRef := entry.RecordingRef
+	if recordingRefOverride != "" {
+		recordingRef = recordingRefOverride
+	}
 	req := ExecuteRequest{
 		WorkspaceID:    entry.Workspace,
 		AutomationName: entry.Name,
@@ -496,6 +500,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		Strategy:       entry.Strategy,
 		State:          state,
 		Model:          entry.Model,
+		RecordingRef:   recordingRef,
 	}
 
 	resp, err := d.executor.Execute(stratCtx, req)
@@ -660,6 +665,23 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 
 	cancel()
 	d.logger.Info("Automation stopped by user request", "workspace", workspaceID)
+
+	// Monitor the run: if it hasn't left activeRuns within 30s,
+	// the cancellation didn't propagate (likely a tool/hanging shell
+	// command ignoring the context).  Log a diagnostic warning so we
+	// can identify what's blocking.
+	go func() {
+		time.Sleep(30 * time.Second)
+		d.runMu.Lock()
+		_, stillRunning := d.activeRuns[workspaceID]
+		d.runMu.Unlock()
+		if stillRunning {
+			d.logger.Warn("automation stop: cancellation did not terminate the run within 30s",
+				"workspace", workspaceID,
+			)
+		}
+	}()
+
 	return nil
 }
 

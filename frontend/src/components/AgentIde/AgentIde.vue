@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref, computed } from "vue";
 import { useDispatcher } from "../../composables/useDispatcher";
 import { useModels } from "../../composables/useModels";
-import type { Automation } from "../../types/dispatcher";
+import type { Automation, RecordingMeta } from "../../types/dispatcher";
 import { DispatcherService } from "../../services/dispatcherService";
 
 import WorkspaceExplorer from "./workspace/WorkspaceExplorer.vue";
@@ -14,6 +14,7 @@ import SystemMetricsPanel from "./system/SystemMetricsPanel.vue";
 import SystemPulseDashboard from "./system/SystemPulseDashboard.vue";
 import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
+import RecordingsPanel from "./recordings/RecordingsPanel.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
 import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
 import TemplateLibrary from "./system/TemplateLibrary.vue";
@@ -54,7 +55,7 @@ const {
 } = useDispatcher();
 
 /* ── UI & Selection State ── */
-const leftTab = ref<"explorer" | "automations" | "activity">("explorer");
+const leftTab = ref<"explorer" | "automations" | "recordings" | "activity">("explorer");
 const selectedAutomationId = ref<string | null>(null);
 const selectedRun = ref<AutomationRun | null>(null);
 const selectedWorkspace = ref<string | null>(null);
@@ -338,6 +339,38 @@ const handleTrigger = async () => {
   }
 };
 
+const handleReplayRecording = async (auto: Automation, recording: RecordingMeta) => {
+  selectedAutomationId.value = auto.id;
+  triggering.value = true;
+  lastTriggerResult.value = `Replaying recording for ${auto.name}...`;
+  try {
+    await triggerAutomation(auto.workspace, auto.name, recording.id);
+    lastTriggerResult.value = `Replayed ${auto.name} from recording`;
+    await refreshHistory();
+  } catch {
+    lastTriggerResult.value = `Failed to replay ${auto.name}`;
+  } finally {
+    triggering.value = false;
+    await fetchAutomations();
+    await refreshHistory();
+  }
+};
+
+const handleStopRecording = async (workspace: string) => {
+  try {
+    await stopAutomation(workspace);
+    lastTriggerResult.value = "Recording replay stopped";
+  } catch (err) {
+    console.error("Stop recording replay failed", err);
+  } finally {
+    await fetchAutomations();
+  }
+};
+
+const handleShowAutomation = (id: string) => {
+  selectedAutomationId.value = id;
+};
+
 const handleStop = async () => {
   if (!selectedAutomation.value) return;
   try {
@@ -479,6 +512,17 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           >
             Automations
           </button>
+          <button
+            @click="leftTab = 'recordings'"
+            class="sidebar-tab"
+            :class="
+              leftTab === 'recordings'
+                ? 'sidebar-tab--active'
+                : 'sidebar-tab--inactive'
+            "
+          >
+            Recordings
+          </button>
         </div>
         <BaseButton
           @click="showTemplates = true"
@@ -542,6 +586,16 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             @delete-automation="handleDeleteAutomation"
           />
         </div>
+
+        <!-- Recordings Tab -->
+        <RecordingsPanel
+          v-else-if="leftTab === 'recordings'"
+          :automations="automations"
+          :workspaces="Object.keys(groupedByWorkspace)"
+          @replay-recording="handleReplayRecording"
+          @stop-automation="handleStopRecording"
+          @show-automation="handleShowAutomation"
+        />
       </div>
     </div>
 

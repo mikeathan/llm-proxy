@@ -79,10 +79,23 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
             }}</span>
           </div>
           <div class="meta-card">
+            <span class="meta-label">Model</span>
+            <span class="meta-value meta-value--mono">{{
+              automation.model || "Default"
+            }}</span>
+          </div>
+          <div class="meta-card">
             <span class="meta-label">Task File</span>
             <span class="meta-value meta-value--mono">{{
               automation.task_file
             }}</span>
+          </div>
+          <div v-if="automation.recording_ref" class="meta-card meta-card--recording">
+            <span class="meta-label">Recording</span>
+            <span class="meta-value meta-value--recording">
+              <span class="rec-dot"></span>
+              {{ automation.recording_ref }}
+            </span>
           </div>
         </div>
 
@@ -264,6 +277,18 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
 
 .meta-value--mono {
   @apply text-gray-300 font-mono;
+}
+
+.meta-card--recording {
+  @apply border-orange-700/40 bg-orange-900/10;
+}
+
+.meta-value--recording {
+  @apply text-orange-400 text-xs font-mono flex items-center gap-1.5 truncate max-w-full;
+}
+
+.rec-dot {
+  @apply w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0;
 }
 
 .result-banner {

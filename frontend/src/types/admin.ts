@@ -1,6 +1,6 @@
 // Global configuration types
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'mcp' | 'guardrails' | 'security' | 'catalogue'
+export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security'
 
 export interface APIKeyItem {
   id: string
@@ -79,6 +79,15 @@ export interface ProviderItem {
 }
 
 // Global configuration types
+export interface AgentDefaults {
+  max_steps: number
+  context_budget: number
+  max_tokens: number
+  reasoning_budget: number
+  tool_call_format: string
+  prefill: boolean
+}
+
 export interface GlobalConfig {
   providers: Record<string, ProviderItem>
   agents?: AgentDefinition[]
@@ -99,6 +108,8 @@ export interface GlobalConfig {
       chat_id: string
     }
   }
+  agent_defaults: AgentDefaults
+  provider_defaults?: Record<string, AgentDefaults>
 }
 
 export interface AgentDefinition {

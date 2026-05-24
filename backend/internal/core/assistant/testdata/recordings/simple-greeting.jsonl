@@ -1,0 +1,3 @@
+{"type":"request","model":"test-model","messages":[{"role":"user","content":"Hello"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}
+{"type":"response","choices":[{"message":{"role":"assistant","content":"Hello! How can I help you today?"}}]}
+{"type":"done","total_chunks":1}
