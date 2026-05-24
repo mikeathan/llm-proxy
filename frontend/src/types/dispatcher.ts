@@ -7,6 +7,7 @@ export interface AutomationRun {
   error: string
   duration_ms: number
   model: string
+  recording_ref?: string
   events?: AgentEvent[]
 }
 

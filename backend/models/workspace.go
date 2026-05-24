@@ -73,6 +73,7 @@ type AutomationRun struct {
 	Error          string    `json:"error"`
 	DurationMs     int64     `json:"duration_ms"`
 	Model          string    `json:"model"`
+	RecordingRef   string    `json:"recording_ref"`
 	Events         []any     `json:"events"` // Full event log for "Live Console" reconstruction
 }
 

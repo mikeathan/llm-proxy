@@ -18,11 +18,12 @@ const sortedHistory = computed(() => {
   );
 });
 
-import { formatTime, formatDate } from "../../../utils/time";
+import { formatDate } from "../../../utils/time";
 
 
 const getStatusClass = (run: AutomationRun) => {
-  return run.error ? "border-l-red-500" : "border-l-green-500";
+  if (run.error) return run.recording_ref ? "border-l-red-500 recording-run" : "border-l-red-500";
+  return run.recording_ref ? "border-l-green-500 recording-run" : "border-l-green-500";
 };
 
 const formatDuration = (ms: number): string => {
@@ -59,26 +60,27 @@ const formatDuration = (ms: number): string => {
           class="automation-card"
           :class="getStatusClass(run)"
         >
-          <div class="card-main">
-            <span class="auto-name">{{ run.automation_name }}</span>
-            <span class="latest-time">{{ formatTime(run.timestamp) }}</span>
-          </div>
-          
-          <div class="card-footer">
-            <div class="meta-item">
-              <span class="meta-label">ID:</span>
-              <span class="meta-val">{{ run.id.slice(-6) }}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Time:</span>
-              <span class="meta-val">{{ formatDuration(run.duration_ms) }}</span>
-            </div>
-            <span class="latest-date">{{ formatDate(run.timestamp) }}</span>
+          <div class="card-row card-row--top">
+            <span class="auto-name">
+              {{ run.automation_name }}
+              <span v-if="run.recording_ref" class="rec-badge">REC</span>
+            </span>
+            <span class="auto-date">{{ formatDate(run.timestamp) }}</span>
           </div>
 
-          <!-- Simple status indicator if it was a failure -->
-          <div v-if="run.error" class="fail-tag">Failed</div>
-          <div v-else class="success-tag">Success</div>
+          <div class="card-row card-row--model">
+            <span class="auto-model" :title="run.model || ''">{{ run.model || "Default" }}</span>
+          </div>
+
+          <div class="card-row card-row--bottom">
+            <div class="meta-group">
+              <span class="meta-val">{{ run.id.slice(-6) }}</span>
+              <span class="meta-sep">·</span>
+              <span class="meta-val">{{ formatDuration(run.duration_ms) }}</span>
+            </div>
+            <span v-if="run.error" class="fail-tag">Failed</span>
+            <span v-else class="success-tag">Success</span>
+          </div>
         </div>
       </div>
     </div>
@@ -125,44 +127,56 @@ const formatDuration = (ms: number): string => {
 .automation-card {
   @apply p-4 border-l-2 rounded-lg bg-gray-800/10 cursor-pointer hover:bg-gray-800/40 transition-all border-gray-800/50 hover:border-gray-600;
 }
+.automation-card.recording-run {
+  @apply bg-amber-900/10 border-l-amber-600/50 hover:bg-amber-900/20;
+}
 
-.card-main {
-  @apply flex justify-between items-start mb-3;
+.rec-badge {
+  @apply text-[8px] font-bold text-amber-400 bg-amber-900/40 px-1.5 py-0.5 rounded ml-1.5 align-middle;
+}
+
+.card-row {
+  @apply flex justify-between items-center;
+}
+.card-row--top {
+  @apply mb-1;
+}
+.card-row--model {
+  @apply mb-2;
+}
+.card-row--bottom {
+  @apply gap-2;
 }
 
 .auto-name {
   @apply text-xs font-black text-gray-100 uppercase tracking-tight;
 }
 
-.latest-time {
-  @apply text-[10px] font-mono text-gray-500;
+.auto-date {
+  @apply text-[9px] text-gray-500 shrink-0;
 }
 
-.card-footer {
-  @apply flex justify-between items-center;
+.auto-model {
+  @apply text-[10px] text-gray-600 truncate;
 }
 
-.meta-item {
-  @apply flex items-center gap-1.5;
+.meta-group {
+  @apply flex items-center gap-1.5 min-w-0;
 }
 
-.meta-label {
-  @apply text-[9px] text-gray-600 uppercase font-bold;
+.meta-sep {
+  @apply text-gray-700 text-[8px];
 }
 
 .meta-val {
   @apply text-[9px] text-gray-500 font-mono;
 }
 
-.latest-date {
-  @apply text-[9px] text-gray-500 opacity-60;
-}
-
 .fail-tag {
-  @apply mt-3 text-[8px] bg-red-900/20 text-red-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-red-500/20 inline-block;
+  @apply text-[8px] bg-red-900/20 text-red-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-red-500/20 inline-block shrink-0;
 }
 
 .success-tag {
-  @apply mt-3 text-[8px] bg-green-900/20 text-green-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-green-500/20 inline-block;
+  @apply text-[8px] bg-green-900/20 text-green-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-green-500/20 inline-block shrink-0;
 }
 </style>

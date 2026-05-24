@@ -79,6 +79,12 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
             }}</span>
           </div>
           <div class="meta-card">
+            <span class="meta-label">Model</span>
+            <span class="meta-value meta-value--mono">{{
+              automation.model || "Default"
+            }}</span>
+          </div>
+          <div class="meta-card">
             <span class="meta-label">Task File</span>
             <span class="meta-value meta-value--mono">{{
               automation.task_file

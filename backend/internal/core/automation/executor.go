@@ -299,6 +299,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		Error:          errStr,
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
+		RecordingRef:   req.RecordingRef,
 		Events:         prunedEvents,
 	}
 
