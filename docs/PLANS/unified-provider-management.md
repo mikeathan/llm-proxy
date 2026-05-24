@@ -1,5 +1,9 @@
 # Unified Provider & Model Management
 
+**Status: NOT IMPLEMENTED**
+
+Provider configuration still spread across three separate UI locations (Secrets→Provider tab, Dashboard→Cloud tab, Settings→Provider keys). `tiers.go` exists as a foundation but the full provider management consolidation is not done.
+
 ## Problem Summary
 
 Today, users manage cloud provider configuration across **three separate places**:

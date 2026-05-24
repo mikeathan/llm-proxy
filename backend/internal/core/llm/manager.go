@@ -572,7 +572,9 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		if override.TimeoutMinutes > 0 {
 			cfg.TimeoutMinutes = override.TimeoutMinutes
 		}
-		cfg.Prefill = override.Prefill
+		if override.Prefill != nil {
+			cfg.Prefill = override.Prefill
+		}
 		m.models[name] = cfg
 	}
 }

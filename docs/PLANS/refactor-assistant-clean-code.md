@@ -1,5 +1,9 @@
 # Refactoring Assistant Package to Agent Package & Clean Code
 
+**Status: NOT IMPLEMENTED**
+
+Package still named `assistant`, not renamed to `agent`. No split into `agent` + `agent/registry` packages. Cyclomatic complexity refactoring not yet applied (see `.agents/rules/` for current guidance).
+
 This document outlines the implementation plan for:
 1. Renaming the `assistant` package to `agent` to align with the repository architecture.
 2. Splitting the package into two modular packages (`agent` and `agent/registry`) to separate the cognitive agent loop from system tool execution and discovery.

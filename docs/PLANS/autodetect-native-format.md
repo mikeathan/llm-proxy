@@ -1,5 +1,9 @@
 # Plan: Auto-Detect Native Tool Format & Jinja Template from GGUF
 
+**Status: NOT IMPLEMENTED**
+
+No Jinja/chat_template extraction from GGUF metadata. `GGUFScanner` still only extracts the 7 basic fields. `ApplyMetadataDefaults` silently sets `ToolCallFormat` to `"native"` without model-specific detection.
+
 ## Current State
 
 The codebase already scans GGUF files on model discovery (`gguf_scanner.go:28-30`) using `gguf-parser-go v0.24.0`. However, it only extracts 7 basic fields:

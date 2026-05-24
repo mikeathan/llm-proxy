@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -103,6 +104,7 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 
 	var args struct {
 		Command string `json:"command"`
+		Cwd     string `json:"cwd"`
 	}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return fmt.Errorf("malformed JSON arguments: %w", err)
@@ -113,7 +115,14 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 		jailPath = e.resolver.WorkspaceDir(workspaceID)
 	}
 
-	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache, jailPath)
+	// Compute effective CWD: if the model specified a subdirectory, the
+	// guardrail path check needs it to correctly resolve '..' paths.
+	effectiveCwd := jailPath
+	if args.Cwd != "" && jailPath != "" {
+		effectiveCwd = filepath.Join(jailPath, args.Cwd)
+	}
+
+	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache, jailPath, effectiveCwd)
 }
 
 func (e *GuardrailEngine) validateSearch(call proxy.ToolCall, cfg models.SearchGuardrailsConfig) error {

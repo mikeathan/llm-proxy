@@ -431,7 +431,7 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 	}
 }
 
-func TestAgent_Execute_NativeToolsEmptyStreamPassesTools(t *testing.T) {
+func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
 	toolsPassed := false
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
@@ -477,8 +477,11 @@ func TestAgent_Execute_NativeToolsEmptyStreamPassesTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if !toolsPassed {
-		t.Error("non-streaming fallback should receive tools when native tools are enabled")
+	if toolsPassed {
+		t.Error("non-streaming fallback should NOT receive native tools — should retry with XML text mode")
+	}
+	if agent.useNativeTools {
+		t.Error("agent should have switched to non-native tools after empty stream fallback")
 	}
 }
 
@@ -1790,37 +1793,182 @@ func TestRepetitionDetector_StreakReset(t *testing.T) {
 		t.Errorf("expected duplicateStreak to reset to 0, got %d", rd.duplicateStreak)
 	}
 
-	// Call tool A again -> not a duplicate of tool B
+	// Call tool A again -> found but NOT consecutive (B is last), allowed to execute
 	isDup, nag, err = rd.check(logger, toolCallsA)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if isDup {
-		t.Error("expected tool A call after tool B not to be duplicate")
+		t.Error("expected tool A call after tool B to be allowed (non-consecutive)")
 	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
+	if rd.duplicateStreak != 1 {
+		t.Errorf("expected duplicateStreak to be 1, got %d", rd.duplicateStreak)
 	}
-
-	// Call tool A again -> duplicate (streak = 1)
-	isDup, _, _ = rd.check(logger, toolCallsA)
-	if !isDup || rd.duplicateStreak != 1 {
-		t.Errorf("expected duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
+	if nag != "" {
+		t.Errorf("expected empty nag on non-consecutive duplicate, got %q", nag)
 	}
 
-	// Call tool A again -> duplicate (streak = 2)
+	// Call tool A again -> consecutive duplicate (last key is A), streak = 2
 	isDup, _, _ = rd.check(logger, toolCallsA)
 	if !isDup || rd.duplicateStreak != 2 {
-		t.Errorf("expected duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
+		t.Errorf("expected consecutive duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
 	}
 
-	// Call tool A again -> infinite loop error (streak = 3)
+	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal)
 	isDup, _, err = rd.check(logger, toolCallsA)
 	if err == nil {
 		t.Error("expected error on third consecutive duplicate, got nil")
 	} else if !strings.Contains(err.Error(), "infinite loop detected") {
 		t.Errorf("expected infinite loop error, got %v", err)
 	}
+}
+
+func TestRepetitionDetector_SlidingWindow(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	makeCall := func(name, args string) proxy.ToolCall {
+		return proxy.ToolCall{
+			ID: fmt.Sprintf("id-%s", name), Type: "function",
+			Function: proxy.FunctionCall{Name: name, Arguments: args},
+		}
+	}
+
+	// Scenario 1: Alternating loop (A → B → A → B → A)
+	// The streak persists across alternating keys because both are
+	// in the sliding window.  A→B→A→B→A hits streak=3 on the 5th call.
+	t.Run("alternating loop", func(t *testing.T) {
+		rd := repetitionDetector{}
+
+		// i=0: A not dup (window=[A]), B not dup (window=[A,B])
+		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isDup {
+			t.Error("expected first A not duplicate")
+		}
+		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolB", `{"arg":2}`)})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isDup {
+			t.Error("expected first B not duplicate")
+		}
+
+		// i=1: A is found in window but NOT consecutive (B is last) -> allowed
+		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isDup {
+			t.Error("expected second A to be allowed (non-consecutive)")
+		}
+		if rd.duplicateStreak != 1 {
+			t.Errorf("expected streak=1 after second A, got %d", rd.duplicateStreak)
+		}
+
+		// B is also found, NOT consecutive (A is last) -> allowed, streak=2
+		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolB", `{"arg":2}`)})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isDup {
+			t.Error("expected second B to be allowed (non-consecutive)")
+		}
+		if rd.duplicateStreak != 2 {
+			t.Errorf("expected streak=2 after second B, got %d", rd.duplicateStreak)
+		}
+
+		// i=2: A found, NOT consecutive -> streak=3 -> fatal (streak >= 3)
+
+		// i=2: A is dup → streak=3 → fatal
+		_, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
+		if err == nil {
+			t.Fatal("expected fatal error on alternating loop, got nil")
+		}
+		if !strings.Contains(err.Error(), "infinite loop detected") {
+			t.Errorf("expected infinite loop error, got %v", err)
+		}
+	})
+
+	// Scenario 2: Legitimate iteration — scanning different targets
+	t.Run("legitimate iteration", func(t *testing.T) {
+		rd := repetitionDetector{}
+		targets := []string{
+			`{"mode":"fast"}`,
+			`{"mode":"deep","target":"192.168.50.10"}`,
+			`{"mode":"deep","target":"192.168.50.1"}`,
+			`{"mode":"deep","target":"192.168.50.60"}`,
+			`{"mode":"deep","target":"192.168.50.63"}`,
+			`{"mode":"deep","target":"192.168.50.125"}`,
+			`{"mode":"deep","target":"192.168.50.241"}`,
+		}
+		for i, args := range targets {
+			_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network", args)})
+			if err != nil {
+				t.Fatalf("unexpected error at scan %d (%s): %v", i, args, err)
+			}
+		}
+	})
+
+	// Scenario 3: cwd normalization — same command with/without cwd
+	t.Run("cwd normalization", func(t *testing.T) {
+		rd := repetitionDetector{}
+
+		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
+			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
+		if err != nil {
+			t.Fatalf("unexpected error on first call: %v", err)
+		}
+
+		// Same command without cwd — normalized to same key
+		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
+			`{"command":"ts-node quick-check/test.ts"}`)})
+		if err != nil {
+			t.Fatalf("unexpected error on second call: %v", err)
+		}
+		if !isDup {
+			t.Error("expected duplicate after cwd normalization")
+		}
+		if nag == "" {
+			t.Error("expected non-empty nag prompt")
+		}
+	})
+
+	// Scenario 4: Different targets are NOT duplicates
+	t.Run("different args not duplicate", func(t *testing.T) {
+		rd := repetitionDetector{}
+
+		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network",
+			`{"mode":"fast"}`)})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Different target — should NOT be duplicate
+		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network",
+			`{"mode":"deep","target":"192.168.50.10"}`)})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isDup {
+			t.Error("expected different scan targets not to be duplicates")
+		}
+	})
+
+	// Scenario 5: submit_final_answer excluded from tracking
+	t.Run("submit excluded", func(t *testing.T) {
+		rd := repetitionDetector{}
+		for range 6 {
+			_, _, err := rd.check(logger, []proxy.ToolCall{{
+				ID: "submit", Type: "function",
+				Function: proxy.FunctionCall{Name: models.ToolSubmitFinalAnswer, Arguments: `{}`},
+			}})
+			if err != nil {
+				t.Fatalf("submit_final_answer should never trigger loop: %v", err)
+			}
+		}
+	})
 }
 
 func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
@@ -1855,6 +2003,17 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 
 			if !strings.Contains(toolResultContent, `"error"`) || !strings.Contains(toolResultContent, "simulated tool failure") {
 				return nil, fmt.Errorf("expected tool error feedback in history, got: %s", toolResultContent)
+			}
+
+			foundNag := false
+			for _, msg := range req.Messages {
+				if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "tool call above failed") {
+					foundNag = true
+					break
+				}
+			}
+			if !foundNag {
+				return nil, fmt.Errorf("expected ToolErrorNagPrompt in history after tool error")
 			}
 
 			return &proxy.ChatResponse{
@@ -1901,13 +2060,19 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	}
 
 	foundToolError := false
+	foundNagPrompt := false
 	for _, msg := range history {
 		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, "simulated tool failure") {
 			foundToolError = true
-			break
+		}
+		if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "tool call above failed") {
+			foundNagPrompt = true
 		}
 	}
 	if !foundToolError {
 		t.Error("expected tool error to be recorded in history")
+	}
+	if !foundNagPrompt {
+		t.Error("expected ToolErrorNagPrompt to be injected after tool error")
 	}
 }

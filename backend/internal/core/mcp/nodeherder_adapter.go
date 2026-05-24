@@ -86,7 +86,7 @@ func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[stri
 				errMsg = textContent.Text
 			}
 		}
-		return nil, fmt.Errorf("tool execution error: %s", errMsg)
+		return errMsg, fmt.Errorf("tool execution error: %s", errMsg)
 	}
 
 	if len(result.Content) == 0 {

@@ -1,5 +1,9 @@
 # PLAN-001: Discovery Panel Implementation
 
+**Status: NOT IMPLEMENTED**
+
+No discovery panel exists in the frontend or backend. GGUF scanner refinement and metadata service integration not implemented.
+
 ## Phase: Logic & Execution
 ## Related Spec: [SPEC-001](../SPECS/discovery-panel.md)
 

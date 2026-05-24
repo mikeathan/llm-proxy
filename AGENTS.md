@@ -13,7 +13,9 @@ go vet ./...            # no official linter; this is the sanity check
 go test ./...           # must pass
 go test ./internal/core/assistant/... -v   # agent loop tests
 go test ./internal/core/proxy/... -v       # parser + history tests
+go test -tags recordreplay ./internal/core/assistant/... -v  # recording replay tests
 go run main.go --data ./data               # start server on :4001
+go run main.go --data ./data --record-dir=testdata/recordings  # record mode
 ```
 
 Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification is manual.
@@ -40,10 +42,12 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 ### Core Systems
 - `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
+- `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
 - `internal/core/automation/` — Scheduled task dispatch and execution
 - `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search)
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
+- `internal/testing/llmprofiles/` — `FixtureClient` + `RunAgainstFixtures` (replay test framework)
 
 ### Infrastructure
 - `internal/platform/storage/` — Generic atomic JSON/YAML stores with change callbacks
@@ -174,6 +178,27 @@ When adding a prompt:
 - Mock the LLM client, use real tool providers where possible
 - Agent tests at `internal/core/assistant/agent_test.go`
 - Parser tests at `internal/core/proxy/tool_call_parser_test.go`
+- Recorder tests at `internal/core/proxy/recorder/recorder_test.go`
+- FixtureClient tests at `internal/testing/llmprofiles/profiles_test.go`
+- Record-replay integration tests at `internal/core/assistant/agent_recording_test.go` (build tag: `recordreplay`)
 - Use `mocks.NewMockManager()` for manager-related tests
 - Test guardrail decisions with `GuardrailDecisionStore`
 - Always assert both success AND error paths
+
+### Record-Replay Testing
+
+Record live LLM interactions by starting the server with `--record-dir`:
+
+```bash
+go run main.go --data ./data --record-dir=testdata/recordings
+```
+
+This wraps every LLM client in a `RecordingClient` that writes JSONL files to `{record-dir}/{model}/{timestamp}_{session}.jsonl`. Hit different models/prompts through the proxy or agent API to build a fixture library.
+
+Run replay tests offline (no LLM required):
+
+```bash
+go test -tags recordreplay ./internal/core/assistant/ -run TestAgent_Execute_AgainstRecordings -v
+```
+
+The `recordreplay` build tag ensures these tests are excluded from `go test ./...` — they only run when explicitly invoked. Fixture `.jsonl` files go in `internal/core/assistant/testdata/recordings/` or any path passed to `RunAgainstFixtures`.

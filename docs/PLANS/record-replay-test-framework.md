@@ -1,5 +1,9 @@
 # Plan: Record-and-Replay LLM Testing Framework
 
+**Status: COMPLETE (2026-05-24)**
+
+Recording layer (`RecordingClient` in `internal/core/proxy/recorder/`), replay framework (`FixtureClient` in `internal/testing/llmprofiles/`), CLI flag (`--record-dir`), and integration test with `recordreplay` build tag all implemented.
+
 ## Goal
 Allow automated testing of agent behavior against real LLM responses without running live models. Capture streaming and non-streaming responses during real proxy/agent executions via a command-line argument, and replay them in tests.
 

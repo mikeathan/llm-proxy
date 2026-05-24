@@ -72,8 +72,8 @@ func ResolveBindAddr(dataMgr *storage.DataManager) string {
 	return sys.Server.Bind
 }
 
-func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info) *App {
-	container := bootstrap(dataMgr, logger)
+func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info, recordDir string) *App {
+	container := bootstrap(dataMgr, logger, recordDir)
 	svc := container.BuildAppServices()
 
 	// Build new dispatcher with AssistantService for LLM execution

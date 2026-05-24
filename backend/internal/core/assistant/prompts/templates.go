@@ -195,6 +195,17 @@ const automationNagFormatExample = "" +
 	"{\"tool\": \"<TOOL_NAME>\", \"args\": {\"<ARG>\": \"<VALUE>\"}}\n" +
 	"</tool_call>"
 
+// AutomationXMLModeGuide is injected as a user message when the server
+// rejects the assistant prefill (thinking mode). It provides explicit
+// format guidance so the model produces a valid <tool_call> instead of
+// free-form text. This message is ephemeral — only in the API request,
+// not persisted to conversation history.
+const AutomationXMLModeGuide = "SYSTEM: Respond with ONLY a tool call in this exact format:\n\n" +
+	"<tool_call>\n" +
+	"{\"tool\": \"TOOL_NAME\", \"args\": {...}}\n" +
+	"</tool_call>\n\n" +
+	"No text before or after."
+
 // AutomationPrefline is injected as a synthetic assistant message to force
 // the model to complete a tool call. The model receives this as the last
 // assistant message and continues generating from the cursor position.
@@ -204,6 +215,12 @@ const AutomationPrefline = "<tool_call>\n{\"tool\":\""
 
 // AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
 const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You already ran this exact command and it succeeded. Do the NEXT step.\n\n" +
+	"Respond with ONLY a tool call. Nothing else.\n\n" +
+	automationNagFormatExample
+
+// ToolErrorNagPrompt is injected after a tool execution returns an error.
+// It tells the model to read the error and adapt, rather than retry the same call.
+const ToolErrorNagPrompt = "SYSTEM: The tool call above failed. Read the error output and try a different approach or fix the issue.\n\n" +
 	"Respond with ONLY a tool call. Nothing else.\n\n" +
 	automationNagFormatExample
 

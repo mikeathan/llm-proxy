@@ -58,7 +58,8 @@
       "ts-node",
       "tsx",
       "sort",
-      "test"
+      "test",
+      "which"
     ],
     "allowed_env_vars": [
       "PATH",

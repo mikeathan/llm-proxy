@@ -1,5 +1,9 @@
 # Auto-Compute context_budget (and prefill) for Local LLMs
 
+**Status: COMPLETE**
+
+`resolveContextLength` in `budget_squeezer.go` auto-computes context window from model metadata (GGUF scan) with fallback chain. `max_tokens` and `reasoning_budget` derived from actual `ctxLen`.
+
 ## Goal
 
 Auto-calculate `context_budget` (and optionally `prefill`) for local GGUF models

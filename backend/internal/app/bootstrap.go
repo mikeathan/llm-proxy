@@ -15,6 +15,7 @@ import (
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/proxy/recorder"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
@@ -42,6 +43,7 @@ type Container struct {
 	Core       Core
 	Infra      Infra
 	Dispatcher *automation.Dispatcher
+	RecordDir  string
 }
 
 // Building automation task executor
@@ -61,7 +63,13 @@ func (c *Container) BuildAppServices() *AppServices {
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
-		return proxy.NewLLMClient(baseURL, model, nil, headers)
+		client := proxy.NewLLMClient(baseURL, model, nil, headers)
+		if c.RecordDir != "" {
+			wrapped := recorder.New(client, c.RecordDir, model)
+			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
+			return wrapped
+		}
+		return client
 	}
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
@@ -228,7 +236,7 @@ func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore 
 	return s.guardrailDecisionStore
 }
 
-func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
+func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordDir string) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
@@ -282,6 +290,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger) *Container {
 			Clock:      clock,
 			NodeHerder: nodeHerder,
 		},
+		RecordDir: recordDir,
 	}
 }
 

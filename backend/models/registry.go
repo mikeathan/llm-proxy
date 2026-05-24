@@ -25,7 +25,7 @@ type ModelRegistryEntry struct {
 	CredentialID   string         `json:"credential_id,omitempty"`
 	Port           int            `json:"port,omitempty"`
 	Args           []string       `json:"args,omitempty"`
-	Prefill        bool           `json:"prefill,omitempty"`
+	Prefill        *bool          `json:"prefill,omitempty"`
 	TimeoutMinutes int            `json:"timeout_minutes,omitempty"`
 	Metadata       *ModelMetadata `json:"metadata,omitempty"`
 }

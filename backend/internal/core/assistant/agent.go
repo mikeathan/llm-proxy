@@ -1034,6 +1034,21 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 	a.logger.Info("non-stream request sent", "model", a.modelName, "max_tokens", a.maxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
 
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				a.notify(EventToolStream, "⏳ Model is generating response...")
+			case <-heartbeatDone:
+				return
+			}
+		}
+	}()
+
 	resp, err := a.client.Chat(chatCtx, req)
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
 		a.logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")

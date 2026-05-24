@@ -1,5 +1,9 @@
 # Consistent Token Budget Computation
 
+**Status: COMPLETE**
+
+`budget_squeezer.go` implemented with `resolveContextLength()` that follows a strict priority order (Nctx → ContextLength → knownCtx → providerCtxDefaults). `max_tokens = ctxLen / 3` and `reasoning_budget = ctxLen / 8` applied consistently across enrichment and Sync paths.
+
 ## Problem
 
 `addModel` API enrichment and `Sync()` startup use different `ctxLen` values:

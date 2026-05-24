@@ -70,7 +70,7 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 			Ready:            mc.Name == activeName && activeReady,
 			ProviderConfig:   mc.ProviderConfig,
 			Metadata:         meta,
-			Prefill:          mc.Prefill,
+			Prefill:          mc.Prefill != nil && *mc.Prefill,
 			MaxSteps:         mc.MaxSteps,
 			ContextBudget:    mc.ContextBudget,
 			MaxTokens:        mc.MaxTokens,

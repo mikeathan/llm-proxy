@@ -20,6 +20,9 @@ go build ./...
 # Run (creates data/ directory on first start)
 go run main.go --data ./data
 
+# Run in record mode (captures LLM responses to JSONL files for replay testing)
+go run main.go --data ./data --record-dir=testdata/recordings
+
 # Admin UI at http://localhost:4001/admin/
 # Chat API at http://localhost:4001/v1/chat/completions
 ```
@@ -76,6 +79,48 @@ go run main.go --data ./data
 | GET/PUT | `/workspaces/:ws/state` | Workspace state |
 | GET/PUT | `/workspaces/:ws/config` | Workspace config |
 | GET | `/workspaces/:ws/live` | SSE event stream |
+
+## Record & Replay Testing
+
+The server can record live LLM responses to JSONL files and replay them in offline integration tests — no running models required.
+
+### Recording
+
+Start the server with `--record-dir`:
+
+```bash
+cd backend
+go run main.go --data ./data --record-dir=testdata/recordings
+```
+
+Every LLM call (Chat or Stream) is written to `{record-dir}/{model-name}/{timestamp}_{session-id}.jsonl` with one JSON object per line:
+- `request` — model, messages, tool definitions
+- `chunk` — stream delta (content, tool_calls, reasoning)
+- `response` — non-streaming response
+- `error` — HTTP/connection errors
+- `done` — stream completion marker
+
+Hit different LLMs with different prompts through the proxy or agent API — each model gets its own subdirectory.
+
+### Replay
+
+Replay tests are opt-in via the `recordreplay` build tag:
+
+```bash
+go test -tags recordreplay ./internal/core/assistant/ -run TestAgent_Execute_AgainstRecordings -v
+```
+
+The test runner (`llmprofiles.RunAgainstFixtures`) loads all `.jsonl` files from `testdata/recordings/`, wraps each in a `FixtureClient`, and runs the agent against it. The `FixtureClient` implements `proxy.Client` so the agent loop operates identically to a live run.
+
+### JSONL Fixture Format
+
+```json
+{"type":"request","model":"gemma4","messages":[...],"tools":[...]}
+{"type":"response","choices":[{"message":{"role":"assistant","content":"answer"}}]}
+{"type":"done","total_chunks":1}
+```
+
+For streaming sessions, lines alternate `chunk`/`response`/`done` following the same request line.
 
 ## Configuration
 
@@ -210,11 +255,15 @@ backend/
 │   │   ├── automation/        — Task scheduler, executor, event bus
 │   │   ├── llm/               — Model lifecycle, GGUF scanner, provider registry
 │   │   ├── mcp/               — MCP client (SSE transport)
-│   │   ├── proxy/             — LLM HTTP client, XML parser, history normalization
+│   │   ├── proxy/
+│   │   │   ├── ...            — LLM HTTP client, XML parser, history normalization
+│   │   │   └── recorder/      — RecordingClient decorator (JSONL capture)
 │   │   └── tools/             — Tool implementations (terminal, fs, network, search)
 │   ├── platform/              — Logging, storage, persistence, metrics
 │   ├── shell/                 — Persistent shell sessions
-│   ├── testing/mocks/         — Shared test mocks
+│   ├── testing/
+│   │   ├── mocks/             — Shared test mocks
+│   │   └── llmprofiles/       — FixtureClient + RunAgainstFixtures (replay testing)
 │   └── transport/http/        — HTTP handlers + embedded frontend
 ```
 

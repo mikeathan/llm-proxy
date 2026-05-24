@@ -160,7 +160,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 				native := true
 				agentOpts.UseNativeTools = &native
 			}
-			if cfg.Prefill {
+			if cfg.Prefill != nil && *cfg.Prefill {
 				agentOpts.UsePrefill = true
 			}
 			if cfg.TimeoutMinutes > 0 {
@@ -180,8 +180,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		{Role: "user", Content: e.buildPrompt(req)},
 	}
 
-	// Execute via Agent Loop
-	finalReply, fullHistory, agErr := agent.Execute(ctx, history)
+	// Inject task name for recording organisation
+	execCtx := models.WithTaskName(ctx, req.AutomationName)
+
+	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
 	if agErr != nil {
 		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr

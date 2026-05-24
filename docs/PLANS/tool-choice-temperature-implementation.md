@@ -1,5 +1,9 @@
 # Tool Choice & Temperature — Implementation Plan
 
+**Status: COMPLETE**
+
+All features implemented in `agent.go`: `tool_choice: "required"` for native tools in automation, `temperature: 0.1`, `reasoning_budget: max_tokens/4`, proper `omitempty` tags.
+
 ## Problem
 
 When native tools are active in automation mode, models that support thinking/reasoning

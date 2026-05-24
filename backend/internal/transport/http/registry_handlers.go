@@ -183,7 +183,7 @@ type modelFormRequest struct {
 	Port                 int                   `json:"port"`
 	ProviderConfig       models.ProviderConfig `json:"provider_config"`
 	Metadata             *models.ModelMetadata `json:"metadata"`
-	Prefill              bool                  `json:"prefill"`
+	Prefill              *bool                 `json:"prefill,omitempty"`
 	MaxSteps             int                   `json:"max_steps"`
 	ContextBudget        int                   `json:"context_budget"`
 	MaxTokens            int                   `json:"max_tokens"`
@@ -291,7 +291,7 @@ func (r *modelFormRequest) enrichMetadataFromProviders() {
 // derived from metadata and must not be frozen in settings.yml.
 func hasModelOverrides(cfg models.ModelConfig) bool {
 	return cfg.MaxSteps > 0 || cfg.ReasoningBudget > 0 || cfg.SlotTimeout > 0 ||
-		cfg.ToolCallFormat != "" || cfg.Prefill || cfg.TimeoutMinutes > 0 ||
+		cfg.ToolCallFormat != "" || (cfg.Prefill != nil && *cfg.Prefill) || cfg.TimeoutMinutes > 0 ||
 		(cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0)
 }
 

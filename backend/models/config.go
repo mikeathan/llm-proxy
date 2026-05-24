@@ -13,6 +13,7 @@ type contextKey string
 const (
 	WorkspaceIDKey        contextKey = "workspace_id"
 	GuardrailApprovedKey  contextKey = "guardrail_approved"
+	TaskNameKey           contextKey = "task_name"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -46,6 +47,23 @@ func GetGuardrailApproved(ctx context.Context) bool {
 // the tool call was already approved by the user.
 func WithGuardrailApproved(ctx context.Context) context.Context {
 	return context.WithValue(ctx, GuardrailApprovedKey, true)
+}
+
+// WithTaskName injects the automation task name into the context.
+// The recorder uses this to organise recordings into model/task subdirectories.
+func WithTaskName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, TaskNameKey, name)
+}
+
+// GetTaskName retrieves the automation task name from the context.
+func GetTaskName(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if name, ok := ctx.Value(TaskNameKey).(string); ok {
+		return name
+	}
+	return ""
 }
 
 type Config struct {
@@ -321,7 +339,7 @@ type ModelConfig struct {
 	ContextBudget    int    `json:"context_budget,omitempty"`
 	MaxTokens        int    `json:"max_tokens,omitempty"`
 	ToolCallFormat   string `json:"tool_call_format,omitempty"` // "xml" or "native"
-	Prefill          bool   `json:"prefill,omitempty"`
+	Prefill          *bool  `json:"prefill,omitempty"`
 	TimeoutMinutes   int    `json:"timeout_minutes,omitempty"` // per-execution timeout, 0 = use global default (30 min)
 
 	// Resource-aware orchestration. Zero values mean "use provider default."
