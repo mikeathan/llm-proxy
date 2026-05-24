@@ -1,9 +1,9 @@
 package proxy_test
 
 import (
-	"testing"
-
 	"llm-proxy/internal/core/proxy"
+	"strings"
+	"testing"
 )
 
 func TestParseContentToolCalls_StandardXMLFormat(t *testing.T) {
@@ -198,6 +198,70 @@ func TestParseError_Feedback(t *testing.T) {
 				t.Error("expected non-empty feedback")
 			}
 		})
+	}
+}
+
+func TestParseNativeToolCalls_QwenStyle(t *testing.T) {
+	content := `<function=execute_terminal_command><parameter=command>npm init -y</parameter></function>`
+	cleaned, calls, err := proxy.ParseNativeToolCalls(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "execute_terminal_command" {
+		t.Errorf("expected 'execute_terminal_command', got %q", calls[0].Function.Name)
+	}
+	if cleaned == content {
+		t.Error("content should have been cleaned of native tags")
+	}
+}
+
+func TestParseNativeToolCalls_AttributeStyle(t *testing.T) {
+	content := `<tool name="read_file"><parameter name="path">test.txt</parameter></tool>`
+	_, calls, err := proxy.ParseNativeToolCalls(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "read_file" {
+		t.Errorf("expected 'read_file', got %q", calls[0].Function.Name)
+	}
+	args := calls[0].Function.Arguments
+	if !strings.Contains(args, `"path"`) || !strings.Contains(args, `test.txt`) {
+		t.Errorf("expected args to contain path=test.txt, got %s", args)
+	}
+}
+
+func TestParseNativeToolCalls_NoMatches(t *testing.T) {
+	content := "just some plain text thinking about tools..."
+	_, calls, err := proxy.ParseNativeToolCalls(content)
+	if err == nil {
+		t.Fatal("expected error for no matches")
+	}
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls, got %d", len(calls))
+	}
+}
+
+func TestParseNativeToolCalls_MultipleBlocks(t *testing.T) {
+	content := `<function=read_file><parameter=path>a.txt</parameter></function>` +
+		`<function=write_file><parameter=path>b.txt</parameter><parameter=content>hello</parameter></function>`
+	_, calls, err := proxy.ParseNativeToolCalls(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "read_file" {
+		t.Errorf("expected 'read_file', got %q", calls[0].Function.Name)
+	}
+	if calls[1].Function.Name != "write_file" {
+		t.Errorf("expected 'write_file', got %q", calls[1].Function.Name)
 	}
 }
 

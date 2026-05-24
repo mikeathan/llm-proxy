@@ -28,10 +28,12 @@ This document defines the immutable architectural and security laws of the Antig
     *   The HTTP client does NOT strip tools — the agent controls this decision.
     *   Both paths coexist: native tool_calls are accumulated from streaming deltas; the XML parser runs as fallback on text content for non-function-calling responses.
     *   When `ToolCallFormat: "xml"` is set on a config, XML mode is forced even if the provider supports native tools.
-6.  **Token Budgeting & Structural Sieve**: To prevent context size overflow and 400-series errors, the system enforces a configurable character-based history budget (default 15,000 characters, overridable per-model via `ModelConfig.ContextBudget`).
+6.  **Token Budgeting & Structural Sieve**: To prevent context size overflow and 400-series errors, the system enforces a configurable character-based history budget (default 8,000 characters, overridable per-model via `ModelConfig.ContextBudget`).
     *   **Locked Head**: The System Prompt and the User's Initial Task are immutable and never pruned.
-    *   **Structural Sieve**: When the budget is exceeded, the history is physically pruned by keeping the Locked Head and the last 3 turns (Priority Tail), while omitting all intermediate turns. This preserves the original goal and the immediate state while ensuring the context window is never overwhelmed.
+    *   **Structural Sieve**: When the budget is exceeded, the history is physically pruned by keeping the Locked Head and the last 10 messages (Priority Tail), while omitting all intermediate turns. This preserves the original goal and the immediate state while ensuring the context window is never overwhelmed.
+    *   **Reactive Sieve**: When the LLM returns a context-size overflow error (e.g. `request exceeds the available context size`), the agent applies an aggressive sieve (system + task + last 3 turns) and retries.  This catches cases where the character-budget sieve didn't fire because the model's actual token context is smaller than expected (e.g. llama.cpp with `--ctx-size 8192` but metadata reporting 262K training context).
     *   **Repetition Detection**: The repetition detector (`recentCalls`, `duplicateStreak`) survives sieve boundaries to prevent loops from spanning across prune events. After 3 consecutive identical (tool + args) calls, inject a duplicate nag. After 5+, abort with "infinite loop detected."
+    *   **Resource-Aware Orchestration**: A higher-level token and cost budgeting system (see Section VI) may further constrain model usage. The Structural Sieve reduces context pressure; the Orchestrator enforces hard ICU caps and applies adaptive squeezing when approaching those caps. Both systems coexist — the Sieve prunes history, the Orchestrator limits per-request and per-window token consumption.
 7.  **Explicit Task Completion**: The `submit_final_answer` tool is the canonical path to task completion in automation mode. In chat mode, the agent exits after a tool-result→assistant-reply cycle or after detecting premature termination (empty/repeated output). Heuristic keyword matching ("task complete", "summary") is not used.
 8.  **Context-Preserving Normalization**: Messages transmitted to LLM engines must be stripped of non-essential metadata fields. `role`, `content`, `tool_calls`, and `tool_call_id` are preserved.
     *   When native tools are disabled: `tool` role → `user` role with tool_call_id embedded in content (`Tool result [call_N]: <json>`) to maintain call/result association while avoiding Jinja template errors in llama.cpp backends.
@@ -45,10 +47,11 @@ This document defines the immutable architectural and security laws of the Antig
     *   User approves/denies via `POST /admin/api/conversation/guardrail-decision`.
     *   If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
     *   In automation mode (no user present), the callback is nil and guardrail violations fail immediately.
-11. **Per-Model Config Flow**: `ModelConfig.MaxSteps`, `ContextBudget`, `ToolCallFormat`, and `Prefill` flow from the runtime to the agent without global defaults interfering.
-    *   Read by the executor from `Runtime.ListModels()`.
-    *   Passed to `AgentOptions` when creating the Agent.
-    *   The agent uses them directly — no global defaults override per-model settings.
+11. **Per-Model Config Flow**: `ModelConfig.MaxSteps`, `ContextBudget`, `MaxTokens`, `ToolCallFormat`, and `Prefill` flow from the runtime to the agent without global defaults interfering.
+     *   Read by the executor from `Runtime.ListModels()`.
+     *   Passed to `AgentOptions` when creating the Agent.
+     *   The agent uses them directly — no global defaults override per-model settings.
+     *   Provider-tier defaults (`assistant/tiers.go`) define baseline values for each provider type (local, gemini, openai, openrouter, etc.). These defaults are applied when creating new model entries but do not override explicitly set per-model values.
 12. **Prompt Centralization** (SINGLE SOURCE OF TRUTH): `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings.
     *   System messages, nag prompts, parse-error feedback, JSON error translations.
     *   Escalation prefixes, protocol instructions, system rule text.
@@ -73,6 +76,9 @@ This document defines the immutable architectural and security laws of the Antig
     *   On settings change: `ApplyModelOverrides()` re-applies overrides to all runtime models.
     *   **Never put agent tuning overrides directly in registry.json entries.**
 6.  **Secrets Are Encrypted**: API keys and tool secrets are stored in `secrets.json` encrypted with AES-256-GCM. The `SecretsStore` interface is the only access path.
+7.  **Key Deletion/Update Cascades to Models**: Deleting or updating API keys automatically removes all model catalogue entries whose `CredentialID` no longer matches any remaining key name. Models with an empty `CredentialID` are only removed if no keys remain for the provider. This prevents orphaned model configurations that reference deleted or renamed credentials. Cascade applies on both `DELETE /admin/api/secrets/keys` (single-key) and `PUT /admin/api/secrets/keys` (batch save).
+8.  **Unified Provider Management**: All cloud provider configuration (API keys, provider settings, and model entries) is managed under a single provider tab in Settings. The Dashboard cloud tab is read-only — model management ("Add Model", edit, delete) is done exclusively in Settings. This eliminates the previous split where API keys were managed in Settings and models were managed in the Dashboard.
+9.  **Secrets Change Notification**: The secrets store publishes an `OnChange` event when credentials are modified. The `AppContext` subscribes to this event and triggers a runtime `Sync()` to ensure credential changes propagate without requiring a server restart.
 
 ## IV. Code Standards (The Clean Signal)
 
@@ -87,3 +93,33 @@ This document defines the immutable architectural and security laws of the Antig
 1.  **Constitution over Convenience**: If a feature requires violating these laws, the law must be formally amended in the Constitution after a security review, rather than bypassed in the implementation.
 2.  **Spec-First Development**: Before modifying the agent subsystem, read `docs/SPECS/agent-loop.md` and `docs/SPECS/tool-call-parser.md`. After implementing, update the relevant spec and amend this Constitution if architectural rules changed.
 3.  **No Half-Finished Implementations**: Complete the feature or don't start. No stubs, no `// TODO`, no feature flags for incomplete work.
+
+## VI. Resource-Aware Orchestration (The Budget Deck)
+
+The Orchestration Layer (`internal/core/orchestrator/`) provides a unified token and cost budgeting system that treats VRAM slots and financial tokens as a single Computational Capital.
+
+1.  **ICU (Internal Credit Unit) Standard**: All model usage is denominated in ICUs. 1 ICU = 1 input token on a local 7B model. ICU weight resolution is 3-tier: user override (`InternalCreditWeight`) → GGUF parameter count (local models) → default 1.0. No static weight table exists — `provider_weights.go` was removed as stale. Weights are resolved at runtime from available data, not from a baked-in manifest.
+
+2.  **Context Length Resolution (5-Tier)**: `max_tokens`, `context_budget`, and `reasoning_budget` are auto-computed at model registration time via `ApplyMetadataDefaults()`:
+    - **Tier 0** — `/slots` endpoint serving context (`n_ctx`) from llama.cpp servers.  `OpenAICompatibleProvider.ListModels()` queries `GET /slots` and populates `ModelMeta.Nctx` with the actual serving context window.  This is preferred over `n_ctx_train` which reports training context (often 262K when the server runs with `--ctx-size 8192`).
+    - **Tier 1** — `Metadata.ContextLength` from GGUF scanner (local models, exact per-file), `n_ctx` from API meta (serving context), or `n_ctx_train` from API meta capped at 128K (training context values above 128K are never serving contexts for current cloud models and indicate a local llama.cpp where training context dwarfs the actual `--ctx-size`).
+    - **Tier 2** — `knownCtx` fragment map (~8 entries for models whose context differs from provider default: deepseek-v3=64K, o3/o4/claude=200K, gemini-1.5-pro=2M, mistral-small=32K)
+    - **Tier 3** — `providerCtxDefaults[Provider]` (one line per provider covers all future models: gemini/vertex=1M, openai/openrouter/nvidia/mulerouter=128K, local=8K).  Also used as a ceiling: if tier 1 metadata exceeds the provider default, it's capped.
+    - **Tier 4** — `ProviderTiers` fallback (2048-4096 tokens, always safe for any modern model)
+    - Only fields that are still 0 are set — user-customized values are never overwritten.
+
+3.  **Meta Parsing from Any OpenAI-Compatible Endpoint**: llama.cpp and similar servers return `meta.n_ctx_train` (training context) and `meta.n_params` (parameter count) in their `/v1/models` response.  Additionally, `GET /slots` returns `n_ctx` (serving context — the actual `--ctx-size` the server was launched with).  `OpenAICompatibleProvider.ListModels()` queries both endpoints: `/slots` is preferred for context resolution since it reports the real serving window; `/v1/models` provides parameter count and fallback context.  When the user adds a model from the dropdown, the meta flows through the frontend → `handleAddModel` → `enrichMetadataFromProviders()` (which prefers `n_ctx` over `n_ctx_train`, discarding `n_ctx_train` values above 128K as unreliable) → `Metadata.ContextLength` / `Metadata.Parameters`.  This provides exact per-model data without any static table or user input.
+
+4.  **Pre-Flight Check**: Before every LLM request, the orchestrator debits the projected ICU cost from the workspace balance. If the projected cost exceeds the remaining cap, the Budget Squeezer applies an adaptive reduction factor (hard floor: 0.2x). If even the squeezed request exceeds the cap, the request is rejected with `BUDGET_EXCEEDED`.
+
+5.  **Atomic ICU Refunds**: ICU debits recorded by the pre-flight check are refunded via `defer` if the downstream LLM request fails (network timeout, 5xx). Double-refunds are idempotent at the SQL level via `refund_status = 'none'` check.
+
+6.  **Stream Interception with Code Awareness**: Every SSE chunk in `processStream()` passes through the `StreamInterceptor`. Token counting uses an adaptive ratio: 0.5 chars/token for prose, 1.0 chars/token inside code fences. The interceptor calls `ReasoningNormalizer.Accumulate()` to separate reasoning tokens from content tokens regardless of provider — detection is from stream data, not a provider-name-to-format mapping. The interceptor may terminate a stream mid-response if per-turn budgets are exhausted.
+
+7.  **Slot Persistence for llama.cpp**: Local model KV caches are tracked in SQLite (`orchestrator.db`, WAL mode) to avoid re-processing the system prompt on repeated requests. Cache keys include sampling parameters (temperature, top-p, presence penalty) to prevent KV cache state corruption. The slot manager calls `POST /slots/{n}?action=save|restore` on the llama.cpp server.
+
+8.  **Storage**: The ledger package (`internal/platform/ledger/`) is a decoupled SQLite store in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and `entity_metadata` (entity_type/entity_id/key/value — generic, reusable by future Memory/Knowledge modules without schema changes). The orchestrator imports ledger; future memory modules will import ledger directly — no circular dependency.
+
+9.  **Nil-Safe Orchestrator**: When `Agent.orch == nil` (tests, simple deployments), all budget and slot checks are no-ops. The agent loop operates identically with or without the orchestrator active, meeting the zero-latency-impact regression gate.
+
+10. **Per-Model Configuration**: `ReasoningBudget`, `SlotTimeout`, `MaxTokens`, and `ICUWeight` flow through the existing `ModelConfig` → `AgentOptions` pipeline alongside `MaxSteps` and `ContextBudget`. `ReasoningNormalizer` detects the stream mode from data — models routed through OpenRouter, NVIDIA, or any gateway are handled transparently without maintaining a provider→format mapping.

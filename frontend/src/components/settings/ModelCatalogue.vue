@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useModels } from "../../composables/useModels";
+import { getDefaultModelSettings } from "../../utils/modelUtils";
 import BaseButton from "../common/BaseButton.vue";
 import type { Model, AvailableModel } from "../../types/model";
 
@@ -11,6 +12,7 @@ const {
   updateModel,
   removeModel,
   nextPort,
+  agentDefaults,
 } = useModels();
 
 const editingModel = ref<Partial<Model> | null>(null);
@@ -29,6 +31,7 @@ function handleEdit(model: Model) {
 }
 
 function handleAddNew(available?: AvailableModel) {
+  const tuning = getDefaultModelSettings("local", agentDefaults.value);
   if (available) {
     editingModel.value = {
       name: available.name,
@@ -37,6 +40,10 @@ function handleAddNew(available?: AvailableModel) {
       port: nextPort.value,
       args: [],
       metadata: available.metadata,
+      ...tuning,
+      max_tokens: tuning.max_tokens,
+      reasoning_budget: tuning.reasoning_budget,
+      slot_timeout: 0,
     };
   } else {
     editingModel.value = {
@@ -45,6 +52,10 @@ function handleAddNew(available?: AvailableModel) {
       filename: "",
       port: nextPort.value,
       args: [],
+      ...tuning,
+      max_tokens: tuning.max_tokens,
+      reasoning_budget: tuning.reasoning_budget,
+      slot_timeout: 0,
     };
   }
   rawArgs.value = "";
@@ -181,12 +192,54 @@ const formatSize = (bytes: number) => {
             v-model.number="editingModel.context_budget"
             type="number"
             class="form-input"
-            placeholder="15000 (default)"
+            placeholder="8000"
             min="1000"
             max="100000"
             step="1000"
           />
           <p class="helper-text">Character count that triggers context pruning.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Max Tokens (output)</label>
+          <input
+            v-model.number="editingModel.max_tokens"
+            type="number"
+            class="form-input"
+            placeholder="2048"
+            min="64"
+            max="32768"
+            step="256"
+          />
+          <p class="helper-text">Limits LLM response length per turn.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Reasoning Budget</label>
+          <input
+            v-model.number="editingModel.reasoning_budget"
+            type="number"
+            class="form-input"
+            placeholder="0 (provider default)"
+            min="0"
+            max="32768"
+            step="512"
+          />
+          <p class="helper-text">Max thinking tokens for reasoning models. 0 = unlimited.</p>
+        </div>
+
+        <div class="form-group" v-if="editingModel.provider === 'local'">
+          <label>Slot Timeout (seconds)</label>
+          <input
+            v-model.number="editingModel.slot_timeout"
+            type="number"
+            class="form-input"
+            placeholder="0 (disabled)"
+            min="0"
+            max="86400"
+            step="60"
+          />
+          <p class="helper-text">How long to keep the llama.cpp KV cache slot alive between requests.</p>
         </div>
 
         <div class="form-group">

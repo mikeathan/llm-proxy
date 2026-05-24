@@ -11,6 +11,7 @@ import {
   filterModelsByTab,
   deriveFriendlyName,
 } from "../utils/models";
+import { computeDefaultsFromContext } from "../utils/modelUtils";
 import type { AdminState, AvailableModel, NewModelForm, Model } from "../types";
 
 const props = defineProps<{
@@ -44,6 +45,8 @@ watch(
 
 // Auto-default model name from ID when selected
 const lastDerivedName = ref("");
+let cloudSelection: Record<string, any> = {};
+
 watch(
   () => form.value.model_id,
   (newId) => {
@@ -64,8 +67,23 @@ const filteredModels = computed(() =>
 );
 
 function submitModel() {
-  emit("addModel", form.value);
+  const payload = { ...form.value };
+  if (cloudSelection.pricing) (payload as any).pricing = cloudSelection.pricing;
+  if (cloudSelection.limits) (payload as any).limits = cloudSelection.limits;
+  if (cloudSelection.meta) (payload as any).meta = cloudSelection.meta;
+  emit("addModel", payload);
   form.value = makeEmptyForm(form.value.provider);
+  cloudSelection = {};
+}
+
+function onCloudModelSelect(sel: any) {
+  cloudSelection = sel;
+  const ctx = sel?.meta?.n_ctx || sel?.meta?.n_ctx_train || sel?.limits?.context;
+  const defaults = computeDefaultsFromContext(ctx);
+  if (defaults) {
+    form.value.context_budget = defaults.context_budget;
+    form.value.max_tokens = defaults.max_tokens;
+  }
 }
 
 function selectAvailableModel(model: AvailableModel) {
@@ -173,13 +191,14 @@ onMounted(() => {
               v-model:api-key-name="form.provider_config!.api_key_name!"
               v-model:prefill="form.prefill!"
               :state="state"
+              @select="onCloudModelSelect"
             />
           </div>
 
           <button
             type="submit"
             class="btn-add"
-            :disabled="form.provider !== 'local' && !form.model_id"
+            :disabled="form.provider !== 'local' && (!form.model_id || !form.provider_config?.api_key_name)"
           >
             Add to Configuration
           </button>

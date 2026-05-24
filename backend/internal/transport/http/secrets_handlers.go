@@ -23,6 +23,8 @@ func (h *AdminHandlers) AdminProviderKeysHandler(w http.ResponseWriter, r *http.
 // Any key that carries a masked value is automatically hydrated from the store
 // (the store handles this internally in SetProviderKeys), so round-tripping
 // through the masked UI never discards a real key.
+// After saving, models whose CredentialID no longer matches any remaining key
+// are removed to prevent dead config.
 func (h *AdminHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *http.Request) {
 	provider := r.URL.Query().Get("provider")
 	if provider == "" {
@@ -43,8 +45,54 @@ func (h *AdminHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Cascade: remove models whose CredentialID references a key that no longer exists
+	remainingKeyNames := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		remainingKeyNames[k.Name] = true
+	}
+	if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
+		out := reg.Catalogue[:0]
+		for _, m := range reg.Catalogue {
+			if m.ProviderID != provider {
+				out = append(out, m)
+				continue
+			}
+			if m.CredentialID != "" && remainingKeyNames[m.CredentialID] {
+				out = append(out, m)
+				continue
+			}
+			if m.CredentialID == "" && len(keys) > 0 {
+				out = append(out, m)
+				continue
+			}
+		}
+		reg.Catalogue = out
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to cleanup orphaned models: "+err.Error())
+		return
+	}
+
 	// Respond with the masked representation of the saved keys.
 	respondJSON(w, h.admin.Secrets().MaskedProviderKeys(provider))
+}
+
+func cascadeRemoveModelsForKey(reg *models.RegistryData, provider, keyName, keyID string, remainingKeyCount int) {
+	out := reg.Catalogue[:0]
+	for _, m := range reg.Catalogue {
+		if m.ProviderID != provider {
+			out = append(out, m)
+			continue
+		}
+		if m.CredentialID != "" && m.CredentialID != keyName && m.CredentialID != keyID {
+			out = append(out, m)
+			continue
+		}
+		if m.CredentialID == "" && remainingKeyCount > 0 {
+			out = append(out, m)
+			continue
+		}
+	}
+	reg.Catalogue = out
 }
 
 // AdminProviderKeyDeleteHandler removes a single key by ID from a provider,
@@ -58,28 +106,24 @@ func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *
 
 	keyID := r.URL.Query().Get("key_id")
 	if keyID == "" {
-		if err := h.admin.Secrets().DeleteAllProviderKeys(provider); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to delete keys: "+err.Error())
-			return
-		}
-
-		// Clean up orphaned model configurations — models that reference
-		// this provider no longer have any credentials to use.
-		if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
-			out := reg.Catalogue[:0]
-			for _, m := range reg.Catalogue {
-				if m.ProviderID != provider {
-					out = append(out, m)
-				}
-			}
-			reg.Catalogue = out
-		}); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to cleanup models: "+err.Error())
+		if err := h.admin.DeleteProviderWithCleanup(provider); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		respondJSON(w, h.admin.Secrets().MaskedProviderKeys(provider))
 		return
+	}
+
+	// Capture key identity before deleting so we can cascade
+	keys := h.admin.Secrets().GetProviderKeys(provider)
+	var targetName, targetID string
+	for _, k := range keys {
+		if k.ID == keyID {
+			targetName = k.Name
+			targetID = k.ID
+			break
+		}
 	}
 
 	if err := h.admin.Secrets().DeleteProviderKey(provider, keyID); err != nil {
@@ -88,6 +132,15 @@ func (h *AdminHandlers) AdminProviderKeyDeleteHandler(w http.ResponseWriter, r *
 			return
 		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete key: "+err.Error())
+		return
+	}
+
+	// Cascade: remove models that reference this key
+	remainingKeys := h.admin.Secrets().GetProviderKeys(provider)
+	if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
+		cascadeRemoveModelsForKey(reg, provider, targetName, targetID, len(remainingKeys))
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to cleanup orphaned models: "+err.Error())
 		return
 	}
 

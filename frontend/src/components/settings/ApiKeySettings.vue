@@ -13,6 +13,7 @@ const props = defineProps<{
   testSuccess?: string;
   testError?: string;
   showBaseUrl?: boolean;
+  modelCounts?: Record<string, number>;
 }>();
 
 const emit = defineEmits<{
@@ -22,7 +23,16 @@ const emit = defineEmits<{
   (e: "clearAll"): void;
 }>();
 
-import { watch } from "vue";
+import { watch, computed } from "vue";
+
+const removeConfirmMessage = computed(() => {
+  const count = selectedId.value ? (props.modelCounts?.[editName.value] || 0) : 0;
+  const base = `Remove '${editName.value}'?`;
+  if (count > 0) {
+    return `${base} ${count} model(s) reference this key and will also be removed.`;
+  }
+  return base;
+});
 
 watch(
   () => props.apiKeys,
@@ -179,6 +189,13 @@ function addKey() {
           </div>
         </div>
         <span v-if="selectedId === item.id" class="key-badge">Selected</span>
+        <span
+          v-if="modelCounts?.[item.name]"
+          class="model-count-badge"
+          :title="`${modelCounts[item.name]} model(s) use this key`"
+        >
+          {{ modelCounts[item.name] }}
+        </span>
       </button>
     </div>
 
@@ -261,7 +278,7 @@ function addKey() {
         <!-- Inline remove confirmation — no window.confirm, no dialog, no event issues -->
         <InlineConfirm
           v-if="confirmRemove"
-          :message="`Remove '${editName}'?`"
+          :message="removeConfirmMessage"
           @confirm="confirmAndRemove"
           @cancel="confirmRemove = false"
         />
@@ -529,5 +546,10 @@ function addKey() {
 }
 .spinner-sm {
   @apply inline-block w-3 h-3 border border-current border-t-transparent rounded-full animate-spin;
+}
+
+.model-count-badge {
+  @apply text-[9px] font-bold text-blue-400 bg-blue-600/15 border border-blue-600/30
+         px-1.5 py-0.5 rounded-full shrink-0 ml-1 cursor-default;
 }
 </style>

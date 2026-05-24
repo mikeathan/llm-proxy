@@ -23,6 +23,9 @@ export function makeEmptyForm(provider: ProviderType): NewModelForm {
     model_id: '',
     provider_config: { api_key_name: '' },
     prefill: false,
+    max_steps: 0,
+    context_budget: 0,
+    tool_call_format: '',
   }
 }
 

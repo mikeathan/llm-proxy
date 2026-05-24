@@ -47,3 +47,8 @@ backend/reports/*
 backend/data/workspaces/*
 backend/data/registry.json
 backend/data/secrets.json
+.aider*
+backend/data/orchestrator.db*
+
+node_modules/
+.sandbox/

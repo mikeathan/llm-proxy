@@ -1,3 +1,7 @@
+// Package models defines all shared types for the llm-proxy system:
+// model configs, provider definitions, guardrail rules, LLM messages,
+// workspace state, and the resource-aware orchestration types.
+
 package models
 
 import (
@@ -9,6 +13,8 @@ type contextKey string
 const (
 	WorkspaceIDKey        contextKey = "workspace_id"
 	GuardrailApprovedKey  contextKey = "guardrail_approved"
+	TaskNameKey           contextKey = "task_name"
+	RunIDKey              contextKey = "run_id"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -42,6 +48,40 @@ func GetGuardrailApproved(ctx context.Context) bool {
 // the tool call was already approved by the user.
 func WithGuardrailApproved(ctx context.Context) context.Context {
 	return context.WithValue(ctx, GuardrailApprovedKey, true)
+}
+
+// WithTaskName injects the automation task name into the context.
+// The recorder uses this to organise recordings into model/task subdirectories.
+func WithTaskName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, TaskNameKey, name)
+}
+
+// GetTaskName retrieves the automation task name from the context.
+func GetTaskName(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if name, ok := ctx.Value(TaskNameKey).(string); ok {
+		return name
+	}
+	return ""
+}
+
+// WithRunID injects a unique execution run ID into the context.
+// The recorder uses this to create a new file per execution run.
+func WithRunID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, RunIDKey, id)
+}
+
+// GetRunID retrieves the execution run ID from the context.
+func GetRunID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(RunIDKey).(string); ok {
+		return id
+	}
+	return ""
 }
 
 type Config struct {
@@ -313,16 +353,23 @@ type ModelConfig struct {
 
 	// Agent tuning — per-model overrides for agent loop behaviour.
 	// Zero values mean "use the global default."
-	MaxSteps      int    `json:"max_steps,omitempty"`
-	ContextBudget int    `json:"context_budget,omitempty"`
-	ToolCallFormat string `json:"tool_call_format,omitempty"` // "xml" or "native"
-	Prefill       bool   `json:"prefill,omitempty"`           // prefill assistant response with <tool_call> opening tag in automation mode
+	MaxSteps         int    `json:"max_steps,omitempty"`
+	ContextBudget    int    `json:"context_budget,omitempty"`
+	MaxTokens        int    `json:"max_tokens,omitempty"`
+	ToolCallFormat   string `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill          *bool  `json:"prefill,omitempty"`
+	TimeoutMinutes   int    `json:"timeout_minutes,omitempty"` // per-execution timeout, 0 = use global default (30 min)
+
+	// Resource-aware orchestration. Zero values mean "use provider default."
+	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens
+	SlotTimeout     int `json:"slot_timeout,omitempty"`     // seconds to keep llama.cpp slot alive
 }
 
 type ModelMetadata struct {
 	Name          string `json:"name"`
 	Architecture  string `json:"architecture"`
 	ContextLength int    `json:"context_length"`
+	Nctx          int    `json:"n_ctx,omitempty"`
 	Parameters    int64  `json:"parameters"`
 	Quantization  string `json:"quantization"`
 	Author        string `json:"author,omitempty"`
@@ -330,11 +377,12 @@ type ModelMetadata struct {
 }
 
 type ProviderConfig struct {
-	APIKey     string `json:"-"`
-	APIKeyName string `json:"api_key_name,omitempty"`
-	BaseURL    string `json:"base_url,omitempty"`
-	ProjectID  string `json:"project_id,omitempty"`
-	Region     string `json:"region,omitempty"`
+	APIKey               string  `json:"-"`
+	APIKeyName           string  `json:"api_key_name,omitempty"`
+	BaseURL              string  `json:"base_url,omitempty"`
+	ProjectID            string  `json:"project_id,omitempty"`
+	Region               string  `json:"region,omitempty"`
+	InternalCreditWeight float64 `json:"internal_credit_weight,omitempty"` // ICU multiplier per token
 }
 
 type MetricsConfig struct {

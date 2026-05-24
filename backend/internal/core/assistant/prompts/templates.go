@@ -80,6 +80,57 @@ Action:
 ### Available Tools
 %s`
 
+// NativeToolReference lists available tools without XML format instructions.
+// Used when native tool calling is active — the LLM receives tool schemas
+// via the API but still needs text context about which tools exist.
+const NativeToolReference = `## AVAILABLE TOOLS
+You have access to the following tools. Use them by their exact names.
+
+%s
+
+### Rules
+1. Use ONLY the tools listed above.
+2. Batch related tool calls into a single response for efficiency.
+3. Use Thought -> Action -> Observation loop. Verify results before proceeding.
+4. You are not finished until you call 'submit_final_answer'.
+   The 'summary' argument IS the final report the user sees.
+   It must contain the actual findings, tables, and analysis — not a description
+   of what was done. If the task asks for a file, write it too, but the summary
+   must still include all the report content.
+5. If a tool fails, you will receive the error. Fix it in your next turn.
+`
+
+// BuildNativeToolReference generates a lightweight tool list for native mode.
+func BuildNativeToolReference(tools []ToolInfo) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", t.Name, t.Description))
+	}
+	return fmt.Sprintf(NativeToolReference, sb.String())
+}
+
+// ToolReferenceHeader is used to detect if a tool reference is already present.
+const ToolReferenceHeader = "## AVAILABLE TOOLS"
+
+// HasToolReference checks if the tool reference is already present.
+func HasToolReference(content string) bool {
+	return strings.Contains(content, ToolReferenceHeader)
+}
+
+// InjectToolReference merges the lightweight tool reference into existing content.
+func InjectToolReference(content string, reference string) string {
+	if HasToolReference(content) || HasToolManual(content) {
+		return content
+	}
+	if content == "" {
+		return reference
+	}
+	return fmt.Sprintf("%s\n\n%s", content, reference)
+}
+
 // DefaultRules is the operational protocol injected into the system prompt.
 const DefaultRules = `You are an autonomous agent with access to tools. Your job is to complete the given task by using tools.
 
@@ -97,7 +148,7 @@ RULES:
 
 // AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.
 func AssembleSystemPrompt(customRules string) string {
-	prompt := DefaultRules
+	prompt := DefaultRules + "\n" + FileSystemRules
 	if customRules != "" && strings.TrimSpace(customRules) != strings.TrimSpace(DefaultRules) {
 		prompt += "\n\nWORKSPACE-SPECIFIC RULES:\n" + customRules
 	}
@@ -144,6 +195,17 @@ const automationNagFormatExample = "" +
 	"{\"tool\": \"<TOOL_NAME>\", \"args\": {\"<ARG>\": \"<VALUE>\"}}\n" +
 	"</tool_call>"
 
+// AutomationXMLModeGuide is injected as a user message when the server
+// rejects the assistant prefill (thinking mode). It provides explicit
+// format guidance so the model produces a valid <tool_call> instead of
+// free-form text. This message is ephemeral — only in the API request,
+// not persisted to conversation history.
+const AutomationXMLModeGuide = "SYSTEM: Respond with ONLY a tool call in this exact format:\n\n" +
+	"<tool_call>\n" +
+	"{\"tool\": \"TOOL_NAME\", \"args\": {...}}\n" +
+	"</tool_call>\n\n" +
+	"No text before or after."
+
 // AutomationPrefline is injected as a synthetic assistant message to force
 // the model to complete a tool call. The model receives this as the last
 // assistant message and continues generating from the cursor position.
@@ -153,6 +215,12 @@ const AutomationPrefline = "<tool_call>\n{\"tool\":\""
 
 // AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
 const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You already ran this exact command and it succeeded. Do the NEXT step.\n\n" +
+	"Respond with ONLY a tool call. Nothing else.\n\n" +
+	automationNagFormatExample
+
+// ToolErrorNagPrompt is injected after a tool execution returns an error.
+// It tells the model to read the error and adapt, rather than retry the same call.
+const ToolErrorNagPrompt = "SYSTEM: The tool call above failed. Read the error output and try a different approach or fix the issue.\n\n" +
 	"Respond with ONLY a tool call. Nothing else.\n\n" +
 	automationNagFormatExample
 
@@ -168,6 +236,16 @@ const AutomationRejectedSubmissionPrompt = "REJECTED: 'submit_final_answer' cann
 	"FAILURE TO PROVIDE THESE IN THE FINAL SUMMARY IS A TASK FAILURE. " +
 	"IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs)."
 
+// AutomationContentTooLongPrompt is sent when a write_file call fails because the
+// content argument was too large, causing JSON truncation.
+const AutomationContentTooLongPrompt = "TOO LONG: The content you tried to write exceeded the response limit.\n\n" +
+	"Use write_file for the first chunk of content, then append_file to add more to the SAME file:\n" +
+	"  1. write_file(report.md, \"...first 800 chars...\")\n" +
+	"  2. append_file(report.md, \"...next content...\")\n" +
+	"  3. append_file(report.md, \"...final section...\")\n" +
+	"All chunks go into ONE file.\n\n" +
+	"Respond with ONLY a tool call. Nothing else."
+
 // It asks the model to output its intended actions as a JSON array so the backend
 // can execute the plan directly without relying on XML parsing.
 const AutomationJSONPlanPrompt = `XML tool calling failed. Switch to JSON PLAN MODE.
@@ -180,6 +258,19 @@ Output ONLY a JSON array. No text before or after. Each element must have "tool"
   {"tool": "execute_terminal_command", "args": {"command": "node project/src/main.js"}},
   {"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
 ]`
+
+// ReasoningStuckNag is injected after the first reasoning-stuck event. Tells the model
+// to stop thinking and execute a tool immediately.
+const ReasoningStuckNag = "SYSTEM: You are generating analysis without executing any tool.\n\n" +
+	"Stop analyzing. Call a tool immediately.\n\n" +
+	automationNagFormatExample
+
+// ReasoningStuckEscalatedNag is injected after a second consecutive reasoning-stuck
+// event. Stronger instruction to force the model to act.
+const ReasoningStuckEscalatedNag = "CRITICAL: You are stuck in an analysis loop and ignored the previous warning.\n\n" +
+	"All analysis steps are complete. You have all the information you need.\n" +
+	"Call the appropriate tool NOW with the data you already have. No further processing.\n\n" +
+	automationNagFormatExample
 
 // AutomationTaskPrompt is the user-facing task message for autonomous agents.
 // ContextSieveWarning is injected after the physical sieve prunes intermediate history.

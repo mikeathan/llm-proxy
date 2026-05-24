@@ -24,7 +24,7 @@ func (t *testDispatcher) Persistence() *persistence.WorkspaceManager { return t.
 func (t *testDispatcher) Register(ws string, a *models.Automation) error { return nil }
 func (t *testDispatcher) Unregister(ws, name string) error { return nil }
 func (t *testDispatcher) ListAll() []*automation.AutomationEntry { return nil }
-func (t *testDispatcher) Trigger(ctx context.Context, ws, name string) error { return nil }
+func (t *testDispatcher) Trigger(ctx context.Context, ws, name, _ string) error { return nil }
 func (t *testDispatcher) StopAutomation(ws string) error { return nil }
 func (t *testDispatcher) Metrics() *automation.DispatcherMetrics { return &automation.DispatcherMetrics{} }
 func (t *testDispatcher) Events() *automation.EventBus { return nil }

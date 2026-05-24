@@ -25,7 +25,7 @@ type Dispatcher interface {
 	Register(workspaceID string, auto *models.Automation) error
 	Unregister(workspaceID string, automationName string) error
 	ListAll() []*automation.AutomationEntry
-	Trigger(ctx context.Context, workspaceID string, automationName string) error
+	Trigger(ctx context.Context, workspaceID string, automationName string, recordingRef string) error
 	StopAutomation(workspaceID string) error
 	Metrics() *automation.DispatcherMetrics
 	Events() *automation.EventBus
@@ -90,6 +90,7 @@ type AutomationInfo struct {
 	Trigger      string                 `json:"trigger"`
 	TriggerValue string                 `json:"trigger_value,omitempty"`
 	Model        string                 `json:"model,omitempty"`
+	RecordingRef string                 `json:"recording_ref,omitempty"`
 	LastOutput   string                 `json:"last_output,omitempty"`
 	LastError    string                 `json:"last_error,omitempty"`
 	IsRunning    bool                   `json:"is_running"`
@@ -110,6 +111,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			TaskFile:     entry.TaskFile,
 			Strategy:     entry.Strategy.Name(),
 			Model:        entry.Model,
+			RecordingRef: entry.RecordingRef,
 		}
 
 		// Try to fetch state for last output and history
@@ -153,15 +155,18 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	recordingRef := r.URL.Query().Get("recording_ref")
+
 	// Run in background with a new context to avoid closure when the request finishes.
 	// We use the dispatcher's internal management (activeRuns) to allow stopping it.
 	go func() {
 		// Use a background context since this outlives the request.
 		// The dispatcher's executeAutomation will handle its own timeouts and cancellation via activeRuns.
-		if err := h.dispatcher.Trigger(context.Background(), workspaceID, automationName); err != nil {
+		if err := h.dispatcher.Trigger(context.Background(), workspaceID, automationName, recordingRef); err != nil {
 			h.logger.Error("Async automation trigger failed", 
 				"workspace", workspaceID, 
 				"automation", automationName, 
+				"recording_ref", recordingRef,
 				"error", err)
 		}
 	}()

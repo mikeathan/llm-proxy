@@ -10,14 +10,21 @@ import { useMcpServers } from './composables/useMcpServers'
 import Toast from './components/ui/Toast.vue'
 import ConfirmDialog from './components/ui/ConfirmDialog.vue'
 import { useConfirm } from './composables/useConfirm'
-import type { AppTab } from './types'
+import type { AppTab, SettingsTab } from './types'
 
 const { isOpen, options, handleConfirm, handleCancel } = useConfirm()
 
 const activeTab = ref<AppTab>('dashboard')
+const activeSettingsTab = ref<SettingsTab>('local')
 
 provide('setActiveTab', (tab: AppTab) => {
   activeTab.value = tab
+})
+
+provide('activeSettingsTab', activeSettingsTab)
+provide('setActiveSettingsTab', (tab: SettingsTab) => {
+  activeSettingsTab.value = tab
+  activeTab.value = 'settings'
 })
 
 const { state, refresh: refreshModels } = useModels()

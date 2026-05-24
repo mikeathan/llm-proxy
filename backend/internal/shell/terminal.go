@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -38,6 +39,10 @@ func newPersistentShell(ctx context.Context, hostPath string, env []string) (*pe
 	cmd := exec.CommandContext(ctx, "bash", "--norc", "--noprofile", "-s")
 	cmd.Dir = hostPath
 	cmd.Env = env
+
+	// Isolate into a separate process group so that killing the group
+	// terminates the shell AND any running child commands (not just bash).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -75,6 +80,21 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
+	// If the context is already cancelled, return immediately without
+	// touching the shell.  Sending a command to a live shell when the
+	// context is cancelled would only trigger the kill goroutine below,
+	// which would kill the bash process and corrupt the session.
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+
+	// If the shell has already exited, don't try to write to its stdin.
+	select {
+	case <-ps.done:
+		return "", fmt.Errorf("shell process exited unexpectedly")
+	default:
+	}
+
 	sentinel := fmt.Sprintf("__SHELL_DONE_%d__", time.Now().UnixNano())
 
 	script := fmt.Sprintf("%s; echo '%s'$?\n", command, sentinel)
@@ -82,11 +102,25 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 		return "", fmt.Errorf("failed to write command to shell: %w", err)
 	}
 
+	// Kill the process group when the context is cancelled, even if the
+	// main goroutine is blocked on stdout.ReadString below.
+	readDone := make(chan struct{})
+	defer close(readDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			ps.killAll()
+		case <-readDone:
+		}
+	}()
+
 	var outputBuf strings.Builder
 	for {
 		select {
 		case <-ctx.Done():
-			return outputBuf.String(), ctx.Err()
+			ctxErr := ctx.Err()
+			ps.killAll()
+			return outputBuf.String(), ctxErr
 		case <-ps.done:
 			return outputBuf.String(), fmt.Errorf("shell process exited unexpectedly")
 		default:
@@ -100,7 +134,6 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 		trimmed := strings.TrimSuffix(line, "\n")
 
 		if idx := strings.Index(trimmed, sentinel); idx != -1 {
-			// Append the part before the sentinel to the output
 			outputBuf.WriteString(trimmed[:idx])
 
 			exitCodeStr := trimmed[idx+len(sentinel):]
@@ -114,6 +147,16 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 
 		outputBuf.WriteString(line)
 	}
+}
+
+// killAll terminates the entire process group (bash + any running command).
+// Safe to call multiple times; returns without error if the process has already exited.
+func (ps *persistentShell) killAll() {
+	if ps.cmd == nil || ps.cmd.Process == nil {
+		return
+	}
+	// Negative PID signals the process group (set via Setpgid above).
+	_ = syscall.Kill(-ps.cmd.Process.Pid, syscall.SIGTERM)
 }
 
 type sessionInfo struct {
@@ -271,14 +314,10 @@ func (s *ShellSession) Execute(ctx context.Context, cmd []string) (io.ReadCloser
 	output, err := s.shell.Execute(ctx, rawCommand)
 
 	outReader := io.NopCloser(strings.NewReader(output))
-	var errReader io.ReadCloser
 	if err != nil {
-		errReader = io.NopCloser(strings.NewReader(err.Error()))
-	} else {
-		errReader = io.NopCloser(strings.NewReader(""))
+		return outReader, nil, fmt.Errorf("shell execution failed: %w", err)
 	}
-
-	return outReader, errReader, nil
+	return outReader, nil, nil
 }
 
 func (s *ShellSession) Cleanup(ctx context.Context) error {
@@ -289,7 +328,7 @@ func (s *ShellSession) Cleanup(ctx context.Context) error {
 	select {
 	case <-s.shell.done:
 	case <-ctx.Done():
-		_ = s.shell.cmd.Process.Kill()
+		s.shell.killAll()
 	}
 	return nil
 }

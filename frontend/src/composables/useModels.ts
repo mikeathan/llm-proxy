@@ -1,11 +1,10 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../services/adminService'
 import { useToast } from './useToast'
-import { useConfirm } from './useConfirm'
-import type { AdminState } from '../types/admin'
+import type { AdminState, AgentDefaults } from '../types/admin'
 
 const { error: toastError, success: toastSuccess } = useToast()
-const { confirm } = useConfirm()
+
 
 const state = ref<AdminState | null>(null)
 
@@ -13,6 +12,14 @@ const activeModel = computed(() => state.value?.active)
 const availableModels = computed(() => state.value?.available ?? [])
 const models = computed(() => state.value?.models ?? [])
 const nextPort = computed(() => state.value?.next_port ?? 9000)
+const agentDefaults = computed<AgentDefaults>(() => state.value?.config?.agent_defaults ?? {
+  max_steps: 25,
+  context_budget: 8000,
+  max_tokens: 3072,
+  reasoning_budget: 0,
+  tool_call_format: '',
+  prefill: false,
+})
 
 const refresh = async (): Promise<void> => {
   try {
@@ -67,15 +74,6 @@ const updateModel = async (payload: any): Promise<void> => {
 }
 
 const removeModel = async (name: string): Promise<void> => {
-  const confirmed = await confirm({
-    title: 'Remove Model',
-    message: `Are you sure you want to remove model "${name}"?`,
-    type: 'error',
-    confirmText: 'Remove',
-    cancelText: 'Cancel'
-  })
-  
-  if (!confirmed) return
   try {
     await AdminApiService.removeModel(name)
     toastSuccess(`Model ${name} removed`)
@@ -86,11 +84,25 @@ const removeModel = async (name: string): Promise<void> => {
   }
 }
 
-const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<string[]> => {
+const removeAllModels = async (provider: string): Promise<void> => {
   try {
-    return await AdminApiService.fetchProviderModels(provider, apiKeyName)
+    await AdminApiService.removeAllModels(provider)
+    toastSuccess(`All ${provider} models removed`)
+    await refresh()
   } catch (e: any) {
-    console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)
+    console.error(e)
+    toastError(`Error removing all models: ${e.message}`)
+  }
+}
+
+const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<import('../types/model').ProviderModelInfo[]> => {
+  try {
+    return await AdminApiService.fetchProviderModels(provider, apiKeyName) || []
+  } catch (e: any) {
+    const isConfigError = e.message?.includes('not configured') || e.message?.includes('401')
+    if (!isConfigError) {
+      console.error(`[useModels] fetch provider models failed for ${provider}:`, e.message)
+    }
     return []
   }
 }
@@ -102,12 +114,14 @@ export function useModels() {
     activeModel,
     availableModels,
     nextPort,
+    agentDefaults,
     refresh,
     startModel,
     stopModel,
     addModel,
     updateModel,
     removeModel,
+    removeAllModels,
     fetchProviderModels,
   }
 }

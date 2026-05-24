@@ -43,7 +43,7 @@ func NewLocalProvider(cfg models.ModelConfig, llamaBinary string, modelDir strin
 	}
 }
 
-func (p *LocalProvider) ListModels(ctx context.Context) ([]string, error) {
+func (p *LocalProvider) ListModels(ctx context.Context) ([]models.ProviderModelInfo, error) {
 	if p.modelDir == "" {
 		return nil, nil
 	}
@@ -53,13 +53,13 @@ func (p *LocalProvider) ListModels(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	var models []string
+	var out []models.ProviderModelInfo
 	for _, f := range files {
 		if !f.IsDir() && (strings.HasSuffix(f.Name(), ".gguf") || strings.HasSuffix(f.Name(), ".bin")) {
-			models = append(models, f.Name())
+			out = append(out, models.ProviderModelInfo{ID: f.Name()})
 		}
 	}
-	return models, nil
+	return out, nil
 }
 
 func (p *LocalProvider) TestConnection(ctx context.Context) error {

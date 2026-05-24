@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"mime"
@@ -66,6 +68,7 @@ type AdminHandlers struct {
 	logger         logging.Logger
 	buildInfo      *buildinfo.Info
 	discoveryCache modelDiscoveryCache
+	orchestrator   *orchestrator.Orchestrator
 }
 
 func NewAdminHandlers(
@@ -73,31 +76,36 @@ func NewAdminHandlers(
 	admin AdminService,
 	logger logging.Logger,
 	buildInfo *buildinfo.Info,
+	orch *orchestrator.Orchestrator,
 ) *AdminHandlers {
 	return &AdminHandlers{
-		runtime:   runtime,
-		admin:     admin,
-		logger:    logger,
-		buildInfo: buildInfo,
+		runtime:      runtime,
+		admin:        admin,
+		logger:       logger,
+		buildInfo:    buildInfo,
+		orchestrator: orch,
 	}
 }
 
 type adminModelView struct {
-	Name           string                 `json:"name"`
-	Provider       string                 `json:"provider"`
-	Filename       string                 `json:"filename"`
-	ResolvedPath   string                 `json:"resolved_path"`
-	Args           []string               `json:"args"`
-	Port           int                    `json:"port"`
-	Endpoint       string                 `json:"endpoint"`
-	Active         bool                   `json:"active"`
-	Ready          bool                   `json:"ready"`
-	ProviderConfig *models.ProviderConfig `json:"provider_config,omitempty"`
-	Metadata       *models.ModelMetadata  `json:"metadata,omitempty"`
-	Prefill        bool                   `json:"prefill"`
-	MaxSteps       int                    `json:"max_steps"`
-	ContextBudget  int                    `json:"context_budget"`
-	ToolCallFormat string                 `json:"tool_call_format"`
+	Name             string                 `json:"name"`
+	Provider         string                 `json:"provider"`
+	Filename         string                 `json:"filename"`
+	ResolvedPath     string                 `json:"resolved_path"`
+	Args             []string               `json:"args"`
+	Port             int                    `json:"port"`
+	Endpoint         string                 `json:"endpoint"`
+	Active           bool                   `json:"active"`
+	Ready            bool                   `json:"ready"`
+	ProviderConfig   *models.ProviderConfig `json:"provider_config,omitempty"`
+	Metadata         *models.ModelMetadata  `json:"metadata,omitempty"`
+	Prefill          bool                   `json:"prefill"`
+	MaxSteps         int                    `json:"max_steps"`
+	ContextBudget    int                    `json:"context_budget"`
+	MaxTokens        int                    `json:"max_tokens"`
+	ReasoningBudget  int                    `json:"reasoning_budget"`
+	SlotTimeout      int                    `json:"slot_timeout"`
+	ToolCallFormat   string                 `json:"tool_call_format"`
 }
 
 type adminActiveModel struct {
@@ -126,22 +134,35 @@ type adminStateResponse struct {
 	Config    adminConfigView       `json:"config"`
 }
 
+// adminTuningDefaults exposes the agent loop's runtime defaults to the frontend
+// so the UI can prefill model forms with values that match actual runtime behaviour.
+type adminTuningDefaults struct {
+	MaxSteps        int    `json:"max_steps"`
+	ContextBudget   int    `json:"context_budget"`
+	MaxTokens       int    `json:"max_tokens"`
+	ReasoningBudget int    `json:"reasoning_budget"`
+	ToolCallFormat  string `json:"tool_call_format"`
+	Prefill         bool   `json:"prefill"`
+}
+
 type adminConfigView struct {
-	WorkspacesDir       string                       `json:"workspaces_dir"`
-	ModelHost           string                       `json:"model_host"`
-	IdleTimeoutSecs     int                          `json:"idle_timeout_seconds"`
-	GPUProvider         string                       `json:"gpu_provider"`
-	GPUBinary           string                       `json:"gpu_binary"`
-	GPUIndex            int                          `json:"gpu_index"`
-	DefaultArgs         []string                     `json:"default_args"`
-	ServiceClientID     string                       `json:"service_client_id,omitempty"`
-	ServiceClientSecret string                       `json:"service_client_secret,omitempty"`
-	PrimaryModel        string                       `json:"primary_model"`
-	FallbackModel       string                       `json:"fallback_model"`
-	Providers           map[string]adminProviderView `json:"providers"`
-	Guardrails          models.AgentGuardrailsConfig `json:"guardrails"`
-	Communication       models.CommunicationConfig   `json:"communication"`
-	Search              models.SearchConfig          `json:"search"`
+	WorkspacesDir       string                          `json:"workspaces_dir"`
+	ModelHost           string                          `json:"model_host"`
+	IdleTimeoutSecs     int                             `json:"idle_timeout_seconds"`
+	GPUProvider         string                          `json:"gpu_provider"`
+	GPUBinary           string                          `json:"gpu_binary"`
+	GPUIndex            int                             `json:"gpu_index"`
+	DefaultArgs         []string                        `json:"default_args"`
+	ServiceClientID     string                          `json:"service_client_id,omitempty"`
+	ServiceClientSecret string                          `json:"service_client_secret,omitempty"`
+	PrimaryModel        string                          `json:"primary_model"`
+	FallbackModel       string                          `json:"fallback_model"`
+	Providers           map[string]adminProviderView    `json:"providers"`
+	Guardrails          models.AgentGuardrailsConfig    `json:"guardrails"`
+	Communication       models.CommunicationConfig      `json:"communication"`
+	Search              models.SearchConfig             `json:"search"`
+	AgentDefaults       adminTuningDefaults             `json:"agent_defaults"`
+	ProviderDefaults    map[string]adminTuningDefaults  `json:"provider_defaults"`
 }
 
 type adminSystemView struct {
@@ -271,6 +292,15 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Guardrails:          h.admin.GetGuardrails(),
 			Communication:       reg.Communication,
 			Search:              reg.Search,
+			AgentDefaults: adminTuningDefaults{
+				MaxSteps:        assistant.DefaultMaxSteps,
+				ContextBudget:   assistant.DefaultContextBudget,
+				MaxTokens:       assistant.DefaultMaxTokens,
+				ReasoningBudget: 0,
+				ToolCallFormat:  "",
+				Prefill:         false,
+			},
+			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
 		},
 	}
 
@@ -318,4 +348,43 @@ func parseLogLevel(input string) (logging.Level, error) {
 	default:
 		return "", fmt.Errorf("invalid log level: %s", input)
 	}
+}
+
+func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[string]adminTuningDefaults {
+	out := make(map[string]adminTuningDefaults, len(in))
+	for k, v := range in {
+		out[k] = adminTuningDefaults{
+			MaxSteps:        v.MaxSteps,
+			ContextBudget:   v.ContextBudget,
+			MaxTokens:       v.MaxTokens,
+			ReasoningBudget: v.ReasoningBudget,
+			ToolCallFormat:  v.ToolCallFormat,
+			Prefill:         v.Prefill,
+		}
+	}
+	return out
+}
+
+// AdminICUBalanceHandler returns the current ICU balance for a workspace
+// (or "default").  Requires the orchestrator to be initialized.
+func (h *AdminHandlers) AdminICUBalanceHandler(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspace")
+	if workspaceID == "" {
+		workspaceID = "default"
+	}
+	if h.orchestrator == nil || h.orchestrator.Store == nil {
+		respondJSON(w, map[string]any{"balance": 0, "message": "orchestrator not initialized"})
+		return
+	}
+	window := time.Now().UTC().Truncate(24 * time.Hour)
+	balance, err := h.orchestrator.Store.GetBalance(r.Context(), workspaceID, window)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to get balance: "+err.Error())
+		return
+	}
+	respondJSON(w, map[string]any{
+		"workspace":   workspaceID,
+		"window_start": window,
+		"balance":     balance,
+	})
 }

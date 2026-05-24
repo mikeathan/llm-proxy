@@ -23,8 +23,6 @@ const emit = defineEmits<{
   (e: "restartBackend"): void;
 }>();
 
-// Dynamic access to local provider. 
-// Note: We use a computed for read/write so it stays in sync with the prop
 const localProvider = computed({
   get: () => {
     if (!props.editConfig.providers?.local) {
@@ -308,9 +306,5 @@ function handleRestart() {
 }
 .form-actions {
   @apply pt-6 border-t border-gray-700 flex justify-end;
-}
-.btn-submit {
-  @apply bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-md font-bold transition-all shadow-lg 
-         hover:shadow-blue-600/20 active:scale-95;
 }
 </style>

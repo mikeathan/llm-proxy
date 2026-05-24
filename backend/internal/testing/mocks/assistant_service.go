@@ -6,6 +6,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/nodeherder"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -65,6 +66,10 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 
 func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
 	return m.Client.GetClientForModel(ctx, modelName)
+}
+
+func (m *MockAssistantService) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
+	return nil, nil
 }
 
 func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig, bool) {
@@ -138,6 +143,10 @@ func (m *MockAssistantService) Events() *automation.EventBus {
 		return m.EventBusRef
 	}
 	return automation.NewEventBus()
+}
+
+func (m *MockAssistantService) Orchestrator() *orchestrator.Orchestrator {
+	return nil
 }
 
 func NewMockAssistantService(

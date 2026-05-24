@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"llm-proxy/internal/core/llm/metadata"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/models"
 	"path/filepath"
 )
@@ -49,31 +50,33 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 
 		meta := mc.Metadata
 		if meta == nil && mc.Provider == "local" && fullPath != "" {
-			// Header-only scan: reads ~KB not GB, completes in milliseconds.
 			if m, err := scanner.Scan(ctx, fullPath); err == nil {
 				meta = &m
-				// Persist so next page load skips the scan entirely.
 				updated := mc
 				updated.Metadata = meta
+				orchestrator.ApplyMetadataDefaults(&updated)
 				_ = h.admin.PersistReplaceModel(updated)
 			}
 		}
 
 		view := adminModelView{
-			Name:           mc.Name,
-			Provider:       mc.Provider,
-			Filename:       filename,
-			ResolvedPath:   fullPath,
-			Args:           mc.Args,
-			Port:           mc.Port,
-			Active:         mc.Name == activeName,
-			Ready:          mc.Name == activeName && activeReady,
-			ProviderConfig: mc.ProviderConfig,
-			Metadata:       meta,
-			Prefill:        mc.Prefill,
-			MaxSteps:       mc.MaxSteps,
-			ContextBudget:  mc.ContextBudget,
-			ToolCallFormat: mc.ToolCallFormat,
+			Name:             mc.Name,
+			Provider:         mc.Provider,
+			Filename:         filename,
+			ResolvedPath:     fullPath,
+			Args:             mc.Args,
+			Port:             mc.Port,
+			Active:           mc.Name == activeName,
+			Ready:            mc.Name == activeName && activeReady,
+			ProviderConfig:   mc.ProviderConfig,
+			Metadata:         meta,
+			Prefill:          mc.Prefill != nil && *mc.Prefill,
+			MaxSteps:         mc.MaxSteps,
+			ContextBudget:    mc.ContextBudget,
+			MaxTokens:        mc.MaxTokens,
+			ReasoningBudget:  mc.ReasoningBudget,
+			SlotTimeout:      mc.SlotTimeout,
+			ToolCallFormat:   mc.ToolCallFormat,
 		}
 
 		if mc.Port > 0 {

@@ -111,3 +111,21 @@ func (a *Agent) notifyGuardrailViolation(tool string, err error) {
 		"error": err.Error(),
 	})
 }
+
+func (a *Agent) notifyPrefillDisabled() {
+	a.notify(EventMessage, proxy.Message{
+		Role:    "system",
+		Content: "⚙️ Response prefill was disabled — the model rejected the prefill (thinking mode active on the server). For faster execution, set `prefill: false` on this model.",
+	})
+}
+
+func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {
+	suggest := "xml"
+	if !useNativeTools {
+		suggest = "native"
+	}
+	a.notify(EventMessage, proxy.Message{
+		Role:    "system",
+		Content: "⚠️ The model is not generating valid tool calls after multiple attempts. Try setting `tool_call_format: \"" + suggest + "\"` for this model.",
+	})
+}

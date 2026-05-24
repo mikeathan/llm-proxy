@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -62,7 +63,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 		return e.validateSearch(call, cfg.Search)
 	case models.ToolNotifyUser:
 		return e.validateCommunication(call, cfg.Communication)
-	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite:
+	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
 	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
 		return e.validateNetwork(call, cfg.Network)
@@ -103,6 +104,7 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 
 	var args struct {
 		Command string `json:"command"`
+		Cwd     string `json:"cwd"`
 	}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return fmt.Errorf("malformed JSON arguments: %w", err)
@@ -113,7 +115,14 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 		jailPath = e.resolver.WorkspaceDir(workspaceID)
 	}
 
-	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache, jailPath)
+	// Compute effective CWD: if the model specified a subdirectory, the
+	// guardrail path check needs it to correctly resolve '..' paths.
+	effectiveCwd := jailPath
+	if args.Cwd != "" && jailPath != "" {
+		effectiveCwd = filepath.Join(jailPath, args.Cwd)
+	}
+
+	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache, jailPath, effectiveCwd)
 }
 
 func (e *GuardrailEngine) validateSearch(call proxy.ToolCall, cfg models.SearchGuardrailsConfig) error {
@@ -160,7 +169,7 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 		cfg.AllowedPaths = append([]string{wsPath}, cfg.AllowedPaths...)
 	}
 
-	isWrite := call.Function.Name == models.ToolFileWrite
+	isWrite := call.Function.Name == models.ToolFileWrite || call.Function.Name == models.ToolFileAppend
 	_, err := tools.ValidateFileSystemPath(args.Path, isWrite, cfg)
 	return err
 }

@@ -1,0 +1,6 @@
+{"type":"request","model":"test-model","messages":[{"role":"user","content":"What is the weather in London?"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}
+{"type":"response","choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"London\"}"}}]}}]}
+{"type":"done","total_chunks":1}
+{"type":"request","model":"test-model","messages":[{"role":"user","content":"What is the weather in London?"},{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"London\"}"}}]},{"role":"tool","content":"Sunny, 22°C","tool_call_id":"call_1"}]}
+{"type":"response","choices":[{"message":{"role":"assistant","content":"The weather in London is sunny and 22°C."}}]}
+{"type":"done","total_chunks":1}

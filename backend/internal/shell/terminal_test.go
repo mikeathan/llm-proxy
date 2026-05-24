@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -156,6 +157,111 @@ func TestPrepareShellEnv(t *testing.T) {
 	expectedGoCache := hostPath + "/.sandbox/go-cache"
 	if envMap["GOMODCACHE"] != expectedGoCache {
 		t.Errorf("expected GOMODCACHE override to %s, got %s", expectedGoCache, envMap["GOMODCACHE"])
+	}
+}
+
+func TestPersistentShell_ContextCancelKillsProcess(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ps, err := newPersistentShell(ctx, ".", nil)
+	if err != nil {
+		t.Fatalf("newPersistentShell failed: %v", err)
+	}
+	defer ps.stdin.Close()
+
+	// Start a long-running command (sleep 60s) in the shell
+	execCtx, execCancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var execResult string
+	var execErr error
+
+	go func() {
+		execResult, execErr = ps.Execute(execCtx, "sleep 60")
+		_ = execResult
+		close(done)
+	}()
+
+	// Give the command a moment to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Cancel the context — Execute should return promptly (< 5s)
+	execCancel()
+
+	select {
+	case <-done:
+		if execErr == nil {
+			t.Error("expected error after context cancellation, got nil")
+		}
+		if !strings.Contains(execErr.Error(), "context canceled") && !strings.Contains(execErr.Error(), "killed") {
+			t.Errorf("expected context cancellation error, got: %v", execErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Execute did not return within 5s of context cancellation — process was not killed")
+	}
+}
+
+func TestPersistentShell_ProcessGroupIsolation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ps, err := newPersistentShell(ctx, ".", nil)
+	if err != nil {
+		t.Fatalf("newPersistentShell failed: %v", err)
+	}
+	defer ps.stdin.Close()
+
+	if ps.cmd == nil || ps.cmd.Process == nil {
+		t.Fatal("process not started")
+	}
+
+	// The bash process should be in its own process group.
+	// pgid == pid when Setpgid creates a new group.
+	pgid, err := syscall.Getpgid(ps.cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("Getpgid failed: %v", err)
+	}
+	if pgid != ps.cmd.Process.Pid {
+		t.Errorf("expected process group ID %d to equal PID %d (separate group)", pgid, ps.cmd.Process.Pid)
+	}
+}
+
+func TestHostShellManager_ExecuteContextCancel(t *testing.T) {
+	hm, err := NewHostShellManager()
+	if err != nil {
+		t.Fatalf("NewHostShellManager failed: %v", err)
+	}
+	defer hm.Shutdown()
+
+	tmpDir := t.TempDir()
+
+	ts, err := hm.GetOrCreate(context.Background(), "cancel-test-ws", tmpDir, 0, nil, nil)
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	execCtx, execCancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		stdout, stderr, _ := ts.Execute(execCtx, []string{"sh", "-c", "sleep 60"})
+		if stdout != nil {
+			stdout.Close()
+		}
+		if stderr != nil {
+			stderr.Close()
+		}
+		close(done)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	execCancel()
+
+	select {
+	case <-done:
+		// Returned promptly — success
+	case <-time.After(5 * time.Second):
+		t.Fatal("Execute did not return within 5s of context cancellation")
 	}
 }
 

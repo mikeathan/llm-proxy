@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
@@ -19,6 +20,7 @@ import (
 
 type AppContext struct {
 	manager      llm.RuntimeManager
+	orch         *orchestrator.Orchestrator
 	dataMgr      *storage.DataManager
 	resolver     *storage.PathResolver
 	rootDir      string
@@ -44,6 +46,8 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		hostSettings: storage.NewHostSettingsStore(),
 	}
 
+	s.initOrchestrator()
+
 	// Link manager to secrets
 	if m, ok := mgr.(*llm.LLMRuntimeManager); ok {
 		m.SetSecrets(dataMgr.Secrets())
@@ -64,9 +68,13 @@ func (s *AppContext) registerSubscribers() {
 	// 1. Settings Changes -> Sync LLM Runtime & Local Paths
 	s.dataMgr.Settings().OnChange(func(u models.UserSettings) {
 		logging.Info("Settings change detected, syncing LLM runtime", "modelDir", u.Local.ModelDir)
-		s.manager.Registrar().RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
+		if reg := s.manager.Registrar(); reg != nil {
+			reg.RegisterLocal(u.Local.LlamaServerBinary, u.Local.ModelDir, u.Local.DefaultArgs)
+		}
 		s.manager.Sync()
+		logging.Info("Settings change: Sync completed, applying model overrides", "override_count", len(u.ModelOverrides))
 		s.manager.ApplyModelOverrides(u.ModelOverrides)
+		logging.Info("Settings change: model overrides applied")
 	})
 
 	// 2. System Config Changes -> Sync Infrastructure & Environment
@@ -85,6 +93,12 @@ func (s *AppContext) registerSubscribers() {
 	// 3. Registry Changes -> Sync LLM Runtime (Providers, Catalogue)
 	s.dataMgr.Registry().OnChange(func(reg models.RegistryData) {
 		logging.Info("Registry change detected, syncing LLM runtime")
+		s.manager.Sync()
+	})
+
+	// 4. Secrets Changes -> Sync LLM Runtime (credentials updated)
+	s.dataMgr.EncryptedSecretStore().OnChange(func(data models.EncryptedSecretData) {
+		logging.Info("Secrets change detected, syncing LLM runtime")
 		s.manager.Sync()
 	})
 }
@@ -106,6 +120,21 @@ func (a *AppContext) SelectModels() (string, string) {
 
 func (s *AppContext) Runtime() llm.RuntimeManager {
 	return s.manager
+}
+
+func (s *AppContext) Orchestrator() *orchestrator.Orchestrator {
+	return s.orch
+}
+
+func (s *AppContext) initOrchestrator() {
+	dbPath := filepath.Join(s.rootDir, "orchestrator.db")
+	orch, err := orchestrator.NewOrchestrator(dbPath)
+	if err != nil {
+		logging.Warn("failed to initialize orchestrator, running without budget control", "error", err)
+		return
+	}
+	s.orch = orch
+	logging.Info("Orchestrator initialized", "db", dbPath)
 }
 
 func (s *AppContext) refreshMetricsService() {
@@ -424,33 +453,35 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 				if cfg.ProviderConfig != nil {
 					credID = cfg.ProviderConfig.APIKeyName
 				}
-				c.Catalogue[i] = models.ModelRegistryEntry{
-					ID:           cfg.Name,
-					Name:         cfg.Name,
-					ProviderID:   cfg.Provider,
-					ModelID:      cfg.Filename,
-					CredentialID: credID,
-					Port:         cfg.Port,
-					Args:         cfg.Args,
-					Prefill:      cfg.Prefill,
-				}
-				return nil
+			c.Catalogue[i] = models.ModelRegistryEntry{
+				ID:           cfg.Name,
+				Name:         cfg.Name,
+				ProviderID:   cfg.Provider,
+				ModelID:      cfg.Filename,
+				CredentialID: credID,
+				Port:         cfg.Port,
+				Args:         cfg.Args,
+				Prefill:      cfg.Prefill,
+				Metadata:     cfg.Metadata,
 			}
+			return nil
 		}
-		credID := ""
-		if cfg.ProviderConfig != nil {
-			credID = cfg.ProviderConfig.APIKeyName
-		}
-		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
-			ID:           cfg.Name,
-			Name:         cfg.Name,
-			ProviderID:   cfg.Provider,
-			ModelID:      cfg.Filename,
-			CredentialID: credID,
-			Port:         cfg.Port,
-			Args:         cfg.Args,
-			Prefill:      cfg.Prefill,
-		})
+	}
+	credID := ""
+	if cfg.ProviderConfig != nil {
+		credID = cfg.ProviderConfig.APIKeyName
+	}
+	c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
+		ID:           cfg.Name,
+		Name:         cfg.Name,
+		ProviderID:   cfg.Provider,
+		ModelID:      cfg.Filename,
+		CredentialID: credID,
+		Port:         cfg.Port,
+		Args:         cfg.Args,
+		Prefill:      cfg.Prefill,
+		Metadata:     cfg.Metadata,
+	})
 		return nil
 	})
 }
@@ -464,14 +495,16 @@ func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 			credID = cfg.ProviderConfig.APIKeyName
 		}
 		newEntry := models.ModelRegistryEntry{
-			ID:           cfg.Name,
-			Name:         cfg.Name,
-			ProviderID:   cfg.Provider,
-			ModelID:      cfg.Filename,
-			CredentialID: credID,
-			Port:         cfg.Port,
-			Args:         cfg.Args,
-			Prefill:      cfg.Prefill,
+			ID:             cfg.Name,
+			Name:           cfg.Name,
+			ProviderID:     cfg.Provider,
+			ModelID:        cfg.Filename,
+			CredentialID:   credID,
+			Port:           cfg.Port,
+			Args:           cfg.Args,
+			Prefill:        cfg.Prefill,
+			TimeoutMinutes: cfg.TimeoutMinutes,
+			Metadata:       cfg.Metadata,
 		}
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {
@@ -519,6 +552,27 @@ func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {
 		return explicitPath
 	}
 	return filename
+}
+
+func (s *AppContext) DeleteProviderWithCleanup(provider string) error {
+	if err := s.dataMgr.Secrets().DeleteAllProviderKeys(provider); err != nil {
+		return fmt.Errorf("failed to delete keys for provider %q: %w", provider, err)
+	}
+
+	if err := s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
+		out := reg.Catalogue[:0]
+		for _, m := range reg.Catalogue {
+			if m.ProviderID != provider {
+				out = append(out, m)
+			}
+		}
+		reg.Catalogue = out
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to cleanup models for provider %q: %w", provider, err)
+	}
+
+	return nil
 }
 
 func (s *AppContext) RefreshMetricsService() {

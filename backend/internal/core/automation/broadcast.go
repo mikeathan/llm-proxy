@@ -2,6 +2,7 @@ package automation
 
 import (
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/platform/logging"
 	"sync"
 )
 
@@ -23,7 +24,7 @@ func (b *EventBus) Subscribe(workspaceID string) (chan assistant.AgentEvent, []a
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ch := make(chan assistant.AgentEvent, 50) // Increased buffer for safety
+	ch := make(chan assistant.AgentEvent, 200)
 	b.subscribers[workspaceID] = append(b.subscribers[workspaceID], ch)
 	
 	// Copy the recent events to avoid mutation issues
@@ -81,7 +82,8 @@ func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 		select {
 		case ch <- event:
 		default:
-			// Buffer full, skip this subscriber
+			logging.Warn("event bus subscriber too slow, dropping event",
+				"workspace", workspaceID, "type", event.Type)
 		}
 	}
 }

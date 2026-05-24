@@ -1,8 +1,9 @@
 package tools
 
 import (
-	"context"
 	"llm-proxy/models"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,19 +78,7 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create tool with a provider that returns the test config
-			term := NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-				return tt.config
-			}, nil)
-
-			ctx := context.Background()
-
-			// For allowed commands that we don't actually want to run on the test machine,
-			// we skip the actual execution if it's not an error case.
-			// But since 'ls' is safe, we let it run check if it's expected to pass.
-
-			res, err := term.ExecuteCommand(ctx, tt.command, "")
-
+			err := ValidateTerminalCommand(tt.command, tt.config, nil, "")
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Expected error but got nil")
@@ -99,9 +88,6 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Errorf("Unexpected error: %v", err)
-				}
-				if res == "" && tt.command == "ls" {
-					// result might be empty in some test envs, but should not error
 				}
 			}
 		})
@@ -136,6 +122,7 @@ func TestExtractBaseCommands(t *testing.T) {
 		{"chained with |", "cat file | grep foo", []string{"cat", "grep"}},
 		{"chained with ||", "make || echo failed", []string{"make", "echo"}},
 		{"mixed chain", "mkdir -p dir && echo test > dir/file && sh dir/file", []string{"mkdir", "echo", "sh"}},
+		{"find with escaped semicolon", "find . -type f -exec ls -lh {} \\; 2>/dev/null", []string{"find"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,40 +139,13 @@ func TestExtractBaseCommands(t *testing.T) {
 	}
 }
 
-func TestSanitizeCommandSkipsValidationWhenGuardrailApproved(t *testing.T) {
-	tt := &TerminalTools{
-		configProvider: func(ctx context.Context) models.TerminalGuardrailsConfig {
-			return models.TerminalGuardrailsConfig{
-				Enabled:        true,
-				AllowedCommands: []string{"echo"},
-			}
-		},
-	}
-
-	// Without the guardrail-approved marker, "ls" should be rejected.
-	ctx := context.Background()
-	_, err := tt.sanitizeCommand(ctx, "ls", tt.configProvider(ctx), "")
-	if err == nil {
-		t.Error("expected validation to reject 'ls' without approval marker")
-	}
-
-	// With the guardrail-approved marker, the check is skipped and command passes.
-	ctx = models.WithGuardrailApproved(context.Background())
-	clean, err := tt.sanitizeCommand(ctx, "ls", tt.configProvider(ctx), "")
-	if err != nil {
-		t.Errorf("expected validation to skip with approval marker, got: %v", err)
-	}
-	if clean != "ls" {
-		t.Errorf("expected clean command 'ls', got %q", clean)
-	}
-}
-
 func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 	tests := []struct {
 		name             string
 		command          string
 		allowedExternal  []string
 		jailPath         string
+		effectiveCwd     string
 		wantErr          bool
 		errContains      string
 	}{
@@ -200,7 +160,7 @@ func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 			command:         "ls /etc/passwd",
 			allowedExternal: []string{"/home/user/projects"},
 			wantErr:         true,
-			errContains:     "outside allowed external paths",
+			errContains:     "outside allowed paths",
 		},
 		{
 			name:            "absolute path blocked when no external paths configured",
@@ -215,6 +175,61 @@ func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 			allowedExternal: nil,
 			jailPath:        "/workspace/123",
 			wantErr:         false,
+		},
+		{
+			name:            "absolute path within jailPath allowed without external paths",
+			command:         "ls /workspace/123/ts-logic-test",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			wantErr:         false,
+		},
+		{
+			name:            "absolute path in chained command within jail allowed",
+			command:         "ls /workspace/123/ts-logic-test && cat /workspace/123/ts-logic-test/app.js",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			wantErr:         false,
+		},
+		{
+			name:            "absolute path outside jailPath is blocked",
+			command:         "ls /etc/passwd",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			wantErr:         true,
+			errContains:     "outside allowed paths",
+		},
+		{
+			name:            ".. path within jail from subdirectory allowed",
+			command:         "cat ../tsconfig.json",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			effectiveCwd:    "/workspace/123/ts-logic-test",
+			wantErr:         false,
+		},
+		{
+			name:            ".. path within jail from subdirectory in chain allowed",
+			command:         "echo ok && cat ../tsconfig.json",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			effectiveCwd:    "/workspace/123/ts-logic-test",
+			wantErr:         false,
+		},
+		{
+			name:            ".. path outside jail blocked even with effectiveCwd",
+			command:         "cat ../../../../etc/passwd",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			effectiveCwd:    "/workspace/123/ts-logic-test",
+			wantErr:         true,
+			errContains:     "escapes the authorized workspace jail",
+		},
+		{
+			name:            ".. without effectiveCwd still blocked outside jail",
+			command:         "cat ../tsconfig.json",
+			allowedExternal: nil,
+			jailPath:        "/workspace/123",
+			wantErr:         true,
+			errContains:     "escapes the authorized workspace jail",
 		},
 		{
 			name:            ".. traversal to allowed external path is permitted",
@@ -240,7 +255,7 @@ func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 				AllowedCommands:      []string{"ls", "cat", "echo"},
 				AllowedExternalPaths: tt.allowedExternal,
 			}
-			err := ValidateTerminalCommand(tt.command, cfg, nil, tt.jailPath)
+			err := ValidateTerminalCommand(tt.command, cfg, nil, tt.jailPath, tt.effectiveCwd)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error but got nil")
@@ -254,6 +269,67 @@ func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveCwd_NonExistentCwdFallsBack(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tt := &TerminalTools{}
+
+	t.Run("nonexistent cwd falls back to jailPath", func(t *testing.T) {
+		result, err := tt.resolveCwd("nonexistent-subdir", tmpDir, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != tmpDir {
+			t.Errorf("expected fallback to jailPath %q, got %q", tmpDir, result)
+		}
+	})
+
+	t.Run("existing cwd resolves correctly", func(t *testing.T) {
+		subDir := filepath.Join(tmpDir, "existing-dir")
+		if err := os.MkdirAll(subDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		result, err := tt.resolveCwd("existing-dir", tmpDir, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected, _ := filepath.EvalSymlinks(subDir)
+		if result != expected {
+			t.Errorf("expected %q, got %q", expected, result)
+		}
+	})
+
+	t.Run("empty cwd returns jailPath", func(t *testing.T) {
+		result, err := tt.resolveCwd("", tmpDir, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != tmpDir {
+			t.Errorf("expected jailPath %q, got %q", tmpDir, result)
+		}
+	})
+
+	t.Run("empty jailPath returns empty", func(t *testing.T) {
+		result, err := tt.resolveCwd("some-dir", "", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "" {
+			t.Errorf("expected empty string, got %q", result)
+		}
+	})
+
+	t.Run("cwd escaping jailPath is rejected", func(t *testing.T) {
+		_, err := tt.resolveCwd("../../etc", tmpDir, nil)
+		if err == nil {
+			t.Fatal("expected security error but got nil")
+		}
+		if !strings.Contains(err.Error(), "security violation") {
+			t.Errorf("expected security violation error, got: %v", err)
+		}
+	})
 }
 
 func TestHasExternalAccess(t *testing.T) {
