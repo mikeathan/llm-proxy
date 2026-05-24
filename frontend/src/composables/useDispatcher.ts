@@ -94,12 +94,14 @@ async function fetchMetrics() {
   }
 }
 
-async function triggerAutomation(workspace: string, automation: string) {
+async function triggerAutomation(workspace: string, automation: string, recordingRef?: string) {
   error.value = null
   try {
-    const res = await fetch(`/admin/api/dispatcher/trigger/${workspace}/${automation}`, {
-      method: 'POST'
-    })
+    let url = `/admin/api/dispatcher/trigger/${workspace}/${automation}`
+    if (recordingRef) {
+      url += `?recording_ref=${encodeURIComponent(recordingRef)}`
+    }
+    const res = await fetch(url, { method: 'POST' })
     const text = await res.text()
     if (!res.ok) {
       throw new Error(`Server error: ${res.status} - ${text}`)

@@ -29,6 +29,7 @@ type ExecuteRequest struct {
 	Strategy       ExecutionStrategy
 	State          *models.AgentState
 	Model          string // Optional model override
+	RecordingRef   string // Recording file ID for playback (empty = live LLM)
 }
 
 type ExecuteResponse struct {
@@ -52,6 +53,7 @@ type LLMServiceProvider interface {
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
 	Orchestrator() *orchestrator.Orchestrator
+	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -99,22 +101,35 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	// Mark as running
 	resp.State.SetRunning(req.AutomationName)
 
-	// Get LLM client
+	// Get LLM client (real or playback from recording)
 	var client proxy.Client
 	var err error
-	if req.Model != "" {
-		client, err = e.svc.GetClientForModel(ctx, req.Model)
-	} else {
-		clientProvider := e.svc.ClientProvider()
-		client, err = clientProvider.GetClient(ctx)
-	}
 
-	if err != nil {
-		errStr := fmt.Sprintf("failed to get llm client: %v", err)
-		resp.State.LastError = errStr
-		resp.State.SetRunning("")
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
-		return resp, fmt.Errorf("failed to get llm client: %w", err)
+	if req.RecordingRef != "" {
+		client, err = e.svc.GetPlaybackClient(ctx, req.RecordingRef)
+		if err != nil {
+			errStr := fmt.Sprintf("failed to load recording %s: %v", req.RecordingRef, err)
+			resp.State.LastError = errStr
+			resp.State.SetRunning("")
+			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+			return resp, fmt.Errorf("failed to load recording: %w", err)
+		}
+		procLog := e.svc.ProcessLogger(req.WorkspaceID)
+		procLog.Info("Running automation from recording", "recording", req.RecordingRef)
+	} else {
+		if req.Model != "" {
+			client, err = e.svc.GetClientForModel(ctx, req.Model)
+		} else {
+			clientProvider := e.svc.ClientProvider()
+			client, err = clientProvider.GetClient(ctx)
+		}
+		if err != nil {
+			errStr := fmt.Sprintf("failed to get llm client: %v", err)
+			resp.State.LastError = errStr
+			resp.State.SetRunning("")
+			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+			return resp, fmt.Errorf("failed to get llm client: %w", err)
+		}
 	}
 
 	// Initialize the unified Agent
@@ -180,8 +195,9 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		{Role: "user", Content: e.buildPrompt(req)},
 	}
 
-	// Inject task name for recording organisation
+	// Inject task name and unique run ID for recording organisation
 	execCtx := models.WithTaskName(ctx, req.AutomationName)
+	execCtx = models.WithRunID(execCtx, generateRunID())
 
 	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
 	if agErr != nil {

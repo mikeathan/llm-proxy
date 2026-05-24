@@ -21,10 +21,26 @@ export interface Automation {
   trigger_value?: string
   trigger_type?: string
   model?: string
+  recording_ref?: string
   last_output?: string
   last_error?: string
   is_running?: boolean
   history?: AutomationRun[]
+}
+
+export interface RecordingMeta {
+  id: string
+  model: string
+  automation_name: string
+  timestamp: string
+  file_path: string
+  file_size: number
+  session_id: string
+}
+
+export interface RecordingStatus {
+  enabled: boolean
+  dir: string
 }
 
 

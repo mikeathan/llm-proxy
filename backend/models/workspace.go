@@ -43,11 +43,12 @@ type TriggerConfig struct {
 }
 
 type Automation struct {
-	Name     string        `yaml:"name"      json:"name"`
-	Trigger  TriggerConfig `yaml:"trigger"   json:"trigger"`
-	TaskFile string        `yaml:"task_file" json:"task_file"`
-	Strategy string        `yaml:"strategy"  json:"strategy"` // "isolated" | "persistent"
-	Model    string        `yaml:"model,omitempty" json:"model,omitempty"` // Model override for this automation
+	Name         string        `yaml:"name"          json:"name"`
+	Trigger      TriggerConfig `yaml:"trigger"       json:"trigger"`
+	TaskFile     string        `yaml:"task_file"     json:"task_file"`
+	Strategy     string        `yaml:"strategy"      json:"strategy"` // "isolated" | "persistent"
+	Model        string        `yaml:"model,omitempty"  json:"model,omitempty"` // Model override for this automation
+	RecordingRef string        `yaml:"recording_ref,omitempty" json:"recording_ref,omitempty"` // Recording file ID for playback
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml

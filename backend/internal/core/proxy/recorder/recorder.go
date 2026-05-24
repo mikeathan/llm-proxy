@@ -16,13 +16,14 @@ import (
 )
 
 type RecordingClient struct {
-	underlying proxy.Client
-	recordDir  string
-	modelName  string
-	mu         sync.Mutex
-	file       *os.File
-	writer     *bufio.Writer
-	encoder    *json.Encoder
+	underlying   proxy.Client
+	recordDir    string
+	modelName    string
+	mu           sync.Mutex
+	file         *os.File
+	writer       *bufio.Writer
+	encoder      *json.Encoder
+	currentRunID string
 }
 
 func New(underlying proxy.Client, recordDir string, modelName string) *RecordingClient {
@@ -36,6 +37,12 @@ func New(underlying proxy.Client, recordDir string, modelName string) *Recording
 func (rc *RecordingClient) ensureFile(ctx context.Context) error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
+
+	runID := models.GetRunID(ctx)
+	if runID != "" && runID != rc.currentRunID {
+		rc.closeFile()
+		rc.currentRunID = runID
+	}
 
 	if rc.file != nil {
 		return nil
@@ -66,6 +73,16 @@ func (rc *RecordingClient) ensureFile(ctx context.Context) error {
 	rc.writer = bufio.NewWriterSize(f, 65536)
 	rc.encoder = json.NewEncoder(rc.writer)
 	return nil
+}
+
+func (rc *RecordingClient) closeFile() {
+	if rc.file != nil {
+		_ = rc.writer.Flush()
+		_ = rc.file.Close()
+		rc.file = nil
+		rc.writer = nil
+		rc.encoder = nil
+	}
 }
 
 func (rc *RecordingClient) flush() {

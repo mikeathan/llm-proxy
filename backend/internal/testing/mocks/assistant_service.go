@@ -68,6 +68,10 @@ func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName 
 	return m.Client.GetClientForModel(ctx, modelName)
 }
 
+func (m *MockAssistantService) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
+	return nil, nil
+}
+
 func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig, bool) {
 	return models.ModelConfig{}, false
 }

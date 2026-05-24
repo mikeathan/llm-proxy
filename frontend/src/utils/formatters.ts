@@ -69,3 +69,11 @@ export function formatParameters(params: number): string {
   if (params >= 1e6) return (params / 1e6).toFixed(1) + "M";
   return params.toString();
 }
+
+/**
+ * Formats a timestamp string into a full locale-aware date+time string.
+ * @example formatTS("2026-05-24T16:29:39Z") → "5/24/2026, 4:29:39 PM"
+ */
+export function formatTS(ts: string): string {
+  return new Date(ts).toLocaleString()
+}

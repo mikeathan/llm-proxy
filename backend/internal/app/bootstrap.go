@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/recordings"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
@@ -52,14 +54,24 @@ func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskE
 }
 
 func (c *Container) BuildAppServices() *AppServices {
+	var recordingStore *recordings.RecordingStore
+	if c.RecordDir != "" {
+		var rsErr error
+		recordingStore, rsErr = recordings.NewRecordingStore(c.RecordDir)
+		if rsErr != nil {
+			logging.Warn("Failed to init recording store", "dir", c.RecordDir, "error", rsErr)
+		}
+	}
+
 	s := &AppServices{
-		Runtime:     c.Core.Runtime,
-		AppCtx:      c.Core.AppCtx,
-		nodeHerder:  c.Infra.NodeHerder,
-		logger:      c.Infra.Logger,
-		Clock:       c.Infra.Clock,
-		persistence: persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
-		limiter:     ratelimiter.NewLimiter(c.Infra.Clock),
+		Runtime:        c.Core.Runtime,
+		AppCtx:         c.Core.AppCtx,
+		nodeHerder:     c.Infra.NodeHerder,
+		logger:         c.Infra.Logger,
+		Clock:          c.Infra.Clock,
+		persistence:    persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
+		limiter:        ratelimiter.NewLimiter(c.Infra.Clock),
+		RecordingStore: recordingStore,
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
@@ -142,6 +154,7 @@ type AppServices struct {
 	dispatcher           *automation.Dispatcher
 	limiter              ratelimiter.Limiter
 	guardrailDecisionStore *assistant.GuardrailDecisionStore
+	RecordingStore       *recordings.RecordingStore
 }
 
 func (s AppServices) Shutdown() {
@@ -234,6 +247,21 @@ func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
 
 func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
 	return s.guardrailDecisionStore
+}
+
+func (s AppServices) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
+	if s.RecordingStore == nil {
+		return nil, fmt.Errorf("recording store not available (start server with --record-dir)")
+	}
+	meta, ok := s.RecordingStore.Get(ref)
+	if !ok {
+		return nil, fmt.Errorf("recording %q not found", ref)
+	}
+	pc, err := recordings.NewPlaybackClient(meta.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("load recording %s: %w", meta.FilePath, err)
+	}
+	return NewPlaybackBridge(pc), nil
 }
 
 func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordDir string) *Container {
@@ -367,7 +395,9 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 		dispatcherHandlers = api.NewDispatcherHandlers(disp, s.logger)
 	}
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers)
+	recordingHandlers := api.NewRecordingHandlers(s.RecordingStore)
+
+	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers)
 }
 
 func buildRouter(
@@ -375,6 +405,7 @@ func buildRouter(
 	proxyHandlers *api.ProxyHandlers,
 	assistant *api.AssistantMessageHandler,
 	dispatcherHandlers *api.DispatcherHandlers,
+	recordings *api.RecordingHandlers,
 ) http.Handler {
 
 	router := api.NewRouter()
@@ -429,6 +460,14 @@ func buildRouter(
 	// Secrets — tool secrets (search, communication, etc.)
 	router.Get("/admin/api/secrets/tools", admin.AdminToolSecretHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/secrets/tools", admin.AdminToolSecretPutHandler, jsonMethodNotAllowed)
+
+	// Recordings
+	if recordings != nil {
+		router.Get("/admin/api/recordings", recordings.List, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/status", recordings.Status, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/{id}", recordings.Get, jsonMethodNotAllowed)
+		router.Delete("/admin/api/recordings/{id}", recordings.Delete, jsonMethodNotAllowed)
+	}
 
 	// Dispatcher
 	if dispatcherHandlers != nil {

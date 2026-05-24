@@ -14,6 +14,7 @@ const (
 	WorkspaceIDKey        contextKey = "workspace_id"
 	GuardrailApprovedKey  contextKey = "guardrail_approved"
 	TaskNameKey           contextKey = "task_name"
+	RunIDKey              contextKey = "run_id"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -62,6 +63,23 @@ func GetTaskName(ctx context.Context) string {
 	}
 	if name, ok := ctx.Value(TaskNameKey).(string); ok {
 		return name
+	}
+	return ""
+}
+
+// WithRunID injects a unique execution run ID into the context.
+// The recorder uses this to create a new file per execution run.
+func WithRunID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, RunIDKey, id)
+}
+
+// GetRunID retrieves the execution run ID from the context.
+func GetRunID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(RunIDKey).(string); ok {
+		return id
 	}
 	return ""
 }

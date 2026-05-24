@@ -100,6 +100,7 @@ type AssistantService interface {
 	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	Persistence() *persistence.WorkspaceManager
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
+	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
 	Orchestrator() *orchestrator.Orchestrator
 	ProcessLogger(workspaceID string) logging.Logger
