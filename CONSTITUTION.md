@@ -51,7 +51,7 @@ This document defines the immutable architectural and security laws of the Antig
      *   Read by the executor from `Runtime.ListModels()`.
      *   Passed to `AgentOptions` when creating the Agent.
      *   The agent uses them directly — no global defaults override per-model settings.
-     *   Provider-tier defaults (`assistant/tiers.go`) define baseline values for each provider type (local, gemini, openai, openrouter, etc.). These defaults are applied when creating new model entries but do not override explicitly set per-model values.
+     *   Provider-tier defaults (`assistant/agent.go`) define baseline values for each provider type (local, gemini, openai, openrouter, etc.). These defaults are applied when creating new model entries but do not override explicitly set per-model values.
 12. **Prompt Centralization** (SINGLE SOURCE OF TRUTH): `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings.
     *   System messages, nag prompts, parse-error feedback, JSON error translations.
     *   Escalation prefixes, protocol instructions, system rule text.

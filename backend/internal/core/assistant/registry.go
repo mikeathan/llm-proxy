@@ -1,3 +1,7 @@
+// registry.go — LocalToolRegistry, all tool registration, and
+// InitializeAgentStack (the top-level wiring function).  The init helper
+// functions (initTerminalTools, initCommunicationTools, etc.) are extracted
+// here to keep InitializeAgentStack as a short orchestration function.
 package assistant
 
 import (
@@ -80,6 +84,90 @@ func NewLocalToolRegistry(
 // ToolHandler is a function that executes a local tool.
 type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 
+func initTerminalTools(
+	resolver storage.Resolver,
+	persistence *persistence.WorkspaceManager,
+	defaultGuardrails models.AgentGuardrailsConfig,
+	shellManager shell.ShellProvider,
+	observer tools.StreamObserver,
+) *tools.TerminalTools {
+	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
+		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
+			return c.Terminal
+		})
+	}, func(workspaceID string) string {
+		if workspaceID == "" || persistence == nil {
+			return ""
+		}
+		return resolver.WorkspaceDir(workspaceID)
+	})
+	if shellManager != nil {
+		terminal.SetShellProvider(shellManager, observer)
+	}
+	return terminal
+}
+
+func initCommunicationTools(appCtx interface {
+	GetRegistry() models.RegistryData
+	Secrets() models.SecretsStore
+}) *tools.CommunicationTools {
+	reg := appCtx.GetRegistry()
+	comm := tools.NewCommunicationTools()
+	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
+	if reg.Communication.Telegram.Enabled && telegramToken != "" {
+		comm.AddNotifier(&tools.TelegramNotifier{
+			Token:  telegramToken,
+			ChatID: reg.Communication.Telegram.ChatID,
+		})
+	}
+	return comm
+}
+
+func initNetworkTools(
+	persistence *persistence.WorkspaceManager,
+	defaultGuardrails models.AgentGuardrailsConfig,
+	logger logging.Logger,
+) *tools.NetworkTools {
+	return tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
+		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
+			return c.Network
+		})
+	}, logger)
+}
+
+func initSearchTools(appCtx interface {
+	Secrets() models.SecretsStore
+}, network *tools.NetworkTools) *tools.InternetTools {
+	tavilyKey := appCtx.Secrets().GetSecret("search", "tavily")
+	if tavilyKey == "" {
+		return nil
+	}
+	return tools.NewInternetTools(&tools.TavilyProvider{
+		APIKey: tavilyKey,
+		Client: network.HTTPClient(),
+	})
+}
+
+func initFileSystemTools(
+	resolver storage.Resolver,
+	persistence *persistence.WorkspaceManager,
+	defaultGuardrails models.AgentGuardrailsConfig,
+) *tools.FileSystemTools {
+	return tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		cfg := getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
+			return c.FileSystem
+		})
+		allowed := make([]string, 0, len(cfg.AllowedPaths)+1)
+		if wsID := models.GetWorkspaceID(ctx); wsID != "" {
+			wsPath := resolver.WorkspaceDir(wsID)
+			allowed = append(allowed, wsPath)
+		}
+		allowed = append(allowed, cfg.AllowedPaths...)
+		cfg.AllowedPaths = allowed
+		return cfg
+	})
+}
+
 func InitializeAgentStack(
 	appCtx interface {
 		GetSystem() models.SystemConfig
@@ -97,75 +185,16 @@ func InitializeAgentStack(
 	resolver := appCtx.Resolver()
 	defaultGuardrails := appCtx.GetGuardrails()
 
-	// 1. Initialize Terminal
-	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
-			return c.Terminal
-		})
-	}, func(workspaceID string) string {
-		if workspaceID == "" || persistence == nil {
-			return ""
-		}
-		return resolver.WorkspaceDir(workspaceID)
-	})
-	if shellManager != nil {
-		terminal.SetShellProvider(shellManager, observer)
-	}
-
-	// 2. Initialize Guardrail Engine
+	terminal := initTerminalTools(resolver, persistence, defaultGuardrails, shellManager, observer)
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, resolver, persistence)
-
-	// 3. Initialize Communications
-	reg := appCtx.GetRegistry()
-	comm := tools.NewCommunicationTools()
-	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
-	if reg.Communication.Telegram.Enabled && telegramToken != "" {
-		comm.AddNotifier(&tools.TelegramNotifier{
-			Token:  telegramToken,
-			ChatID: reg.Communication.Telegram.ChatID,
-		})
-	}
-
-	// 4. Initialize Network (Guardrail foundation)
-	network := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
-		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
-			return c.Network
-		})
-	}, logger)
-
-	// 5. Initialize Search with guarded client
-	var search *tools.InternetTools
-	if tavilyKey := appCtx.Secrets().GetSecret("search", "tavily"); tavilyKey != "" {
-		search = tools.NewInternetTools(&tools.TavilyProvider{
-			APIKey: tavilyKey,
-			Client: network.HTTPClient(),
-		})
-	}
-
-	// 6. Initialize FileSystem
-	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
-		cfg := getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
-			return c.FileSystem
-		})
-
-		// Important: Create a fresh copy of the slice to avoid polluting shared defaultGuardrails
-		allowed := make([]string, 0, len(cfg.AllowedPaths)+1)
-		
-		if wsID := models.GetWorkspaceID(ctx); wsID != "" {
-			wsPath := resolver.WorkspaceDir(wsID)
-			allowed = append(allowed, wsPath)
-		}
-
-		allowed = append(allowed, cfg.AllowedPaths...)
-		cfg.AllowedPaths = allowed
-		return cfg
-	})
+	comm := initCommunicationTools(appCtx)
+	network := initNetworkTools(persistence, defaultGuardrails, logger)
+	search := initSearchTools(appCtx, network)
+	fsTools := initFileSystemTools(resolver, persistence, defaultGuardrails)
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
-
-	// 6. Aggregate Tools: Local Registry + Remote MCP
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
@@ -197,6 +226,9 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 // Local models default to text-only to avoid confusing non-function-calling
 // models with API-level tool definitions they cannot process.  Models that
 // support native function calling can opt in via ModelConfig.ToolCallFormat.
+// UseNativeTools returns false because local models default to XML text mode.
+// API-level tool schemas confuse non-function-calling local servers; models
+// that support native tools opt in via ModelConfig.ToolCallFormat = "native".
 func (r *LocalToolRegistry) UseNativeTools() bool {
 	return false
 }

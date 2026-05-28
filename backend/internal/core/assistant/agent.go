@@ -1,8 +1,11 @@
+// agent.go — Agent struct, options, constructors, guardrail decision store,
+// repetition detection, and the Execute entry point (thin wrapper delegating
+// to runSession).  Also holds message preparation helpers shared across all
+// LLM-calling paths.
 package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -11,48 +14,42 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	// DefaultMaxSteps is the fallback when no per-model value is set.
-	DefaultMaxSteps = 25
-	// DefaultContextBudget is the character count that triggers the physical sieve.
-	// For an 8K-token model (~16K chars at 2:1 char:token ratio), 8000 chars keeps
-	// the input under ~4000 tokens and leaves room for a 2048-token response.
-	DefaultContextBudget = 8000
-	// DefaultMaxTokens limits the LLM response length to prevent context overflow
-	// and truncation of tool call arguments (e.g. write_file with huge content).
-	DefaultMaxTokens = 3072
-	// MinReasoningStuckThreshold is the minimum floor for reasoning stuck
-	// detection in chars. The effective threshold is maxTokens * 2 chars,
-	// with this as the lower bound.
-	MinReasoningStuckThreshold = 2000
-	// Sieve constants — shared between compression and message-dropping sieves.
-	sieveLockedHead      = 2     // system + task messages, always preserved
-	sievePhysicalTail    = 10    // recent turns kept by physical sieve
-	sieveReactiveTail    = 6     // recent turns kept by reactive sieve
-	sieveAggressiveTail  = 3     // recent turns kept by aggressive sieve
-	compressContentMax   = 4000  // max chars before Content is truncated
-	compressReasoningMax = 2000  // max chars before ReasoningContent is truncated
-
-	// DefaultStarvationLimit is the max consecutive no-tool turns before the agent
-	// is considered stalled and fails.  Tool-call failures and retries still count
-	// as "steps" but turns without ANY tool call are tracked separately so the
-	// agent can't loop forever on text-only rambling.
-	DefaultStarvationLimit = 15
-	// AgentGlobalTimeout is the maximum duration for a complete agentic operation.
-	AgentGlobalTimeout = 30 * time.Minute
-	// AgentTurnTimeout is the maximum time allowed for a single LLM turn.
-	AgentTurnTimeout = 10 * time.Minute
-	// AgentRetryTimeout is the timeout used for fallback/retry logic.
-	AgentRetryTimeout = 5 * time.Minute
+	DefaultMaxSteps         = 25
+	DefaultContextBudget    = 8000   // chars, not tokens — rough heuristic for context window pressure
+	DefaultMaxTokens        = 3072
+	MinReasoningStuckThreshold = 2000  // chars; floor for stuck detection even at small max_tokens
+	DefaultStarvationLimit  = 15
+	AgentGlobalTimeout      = 30 * time.Minute  // total wall-clock for one Execute call
+	AgentTurnTimeout        = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
+	AgentRetryTimeout       = 5 * time.Minute   // tool-support-fallback retry timeout
 )
 
-// Agent represents a unified, stateful assistant that can use tools.
+type ProviderTuningDefaults struct {
+	MaxSteps        int
+	ContextBudget   int
+	MaxTokens       int
+	ToolCallFormat  string
+	Prefill         bool
+	ReasoningBudget int
+}
+
+func ProviderTiers() map[string]ProviderTuningDefaults {
+	return map[string]ProviderTuningDefaults{
+		"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, ReasoningBudget: 0},
+		"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
+		"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
+		"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
+		"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
+		"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
+		"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 2048},
+	}
+}
+
 type Agent struct {
 	client          proxy.Client
 	provider        ToolProvider
@@ -68,40 +65,123 @@ type Agent struct {
 	useNativeTools  bool
 	observer        Observer
 	workspaceID     string
-	onGuardrail     GuardrailDecisionCallback
-	prefillDisabled bool
-	usePrefill      bool
-	suppressReasoningBudget bool
-	skipStuckCheck          bool
+	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
+	prefillDisabled bool                       // set true after first prefill rejection by server
+	usePrefill      bool                       // automation mode prefill (<tool_call> stub)
+	suppressReasoningBudget bool               // XML fallback: don't cap reasoning budget
+	skipStuckCheck          bool               // XML fallback: disable stuck detection
 	
 	orch            *orchestrator.Orchestrator
 	modelName       string
 	providerType    string
-	planStrategy    *ExecutionPlanStrategy
+	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
 }
 
 type AgentOptions struct {
-	MaxSteps                 int     // 0 = use DefaultMaxSteps
-	ContextBudget            int     // 0 = use DefaultContextBudget
-	MaxResponseTokens        int     // 0 = use DefaultMaxTokens
-	ReasoningBudget          int     // 0 = use provider default (no cap)
-	ICUWeight                float64 // 0 = default 1.0
+	MaxSteps                 int
+	ContextBudget            int
+	MaxResponseTokens        int
+	ReasoningBudget          int
+	ICUWeight                float64
 	Logger                   logging.Logger
 	Guardrails               *guardrails.GuardrailEngine
 	Observer                 Observer
 	WorkspaceID              string
-	UseNativeTools           *bool // nil = delegate to provider; explicit true/false overrides
-	UsePrefill               bool  // explicitly enable prefill; tier default is consulted when false
+	UseNativeTools           *bool
+	UsePrefill               bool
 	GuardrailDecisionHandler GuardrailDecisionCallback
 	Orchestrator             *orchestrator.Orchestrator
 	ModelName                string
 	ProviderType             string
-	GlobalTimeout            time.Duration // 0 = use DefaultAgentGlobalTimeout
+	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
 }
 
-// applyDefaults fills in zero-valued fields with their global defaults
-// so callers don't need to repeat this boilerplate for every agent instance.
+type GuardrailDecisionStore struct {
+	mu      sync.Mutex
+	pending map[string]chan GuardrailDecision
+}
+
+func NewGuardrailDecisionStore() *GuardrailDecisionStore {
+	return &GuardrailDecisionStore{
+		pending: make(map[string]chan GuardrailDecision),
+	}
+}
+
+func (s *GuardrailDecisionStore) Register(id string, ch chan GuardrailDecision) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pending[id] = ch
+}
+
+func (s *GuardrailDecisionStore) Resolve(id string, decision GuardrailDecision) bool {
+	s.mu.Lock()
+	ch, ok := s.pending[id]
+	if ok {
+		delete(s.pending, id)
+	}
+	s.mu.Unlock()
+
+	if !ok {
+		return false
+	}
+	select {
+	case ch <- decision:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *GuardrailDecisionStore) Remove(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.pending, id)
+}
+
+func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observer) GuardrailDecisionCallback {
+	return func(ctx context.Context, payload GuardrailBlockedPayload) (GuardrailDecision, error) {
+		ch := make(chan GuardrailDecision, 1)
+		store.Register(payload.DecisionID, ch)
+
+		if observer != nil {
+			observer(AgentEvent{
+				Type:      EventGuardrailBlocked,
+				Payload:   payload,
+				Timestamp: time.Now(),
+			})
+		}
+
+		select {
+		case decision := <-ch:
+			if observer != nil {
+				observer(AgentEvent{
+					Type: EventGuardrailInvalidated,
+					Payload: GuardrailInvalidatedPayload{
+						DecisionID: payload.DecisionID,
+						Reason:     "decision_resolved",
+					},
+					Timestamp: time.Now(),
+				})
+			}
+			return decision, nil
+		case <-ctx.Done():
+			store.Remove(payload.DecisionID)
+			if observer != nil {
+				observer(AgentEvent{
+					Type: EventGuardrailInvalidated,
+					Payload: GuardrailInvalidatedPayload{
+						DecisionID: payload.DecisionID,
+						Reason:     "context_cancelled",
+					},
+					Timestamp: time.Now(),
+				})
+			}
+			return GuardrailDecision{Allow: false}, ctx.Err()
+		}
+	}
+}
+
 func (o *AgentOptions) applyDefaults() {
 	if o.MaxSteps <= 0 {
 		o.MaxSteps = DefaultMaxSteps
@@ -123,24 +203,20 @@ func (o *AgentOptions) applyDefaults() {
 	}
 }
 
-// NewAgent creates a new unified agent.
 func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts AgentOptions) *Agent {
 	opts.applyDefaults()
 
-	// Guardrails: default engine if none provided.
 	gr := opts.Guardrails
 	if gr == nil {
 		gr = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
 	}
 
-	// Resolve UseNativeTools: explicit override takes precedence, otherwise ask provider.
 	useNative := provider.UseNativeTools()
 	if opts.UseNativeTools != nil {
 		useNative = *opts.UseNativeTools
 	}
 
-	// Resolve prefill preference: provider tier default, then model config override.
-	usePrefill := true // backward-compat default
+	usePrefill := true
 	if opts.ProviderType != "" {
 		if tier, ok := ProviderTiers()[opts.ProviderType]; ok {
 			usePrefill = tier.Prefill
@@ -177,8 +253,6 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	return a
 }
 
-// ── Repetition Detection ──────────────────────────────────────────────────
-
 type toolKey struct {
 	name string
 	args string
@@ -189,11 +263,10 @@ type repetitionDetector struct {
 	duplicateStreak int
 }
 
-// check returns a nag prompt at streak 1-2, a fatal error at streak >= 3.
-// submit_final_answer and system_error are excluded from tracking.
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
 	for _, tc := range toolCalls {
 		key := toolKey{tc.Function.Name, tc.Function.Arguments}
+		// submit_final_answer and system_error are expected to repeat in automation loops
 		if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
 			if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
 				rd.duplicateStreak++
@@ -213,14 +286,14 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 	return false, "", nil
 }
 
-// ── Main Agentic Loop ─────────────────────────────────────────────────────
-// Execute runs the agentic loop until maxSteps, submit_final_answer, or error.
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
 	execCtx, cancel := context.WithTimeout(ctx, a.globalTimeout)
 	defer cancel()
 
 	execCtx = withUsageTracker(execCtx)
 
+	// Plan strategy short-circuits: if enabled, generate a plan for the last user
+	// message and execute it step-by-step. Falls back to the agent loop on failure.
 	if a.planStrategy != nil {
 		lastUserMsg := ""
 		for i := len(history) - 1; i >= 0; i-- {
@@ -241,1482 +314,16 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 		}
 	}
 
-	steps := 0
-	sieveStreak := 0
-	starvationCount := 0
-	warnedAdvisory := false
-	currentHistory := append([]proxy.Message{}, history...)
-	rd := repetitionDetector{}
-
-	parseErrorStreak := 0
-	lastParseErrorKind := ""
-	totalErrorStreak := 0
-	modelCompatNotified := false
-
-	isAutomation := false
-	for _, m := range currentHistory {
-		if prompts.IsAutomationTask(m.Content) {
-			isAutomation = true
-			break
-		}
-	}
-
-	for {
-		steps++
-		if err := execCtx.Err(); err != nil {
-			return "", currentHistory, fmt.Errorf("agent execution halted: %w", err)
-		}
-
-		if steps >= a.maxSteps && !warnedAdvisory {
-			warnedAdvisory = true
-			a.logger.Warn("agent exceeded advisory step limit, continuing", "steps", steps)
-		}
-
-		a.notifyStepStart(steps)
-		a.notifyThinking()
-
-		// ── Execute One Turn ────────────────────────────────────────────
-		// Calls the LLM, parses tool calls from the response, validates them.
-		turnMsg, parseErr, toolsList, err := a.executeTurn(execCtx, &currentHistory)
-		if err != nil {
-			starvationCount++
-			if starvationCount >= DefaultStarvationLimit {
-				return "", currentHistory, fmt.Errorf("agent stalled: %w", err)
-			}
-			if isContextSizeError(err) {
-				sieveStreak++
-				if sieveStreak >= 3 {
-					return "", currentHistory, fmt.Errorf("agent execution failed: model stuck in reasoning loop after %d sieve retries", sieveStreak)
-				}
-				if sieveStreak == 1 {
-					currentHistory = a.applyReactiveSieve(currentHistory)
-					currentHistory = append(currentHistory, proxy.Message{
-						Role:    proxy.UserRole,
-						Content: prompts.ReasoningStuckNag,
-					})
-				} else {
-					if len(currentHistory) <= 2 {
-						return "", currentHistory, fmt.Errorf("agent execution failed: cannot recover from reasoning loop")
-					}
-					currentHistory = a.applyAggressiveSieve(currentHistory)
-					currentHistory = append(currentHistory, proxy.Message{
-						Role:    proxy.UserRole,
-						Content: prompts.ReasoningStuckEscalatedNag,
-					})
-				}
-				continue
-			}
-
-			if isToolCallParseError(err) {
-				a.logger.Warn("server-side tool call JSON parse error, sending length feedback to model", "error", err)
-				totalErrorStreak++
-				if totalErrorStreak >= 5 && !modelCompatNotified {
-					modelCompatNotified = true
-					a.notifyModelCompatWarning(a.useNativeTools)
-				}
-				currentHistory = append(currentHistory, proxy.Message{
-					Role:    proxy.UserRole,
-					Content: prompts.AutomationContentTooLongPrompt,
-				})
-				continue
-			}
-
-			return "", currentHistory, err
-		}
-
-		sieveStreak = 0
-
-		// ── Tool Calls Produced ─────────────────────────────────────────
-		// Deduplicate, check for loops, execute, check for submit_final_answer.
-		if len(turnMsg.ToolCalls) > 0 {
-			starvationCount = 0
-			parseErrorStreak = 0
-			lastParseErrorKind = ""
-			totalErrorStreak = 0
-			modelCompatNotified = false
-
-			isDuplicate, nagPrompt, dupErr := rd.check(a.logger, turnMsg.ToolCalls)
-			if dupErr != nil {
-				return "", currentHistory, dupErr
-			}
-			if isDuplicate {
-				currentHistory = append(currentHistory, turnMsg)
-				a.notify(EventMessage, turnMsg)
-				currentHistory = append(currentHistory, proxy.Message{
-					Role:    proxy.UserRole,
-					Content: nagPrompt,
-				})
-				continue
-			}
-
-			if len(turnMsg.Content) > 1000 {
-				hasWrite := false
-				for _, tc := range turnMsg.ToolCalls {
-					if tc.Function.Name == models.ToolFileWrite {
-						hasWrite = true
-						break
-					}
-				}
-				if hasWrite {
-					turnMsg.Content = "[Response trimmed — write_file content too long. See tool result feedback.]"
-				}
-			}
-
-			currentHistory = append(currentHistory, turnMsg)
-			a.notify(EventMessage, turnMsg)
-			if err := a.processToolCalls(execCtx, turnMsg, &currentHistory); err != nil {
-				return "", currentHistory, err
-			}
-
-			hasFinalSubmit := false
-			for _, tc := range turnMsg.ToolCalls {
-				if tc.Function.Name == models.ToolSubmitFinalAnswer {
-					summary := extractTaskSummary(tc.Function.Arguments)
-					if turnMsg.Content == "" || (summary != "Task complete." && summary != "") {
-						turnMsg.Content = summary
-					}
-					hasFinalSubmit = true
-				}
-			}
-			if hasFinalSubmit {
-				return turnMsg.Content, currentHistory, nil
-			}
-			// ── No Tool Calls ──────────────────────────────────────────────
-			// Exit heuristics for pure-text responses: premature termination,
-			// parse error feedback, or generic nag.
-		} else {
-			starvationCount++
-			if starvationCount >= DefaultStarvationLimit {
-				return "", currentHistory, fmt.Errorf("agent stalled: no tool calls in %d consecutive turns", starvationCount)
-			}
-			reply, shouldExit, err := a.handleNoToolCalls(
-				turnMsg,
-				&currentHistory,
-				isAutomation,
-				parseErr,
-				toolsList,
-				steps,
-				&parseErrorStreak,
-				&lastParseErrorKind,
-				&totalErrorStreak,
-				&modelCompatNotified,
-			)
-			if err != nil {
-				return "", currentHistory, err
-			}
-			if shouldExit {
-				return reply, currentHistory, nil
-			}
-		}
-	}
+	s := newRunSession(a, execCtx, history)
+	return s.run()
 }
 
-// ── Context Pressure Sieves ───────────────────────────────────────────────
-// These keep the LLM's input under the context window by pruning old messages.
-
-// truncateLongContent truncates a string to half its original length at both
-// ends when it exceeds limit, inserting a truncation marker in the middle.
-func truncateLongContent(s string, limit int) string {
-	if len(s) <= limit || limit <= 0 {
-		return s
-	}
-	half := limit / 2
-	return s[:half] + "\n...[Truncated]...\n" + s[len(s)-half:]
-}
-
-// applyPhysicalSieve is called before EVERY LLM turn.  First tries to compress
-// long content in older messages, then falls back to keeping
-// sieveLockedHead + sievePhysicalTail messages when total characters
-// exceed a.contextBudget.
-func (a *Agent) applyPhysicalSieve(history []proxy.Message) []proxy.Message {
-	totalChars := 0
-	for _, m := range history {
-		totalChars += len(m.Content)
-	}
-	if totalChars <= a.contextBudget {
-		return history
-	}
-
-	a.logger.Warn("critical context pressure - activating physical sieve", "chars", totalChars)
-
-	// First pass: compress long content in older messages before dropping.
-	compressStart := sieveLockedHead
-	compressEnd := len(history) - sievePhysicalTail
-	if compressStart < compressEnd {
-		for i := compressStart; i < compressEnd; i++ {
-			history[i].Content = truncateLongContent(history[i].Content, compressContentMax)
-			history[i].ReasoningContent = truncateLongContent(history[i].ReasoningContent, compressReasoningMax)
-		}
-		totalChars = 0
-		for _, m := range history {
-			totalChars += len(m.Content)
-		}
-		if totalChars <= a.contextBudget {
-			return history
-		}
-	}
-
-	if len(history) <= sieveLockedHead+sievePhysicalTail {
-		return history
-	}
-
-	newHistory := make([]proxy.Message, 0, len(history))
-	newHistory = append(newHistory, history[:sieveLockedHead]...)
-	newHistory = append(newHistory, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
-	newHistory = append(newHistory, history[len(history)-sievePhysicalTail:]...)
-	newHistory = append(newHistory, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.ContextSieveWarning,
-	})
-	return newHistory
-}
-
-// applyReactiveSieve prunes history aggressively in response to an LLM context size overflow error.
-func (a *Agent) applyReactiveSieve(history []proxy.Message) []proxy.Message {
-	a.logger.Warn("context size overflow detected, applying reactive sieve")
-	if len(history) <= sieveLockedHead+sieveReactiveTail {
-		return history
-	}
-	sieved := make([]proxy.Message, 0, len(history))
-	sieved = append(sieved, history[:sieveLockedHead]...)
-	sieved = append(sieved, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
-	tail := sieveReactiveTail
-	if len(history) < tail+sieveLockedHead {
-		tail = len(history) - sieveLockedHead
-	}
-	return append(sieved, history[len(history)-tail:]...)
-}
-
-// applyAggressiveSieve prunes even more aggressively for the 2nd consecutive
-// stuck event — keeps only the first 2 messages + the last 3.
-func (a *Agent) applyAggressiveSieve(history []proxy.Message) []proxy.Message {
-	a.logger.Warn("aggressive sieve applied — model stuck after prior recovery attempt")
-	sieved := make([]proxy.Message, 0, sieveLockedHead+sieveAggressiveTail+1)
-	sieved = append(sieved, history[:sieveLockedHead]...)
-	sieved = append(sieved, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
-	tail := sieveAggressiveTail
-	if len(history) < tail+sieveLockedHead {
-		tail = len(history) - sieveLockedHead
-	}
-	return append(sieved, history[len(history)-tail:]...)
-}
-
-// ── Single Turn ───────────────────────────────────────────────────────────
-// executeTurn runs one LLM call, parses tool calls, validates & deduplicates.
-func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (proxy.Message, *proxy.ParseError, []proxy.Tool, error) {
-	turnCtx, turnCancel := context.WithTimeout(ctx, AgentTurnTimeout)
-	defer turnCancel()
-
-	toolsList, err := a.provider.ListTools(turnCtx)
-	if err != nil {
-		return proxy.Message{}, nil, nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	*history = a.applyPhysicalSieve(*history)
-
-	msg, err := a.computeNextResponse(turnCtx, *history, toolsList)
-	if err != nil {
-		return proxy.Message{}, nil, nil, err
-	}
-
-	a.logger.Debug("raw model response",
-		"content_len", len(msg.Content),
-		"content", msg.Content,
-		"native_tool_calls", len(msg.ToolCalls),
-	)
-
-	parseErr := a.handleContentToolCalls(&msg)
-	turnMsg := msg
-
-	if parseErr != nil && (parseErr.XMLFound || len(turnMsg.ToolCalls) == 0) {
-		contentPreview := ""
-		if len(msg.Content) > 0 {
-			contentPreview = msg.Content
-			if len(contentPreview) > 500 {
-				contentPreview = contentPreview[:500]
-			}
-		}
-		a.logger.Warn("tool call parse error",
-			"xml_found", parseErr.XMLFound,
-			"json_error", parseErr.JSONError,
-			"tool_name", parseErr.ToolName,
-			"content_preview", contentPreview,
-		)
-	}
-
-	if len(turnMsg.ToolCalls) > 0 {
-		parseErr = nil
-		for _, tc := range turnMsg.ToolCalls {
-			if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
-				if pe, ok := valErr.(*proxy.ParseError); ok {
-					parseErr = pe
-				}
-				break
-			}
-		}
-		if parseErr != nil {
-			parseErr.XMLFound = true
-			turnMsg.ToolCalls = nil
-			if len(turnMsg.Content) > 400 && isTruncationError(parseErr.JSONError) {
-				turnMsg.Content = "[Large response truncated — see next message for guidance.]"
-			}
-			return turnMsg, parseErr, toolsList, nil
-		}
-
-		uniqueCalls := make([]proxy.ToolCall, 0, len(turnMsg.ToolCalls))
-		seenInTurn := make(map[string]bool)
-		for _, tc := range turnMsg.ToolCalls {
-			callKey := tc.Function.Name + ":" + tc.Function.Arguments
-			if !seenInTurn[callKey] {
-				seenInTurn[callKey] = true
-				uniqueCalls = append(uniqueCalls, tc)
-			}
-		}
-		turnMsg.ToolCalls = uniqueCalls
-	}
-
-	return turnMsg, parseErr, toolsList, nil
-}
-
-// ── No-Tool-Call Handling ─────────────────────────────────────────────────
-// When the LLM produces text only (no tool calls), decide whether to exit
-// (premature termination) or nag the model to produce a tool call.
-func (a *Agent) handleNoToolCalls(
-	turnMsg proxy.Message,
-	history *[]proxy.Message,
-	isAutomation bool,
-	parseErr *proxy.ParseError,
-	toolsList []proxy.Tool,
-	steps int,
-	parseErrorStreak *int,
-	lastParseErrorKind *string,
-	totalErrorStreak *int,
-	modelCompatNotified *bool,
-) (string, bool, error) {
-	if len(*history) == 0 || (*history)[len(*history)-1].Content != turnMsg.Content {
-		*history = append(*history, turnMsg)
-		a.notify(EventMessage, turnMsg)
-	}
-
-	if isAutomation {
-		if a.isPrematureTermination(turnMsg, *history) {
-			a.logger.Warn("automation task — premature termination detected", "step", steps)
-			return turnMsg.Content, true, nil
-		}
-
-		if parseErr != nil {
-			errKind := parseErrorKind(parseErr)
-			if errKind == *lastParseErrorKind {
-				*parseErrorStreak++
-			} else {
-				*parseErrorStreak = 0
-				*lastParseErrorKind = errKind
-			}
-			*totalErrorStreak++
-			if *totalErrorStreak >= 5 && !*modelCompatNotified {
-				*modelCompatNotified = true
-				a.notifyModelCompatWarning(a.useNativeTools)
-			}
-
-			availableNames := proxy.AvailableToolNames(toolsList)
-			feedback := parseErr.Feedback(availableNames)
-
-			if *parseErrorStreak >= 2 {
-				feedback = fmt.Sprintf(prompts.ParseErrorEscalationPrefix, feedback)
-			}
-
-			a.logger.Debug("injecting specific parse-error feedback",
-				"error", parseErr.Error(),
-				"streak", *parseErrorStreak,
-				"feedback", feedback,
-			)
-			*history = append(*history, proxy.Message{
-				Role:    proxy.UserRole,
-				Content: feedback,
-			})
-		} else {
-			a.logger.Warn("turn resulted in no action - nagging model", "step", steps, "nag", prompts.AutomationNagPrompt)
-			*history = append(*history, proxy.Message{
-				Role:    proxy.UserRole,
-				Content: prompts.AutomationNagPrompt,
-			})
-		}
-		return "", false, nil
-	}
-
-	if a.isPrematureTermination(turnMsg, *history) {
-		a.logger.Info("premature termination detected — model is repeating or producing empty output")
-		return turnMsg.Content, true, nil
-	}
-	if steps == 1 {
-		return turnMsg.Content, true, nil
-	}
-	if a.countConsecutiveChat(*history) >= 2 {
-		return turnMsg.Content, true, nil
-	}
-	if a.precededByToolResult(*history) {
-		return turnMsg.Content, true, nil
-	}
-
-	return "", false, nil
-}
-
-// parseErrorKind classifies a ParseError into a stable category so the
-// escalation logic can detect when the model keeps making the same mistake.
-func parseErrorKind(e *proxy.ParseError) string {
-	if e == nil {
-		return ""
-	}
-	if !e.XMLFound {
-		return "no_xml"
-	}
-	if e.JSONError != "" {
-		return "json"
-	}
-	if e.ToolName != "" {
-		return "tool_name"
-	}
-	return ""
-}
-
-func isTruncationError(errStr string) bool {
-	low := strings.ToLower(errStr)
-	return strings.Contains(low, "unexpected end") || strings.Contains(low, "missing closing")
-}
-
-func isToolCallParseError(err error) bool {
-	if err == nil {
-		return false
-	}
-	low := strings.ToLower(err.Error())
-	return strings.Contains(low, "failed to parse tool call arguments")
-}
-
-func isContextSizeError(err error) bool {
-	if err == nil {
-		return false
-	}
-	low := strings.ToLower(err.Error())
-	return strings.Contains(low, "context size") ||
-		strings.Contains(low, "context_length_exceeded") ||
-		strings.Contains(low, "maximum context length") ||
-		strings.Contains(low, "reduce the length") ||
-		strings.Contains(low, "too many tokens") ||
-		strings.Contains(low, "reasoning stuck")
-}
-
-// ── Content Tool Call Parsing ─────────────────────────────────────────────
-// Parses <tool_call> XML blocks from generated text.  Native tool calls from
-// API deltas are already in msg.ToolCalls by this point.
-func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
-	if msg.Content == "" {
-		return nil
-	}
-	cleaned, calls, parseErr := proxy.ParseContentToolCalls(msg.Content)
-	msg.Content = cleaned
-	if parseErr == nil && len(calls) > 0 {
-		msg.ToolCalls = append(msg.ToolCalls, calls...)
-		a.logger.Debug("xml tool calls parsed from content", "count", len(calls))
-		return nil
-	}
-
-	if a.useNativeTools {
-		nativeCleaned, nativeCalls, nativeErr := proxy.ParseNativeToolCalls(msg.Content)
-		if nativeErr == nil && len(nativeCalls) > 0 {
-			msg.Content = nativeCleaned
-			msg.ToolCalls = append(msg.ToolCalls, nativeCalls...)
-			a.logger.Debug("native format tool calls parsed from content", "count", len(nativeCalls))
-			return nil
-		}
-	}
-
-	return parseErr
-}
-
-// precededByToolResult checks whether the last assistant message (no tool calls)
-// follows a tool result, indicating that the model has just completed a tool loop.
-func (a *Agent) precededByToolResult(history []proxy.Message) bool {
-	if len(history) < 2 {
-		return false
-	}
-	last := history[len(history)-1]
-	prev := history[len(history)-2]
-	return last.Role == proxy.AssistantRole &&
-		len(last.ToolCalls) == 0 &&
-		strings.TrimSpace(last.Content) != "" &&
-		prev.Role == proxy.ToolRole
-}
-
-func (a *Agent) countConsecutiveChat(history []proxy.Message) int {
-	chatCount := 0
-	var lastContent string
-	for j := len(history) - 1; j >= 0; j-- {
-		if history[j].Role == proxy.AssistantRole && len(history[j].ToolCalls) == 0 {
-			// Check for near-identical monologue repetition
-			current := strings.TrimSpace(history[j].Content)
-			if lastContent != "" && len(current) > 10 && strings.Contains(lastContent, current[:len(current)/2]) {
-				chatCount += 2 // Penalize similar monologues heavily
-			} else {
-				chatCount++
-			}
-			lastContent = current
-		} else {
-			break
-		}
-	}
-	return chatCount
-}
-
-// ── LLM Calls (Streaming + Non-Streaming) ─────────────────────────────────
-// computeNextResponse tries streaming first, with these fallback layers:
-//  1. prefill rejected by server (thinking mode) → retry streaming without prefill
-//  2. stream error → non-streaming with same tools
-//  3. stream returned empty with native tools → XML streaming retry (disable
-//     native tools + tool_choice + reasoningBudget, skip stuck check, user sees
-//     tokens in real-time).  If also empty → non-streaming Chat as last resort.
-//  4. stream returned empty without native tools → non-streaming with tools
-func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
-	// Decide whether to pass tool definitions via API (native) or embed them
-	// as XML instructions in the system prompt (text-based).
-	llmTools := tools
-	if !a.useNativeTools {
-		llmTools = nil
-	}
-
-	prepared := a.prepareMessages(history)
-
-	isAutomationCtx := false
-	for _, m := range history {
-		if prompts.IsAutomationTask(m.Content) {
-			isAutomationCtx = true
-			break
-		}
-	}
-	if llmTools == nil && len(tools) > 0 {
-		prepared = a.injectToolInstructions(prepared, tools)
-	} else if llmTools != nil && len(tools) > 0 {
-		prepared = a.injectNativeToolReference(prepared, tools)
-	}
-
-	// Prefill: in automation mode with text-based tools, inject a synthetic
-	// assistant message (<tool_call>\n{"tool":") so the model completes a tool
-	// call instead of deciding whether to think or act.  NOT used with native
-	// tools — llama.cpp handles native tool deltas natively.
-	var prefill string
-	if a.shouldPrefill(isAutomationCtx) {
-		prefill = prompts.AutomationPrefline
-		prepared = append(prepared, proxy.Message{
-			Role:    proxy.AssistantRole,
-			Content: prefill,
-		})
-	}
-
-	req := proxy.ChatRequest{
-		Messages:  prepared,
-		Tools:     llmTools,
-		MaxTokens: a.maxTokens,
-	}
-	if a.useNativeTools && isAutomationCtx {
-		req.ToolChoice = proxy.ToolChoiceRequired
-	}
-	if isAutomationCtx {
-		req.Temperature = 0.1
-		if a.reasoningBudget > 0 {
-			req.ReasoningBudget = a.reasoningBudget
-		} else {
-			req.ReasoningBudget = a.maxTokens / 4
-		}
-	}
-
-	// Pre-flight budget check: debit projected ICU cost before the LLM
-	// call. If the stream fails, the defer block below refunds it so
-	// transient errors don't consume the workspace budget.
-	var txnID string
-	a.logger.Info("computeNextResponse: before budget check", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget)
-	if a.orch != nil && a.orch.Budget != nil {
-		totalChars := 0
-		for _, m := range history {
-			totalChars += len(m.Content)
-		}
-		preflight, pfErr := a.orch.Budget.PreFlightCheck(ctx, a.workspaceID, orchestrator.PreFlightRequest{
-			ModelName:       a.modelName,
-			ProviderType:    a.providerType,
-			ContextChars:    totalChars,
-			MaxTokens:       a.maxTokens,
-			ReasoningBudget: a.reasoningBudget,
-			ICUWeight:       a.icuWeight,
-		})
-		if pfErr != nil {
-			return proxy.Message{}, fmt.Errorf("budget error: %w", pfErr)
-		}
-		if !preflight.Allowed {
-			return proxy.Message{}, fmt.Errorf("budget exceeded: %s", preflight.Reason)
-		}
-		txnID = preflight.TransactionID
-		if preflight.SqueezeFactor < 1.0 {
-			a.maxTokens = preflight.AdjustedMaxTokens
-			a.reasoningBudget = preflight.AdjustedReasoning
-			req.MaxTokens = a.maxTokens
-			a.logger.Warn("budget squeeze applied", "factor", preflight.SqueezeFactor, "adjusted_max_tokens", a.maxTokens, "adjusted_reasoning", a.reasoningBudget)
-		}
-		a.logger.Info("computeNextResponse: after budget check", "max_tokens", a.maxTokens, "squeeze_factor", preflight.SqueezeFactor, "budget_exists", a.orch != nil)
-	}
-
-	ch, streamErr := a.client.Stream(ctx, req)
-	a.logger.Info("stream request sent", "model", a.modelName, "max_tokens", a.maxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
-	if a.orch != nil && a.orch.Budget != nil && txnID != "" {
-		defer func() {
-			if streamErr != nil {
-				if refErr := a.orch.Budget.Refund(ctx, txnID); refErr != nil {
-					a.logger.Warn("ICU refund failed", "txn", txnID, "error", refErr)
-				} else {
-					a.logger.Warn("ICU refunded due to stream failure", "txn", txnID)
-				}
-			}
-		}()
-	}
-
-	if streamErr != nil {
-		if prefill != "" && isPrefillThinkingError(streamErr) {
-			a.logger.Info("prefill rejected by server (thinking mode active), retrying without prefill in XML mode",
-				"prefill_len", len(prefill),
-				"prefill_preview", prefill,
-			)
-			a.prefillDisabled = true
-			a.notifyPrefillDisabled()
-			prefill = ""
-			prepared = a.prepareMessages(history)
-			if len(tools) > 0 {
-				prepared = a.injectToolInstructions(prepared, tools)
-			}
-			req = proxy.ChatRequest{
-				Messages:        prepared,
-				Tools:           nil,
-				MaxTokens:       a.maxTokens,
-				Temperature:     0.1,
-				ReasoningBudget: a.maxTokens / 4,
-			}
-			ch, streamErr = a.client.Stream(ctx, req)
-		}
-		if streamErr != nil {
-			a.logger.Warn("streaming not supported or failed, falling back to non-streaming", "error", streamErr)
-			return a.computeNextResponseNonStreaming(ctx, history, tools)
-		}
-	}
-
-	var fullMsg proxy.Message
-	fullMsg.Role = proxy.AssistantRole
-	if streamErr = a.processStream(ctx, ch, &fullMsg); streamErr != nil {
-		return proxy.Message{}, streamErr
-	}
-
-	if prefill != "" {
-		fullMsg.Content = prefill + fullMsg.Content
-	}
-
-	a.logger.Info("stream completed", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent), "tool_calls", len(fullMsg.ToolCalls))
-
-	if t := GetUsageTracker(ctx); t != nil {
-		t.AddLLMCall(len(prepared), len(fullMsg.Content), len(fullMsg.ReasoningContent))
-	}
-
-	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
-		history = injectRetryContext(history)
-		if llmTools != nil {
-			a.logger.Info("empty response with native tools, retrying in XML mode")
-			a.notifyLifecycle("fallback_started", map[string]any{
-				"reason": "empty stream with native tools",
-				"mode":   "xml",
-			})
-			// Retry with streaming XML mode — the user sees the model's
-			// reasoning tokens arrive in real-time instead of a silent
-			// non-streaming Chat.  Stuck detection is disabled so slow
-			// but legitimate thinking isn't cut off.  Per-turn timeout
-			// (10min) and the starvation counter (15 no-tool turns)
-			// provide the safety net.
-			savedNative := a.useNativeTools
-			savedSuppress := a.suppressReasoningBudget
-			a.useNativeTools = false
-			a.suppressReasoningBudget = true
-			msg, err := a.computeNextResponseStreamXML(ctx, history, tools)
-			a.useNativeTools = savedNative
-			a.suppressReasoningBudget = savedSuppress
-			return msg, err
-		}
-		a.logger.Info("stream returned no content, falling back to non-streaming retry")
-		return a.computeNextResponseNonStreaming(ctx, history, tools)
-	}
-
-	a.logger.Debug("raw model response received", "content_preview", fmt.Sprintf("%.50s", fullMsg.Content), "tool_calls", len(fullMsg.ToolCalls))
-	return fullMsg, nil
-}
-
-// injectRetryContext injects a retry signal into the last user message content
-// so the model knows its previous attempt failed and avoids re-entering the
-// same reasoning loop.
-func injectRetryContext(history []proxy.Message) []proxy.Message {
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == proxy.UserRole {
-			history[i].Content = fmt.Sprintf("%s\n\n%s", prompts.RetrySignal, history[i].Content)
-			break
-		}
-	}
-	return history
-}
-
-// ── Stream Processing ─────────────────────────────────────────────────────
-// Consumes SSE chunks from the LLM stream.  Content goes to fullMsg.Content,
-// reasoning to fullMsg.ReasoningContent, and native tool deltas to
-// fullMsg.ToolCalls.  Both content and reasoning are sent to the UI via
-// EventToolStream but only Content and ToolCalls enter the conversation
-// history — ReasoningContent is stripped by SanitizeHistory.
-func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) error {
-	var tokUsed, reasonUsed int
-
-	streamDone := make(chan struct{})
-	defer close(streamDone)
-
-	// Progress indicator: log every 30s during long streams so the user
-	// knows the agent is still working and not hung.  Exits when processStream
-	// returns for ANY reason (ctx cancellation, stream EOF, or stuck detection).
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				a.logger.Info("stream still generating", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent))
-			case <-ctx.Done():
-				return
-			case <-streamDone:
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case resp, ok := <-ch:
-			if !ok {
-				return nil
-			}
-			if len(resp.Choices) > 0 {
-				choice := resp.Choices[0]
-				chunkContent := choice.Delta.Content
-				if chunkContent == "" && choice.Message.Content != "" {
-					chunkContent = choice.Message.Content
-				}
-				reasoningChunk := choice.Delta.ReasoningContent
-				if reasoningChunk == "" && choice.Message.ReasoningContent != "" {
-					reasoningChunk = choice.Message.ReasoningContent
-				}
-
-				// Budget tracking: count tokens used vs. maxTokens + reasoningBudget.
-				if a.orch != nil && a.orch.Interceptor != nil {
-					result := a.orch.Interceptor.InterceptChunk(orchestrator.StreamChunk{
-						Content:          chunkContent,
-						ReasoningContent: reasoningChunk,
-						ProviderType:     a.providerType,
-					})
-					tokUsed += result.TokensUsed
-					reasonUsed += result.ReasoningUsed
-
-					term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
-						orchestrator.StreamChunk{},
-						tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
-					)
-					if term.ShouldTerminate {
-						return fmt.Errorf("stream terminated: token budget exceeded (%d tokens used)", tokUsed)
-					}
-				}
-
-				// Some models (e.g. Qwen 3.5) emit <tool_call> blocks inside <think>
-				// reasoning content.  When the XML is invisible to the native-tool
-				// parser the stream appears empty even though a valid tool call was
-				// produced.  Check for this before declaring stuck, and exit early
-				// so we don't burn time on post-extraction rambling.
-				if len(fullMsg.ReasoningContent) > 0 && len(fullMsg.Content) == 0 && len(fullMsg.ToolCalls) == 0 {
-					if toolCallInContent.MatchString(fullMsg.ReasoningContent) {
-						if cleaned := cleanReasoningContent(fullMsg.ReasoningContent); cleaned != "" {
-							fullMsg.Content = cleaned
-							return nil
-						}
-					}
-				}
-
-				// Reasoning stuck check: scaled by reasoning budget so models with
-				// more allocated thinking capacity get more runway.  Skipped during
-				// XML retry streams (skipStuckCheck=true) because those already have
-				// native tools and reasoning budget suppressed — the per-turn timeout
-				// and starvation counter handle slow models without a silent wall.
-				if !a.skipStuckCheck && len(fullMsg.ReasoningContent) > a.stuckThreshold() && len(fullMsg.Content) == 0 && len(fullMsg.ToolCalls) == 0 {
-					a.logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback", "reasoning_chars", len(fullMsg.ReasoningContent), "stuck_threshold", a.stuckThreshold())
-					a.notifyLifecycle("stuck_detected", map[string]any{
-						"reasoning_chars": len(fullMsg.ReasoningContent),
-					})
-					return nil
-				}
-
-				if chunkContent != "" {
-					fullMsg.Content += chunkContent
-				}
-				if reasoningChunk != "" {
-					fullMsg.ReasoningContent += reasoningChunk
-				}
-				if chunkContent != "" || reasoningChunk != "" {
-					displayText := fullMsg.ReasoningContent + fullMsg.Content
-					displayContent, hasToolCall := FilterStreamingMarkup(displayText)
-					if hasToolCall {
-						a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
-					} else {
-						a.notify(EventToolStream, displayContent)
-					}
-				}
-				if len(choice.Delta.ToolCalls) > 0 {
-					// Native tool-call delta accumulation.  This path only activates
-					// when useNativeTools is true (cloud models using native tool
-					// schemas).  When useNativeTools is false the LLM server never
-					// sends tool-call deltas, and tool extraction happens via the
-					// XML text parser in handleContentToolCalls instead.
-					for _, tc := range choice.Delta.ToolCalls {
-						if tc.ID != "" {
-							fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
-						} else if len(fullMsg.ToolCalls) > 0 {
-							last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
-							last.Function.Arguments += tc.Function.Arguments
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-// computeNextResponseNonStreaming is the fallback when streaming fails or
-// returns empty.  Receives the same tools list so the model still has tool
-// context (API-level native tools or injected XML instructions).
-func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
-	chatCtx, cancel := context.WithTimeout(ctx, AgentTurnTimeout)
-	defer cancel()
-
-	llmTools := tools
-	if !a.useNativeTools {
-		llmTools = nil
-	}
-
-	preparedHistory := a.prepareMessages(history)
-
-	isAutomationCtx := false
-	for _, m := range history {
-		if prompts.IsAutomationTask(m.Content) {
-			isAutomationCtx = true
-			break
-		}
-	}
-	if llmTools == nil && len(tools) > 0 {
-		preparedHistory = a.injectToolInstructions(preparedHistory, tools)
-	} else if llmTools != nil && len(tools) > 0 {
-		preparedHistory = a.injectNativeToolReference(preparedHistory, tools)
-	}
-
-	// Prefill assistant response in automation mode so the model
-	// never has to choose between thinking and acting.  This is
-	// on by default for all text-based tool calling.
-	var prefill string
-	if a.shouldPrefill(isAutomationCtx) {
-		prefill = prompts.AutomationPrefline
-		preparedHistory = append(preparedHistory, proxy.Message{
-			Role:    proxy.AssistantRole,
-			Content: prefill,
-		})
-	}
-
-	req := proxy.ChatRequest{
-		Messages:  preparedHistory,
-		Tools:     llmTools,
-		MaxTokens: a.maxTokens,
-	}
-	if a.useNativeTools && isAutomationCtx {
-		req.ToolChoice = proxy.ToolChoiceRequired
-	}
-	if isAutomationCtx {
-		req.Temperature = 0.1
-		if !a.suppressReasoningBudget {
-			if a.reasoningBudget > 0 {
-				req.ReasoningBudget = a.reasoningBudget
-			} else {
-				req.ReasoningBudget = a.maxTokens / 4
-			}
-		}
-	}
-
-	if rawReq, err := json.Marshal(req); err == nil {
-		a.logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
-	}
-
-	a.logger.Info("non-stream request sent", "model", a.modelName, "max_tokens", a.maxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
-
-	heartbeatDone := make(chan struct{})
-	defer close(heartbeatDone)
-	heartbeatStart := time.Now()
-	go func() {
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				elapsed := time.Since(heartbeatStart).Round(time.Second)
-				a.notifyLifecycle("fallback_waiting", map[string]any{
-					"elapsed": elapsed.String(),
-				})
-			case <-heartbeatDone:
-				return
-			}
-		}
-	}()
-
-	resp, err := a.client.Chat(chatCtx, req)
-	if err != nil && prefill != "" && isPrefillThinkingError(err) {
-		a.logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
-		a.prefillDisabled = true
-		a.notifyPrefillDisabled()
-		prefill = ""
-		preparedHistory = a.prepareMessages(history)
-		if len(tools) > 0 {
-			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
-		}
-		req = proxy.ChatRequest{
-			Messages:  preparedHistory,
-			Tools:     nil,
-			MaxTokens: a.maxTokens,
-			Temperature: 0.1,
-			ReasoningBudget: a.maxTokens / 4,
-		}
-		if a.suppressReasoningBudget {
-			req.ReasoningBudget = 0
-		}
-		resp, err = a.client.Chat(chatCtx, req)
-	}
-	if err != nil && isToolSupportError(err) {
-		a.logger.Warn("model does not support tools, retrying without them", "error", err)
-		a.notifyFallbackWarning(err)
-		chatCtx2, cancel2 := context.WithTimeout(ctx, AgentRetryTimeout)
-		defer cancel2()
-		resp, err = a.client.Chat(chatCtx2, proxy.ChatRequest{Messages: history, MaxTokens: a.maxTokens})
-	}
-
-	if err != nil {
-		return proxy.Message{}, fmt.Errorf("llm completion failed: %w", err)
-	}
-
-	if len(resp.Choices) == 0 {
-		return proxy.Message{}, fmt.Errorf("llm returned no choices")
-	}
-
-	msg := resp.Choices[0].Message
-	if prefill != "" {
-		msg.Content = prefill + msg.Content
-	}
-	if t := GetUsageTracker(ctx); t != nil {
-		inputTokens := 0
-		for _, m := range preparedHistory {
-			inputTokens += len(m.Content)
-		}
-		t.AddLLMCall(inputTokens, len(msg.Content), len(msg.ReasoningContent))
-	}
-	return msg, nil
-}
-
-// computeNextResponseStreamXML retries via streaming with XML text mode after
-// a native-tools stream returned empty.  Stuck detection is skipped so the
-// user sees the model's reasoning tokens arrive in real-time instead of a
-// silent non-streaming Chat.  If the XML stream also fails (server error) or
-// returns empty, falls back to computeNextResponseNonStreaming as a safety net.
-// The empty check runs BEFORE prefill prepend to avoid handleContentToolCalls
-// finding a parse error in the incomplete prefill text and wiping ToolCalls.
-func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
-	ctx, cancel := context.WithTimeout(ctx, AgentTurnTimeout)
-	defer cancel()
-
-	prepared := a.prepareMessages(history)
-	if len(tools) > 0 {
-		prepared = a.injectToolInstructions(prepared, tools)
-	}
-
-	var prefill string
-	if a.shouldPrefill(a.findAutomationCtx(history)) {
-		prefill = prompts.AutomationPrefline
-		prepared = append(prepared, proxy.Message{
-			Role:    proxy.AssistantRole,
-			Content: prefill,
-		})
-	}
-
-	req := proxy.ChatRequest{
-		Messages:    prepared,
-		Tools:       nil,
-		MaxTokens:   a.maxTokens,
-		Temperature: 0.1,
-	}
-
-	a.logger.Info("xml stream retry sent", "model", a.modelName, "max_tokens", a.maxTokens, "prefill", prefill != "")
-
-	ch, err := a.client.Stream(ctx, req)
-
-	if err != nil && prefill != "" && isPrefillThinkingError(err) {
-		a.logger.Info("prefill rejected by server (thinking mode), retrying stream without prefill")
-		a.prefillDisabled = true
-		a.notifyPrefillDisabled()
-		prefill = ""
-		prepared = a.prepareMessages(history)
-		if len(tools) > 0 {
-			prepared = a.injectToolInstructions(prepared, tools)
-		}
-		req = proxy.ChatRequest{
-			Messages:    prepared,
-			Tools:       nil,
-			MaxTokens:   a.maxTokens,
-			Temperature: 0.1,
-		}
-		ch, err = a.client.Stream(ctx, req)
-	}
-
-	if err != nil {
-		a.logger.Warn("xml stream retry failed, falling back to non-streaming", "error", err)
-		return a.computeNextResponseNonStreaming(ctx, history, tools)
-	}
-
-	savedSkip := a.skipStuckCheck
-	a.skipStuckCheck = true
-	var fullMsg proxy.Message
-	fullMsg.Role = proxy.AssistantRole
-	streamErr := a.processStream(ctx, ch, &fullMsg)
-	a.skipStuckCheck = savedSkip
-
-	if streamErr != nil {
-		return proxy.Message{}, streamErr
-	}
-
-	// Check for empty BEFORE prepending prefill — otherwise the prefill text
-	// ("<tool_call>\n{\"tool\":\"") makes fullMsg.Content non-empty and
-	// prevents the fallback, while handleContentToolCalls finds a parse
-	// error in the incomplete prefill and wipes any ToolCalls.
-	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
-		saved := a.prefillDisabled
-		a.prefillDisabled = true
-		msg, err := a.computeNextResponseNonStreaming(ctx, history, tools)
-		a.prefillDisabled = saved
-		return msg, err
-	}
-
-	if prefill != "" {
-		fullMsg.Content = prefill + fullMsg.Content
-	}
-
-	a.logger.Info("xml stream retry completed", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent), "tool_calls", len(fullMsg.ToolCalls))
-	return fullMsg, nil
-}
-
-// findAutomationCtx checks if the history contains an automation task marker.
-func (a *Agent) findAutomationCtx(history []proxy.Message) bool {
-	for _, m := range history {
-		if prompts.IsAutomationTask(m.Content) {
-			return true
-		}
-	}
-	return false
-}
-
-// ── Termination Heuristics ────────────────────────────────────────────────
-
-// isPrematureTermination detects when the model produced empty or repetitive
-// output (3 identical assistant messages in a row).
-func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Message) bool {
-	content := strings.TrimSpace(msg.Content)
-	if content == "" {
-		// Model generated only reasoning (no content, no tool calls). This is
-		// not premature termination — the model was thinking but needs a nag
-		// to stop thinking and produce an action.
-		if len(msg.ReasoningContent) > 0 {
-			return false
-		}
-		return len(msg.ToolCalls) == 0
-	}
-	if len(history) >= 2 {
-		last := history[len(history)-1]
-		if last.Role == proxy.AssistantRole && strings.TrimSpace(last.Content) == content {
-			prev := history[len(history)-2]
-			if prev.Role == proxy.AssistantRole && strings.TrimSpace(prev.Content) == content {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// ── Tool Execution ────────────────────────────────────────────────────────
-// Validates against schema, runs guardrails, executes via Engine.
-func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
-	var mu sync.Mutex
-	hasSubmit := false
-	for _, tc := range msg.ToolCalls {
-		if tc.Function.Name == models.ToolSubmitFinalAnswer {
-			hasSubmit = true
-			break
-		}
-	}
-	if hasSubmit && len(msg.ToolCalls) > 1 {
-		a.logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
-		mu.Lock()
-		errorMsg := prompts.AutomationRejectedSubmissionPrompt
-		for _, tc := range msg.ToolCalls {
-			a.appendToolResult(history, tc, map[string]string{"error": errorMsg})
-		}
-		mu.Unlock()
-		return nil
-	}
-
-	for _, tc := range msg.ToolCalls {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if tc.Type != "" && tc.Type != "function" {
-			continue
-		}
-
-		a.logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
-		a.logger.Info("executing tool", "name", tc.Function.Name)
-
-		toolsList, _ := a.provider.ListTools(ctx)
-		if err := validateToolArgs(tc, toolsList); err != nil {
-			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
-			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
-			if tc.Function.Name == models.ToolFileWrite && isTruncationError(err.Error()) {
-				errMsg = prompts.AutomationContentTooLongPrompt
-			}
-			mu.Lock()
-			a.appendToolResult(history, tc, map[string]string{"error": errMsg})
-			mu.Unlock()
-			return nil
-		}
-		guardrailApproved := false
-
-		if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
-			a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
-			a.notifyGuardrailViolation(tc.Function.Name, err)
-
-			if a.onGuardrail != nil {
-				decision, decErr := a.onGuardrail(ctx, GuardrailBlockedPayload{
-					DecisionID: fmt.Sprintf("gr_%d", time.Now().UnixNano()),
-					Tool:       tc.Function.Name,
-					Args:       tc.Function.Arguments,
-					Reason:     err.Error(),
-					Category:   toolCategory(tc.Function.Name),
-				})
-				if decErr == nil && decision.Allow {
-					guardrailApproved = true
-					if decision.Persist {
-						if err := a.guardrails.PersistOverride(a.workspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); err != nil {
-							a.logger.Warn("failed to persist guardrail override", "error", err)
-						}
-					}
-				} else {
-					mu.Lock()
-					a.appendToolResult(history, tc, formatGuardrailError(err))
-					mu.Unlock()
-					return nil
-				}
-			} else {
-				mu.Lock()
-				a.appendToolResult(history, tc, formatGuardrailError(err))
-				mu.Unlock()
-				return nil
-			}
-		}
-
-		a.notifyToolCall(tc)
-		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
-		if guardrailApproved {
-			toolCtx = models.WithGuardrailApproved(toolCtx)
-		}
-		result, err := a.engine.ExecuteTool(toolCtx, tc)
-		mu.Lock()
-		var finalResult any
-		if err != nil {
-			if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
-				finalResult = str
-			} else {
-				finalResult = map[string]string{"error": err.Error()}
-			}
-		} else {
-			finalResult = result
-		}
-		a.appendToolResult(history, tc, finalResult)
-		resultStr, _ := json.Marshal(finalResult)
-		a.logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
-		a.logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
-		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-		if t := GetUsageTracker(ctx); t != nil {
-			t.AddToolCall(tc.Function.Name)
-		}
-		mu.Unlock()
-
-		if err != nil {
-			a.logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
-			return nil
-		}
-		if tc.Function.Name == models.ToolSubmitFinalAnswer {
-			return nil
-		}
-	}
-	return nil
-}
-
-func formatGuardrailError(err error) map[string]string {
-	return map[string]string{"error": "Guardrail violation: " + err.Error()}
-}
-
-func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *ExecutionPlan) (string, []proxy.Message, error) {
-	a.logger.Debug("executing plan", "steps", len(plan.Steps), "description", plan.Description)
-	currentHistory := append([]proxy.Message{}, history...)
-	for i, step := range plan.Steps {
-		if err := ctx.Err(); err != nil {
-			a.logger.Info("plan execution halted", "step", i, "error", err)
-			return "", currentHistory, fmt.Errorf("plan execution halted: %w", err)
-		}
-
-		a.logger.Debug("plan step", "step", i, "tool", step.ToolName, "description", step.Description)
-
-		argsJSON, err := json.Marshal(step.Parameters)
-		if err != nil {
-			a.logger.Info("plan step marshal failed", "step", i, "tool", step.ToolName, "error", err)
-			return "", currentHistory, fmt.Errorf("plan step %d: marshal args: %w", i, err)
-		}
-
-		tc := proxy.ToolCall{
-			ID:   fmt.Sprintf("plan_%d", i),
-			Type: "function",
-			Function: proxy.FunctionCall{
-				Name:      step.ToolName,
-				Arguments: string(argsJSON),
-			},
-		}
-
-		turnMsg := proxy.Message{
-			Role:      proxy.AssistantRole,
-			ToolCalls: []proxy.ToolCall{tc},
-		}
-
-		toolsList, listErr := a.provider.ListTools(ctx)
-		if listErr != nil {
-			a.logger.Info("plan step list tools failed", "step", i, "tool", step.ToolName, "error", listErr)
-			return "", currentHistory, fmt.Errorf("plan step %d: list tools: %w", i, listErr)
-		}
-
-		if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
-			a.logger.Info("plan step validation failed", "step", i, "tool", step.ToolName, "error", valErr)
-			return "", currentHistory, fmt.Errorf("plan step %d: invalid tool call: %w", i, valErr)
-		}
-
-		currentHistory = append(currentHistory, turnMsg)
-
-		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
-		result, execErr := a.engine.ExecuteTool(toolCtx, tc)
-		var finalResult any
-		if execErr != nil {
-			finalResult = map[string]string{"error": execErr.Error()}
-		} else {
-			finalResult = result
-		}
-		a.appendToolResult(&currentHistory, tc, finalResult)
-		if t := GetUsageTracker(ctx); t != nil {
-			t.AddToolCall(step.ToolName)
-		}
-
-		if execErr != nil {
-			a.logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
-			return "", currentHistory, fmt.Errorf("plan step %d failed: %w", i, execErr)
-		}
-	}
-
-	a.logger.Debug("plan execution complete", "steps", len(plan.Steps))
-	return "[Plan execution complete]", currentHistory, nil
-}
-
-func toolCategory(toolName string) string {
-	switch toolName {
-	case models.ToolTerminalExecute:
-		return "terminal"
-	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite:
-		return "filesystem"
-	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
-		return "network"
-	case models.ToolInternetSearch:
-		return "search"
-	case models.ToolNotifyUser:
-		return "communication"
-	default:
-		return "general"
-	}
-}
-
-func extractTaskSummary(rawArgs string) string {
-	var args map[string]any
-	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
-		return "Task complete."
-	}
-	for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
-		if val, ok := args[key].(string); ok && val != "" {
-			return val
-		}
-	}
-	for _, val := range args {
-		if s, ok := val.(string); ok && s != "" {
-			return s
-		}
-	}
-	return "Task complete."
-}
-
-func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
-	var targetTool *proxy.Tool
-	for _, t := range tools {
-		if t.Function.Name == tc.Function.Name {
-			targetTool = &t
-			break
-		}
-	}
-	if targetTool == nil {
-		return fmt.Errorf("tool '%s' not found", tc.Function.Name)
-	}
-	params, ok := targetTool.Function.Parameters.(map[string]any)
-	if !ok {
-		return nil
-	}
-	requiredRaw, ok := params["required"]
-	if !ok {
-		return nil
-	}
-	var required []string
-	switch r := requiredRaw.(type) {
-	case []any:
-		for _, v := range r {
-			if s, ok := v.(string); ok {
-				required = append(required, s)
-			}
-		}
-	case []string:
-		required = r
-	}
-	if len(required) == 0 {
-		return nil
-	}
-	var args map[string]any
-	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-		return fmt.Errorf("failed to parse arguments as JSON: %w", err)
-	}
-	for _, field := range required {
-		val, ok := args[field]
-		if !ok {
-			return fmt.Errorf("missing required parameter '%s'", field)
-		}
-		if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
-			return fmt.Errorf("parameter '%s' cannot be empty", field)
-		}
-	}
-	return nil
-}
-
-func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
-	raw, _ := json.Marshal(result)
-	strContent := string(raw)
-	strContent = proxy.TruncateResult(strContent)
-	*history = append(*history, proxy.Message{
-		Role:       proxy.ToolRole,
-		Content:    strContent,
-		ToolCallID: tc.ID,
-	})
-}
-
-func isToolSupportError(err error) bool {
-	if err == nil {
-		return false
-	}
-	lowErr := strings.ToLower(err.Error())
-	return strings.Contains(lowErr, "tools is not currently supported") ||
-		strings.Contains(lowErr, "tool_choice is not supported") ||
-		strings.Contains(lowErr, "auto tool choice requires") ||
-		strings.Contains(lowErr, "parameter `tools`")
-}
-
-// isPrefillThinkingError detects llama.cpp's rejection of assistant
-// response prefill when enable_thinking is active on the server side.
-func isPrefillThinkingError(err error) bool {
-	if err == nil {
-		return false
-	}
-	lowErr := strings.ToLower(err.Error())
-	return strings.Contains(lowErr, "prefill") &&
-		strings.Contains(lowErr, "thinking")
-}
-
-// ── Message Preparation ───────────────────────────────────────────────────
-
-// shouldPrefill returns true when:
-//   - the model/provider tier has prefill enabled
-//   - prefill hasn't been disabled by a server-side thinking-mode rejection
-//   - we're in automation context (not interactive chat)
-//   - native tools are NOT active (prefill is an XML-only mechanism)
-func (a *Agent) shouldPrefill(isAutomationCtx bool) bool {
-	return a.usePrefill && !a.prefillDisabled && isAutomationCtx && !a.useNativeTools
-}
-
-// stuckThreshold returns the reasoning content char limit before the stream
-// is aborted as stuck. The threshold is scaled by maxTokens * 2 so models
-// with larger max_tokens get proportionally more runway. The reasoning
-// budget (maxTokens/4 tokens, ~maxTokens chars) is the primary bound;
-// this threshold is a safety net for servers that don't enforce budgets.
-func (a *Agent) stuckThreshold() int {
-	threshold := a.maxTokens * 2
-	if threshold < MinReasoningStuckThreshold {
-		return MinReasoningStuckThreshold
-	}
-	return threshold
-}
-
-var (
-	toolCallInContent = regexp.MustCompile(`(?si)<tool_call>.*?</tool_call>`)
-)
-
-// cleanReasoningContent strips <think> and </think> tags from reasoning text
-// while preserving the content between them, then trims whitespace.
-// Returns empty string if nothing remains after cleaning.
-func cleanReasoningContent(s string) string {
-	cleaned := strings.ReplaceAll(s, "<think>", "")
-	cleaned = strings.ReplaceAll(cleaned, "</think>", "")
-	return strings.TrimSpace(cleaned)
-}
-
-// prepareMessages normalizes history roles and strips fields incompatible
-// with the current tool-calling mode (native vs XML).
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
 	return proxy.NormalizeHistory(history, a.useNativeTools)
 }
 
-// injectToolInstructions adds the XML tool-call format manual to the system
-// prompt.  Used when native tools are disabled (text-mode tool calling via
-// <tool_call> blocks in generated text).
+// injectToolInstructions embeds XML tool definitions into the system prompt.
+// Used when native API-level tools are disabled (local models, XML fallback).
 func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
 	if len(tools) == 0 {
 		return history
@@ -1761,9 +368,9 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 	return newHistory
 }
 
-// injectNativeToolReference adds a lightweight tool-name reference to the
-// system prompt.  Used when native tools are active — the LLM receives tool
-// definitions via the API but still benefits from textual context.
+// injectNativeToolReference injects a tool reference into the system prompt
+// alongside API-level tool schemas.  Some models (Gemini) need the reference
+// even when native tools are active.
 func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
 	if len(tools) == 0 {
 		return history

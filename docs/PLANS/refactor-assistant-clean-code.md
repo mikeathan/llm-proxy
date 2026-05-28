@@ -1,6 +1,6 @@
 # Refactoring Assistant Package — Clean Code & Architecture
 
-**Status: IN PROGRESS**
+**Status: COMPLETE ✅**
 **Last updated: 2026-05-28**
 
 ---
@@ -9,7 +9,7 @@
 
 Refactor `backend/internal/core/assistant/` from a 1799-line `agent.go` monolith into focused, testable files **within the same package.** No package rename, no new sub-packages, no breaking external contracts — 6 external packages depend on this API surface.
 
-**Result:** 11 well-organized source files (down from 11 original, but now logically grouped), all functions under 80 lines, cyclomatic complexity under 10, zero pointer-to-primitive args.
+**Result:** 10 well-organized source files (down from 11 original, but now logically grouped), all functions under 80 lines, cyclomatic complexity under 10, zero pointer-to-primitive args.
 
 ---
 
@@ -27,31 +27,31 @@ Refactor `backend/internal/core/assistant/` from a 1799-line `agent.go` monolith
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 0.0 | Fix 3 failing pre-existing tests | [ ] |
-| 0.1 | Add test coverage for low-coverage functions | [ ] |
-| 0.2 | Merge small files (engine.go → tool_provider.go, guardrail_decision.go → agent.go, tiers.go → agent.go, content_filter.go → stream.go) | [ ] |
-| 1.1 | Create `errors.go` | [ ] |
-| 1.2 | Create `sieve.go` | [ ] |
-| 1.3 | Create `stream.go` | [ ] |
-| 1.4 | Create `tool_exec.go` | [ ] |
-| 1.5 | Create `session.go` | [ ] |
-| 2.1 | Create `runSession` struct | [ ] |
-| 2.2 | Refactor `Execute` to use `runSession` | [ ] |
-| 2.3 | Extract helpers from `Execute` body | [ ] |
-| 2.4 | Refactor `handleNoToolCalls` to method on `runSession` | [ ] |
-| 3.1 | Define `HistorySieve` interface | [ ] |
-| 3.2 | Create concrete sieve implementations | [ ] |
-| 3.3 | Keep Agent wrapper methods + add sieve unit tests | [ ] |
-| 4.1 | Extract `buildChatRequest` | [ ] |
-| 4.2 | Extract `prepareMessagesForTurn` | [ ] |
-| 4.3 | Extract `doPreflightCheck` | [ ] |
-| 4.4 | Extract `handlePrefillRejection` + `handleEmptyStream` | [ ] |
-| 4.5 | Final refactored `computeNextResponse` | [ ] |
-| 5.1 | Clean up `processStream` | [ ] |
-| 5.2 | Clean up `processToolCalls` | [ ] |
-| 5.3 | Clean up `computeNextResponseNonStreaming` | [ ] |
-| 5.4 | Clean up `computeNextResponseStreamXML` | [ ] |
-| 5.5 | Refactor `InitializeAgentStack` | [ ] |
+| 0.0 | Fix 3 failing pre-existing tests | [x] |
+| 0.1 | Add test coverage for low-coverage functions | [x] |
+| 0.2 | Merge small files | [x] |
+| 1.1 | Create `errors.go` | [x] |
+| 1.2 | Create `sieve.go` | [x] |
+| 1.3 | Create `stream.go` | [x] |
+| 1.4 | Create `tool_exec.go` | [x] |
+| 1.5 | Create `session.go` | [x] |
+| 2.1 | Create `runSession` struct | [x] |
+| 2.2 | Refactor `Execute` to use `runSession` | [x] |
+| 2.3 | Extract helpers from `Execute` body | [x] |
+| 2.4 | Refactor `handleNoToolCalls` to method on `runSession` | [x] |
+| 3.1 | Define `HistorySieve` interface | [x] |
+| 3.2 | Create concrete sieve implementations | [x] |
+| 3.3 | Keep Agent wrapper methods + add sieve unit tests | [x] |
+| 4.1 | Extract `buildChatRequest` | [x] |
+| 4.2 | Extract `prepareMessagesForTurn` | [x] |
+| 4.3 | Extract `doPreflightCheck` | [x] |
+| 4.4 | Extract `handlePrefillRejection` + `handleEmptyStream` | [x] |
+| 4.5 | Final refactored `computeNextResponse` | [x] |
+| 5.1 | Clean up `processStream` | [x] |
+| 5.2 | Clean up `processToolCalls` | [x] |
+| 5.3 | Clean up `computeNextResponseNonStreaming` | [x] |
+| 5.4 | Clean up `computeNextResponseStreamXML` | [x] |
+| 5.5 | Refactor `InitializeAgentStack` | [x] |
 
 ---
 
@@ -79,9 +79,9 @@ Refactor `backend/internal/core/assistant/` from a 1799-line `agent.go` monolith
 
 ### 1.1 The Big File
 
-| File | Lines | Key Contents |
-|---|---|---|
-| `agent.go` | **1799** | Agent struct, Execute loop, all LLM calls, stream processing, sieves, tool execution, message prep, error detection, prefill logic, repetition detector |
+| File (Before) | Lines | Key Contents |
+|---|---|---|---|
+| `agent.go` | **1799 → 394** | Agent struct, Execute loop, all LLM calls, stream processing, sieves, tool execution, message prep, error detection, prefill logic, repetition detector |
 
 ### 1.2 Functions Exceeding 80-Line Limit (Must Fix)
 
@@ -265,7 +265,7 @@ internal/core/assistant/
 
 ## 5. Step 0: Pre-Flight — Fix Tests & Merge Small Files
 
-### Step 0.0: Fix 3 Failing Pre-Existing Tests [ ]
+### Step 0.0: Fix 3 Failing Pre-Existing Tests [x]
 
 **MANDATORY — must pass before any refactoring begins.**
 
@@ -302,7 +302,7 @@ Current failures (2026-05-28):
 
 ---
 
-### Step 0.1: Add Test Coverage for Low-Coverage Functions [ ]
+### Step 0.1: Add Test Coverage for Low-Coverage Functions [x]
 
 **Before any refactoring, add tests for uncovered/barely-covered functions.** This ensures refactoring won't silently break untested paths.
 
@@ -340,7 +340,7 @@ go tool cover -func=/tmp/assistant_pre_cover.out | grep -E "(executePlan|notifyP
 
 ---
 
-### Step 0.2: Merge Small Files [ ]
+### Step 0.2: Merge Small Files [x]
 
 **Goal:** Reduce file count before the main split. Four existing files each under 110 lines that lack standalone justification. Merge them into logically related files.
 
@@ -608,11 +608,11 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 **Approximate size:** ~450 lines (was 1950 after merges).
 
-**Final post-Phase-1 file list (11 files):**
+**Final file list (10 source files):**
 ```
-agent.go (~450L), session.go (~290L), sieve.go (~150L), stream.go (~600L),
-tool_exec.go (~350L), events.go (143L), tool_provider.go (~149L),
-registry.go (363L), errors.go (~80L), usagetracker.go (49L)
+agent.go (~394L), session.go (~430L), sieve.go (~142L), stream.go (~569L),
+tool_exec.go (~378L), events.go (143L), tool_provider.go (~142L),
+registry.go (~388L), errors.go (~69L), usagetracker.go (49L)
 + guardrails/ + prompts/ (unchanged)
 ```
 
@@ -1460,7 +1460,7 @@ Shows where each function ends up after ALL phases complete:
 | `engine_test.go` | Engine interface (tests stay — engine.go merged into tool_provider.go) | 0.2a |
 | `tool_provider_test.go` | MultiToolProvider, CompositeEngine | Unchanged |
 | `registry_test.go` | LocalToolRegistry, InitializeAgentStack | 5.5 |
-| `guardrail_decision_test.go` | Guardrail decisions (tests stay — file merged into agent.go) | 0.2b |
+| (merged into `agent_test.go`) | Guardrail decisions (tests merged into agent_test.go) | 0.2b |
 | `strategy_plan_test.go` | ExecutionPlanStrategy (tests stay — file merged into tool_exec.go) | 0.2e |
 | `content_filter_test.go` | FilterStreamingMarkup (tests stay — file merged into stream.go) | 0.2d |
 | `usagetracker_test.go` | UsageTracker | Unchanged |

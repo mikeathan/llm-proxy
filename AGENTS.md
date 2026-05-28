@@ -67,7 +67,7 @@ The `RuntimeManager` interface is implemented by `LLMRuntimeManager` (production
 ### ToolProvider Interface (`internal/core/assistant/tool_provider.go`)
 Defines how tools are listed and provided to the agent. Implemented by `LocalToolRegistry`, `MCPNodeHerder`, and `MultiToolProvider`.
 
-### Guardrail Decision Flow (`internal/core/assistant/guardrail_decision.go`)
+### Guardrail Decision Flow (`internal/core/assistant/agent.go`)
 When a tool call is blocked:
 1. `GuardrailDecisionCallback` is invoked with a decision ID
 2. Callback blocks on a channel (max 60s)

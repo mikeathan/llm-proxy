@@ -1,3 +1,5 @@
+// agent_events.go — Agent event types, Observer, event notification methods,
+// GuardrailDecisionCallback, and lifecycle events for UI progress reporting.
 package assistant
 
 import (

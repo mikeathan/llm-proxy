@@ -1,0 +1,396 @@
+// tool_exec.go — Tool call validation, guardrail resolution, execution via
+// Engine, and result appending.  Also holds ExecutionPlan, ExecutionPlanStrategy
+// (moved from strategy_plan.go), formatGuardrailError, toolCategory,
+// extractTaskSummary, validateToolArgs.
+package assistant
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
+)
+
+const planGenMaxTokens = 4096 // max tokens for plan generation LLM call
+
+type ExecutionPlan struct {
+	Description string          `json:"description"`
+	Steps       []ExecutionStep `json:"steps"`
+}
+
+type ExecutionStep struct {
+	ToolName    string                 `json:"tool"`
+	Description string                 `json:"description"`
+	Input       string                 `json:"input,omitempty"`
+	Parameters  map[string]interface{} `json:"args,omitempty"`
+}
+
+type ExecutionPlanStrategy struct {
+	llm    proxy.Client
+	tools  []proxy.Tool
+	logger logging.Logger
+}
+
+func NewExecutionPlanStrategy(llm proxy.Client, tools []proxy.Tool, logger logging.Logger) *ExecutionPlanStrategy {
+	return &ExecutionPlanStrategy{llm: llm, tools: tools, logger: logger}
+}
+
+func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*ExecutionPlan, error) {
+	s.logger.Debug("generating execution plan", "tools", len(s.tools), "task_len", len(task))
+
+	toolInfos := make([]prompts.ToolInfo, len(s.tools))
+	for i, t := range s.tools {
+		toolInfos[i] = prompts.ToolInfo{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
+		}
+	}
+	userPrompt := prompts.BuildExecutionPlanPrompt(toolInfos, task)
+
+	req := proxy.ChatRequest{
+		Messages: []proxy.Message{
+			{Role: proxy.SystemRole, Content: prompts.ExecutionPlanSystemPrompt},
+			{Role: proxy.UserRole, Content: userPrompt},
+		},
+		MaxTokens: planGenMaxTokens,
+	}
+
+	resp, err := s.llm.Chat(ctx, req)
+	if err != nil {
+		s.logger.Info("plan generation LLM call failed", "error", err)
+		return nil, fmt.Errorf("plan generation failed: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		s.logger.Info("plan generation returned no choices")
+		return nil, fmt.Errorf("plan generation returned no choices")
+	}
+
+	content := resp.Choices[0].Message.Content
+	if strings.HasPrefix(content, "```") {
+		content = strings.TrimPrefix(content, "```json")
+		content = strings.TrimPrefix(content, "```")
+		if idx := strings.LastIndex(content, "```"); idx >= 0 {
+			content = content[:idx]
+		}
+		content = strings.TrimSpace(content)
+	}
+
+	var plan ExecutionPlan
+	if err := json.Unmarshal([]byte(content), &plan); err != nil {
+		s.logger.Info("plan parse failed", "error", err, "raw_length", len(content))
+		return nil, fmt.Errorf("plan parse failed: %w", err)
+	}
+
+	if len(plan.Steps) == 0 {
+		s.logger.Info("plan generated with zero steps", "description", plan.Description)
+		return nil, fmt.Errorf("plan has no steps")
+	}
+
+	s.logger.Debug("execution plan generated", "steps", len(plan.Steps), "description", plan.Description)
+	return &plan, nil
+}
+
+// processToolCalls validates tool args, resolves guardrails, and executes
+// via Engine.  Batched submit_final_answer is rejected (only single submission
+// allowed).  A guardrail denial stops the entire batch.
+func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
+	var mu sync.Mutex
+	hasSubmit := false
+	for _, tc := range msg.ToolCalls {
+		if tc.Function.Name == models.ToolSubmitFinalAnswer {
+			hasSubmit = true
+			break
+		}
+	}
+	if hasSubmit && len(msg.ToolCalls) > 1 {
+		a.logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
+		mu.Lock()
+		errorMsg := prompts.AutomationRejectedSubmissionPrompt
+		for _, tc := range msg.ToolCalls {
+			a.appendToolResult(history, tc, map[string]string{"error": errorMsg})
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	for _, tc := range msg.ToolCalls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if tc.Type != "" && tc.Type != "function" {
+			continue
+		}
+
+		a.logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+		a.logger.Info("executing tool", "name", tc.Function.Name)
+
+		toolsList, _ := a.provider.ListTools(ctx)
+		if err := validateToolArgs(tc, toolsList); err != nil {
+			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
+			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
+			if tc.Function.Name == models.ToolFileWrite && isTruncationError(err.Error()) {
+				errMsg = prompts.AutomationContentTooLongPrompt
+			}
+			mu.Lock()
+			a.appendToolResult(history, tc, map[string]string{"error": errMsg})
+			mu.Unlock()
+			return nil
+		}
+
+		approved, stopBatch := a.resolveGuardrail(ctx, tc, history, &mu)
+		if stopBatch {
+			return nil
+		}
+
+		a.notifyToolCall(tc)
+		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
+		if approved {
+			toolCtx = models.WithGuardrailApproved(toolCtx)
+		}
+		result, err := a.engine.ExecuteTool(toolCtx, tc)
+		mu.Lock()
+		var finalResult any
+		if err != nil {
+			if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
+				finalResult = str
+			} else {
+				finalResult = map[string]string{"error": err.Error()}
+			}
+		} else {
+			finalResult = result
+		}
+		a.appendToolResult(history, tc, finalResult)
+		resultStr, _ := json.Marshal(finalResult)
+		a.logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
+		a.logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
+		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
+		if t := GetUsageTracker(ctx); t != nil {
+			t.AddToolCall(tc.Function.Name)
+		}
+		mu.Unlock()
+
+		if err != nil {
+			a.logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
+			return nil
+		}
+		if tc.Function.Name == models.ToolSubmitFinalAnswer {
+			return nil
+		}
+	}
+	return nil
+}
+
+func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex) (approved, stopBatch bool) {
+	if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
+		a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
+		a.notifyGuardrailViolation(tc.Function.Name, err)
+
+		if a.onGuardrail != nil {
+			decision, decErr := a.onGuardrail(ctx, GuardrailBlockedPayload{
+				DecisionID: fmt.Sprintf("gr_%d", time.Now().UnixNano()),
+				Tool:       tc.Function.Name,
+				Args:       tc.Function.Arguments,
+				Reason:     err.Error(),
+				Category:   toolCategory(tc.Function.Name),
+			})
+			if decErr == nil && decision.Allow {
+				if decision.Persist {
+					if pErr := a.guardrails.PersistOverride(a.workspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
+						a.logger.Warn("failed to persist guardrail override", "error", pErr)
+					}
+				}
+				return true, false
+			}
+		}
+
+		mu.Lock()
+		a.appendToolResult(history, tc, formatGuardrailError(err))
+		mu.Unlock()
+		return false, true
+	}
+	return false, false
+}
+
+func formatGuardrailError(err error) map[string]string {
+	return map[string]string{"error": "Guardrail violation: " + err.Error()}
+}
+
+func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *ExecutionPlan) (string, []proxy.Message, error) {
+	a.logger.Debug("executing plan", "steps", len(plan.Steps), "description", plan.Description)
+	currentHistory := append([]proxy.Message{}, history...)
+	for i, step := range plan.Steps {
+		if err := ctx.Err(); err != nil {
+			a.logger.Info("plan execution halted", "step", i, "error", err)
+			return "", currentHistory, fmt.Errorf("plan execution halted: %w", err)
+		}
+
+		a.logger.Debug("plan step", "step", i, "tool", step.ToolName, "description", step.Description)
+
+		argsJSON, err := json.Marshal(step.Parameters)
+		if err != nil {
+			a.logger.Info("plan step marshal failed", "step", i, "tool", step.ToolName, "error", err)
+			return "", currentHistory, fmt.Errorf("plan step %d: marshal args: %w", i, err)
+		}
+
+		tc := proxy.ToolCall{
+			ID:   fmt.Sprintf("plan_%d", i),
+			Type: "function",
+			Function: proxy.FunctionCall{
+				Name:      step.ToolName,
+				Arguments: string(argsJSON),
+			},
+		}
+
+		turnMsg := proxy.Message{
+			Role:      proxy.AssistantRole,
+			ToolCalls: []proxy.ToolCall{tc},
+		}
+
+		toolsList, listErr := a.provider.ListTools(ctx)
+		if listErr != nil {
+			a.logger.Info("plan step list tools failed", "step", i, "tool", step.ToolName, "error", listErr)
+			return "", currentHistory, fmt.Errorf("plan step %d: list tools: %w", i, listErr)
+		}
+
+		if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
+			a.logger.Info("plan step validation failed", "step", i, "tool", step.ToolName, "error", valErr)
+			return "", currentHistory, fmt.Errorf("plan step %d: invalid tool call: %w", i, valErr)
+		}
+
+		currentHistory = append(currentHistory, turnMsg)
+
+		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
+		result, execErr := a.engine.ExecuteTool(toolCtx, tc)
+		var finalResult any
+		if execErr != nil {
+			finalResult = map[string]string{"error": execErr.Error()}
+		} else {
+			finalResult = result
+		}
+		a.appendToolResult(&currentHistory, tc, finalResult)
+		if t := GetUsageTracker(ctx); t != nil {
+			t.AddToolCall(step.ToolName)
+		}
+
+		if execErr != nil {
+			a.logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
+			return "", currentHistory, fmt.Errorf("plan step %d failed: %w", i, execErr)
+		}
+	}
+
+	a.logger.Debug("plan execution complete", "steps", len(plan.Steps))
+	return "[Plan execution complete]", currentHistory, nil
+}
+
+func toolCategory(toolName string) string {
+	switch toolName {
+	case models.ToolTerminalExecute:
+		return "terminal"
+	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend:
+		return "filesystem"
+	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
+		return "network"
+	case models.ToolInternetSearch:
+		return "search"
+	case models.ToolNotifyUser:
+		return "communication"
+	default:
+		return "general"
+	}
+}
+
+// extractTaskSummary walks submit_final_answer args looking for a human-readable
+// summary.  Priority is: summary > message > report > findings > content > result,
+// then falls back to "Task complete." if nothing meaningful is found.
+func extractTaskSummary(rawArgs string) string {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return "Task complete."
+	}
+	for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
+		if val, ok := args[key].(string); ok && val != "" {
+			return val
+		}
+	}
+	for _, val := range args {
+		if s, ok := val.(string); ok && s != "" {
+			return s
+		}
+	}
+	return "Task complete."
+}
+
+// validateToolArgs checks required parameters from the tool's JSON schema
+// against the actual call arguments.  Returns a descriptive error so the
+// model can self-correct in the next turn.
+func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
+	var targetTool *proxy.Tool
+	for _, t := range tools {
+		if t.Function.Name == tc.Function.Name {
+			targetTool = &t
+			break
+		}
+	}
+	if targetTool == nil {
+		return fmt.Errorf("tool '%s' not found", tc.Function.Name)
+	}
+	params, ok := targetTool.Function.Parameters.(map[string]any)
+	if !ok {
+		return nil
+	}
+	requiredRaw, ok := params["required"]
+	if !ok {
+		return nil
+	}
+	var required []string
+	switch r := requiredRaw.(type) {
+	case []any:
+		for _, v := range r {
+			if s, ok := v.(string); ok {
+				required = append(required, s)
+			}
+		}
+	case []string:
+		required = r
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		return fmt.Errorf("failed to parse arguments as JSON: %w", err)
+	}
+	for _, field := range required {
+		val, ok := args[field]
+		if !ok {
+			return fmt.Errorf("missing required parameter '%s'", field)
+		}
+		if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
+			return fmt.Errorf("parameter '%s' cannot be empty", field)
+		}
+	}
+	return nil
+}
+
+// appendToolResult marshals the tool result, truncates it (proxy.TruncateResult
+// caps at ~8KB to avoid blowing the context window), and appends as a tool-role
+// message linked to the original call ID.
+func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
+	raw, _ := json.Marshal(result)
+	strContent := string(raw)
+	strContent = proxy.TruncateResult(strContent)
+	*history = append(*history, proxy.Message{
+		Role:       proxy.ToolRole,
+		Content:    strContent,
+		ToolCallID: tc.ID,
+	})
+}
