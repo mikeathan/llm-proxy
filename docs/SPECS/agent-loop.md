@@ -12,7 +12,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 2. Context Budget & Physical Sieve (Constitution II.6)
 - Default budget: 8,000 characters (overridable via `ModelConfig.ContextBudget`).
-- When exceeded: keep system message + first user message (Locked Head), insert sieve marker, keep last 10 messages (Priority Tail).
+- When exceeded, first attempt **compression**: truncate long Content (>4000 chars) and ReasoningContent (>2000 chars) in older messages to head+tail with `...[Truncated]...` marker.
+- If compression not enough: keep system message + first user message (Locked Head), insert sieve marker, keep last 10 messages (Priority Tail).
 - **Critical**: `recentCalls` (repetition detector) MUST survive the sieve boundary.
 - **Reactive Sieve**: When the LLM returns a context-size overflow error (e.g. `request exceeds the available context size`), the agent applies an aggressive sieve (keep only system + task + last 3 turns) and retries.  This catches cases where the character-budget sieve didn't fire because the model's actual token context is smaller than expected (e.g. llama.cpp with `--ctx-size 8192` but `n_ctx_train` reporting 262K).
 
@@ -52,7 +53,30 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - When false: tools stripped, tool manual injected into system prompt as text.
 - The HTTP client (`client.go`) does NOT strip tools — the agent controls this.
 
-### 9. Guardrail Decision Flow (Constitution II.10)
+### 8. Reasoning Stuck Detection & Fallback
+- Scaled threshold: `stuckThreshold()` returns `max(maxTokens * 2, MinReasoningStuckThreshold)`. Safety net for servers not enforcing reasoning budgets.
+- Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
+- Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, strip `<think>` tags and promote to `Content` so the XML parser can process it. See `cleanReasoningContent()`.
+- On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars`.
+- Fallback chain:
+  a. **Native tools + empty stream** → retry via XML streaming: temporarily disable `useNativeTools`, suppress `tool_choice`, suppress `reasoningBudget`, skip stuck check (user sees tokens in real-time), emit `lifecycle` event (`fallback_started`).
+  b. **XML stream also empty** → fall back to `computeNextResponseNonStreaming` as last resort.
+  c. **Non-streaming also fails** → starvation count increments, sieve nudges model.
+- Progressive sieve recovery handles repeated stuck events (1st: reactive sieve + nag, 2nd: aggressive sieve + stronger nag, 3rd: fail with clear error).
+
+### 9. Lifecycle Events for UI Progress
+- `lifecycle` event type with `phase` field:
+  - `stuck_detected`: model stuck in reasoning loop, `reasoning_chars` included.
+  - `fallback_started`: fallback mode engaged, `reason` and `mode` included.
+  - `fallback_waiting`: non-streaming fallback in progress, `elapsed` time included (15s heartbeat).
+  - `fallback_completed`: fallback succeeded.
+- Lifecycle events are appended as system messages in the frontend (never overwrite assistant streaming content).
+- The heartbeat in `computeNextResponseNonStreaming` now uses `lifecycle` (`fallback_waiting`) with elapsed time instead of `tool_stream`.
+
+### 10. Goroutine Lifecycle in processStream
+- A `streamDone` channel (closed via `defer`) ensures the 30-second heartbeat goroutine exits when `processStream` returns for ANY reason — not just `ctx.Done()`. This prevents misleading "stream still generating" log lines after stuck detection or stream EOF.
+
+### 11. Guardrail Decision Flow (Constitution II.10)
 - When `guardrails.ValidateToolCall()` rejects a tool call, the agent invokes `onGuardrail(ctx, payload)` if set.
 - The payload includes: `DecisionID`, `Tool`, `Args`, `Reason`, `Category` (terminal/filesystem/network/search/communication).
 - The callback blocks until: user approves (`Allow: true`), user rejects (`Allow: false`), timeout fires (60s default), or context is cancelled.
@@ -60,7 +84,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - In automation mode (no user present), the callback is nil and guardrail violations fail immediately with an error tool result.
 - The decision store (`assistant/guardrail_decision.go`) provides concurrent-safe Register/Resolve/Remove operations.
 
-### 8. History Normalization (Constitution II.8)
+### 12. History Normalization (Constitution II.8)
 - `NormalizeHistory()`: strips `ToolCalls` when `useNativeTools=false`. Converts `tool` role → `user` role with `tool_call_id` embedded in content (`Tool result [call_N]: <json>`) to avoid Jinja template errors in llama.cpp while preserving call/result association. No auto-nags. Consolidates consecutive same-role messages.
 - `SanitizeHistory()`: preserves `role`, `content`, `tool_calls`, `tool_call_id`.
 

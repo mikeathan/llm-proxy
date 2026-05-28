@@ -16,6 +16,12 @@ const (
 
 type ExecutionHistory = []Message
 
+type ResponseFormat struct {
+	Type   string      `json:"type,omitempty"`
+	Name   string      `json:"name,omitempty"`
+	Schema interface{} `json:"schema,omitempty"`
+}
+
 // Message
 
 type Message struct {
@@ -28,14 +34,15 @@ type Message struct {
 
 // Chat Request
 type ChatRequest struct {
-	Model           string     `json:"model"`
-	Messages        []Message  `json:"messages"`
-	MaxTokens       int        `json:"max_tokens,omitempty"`
-	Temperature     float64    `json:"temperature,omitempty"`
-	ReasoningBudget int        `json:"reasoning_budget,omitempty"`
-	Tools           []Tool     `json:"tools,omitempty"`
-	ToolChoice      ToolChoice `json:"tool_choice,omitempty"`
-	Stream          bool       `json:"stream,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []Message       `json:"messages"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	Temperature     float64         `json:"temperature,omitempty"`
+	ReasoningBudget int             `json:"reasoning_budget,omitempty"`
+	Tools           []Tool          `json:"tools,omitempty"`
+	ToolChoice      ToolChoice      `json:"tool_choice,omitempty"`
+	Stream          bool            `json:"stream,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
 }
 
 type ToolCall struct {

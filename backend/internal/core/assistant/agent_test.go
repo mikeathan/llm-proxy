@@ -480,8 +480,8 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
 	if toolsPassed {
 		t.Error("non-streaming fallback should NOT receive native tools — should retry with XML text mode")
 	}
-	if agent.useNativeTools {
-		t.Error("agent should have switched to non-native tools after empty stream fallback")
+	if !agent.useNativeTools {
+		t.Error("agent should restore native tools after temporary fallback override")
 	}
 }
 
@@ -2074,5 +2074,597 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	}
 	if !foundNagPrompt {
 		t.Error("expected ToolErrorNagPrompt to be injected after tool error")
+	}
+}
+
+func TestAgent_StuckThresholdConstant(t *testing.T) {
+	// The stuck threshold is maxTokens * 2 chars, floored at
+	// MinReasoningStuckThreshold (2000).
+	// For maxRespTok=2730: threshold=2730*2=5460.
+	tests := []struct {
+		name        string
+		maxRespTok  int
+		reasoning   int // chars of reasoning to stream
+		expectStuck bool // should stuck detection fire?
+	}{
+		{"below threshold with small max_tokens", 2730, 1500, false},
+		{"below threshold with large max_tokens", 16384, 1500, false},
+		{"above scaled threshold triggers detection", 2730, 6000, true},
+		{"above floor threshold with small max_tokens", 512, 2500, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var events []AgentEvent
+			streamCalls := 0
+			chatCalls := 0
+			client := &MockClient{
+				StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+					streamCalls++
+					ch := make(chan *proxy.ChatResponse, 100)
+					go func() {
+						defer close(ch)
+						reasoningChunk := "the model thinks about the problem "
+						charsSent := 0
+						for charsSent < tc.reasoning {
+							ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+								Delta: proxy.Message{ReasoningContent: reasoningChunk},
+							}}}
+							charsSent += len(reasoningChunk)
+						}
+					}()
+					return ch, nil
+				},
+				ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+					chatCalls++
+					return &proxy.ChatResponse{
+						Choices: []proxy.Choice{{
+							Message: proxy.Message{
+								Role: "assistant",
+								ToolCalls: []proxy.ToolCall{{
+									ID:   "call_submit",
+									Type: "function",
+									Function: proxy.FunctionCall{
+										Name:      models.ToolSubmitFinalAnswer,
+										Arguments: `{"summary": "done"}`,
+									},
+								}},
+							},
+						}},
+					}, nil
+				},
+			}
+			provider := &MockProvider{
+				Tools: []proxy.Tool{
+					{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+				},
+			}
+			engine := &MockEngine{Result: "ok"}
+			agent := NewAgent(client, provider, engine, AgentOptions{
+				MaxSteps:          25,
+				MaxResponseTokens: tc.maxRespTok,
+			})
+			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+			_, _, err := agent.Execute(context.Background(), []proxy.Message{
+				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+			})
+			if err != nil {
+				t.Fatalf("Execute failed: %v", err)
+			}
+			// The fallback (ChatFunc) will be called regardless of threshold because
+			// any stream that produces only reasoning with no content/tool calls
+			// triggers the empty-stream fallback.  The threshold determines whether
+			// stuck detection fires an explicit lifecycle event before the fallback.
+			if chatCalls == 0 {
+				t.Error("expected fallback (chat) to be called for reasoning-only stream")
+			}
+			foundStuckEvent := false
+			for _, ev := range events {
+				if ev.Type == EventLifecycle {
+					if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == "stuck_detected" {
+						foundStuckEvent = true
+						break
+					}
+				}
+			}
+			if tc.expectStuck && !foundStuckEvent {
+				t.Error("expected stuck_detected lifecycle event when reasoning exceeds threshold")
+			}
+			if !tc.expectStuck && foundStuckEvent {
+				t.Error("unexpected stuck_detected lifecycle event when reasoning is below threshold")
+			}
+		})
+	}
+}
+
+func TestAgent_StuckThresholdDerived(t *testing.T) {
+	// The effective threshold is maxTokens * 2.
+	// maxRespTok=8192 → threshold=16384.
+	// reasoning=2000 should be BELOW that threshold (model not stuck),
+	// while reasoning=20000 should be ABOVE (stuck detected).
+	// Also test that the floor (2000) applies when tiny maxTokens.
+	tests := []struct {
+		name        string
+		maxRespTok  int
+		reasoning   int
+		expectStuck bool
+	}{
+		{"below scaled threshold with large budget", 8192, 2000, false},
+		{"above scaled threshold triggers detection", 8192, 20000, true},
+		{"tiny budget still gets floor threshold", 256, 2500, true},
+		{"tiny budget below floor does not trigger", 256, 1500, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var events []AgentEvent
+			chatCalls := 0
+			client := &MockClient{
+				StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+					ch := make(chan *proxy.ChatResponse, 100)
+					go func() {
+						defer close(ch)
+						reasoningChunk := "the model thinks about the problem "
+						charsSent := 0
+						for charsSent < tc.reasoning {
+							ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+								Delta: proxy.Message{ReasoningContent: reasoningChunk},
+							}}}
+							charsSent += len(reasoningChunk)
+						}
+					}()
+					return ch, nil
+				},
+				ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+					chatCalls++
+					return &proxy.ChatResponse{
+						Choices: []proxy.Choice{{
+							Message: proxy.Message{
+								Role: "assistant",
+								ToolCalls: []proxy.ToolCall{{
+									ID:   "call_submit",
+									Type: "function",
+									Function: proxy.FunctionCall{
+										Name:      models.ToolSubmitFinalAnswer,
+										Arguments: `{"summary": "done"}`,
+									},
+								}},
+							},
+						}},
+					}, nil
+				},
+			}
+			provider := &MockProvider{
+				Tools: []proxy.Tool{
+					{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+				},
+			}
+			engine := &MockEngine{Result: "ok"}
+			agent := NewAgent(client, provider, engine, AgentOptions{
+				MaxSteps:          25,
+				MaxResponseTokens: tc.maxRespTok,
+			})
+			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+			_, _, err := agent.Execute(context.Background(), []proxy.Message{
+				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+			})
+			if err != nil {
+				t.Fatalf("Execute failed: %v", err)
+			}
+			if chatCalls == 0 {
+				t.Error("expected fallback (chat) to be called for reasoning-only stream")
+			}
+			foundStuckEvent := false
+			for _, ev := range events {
+				if ev.Type == EventLifecycle {
+					if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == "stuck_detected" {
+						foundStuckEvent = true
+						break
+					}
+				}
+			}
+			if tc.expectStuck && !foundStuckEvent {
+				t.Error("expected stuck_detected lifecycle event when reasoning exceeds scaled threshold")
+			}
+			if !tc.expectStuck && foundStuckEvent {
+				t.Error("unexpected stuck_detected lifecycle event when reasoning is below scaled threshold")
+			}
+		})
+	}
+}
+
+func TestAgent_LifecycleEventsOnStuck(t *testing.T) {
+	// When the reasoning stuck detector fires, a lifecycle event with
+	// phase "stuck_detected" should be emitted.
+	var events []AgentEvent
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 100)
+			go func() {
+				defer close(ch)
+				for i := 0; i < 150; i++ {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+						Delta: proxy.Message{ReasoningContent: "model keeps thinking without producing anything "},
+					}}}
+				}
+			}()
+			return ch, nil
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "done"}`,
+							},
+						}},
+					},
+				}},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	foundStuck := false
+	foundFallback := false
+	for _, ev := range events {
+		if ev.Type == EventLifecycle {
+			payload, ok := ev.Payload.(map[string]any)
+			if !ok {
+				continue
+			}
+			if payload["phase"] == "stuck_detected" {
+				foundStuck = true
+				if _, ok := payload["reasoning_chars"]; !ok {
+					t.Error("stuck_detected lifecycle event missing reasoning_chars")
+				}
+			}
+			if payload["phase"] == "fallback_started" {
+				foundFallback = true
+			}
+		}
+	}
+	if !foundStuck {
+		t.Error("expected lifecycle event with phase stuck_detected")
+	}
+	if !foundFallback {
+		t.Error("expected lifecycle event with phase fallback_started")
+	}
+}
+
+func TestAgent_StuckDetectionExtractsToolCallFromReasoning(t *testing.T) {
+	// When <tool_call> is embedded inside <think> content, the stuck
+	// detector should extract it into Content so the XML parser can
+	// process it, rather than declaring the model stuck.
+	var events []AgentEvent
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 100)
+			go func() {
+				defer close(ch)
+				// Reasoning content that far exceeds the threshold, but
+				// contains an embedded <tool_call> block inside <think>.
+				reasoning := `<think>The user wants to submit the final answer.
+I should use the submit_final_answer tool to complete this.
+<tool_call>{"tool": "` + models.ToolSubmitFinalAnswer + `", "args": {"summary": "done"}}</tool_call>
+</think>
+`
+				for i := 0; i < 150; i++ {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+						Delta: proxy.Message{ReasoningContent: reasoning},
+					}}}
+				}
+			}()
+			return ch, nil
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			// Should NOT be called — the tool call is extracted from
+			// reasoning, so no fallback needed.
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role:    "assistant",
+						Content: "invalid fallback",
+					},
+				}},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:          25,
+		MaxResponseTokens: 2730,
+	})
+	agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	for _, ev := range events {
+		if ev.Type == EventLifecycle {
+			if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == "stuck_detected" {
+				t.Error("unexpected stuck_detected event — tool call should have been extracted from reasoning")
+			}
+			if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == "fallback_started" {
+				t.Error("unexpected fallback_started event — extracted tool call should have been processed without fallback")
+			}
+		}
+	}
+}
+
+func TestAgent_FallbackXMLModeNoToolChoice(t *testing.T) {
+	// When the empty-stream-native-tools fallback fires, the non-streaming
+	// retry should use XML mode: no tool_choice:required, no native tools.
+	var capturedReq proxy.ChatRequest
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 1)
+			go func() {
+				defer close(ch)
+			}()
+			return ch, nil
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			capturedReq = req
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "Task complete"}`,
+							},
+						}},
+					},
+				}},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	// The fallback retry should have no native tools and no tool_choice
+	if len(capturedReq.Tools) > 0 {
+		t.Errorf("fallback should not use native tools in XML mode, got %d tools", len(capturedReq.Tools))
+	}
+	if capturedReq.ToolChoice != "" {
+		t.Errorf("fallback should not set tool_choice in XML mode, got %q", capturedReq.ToolChoice)
+	}
+	if capturedReq.ReasoningBudget != 0 {
+		t.Errorf("fallback should suppress ReasoningBudget in XML mode, got %d", capturedReq.ReasoningBudget)
+	}
+}
+
+func TestTruncateLongContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		limit    int
+		expected string
+	}{
+		{"short content unchanged", "hello", 100, "hello"},
+		{"empty string unchanged", "", 100, ""},
+		{"exact limit unchanged", "12345", 5, "12345"},
+		{"zero limit unchanged", "hello", 0, "hello"},
+		{"negative limit unchanged", "hello", -1, "hello"},
+		{"long content truncated", "abcdefghijklmnopqrstuvwxyz", 10, "abcde\n...[Truncated]...\nvwxyz"},
+		{"odd length limit", "abcdefghij", 5, "ab\n...[Truncated]...\nij"},
+		{"one char each side", "abcdef", 2, "a\n...[Truncated]...\nf"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := truncateLongContent(tc.input, tc.limit)
+			if got != tc.expected {
+				t.Errorf("truncateLongContent(%q, %d) = %q, want %q", tc.input, tc.limit, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestAgent_SieveCompressionRange(t *testing.T) {
+	// Compression targets messages between sieveLockedHead and len-sievePhysicalTail.
+	// With 20 messages: compress indices [2:10] = 8 messages.
+	// Middle messages have long content, head/tail have short content.
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system"},
+		{Role: proxy.UserRole, Content: "task"},
+	}
+	for i := 0; i < 8; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: fmt.Sprintf("middle %d: %s", i, strings.Repeat("x", 5000))})
+	}
+	for i := 0; i < 10; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: fmt.Sprintf("tail %d: short", i)})
+	}
+
+	agent := &Agent{contextBudget: 36000, logger: logging.NewNopLogger()}
+	got := agent.applyPhysicalSieve(history)
+
+	// Total before compression: ~40K chars → exceeds 36K budget.
+	// After compression: middle 8 drop from 5K to 4K each → saves 8K → total ~32K → under budget, no drop.
+	for _, m := range got {
+		if strings.Contains(m.Content, prompts.SieveSystemNote) {
+			t.Error("compression should have avoided dropping messages")
+		}
+	}
+	if len(got) != len(history) {
+		t.Errorf("expected all %d messages preserved after compression, got %d", len(history), len(got))
+	}
+	// Middle messages (indices 2-9) should have [Truncated] marker.
+	for i := sieveLockedHead; i < len(history)-sievePhysicalTail; i++ {
+		if !strings.Contains(got[i].Content, "...[Truncated]...") {
+			t.Errorf("middle message [%d] should be truncated", i)
+		}
+	}
+	// First 2 and last 10 should NOT be truncated.
+	for i := 0; i < sieveLockedHead; i++ {
+		if strings.Contains(got[i].Content, "...[Truncated]...") {
+			t.Errorf("locked head message [%d] should not be truncated", i)
+		}
+	}
+	for i := len(history) - sievePhysicalTail; i < len(history); i++ {
+		if strings.Contains(got[i].Content, "...[Truncated]...") {
+			t.Errorf("priority tail message [%d] should not be truncated", i)
+		}
+	}
+}
+
+func TestAgent_SieveCompressionAvoidsDrop(t *testing.T) {
+	// Compression brings total just under budget → no sieve notes, all messages kept.
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system"},
+		{Role: proxy.UserRole, Content: "task"},
+	}
+	for i := 0; i < 8; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: fmt.Sprintf("msg %d: %s", i, strings.Repeat("x", 4100))})
+	}
+	for i := 0; i < 10; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "short"})
+	}
+
+	agent := &Agent{contextBudget: 33000, logger: logging.NewNopLogger()}
+	got := agent.applyPhysicalSieve(history)
+
+	for _, m := range got {
+		if strings.Contains(m.Content, prompts.ContextSieveWarning) {
+			t.Error("sieve warning should not appear when compression avoids drop")
+		}
+	}
+	if len(got) != len(history) {
+		t.Errorf("expected %d messages, got %d", len(history), len(got))
+	}
+}
+
+func TestAgent_SieveDropAfterCompressionExhausted(t *testing.T) {
+	// Compression alone can't bring under budget → messages are dropped.
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system"},
+		{Role: proxy.UserRole, Content: "task"},
+	}
+	for i := 0; i < 24; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: strings.Repeat("x", 10000)})
+	}
+
+	agent := &Agent{contextBudget: 500, logger: logging.NewNopLogger()}
+	got := agent.applyPhysicalSieve(history)
+
+	foundWarning := false
+	for _, m := range got {
+		if strings.Contains(m.Content, prompts.ContextSieveWarning) {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Error("expected sieve warning when compression is insufficient")
+	}
+	if len(got) >= len(history) {
+		t.Error("expected fewer messages after sieve drop")
+	}
+	expectedSize := sieveLockedHead + sievePhysicalTail + 2
+	if len(got) != expectedSize {
+		t.Errorf("expected %d messages after sieve, got %d", expectedSize, len(got))
+	}
+}
+
+func TestAgent_SieveSafeEmptyRange(t *testing.T) {
+	tests := []struct {
+		name   string
+		length int
+	}{
+		{"exactly locked head + tail", sieveLockedHead + sievePhysicalTail},
+		{"below locked head + tail", 5},
+		{"just one message", 1},
+		{"empty history", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			history := make([]proxy.Message, tc.length)
+			for i := range history {
+				history[i] = proxy.Message{Role: proxy.UserRole, Content: strings.Repeat("x", 10000)}
+			}
+			agent := &Agent{contextBudget: 100, logger: logging.NewNopLogger()}
+			got := agent.applyPhysicalSieve(history)
+			if got == nil {
+				t.Fatal("sieve should never return nil")
+			}
+		})
+	}
+}
+
+func TestAgent_ReactiveSieveCount(t *testing.T) {
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system"},
+		{Role: proxy.UserRole, Content: "task"},
+	}
+	for i := 0; i < 20; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "msg"})
+	}
+	agent := &Agent{logger: logging.NewNopLogger()}
+	got := agent.applyReactiveSieve(history)
+
+	// sieveLockedHead + sieve note + sieveReactiveTail
+	expected := sieveLockedHead + 1 + sieveReactiveTail
+	if len(got) != expected {
+		t.Errorf("expected %d messages after reactive sieve, got %d", expected, len(got))
+	}
+}
+
+func TestAgent_AggressiveSieveCount(t *testing.T) {
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system"},
+		{Role: proxy.UserRole, Content: "task"},
+	}
+	for i := 0; i < 10; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "msg"})
+	}
+	agent := &Agent{logger: logging.NewNopLogger()}
+	got := agent.applyAggressiveSieve(history)
+
+	// sieveLockedHead + sieve note + sieveAggressiveTail
+	expected := sieveLockedHead + 1 + sieveAggressiveTail
+	if len(got) != expected {
+		t.Errorf("expected %d messages after aggressive sieve, got %d", expected, len(got))
 	}
 }

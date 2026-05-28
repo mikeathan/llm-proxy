@@ -19,6 +19,7 @@ const (
 	EventGuardrailInvalidated AgentEventType = "guardrail_invalidated"
 	EventError                AgentEventType = "error"
 	EventToolStream           AgentEventType = "tool_stream"
+	EventLifecycle            AgentEventType = "lifecycle"
 )
 
 type AgentEvent struct {
@@ -117,6 +118,17 @@ func (a *Agent) notifyPrefillDisabled() {
 		Role:    "system",
 		Content: "⚙️ Response prefill was disabled — the model rejected the prefill (thinking mode active on the server). For faster execution, set `prefill: false` on this model.",
 	})
+}
+
+// notifyLifecycle emits a structured lifecycle event to the UI so the user
+// sees what phase the agent is in: thinking, stuck_detected, fallback_started,
+// fallback_waiting, fallback_completed, etc.
+func (a *Agent) notifyLifecycle(phase string, extra map[string]any) {
+	payload := map[string]any{"phase": phase}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	a.notify(EventLifecycle, payload)
 }
 
 func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {

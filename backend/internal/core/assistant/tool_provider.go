@@ -29,11 +29,26 @@ func (p *MultiToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error)
 	for _, provider := range p.Providers {
 		tools, err := provider.ListTools(ctx)
 		if err != nil {
-			continue // Skip failing providers
+			continue
 		}
 		all = append(all, tools...)
 	}
-	return all, nil
+	return deduplicateTools(all), nil
+}
+
+// deduplicateTools removes tools with duplicate names, keeping the first
+// occurrence.  This prevents conflicts when MCP servers re-list tools that
+// are already registered locally.
+func deduplicateTools(tools []proxy.Tool) []proxy.Tool {
+	seen := make(map[string]bool, len(tools))
+	result := make([]proxy.Tool, 0, len(tools))
+	for _, t := range tools {
+		if !seen[t.Function.Name] {
+			seen[t.Function.Name] = true
+			result = append(result, t)
+		}
+	}
+	return result
 }
 
 func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
@@ -78,7 +93,7 @@ func (e *CompositeEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 	// Only fallback to secondary if the tool was NOT found in primary.
 	// If primary FOUND the tool but it failed (e.g. guardrail), return that error immediately.
 	if err != ErrToolNotInternal {
-		return nil, err
+		return res, err
 	}
 
 	return e.secondary.ExecuteTool(ctx, call)

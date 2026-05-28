@@ -181,6 +181,13 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 			if cfg.TimeoutMinutes > 0 {
 				agentOpts.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
 			}
+			if cfg.EnableExecutionPlan {
+				tools, listErr := e.svc.ToolProvider().ListTools(ctx)
+				if listErr == nil && len(tools) > 0 {
+					agentOpts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools, procLog)
+					procLog.Debug("execution plan strategy enabled", "tools", len(tools))
+				}
+			}
 			procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
 		}
 	}
@@ -200,6 +207,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	execCtx = models.WithRunID(execCtx, generateRunID())
 
 	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
+	if t := assistant.GetUsageTracker(execCtx); t != nil {
+		procLog.Info("Usage", "llm_calls", t.LLMCalls, "tool_calls", t.ToolCalls,
+			"input_tokens", t.InputTokens, "output_tokens", t.OutputTokens)
+	}
 	if agErr != nil {
 		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 		resp.State.LastError = errStr
