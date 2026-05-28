@@ -4,125 +4,15 @@ Merged findings from [OpenClaw](https://github.com/openclaw/openclaw) and [agent
 
 ---
 
-## Phase 1: Custom Execute/Stream Functions
+## ~~Phase 1: Custom Execute/Stream Functions~~ (REMOVED)
 
-**Source:** agent-sdk-go — `CustomRunFunction`, `CustomRunStreamFunction`
-
-**Goal:** Allow the agent loop to be replaced entirely by setting a function on `AgentOptions`. Enables recording playback, testing, and custom execution without forking.
-
-### Changes
-
-**`internal/core/assistant/agent.go`** — `AgentOptions` struct:
-```go
-type AgentOptions struct {
-    // ... existing fields
-
-    // CustomExecuteFunc, when set, replaces the default agent loop entirely.
-    // The function receives the execution context and message history, and
-    // returns the final reply text, the complete history, and any error.
-    CustomExecuteFunc func(ctx context.Context, history []proxy.Message, agent *Agent) (finalReply string, fullHistory []proxy.Message, err error)
-
-    // CustomStreamFunc, when set, replaces the default streaming path.
-    CustomStreamFunc func(ctx context.Context, history []proxy.Message, agent *Agent) (<-chan AgentEvent, error)
-}
-```
-
-**`internal/core/assistant/agent.go`** — `Execute()` method:
-```go
-func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
-    if a.opts.CustomExecuteFunc != nil {
-        return a.opts.CustomExecuteFunc(ctx, history, a)
-    }
-    // ... existing loop
-}
-```
-
-**`internal/core/assistant/agent.go`** — `processStream()` or wherever streaming is initiated:
-```go
-if a.opts.CustomStreamFunc != nil {
-    return a.opts.CustomStreamFunc(ctx, history, a)
-}
-// ... existing stream handling
-```
-
-### Tests
-- Custom func is called when set → verify it receives the right inputs
-- Custom func is skipped when nil → verify existing loop runs
-- CustomStreamFunc follows the same contract
-
-### Why
-Recording playback hooks in here without touching the agent loop. The `PlaybackBridge` wraps a `recordings.PlaybackClient` as `proxy.Client`, and the custom execute function just calls `agent.Execute()` with that client — no agent loop changes needed.
+**Why removed:** `CustomExecuteFunc` and `CustomStreamFunc` were injection points on `AgentOptions` that bypassed the entire agent loop. They were never wired by any production caller — only tests used them. Recording and playback were instead implemented at the transport layer via `RecordingClient` and `PlaybackBridge` (both wrapping `proxy.Client`), which is a cleaner separation. The fields and guard checks have been removed from `agent.go`.
 
 ---
 
-## Phase 2: Guardrail Middleware Wrapping
+## ~~Phase 2: Guardrail Middleware Wrapping~~ (REMOVED)
 
-**Source:** agent-sdk-go — `LLMMiddleware` wrapping `interfaces.LLM`
-
-**Goal:** Wrap `proxy.Client` so every LLM call is automatically guarded at the transport layer. Eliminates the risk of unguarded code paths.
-
-### Changes
-
-**`internal/core/assistant/guardrails/llm_middleware.go`** — new file:
-```go
-package guardrails
-
-type LLMGuardrailMiddleware struct {
-    client   proxy.Client
-    pipeline *GuardrailPipeline  // request + response pipeline
-}
-
-func NewLLMGuardrailMiddleware(client proxy.Client, pipeline *GuardrailPipeline) *LLMGuardrailMiddleware {
-    return &LLMGuardrailMiddleware{client: client, pipeline: pipeline}
-}
-
-func (m *LLMGuardrailMiddleware) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-    guardedReq, err := m.pipeline.ProcessRequest(ctx, req)
-    if err != nil {
-        return nil, fmt.Errorf("guardrail blocked request: %w", err)
-    }
-    resp, err := m.client.Chat(ctx, guardedReq)
-    if err != nil {
-        return nil, err
-    }
-    guardedResp, err := m.pipeline.ProcessResponse(ctx, resp)
-    if err != nil {
-        return nil, fmt.Errorf("guardrail blocked response: %w", err)
-    }
-    return guardedResp, nil
-}
-
-func (m *LLMGuardrailMiddleware) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-    guardedReq, err := m.pipeline.ProcessRequest(ctx, req)
-    if err != nil {
-        return nil, fmt.Errorf("guardrail blocked request: %w", err)
-    }
-    // Pass through to underlying stream — response guardrails apply per-chunk
-    return m.client.Stream(ctx, guardedReq)
-}
-```
-
-**`internal/app/bootstrap.go`** — wrap client factory when guardrails are active:
-```go
-factory := func(baseURL, model string, headers http.Header) proxy.Client {
-    client := proxy.NewLLMClient(baseURL, model, nil, headers)
-    if c.RecordDir != "" {
-        client = recorder.New(client, c.RecordDir, model)
-    }
-    if s.guardrailEngine != nil {
-        client = guardrails.NewLLMGuardrailMiddleware(client, s.guardrailEngine.Pipeline())
-    }
-    return client
-}
-```
-
-**`internal/core/assistant/agent.go`** — remove inline guardrail calls after verifying they're covered by middleware. This is a cleanup pass — do it only after the middleware is proven in production.
-
-### Tests
-- Mock `proxy.Client` + mock guardrail pipeline that tracks calls
-- `Chat()`: guards called before LLM, guards called after LLM
-- Block action returns error, Warn passes through
-- `Stream()`: request guard called, response not modified
+**Why removed:** The `LLMGuardrailMiddleware` was implemented as a decorator wrapper on `proxy.Client` but its `ProcessRequest`/`ProcessResponse` pipeline methods were no-ops — they never called `GuardrailEngine.ValidateToolCall()`. The real guardrail enforcement remained inline in the agent loop (`agent.go:1243`). Additionally, the middleware operated at the `ChatRequest`/`ChatResponse` level (transport layer), while guardrails validate individual `ToolCall` objects after parsing — a fundamental abstraction mismatch that couldn't be bridged without redundant dual enforcement. The interactive guardrail-decision flow (user approve/deny/persist) is also tightly coupled to the agent loop and can't live in a transport wrapper. The files have been deleted; the inline enforcement in `agent.go` is the canonical path.
 
 ---
 
@@ -136,7 +26,7 @@ factory := func(baseURL, model string, headers http.Header) proxy.Client {
 
 ### Changes
 
-**`internal/core/assistant/agent.go`** — in the empty-response fallback path:
+**`internal/core/assistant/agent.go                          (Phase 1 custom funcs removed)`** — in the empty-response fallback path:
 ```go
 // During processStream(), when stream returns empty:
 // current code: retries silently via Chat()
@@ -152,7 +42,7 @@ if isRetry && len(history) > 0 {
 const RetrySignal = "[Retry after the previous model attempt failed or timed out]"
 ```
 
-**`internal/core/assistant/agent.go`** — `injectRetryContext()` helper:
+**`internal/core/assistant/agent.go                          (Phase 1 custom funcs removed)`** — `injectRetryContext()` helper:
 ```go
 func injectRetryContext(userContent string, signal string) string {
     return fmt.Sprintf("%s\n\n%s", signal, userContent)
@@ -261,7 +151,7 @@ func (t *UsageTracker) AddToolCall(name string) {
 }
 ```
 
-**`internal/core/assistant/agent.go`** — initialize + instrument:
+**`internal/core/assistant/agent.go                          (Phase 1 custom funcs removed)`** — initialize + instrument:
 ```go
 // At start of Execute():
 ctx = withUsageTracker(ctx)
@@ -293,7 +183,7 @@ if t := assistant.GetUsageTracker(execCtx); t != nil {
 
 ---
 
-## Phase 6: Execution Plan Strategy
+## Phase 6: Execution Plan Strategy (WIRED — active for automations)
 
 **Source:** agent-sdk-go — `executionplan` package
 
@@ -331,7 +221,17 @@ func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*Exe
 }
 ```
 
-**`internal/core/assistant/agent.go`** — integration:
+**`internal/core/automation/executor.go`** — wire when `EnableExecutionPlan` is true on the model config:
+```go
+if cfg.EnableExecutionPlan {
+    tools, listErr := e.svc.ToolProvider().ListTools(ctx)
+    if listErr == nil && len(tools) > 0 {
+        agentOpts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools)
+    }
+}
+```
+
+**`internal/core/assistant/agent.go                          (Phase 1 custom funcs removed)`** — integration:
 ```go
 type AgentOptions struct {
     // ... existing
@@ -363,7 +263,7 @@ EnableExecutionPlan bool `yaml:"enable_execution_plan,omitempty" json:"enable_ex
 
 ---
 
-## Phase 7: ResponseFormat + Sub-Agent Auto-Wrap
+## Phase 7: ResponseFormat + Sub-Agent Auto-Wrap (PARTIAL — ResponseFormat in struct, pipes via `json.Marshal`; sub-agent wrap not implemented)
 
 **Source:** agent-sdk-go — `ResponseFormat`, sub-agent tool wrapping
 
@@ -383,14 +283,7 @@ type ChatRequest struct {
 }
 ```
 
-**`internal/core/proxy/client.go`** — pipe through to HTTP body:
-```go
-if req.ResponseFormat != nil {
-    body["response_format"] = req.ResponseFormat
-}
-```
-
-Already works for OpenAI-compatible APIs. For others, the field is omitted by `omitempty`.
+No explicit piping needed — `client.go` does `json.Marshal(req)` where `ChatRequest.ResponseFormat` has `json:"response_format,omitempty"` — it serializes automatically when set.
 
 **`internal/core/assistant/tool_provider.go`** — sub-agent auto-wrap:
 ```go
@@ -406,50 +299,6 @@ func NewLocalToolRegistry(providers ToolProvider, subAgents []*Agent) *LocalTool
 
 ### Tests
 - `ResponseFormat` appears in HTTP body JSON when set
-- Sub-agent tool has correct name/description from agent metadata
-
----
-
-## Phase 8: Anthropic Prompt Caching
-
-**Source:** agent-sdk-go — `CacheConfig`
-
-**Goal:** Reduce latency and token costs for Anthropic provider by marking system prompts and tool definitions with `cache_control` breakpoints. Repeated calls reuse cached prefixes.
-
-### Changes
-
-**`models/config.go`** — add `CacheConfig` to model settings:
-```go
-type CacheConfig struct {
-    SystemMessage bool   `yaml:"cache_system_message,omitempty" json:"cache_system_message,omitempty"`
-    Tools         bool   `yaml:"cache_tools,omitempty"           json:"cache_tools,omitempty"`
-    Conversation  bool   `yaml:"cache_conversation,omitempty"    json:"cache_conversation,omitempty"`
-    TTL           string `yaml:"cache_ttl,omitempty"             json:"cache_ttl,omitempty"` // e.g. "5m"
-}
-```
-
-**`internal/core/proxy/client.go`** — in the Anthropic provider branch, inject cache control markers:
-```go
-if req.AnthropicCache != nil {
-    if req.AnthropicCache.SystemMessage {
-        body["system"] = append([]map[string]interface{}{{
-            "type": "text",
-            "text": req.SystemPrompt,
-            "cache_control": {"type": "ephemeral"},
-        }}, existingSystem...)
-    }
-    if req.AnthropicCache.Tools && len(tools) > 0 {
-        tools[len(tools)-1]["cache_control"] = map[string]string{"type": "ephemeral"}
-    }
-}
-```
-
-Note: Anthropic's API uses `cache_control: { type: "ephemeral" }` on the last system message block and/or last tool definition. The proxy just needs to inject these markers when the model config has caching enabled.
-
-### Tests
-- No `CacheConfig` set → no markers injected (backwards compatible)
-- Caching enabled → `cache_control` appears in last system block and/or last tool
-- Anthropic provider only; other providers skip this logic
 
 ---
 
@@ -462,39 +311,38 @@ Note: Anthropic's API uses `cache_control: { type: "ephemeral" }` on the last sy
 | OpenClaw result-classified fallback | Requires new error classification types + routing. Save for v2. |
 | agent-sdk-go YAML config hierarchy | Our config system works for our use case |
 | agent-sdk-go memory interface | We have history management; pluggable memory adds complexity without clear benefit |
+| Anthropic prompt caching (Phase 8) | Agent is provider-agnostic; Anthropic-specific cache_control markers don't belong |
+| Sub-agent auto-wrap (Phase 7) | Not needed until sub-agents exist; trivially addable later (~50-80 lines) |
 
 ---
 
 ## Implementation Order
 
 ```
-Phase 1 (Custom funcs) → Phase 3 (Retry injection) → Phase 4 (Tool dedup)
-    → Phase 5 (UsageTracker) → Phase 2 (Guardrail middleware)
-    → Phase 7 (ResponseFormat + auto-wrap) → Phase 6 (Execution plan) → Phase 8 (Caching)
+Phase 3 (Retry injection) → Phase 4 (Tool dedup)
+    → Phase 5 (UsageTracker) → Phase 6 (Execution plan)
+    → Phase 7 (ResponseFormat — partial)
 ```
 
-Phases 1, 3, and 4 can be done in parallel.
-Phase 5 touches both agent and executor — needs coordination.
-Phase 2 requires confirming no code path bypasses guardrails.
-Phase 6 is the most involved — needs careful design of the plan prompt.
-Phase 7 and Phase 4 both touch `tool_provider.go` — do Phase 4 first then Phase 7, or merge carefully.
-Phase 8 is independent and can go anywhere after proxy client changes settle.
+Phases 3, 4, 5 are implemented and live.
+Phase 6 is wired (automation executor) — enable via model config `enable_execution_plan: true`.
+Phase 7: ResponseFormat in struct, auto-piped via `json.Marshal` — done.
 
 ---
 
 ## Files Changed (complete list)
 
 ```
-internal/core/assistant/agent.go
+internal/core/assistant/agent.go                          (Phase 1 custom funcs removed)
 internal/core/assistant/tool_provider.go
 internal/core/assistant/usagetracker.go              (new — Phase 5)
 internal/core/assistant/prompts/templates.go
-internal/core/assistant/guardrails/llm_middleware.go   (new — Phase 2)
+internal/core/assistant/guardrails/llm_middleware.go   (~~new — Phase 2 — removed~~)
 internal/core/assistant/strategy_plan.go               (new — Phase 6)
 internal/core/automation/executor.go
-internal/core/proxy/client.go                          (Phase 7 + Phase 8)
+internal/core/proxy/client.go                          (Phase 7)
 internal/app/bootstrap.go
-models/config.go                                       (Phase 6 + Phase 8)
+models/config.go                                       (Phase 6)
 models/llm_messages.go                                 (Phase 7)
 ```
 

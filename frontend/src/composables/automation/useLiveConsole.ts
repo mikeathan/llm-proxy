@@ -57,7 +57,8 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
     // Handle streaming updates
     if (ev.type === "tool_stream") {
       const content = ev.payload as string;
-      const lastEvent = liveEvents.value[liveEvents.value.length - 1];
+      const lastIdx = liveEvents.value.length - 1;
+      const lastEvent = lastIdx >= 0 ? liveEvents.value[lastIdx] : null;
 
       if (
         lastEvent &&
@@ -72,6 +73,34 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
           payload: {
             role: "assistant",
             content: content,
+          } as AgentMessagePayload,
+        });
+      }
+      return;
+    }
+
+    // Handle lifecycle events — append as system messages so they don't
+    // overwrite the assistant's streaming content.
+    if (ev.type === "lifecycle") {
+      const payload = ev.payload as Record<string, any>;
+      const phase = payload.phase as string;
+      let text = "";
+      if (phase === "stuck_detected") {
+        text = `⚠️ Model stuck in reasoning loop (${payload.reasoning_chars} chars) — retrying...`;
+      } else if (phase === "fallback_started") {
+        text = `🔄 Switching to ${payload.mode || "fallback"} mode — ${payload.reason || ""}`;
+      } else if (phase === "fallback_waiting") {
+        text = `⏳ Waiting for non-streaming response... (elapsed: ${payload.elapsed || "0s"})`;
+      } else if (phase === "fallback_completed") {
+        text = `✅ Fallback completed successfully`;
+      }
+      if (text) {
+        liveEvents.value.push({
+          type: "message",
+          timestamp: ev.timestamp,
+          payload: {
+            role: "system",
+            content: text,
           } as AgentMessagePayload,
         });
       }

@@ -77,10 +77,10 @@ func (c *Container) BuildAppServices() *AppServices {
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
 		client := proxy.NewLLMClient(baseURL, model, nil, headers)
 		if c.RecordDir != "" {
-			wrapped := recorder.New(client, c.RecordDir, model)
+			client = recorder.New(client, c.RecordDir, model)
 			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
-			return wrapped
 		}
+
 		return client
 	}
 
