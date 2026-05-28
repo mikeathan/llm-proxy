@@ -34,3 +34,4 @@ type ChatResponse = models.ChatResponse
 
 type Tool = models.Tool
 type FunctionSchema = models.FunctionSchema
+type ResponseFormat = models.ResponseFormat

@@ -11,10 +11,10 @@ import (
 type contextKey string
 
 const (
-	WorkspaceIDKey        contextKey = "workspace_id"
-	GuardrailApprovedKey  contextKey = "guardrail_approved"
-	TaskNameKey           contextKey = "task_name"
-	RunIDKey              contextKey = "run_id"
+	WorkspaceIDKey       contextKey = "workspace_id"
+	GuardrailApprovedKey contextKey = "guardrail_approved"
+	TaskNameKey          contextKey = "task_name"
+	RunIDKey             contextKey = "run_id"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -353,12 +353,13 @@ type ModelConfig struct {
 
 	// Agent tuning — per-model overrides for agent loop behaviour.
 	// Zero values mean "use the global default."
-	MaxSteps         int    `json:"max_steps,omitempty"`
-	ContextBudget    int    `json:"context_budget,omitempty"`
-	MaxTokens        int    `json:"max_tokens,omitempty"`
-	ToolCallFormat   string `json:"tool_call_format,omitempty"` // "xml" or "native"
-	Prefill          *bool  `json:"prefill,omitempty"`
-	TimeoutMinutes   int    `json:"timeout_minutes,omitempty"` // per-execution timeout, 0 = use global default (30 min)
+	MaxSteps            int          `json:"max_steps,omitempty"`
+	ContextBudget       int          `json:"context_budget,omitempty"`
+	MaxTokens           int          `json:"max_tokens,omitempty"`
+	ToolCallFormat      string       `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill             *bool        `json:"prefill,omitempty"`
+	TimeoutMinutes      int          `json:"timeout_minutes,omitempty"` // per-execution timeout, 0 = use global default (30 min)
+	EnableExecutionPlan bool `json:"enable_execution_plan,omitempty"`
 
 	// Resource-aware orchestration. Zero values mean "use provider default."
 	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens

@@ -276,6 +276,11 @@ const ReasoningStuckEscalatedNag = "CRITICAL: You are stuck in an analysis loop 
 // ContextSieveWarning is injected after the physical sieve prunes intermediate history.
 const ContextSieveWarning = "SYSTEM: CRITICAL - Context window full. History pruned. Continue your task and finalize when ready."
 
+// RetrySignal is prepended to the last user message when the agent retries after
+// an empty-stream or timeout failure.  It tells the model the previous attempt
+// failed so it doesn't re-enter the same reasoning loop.
+const RetrySignal = "[Retry after the previous model attempt failed or timed out]"
+
 // ParseErrorEscalationPrefix wraps feedback text when the model has made the same
 // parse error 3+ times consecutively.
 const ParseErrorEscalationPrefix = "THIRD ATTEMPT — same error. Read this carefully:\n\n%s\n\n" +
@@ -353,3 +358,19 @@ Execute the instructions found in '%s':
 ---
 
 Use your tools to complete every step. Call submit_final_answer when done.`
+
+const ExecutionPlanSystemPrompt = "You are a planning assistant. Generate tool execution plans as JSON."
+
+func BuildExecutionPlanPrompt(tools []ToolInfo, task string) string {
+	var sb strings.Builder
+	sb.WriteString("Generate a step-by-step execution plan for this task.\n")
+	sb.WriteString("Available tools:\n")
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+	}
+	sb.WriteString("\nTask: ")
+	sb.WriteString(task)
+	sb.WriteString("\n\nReturn ONLY a JSON object with \"description\" (string) and \"steps\" (array). ")
+	sb.WriteString("Each step has \"tool\" (tool name), \"description\" (string), and \"args\" (object with parameter values).")
+	return sb.String()
+}

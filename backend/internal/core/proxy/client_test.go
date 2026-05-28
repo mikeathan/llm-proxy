@@ -1,10 +1,9 @@
-package proxy_test
+package proxy
 
 import (
 	"context"
 	"encoding/json"
 	"io"
-	"llm-proxy/internal/core/proxy"
 	"net/http"
 	"strings"
 	"testing"
@@ -36,15 +35,15 @@ func TestClientChatSuccess(t *testing.T) {
 			gotMethod = r.Method
 			gotContentType = r.Header.Get("Content-Type")
 
-			var req proxy.ChatRequest
+			var req ChatRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode request: %v", err)
 			}
 
-			resp := proxy.ChatResponse{
-				Choices: []proxy.Choice{
+			resp := ChatResponse{
+				Choices: []Choice{
 					{
-						Message: proxy.Message{
+						Message: Message{
 							Role:    "assistant",
 							Content: "hello",
 						},
@@ -59,10 +58,10 @@ func TestClientChatSuccess(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test/", "test-model", httpClient, nil)
-	out, err := client.Chat(context.Background(), proxy.ChatRequest{
+	client := NewLLMClient("http://example.test/", "test-model", httpClient, nil)
+	out, err := client.Chat(context.Background(), ChatRequest{
 		Model: "test",
-		Messages: []proxy.Message{
+		Messages: []Message{
 			{Role: "user", Content: "ping"},
 		},
 	})
@@ -90,8 +89,8 @@ func TestClientChatHTTPErrorIncludesBody(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test", "test-model", httpClient, nil)
-	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -107,25 +106,22 @@ func TestClientChatInvalidJSONResponse(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test", "test-model", httpClient, nil)
-	_, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "test"})
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
+
 func TestClientStreamTimeout(t *testing.T) {
-	// Reduce timeout for testing
-	oldTimeout := proxy.StreamChunkTimeout
-	proxy.StreamChunkTimeout = 50 * time.Millisecond
-	defer func() { proxy.StreamChunkTimeout = oldTimeout }()
+	oldTimeout := StreamChunkTimeout
+	StreamChunkTimeout = 50 * time.Millisecond
+	defer func() { StreamChunkTimeout = oldTimeout }()
 
 	httpClient := &http.Client{
 		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 			pr, pw := io.Pipe()
-			//pw.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"))
-			// We won't write anything more to pw, causing a hang
 			go func() {
-				// Wait longer than the timeout
 				time.Sleep(200 * time.Millisecond)
 				pw.Close()
 			}()
@@ -138,13 +134,12 @@ func TestClientStreamTimeout(t *testing.T) {
 		}),
 	}
 
-	client := proxy.NewLLMClient("http://example.test", "test-model", httpClient, nil)
-	ch, err := client.Stream(context.Background(), proxy.ChatRequest{Model: "test"})
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	ch, err := client.Stream(context.Background(), ChatRequest{Model: "test"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	// Wait for the stream to finish (it should timeout)
 	start := time.Now()
 	count := 0
 	for range ch {
@@ -159,3 +154,74 @@ func TestClientStreamTimeout(t *testing.T) {
 		t.Errorf("stream took too long to timeout: %v", duration)
 	}
 }
+
+func TestClientChat_ResponseFormatInBody(t *testing.T) {
+	var capturedBody []byte
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			capturedBody, _ = io.ReadAll(r.Body)
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{
+		Model: "test",
+		Messages: []Message{
+			{Role: "user", Content: "hi"},
+		},
+		ResponseFormat: &ResponseFormat{
+			Type: "json_object",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	var bodyMap map[string]interface{}
+	if err := json.Unmarshal(capturedBody, &bodyMap); err != nil {
+		t.Fatalf("unmarshal captured body: %v", err)
+	}
+	rf, ok := bodyMap["response_format"]
+	if !ok {
+		t.Fatal("expected response_format in request body")
+	}
+	rfMap, ok := rf.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected response_format to be an object, got %T", rf)
+	}
+	if rfMap["type"] != "json_object" {
+		t.Errorf("expected type 'json_object', got '%v'", rfMap["type"])
+	}
+}
+
+func TestClientChat_ResponseFormatNotSet(t *testing.T) {
+	var capturedBody []byte
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			capturedBody, _ = io.ReadAll(r.Body)
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{
+		Model: "test",
+		Messages: []Message{
+			{Role: "user", Content: "hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	var bodyMap map[string]interface{}
+	if err := json.Unmarshal(capturedBody, &bodyMap); err != nil {
+		t.Fatalf("unmarshal captured body: %v", err)
+	}
+	if _, ok := bodyMap["response_format"]; ok {
+		t.Error("expected no response_format in request body when not set")
+	}
+}
+
+
