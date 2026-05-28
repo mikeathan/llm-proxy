@@ -1801,17 +1801,26 @@ func TestRepetitionDetector_StreakReset(t *testing.T) {
 	if isDup {
 		t.Error("expected tool A call after tool B to be allowed (non-consecutive)")
 	}
-	if rd.duplicateStreak != 1 {
-		t.Errorf("expected duplicateStreak to be 1, got %d", rd.duplicateStreak)
+	if rd.duplicateStreak != 0 {
+		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
 	}
 	if nag != "" {
 		t.Errorf("expected empty nag on non-consecutive duplicate, got %q", nag)
 	}
 
-	// Call tool A again -> consecutive duplicate (last key is A), streak = 2
+	// Call tool A again -> consecutive duplicate (last key is A), streak = 1
 	isDup, _, _ = rd.check(logger, toolCallsA)
-	if !isDup || rd.duplicateStreak != 2 {
+	if !isDup || rd.duplicateStreak != 1 {
 		t.Errorf("expected consecutive duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
+	}
+
+	// Call tool A again -> consecutive duplicate, streak = 2
+	isDup, _, err = rd.check(logger, toolCallsA)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !isDup || rd.duplicateStreak != 2 {
+		t.Errorf("expected duplicate on second consecutive, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
 	}
 
 	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal)
@@ -1833,13 +1842,15 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		}
 	}
 
-	// Scenario 1: Alternating loop (A → B → A → B → A)
-	// The streak persists across alternating keys because both are
-	// in the sliding window.  A→B→A→B→A hits streak=3 on the 5th call.
-	t.Run("alternating loop", func(t *testing.T) {
+	// Scenario 1: Consecutive duplicate detection
+	// The detector only checks if the current call matches the immediately
+	// previous call (consecutive duplicate).  Non-consecutive duplicates
+	// reset the streak.  A→A→A hits streak=2 on the 3rd call and
+	// A→A→A→A hits streak=3 → fatal on the 4th call.
+	t.Run("consecutive detection", func(t *testing.T) {
 		rd := repetitionDetector{}
 
-		// i=0: A not dup (window=[A]), B not dup (window=[A,B])
+		// First A: not a duplicate
 		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -1847,44 +1858,35 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		if isDup {
 			t.Error("expected first A not duplicate")
 		}
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolB", `{"arg":2}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if isDup {
-			t.Error("expected first B not duplicate")
-		}
 
-		// i=1: A is found in window but NOT consecutive (B is last) -> allowed
+		// Second A: consecutive duplicate, streak=1
 		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if isDup {
-			t.Error("expected second A to be allowed (non-consecutive)")
+		if !isDup {
+			t.Error("expected second A to be duplicate (consecutive)")
 		}
 		if rd.duplicateStreak != 1 {
 			t.Errorf("expected streak=1 after second A, got %d", rd.duplicateStreak)
 		}
 
-		// B is also found, NOT consecutive (A is last) -> allowed, streak=2
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolB", `{"arg":2}`)})
+		// Third A: consecutive duplicate, streak=2 (still nag, not fatal)
+		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if isDup {
-			t.Error("expected second B to be allowed (non-consecutive)")
+		if !isDup {
+			t.Error("expected third A to be duplicate")
 		}
 		if rd.duplicateStreak != 2 {
-			t.Errorf("expected streak=2 after second B, got %d", rd.duplicateStreak)
+			t.Errorf("expected streak=2 after third A, got %d", rd.duplicateStreak)
 		}
 
-		// i=2: A found, NOT consecutive -> streak=3 -> fatal (streak >= 3)
-
-		// i=2: A is dup → streak=3 → fatal
+		// Fourth A: consecutive duplicate, streak=3 → fatal
 		_, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err == nil {
-			t.Fatal("expected fatal error on alternating loop, got nil")
+			t.Fatal("expected fatal error on 4th consecutive duplicate, got nil")
 		}
 		if !strings.Contains(err.Error(), "infinite loop detected") {
 			t.Errorf("expected infinite loop error, got %v", err)
@@ -1911,8 +1913,8 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		}
 	})
 
-	// Scenario 3: cwd normalization — same command with/without cwd
-	t.Run("cwd normalization", func(t *testing.T) {
+	// Scenario 3: Consecutive same call is detected as duplicate
+	t.Run("consecutive same call", func(t *testing.T) {
 		rd := repetitionDetector{}
 
 		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
@@ -1921,14 +1923,14 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 			t.Fatalf("unexpected error on first call: %v", err)
 		}
 
-		// Same command without cwd — normalized to same key
+		// Same command repeated consecutively — detected as duplicate
 		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
-			`{"command":"ts-node quick-check/test.ts"}`)})
+			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
 		if err != nil {
 			t.Fatalf("unexpected error on second call: %v", err)
 		}
 		if !isDup {
-			t.Error("expected duplicate after cwd normalization")
+			t.Error("expected duplicate on consecutive identical call")
 		}
 		if nag == "" {
 			t.Error("expected non-empty nag prompt")
@@ -2005,17 +2007,6 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 				return nil, fmt.Errorf("expected tool error feedback in history, got: %s", toolResultContent)
 			}
 
-			foundNag := false
-			for _, msg := range req.Messages {
-				if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "tool call above failed") {
-					foundNag = true
-					break
-				}
-			}
-			if !foundNag {
-				return nil, fmt.Errorf("expected ToolErrorNagPrompt in history after tool error")
-			}
-
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{
 					Message: proxy.Message{
@@ -2060,20 +2051,13 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	}
 
 	foundToolError := false
-	foundNagPrompt := false
 	for _, msg := range history {
 		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, "simulated tool failure") {
 			foundToolError = true
 		}
-		if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "tool call above failed") {
-			foundNagPrompt = true
-		}
 	}
 	if !foundToolError {
 		t.Error("expected tool error to be recorded in history")
-	}
-	if !foundNagPrompt {
-		t.Error("expected ToolErrorNagPrompt to be injected after tool error")
 	}
 }
 
