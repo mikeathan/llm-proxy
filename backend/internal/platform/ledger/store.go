@@ -70,11 +70,17 @@ CREATE TABLE IF NOT EXISTS entity_metadata (
 CREATE INDEX IF NOT EXISTS idx_meta_lookup ON entity_metadata(entity_type, entity_id);
 `
 
+const (
+	defaultCleanInterval = 15 * time.Minute
+	defaultRetentionAge  = 24 * time.Hour
+)
+
 // Store is an operational SQLite database for runtime state — ICU ledger,
 // slot tracking, and entity metadata.  Not for config (that lives in
 // storage.Store[T]).
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	cancel context.CancelFunc
 }
 
 // ICUTransaction records a single debit against a workspace budget.
@@ -116,10 +122,22 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("ledger migrate: %w", err)
 	}
 
-	return &Store{db: db}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	store := &Store{
+		db:     db,
+		cancel: cancel,
+	}
+
+	cleaner := NewCleaner(store, defaultCleanInterval, defaultRetentionAge)
+	go cleaner.Start(ctx)
+
+	return store, nil
 }
 
 func (s *Store) Close() error {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	return s.db.Close()
 }
 
@@ -232,6 +250,19 @@ func (s *Store) ExpireSlots(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (s *Store) PurgeTransactions(ctx context.Context, before time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM icu_ledger WHERE created_at < ?`,
+		before.UTC().Format("2006-01-02 15:04:05"),
+	)
+	if err != nil {
+		return fmt.Errorf("purge transactions: %w", err)
+	}
+	return nil
+}
+
+
 
 func (s *Store) SetEntityMetadata(ctx context.Context, entityType, entityID, key string, value []byte) error {
 	_, err := s.db.ExecContext(ctx,

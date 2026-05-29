@@ -1,7 +1,6 @@
 import { API_ENDPOINTS } from '../constants/api'
-import type { AdminState } from '../types/admin'
-import type { Model } from '../types/model'
-import type { GlobalConfig } from '../types/admin'
+import type { AdminState, APIKeyItem, GlobalConfig, ProcessListResponse, ProcessKillResponse } from '../types/admin'
+import type { Model, ProviderModelInfo } from '../types/model'
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) {
@@ -67,36 +66,26 @@ export const AdminApiService = {
   updateConfig: (payload: Partial<GlobalConfig>): Promise<void> =>
     put<void>(API_ENDPOINTS.config, payload),
   
-  fetchProviderModels: (provider: string, apiKeyName?: string): Promise<import('../types/model').ProviderModelInfo[]> => {
-    const params = new URLSearchParams({ provider })
-    if (apiKeyName) params.set('api_key_name', apiKeyName)
-    return get<import('../types/model').ProviderModelInfo[]>(`${API_ENDPOINTS.providerModels}?${params.toString()}`)
-  },
+  fetchProviderModels: (provider: string, apiKeyName?: string): Promise<ProviderModelInfo[]> =>
+    get<ProviderModelInfo[]>(`${API_ENDPOINTS.providerModels}?${new URLSearchParams({ provider, ...(apiKeyName ? { api_key_name: apiKeyName } : {}) })}`),
 
   fetchProviderManifests: (): Promise<any[]> =>
     get<any[]>(API_ENDPOINTS.providerManifests),
 
-  testConnection: (provider: string, apiKey?: string, apiKeyName?: string, baseURL?: string): Promise<{ status: string; message: string }> => {
-    const params = new URLSearchParams({ provider })
-    if (apiKey) params.set('api_key', apiKey)
-    if (apiKeyName) params.set('api_key_name', apiKeyName)
-    if (baseURL) params.set('base_url', baseURL)
-    return get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${params.toString()}`)
-  },
+  testConnection: (provider: string, apiKey?: string, apiKeyName?: string, baseURL?: string): Promise<{ status: string; message: string }> =>
+    get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${new URLSearchParams({ provider, ...(apiKey ? { api_key: apiKey } : {}), ...(apiKeyName ? { api_key_name: apiKeyName } : {}), ...(baseURL ? { base_url: baseURL } : {}) })}`),
 
-  fetchProviderKeys: (provider: string): Promise<import('../types/admin').APIKeyItem[]> => {
-    return get(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`)
-  },
+  fetchProviderKeys: (provider: string): Promise<APIKeyItem[]> =>
+    get<APIKeyItem[]>(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`),
 
-  saveProviderKeys: (provider: string, keys: import('../types/admin').APIKeyItem[]): Promise<import('../types/admin').APIKeyItem[]> => {
-    return put(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`, keys)
-  },
+  saveProviderKeys: (provider: string, keys: APIKeyItem[]): Promise<APIKeyItem[]> =>
+    put<APIKeyItem[]>(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`, keys),
 
   deleteProviderKey: (provider: string, keyId: string): Promise<void> =>
     del(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}&key_id=${encodeURIComponent(keyId)}`),
 
-  deleteAllProviderKeys: (provider: string): Promise<import('../types/admin').APIKeyItem[]> =>
-    del(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`),
+  deleteAllProviderKeys: (provider: string): Promise<APIKeyItem[]> =>
+    del<APIKeyItem[]>(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`),
 
   restartSystem: (): Promise<void> =>
     post<void>(API_ENDPOINTS.restart),
@@ -112,4 +101,10 @@ export const AdminApiService = {
 
   fetchTerminalSessions: (): Promise<any[]> =>
     get<any[]>(API_ENDPOINTS.terminalSessions),
+
+  fetchProcesses: (): Promise<ProcessListResponse> =>
+    get<ProcessListResponse>(API_ENDPOINTS.processes),
+
+  stopProcess: (pid: number): Promise<ProcessKillResponse> =>
+    post<ProcessKillResponse>(`${API_ENDPOINTS.processes}/${pid}/stop`),
 }

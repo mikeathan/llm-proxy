@@ -53,6 +53,7 @@ type ActiveModelInfo struct {
 	Provider string
 	Host     string
 	Port     int
+	PID      int
 	Started  time.Time
 	LastUsed time.Time
 	Ready    bool
@@ -339,11 +340,16 @@ func (m *LLMRuntimeManager) ActiveInfo() *ActiveModelInfo {
 
 	if m.activeModel != nil {
 		cfg := m.activeModel.Cfg
+		pid := 0
+		if cmd := m.activeModel.Cmd; cmd != nil && cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
 		return &ActiveModelInfo{
 			Name:     cfg.Name,
 			Provider: cfg.Provider,
 			Host:     m.registrar.ModelHost(),
 			Port:     cfg.Port,
+			PID:      pid,
 			Started:  m.activeModel.Started,
 			LastUsed: m.activeModel.LastUsed,
 			Ready:    portReady(cfg.Port),

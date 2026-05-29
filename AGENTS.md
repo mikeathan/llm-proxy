@@ -216,3 +216,88 @@ go test -tags recordreplay ./internal/core/assistant/ -run TestAgent_Execute_Aga
 ```
 
 The `recordreplay` build tag ensures these tests are excluded from `go test ./...` — they only run when explicitly invoked. Fixture `.jsonl` files go in `internal/core/assistant/testdata/recordings/` or any path passed to `RunAgainstFixtures`.
+
+## Coding Standards & Architecture
+
+### General Principles
+
+1. **Clean Architecture**: Dependencies point inward. `internal/core/` knows nothing about `internal/transport/`. `internal/platform/` is a dependency-free foundation. Models (`models/`) have zero imports from the rest of the codebase.
+2. **SOLID**:
+   - **Single Responsibility** per file/function. If a function does two things, split it.
+   - **Open/Closed**: Extend via injection (interfaces), not modification.
+   - **Liskov Substitution**: Interface consumers should work with any implementation — test mocks must satisfy the same contract.
+   - **Interface Segregation**: Keep interfaces small. `RuntimeService` (manager interface) is a good example — methods are focused and cohesive.
+   - **Dependency Inversion**: High-level logic (agent loop) depends on abstractions (LLM client interface), not concrete implementations.
+3. **DRY but not premature**: Repeat 3 times before extracting. Two similar lines are just similar; three identical patterns means extract.
+4. **Idiomatic Go**:
+   - Zero-value initialization over constructors for simple types.
+   - Accept interfaces, return structs.
+   - `fmt.Errorf` with `%w` for error wrapping. Use sentinel errors from `models/llm.go`.
+   - No getters/setters for struct fields — export directly.
+   - Table-driven tests with `t.Run`.
+   - Prefer `range` over index-based loops.
+   - `var` zero-init for package-level, `:=` for local.
+5. **Production Readiness**:
+   - Graceful shutdown on SIGINT/SIGTERM (signal.NotifyContext in main.go).
+   - All long-lived operations accept `context.Context` for cancellation.
+   - Validate at boundaries, trust internals (Constitution I.1).
+   - Structured logging with `logging.Info/Debug/Warn/Error` and key-value pairs.
+   - No secrets in logs or error messages.
+
+### File Organization
+
+- **One primary type per file**, named after the type (e.g., `agent.go` → `Agent`, `session.go` → `runSession`).
+- **Handlers in `internal/transport/http/`** — thin, parse request → call service → write response. No business logic.
+- **Services in `internal/platform/`** — reusable infrastructure (storage, logging, network).
+- **Implementation in `internal/core/`** — business logic with minimal imports from `internal/platform/`.
+- **Package-level state in composables** — module-level `ref()` with `mountCount` pattern for polling.
+- **No `init()` functions** — explicit construction via `New*` or `Initialize*`.
+
+### Error Handling
+
+- Validate at system boundaries (user input, external APIs). Trust internal callers.
+- Wrap errors with `fmt.Errorf("context: %w", err)` at each layer boundary.
+- Use sentinel errors from `models/llm.go` for known LLM conditions (`ErrUnknownModel`, `ErrModelExists`, `ErrModelStarting`).
+- Return early on errors — no deep nesting of `if err == nil` (happy path to the left).
+- Don't log AND return — one or the other. Return for the caller to handle.
+
+### Frontend (Vue 3 + TypeScript)
+
+- **Composables are singletons** — module-level state shared across components.
+- **`ref()` over `reactive()`** for reactive state.
+- **Type imports** from `types/` directory (barrel exports).
+- **Services are stateless** — API calls only, no local state.
+- **Polling with `mountCount`** — ref-counted intervals (starts at first mount, stops when last unmounts).
+- **`npm run build`** runs `vue-tsc -b` then `vite build` — TS errors fail the build.
+
+### File Change Checklist
+
+When adding a new model-level field, update these files:
+1. `models/config.go` or `models/infrastructure.go` — type definition
+2. `internal/transport/http/registry_handlers.go` — add/update request structs
+3. `internal/transport/http/admin_handlers.go` — view struct
+4. `internal/transport/http/admin_view.go` — view mapping
+5. `internal/core/llm/manager.go` — if field affects runtime behavior
+6. `internal/testing/mocks/manager.go` — if interface changed
+7. Frontend component (if UI field)
+
+When adding a tool:
+1. `models/tools.go` — constant
+2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
+3. `internal/core/tools/{tool_category}.go` — implementation
+4. `internal/core/assistant/registry.go` — registration
+
+When adding a prompt:
+1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
+2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
+
+### New Backend Endpoint Checklist
+
+1. Handler in `internal/transport/http/{thing}_handlers.go`
+2. Route registration (in `router.go` or `main.go` route setup)
+3. Types/response structs in the same handler file
+4. Frontend: endpoint constant in `api.ts`
+5. Frontend: service method in `{thing}Service.ts`
+6. Frontend: types in `types/{thing}.ts`
+7. Frontend: composable in `composables/use{Thing}.ts`
+8. Frontend: view component in `components/{thing}/{Thing}.vue`

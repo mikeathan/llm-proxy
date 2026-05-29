@@ -248,6 +248,38 @@ func TestEnsureModelProxyHandler_ProxyCalled(t *testing.T) {
 	}
 }
 
+func TestEnsureModelProxyHandler_JSONBodyModel(t *testing.T) {
+	mp := &mockProxy{}
+	restore := api.SetReverseProxyFactory(func(target string) http.Handler {
+		return mp
+	})
+	defer restore()
+
+	var ensuredName string
+	mgr := &mocks.MockManager{
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
+			ensuredName = name
+			return llm.ModelInstance{Port: 9999}, nil
+		},
+		RecordActivityFunc: func(name string) {},
+	}
+
+	srv := createTestServer(t, mgr, nil)
+	handlers := api.NewProxyHandlers(srv.Runtime())
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"model":"json-model-test","messages":[]}`))
+	w := httptest.NewRecorder()
+
+	handlers.EnsureModelProxyHandler(w, req)
+
+	if !mp.called {
+		t.Fatalf("expected reverse proxy ServeHTTP to be called")
+	}
+	if ensuredName != "json-model-test" {
+		t.Fatalf("expected ensured model name to be %q, got %q", "json-model-test", ensuredName)
+	}
+}
+
 func TestAdminStateHandler(t *testing.T) {
 	now := time.Now()
 	mgr := &mocks.MockManager{

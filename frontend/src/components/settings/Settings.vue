@@ -6,6 +6,7 @@ import McpServers from "./McpServers.vue";
 import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
 import ProviderModelsCard from "./ProviderModelsCard.vue";
+import InfrastructurePanel from "../infrastructure/InfrastructurePanel.vue";
 import BaseButton from "../common/BaseButton.vue";
 import { useConfig } from "../../composables/useConfig";
 import { useMcpServers } from "../../composables/useMcpServers";
@@ -237,6 +238,13 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
         <!-- Guardrails -->
         <div v-show="activeTab === 'guardrails'">
           <GuardrailSettings v-model:config="config" @save="handleSaveConfig" />
+        </div>
+
+        <!-- Model Processes -->
+        <div v-show="activeTab === 'processes'">
+          <div class="config-card">
+            <InfrastructurePanel />
+          </div>
         </div>
 
         <!-- Provider Configs -->
