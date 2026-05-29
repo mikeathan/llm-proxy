@@ -223,3 +223,129 @@ func TestStore_EntityMetadata_Upsert(t *testing.T) {
 		t.Fatalf("expected 'v2' after upsert, got %s", string(val))
 	}
 }
+
+func TestStore_PurgeTransactions_DeletesOnlyOld(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	oldTx := ICUTransaction{
+		TransactionID: "old-txn", WorkspaceID: "ws-1", ModelName: "m", ProviderType: "p", ICUDebit: 10,
+	}
+	store.RecordTransaction(ctx, oldTx)
+	_, _ = store.db.ExecContext(ctx, `UPDATE icu_ledger SET created_at = datetime('now', '-48 hours') WHERE transaction_id = 'old-txn'`)
+
+	recentTx := ICUTransaction{
+		TransactionID: "recent-txn", WorkspaceID: "ws-1", ModelName: "m", ProviderType: "p", ICUDebit: 10,
+	}
+	store.RecordTransaction(ctx, recentTx)
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+	if err := store.PurgeTransactions(ctx, cutoff); err != nil {
+		t.Fatalf("PurgeTransactions: %v", err)
+	}
+
+	var count int
+	store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM icu_ledger`).Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 remaining row, got %d", count)
+	}
+
+	var remainingID string
+	store.db.QueryRowContext(ctx, `SELECT transaction_id FROM icu_ledger`).Scan(&remainingID)
+	if remainingID != "recent-txn" {
+		t.Fatalf("expected 'recent-txn' to remain, got %q", remainingID)
+	}
+}
+
+func TestStore_AutonomousCleaner(t *testing.T) {
+	f, err := os.CreateTemp("", "ledger-cleaner-test-*.db")
+	if err != nil {
+		t.Fatalf("create temp db: %v", err)
+	}
+	path := f.Name()
+	f.Close()
+	defer os.Remove(path)
+
+	store1, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open store1: %v", err)
+	}
+	ctx := context.Background()
+
+	expiredSlot := SlotRecord{
+		ModelName: "test-model",
+		SlotID:    1,
+		Host:      "127.0.0.1",
+		Port:      8081,
+		CacheKey:  "expired-key",
+		ExpiresAt: time.Now().Add(-1 * time.Hour),
+	}
+	if err := store1.SaveSlot(ctx, expiredSlot); err != nil {
+		t.Fatalf("SaveSlot: %v", err)
+	}
+
+	txn := ICUTransaction{
+		TransactionID: "old-txn",
+		WorkspaceID:   "ws-1",
+		ModelName:     "test-model",
+		ProviderType:  "openai",
+		ICUDebit:      100,
+	}
+	if err := store1.RecordTransaction(ctx, txn); err != nil {
+		t.Fatalf("RecordTransaction: %v", err)
+	}
+	_, err = store1.db.ExecContext(ctx, `UPDATE icu_ledger SET created_at = datetime('now', '-48 hours') WHERE transaction_id = 'old-txn'`)
+	if err != nil {
+		t.Fatalf("backdate transaction: %v", err)
+	}
+
+	recentTxn := ICUTransaction{
+		TransactionID: "recent-txn",
+		WorkspaceID:   "ws-1",
+		ModelName:     "test-model",
+		ProviderType:  "openai",
+		ICUDebit:      100,
+	}
+	if err := store1.RecordTransaction(ctx, recentTxn); err != nil {
+		t.Fatalf("RecordTransaction recent: %v", err)
+	}
+
+	if err := store1.Close(); err != nil {
+		t.Fatalf("Close store1: %v", err)
+	}
+
+	store2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open store2: %v", err)
+	}
+	defer store2.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	slot, err := store2.GetActiveSlot(ctx, "test-model", "127.0.0.1", 8081, "expired-key")
+	if err != nil {
+		t.Fatalf("GetActiveSlot: %v", err)
+	}
+	if slot != nil {
+		t.Fatal("expected expired slot to be deleted by autonomous cleaner")
+	}
+
+	var oldExists int
+	err = store2.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM icu_ledger WHERE transaction_id = 'old-txn'`).Scan(&oldExists)
+	if err != nil {
+		t.Fatalf("check old transaction: %v", err)
+	}
+	if oldExists != 0 {
+		t.Fatal("expected old transaction to be purged by autonomous cleaner")
+	}
+
+	var recentExists int
+	err = store2.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM icu_ledger WHERE transaction_id = 'recent-txn'`).Scan(&recentExists)
+	if err != nil {
+		t.Fatalf("check recent transaction: %v", err)
+	}
+	if recentExists != 1 {
+		t.Fatal("expected recent transaction to remain")
+	}
+}
+

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
@@ -112,6 +113,21 @@ func (p *LocalProvider) EnsureReady(ctx context.Context) error {
 	return models.ErrModelStarting
 }
 
+func freePort(port int) {
+	if !utils.PortReady(port) {
+		return
+	}
+	logging.Warn("Port already in use, freeing before start", "port", port)
+	if runtime.GOOS == "linux" {
+		_ = exec.Command("fuser", "-k",
+			fmt.Sprintf("%d/tcp", port)).Run()
+	} else {
+		_ = exec.Command("sh", "-c",
+			fmt.Sprintf("lsof -ti :%d | xargs kill -9", port)).Run()
+	}
+	time.Sleep(300 * time.Millisecond)
+}
+
 func (p *LocalProvider) Shutdown() error {
 	if p.activeModel == nil {
 		return nil
@@ -170,9 +186,13 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 		"args", args, 
 		"env", p.cfg.Environment)
 
+	freePort(p.cfg.Port)
+
 	cmd := utils.ExecCommandContext(procCtx, p.llamaBinary, args...)
 	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		attr := &syscall.SysProcAttr{Setpgid: true}
+		setPdeathsig(attr)
+		cmd.SysProcAttr = attr
 	}
 	cmd.Stdout = io.MultiWriter(logBuf, os.Stdout, tokens)
 	cmd.Stderr = io.MultiWriter(logBuf, os.Stdout, tokens)

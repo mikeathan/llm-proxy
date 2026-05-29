@@ -21,6 +21,7 @@ export const API_ENDPOINTS = {
   hostSettings: `${API_BASE}/host`,
   terminalReset: `${API_BASE}/host/terminal/reset`,
   terminalSessions: `${API_BASE}/host/terminal/sessions`,
+  processes: `${API_BASE}/runtime/processes`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

@@ -1,6 +1,6 @@
 // Global configuration types
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security'
+export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes'
 
 export interface APIKeyItem {
   id: string
@@ -121,10 +121,29 @@ export interface AgentDefinition {
   tools: string[]
 }
 
+export interface ProcessInfo {
+  pid: number
+  binary: string
+  model?: string
+  port?: number
+  started: string
+  uptime: string
+  active: boolean
+}
+
+export interface ProcessListResponse {
+  processes: ProcessInfo[]
+}
+
+export interface ProcessKillResponse {
+  status: string
+  pid: number
+}
+
 export interface AdminState {
-  models: import('./model').Model[]
-  available: import('./model').AvailableModel[]
-  next_port: number
-  active?: import('./model').ActiveModel
-  config: GlobalConfig
+	models: import('./model').Model[]
+	available: import('./model').AvailableModel[]
+	next_port: number
+	active?: import('./model').ActiveModel
+	config: GlobalConfig
 }
