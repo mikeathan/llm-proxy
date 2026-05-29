@@ -42,8 +42,9 @@ type runSession struct {
 	totalErrorStreak    int
 	modelCompatNotified bool
 
-	isAutomation bool
-	rd           repetitionDetector
+	isAutomation     bool
+	rd               repetitionDetector
+	memoryFlushSent  bool   // prevents repeated pre-sieve nudges across turns
 }
 
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
@@ -152,9 +153,12 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			s.agent.logger.Warn("agent exceeded advisory step limit, continuing", "steps", s.steps)
 		}
 
+		s.maybeFlushMemoryBeforeTurn()
+
 		s.agent.notifyStepStart(s.steps)
 		s.agent.notifyThinking()
 
+		historyLenBefore := len(s.history)
 		turnMsg, parseErr, toolsList, err := s.agent.executeTurn(s.ctx, &s.history)
 		if err != nil {
 			s.starvationCount++
@@ -178,6 +182,10 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 		}
 
 		s.sieveStreak = 0
+
+		if s.memoryFlushSent && len(s.history) < historyLenBefore {
+			s.memoryFlushSent = false
+		}
 
 		if len(turnMsg.ToolCalls) > 0 {
 			s.resetParseErrorState()
@@ -458,4 +466,29 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 		}
 	}
 	return false
+}
+
+func (s *runSession) maybeFlushMemoryBeforeTurn() {
+	if s.agent.memoryStore == nil || s.memoryFlushSent {
+		return
+	}
+
+	totalChars := 0
+	for _, m := range s.history {
+		totalChars += len(m.Content)
+	}
+	if totalChars == 0 || s.agent.contextBudget == 0 {
+		return
+	}
+
+	ratio := float64(totalChars) / float64(s.agent.contextBudget)
+	if ratio < 0.7 {
+		return
+	}
+
+	s.history = append(s.history, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: prompts.PreSieveMemoryNudge,
+	})
+	s.memoryFlushSent = true
 }

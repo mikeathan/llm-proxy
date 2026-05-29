@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
@@ -53,6 +54,7 @@ type LLMServiceProvider interface {
 	Persistence() *persistence.WorkspaceManager
 	Events() *EventBus
 	Orchestrator() *orchestrator.Orchestrator
+	MemoryStore() *memory.Store
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 }
 
@@ -154,6 +156,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 				e.svc.Events().Publish(req.WorkspaceID, ev)
 			},
 		),
+		MemoryStore: e.svc.MemoryStore(),
 	}
 	// Apply per-model overrides when available.
 	if req.Model != "" {

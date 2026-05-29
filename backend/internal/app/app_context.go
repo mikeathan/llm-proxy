@@ -10,8 +10,10 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
@@ -21,6 +23,8 @@ import (
 type AppContext struct {
 	manager      llm.RuntimeManager
 	orch         *orchestrator.Orchestrator
+	dbProvider   db.Provider      // shared SQLite connection for ledger + memory
+	memoryStore  *memory.Store    // agent memory, nil when disabled
 	dataMgr      *storage.DataManager
 	resolver     *storage.PathResolver
 	rootDir      string
@@ -128,13 +132,36 @@ func (s *AppContext) Orchestrator() *orchestrator.Orchestrator {
 
 func (s *AppContext) initOrchestrator() {
 	dbPath := filepath.Join(s.rootDir, "orchestrator.db")
-	orch, err := orchestrator.NewOrchestrator(dbPath)
+	p, err := db.Open(dbPath)
+	if err != nil {
+		logging.Warn("failed to open orchestrator database", "error", err)
+		return
+	}
+	s.dbProvider = p
+
+	orch, err := orchestrator.NewOrchestrator(p)
 	if err != nil {
 		logging.Warn("failed to initialize orchestrator, running without budget control", "error", err)
 		return
 	}
 	s.orch = orch
 	logging.Info("Orchestrator initialized", "db", dbPath)
+
+	memStore, memErr := memory.New(p)
+	if memErr != nil {
+		logging.Warn("failed to initialize memory store, memory disabled", "error", memErr)
+		return
+	}
+	s.memoryStore = memStore
+	logging.Info("Memory store initialized", "db", dbPath)
+}
+
+func (s *AppContext) DBProvider() db.Provider {
+	return s.dbProvider
+}
+
+func (s *AppContext) MemoryStore() *memory.Store {
+	return s.memoryStore
 }
 
 func (s *AppContext) refreshMetricsService() {
@@ -689,6 +716,10 @@ func (s *AppContext) Shutdown() {
 	if s.terminal != nil {
 		logging.Info("Shutting down shell provider...")
 		s.terminal.Shutdown()
+	}
+	if s.dbProvider != nil {
+		logging.Info("Shutting down shared database...")
+		s.dbProvider.DB().Close()
 	}
 }
 

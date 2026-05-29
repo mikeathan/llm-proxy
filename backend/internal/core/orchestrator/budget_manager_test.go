@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/ledger"
 )
 
@@ -19,9 +20,15 @@ func newTestBudgetManager(t *testing.T) (*BudgetManager, *ledger.Store) {
 	f.Close()
 	t.Cleanup(func() { os.Remove(path) })
 
-	store, err := ledger.Open(path)
+	p, err := db.Open(path)
 	if err != nil {
-		t.Fatalf("ledger.Open: %v", err)
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.DB().Close() })
+
+	store, err := ledger.New(p)
+	if err != nil {
+		t.Fatalf("ledger.New: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
 

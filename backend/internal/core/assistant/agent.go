@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"sync"
@@ -75,6 +76,8 @@ type Agent struct {
 	modelName       string
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
+
+	memoryStore     *memory.Store               // nil when memory is disabled
 }
 
 type AgentOptions struct {
@@ -95,6 +98,7 @@ type AgentOptions struct {
 	ProviderType             string
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
+	MemoryStore              *memory.Store      // nil when memory is disabled
 }
 
 type GuardrailDecisionStore struct {
@@ -247,7 +251,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		modelName:       opts.ModelName,
 		providerType:    opts.ProviderType,
 		planStrategy:    opts.PlanStrategy,
-
+		memoryStore:     opts.MemoryStore,
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
 	return a

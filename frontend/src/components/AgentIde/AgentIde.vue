@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, computed } from "vue";
 import { useDispatcher } from "../../composables/useDispatcher";
 import { useModels } from "../../composables/useModels";
 import type { Automation, RecordingMeta } from "../../types/dispatcher";
+import type { MemoryEntry } from "../../types/memory";
 import { DispatcherService } from "../../services/dispatcherService";
 
 import WorkspaceExplorer from "./workspace/WorkspaceExplorer.vue";
@@ -15,6 +16,8 @@ import SystemPulseDashboard from "./system/SystemPulseDashboard.vue";
 import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
 import RecordingsPanel from "./recordings/RecordingsPanel.vue";
+import MemoryPanel from "./memory/MemoryPanel.vue";
+import MemoryDetail from "./memory/MemoryDetail.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
 import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
 import TemplateLibrary from "./system/TemplateLibrary.vue";
@@ -55,10 +58,11 @@ const {
 } = useDispatcher();
 
 /* ── UI & Selection State ── */
-const leftTab = ref<"explorer" | "automations" | "recordings" | "activity">("explorer");
+const leftTab = ref<"explorer" | "automations" | "recordings" | "memory" | "activity">("explorer");
 const selectedAutomationId = ref<string | null>(null);
 const selectedRun = ref<AutomationRun | null>(null);
 const selectedWorkspace = ref<string | null>(null);
+const selectedMemory = ref<MemoryEntry | null>(null);
 const selectedFile = ref<{ workspace: string; filename: string } | null>(null);
 const editAutomation = ref<Automation | null>(null);
 
@@ -92,6 +96,7 @@ const selectedAutomation = computed(() => {
 const activeMainView = computed(() => {
   if (settingsWorkspaceId.value) return "workspace-settings";
   if (selectedRun.value) return "history";
+  if (selectedMemory.value && selectedWorkspace.value) return "memory-detail";
   if (selectedFile.value) return "editor";
   if (selectedAutomation.value) return "automation";
   if (selectedWorkspace.value && workspaceMiddleTab.value === "chat")
@@ -523,6 +528,17 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           >
             Recordings
           </button>
+          <button
+            @click="leftTab = 'memory'"
+            class="sidebar-tab"
+            :class="
+              leftTab === 'memory'
+                ? 'sidebar-tab--active'
+                : 'sidebar-tab--inactive'
+            "
+          >
+            Memory
+          </button>
         </div>
         <BaseButton
           @click="showTemplates = true"
@@ -596,6 +612,13 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           @stop-automation="handleStopRecording"
           @show-automation="handleShowAutomation"
         />
+
+        <!-- Memory Tab -->
+        <MemoryPanel
+          v-else-if="leftTab === 'memory'"
+          :workspace-id="selectedWorkspace"
+          @select-memory="(e: MemoryEntry) => selectedMemory = e"
+        />
       </div>
     </div>
 
@@ -624,6 +647,15 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         v-else-if="activeMainView === 'history'"
         :run="selectedRun!"
         @close="handleCloseDetails"
+      />
+
+      <!-- Memory Detail View -->
+      <MemoryDetail
+        v-else-if="activeMainView === 'memory-detail' && selectedMemory && selectedWorkspace"
+        :entry="selectedMemory"
+        :workspace-id="selectedWorkspace"
+        @close="selectedMemory = null"
+        @updated="selectedMemory = null"
       />
 
       <!-- Workspace Settings View -->

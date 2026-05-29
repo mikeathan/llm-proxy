@@ -5,9 +5,12 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/platform/db"
 )
 
-func TestNewOrchestrator_CreatesDB(t *testing.T) {
+func openTestDB(t *testing.T) db.Provider {
+	t.Helper()
 	f, err := os.CreateTemp("", "orch-test-*.db")
 	if err != nil {
 		t.Fatalf("create temp: %v", err)
@@ -15,8 +18,17 @@ func TestNewOrchestrator_CreatesDB(t *testing.T) {
 	path := f.Name()
 	f.Close()
 	t.Cleanup(func() { os.Remove(path) })
+	p, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.DB().Close() })
+	return p
+}
 
-	orch, err := NewOrchestrator(path)
+func TestNewOrchestrator_CreatesDB(t *testing.T) {
+	db := openTestDB(t)
+	orch, err := NewOrchestrator(db)
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
@@ -36,15 +48,8 @@ func TestNewOrchestrator_CreatesDB(t *testing.T) {
 }
 
 func TestOrchestrator_PreFlightThenStream_NilSafe(t *testing.T) {
-	f, err := os.CreateTemp("", "orch-nil-*.db")
-	if err != nil {
-		t.Fatalf("create temp: %v", err)
-	}
-	path := f.Name()
-	f.Close()
-	t.Cleanup(func() { os.Remove(path) })
-
-	orch, err := NewOrchestrator(path)
+	db := openTestDB(t)
+	orch, err := NewOrchestrator(db)
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
@@ -79,15 +84,8 @@ func TestOrchestrator_PreFlightThenStream_NilSafe(t *testing.T) {
 }
 
 func TestOrchestrator_EndToEnd_WithCap(t *testing.T) {
-	f, err := os.CreateTemp("", "orch-e2e-*.db")
-	if err != nil {
-		t.Fatalf("create temp: %v", err)
-	}
-	path := f.Name()
-	f.Close()
-	t.Cleanup(func() { os.Remove(path) })
-
-	orch, err := NewOrchestrator(path)
+	db := openTestDB(t)
+	orch, err := NewOrchestrator(db)
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
@@ -132,15 +130,8 @@ func TestOrchestrator_EndToEnd_WithCap(t *testing.T) {
 }
 
 func TestOrchestrator_CodeBlockFlow(t *testing.T) {
-	f, err := os.CreateTemp("", "orch-code-*.db")
-	if err != nil {
-		t.Fatalf("create temp: %v", err)
-	}
-	path := f.Name()
-	f.Close()
-	t.Cleanup(func() { os.Remove(path) })
-
-	orch, err := NewOrchestrator(path)
+	db := openTestDB(t)
+	orch, err := NewOrchestrator(db)
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}

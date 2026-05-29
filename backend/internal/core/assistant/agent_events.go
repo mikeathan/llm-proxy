@@ -22,6 +22,8 @@ const (
 	EventError                AgentEventType = "error"
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
+	EventMemoryRecall         AgentEventType = "memory_recall"
+	EventMemoryFlush          AgentEventType = "memory_flush"
 )
 
 type AgentEvent struct {
@@ -131,6 +133,14 @@ func (a *Agent) notifyLifecycle(phase string, extra map[string]any) {
 		payload[k] = v
 	}
 	a.notify(EventLifecycle, payload)
+}
+
+func (a *Agent) notifyMemoryRecall(query string, count int) {
+	a.notify(EventMemoryRecall, map[string]any{"query": query, "count": count})
+}
+
+func (a *Agent) notifyMemoryFlush(count int) {
+	a.notify(EventMemoryFlush, map[string]any{"saved_count": count})
 }
 
 func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {

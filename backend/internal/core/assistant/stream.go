@@ -69,6 +69,8 @@ func (a *Agent) prepareMessagesForTurn(
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
+	prepared = a.injectActiveMemory(prepared, history)
+
 	var prefill string
 	isAutoCtx := a.findAutomationCtx(history)
 	if a.shouldPrefill(isAutoCtx) {
@@ -79,6 +81,58 @@ func (a *Agent) prepareMessagesForTurn(
 		})
 	}
 	return prepared, prefill
+}
+
+func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
+	if a.memoryStore == nil {
+		return prepared
+	}
+
+	lastUserMsg := ""
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == proxy.UserRole {
+			lastUserMsg = history[i].Content
+			break
+		}
+	}
+	if lastUserMsg == "" {
+		return prepared
+	}
+
+	ctx := context.Background()
+	entries, err := a.memoryStore.Search(ctx, a.workspaceID, lastUserMsg, 5)
+	if err != nil || len(entries) == 0 {
+		return prepared
+	}
+
+	var b strings.Builder
+	b.WriteString(prompts.RelevantMemoriesHeader)
+	for i, e := range entries {
+		if i > 0 {
+			b.WriteString("---\n")
+		}
+		b.WriteString("**")
+		b.WriteString(e.Title)
+		b.WriteString("**: ")
+		b.WriteString(e.Content)
+		b.WriteString("\n")
+	}
+	b.WriteString(prompts.RelevantMemoriesFooter)
+
+	memBlock := b.String()
+	if len(memBlock) > 500 {
+		memBlock = memBlock[:500] + "\n...[truncated]"
+	}
+
+	for i, msg := range prepared {
+		if msg.Role == proxy.SystemRole {
+			prepared[i].Content = msg.Content + "\n\n" + memBlock
+			break
+		}
+	}
+
+	a.notifyMemoryRecall(lastUserMsg, len(entries))
+	return prepared
 }
 
 func (a *Agent) doPreflightCheck(

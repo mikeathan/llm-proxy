@@ -1,0 +1,51 @@
+{
+  "tool_name": "memory",
+  "version": "1.0",
+  "description": "Memory tools for storing and retrieving persistent facts, decisions, preferences, and notes across conversations.",
+  "runtime": {
+    "memory_search": {
+      "description": "Search your long-term memory for facts, decisions, preferences, and notes from past conversations using keyword search. Use this when you need to recall information the user has told you before.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keywords to search for in memory"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return (1-20)",
+            "default": 5
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    "memory_update": {
+      "description": "Save an important fact, decision, preference, or note to your long-term memory so you can recall it in future conversations. Use this when the user tells you something you should remember permanently.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "Short topic label for this memory"
+          },
+          "content": {
+            "type": "string",
+            "description": "The fact, decision, preference, or note to remember"
+          },
+          "memory_type": {
+            "type": "string",
+            "enum": ["long_term", "daily", "session"],
+            "default": "long_term",
+            "description": "How long to remember this: long_term (permanent), daily (day-scoped), session (current conversation only)"
+          }
+        },
+        "required": ["topic", "content"]
+      }
+    }
+  },
+  "guardrails": {
+    "enabled": true
+  }
+}

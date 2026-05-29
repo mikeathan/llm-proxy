@@ -276,6 +276,13 @@ const ReasoningStuckEscalatedNag = "CRITICAL: You are stuck in an analysis loop 
 // ContextSieveWarning is injected after the physical sieve prunes intermediate history.
 const ContextSieveWarning = "SYSTEM: CRITICAL - Context window full. History pruned. Continue your task and finalize when ready."
 
+// ── Memory-system prompt constants ─────────────────────────────────────────
+
+const RelevantMemoriesHeader = "<relevant_memories>\n"
+const RelevantMemoriesFooter = "\n</relevant_memories>"
+
+const PreSieveMemoryNudge = "The conversation history is about to be compressed. Save any important facts, decisions, or preferences to memory using `memory_update` before they are lost."
+
 // RetrySignal is prepended to the last user message when the agent retries after
 // an empty-stream or timeout failure.  It tells the model the previous attempt
 // failed so it doesn't re-enter the same reasoning loop.

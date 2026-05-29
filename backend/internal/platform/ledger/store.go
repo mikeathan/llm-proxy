@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"llm-proxy/internal/platform/db"
 )
 
 const migrateSQL = `
@@ -108,23 +108,15 @@ type SlotRecord struct {
 	LastUsedAt time.Time
 }
 
-func Open(path string) (*Store, error) {
-	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_foreign_keys=ON"
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("ledger open: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
-	if _, err := db.Exec(migrateSQL); err != nil {
-		db.Close()
+func New(p db.Provider) (*Store, error) {
+	database := p.DB()
+	if _, err := database.Exec(migrateSQL); err != nil {
 		return nil, fmt.Errorf("ledger migrate: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &Store{
-		db:     db,
+		db:     database,
 		cancel: cancel,
 	}
 
@@ -138,7 +130,7 @@ func (s *Store) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	return s.db.Close()
+	return nil
 }
 
 func (s *Store) RecordTransaction(ctx context.Context, tx ICUTransaction) error {

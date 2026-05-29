@@ -1,6 +1,6 @@
 # Agent Memory System — Implementation Plan
 
-**Status: PLAN WRITTEN — ready for implementation**
+**Status: COMPLETE ✅**
 **Last updated: 2026-05-29**
 
 ---
@@ -749,28 +749,28 @@ After completion, update:
 
 | Step | File(s) | Description | Status |
 |------|---------|-------------|--------|
-| 1.1 | `ledger/store.go` | Add `DB()` getter | [ ] |
-| 1.2 | `memory/store.go`, `memory/types.go` | Create MemoryStore with CRUD + FTS5 | [ ] |
-| 2.1 | `models/tools.go` | Add tool name constants | [ ] |
-| 2.2 | `tools/manifests/memory.json` | Create tool manifest | [ ] |
-| 2.3 | `tools/memory_tools.go` | Create memory tool handlers | [ ] |
-| 2.4 | `assistant/registry.go` | Register tools in agent | [ ] |
-| 3.1 | `models/infrastructure.go` | Add MemoryConfig to UserSettings | [ ] |
-| 4.1 | `assistant/agent.go` | Add MemoryStore to Agent | [ ] |
-| 4.1b | `executor.go`, `services.go`, `assistant_service.go`, `bootstrap.go` | Wire MemoryStore through automation executor + service interface + mock | [ ] |
-| 4.2 | `assistant/stream.go` | Active memory injection | [ ] |
-| 4.3 | `assistant/session.go` | Pre-sieve memory flush | [ ] |
-| 4.4 | `assistant/agent_events.go` | Memory lifecycle events | [ ] |
-| 5.1 | `transport/http/memory_handlers.go` | REST API handlers | [ ] |
-| 5.2 | `app/bootstrap.go` | Register routes + wire store | [ ] |
-| 6.1 | `frontend/src/types/memory.ts` | Frontend types | [ ] |
-| 6.2 | `frontend/src/services/memoryService.ts` | Frontend service | [ ] |
-| 6.3 | `frontend/src/composables/useMemory.ts` | Frontend composable | [ ] |
-| 6.4 | `frontend/src/components/AgentIde/*.vue` | Memory sidebar panel + detail | [ ] |
-| 7.1 | `memory/store_test.go` | MemoryStore unit tests | [ ] |
-| 7.2 | `tools/memory_tools_test.go` | Memory tool unit tests | [ ] |
-| 7.3 | `assistant/agent_test.go` | Agent integration tests | [ ] |
+| 1.1 | `ledger/store.go` | Add `DB()` getter | [x] |
+| 1.2 | `memory/store.go`, `memory/types.go` | Create MemoryStore with CRUD + FTS4 | [x] |
+| 2.1 | `models/tools.go` | Add tool name constants | [x] |
+| 2.2 | `tools/manifests/memory.json` | Create tool manifest | [x] |
+| 2.3 | `tools/memory_tools.go` | Create memory tool handlers | [x] |
+| 2.4 | `assistant/registry.go` | Register tools in agent | [x] |
+| 3.1 | `models/infrastructure.go` | Add MemoryConfig to UserSettings | [x] |
+| 4.1 | `assistant/agent.go` | Add MemoryStore to Agent | [x] |
+| 4.1b | `executor.go`, `services.go`, `assistant_service.go`, `bootstrap.go` | Wire MemoryStore through automation executor + service interface + mock | [x] |
+| 4.2 | `assistant/stream.go` | Active memory injection | [x] |
+| 4.3 | `assistant/session.go` | Pre-sieve memory flush | [x] |
+| 4.4 | `assistant/agent_events.go` | Memory lifecycle events | [x] |
+| 5.1 | `transport/http/memory_handlers.go` | REST API handlers | [x] |
+| 5.2 | `app/bootstrap.go` | Register routes + wire store | [x] |
+| 6.1 | `frontend/src/types/memory.ts` | Frontend types | [x] |
+| 6.2 | `frontend/src/services/memoryService.ts` | Frontend service | [x] |
+| 6.3 | `frontend/src/composables/useMemory.ts` | Frontend composable | [x] |
+| 6.4 | `frontend/src/components/AgentIde/*.vue` | Memory sidebar panel + detail | [x] |
+| 7.1 | `memory/store_test.go` | MemoryStore unit tests | [x] |
+| 7.2 | `tools/memory_tools_test.go` | Memory tool unit tests | [x] |
+| 7.3 | `assistant/agent_memory_test.go` | Agent integration tests | [x] |
 
 ---
 
-**Plan Completion Criteria**: All 21 steps marked [x], `go build ./...` passes, `go test ./...` passes, `frontend` build passes, CONSTITUTION.md updated, AGENTS.md updated.
+**Plan Completion Criteria**: All 21 steps marked [x], `go build ./...` passes ✅, `go test ./...` passes ✅, `frontend` build passes ✅, CONSTITUTION.md updated ✅, AGENTS.md updated ✅.

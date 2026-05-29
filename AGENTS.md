@@ -49,7 +49,7 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
 - `internal/core/automation/` — Scheduled task dispatch and execution
-- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search)
+- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory)
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
 - `internal/testing/llmprofiles/` — `FixtureClient` + `RunAgainstFixtures` (replay test framework)
 
@@ -126,6 +126,8 @@ When a tool call is blocked:
 
 ## Common Pitfalls
 
+0. **MemoryStore nil-safety** — The `Agent.memoryStore` field is nil when memory is disabled. All code paths (active injection, pre-sieve flush, memory tools) must check `if a.memoryStore == nil` before dereferencing. This is the same pattern as `orch` (orchestrator nil-safety).
+
 1. **Changing an interface without updating mocks** — The `MockManager` in `internal/testing/mocks/` must implement every method of `RuntimeManager` interface. Build fails on missing methods.
 
 2. **Hardcoding prompt strings in logic files** — All prompts live in `templates.go`. Check there first before writing new ones.
@@ -181,7 +183,7 @@ When adding a tool:
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
-4. `internal/core/assistant/registry.go` — registration
+4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
 
 When adding a prompt:
 1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text

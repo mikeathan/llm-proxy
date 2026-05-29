@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
@@ -60,6 +61,7 @@ type LocalToolRegistry struct {
 	Search          *tools.InternetTools
 	FileSystem      *tools.FileSystemTools
 	Network         *tools.NetworkTools
+	Memory          *tools.MemoryToolProvider
 }
 
 func NewLocalToolRegistry(
@@ -68,6 +70,7 @@ func NewLocalToolRegistry(
 	search *tools.InternetTools,
 	fsTools *tools.FileSystemTools,
 	network *tools.NetworkTools,
+	memoryTools *tools.MemoryToolProvider,
 ) *LocalToolRegistry {
 	r := &LocalToolRegistry{
 		handlers:      make(map[string]ToolHandler),
@@ -76,6 +79,7 @@ func NewLocalToolRegistry(
 		Search:        search,
 		FileSystem:    fsTools,
 		Network:       network,
+		Memory:        memoryTools,
 	}
 	r.registerAll()
 	return r
@@ -148,6 +152,13 @@ func initSearchTools(appCtx interface {
 	})
 }
 
+func initMemoryTools(store *memory.Store) *tools.MemoryToolProvider {
+	if store == nil {
+		return nil
+	}
+	return tools.NewMemoryToolProvider(store)
+}
+
 func initFileSystemTools(
 	resolver storage.Resolver,
 	persistence *persistence.WorkspaceManager,
@@ -175,6 +186,7 @@ func InitializeAgentStack(
 		Resolver() storage.Resolver
 		Secrets() models.SecretsStore
 		GetGuardrails() models.AgentGuardrailsConfig
+		MemoryStore() *memory.Store
 	},
 	persistence *persistence.WorkspaceManager,
 	mcp nodeherder.MCPService,
@@ -193,8 +205,9 @@ func InitializeAgentStack(
 	network := initNetworkTools(persistence, defaultGuardrails, logger)
 	search := initSearchTools(appCtx, network)
 	fsTools := initFileSystemTools(resolver, persistence, defaultGuardrails)
+	memTools := initMemoryTools(appCtx.MemoryStore())
 
-	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
+	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network, memTools)
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
@@ -289,6 +302,7 @@ func (r *LocalToolRegistry) registerAll() {
 	r.registerSearchTools()
 	r.registerFileSystemTools()
 	r.registerNetworkTools()
+	r.registerMemoryTools()
 	r.registerSystemTools()
 }
 
@@ -375,6 +389,14 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 		return r.Network.GetNetworkInfo(ctx)
 	})
 }
+func (r *LocalToolRegistry) registerMemoryTools() {
+	if r.Memory == nil {
+		return
+	}
+	registerTool(r, models.CategoryMemory, models.ToolMemorySearch, r.Memory.Search)
+	registerTool(r, models.CategoryMemory, models.ToolMemoryUpdate, r.Memory.Update)
+}
+
 func (r *LocalToolRegistry) registerSystemTools() {
 	registerTool(r, models.CategorySystem, models.ToolSubmitFinalAnswer, func(ctx context.Context, args struct {
 		Summary string `json:"summary"`

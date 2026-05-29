@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
@@ -106,4 +107,5 @@ type AssistantService interface {
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
 	Events() *automation.EventBus
+	MemoryStore() *memory.Store
 }

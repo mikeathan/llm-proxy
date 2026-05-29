@@ -20,6 +20,7 @@ import (
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/recordings"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
@@ -249,6 +250,10 @@ func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore 
 	return s.guardrailDecisionStore
 }
 
+func (s AppServices) MemoryStore() *memory.Store {
+	return s.AppCtx.MemoryStore()
+}
+
 func (s AppServices) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
 	if s.RecordingStore == nil {
 		return nil, fmt.Errorf("recording store not available (start server with --record-dir)")
@@ -397,7 +402,12 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 
 	recordingHandlers := api.NewRecordingHandlers(s.RecordingStore)
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers)
+	var memoryHandlers *api.MemoryHandlers
+	if store := s.AppCtx.MemoryStore(); store != nil {
+		memoryHandlers = api.NewMemoryHandlers(store)
+	}
+
+	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers, memoryHandlers)
 }
 
 func buildRouter(
@@ -406,6 +416,7 @@ func buildRouter(
 	assistant *api.AssistantMessageHandler,
 	dispatcherHandlers *api.DispatcherHandlers,
 	recordings *api.RecordingHandlers,
+	memoryHandlers *api.MemoryHandlers,
 ) http.Handler {
 
 	router := api.NewRouter()
@@ -507,6 +518,15 @@ func buildRouter(
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
+
+	// Memory API
+	if memoryHandlers != nil {
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}", memoryHandlers.ListMemories, jsonMethodNotAllowed)
+		router.Post("/admin/api/memory/{"+models.WorkspaceIDParam+"}/search", memoryHandlers.SearchMemories, jsonMethodNotAllowed)
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.GetMemory, jsonMethodNotAllowed)
+		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.UpdateMemory, jsonMethodNotAllowed)
+		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.DeleteMemory, jsonMethodNotAllowed)
+	}
 
 	return router
 }

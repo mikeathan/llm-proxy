@@ -25,6 +25,10 @@ const (
 	// Security/Admin
 	ToolApplyGuardrails = "security_guardrails"
 
+	// Memory
+	ToolMemorySearch = "memory_search"
+	ToolMemoryUpdate = "memory_update"
+
 	// System
 	ToolSubmitFinalAnswer = "submit_final_answer"
 	ToolSystemError       = "system_error"
@@ -38,5 +42,6 @@ const (
 	CategoryFileSystem    = "filesystem"
 	CategoryNetwork       = "network"
 	CategoryGlobal        = "security"
+	CategoryMemory        = "memory"
 	CategorySystem        = "system"
 )

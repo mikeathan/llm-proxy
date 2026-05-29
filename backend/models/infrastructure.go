@@ -46,6 +46,23 @@ type UserSettings struct {
 	Local          LocalSettings               `yaml:"local" json:"local"`
 	Guardrails     *AgentGuardrailsConfig      `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 	ModelOverrides map[string]ModelOverride    `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
+	Memory         *MemoryConfig               `yaml:"memory,omitempty" json:"memory,omitempty"`
+}
+
+type MemoryConfig struct {
+	Enabled        bool    `yaml:"enabled" json:"enabled"`
+	SearchTopK     int     `yaml:"search_top_k,omitempty" json:"search_top_k,omitempty"`
+	FlushThreshold float64 `yaml:"flush_threshold,omitempty" json:"flush_threshold,omitempty"`
+	RetentionDays  int     `yaml:"retention_days,omitempty" json:"retention_days,omitempty"`
+}
+
+func DefaultMemoryConfig() MemoryConfig {
+	return MemoryConfig{
+		Enabled:        true,
+		SearchTopK:     5,
+		FlushThreshold: 0.7,
+		RetentionDays:  90,
+	}
 }
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
