@@ -87,6 +87,7 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		go disp.Start(ctx)
 	}
 
+
 	router := buildHTTP(svc, container.Dispatcher, buildInfo)
 	bindAddr := ResolveBindAddr(dataMgr)
 

@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -29,8 +32,30 @@ func SetReverseProxyFactory(f func(string) http.Handler) func() {
 	}
 }
 
+func peekModelName(r *http.Request) string {
+	if r.Body == nil {
+		return ""
+	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		return ""
+	}
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	var payload struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return ""
+	}
+	return payload.Model
+}
+
 func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.Request) {
 	model := r.Header.Get("X-Model-Name")
+	if model == "" {
+		model = peekModelName(r)
+	}
 	if model == "" {
 		primary, _ := h.runtime.SelectModels()
 		if primary == "" {
