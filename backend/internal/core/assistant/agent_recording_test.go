@@ -12,10 +12,6 @@ import (
 	"testing"
 )
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 type ReplayEngine struct {
 	calls []llmprofiles.RecordedCall
 	turn  int
@@ -47,7 +43,7 @@ func (e *ReplayEngine) ExecuteTool(ctx context.Context, tc proxy.ToolCall) (any,
 }
 
 func TestAgent_Execute_AgainstRecordings(t *testing.T) {
-	llmprofiles.RunAgainstFixtures(t, "testdata/recordings", func(t *testing.T, client proxy.Client, name string) {
+	llmprofiles.RunAgainstFixtures(t, "../../../testdata/recordings", func(t *testing.T, client proxy.Client, name string) {
 		fc, ok := client.(*llmprofiles.FixtureClient)
 		if !ok {
 			t.Fatal("expected FixtureClient")

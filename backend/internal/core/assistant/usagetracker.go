@@ -1,3 +1,5 @@
+// usagetracker.go — Per-execution usage tracker embedded in context.
+// Counts LLM calls and tool invocations for observability.
 package assistant
 
 import (
