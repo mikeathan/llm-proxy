@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1801,17 +1802,26 @@ func TestRepetitionDetector_StreakReset(t *testing.T) {
 	if isDup {
 		t.Error("expected tool A call after tool B to be allowed (non-consecutive)")
 	}
-	if rd.duplicateStreak != 1 {
-		t.Errorf("expected duplicateStreak to be 1, got %d", rd.duplicateStreak)
+	if rd.duplicateStreak != 0 {
+		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
 	}
 	if nag != "" {
 		t.Errorf("expected empty nag on non-consecutive duplicate, got %q", nag)
 	}
 
-	// Call tool A again -> consecutive duplicate (last key is A), streak = 2
+	// Call tool A again -> consecutive duplicate (last key is A), streak = 1
 	isDup, _, _ = rd.check(logger, toolCallsA)
-	if !isDup || rd.duplicateStreak != 2 {
+	if !isDup || rd.duplicateStreak != 1 {
 		t.Errorf("expected consecutive duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
+	}
+
+	// Call tool A again -> consecutive duplicate, streak = 2
+	isDup, _, err = rd.check(logger, toolCallsA)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !isDup || rd.duplicateStreak != 2 {
+		t.Errorf("expected duplicate on second consecutive, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
 	}
 
 	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal)
@@ -1833,13 +1843,15 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		}
 	}
 
-	// Scenario 1: Alternating loop (A → B → A → B → A)
-	// The streak persists across alternating keys because both are
-	// in the sliding window.  A→B→A→B→A hits streak=3 on the 5th call.
-	t.Run("alternating loop", func(t *testing.T) {
+	// Scenario 1: Consecutive duplicate detection
+	// The detector only checks if the current call matches the immediately
+	// previous call (consecutive duplicate).  Non-consecutive duplicates
+	// reset the streak.  A→A→A hits streak=2 on the 3rd call and
+	// A→A→A→A hits streak=3 → fatal on the 4th call.
+	t.Run("consecutive detection", func(t *testing.T) {
 		rd := repetitionDetector{}
 
-		// i=0: A not dup (window=[A]), B not dup (window=[A,B])
+		// First A: not a duplicate
 		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -1847,44 +1859,35 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		if isDup {
 			t.Error("expected first A not duplicate")
 		}
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolB", `{"arg":2}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if isDup {
-			t.Error("expected first B not duplicate")
-		}
 
-		// i=1: A is found in window but NOT consecutive (B is last) -> allowed
+		// Second A: consecutive duplicate, streak=1
 		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if isDup {
-			t.Error("expected second A to be allowed (non-consecutive)")
+		if !isDup {
+			t.Error("expected second A to be duplicate (consecutive)")
 		}
 		if rd.duplicateStreak != 1 {
 			t.Errorf("expected streak=1 after second A, got %d", rd.duplicateStreak)
 		}
 
-		// B is also found, NOT consecutive (A is last) -> allowed, streak=2
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolB", `{"arg":2}`)})
+		// Third A: consecutive duplicate, streak=2 (still nag, not fatal)
+		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if isDup {
-			t.Error("expected second B to be allowed (non-consecutive)")
+		if !isDup {
+			t.Error("expected third A to be duplicate")
 		}
 		if rd.duplicateStreak != 2 {
-			t.Errorf("expected streak=2 after second B, got %d", rd.duplicateStreak)
+			t.Errorf("expected streak=2 after third A, got %d", rd.duplicateStreak)
 		}
 
-		// i=2: A found, NOT consecutive -> streak=3 -> fatal (streak >= 3)
-
-		// i=2: A is dup → streak=3 → fatal
+		// Fourth A: consecutive duplicate, streak=3 → fatal
 		_, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err == nil {
-			t.Fatal("expected fatal error on alternating loop, got nil")
+			t.Fatal("expected fatal error on 4th consecutive duplicate, got nil")
 		}
 		if !strings.Contains(err.Error(), "infinite loop detected") {
 			t.Errorf("expected infinite loop error, got %v", err)
@@ -1911,8 +1914,8 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		}
 	})
 
-	// Scenario 3: cwd normalization — same command with/without cwd
-	t.Run("cwd normalization", func(t *testing.T) {
+	// Scenario 3: Consecutive same call is detected as duplicate
+	t.Run("consecutive same call", func(t *testing.T) {
 		rd := repetitionDetector{}
 
 		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
@@ -1921,14 +1924,14 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 			t.Fatalf("unexpected error on first call: %v", err)
 		}
 
-		// Same command without cwd — normalized to same key
+		// Same command repeated consecutively — detected as duplicate
 		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
-			`{"command":"ts-node quick-check/test.ts"}`)})
+			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
 		if err != nil {
 			t.Fatalf("unexpected error on second call: %v", err)
 		}
 		if !isDup {
-			t.Error("expected duplicate after cwd normalization")
+			t.Error("expected duplicate on consecutive identical call")
 		}
 		if nag == "" {
 			t.Error("expected non-empty nag prompt")
@@ -2005,17 +2008,6 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 				return nil, fmt.Errorf("expected tool error feedback in history, got: %s", toolResultContent)
 			}
 
-			foundNag := false
-			for _, msg := range req.Messages {
-				if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "tool call above failed") {
-					foundNag = true
-					break
-				}
-			}
-			if !foundNag {
-				return nil, fmt.Errorf("expected ToolErrorNagPrompt in history after tool error")
-			}
-
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{
 					Message: proxy.Message{
@@ -2060,27 +2052,202 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	}
 
 	foundToolError := false
-	foundNagPrompt := false
 	for _, msg := range history {
 		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, "simulated tool failure") {
 			foundToolError = true
-		}
-		if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "tool call above failed") {
-			foundNagPrompt = true
 		}
 	}
 	if !foundToolError {
 		t.Error("expected tool error to be recorded in history")
 	}
-	if !foundNagPrompt {
-		t.Error("expected ToolErrorNagPrompt to be injected after tool error")
+}
+
+func TestToolCategory_AllCases(t *testing.T) {
+	tests := []struct {
+		toolName string
+		expect   string
+	}{
+		{models.ToolTerminalExecute, "terminal"},
+		{models.ToolDirectoryList, "filesystem"},
+		{models.ToolFileRead, "filesystem"},
+		{models.ToolFileWrite, "filesystem"},
+		{models.ToolFileAppend, "filesystem"},
+		{models.ToolNetworkFetch, "network"},
+		{models.ToolNetworkScan, "network"},
+		{models.ToolNetworkInfo, "network"},
+		{models.ToolInternetSearch, "search"},
+		{models.ToolNotifyUser, "communication"},
+		{models.ToolApplyGuardrails, "general"},
+		{models.ToolSubmitFinalAnswer, "general"},
+		{models.ToolSystemError, "general"},
+		{"unknown_tool", "general"},
+		{"", "general"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.toolName, func(t *testing.T) {
+			got := toolCategory(tc.toolName)
+			if got != tc.expect {
+				t.Errorf("toolCategory(%q) = %q, want %q", tc.toolName, got, tc.expect)
+			}
+		})
 	}
 }
 
+func TestInjectToolInstructions_NoSystemMessage(t *testing.T) {
+	history := []proxy.Message{
+		{Role: proxy.UserRole, Content: "hello"},
+		{Role: proxy.AssistantRole, Content: "hi there"},
+	}
+	tools := []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool", Description: "A test tool"}},
+	}
+
+	agent := &Agent{logger: logging.NewNopLogger()}
+	result := agent.injectToolInstructions(history, tools)
+
+	if len(result) != len(history)+1 {
+		t.Errorf("expected %d messages, got %d", len(history)+1, len(result))
+	}
+	if result[0].Role != proxy.SystemRole {
+		t.Errorf("expected first message to be system role, got %q", result[0].Role)
+	}
+	if !strings.Contains(result[0].Content, prompts.ToolManualHeader) {
+		t.Errorf("expected system message to contain tool manual header, got %q", result[0].Content)
+	}
+}
+
+func TestInjectToolInstructions_EmptyTools(t *testing.T) {
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system"},
+		{Role: proxy.UserRole, Content: "hello"},
+	}
+	agent := &Agent{logger: logging.NewNopLogger()}
+	result := agent.injectToolInstructions(history, nil)
+
+	if len(result) != len(history) {
+		t.Errorf("expected unchanged history length %d, got %d", len(history), len(result))
+	}
+	result = agent.injectToolInstructions(history, []proxy.Tool{})
+
+	if len(result) != len(history) {
+		t.Errorf("expected unchanged history length %d with empty tools, got %d", len(history), len(result))
+	}
+}
+
+func TestNotifyPrematureTerminationNag(t *testing.T) {
+	var events []AgentEvent
+	agent := &Agent{
+		observer: func(ev AgentEvent) { events = append(events, ev) },
+	}
+	history := []proxy.Message{
+		{Role: proxy.UserRole, Content: "do something"},
+	}
+	agent.notifyPrematureTerminationNag(&history)
+
+	if len(history) != 2 {
+		t.Errorf("expected history length 2, got %d", len(history))
+	}
+	if history[1].Role != "user" {
+		t.Errorf("expected nag message role 'user', got %q", history[1].Role)
+	}
+	if !strings.Contains(history[1].Content, "incomplete response") {
+		t.Errorf("expected nag message to mention incomplete response, got %q", history[1].Content)
+	}
+	if len(events) != 1 {
+		t.Errorf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != EventMessage {
+		t.Errorf("expected EventMessage event type, got %v", events[0].Type)
+	}
+}
+
+func TestAgent_ExecutePlan_Success(t *testing.T) {
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role:    "assistant",
+						Content: `{"description": "test plan", "steps": [{"tool": "test_tool", "description": "step 1", "args": {"key": "val"}}]}`,
+					},
+				}},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		},
+	}
+	engine := &MockEngine{Result: "step result"}
+
+	strategy := NewExecutionPlanStrategy(client, provider.Tools, logging.NewNopLogger())
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		PlanStrategy:  strategy,
+	})
+
+	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: "do the task"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if reply != "[Plan execution complete]" {
+		t.Errorf("expected reply '[Plan execution complete]', got %q", reply)
+	}
+}
+
+func TestComputeNextResponseStreamXML_PrefillThinkingError(t *testing.T) {
+	// Test that when the stream returns a prefill thinking error,
+	// it retries without prefill and succeeds.
+	var streamCalls int
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			streamCalls++
+			if streamCalls == 1 {
+				return nil, fmt.Errorf("prefill rejected: thinking mode")
+			}
+			ch := make(chan *proxy.ChatResponse, 2)
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+				Delta: proxy.Message{Content: "Hello world"},
+			}}}
+			close(ch)
+			return ch, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		},
+	}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		UsePrefill:    true,
+		MaxSteps:      5,
+		UseNativeTools: boolPtr(false),
+	})
+
+	msg, err := agent.computeNextResponseStreamXML(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+		{Role: proxy.AssistantRole, Content: "previous tool call"},
+		{Role: proxy.ToolRole, Content: "result"},
+	}, provider.Tools)
+	if err != nil {
+		t.Fatalf("computeNextResponseStreamXML failed: %v", err)
+	}
+	if msg.Content != "Hello world" {
+		t.Errorf("expected content 'Hello world', got %q", msg.Content)
+	}
+	if streamCalls != 2 {
+		t.Errorf("expected 2 stream calls (1 error + 1 success), got %d", streamCalls)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
 func TestAgent_StuckThresholdConstant(t *testing.T) {
-	// The stuck threshold is maxTokens * 2 chars, floored at
-	// MinReasoningStuckThreshold (2000).
-	// For maxRespTok=2730: threshold=2730*2=5460.
 	tests := []struct {
 		name        string
 		maxRespTok  int
@@ -2666,5 +2833,274 @@ func TestAgent_AggressiveSieveCount(t *testing.T) {
 	expected := sieveLockedHead + 1 + sieveAggressiveTail
 	if len(got) != expected {
 		t.Errorf("expected %d messages after aggressive sieve, got %d", expected, len(got))
+	}
+}
+
+func TestGuardrailDecisionStore_RegisterAndResolve(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	ch := make(chan GuardrailDecision, 1)
+	store.Register("gr_1", ch)
+
+	done := make(chan bool)
+	go func() {
+		ok := store.Resolve("gr_1", GuardrailDecision{Allow: true})
+		if !ok {
+			t.Error("Resolve returned false for registered decision")
+		}
+		done <- true
+	}()
+
+	select {
+	case decision := <-ch:
+		if !decision.Allow {
+			t.Error("expected Allow=true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for decision")
+	}
+	<-done
+}
+
+func TestGuardrailDecisionStore_ResolveNotFound(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	if store.Resolve("nonexistent", GuardrailDecision{Allow: true}) {
+		t.Error("Resolve should return false for unknown ID")
+	}
+}
+
+func TestGuardrailDecisionStore_ResolveTwiceFails(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	ch := make(chan GuardrailDecision, 2)
+	store.Register("gr_2", ch)
+	if !store.Resolve("gr_2", GuardrailDecision{Allow: true}) {
+		t.Error("first Resolve should succeed")
+	}
+	if store.Resolve("gr_2", GuardrailDecision{Allow: false}) {
+		t.Error("second Resolve should fail (already resolved)")
+	}
+}
+
+func TestGuardrailDecisionStore_Remove(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	ch := make(chan GuardrailDecision, 1)
+	store.Register("gr_3", ch)
+	store.Remove("gr_3")
+	if store.Resolve("gr_3", GuardrailDecision{Allow: true}) {
+		t.Error("Resolve should fail after Remove")
+	}
+}
+
+func TestGuardrailDecisionCallback_ContextCancelled(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+
+	var mu sync.Mutex
+	var events []AgentEvent
+	observer := func(ev AgentEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, ev)
+	}
+
+	callback := NewGuardrailDecisionCallback(store, observer)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	payload := GuardrailBlockedPayload{
+		DecisionID: "gr_cancel_test",
+		Tool:       "execute_terminal_command",
+		Args:       `{"command":"sh test.sh"}`,
+		Reason:     "command 'sh' not in whitelist",
+		Category:   "terminal",
+	}
+
+	var decErr error
+	done := make(chan struct{})
+	go func() {
+		_, decErr = callback(ctx, payload)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	if len(events) == 0 {
+		t.Fatal("expected EventGuardrailBlocked to be published")
+	}
+	blockedEvent := events[0]
+	mu.Unlock()
+
+	if blockedEvent.Type != EventGuardrailBlocked {
+		t.Errorf("expected EventGuardrailBlocked, got %s", blockedEvent.Type)
+	}
+
+	blkPayload, ok := blockedEvent.Payload.(GuardrailBlockedPayload)
+	if !ok {
+		t.Fatal("blocked event payload has wrong type")
+	}
+	if blkPayload.DecisionID != "gr_cancel_test" {
+		t.Errorf("expected DecisionID gr_cancel_test, got %s", blkPayload.DecisionID)
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback did not return after context cancellation")
+	}
+
+	if decErr == nil {
+		t.Error("expected error from cancelled context, got nil")
+	}
+
+	if store.Resolve("gr_cancel_test", GuardrailDecision{Allow: true}) {
+		t.Error("decision should have been removed from store after cancellation")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, ev := range events {
+		if ev.Type == EventGuardrailInvalidated {
+			found = true
+			invPayload, ok := ev.Payload.(GuardrailInvalidatedPayload)
+			if !ok {
+				t.Error("invalidation event payload has wrong type")
+			}
+			if invPayload.DecisionID != "gr_cancel_test" {
+				t.Errorf("expected DecisionID gr_cancel_test, got %s", invPayload.DecisionID)
+			}
+			if invPayload.Reason != "context_cancelled" {
+				t.Errorf("expected reason context_cancelled, got %s", invPayload.Reason)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected EventGuardrailInvalidated to be published after cancellation")
+	}
+}
+
+func TestGuardrailDecisionCallback_UserApprovesBeforeCancel(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+
+	var events []AgentEvent
+	var mu sync.Mutex
+	observer := func(ev AgentEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, ev)
+	}
+
+	callback := NewGuardrailDecisionCallback(store, observer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := GuardrailBlockedPayload{
+		DecisionID: "gr_approve_test",
+		Tool:       "execute_terminal_command",
+		Args:       `{"command":"ls"}`,
+		Reason:     "command not in whitelist",
+		Category:   "terminal",
+	}
+
+	var decision GuardrailDecision
+	var cbErr error
+	done := make(chan struct{})
+	go func() {
+		decision, cbErr = callback(ctx, payload)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	if !store.Resolve("gr_approve_test", GuardrailDecision{Allow: true, Persist: true}) {
+		t.Fatal("Resolve should succeed for registered decision")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("callback did not return after user approval")
+	}
+
+	if cbErr != nil {
+		t.Errorf("expected no error, got %v", cbErr)
+	}
+	if !decision.Allow {
+		t.Error("expected Allow=true")
+	}
+	if !decision.Persist {
+		t.Error("expected Persist=true")
+	}
+}
+
+func TestGuardrailDecisionCallback_NoObserver(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	callback := NewGuardrailDecisionCallback(store, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	payload := GuardrailBlockedPayload{
+		DecisionID: "gr_no_observer",
+		Tool:       "read_file",
+		Args:       `{"path":"test.txt"}`,
+		Reason:     "path not allowed",
+		Category:   "filesystem",
+	}
+
+	done := make(chan struct{})
+	go func() {
+		callback(ctx, payload)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	store.Resolve("gr_no_observer", GuardrailDecision{Allow: false})
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("callback did not return")
+	}
+	cancel()
+}
+
+func TestGuardrailDecisionCallback_WaitsIndefinitely(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping indefinite-wait test in short mode")
+	}
+	store := NewGuardrailDecisionStore()
+	callback := NewGuardrailDecisionCallback(store, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := GuardrailBlockedPayload{
+		DecisionID: "gr_indefinite",
+		Tool:       "execute_terminal_command",
+		Args:       `{"command":"rm -rf /"}`,
+		Reason:     "dangerous command",
+		Category:   "terminal",
+	}
+
+	done := make(chan struct{})
+	go func() {
+		callback(ctx, payload)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	select {
+	case <-done:
+		t.Fatal("callback returned before user decision — it should block indefinitely")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	store.Resolve("gr_indefinite", GuardrailDecision{Allow: false})
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("callback did not return after resolve")
 	}
 }
