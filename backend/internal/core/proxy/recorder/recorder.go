@@ -170,17 +170,31 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 				select {
 				case out <- chunk:
 				case <-ctx.Done():
+					if chunks > 0 {
+						rc.writeLine(recordLine{
+							Type:        "done",
+							TotalChunks: chunks,
+						})
+					} else {
+						rc.writeLine(recordLine{
+							Type:    "error",
+							Message: "context cancelled",
+						})
+					}
+					return
+				}
+			case <-ctx.Done():
+				if chunks > 0 {
+					rc.writeLine(recordLine{
+						Type:        "done",
+						TotalChunks: chunks,
+					})
+				} else {
 					rc.writeLine(recordLine{
 						Type:    "error",
 						Message: "context cancelled",
 					})
-					return
 				}
-			case <-ctx.Done():
-				rc.writeLine(recordLine{
-					Type:    "error",
-					Message: "context cancelled",
-				})
 				return
 			}
 		}
