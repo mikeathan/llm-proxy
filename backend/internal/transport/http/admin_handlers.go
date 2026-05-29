@@ -113,6 +113,7 @@ type adminActiveModel struct {
 	Provider  string    `json:"provider"`
 	Endpoint  string    `json:"endpoint"`
 	Port      int       `json:"port"`
+	PID       int       `json:"pid"`
 	Ready     bool      `json:"ready"`
 	StartedAt time.Time `json:"started_at"`
 	LastUsed  time.Time `json:"last_used_at"`
@@ -252,15 +253,16 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	var activeDetails *adminActiveModel
 	if ai := h.runtime.ActiveInfo(); ai != nil {
 		activeName = ai.Name
-		activeDetails = &adminActiveModel{
-			Name:      ai.Name,
-			Provider:  ai.Provider,
-			Endpoint:  fmt.Sprintf("http://%s:%d", host, ai.Port),
-			Port:      ai.Port,
-			Ready:     ai.Ready,
-			StartedAt: ai.Started,
-			LastUsed:  ai.LastUsed,
-		}
+	activeDetails = &adminActiveModel{
+				Name:      ai.Name,
+				Provider:  ai.Provider,
+				Endpoint:  fmt.Sprintf("http://%s:%d", host, ai.Port),
+				Port:      ai.Port,
+				PID:       ai.PID,
+				Ready:     ai.Ready,
+				StartedAt: ai.Started,
+				LastUsed:  ai.LastUsed,
+			}
 	}
 
 	activePort := 0

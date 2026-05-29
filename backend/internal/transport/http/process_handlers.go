@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/process"
 	"llm-proxy/models"
 )
 
@@ -237,6 +240,52 @@ func (h *AdminHandlers) AdminWorkspaceProcessLogsHandler(w http.ResponseWriter, 
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write(data)
+}
+
+func (h *AdminHandlers) AdminProcessesHandler(w http.ResponseWriter, r *http.Request) {
+	activeInfo := h.runtime.ActiveInfo()
+	activePID := 0
+	if activeInfo != nil {
+		activePID = activeInfo.PID
+	}
+
+	processes, err := process.ListByBinary("llama-server", activePID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if processes == nil {
+		processes = []process.Info{}
+	}
+
+	respondJSON(w, map[string]any{"processes": processes})
+}
+
+func (h *AdminHandlers) AdminProcessKillHandler(w http.ResponseWriter, r *http.Request) {
+	pidStr := r.PathValue("pid")
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid pid")
+		return
+	}
+
+	activeInfo := h.runtime.ActiveInfo()
+	if activeInfo != nil && activeInfo.PID == pid {
+		if err := h.runtime.StopActive(); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		respondJSON(w, map[string]any{"status": "stopped", "pid": pid})
+		return
+	}
+
+	if err := process.Kill(pid); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]any{"status": "stopped", "pid": pid})
 }
 
 func (h *AdminHandlers) appLogPath() string {

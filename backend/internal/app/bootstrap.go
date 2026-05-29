@@ -437,6 +437,8 @@ func buildRouter(
 	router.Delete("/admin/api/app-logs", admin.AdminAppLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs/tail", admin.AdminAppLogsTailHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/runtime/processes", admin.AdminProcessesHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/runtime/processes/{pid}/stop", admin.AdminProcessKillHandler, jsonMethodNotAllowed)
 
 	// MCP
 	router.Get("/admin/api/mcp", admin.AdminMCPListHandler, jsonMethodNotAllowed)
