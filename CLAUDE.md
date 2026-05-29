@@ -1,4 +1,4 @@
-# Antigravity LLM Proxy — Project Guide
+# LLM Proxy — Project Guide
 
 ## Quick Reference
 

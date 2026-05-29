@@ -1,4 +1,4 @@
-# Antigravity LLM Proxy
+# LLM Proxy
 
 Local-first LLM orchestration platform. Manages model runtimes (llama.cpp), provides an OpenAI-compatible API, an agent loop for autonomous task execution, and a web admin UI.
 
@@ -30,55 +30,59 @@ go run main.go --data ./data --record-dir=testdata/recordings
 ## Endpoints
 
 ### Proxy
-| Method | Path | Description |
-|--------|------|-------------|
-| ANY | `/v1/chat/completions` | OpenAI-compatible chat completions |
+
+| Method | Path                   | Description                        |
+| ------ | ---------------------- | ---------------------------------- |
+| ANY    | `/v1/chat/completions` | OpenAI-compatible chat completions |
 
 ### Assistant / Chat
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/conversation/message` | Send message to agent |
-| POST | `/admin/api/conversation/guardrail-decision` | Resolve guardrail block |
-| GET | `/api/conversation/sessions/:ws` | List chat sessions |
-| GET/DELETE | `/api/conversation/sessions/:ws/:id` | Get/delete session |
+
+| Method     | Path                                         | Description             |
+| ---------- | -------------------------------------------- | ----------------------- |
+| POST       | `/api/conversation/message`                  | Send message to agent   |
+| POST       | `/admin/api/conversation/guardrail-decision` | Resolve guardrail block |
+| GET        | `/api/conversation/sessions/:ws`             | List chat sessions      |
+| GET/DELETE | `/api/conversation/sessions/:ws/:id`         | Get/delete session      |
 
 ### Admin API (`/admin/api/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/state` | Full admin state snapshot |
-| POST | `/start` | Start a model |
-| POST | `/stop` | Stop active model |
-| POST/PUT/DELETE | `/models` | Model CRUD |
-| GET | `/registry` | Registry catalogue + providers |
-| PUT | `/registry` | Update full registry |
-| GET/PUT | `/config` | System config |
-| POST | `/system/restart` | Restart application |
-| GET/PUT | `/host` | Host machine settings |
-| GET | `/logs` | Active model logs |
-| GET | `/app-logs/tail` | Application log tail |
-| GET/PUT | `/log-level` | Log level control |
-| GET | `/metrics` | GPU/CPU/token metrics |
-| GET/POST/PUT/DELETE | `/mcp` | MCP server CRUD |
-| GET | `/providers/models` | List provider models |
-| GET | `/providers/manifests` | Provider manifest list |
-| GET | `/providers/test` | Test provider connection |
-| GET/PUT/DELETE | `/secrets/keys` | API key management |
-| GET/PUT | `/secrets/tools` | Tool secrets (Tavily, Telegram) |
-| GET | `/templates` | Playbook templates |
-| GET | `/templates/:id` | Template content |
+
+| Method              | Path                   | Description                     |
+| ------------------- | ---------------------- | ------------------------------- |
+| GET                 | `/state`               | Full admin state snapshot       |
+| POST                | `/start`               | Start a model                   |
+| POST                | `/stop`                | Stop active model               |
+| POST/PUT/DELETE     | `/models`              | Model CRUD                      |
+| GET                 | `/registry`            | Registry catalogue + providers  |
+| PUT                 | `/registry`            | Update full registry            |
+| GET/PUT             | `/config`              | System config                   |
+| POST                | `/system/restart`      | Restart application             |
+| GET/PUT             | `/host`                | Host machine settings           |
+| GET                 | `/logs`                | Active model logs               |
+| GET                 | `/app-logs/tail`       | Application log tail            |
+| GET/PUT             | `/log-level`           | Log level control               |
+| GET                 | `/metrics`             | GPU/CPU/token metrics           |
+| GET/POST/PUT/DELETE | `/mcp`                 | MCP server CRUD                 |
+| GET                 | `/providers/models`    | List provider models            |
+| GET                 | `/providers/manifests` | Provider manifest list          |
+| GET                 | `/providers/test`      | Test provider connection        |
+| GET/PUT/DELETE      | `/secrets/keys`        | API key management              |
+| GET/PUT             | `/secrets/tools`       | Tool secrets (Tavily, Telegram) |
+| GET                 | `/templates`           | Playbook templates              |
+| GET                 | `/templates/:id`       | Template content                |
 
 ### Dispatcher (`/admin/api/dispatcher/`)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/automations` | List all automations |
-| POST | `/trigger/:ws/:name` | Trigger automation |
-| POST | `/stop/:ws` | Stop running automation |
-| GET/POST/DELETE | `/workspaces` | Workspace CRUD |
-| POST/PUT/DELETE | `/workspaces/:ws/automations` | Automation CRUD |
-| GET/PUT/DELETE | `/workspaces/:ws/files/:file` | File CRUD |
-| GET/PUT | `/workspaces/:ws/state` | Workspace state |
-| GET/PUT | `/workspaces/:ws/config` | Workspace config |
-| GET | `/workspaces/:ws/live` | SSE event stream |
+
+| Method          | Path                          | Description             |
+| --------------- | ----------------------------- | ----------------------- |
+| GET             | `/automations`                | List all automations    |
+| POST            | `/trigger/:ws/:name`          | Trigger automation      |
+| POST            | `/stop/:ws`                   | Stop running automation |
+| GET/POST/DELETE | `/workspaces`                 | Workspace CRUD          |
+| POST/PUT/DELETE | `/workspaces/:ws/automations` | Automation CRUD         |
+| GET/PUT/DELETE  | `/workspaces/:ws/files/:file` | File CRUD               |
+| GET/PUT         | `/workspaces/:ws/state`       | Workspace state         |
+| GET/PUT         | `/workspaces/:ws/config`      | Workspace config        |
+| GET             | `/workspaces/:ws/live`        | SSE event stream        |
 
 ## Record & Replay Testing
 
@@ -94,6 +98,7 @@ go run main.go --data ./data --record-dir=testdata/recordings
 ```
 
 Every LLM call (Chat or Stream) is written to `{record-dir}/{model-name}/{timestamp}_{session-id}.jsonl` with one JSON object per line:
+
 - `request` — model, messages, tool definitions
 - `chunk` — stream delta (content, tool_calls, reasoning)
 - `response` — non-streaming response
@@ -222,6 +227,7 @@ The agent loop runs in `internal/core/assistant/agent.go`. Each iteration:
 7. **Repeat** — Until `submit_final_answer` or maxSteps
 
 Tool call format (XML):
+
 ```xml
 <tool_call>{"tool":"tool_name","args":{"key":"value"}}</tool_call>
 ```
