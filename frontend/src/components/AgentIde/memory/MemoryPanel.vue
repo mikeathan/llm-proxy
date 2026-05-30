@@ -27,6 +27,7 @@ const isSearching = ref(false)
 
 watch(() => props.workspaceId, (ws) => {
   if (ws) {
+    clearSearch()
     fetchMemories(ws, filterType.value || undefined)
   }
 }, { immediate: true })
@@ -95,6 +96,11 @@ function formatTime(ts: string): string {
         class="filter-btn"
         @click="filterType = 'daily'"
       >Daily</button>
+      <button
+        :class="{ 'filter-btn--active': filterType === 'user_profile' }"
+        class="filter-btn"
+        @click="filterType = 'user_profile'"
+      >User</button>
     </div>
 
     <!-- Loading -->
@@ -121,7 +127,7 @@ function formatTime(ts: string): string {
         <div class="memory-header">
           <span class="memory-title">{{ entry.title || 'Untitled' }}</span>
           <span class="memory-type-badge" :class="'memory-type-badge--' + entry.memory_type">
-            {{ entry.memory_type === 'long_term' ? 'LT' : entry.memory_type === 'daily' ? 'D' : 'S' }}
+            {{ entry.memory_type === 'long_term' ? 'LT' : entry.memory_type === 'daily' ? 'D' : entry.memory_type === 'session' ? 'S' : 'U' }}
           </span>
         </div>
         <div class="memory-snippet">{{ entry.content.slice(0, 80) }}{{ entry.content.length > 80 ? '...' : '' }}</div>
@@ -159,6 +165,7 @@ function formatTime(ts: string): string {
 .memory-type-badge--long_term { @apply bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300; }
 .memory-type-badge--daily { @apply bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300; }
 .memory-type-badge--session { @apply bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300; }
+.memory-type-badge--user_profile { @apply bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300; }
 .memory-snippet { @apply text-xs text-gray-500 dark:text-gray-400 line-clamp-2; }
 .memory-footer { @apply flex items-center justify-between mt-1; }
 .memory-time { @apply text-[10px] text-gray-400; }

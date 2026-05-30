@@ -242,3 +242,108 @@ func TestAgent_ActiveMemory_NoMatch_NoInjection(t *testing.T) {
 		t.Error("should not inject memory when query doesn't match")
 	}
 }
+
+func TestAgent_UsageMeterInPrompt(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := context.Background()
+
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", "agent")
+	if err != nil {
+		t.Fatalf("seed memory: %v", err)
+	}
+
+	var capturedSystemPrompt string
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			for _, msg := range req.Messages {
+				if msg.Role == proxy.SystemRole {
+					capturedSystemPrompt = msg.Content
+					break
+				}
+			}
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Role: "assistant", Content: "# Done\nTask finished"}},
+				},
+			}, nil
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:    5,
+		WorkspaceID: "ws-1",
+		MemoryStore: store,
+	})
+
+	_, _, err = agent.Execute(ctx, []proxy.Message{
+		{Role: proxy.SystemRole, Content: "test prompt"},
+		{Role: proxy.UserRole, Content: "build"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if !strings.Contains(capturedSystemPrompt, "<relevant_memories>") {
+		t.Error("expected <relevant_memories> in system prompt")
+	}
+	if !strings.Contains(capturedSystemPrompt, "[memory store:") {
+		t.Error("expected usage meter in system prompt")
+	}
+	if !strings.Contains(capturedSystemPrompt, "/4000 chars]") {
+		t.Error("expected char limit indicator in usage meter")
+	}
+}
+
+func TestAgent_UserProfileInjection(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "use go build ./...", "agent")
+	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", "agent")
+	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", "agent")
+
+	var capturedSystemPrompt string
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			for _, msg := range req.Messages {
+				if msg.Role == proxy.SystemRole {
+					capturedSystemPrompt = msg.Content
+					break
+				}
+			}
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Role: "assistant", Content: "# Done\nOK"}},
+				},
+			}, nil
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:    5,
+		WorkspaceID: "ws-1",
+		MemoryStore: store,
+	})
+
+	_, _, err := agent.Execute(ctx, []proxy.Message{
+		{Role: proxy.SystemRole, Content: "test prompt"},
+		{Role: proxy.UserRole, Content: "build preferences"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if !strings.Contains(capturedSystemPrompt, "<relevant_memories>") {
+		t.Error("expected <relevant_memories> in system prompt")
+	}
+	if !strings.Contains(capturedSystemPrompt, "<user_profile>") {
+		t.Error("expected <user_profile> in system prompt")
+	}
+	if !strings.Contains(capturedSystemPrompt, "Alice") {
+		t.Error("expected user profile content in system prompt")
+	}
+}

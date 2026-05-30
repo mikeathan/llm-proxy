@@ -15,6 +15,7 @@ import (
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/memory"
 )
 
 const (
@@ -101,27 +102,61 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 
 	ctx := context.Background()
 	entries, err := a.memoryStore.Search(ctx, a.workspaceID, lastUserMsg, 5)
-	if err != nil || len(entries) == 0 {
+	profileEntries, peErr := a.memoryStore.List(ctx, a.workspaceID, memory.UserProfile, 20, 0)
+
+	if (err != nil || len(entries) == 0) && (peErr != nil || len(profileEntries) == 0) {
 		return prepared
 	}
 
 	var b strings.Builder
-	b.WriteString(prompts.RelevantMemoriesHeader)
-	for i, e := range entries {
-		if i > 0 {
-			b.WriteString("---\n")
+
+	if len(entries) > 0 {
+		b.WriteString(prompts.RelevantMemoriesHeader)
+		for i, e := range entries {
+			if i > 0 {
+				b.WriteString("---\n")
+			}
+			b.WriteString("**")
+			b.WriteString(e.Title)
+			b.WriteString("**: ")
+			b.WriteString(e.Content)
+			b.WriteString("\n")
 		}
-		b.WriteString("**")
-		b.WriteString(e.Title)
-		b.WriteString("**: ")
-		b.WriteString(e.Content)
-		b.WriteString("\n")
+		if meter := memoryUsageMeter(ctx, a.memoryStore, a.workspaceID); meter != "" {
+			b.WriteString(meter)
+		}
+		b.WriteString(prompts.RelevantMemoriesFooter)
 	}
-	b.WriteString(prompts.RelevantMemoriesFooter)
+
+	if len(profileEntries) > 0 {
+		b.WriteString("\n")
+		b.WriteString(prompts.UserProfileHeader)
+		for i, e := range profileEntries {
+			if i > 0 {
+				b.WriteString("---\n")
+			}
+			b.WriteString("**")
+			b.WriteString(e.Title)
+			b.WriteString("**: ")
+			b.WriteString(e.Content)
+			b.WriteString("\n")
+		}
+		b.WriteString(prompts.UserProfileFooter)
+	}
 
 	memBlock := b.String()
-	if len(memBlock) > 500 {
-		memBlock = memBlock[:500] + "\n...[truncated]"
+	runes := []rune(memBlock)
+	if len(runes) > 3000 {
+		memBlock = string(runes[:3000]) + "\n...[truncated]"
+		if strings.Contains(memBlock, "<relevant_memories>") && !strings.Contains(memBlock, "</relevant_memories>") {
+			memBlock += prompts.RelevantMemoriesFooter
+		}
+		if strings.Contains(memBlock, "<user_profile>") && !strings.Contains(memBlock, "</user_profile>") {
+			memBlock += prompts.UserProfileFooter
+		}
+	}
+	if memBlock == "" {
+		return prepared
 	}
 
 	for i, msg := range prepared {
@@ -131,7 +166,7 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 		}
 	}
 
-	a.notifyMemoryRecall(lastUserMsg, len(entries))
+	a.notifyMemoryRecall(lastUserMsg, len(entries)+len(profileEntries))
 	return prepared
 }
 

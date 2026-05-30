@@ -22,7 +22,7 @@
       }
     },
     "memory_update": {
-      "description": "Save an important fact, decision, preference, or note to your long-term memory so you can recall it in future conversations. Use this when the user tells you something you should remember permanently.",
+      "description": "Save or update an important fact, decision, preference, or note so you can recall it in future conversations. Use this when the user tells you something you should remember permanently. To update an existing memory, provide 'old_text' with a unique substring of the original content. Use target='user' to save user preferences separately.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -39,6 +39,16 @@
             "enum": ["long_term", "daily", "session"],
             "default": "long_term",
             "description": "How long to remember this: long_term (permanent), daily (day-scoped), session (current conversation only)"
+          },
+          "old_text": {
+            "type": "string",
+            "description": "Unique substring of existing memory content to update (omit to create new)"
+          },
+          "target": {
+            "type": "string",
+            "enum": ["memory", "user"],
+            "default": "memory",
+            "description": "Where to save: 'memory' for workspace facts, 'user' for user preferences and profile"
           }
         },
         "required": ["topic", "content"]

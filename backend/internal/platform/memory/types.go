@@ -8,9 +8,10 @@ import "time"
 type MemoryType string
 
 const (
-	LongTerm MemoryType = "long_term"
-	Daily    MemoryType = "daily"
-	Session  MemoryType = "session"
+	LongTerm    MemoryType = "long_term"
+	Daily       MemoryType = "daily"
+	Session     MemoryType = "session"
+	UserProfile MemoryType = "user_profile"
 )
 
 // MemoryEntry stores datetime as string to match go-sqlite3 scan behavior.

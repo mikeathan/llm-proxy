@@ -43,6 +43,55 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
 END;
 `
 
+// insertSQL inserts a new memory entry with all required fields.
+const insertSQL = `INSERT INTO memories (workspace_id, memory_type, title, content, source) VALUES (?, ?, ?, ?, ?)`
+
+// searchSQL performs FTS4 full-text search across title and content columns.
+const searchSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.source, m.created_at, m.updated_at
+FROM memories m
+JOIN memories_fts f ON m.id = f.docid
+WHERE m.workspace_id = ? AND memories_fts MATCH ?
+ORDER BY f.docid DESC
+LIMIT ?`
+
+// searchByTypeSQL is searchSQL with an additional memory_type filter.
+const searchByTypeSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.source, m.created_at, m.updated_at
+FROM memories m
+JOIN memories_fts f ON m.id = f.docid
+WHERE m.workspace_id = ? AND memories_fts MATCH ? AND m.memory_type = ?
+ORDER BY f.docid DESC
+LIMIT ?`
+
+// selectColumnsSQL is the shared column projection used by list/get/find queries.
+const selectColumnsSQL = `SELECT id, workspace_id, memory_type, title, content, source, created_at, updated_at`
+
+// listByTypeSQL lists memories filtered by type, most recently updated first.
+const listByTypeSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND memory_type = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`
+
+// listSQL lists all memories for a workspace, most recently updated first.
+const listSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`
+
+// getSQL fetches a single memory entry by ID within a workspace.
+const getSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND id = ?`
+
+// updateSQL updates the title and content of a memory entry and bumps its timestamp.
+const updateSQL = `UPDATE memories SET title = ?, content = ?, updated_at = datetime('now') WHERE workspace_id = ? AND id = ?`
+
+// deleteSQL removes a single memory entry by ID within a workspace.
+const deleteSQL = `DELETE FROM memories WHERE workspace_id = ? AND id = ?`
+
+// existsSQL checks whether a memory with the exact content already exists in the workspace.
+const existsSQL = `SELECT COUNT(*) FROM memories WHERE workspace_id = ? AND content = ?`
+
+// findSubstringSQL locates the single memory entry containing a content substring.
+const findSubstringSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND content LIKE ?`
+
+// charCountSQL returns the total character count of all memory content in a workspace.
+const charCountSQL = `SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE workspace_id = ?`
+
+// deleteOlderThanSQL removes memories of a given type created before a cutoff timestamp.
+const deleteOlderThanSQL = `DELETE FROM memories WHERE memory_type = ? AND created_at < ?`
+
 type Store struct {
 	db *sql.DB
 }
@@ -56,33 +105,27 @@ func New(p db.Provider) (*Store, error) {
 }
 
 func (s *Store) Insert(ctx context.Context, workspaceID string, memoryType MemoryType, title, content, source string) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO memories (workspace_id, memory_type, title, content, source)
-		 VALUES (?, ?, ?, ?, ?)`,
-		workspaceID, string(memoryType), title, content, source,
-	)
+	res, err := s.db.ExecContext(ctx, insertSQL, workspaceID, string(memoryType), title, content, source)
 	if err != nil {
 		return 0, fmt.Errorf("memory insert: %w", err)
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) Search(ctx context.Context, workspaceID, query string, limit int) ([]MemoryEntry, error) {
+func (s *Store) Search(ctx context.Context, workspaceID, query string, limit int, memoryType ...MemoryType) ([]MemoryEntry, error) {
 	if query == "" {
 		return nil, nil
 	}
 
 	sanitised := sanitiseFTSQuery(query)
 
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.source, m.created_at, m.updated_at
-		 FROM memories m
-		 JOIN memories_fts f ON m.id = f.docid
-		 WHERE m.workspace_id = ? AND memories_fts MATCH ?
-		 ORDER BY f.docid DESC
-		 LIMIT ?`,
-		workspaceID, sanitised, limit,
-	)
+	var rows *sql.Rows
+	var err error
+	if len(memoryType) > 0 {
+		rows, err = s.db.QueryContext(ctx, searchByTypeSQL, workspaceID, sanitised, string(memoryType[0]), limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, searchSQL, workspaceID, sanitised, limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("memory search: %w", err)
 	}
@@ -107,23 +150,9 @@ func (s *Store) List(ctx context.Context, workspaceID string, memoryType MemoryT
 	var err error
 
 	if memoryType != "" {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, workspace_id, memory_type, title, content, source, created_at, updated_at
-			 FROM memories
-			 WHERE workspace_id = ? AND memory_type = ?
-			 ORDER BY updated_at DESC
-			 LIMIT ? OFFSET ?`,
-			workspaceID, string(memoryType), limit, offset,
-		)
+		rows, err = s.db.QueryContext(ctx, listByTypeSQL, workspaceID, string(memoryType), limit, offset)
 	} else {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, workspace_id, memory_type, title, content, source, created_at, updated_at
-			 FROM memories
-			 WHERE workspace_id = ?
-			 ORDER BY updated_at DESC
-			 LIMIT ? OFFSET ?`,
-			workspaceID, limit, offset,
-		)
+		rows, err = s.db.QueryContext(ctx, listSQL, workspaceID, limit, offset)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)
@@ -146,12 +175,8 @@ func (s *Store) List(ctx context.Context, workspaceID string, memoryType MemoryT
 
 func (s *Store) Get(ctx context.Context, workspaceID string, id int64) (*MemoryEntry, error) {
 	var e MemoryEntry
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, workspace_id, memory_type, title, content, source, created_at, updated_at
-		 FROM memories
-		 WHERE workspace_id = ? AND id = ?`,
-		workspaceID, id,
-	).Scan(&e.ID, &e.WorkspaceID, &e.MemoryType, &e.Title, &e.Content, &e.Source, &e.CreatedAt, &e.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, getSQL, workspaceID, id).
+		Scan(&e.ID, &e.WorkspaceID, &e.MemoryType, &e.Title, &e.Content, &e.Source, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -162,11 +187,7 @@ func (s *Store) Get(ctx context.Context, workspaceID string, id int64) (*MemoryE
 }
 
 func (s *Store) Update(ctx context.Context, workspaceID string, id int64, title, content string) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE memories SET title = ?, content = ?, updated_at = datetime('now')
-		 WHERE workspace_id = ? AND id = ?`,
-		title, content, workspaceID, id,
-	)
+	res, err := s.db.ExecContext(ctx, updateSQL, title, content, workspaceID, id)
 	if err != nil {
 		return fmt.Errorf("memory update: %w", err)
 	}
@@ -178,10 +199,7 @@ func (s *Store) Update(ctx context.Context, workspaceID string, id int64, title,
 }
 
 func (s *Store) Delete(ctx context.Context, workspaceID string, id int64) error {
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM memories WHERE workspace_id = ? AND id = ?`,
-		workspaceID, id,
-	)
+	res, err := s.db.ExecContext(ctx, deleteSQL, workspaceID, id)
 	if err != nil {
 		return fmt.Errorf("memory delete: %w", err)
 	}
@@ -192,11 +210,56 @@ func (s *Store) Delete(ctx context.Context, workspaceID string, id int64) error 
 	return nil
 }
 
+func (s *Store) Exists(ctx context.Context, workspaceID, content string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, existsSQL, workspaceID, content).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("memory exists check: %w", err)
+	}
+	return count > 0, nil
+}
+
+// FindByContentSubstring returns the single memory entry containing substr.
+// Returns an error if zero or multiple entries match — designed for
+// memory_update old_text where the agent targets a unique entry.
+func (s *Store) FindByContentSubstring(ctx context.Context, workspaceID, substr string) (*MemoryEntry, error) {
+	rows, err := s.db.QueryContext(ctx, findSubstringSQL, workspaceID, "%"+substr+"%")
+	if err != nil {
+		return nil, fmt.Errorf("memory find substring: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []MemoryEntry
+	for rows.Next() {
+		var e MemoryEntry
+		if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.MemoryType, &e.Title, &e.Content, &e.Source, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("memory find substring scan: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("memory find substring rows: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no memory entry matching %q", substr)
+	}
+	if len(entries) > 1 {
+		return nil, fmt.Errorf("substring %q matches %d entries — be more specific", substr, len(entries))
+	}
+	return &entries[0], nil
+}
+
+func (s *Store) WorkspaceCharCount(ctx context.Context, workspaceID string) (int, error) {
+	var total sql.NullInt64
+	err := s.db.QueryRowContext(ctx, charCountSQL, workspaceID).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("memory char count: %w", err)
+	}
+	return int(total.Int64), nil
+}
+
 func (s *Store) DeleteOlderThan(ctx context.Context, memoryType MemoryType, before time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM memories WHERE memory_type = ? AND created_at < ?`,
-		string(memoryType), before.UTC().Format("2006-01-02 15:04:05"),
-	)
+	res, err := s.db.ExecContext(ctx, deleteOlderThanSQL, string(memoryType), before.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return 0, fmt.Errorf("memory delete older than: %w", err)
 	}

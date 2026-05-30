@@ -281,7 +281,14 @@ const ContextSieveWarning = "SYSTEM: CRITICAL - Context window full. History pru
 const RelevantMemoriesHeader = "<relevant_memories>\n"
 const RelevantMemoriesFooter = "\n</relevant_memories>"
 
+const UserProfileHeader = "<user_profile>\n"
+const UserProfileFooter = "\n</user_profile>"
+
 const PreSieveMemoryNudge = "The conversation history is about to be compressed. Save any important facts, decisions, or preferences to memory using `memory_update` before they are lost."
+
+const MemoryProactiveNudge = "Proactively use `memory_update` to save important facts, decisions, preferences, and environment details you discover — they persist across sessions."
+
+const SoftMemoryCharLimit = 4000 // denominator for memory usage meter percentage
 
 // RetrySignal is prepended to the last user message when the agent retries after
 // an empty-stream or timeout failure.  It tells the model the previous attempt

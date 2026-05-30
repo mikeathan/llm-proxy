@@ -224,12 +224,13 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 	prompt := prompts.LocalAssistantPrompt
 
-	// Append tool definitions to the system prompt so the model sees them as text.
-	// This is critical for local models where we might bypass the native tools API
-	// to avoid parser bugs in local servers (like llama-server).
 	if len(r.toolDefinitions) > 0 {
 		prompt += "\n\nAVAILABLE TOOLS:\n"
 		prompt += r.FormatToolsForPrompt()
+	}
+
+	if r.Memory != nil {
+		prompt += "\n\n" + prompts.MemoryProactiveNudge
 	}
 
 	return prompt, nil

@@ -60,12 +60,52 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 	Topic      string `json:"topic"`
 	Content    string `json:"content"`
 	MemoryType string `json:"memory_type"`
+	OldText    string `json:"old_text"`
+	Target     string `json:"target"`
 }) (any, error) {
 	if m.store == nil {
 		return "memory is not available", nil
 	}
 	if args.Topic == "" || args.Content == "" {
 		return "both topic and content are required", nil
+	}
+
+	wsID := models.GetWorkspaceID(ctx)
+
+	if args.OldText != "" {
+		existing, err := m.store.FindByContentSubstring(ctx, wsID, args.OldText)
+		if err != nil {
+			return "", fmt.Errorf("memory update failed: %w", err)
+		}
+		mt := memory.LongTerm
+		if args.Target == "user" {
+			mt = memory.UserProfile
+		}
+		switch args.MemoryType {
+		case "daily":
+			mt = memory.Daily
+		case "session":
+			mt = memory.Session
+		}
+		if err := m.store.Update(ctx, wsID, existing.ID, args.Topic, args.Content); err != nil {
+			return "", fmt.Errorf("memory update failed: %w", err)
+		}
+		return fmt.Sprintf("updated memory entry %d (type: %s)", existing.ID, mt), nil
+	}
+
+	if args.Target == "user" {
+		exists, err := m.store.Exists(ctx, wsID, args.Content)
+		if err != nil {
+			return "", fmt.Errorf("memory update failed: %w", err)
+		}
+		if exists {
+			return fmt.Sprintf("already saved — duplicate content for topic %q", args.Topic), nil
+		}
+		id, err := m.store.Insert(ctx, wsID, memory.UserProfile, args.Topic, args.Content, "agent")
+		if err != nil {
+			return "", fmt.Errorf("memory update failed: %w", err)
+		}
+		return fmt.Sprintf("saved to user profile (id: %d)", id), nil
 	}
 
 	mt := memory.LongTerm
@@ -76,7 +116,14 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 		mt = memory.Session
 	}
 
-	wsID := models.GetWorkspaceID(ctx)
+	exists, err := m.store.Exists(ctx, wsID, args.Content)
+	if err != nil {
+		return "", fmt.Errorf("memory update failed: %w", err)
+	}
+	if exists {
+		return fmt.Sprintf("already saved — duplicate content for topic %q", args.Topic), nil
+	}
+
 	id, err := m.store.Insert(ctx, wsID, mt, args.Topic, args.Content, "agent")
 	if err != nil {
 		return "", fmt.Errorf("memory update failed: %w", err)

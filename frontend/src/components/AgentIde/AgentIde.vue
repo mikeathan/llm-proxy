@@ -59,6 +59,7 @@ const {
 
 /* ── UI & Selection State ── */
 const leftTab = ref<"explorer" | "automations" | "recordings" | "memory" | "activity">("explorer");
+const recordingsEnabled = ref(false);
 const selectedAutomationId = ref<string | null>(null);
 const selectedRun = ref<AutomationRun | null>(null);
 const selectedWorkspace = ref<string | null>(null);
@@ -149,7 +150,16 @@ onMounted(() => {
   refreshModels();
   refreshHistory();
 
+  DispatcherService.getRecordingStatus()
+    .then((status) => {
+      recordingsEnabled.value = status.enabled;
+    })
+    .catch((err) => {
+      console.error("Failed to check recording status", err);
+    });
+
   updateLayout();
+  window.addEventListener("resize", updateLayout);
   // Start background polling to keep the Pulse and Running States alive
   historyInterval = setInterval(() => {
     refreshHistory();
@@ -246,6 +256,10 @@ const handleSelectWorkspace = async (wsId: string) => {
   selectedFile.value = null;
   settingsWorkspaceId.value = null;
   workspaceMiddleTab.value = "pulse";
+
+  if (!selectedWorkspace.value && leftTab.value === "memory") {
+    leftTab.value = "explorer";
+  }
 
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId);
@@ -494,7 +508,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       </div>
 
       <div class="sidebar-header">
-        <div class="sidebar-tabs">
+        <div class="sidebar-tabs" :class="recordingsEnabled ? 'grid-cols-3' : 'grid-cols-2'">
           <button
             @click="leftTab = 'explorer'"
             class="sidebar-tab"
@@ -518,6 +532,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             Automations
           </button>
           <button
+            v-if="recordingsEnabled"
             @click="leftTab = 'recordings'"
             class="sidebar-tab"
             :class="
@@ -528,29 +543,32 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           >
             Recordings
           </button>
-          <button
+        </div>
+        <div class="flex gap-2 w-full">
+          <BaseButton
             @click="leftTab = 'memory'"
-            class="sidebar-tab"
-            :class="
-              leftTab === 'memory'
-                ? 'sidebar-tab--active'
-                : 'sidebar-tab--inactive'
-            "
+            :disabled="!selectedWorkspace"
+            variant="ghost"
+            icon="search"
+            size="sm"
+            className="flex-1 !text-purple-400 hover:!bg-purple-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
+            :class="leftTab === 'memory' ? '!bg-purple-600/25 ring-1 ring-purple-500/50' : '!bg-purple-600/10'"
+            title="Open Workspace Memory Panel"
           >
             Memory
-          </button>
+          </BaseButton>
+          <BaseButton
+            @click="showTemplates = true"
+            :disabled="!selectedWorkspace"
+            variant="ghost"
+            icon="document"
+            size="sm"
+            className="flex-1 !text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
+            title="Open Task Playbook Library"
+          >
+            Playbooks
+          </BaseButton>
         </div>
-        <BaseButton
-          @click="showTemplates = true"
-          :disabled="!selectedWorkspace"
-          variant="ghost"
-          icon="document"
-          size="sm"
-          className="!text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20"
-          title="Open Task Playbook Library"
-        >
-          Playbooks
-        </BaseButton>
       </div>
 
       <div class="sidebar-content">
@@ -824,11 +842,11 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 }
 
 .sidebar-tabs {
-  @apply flex bg-gray-900 rounded p-1;
+  @apply grid gap-1 bg-gray-900 rounded p-1;
 }
 
 .sidebar-tab {
-  @apply flex-1 py-1 text-xs font-medium rounded transition-colors;
+  @apply py-1.5 text-xs font-medium rounded transition-colors text-center truncate disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-400;
 }
 
 .sidebar-tab--active {

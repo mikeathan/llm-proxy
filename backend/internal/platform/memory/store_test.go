@@ -163,6 +163,112 @@ func TestMemoryStore_DeleteOlderThan(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_Exists(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	exists, err := store.Exists(ctx, "ws-1", "missing content")
+	if err != nil {
+		t.Fatalf("Exists on missing: %v", err)
+	}
+	if exists {
+		t.Error("expected false for non-existent content")
+	}
+
+	store.Insert(ctx, "ws-1", LongTerm, "key", "exact content", "agent")
+
+	exists, err = store.Exists(ctx, "ws-1", "exact content")
+	if err != nil {
+		t.Fatalf("Exists on match: %v", err)
+	}
+	if !exists {
+		t.Error("expected true for matching content")
+	}
+
+	exists, err = store.Exists(ctx, "ws-other", "exact content")
+	if err != nil {
+		t.Fatalf("Exists on other ws: %v", err)
+	}
+	if exists {
+		t.Error("expected false for different workspace")
+	}
+}
+
+func TestMemoryStore_FindByContentSubstring(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "port", "the database port is 5433", "agent")
+	store.Insert(ctx, "ws-1", LongTerm, "host", "server hostname is prod-01", "agent")
+
+	t.Run("exact match", func(t *testing.T) {
+		entry, err := store.FindByContentSubstring(ctx, "ws-1", "5433")
+		if err != nil {
+			t.Fatalf("FindByContentSubstring: %v", err)
+		}
+		if entry.Title != "port" {
+			t.Errorf("expected 'port', got '%s'", entry.Title)
+		}
+	})
+
+	t.Run("substring match", func(t *testing.T) {
+		entry, err := store.FindByContentSubstring(ctx, "ws-1", "database")
+		if err != nil {
+			t.Fatalf("FindByContentSubstring: %v", err)
+		}
+		if entry.Title != "port" {
+			t.Errorf("expected 'port', got '%s'", entry.Title)
+		}
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		_, err := store.FindByContentSubstring(ctx, "ws-1", "nonexistent")
+		if err == nil {
+			t.Fatal("expected error for no match")
+		}
+	})
+
+	t.Run("ambiguous match", func(t *testing.T) {
+		_, err := store.FindByContentSubstring(ctx, "ws-1", "is")
+		if err == nil {
+			t.Fatal("expected error for ambiguous match")
+		}
+	})
+}
+
+func TestMemoryStore_WorkspaceCharCount(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	count, err := store.WorkspaceCharCount(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("WorkspaceCharCount on empty store: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 for empty workspace, got %d", count)
+	}
+
+	store.Insert(ctx, "ws-1", LongTerm, "a", "hello", "agent")
+	store.Insert(ctx, "ws-1", LongTerm, "b", "world", "agent")
+
+	count, err = store.WorkspaceCharCount(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("WorkspaceCharCount: %v", err)
+	}
+	if count != 10 {
+		t.Errorf("expected 10 chars (hello+world), got %d", count)
+	}
+
+	// Different workspace should return 0
+	count, err = store.WorkspaceCharCount(ctx, "ws-other")
+	if err != nil {
+		t.Fatalf("WorkspaceCharCount on other ws: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 for other workspace, got %d", count)
+	}
+}
+
 func TestMemoryStore_List(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

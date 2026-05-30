@@ -5,6 +5,7 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -12,6 +13,7 @@ import (
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -274,6 +276,55 @@ func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
 }
 func (m *mockAppContextWithDirs) MemoryStore() *memory.Store { return nil }
+
+func TestSystemPrompt_IncludesMemoryNudge(t *testing.T) {
+	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{}
+	})
+
+	t.Run("with memory tools", func(t *testing.T) {
+		f, err := os.CreateTemp("", "registry-test-*.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := f.Name()
+		f.Close()
+		t.Cleanup(func() { os.Remove(path) })
+
+		p, err := db.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { p.DB().Close() })
+
+		store, err := memory.New(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		memTools := tools.NewMemoryToolProvider(store)
+		r := assistant.NewLocalToolRegistry(nil, nil, nil, fsTools, nil, memTools)
+
+		prompt, err := r.GetSystemPrompt()
+		if err != nil {
+			t.Fatalf("GetSystemPrompt failed: %v", err)
+		}
+		if !strings.Contains(prompt, "memory_update") {
+			t.Error("expected proactive memory nudge in system prompt when memory tools are registered")
+		}
+	})
+
+	t.Run("without memory tools", func(t *testing.T) {
+		r := assistant.NewLocalToolRegistry(nil, nil, nil, fsTools, nil, nil)
+		prompt, err := r.GetSystemPrompt()
+		if err != nil {
+			t.Fatalf("GetSystemPrompt failed: %v", err)
+		}
+		if strings.Contains(prompt, "Proactively use `memory_update`") {
+			t.Error("unexpected memory nudge when no memory tools are registered")
+		}
+	})
+}
 
 func TestFileSystem_IsSecurePath(t *testing.T) {
 	allowed := []string{"/tmp/test_workspace"}
