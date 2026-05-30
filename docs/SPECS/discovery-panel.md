@@ -1,7 +1,7 @@
 # SPEC: Discovery Panel
 
 ## I. Intent
-The Discovery Panel serves as the central nervous system for the Antigravity project. It provides a high-fidelity interface for the user to explore, configure, and monitor the three core pillars of the agentic environment: **Models**, **Tools**, and **Workspaces**.
+The Discovery Panel serves as the central nervous system for the LLM-proxy project. It provides a high-fidelity interface for the user to explore, configure, and monitor the three core pillars of the agentic environment: **Models**, **Tools**, and **Workspaces**.
 
 ## II. Functional Requirements
 

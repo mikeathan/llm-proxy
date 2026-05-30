@@ -1,6 +1,6 @@
-# Antigravity Constitution (The Law)
+# Constitution (The Law)
 
-This document defines the immutable architectural and security laws of the Antigravity project. All code must adhere to these rules without exception.
+This document defines the immutable architectural and security laws of the project. All code must adhere to these rules without exception.
 
 ## I. Network Security (The Guarded Hull)
 

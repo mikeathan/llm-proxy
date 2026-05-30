@@ -1,9 +1,9 @@
-# System Blueprint: Antigravity
+# System Blueprint: LLM-Proxy
 
 **Status: REFERENCE** — This is the system architecture document, not an implementation plan. All major components described here are implemented (3-tier config, agent loop, MCP integration, guardrails, admin UI).
 
 ## I. Architectural Overview
-Antigravity is a high-performance LLM proxy and agentic automation platform. It is built on a "Hardened Hull" architecture, where all external interactions and resource usage are governed by a central security engine.
+LLM-proxy is a high-performance LLM proxy and agentic automation platform. It is built on a "Hardened Hull" architecture, where all external interactions and resource usage are governed by a central security engine.
 
 ## II. Multi-Tier Storage (3-Tier)
 1.  **Tier 1: Infrastructure (SystemConfig)**
