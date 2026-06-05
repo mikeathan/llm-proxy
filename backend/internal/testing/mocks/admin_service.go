@@ -45,6 +45,14 @@ type MockAdminService struct {
 	ResetShellFunc            func(string) error
 	ListShellSessionsFunc     func() []models.TerminalSessionView
 	DeleteProviderWithCleanupFunc func(string) error
+	RunLoggingEnabledFunc     func() bool
+}
+
+func (m *MockAdminService) RunLoggingEnabled() bool {
+	if m.RunLoggingEnabledFunc != nil {
+		return m.RunLoggingEnabledFunc()
+	}
+	return false
 }
 
 func (m *MockAdminService) GetSettings() models.UserSettings {

@@ -9,7 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Provider interface {
@@ -24,7 +24,7 @@ func (p *provider) DB() *sql.DB { return p.db }
 
 func Open(path string) (Provider, error) {
 	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_foreign_keys=ON"
-	database, err := sql.Open("sqlite3", dsn)
+	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db open: %w", err)
 	}

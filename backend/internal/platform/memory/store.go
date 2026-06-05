@@ -23,43 +23,60 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_ws ON memories(workspace_id, memory_type);
 
-CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts4(
-    title, content, tokenize=unicode61, content=memories
+-- Drop triggers from any previous FTS4 schema (they reference docid, not rowid).
+-- Must happen before the table DROP or SQLite may reject it.
+DROP TRIGGER IF EXISTS memories_ai;
+DROP TRIGGER IF EXISTS memories_ad;
+DROP TRIGGER IF EXISTS memories_au;
+
+-- Drop any existing FTS table (migration from FTS4 to FTS5).
+DROP TABLE IF EXISTS memories_fts;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    title, content, tokenize='unicode61', content=memories, content_rowid='id'
 );
 
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-    INSERT INTO memories_fts(docid, title, content)
+    INSERT INTO memories_fts(rowid, title, content)
     VALUES (new.id, new.title, new.content);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-    DELETE FROM memories_fts WHERE docid = old.id;
+    INSERT INTO memories_fts(memories_fts, rowid, title, content)
+    VALUES ('delete', old.id, old.title, old.content);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-    DELETE FROM memories_fts WHERE docid = old.id;
-    INSERT INTO memories_fts(docid, title, content)
+    INSERT INTO memories_fts(memories_fts, rowid, title, content)
+    VALUES ('delete', old.id, old.title, old.content);
+    INSERT INTO memories_fts(rowid, title, content)
     VALUES (new.id, new.title, new.content);
 END;
 `
 
+// rebuildFTSIndexSQL repopulates the FTS index from existing rows after a
+// DROP/CREATE migration. The sync triggers keep the index current for any
+// future INSERT/UPDATE/DELETE, but existing rows need this initial fill.
+const rebuildFTSIndexSQL = `INSERT INTO memories_fts(rowid, title, content) SELECT id, title, content FROM memories`
+
 // insertSQL inserts a new memory entry with all required fields.
 const insertSQL = `INSERT INTO memories (workspace_id, memory_type, title, content, source) VALUES (?, ?, ?, ?, ?)`
 
-// searchSQL performs FTS4 full-text search across title and content columns.
+// searchSQL performs FTS5 full-text search across title and content columns,
+// ordered by BM25 relevance (rank ASC = most relevant first).
 const searchSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.source, m.created_at, m.updated_at
 FROM memories m
-JOIN memories_fts f ON m.id = f.docid
+JOIN memories_fts f ON m.id = f.rowid
 WHERE m.workspace_id = ? AND memories_fts MATCH ?
-ORDER BY f.docid DESC
+ORDER BY rank
 LIMIT ?`
 
 // searchByTypeSQL is searchSQL with an additional memory_type filter.
 const searchByTypeSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.source, m.created_at, m.updated_at
 FROM memories m
-JOIN memories_fts f ON m.id = f.docid
+JOIN memories_fts f ON m.id = f.rowid
 WHERE m.workspace_id = ? AND memories_fts MATCH ? AND m.memory_type = ?
-ORDER BY f.docid DESC
+ORDER BY rank
 LIMIT ?`
 
 // selectColumnsSQL is the shared column projection used by list/get/find queries.
@@ -83,11 +100,18 @@ const deleteSQL = `DELETE FROM memories WHERE workspace_id = ? AND id = ?`
 // existsSQL checks whether a memory with the exact content already exists in the workspace.
 const existsSQL = `SELECT COUNT(*) FROM memories WHERE workspace_id = ? AND content = ?`
 
+// findByTitleSQL finds the first memory entry with the given title in a workspace.
+const findByTitleSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND title = ? LIMIT 1`
+
 // findSubstringSQL locates the single memory entry containing a content substring.
 const findSubstringSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND content LIKE ?`
 
 // charCountSQL returns the total character count of all memory content in a workspace.
 const charCountSQL = `SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE workspace_id = ?`
+
+// deleteAllWorkspaceSQL removes all memories for a workspace (or filtered by type).
+const deleteAllWorkspaceSQL = `DELETE FROM memories WHERE workspace_id = ?`
+const deleteByTypeWorkspaceSQL = `DELETE FROM memories WHERE workspace_id = ? AND memory_type = ?`
 
 // deleteOlderThanSQL removes memories of a given type created before a cutoff timestamp.
 const deleteOlderThanSQL = `DELETE FROM memories WHERE memory_type = ? AND created_at < ?`
@@ -100,6 +124,12 @@ func New(p db.Provider) (*Store, error) {
 	database := p.DB()
 	if _, err := database.Exec(migrateSQL); err != nil {
 		return nil, fmt.Errorf("memory migrate: %w", err)
+	}
+	// Rebuild FTS index for entries that existed before the drop/create above.
+	// The triggers will keep the index in sync going forward, but existing rows
+	// need an initial population.
+	if _, err := database.Exec(rebuildFTSIndexSQL); err != nil {
+		return nil, fmt.Errorf("memory fts rebuild: %w", err)
 	}
 	return &Store{db: database}, nil
 }
@@ -219,6 +249,21 @@ func (s *Store) Exists(ctx context.Context, workspaceID, content string) (bool, 
 	return count > 0, nil
 }
 
+// FindByTitle returns the first memory entry with the given title, or nil if none exists.
+// Used by memory_update to deduplicate entries by topic across runs.
+func (s *Store) FindByTitle(ctx context.Context, workspaceID, title string) (*MemoryEntry, error) {
+	var e MemoryEntry
+	err := s.db.QueryRowContext(ctx, findByTitleSQL, workspaceID, title).
+		Scan(&e.ID, &e.WorkspaceID, &e.MemoryType, &e.Title, &e.Content, &e.Source, &e.CreatedAt, &e.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("memory find by title: %w", err)
+	}
+	return &e, nil
+}
+
 // FindByContentSubstring returns the single memory entry containing substr.
 // Returns an error if zero or multiple entries match — designed for
 // memory_update old_text where the agent targets a unique entry.
@@ -258,6 +303,22 @@ func (s *Store) WorkspaceCharCount(ctx context.Context, workspaceID string) (int
 	return int(total.Int64), nil
 }
 
+// DeleteAllByWorkspace removes all memories for a workspace. When memoryType is
+// non-empty only entries of that type are deleted. Returns the count of deleted rows.
+func (s *Store) DeleteAllByWorkspace(ctx context.Context, workspaceID string, memoryType MemoryType) (int64, error) {
+	var res sql.Result
+	var err error
+	if memoryType != "" {
+		res, err = s.db.ExecContext(ctx, deleteByTypeWorkspaceSQL, workspaceID, string(memoryType))
+	} else {
+		res, err = s.db.ExecContext(ctx, deleteAllWorkspaceSQL, workspaceID)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("memory delete all: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 func (s *Store) DeleteOlderThan(ctx context.Context, memoryType MemoryType, before time.Time) (int64, error) {
 	res, err := s.db.ExecContext(ctx, deleteOlderThanSQL, string(memoryType), before.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
@@ -269,6 +330,19 @@ func (s *Store) DeleteOlderThan(ctx context.Context, memoryType MemoryType, befo
 // sanitiseFTSQuery removes characters that would cause FTS MATCH syntax errors.
 // Splits on whitespace and joins terms with OR so that any matching word
 // returns a result (default AND semantics are too restrictive for search).
+// isFTSStopWord returns true for words that are common in task-file structure
+// headings but carry no semantic value for FTS5 content search. Filtering them
+// out improves BM25 ranking of task-relevant memory entries.
+func isFTSStopWord(w string) bool {
+	switch w {
+	case "step", "task", "run", "use", "check", "the", "a", "an",
+		"and", "or", "to", "in", "of", "for", "with", "on", "by",
+		"at", "is", "be", "do", "not", "are", "was", "will", "can":
+		return true
+	}
+	return false
+}
+
 func sanitiseFTSQuery(q string) string {
 	var b strings.Builder
 	b.Grow(len(q))
@@ -296,5 +370,23 @@ func sanitiseFTSQuery(q string) string {
 		return cleaned
 	}
 	terms := strings.Fields(cleaned)
-	return strings.Join(terms, " OR ")
+
+	// Filter out task-structure stop words that would pollute BM25 ranking.
+	// Words like "step", "run", "use" appear in every step heading and inflate
+	// matches against generic memory entries that happen to share these words.
+	filtered := make([]string, 0, len(terms))
+	for _, t := range terms {
+		if !isFTSStopWord(t) {
+			filtered = append(filtered, t)
+		}
+	}
+	if len(filtered) == 0 {
+		return cleaned
+	}
+
+	quoted := make([]string, len(filtered))
+	for i, t := range filtered {
+		quoted[i] = `"` + t + `"`
+	}
+	return strings.Join(quoted, " OR ")
 }

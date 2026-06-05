@@ -38,6 +38,7 @@ func (h *AdminHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reques
 		Guardrails:          h.admin.GetGuardrails(),
 		Communication:       reg.Communication,
 		Search:              reg.Search,
+		RunLogging:          &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 	}
 	respondJSON(w, cfg)
 }

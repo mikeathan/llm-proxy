@@ -47,4 +47,16 @@ export class MemoryService {
       throw new Error(`Failed to delete memory: ${res.status} - ${text}`)
     }
   }
+
+  static async clearAll(workspaceId: string, type?: string): Promise<{deleted: number}> {
+    const params = type ? `?type=${type}` : ''
+    const res = await fetch(`/admin/api/memory/${workspaceId}${params}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Failed to clear memories: ${res.status} - ${text}`)
+    }
+    return res.json()
+  }
 }

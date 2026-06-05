@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/assistant"
@@ -43,10 +44,11 @@ type Infra struct {
 }
 
 type Container struct {
-	Core       Core
-	Infra      Infra
-	Dispatcher *automation.Dispatcher
-	RecordDir  string
+	Core        Core
+	Infra       Infra
+	Dispatcher  *automation.Dispatcher
+	RecordDir   string // absolute path to runs directory, empty when recording is disabled
+	RunLoggingEnabled bool  // per-run output enabled
 }
 
 // Building automation task executor
@@ -73,12 +75,15 @@ func (c *Container) BuildAppServices() *AppServices {
 		persistence:    persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
 		limiter:        ratelimiter.NewLimiter(c.Infra.Clock),
 		RecordingStore: recordingStore,
+		runLoggingEnabled:    c.RunLoggingEnabled,
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
 		client := proxy.NewLLMClient(baseURL, model, nil, headers)
+		// Always wrap in RecordingClient so that run-specific recording.jsonl is supported,
+		// but only set recordDir if recording is globally enabled.
+		client = recorder.New(client, c.RecordDir, model)
 		if c.RecordDir != "" {
-			client = recorder.New(client, c.RecordDir, model)
 			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
 		}
 
@@ -156,6 +161,7 @@ type AppServices struct {
 	limiter              ratelimiter.Limiter
 	guardrailDecisionStore *assistant.GuardrailDecisionStore
 	RecordingStore       *recordings.RecordingStore
+	runLoggingEnabled          bool
 }
 
 func (s AppServices) Shutdown() {
@@ -254,6 +260,17 @@ func (s AppServices) MemoryStore() *memory.Store {
 	return s.AppCtx.MemoryStore()
 }
 
+func (s AppServices) RecordDir() string {
+	if s.RecordingStore != nil {
+		return s.RecordingStore.RecordDir()
+	}
+	return ""
+}
+
+func (s AppServices) RunLoggingEnabled() bool {
+	return s.AppCtx.RunLoggingEnabled()
+}
+
 func (s AppServices) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
 	if s.RecordingStore == nil {
 		return nil, fmt.Errorf("recording store not available (start server with --record-dir)")
@@ -269,7 +286,7 @@ func (s AppServices) GetPlaybackClient(ctx context.Context, ref string) (proxy.C
 	return NewPlaybackBridge(pc), nil
 }
 
-func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordDir string) *Container {
+func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnabled bool, enableRuns bool) *Container {
 	if logger == nil {
 		log.Fatal("Logger is required")
 	}
@@ -309,9 +326,17 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordDir st
 
 	logging.Debug("Creating server context...")
 	appCtx := NewServer(manager, dataMgr)
+	appCtx.cliEnableRuns = enableRuns || recordEnabled
 	runtime := appCtx.Manager()
 
 	logging.Debug("Bootstrap phase complete", "root", dataMgr.RootDir())
+
+	runsDir := ""
+	if recordEnabled {
+		runsDir = filepath.Join(dataMgr.RootDir(), "runs")
+	}
+
+	runLoggingEnabled := enableRuns
 
 	return &Container{
 		Core: Core{
@@ -323,7 +348,8 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordDir st
 			Clock:      clock,
 			NodeHerder: nodeHerder,
 		},
-		RecordDir: recordDir,
+		RecordDir:   runsDir,
+		RunLoggingEnabled: runLoggingEnabled,
 	}
 }
 
@@ -526,6 +552,7 @@ func buildRouter(
 		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.GetMemory, jsonMethodNotAllowed)
 		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.UpdateMemory, jsonMethodNotAllowed)
 		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.DeleteMemory, jsonMethodNotAllowed)
+		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}", memoryHandlers.ClearWorkspace, jsonMethodNotAllowed)
 	}
 
 	return router

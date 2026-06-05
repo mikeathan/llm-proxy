@@ -164,6 +164,7 @@ type adminConfigView struct {
 	Search              models.SearchConfig             `json:"search"`
 	AgentDefaults       adminTuningDefaults             `json:"agent_defaults"`
 	ProviderDefaults    map[string]adminTuningDefaults  `json:"provider_defaults"`
+	RunLogging          *models.RunLoggingConfig        `json:"run_logging,omitempty"`
 }
 
 type adminSystemView struct {
@@ -303,6 +304,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 				Prefill:         false,
 			},
 			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
+			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}
 

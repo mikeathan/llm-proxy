@@ -31,6 +31,19 @@
           "error"
         ]
       }
+    },
+    "complete_step": {
+      "description": "Call this when the current step's requirements have been satisfied. Marks it done and progresses to the next step in the task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "string",
+            "description": "Brief summary of what was accomplished in this step."
+          }
+        },
+        "required": ["notes"]
+      }
     }
   },
   "guardrails": {

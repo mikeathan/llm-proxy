@@ -65,6 +65,7 @@ func (h *AdminHandlers) AdminRegistryPutHandler(w http.ResponseWriter, r *http.R
 
 	// Trigger immediate sync to refresh provider settings and model configs
 	h.runtime.Sync()
+	h.runtime.ApplyModelOverrides(h.admin.GetSettings().ModelOverrides)
 
 	respondJSON(w, h.admin.GetRegistry())
 }

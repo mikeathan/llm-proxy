@@ -69,7 +69,7 @@ type Agent struct {
 	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
 	prefillDisabled bool                       // set true after first prefill rejection by server
 	usePrefill      bool                       // automation mode prefill (<tool_call> stub)
-	suppressReasoningBudget bool               // XML fallback: don't cap reasoning budget
+	suppressReasoningBudget bool               // XML fallback: skip interceptor budget check and API budget fields
 	skipStuckCheck          bool               // XML fallback: disable stuck detection
 	
 	orch            *orchestrator.Orchestrator
@@ -77,7 +77,10 @@ type Agent struct {
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
 
-	memoryStore     *memory.Store               // nil when memory is disabled
+	memoryStore          *memory.Store               // nil when memory is disabled
+	automationTaskPrompt string                     // cached original task prompt for memory search across turns
+	state                *models.PlanState           // execution state tracker ([DONE]/[ACTIVE]/[PENDING])
+	toolCache            *TokenCache                 // LRU cache for exact terminal command results
 }
 
 type AgentOptions struct {
@@ -99,6 +102,8 @@ type AgentOptions struct {
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
 	MemoryStore              *memory.Store      // nil when memory is disabled
+	State                    *models.PlanState   // execution state tracker, nil when not in automation
+	ToolCacheCap             int                 // LRU cache capacity, 0 = disabled
 }
 
 type GuardrailDecisionStore struct {
@@ -252,6 +257,8 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		providerType:    opts.ProviderType,
 		planStrategy:    opts.PlanStrategy,
 		memoryStore:     opts.MemoryStore,
+		state:           opts.State,
+		toolCache:       NewTokenCache(opts.ToolCacheCap),
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
 	return a
@@ -269,15 +276,17 @@ type repetitionDetector struct {
 
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
 	for _, tc := range toolCalls {
-		key := toolKey{tc.Function.Name, tc.Function.Arguments}
+		key := toolKey{tc.Function.Name, normalizeArgs(tc.Function.Arguments)}
 		// submit_final_answer and system_error are expected to repeat in automation loops
 		if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
 			if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
 				rd.duplicateStreak++
 				logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
-				if rd.duplicateStreak >= 3 {
-					return true, "", fmt.Errorf("infinite loop detected: model keeps calling %s(%s) after %d nags", key.name, key.args, rd.duplicateStreak)
-				}
+			if rd.duplicateStreak >= 3 {
+				rd.duplicateStreak = 0
+				rd.recentCalls = nil
+				return true, prompts.ToolForceSkipMessage(key.name), nil
+			}
 				return true, prompts.AutomationDuplicateNagPrompt, nil
 			}
 			rd.duplicateStreak = 0
@@ -294,7 +303,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	execCtx, cancel := context.WithTimeout(ctx, a.globalTimeout)
 	defer cancel()
 
-	execCtx = withUsageTracker(execCtx)
+	execCtx = WithUsageTracker(execCtx)
 
 	// Plan strategy short-circuits: if enabled, generate a plan for the last user
 	// message and execute it step-by-step. Falls back to the agent loop on failure.

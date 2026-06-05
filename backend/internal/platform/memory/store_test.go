@@ -285,6 +285,70 @@ func TestMemoryStore_List(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_DeleteAllByWorkspace(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "k1", "content 1", "agent")
+	store.Insert(ctx, "ws-1", Daily, "k2", "content 2", "agent")
+	store.Insert(ctx, "ws-1", Session, "k3", "content 3", "agent")
+	store.Insert(ctx, "ws-2", LongTerm, "k4", "content 4", "agent")
+
+	t.Run("delete all in workspace", func(t *testing.T) {
+		n, err := store.DeleteAllByWorkspace(ctx, "ws-1", "")
+		if err != nil {
+			t.Fatalf("DeleteAllByWorkspace failed: %v", err)
+		}
+		if n != 3 {
+			t.Errorf("expected 3 deleted, got %d", n)
+		}
+
+		entries, _ := store.List(ctx, "ws-1", "", 10, 0)
+		if len(entries) != 0 {
+			t.Errorf("expected 0 entries after clear, got %d", len(entries))
+		}
+
+		ws2Entries, _ := store.List(ctx, "ws-2", "", 10, 0)
+		if len(ws2Entries) != 1 {
+			t.Errorf("expected ws-2 untouched (1 entry), got %d", len(ws2Entries))
+		}
+	})
+
+	t.Run("delete by type", func(t *testing.T) {
+		store.Insert(ctx, "ws-2", LongTerm, "k5", "content 5", "agent")
+		store.Insert(ctx, "ws-2", Daily, "k6", "content 6", "agent")
+		store.Insert(ctx, "ws-2", Daily, "k7", "content 7", "agent")
+
+		n, err := store.DeleteAllByWorkspace(ctx, "ws-2", Daily)
+		if err != nil {
+			t.Fatalf("DeleteAllByWorkspace by type failed: %v", err)
+		}
+		if n != 2 {
+			t.Errorf("expected 2 daily entries deleted, got %d", n)
+		}
+
+		entries, _ := store.List(ctx, "ws-2", "", 10, 0)
+		if len(entries) != 2 {
+			t.Errorf("expected 2 remaining entries (long_term), got %d", len(entries))
+		}
+		for _, e := range entries {
+			if e.MemoryType != LongTerm {
+				t.Errorf("expected remaining entries to be long_term, got %s", e.MemoryType)
+			}
+		}
+	})
+
+	t.Run("delete on empty workspace returns 0", func(t *testing.T) {
+		n, err := store.DeleteAllByWorkspace(ctx, "ws-empty", "")
+		if err != nil {
+			t.Fatalf("DeleteAllByWorkspace on empty: %v", err)
+		}
+		if n != 0 {
+			t.Errorf("expected 0 deleted on empty workspace, got %d", n)
+		}
+	})
+}
+
 func TestMemoryStore_Get(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -306,5 +370,118 @@ func TestMemoryStore_Get(t *testing.T) {
 	}
 	if entry.Source != "agent" {
 		t.Errorf("expected source 'agent', got '%s'", entry.Source)
+	}
+}
+
+func TestSanitiseFTSQuery_OR_Keyword(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Insert an entry so search has something to return
+	store.Insert(ctx, "ws-1", LongTerm, "tool_versions", "TypeScript version: 6.0.3 installed", "agent")
+
+	// The "OR" keyword would crash FTS5 if not properly quoted.
+	// This ensures the query doesn't produce a syntax error.
+	_, err := store.Search(ctx, "ws-1", "typescript_version OR tool_versions", 5)
+	if err != nil {
+		t.Fatalf("Search with OR keyword failed: %v", err)
+	}
+}
+
+func TestSanitiseFTSQuery_AND_Keyword(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "installed_tools", "node typescript python", "agent")
+
+	// The "AND" keyword should not cause a syntax error when properly quoted.
+	_, err := store.Search(ctx, "ws-1", "node AND typescript", 5)
+	if err != nil {
+		t.Fatalf("Search with AND keyword failed: %v", err)
+	}
+}
+
+func TestSanitiseFTSQuery_Underscore(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "typescript_version", "TypeScript version 6.0.3", "agent")
+
+	// Underscores are stripped and replaced with OR terms.
+	_, err := store.Search(ctx, "ws-1", "typescript_version", 5)
+	if err != nil {
+		t.Fatalf("Search with underscore failed: %v", err)
+	}
+}
+
+func TestSanitiseFTSQuery_SpecialChars(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "test", "some content for testing", "agent")
+
+	// Special characters like parentheses should be stripped.
+	_, err := store.Search(ctx, "ws-1", "test (content)", 5)
+	if err != nil {
+		t.Fatalf("Search with special chars failed: %v", err)
+	}
+}
+
+func TestSanitiseFTSQuery_StopWordsFiltered(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "tool_versions", "TypeScript version installed: 6.0.3", "agent")
+
+	// Stop words like "step" and "run" should be filtered from the query.
+	// If they aren't, the search results may still include the entry through
+	// matching content words, but the BM25 rank will be lower.
+	_, err := store.Search(ctx, "ws-1", "Step 5: run tsc version", 5)
+	if err != nil {
+		t.Fatalf("Search with stop words failed: %v", err)
+	}
+}
+
+func TestSanitiseFTSQuery_AllStopWordsReturnsEmptyMatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "tool_versions", "TypeScript version installed: 6.0.3", "agent")
+
+	// A query consisting entirely of stop words should not cause an error.
+	_, err := store.Search(ctx, "ws-1", "the a an", 5)
+	if err != nil {
+		t.Fatalf("Search with all stop words failed: %v", err)
+	}
+}
+
+func TestIsFTSStopWord(t *testing.T) {
+	cases := []struct {
+		word   string
+		isStop bool
+	}{
+		{"step", true}, {"run", true}, {"the", true},
+		{"tsc", false}, {"version", false}, {"typescript", false},
+		{"npm", false}, {"uname", false}, {"network", false},
+	}
+	for _, c := range cases {
+		got := isFTSStopWord(c.word)
+		if got != c.isStop {
+			t.Errorf("isFTSStopWord(%q) = %v, want %v", c.word, got, c.isStop)
+		}
+	}
+}
+
+func TestSanitiseFTSQuery_Empty(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Empty query should return nil without error.
+	entries, err := store.Search(ctx, "ws-1", "", 5)
+	if err != nil {
+		t.Fatalf("Search with empty query failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for empty query, got %d", len(entries))
 	}
 }

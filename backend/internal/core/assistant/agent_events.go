@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"llm-proxy/internal/core/proxy"
 )
 
@@ -27,6 +28,7 @@ const (
 )
 
 type AgentEvent struct {
+	ID        string         `json:"id"`
 	Type      AgentEventType `json:"type"`
 	Payload   any            `json:"payload"`
 	Timestamp time.Time      `json:"timestamp"`
@@ -66,6 +68,7 @@ type Observer func(AgentEvent)
 func (a *Agent) notify(t AgentEventType, payload any) {
 	if a.observer != nil {
 		a.observer(AgentEvent{
+			ID:        uuid.NewString(),
 			Type:      t,
 			Payload:   payload,
 			Timestamp: time.Now(),

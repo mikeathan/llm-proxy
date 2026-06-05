@@ -66,6 +66,7 @@ const DEFAULT_CONFIG: GlobalConfig = {
     mulerouter: { max_steps: 30, context_budget: 30000, max_tokens: 2048, reasoning_budget: 0, tool_call_format: 'native', prefill: false },
     nvidia: { max_steps: 30, context_budget: 20000, max_tokens: 2048, reasoning_budget: 0, tool_call_format: 'native', prefill: false },
   },
+  run_logging: { enabled: false },
 }
 
 // Global state to share across components

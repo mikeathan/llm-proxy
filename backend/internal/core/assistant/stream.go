@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	streamReasoningBudgetDivisor  = 4           // default reasoning_budget = max_tokens / 4
+	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — caps thinking without cutting complex tool calls
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
 	automationTemperature         = 0.1         // low temperature for deterministic automation tasks
@@ -50,9 +50,10 @@ func (a *Agent) buildChatRequest(
 	if isAutomationCtx {
 		req.Temperature = automationTemperature
 		if a.reasoningBudget > 0 {
-			req.ReasoningBudget = a.reasoningBudget
+			req.SetReasoningBudget(a.reasoningBudget)
 		} else {
-			req.ReasoningBudget = a.maxTokens / streamReasoningBudgetDivisor
+			a.reasoningBudget = a.maxTokens / streamReasoningBudgetDivisor
+			req.SetReasoningBudget(a.reasoningBudget)
 		}
 	}
 	return req
@@ -84,6 +85,11 @@ func (a *Agent) prepareMessagesForTurn(
 	return prepared, prefill
 }
 
+// injectActiveMemory searches for relevant memories using the last user
+// message (or cached automation task prompt) as query, and appends the
+// result as a separate system message wrapped in <memory> tags right before
+// the current user turn. This keeps the system prompt + state block +
+// conversation history KV cache stable — only this final message changes.
 func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
 	if a.memoryStore == nil {
 		return prepared
@@ -92,7 +98,17 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 	lastUserMsg := ""
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Role == proxy.UserRole {
-			lastUserMsg = history[i].Content
+			c := history[i].Content
+			if strings.HasPrefix(c, "SYSTEM") || strings.HasPrefix(c, "REJECTED") {
+				continue
+			}
+			if strings.Contains(c, "conversation history is about to be compressed") {
+				continue
+			}
+			if strings.Contains(c, "Stop analyzing") || strings.Contains(c, "Stop writing") {
+				continue
+			}
+			lastUserMsg = c
 			break
 		}
 	}
@@ -100,9 +116,31 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 		return prepared
 	}
 
+	if a.automationTaskPrompt == "" {
+		for _, msg := range history {
+			if msg.Role == proxy.UserRole && strings.Contains(msg.Content, prompts.AutomationMarker) {
+				a.automationTaskPrompt = msg.Content
+				break
+			}
+		}
+	}
+
+	query := lastUserMsg
+	if a.automationTaskPrompt != "" {
+		query = a.automationTaskPrompt
+	}
+
 	ctx := context.Background()
-	entries, err := a.memoryStore.Search(ctx, a.workspaceID, lastUserMsg, 5)
+	entries, err := a.memoryStore.Search(ctx, a.workspaceID, query, 5)
 	profileEntries, peErr := a.memoryStore.List(ctx, a.workspaceID, memory.UserProfile, 20, 0)
+
+	if len(entries) > 0 {
+		titles := make([]string, len(entries))
+		for i, e := range entries {
+			titles[i] = e.Title
+		}
+		a.logger.Debug("memory injection", "query", query, "titles", titles)
+	}
 
 	if (err != nil || len(entries) == 0) && (peErr != nil || len(profileEntries) == 0) {
 		return prepared
@@ -146,8 +184,8 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 
 	memBlock := b.String()
 	runes := []rune(memBlock)
-	if len(runes) > 3000 {
-		memBlock = string(runes[:3000]) + "\n...[truncated]"
+	if len(runes) > 2500 {
+		memBlock = string(runes[:2500]) + "\n...[truncated]"
 		if strings.Contains(memBlock, "<relevant_memories>") && !strings.Contains(memBlock, "</relevant_memories>") {
 			memBlock += prompts.RelevantMemoriesFooter
 		}
@@ -159,12 +197,14 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 		return prepared
 	}
 
-	for i, msg := range prepared {
-		if msg.Role == proxy.SystemRole {
-			prepared[i].Content = msg.Content + "\n\n" + memBlock
-			break
-		}
-	}
+	// Append memory block as a separate system message at the end of prepared
+	// messages, right before the current user turn.  This keeps the system
+	// prompt + state + history KV cache stable — only this final message
+	// changes each turn.
+	prepared = append(prepared, proxy.Message{
+		Role:    proxy.SystemRole,
+		Content: "<memory>\n" + memBlock + "\n</memory>",
+	})
 
 	a.notifyMemoryRecall(lastUserMsg, len(entries)+len(profileEntries))
 	return prepared
@@ -302,9 +342,16 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		fullMsg.Content = prefill + fullMsg.Content
 	}
 
+	reasons := len(fullMsg.ReasoningContent)
+	if a.reasoningBudget > 0 && reasons > a.reasoningBudget*2 {
+		a.logger.Warn("reasoning budget far exceeded — server may not be enforcing",
+			"reasoning_budget", a.reasoningBudget,
+			"reasoning_len", reasons,
+			"model", a.modelName)
+	}
 	a.logger.Info("stream completed",
 		"content_len", len(fullMsg.Content),
-		"reasoning_len", len(fullMsg.ReasoningContent),
+		"reasoning_len", reasons,
 		"tool_calls", len(fullMsg.ToolCalls))
 
 	if t := GetUsageTracker(ctx); t != nil {
@@ -358,6 +405,7 @@ func (a *Agent) tryExtractToolCallFromReasoning(fullMsg *proxy.Message) bool {
 
 func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) error {
 	var tokUsed, reasonUsed int
+	var budgetWarned bool
 
 	streamDone := make(chan struct{})
 	defer close(streamDone)
@@ -405,12 +453,25 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					tokUsed += result.TokensUsed
 					reasonUsed += result.ReasoningUsed
 
-					term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
-						orchestrator.StreamChunk{},
-						tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
-					)
-					if term.ShouldTerminate {
-						return fmt.Errorf("stream terminated: token budget exceeded (%d tokens used)", tokUsed)
+					if !a.suppressReasoningBudget {
+						term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
+							orchestrator.StreamChunk{},
+							tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
+						)
+						if term.ShouldTerminate && !budgetWarned {
+							budgetWarned = true
+							// Warn only — do NOT terminate. The server (llama.cpp)
+							// enforces reasoning_budget at the API level by forcing
+							// the model out of thinking mode. Terminating here would
+							// kill the stream before the first content chunk arrives,
+							// triggering the XML/non-streaming fallback chain. The
+							// stuck detector (maxTokens × 2 chars) and maxTokens
+							// budget provide sufficient protection. See AGENTS.md
+							// pitfall #20 for the reasoning behind warn-only.
+							a.logger.Warn("reasoning budget exceeded, letting server enforcement handle it",
+								"tokens_used", tokUsed, "reasoning_used", reasonUsed,
+								"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
+						}
 					}
 				}
 
@@ -476,7 +537,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	isAutomationCtx := a.findAutomationCtx(history)
 	req := a.buildChatRequest(preparedHistory, llmTools, isAutomationCtx)
 	if isAutomationCtx && a.suppressReasoningBudget {
-		req.ReasoningBudget = 0
+		req.SetReasoningBudget(0)
 	}
 
 	if rawReq, err := json.Marshal(req); err == nil {
@@ -517,14 +578,14 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
 		}
 		req = proxy.ChatRequest{
-			Messages:  preparedHistory,
-			Tools:     nil,
-			MaxTokens: a.maxTokens,
+			Messages:    preparedHistory,
+			Tools:       nil,
+			MaxTokens:   a.maxTokens,
 			Temperature: automationTemperature,
-			ReasoningBudget: a.maxTokens / streamReasoningBudgetDivisor,
 		}
+		req.SetReasoningBudget(a.maxTokens / streamReasoningBudgetDivisor)
 		if a.suppressReasoningBudget {
-			req.ReasoningBudget = 0
+			req.SetReasoningBudget(0)
 		}
 		resp, err = a.client.Chat(chatCtx, req)
 	}

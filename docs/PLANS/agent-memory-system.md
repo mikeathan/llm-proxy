@@ -9,6 +9,42 @@
 
 Add a persistent, searchable memory system to the agent, inspired by OpenClaw's approach. The agent can write facts to SQLite-backed memory using a `memory_update` tool and recall them later using a `memory_search` tool. Memory survives server restarts, context window rotations, and sieve compression.
 
+### Semantic Deduplication (2026-05-31)
+
+When the agent calls `memory_update`, the `insertEntry` method now performs a **three-layer dedup** instead of two:
+
+1. **Exact topic match** (`FindByTitle`) — same topic → update in-place
+2. **Semantic topic overlap** (`findOverlappingEntry`) — FTS4 search + topic word overlap ≥2 unique words → update in-place
+3. **Exact content match** (`Exists`) — same content → skip
+
+Layer 2 catches cases where the model invents different topic strings across runs (e.g. `"smoke-test-status"` vs `"llm-smoke-test-results"`) that share meaningful overlapping words, while avoiding false merges between unrelated entries like `"first entry"` and `"second entry"` that only share generic words like "entry".
+
+### Prompt Guidance Improvements (2026-05-31)
+
+Two prompt constants (`prompts/templates.go`) were updated to teach the agent how to save USEFUL memories and how to LEVERAGE them:
+
+**`MemoryProactiveNudge`** — guides the agent to save specific, actionable facts rather than summaries:
+
+```
+- Installed tools: "TypeScript 6.0.3 is installed in this workspace"
+- Environment state: "node_modules exists — npm install not needed"
+- File states: "dev-test/index.ts compiles and runs correctly"
+- Working commands: "use 'go build ./...' to verify Go builds"
+- User preferences: "prefers CommonJS over ESM for Node.js projects"
+- Decisions: "chose port 5433 for the test database"
+```
+
+**`MemoryRecallNudge`** — teaches the agent to USE automatically-injected memories:
+
+```
+- If memory says a tool is installed, use the tool — skip re-installing
+- If memory records a file state, verify with read_file instead of re-creating the file
+- If memory records a decision, follow it without re-asking
+- If memory records a completed task, acknowledge the past result instead of redoing it
+```
+
+Both nudges are injected conditionally into the system prompt (via `registry.go:GetSystemPrompt()`) only when memory tools are registered.
+
 ### How Memory Helps the Agent
 
 | Scenario | Before (no memory) | After (with memory) |
@@ -22,7 +58,7 @@ Add a persistent, searchable memory system to the agent, inspired by OpenClaw's 
 ### Key Design Decisions
 
 1. **SQLite-only** — No markdown files, no vector embeddings, no external services. Single persistence layer.
-2. **FTS5 search** — Full-text search built into `mattn/go-sqlite3`. Zero cost, instant, good quality.
+2. **FTS5 search** — Full-text search built into `modernc.org/sqlite`. Zero cost, instant, good quality. No build tags needed.
 3. **Same DB file as ledger** — Memory tables live alongside `icu_ledger`, `active_slots`, etc. in `orchestrator.db`. Shared WAL, single backup.
 4. **Separate package** — `internal/platform/memory/` owns the schema, queries, and types. Ledger stays focused on ICU tracking.
 5. **Workspace-isolated** — All queries filter by `workspace_id`.
@@ -751,6 +787,8 @@ After completion, update:
 |------|---------|-------------|--------|
 | 1.1 | `ledger/store.go` | Add `DB()` getter | [x] |
 | 1.2 | `memory/store.go`, `memory/types.go` | Create MemoryStore with CRUD + FTS4 | [x] |
+| 1.3 | `tools/memory_tools.go`, `tools/memory_tools_test.go` | Semantic dedup: FTS4 + topic word overlap ≥2 before insert | [x] |
+| 1.4 | `prompts/templates.go`, `assistant/registry.go` | Improve memory prompts: concrete save guidance + recall usage nudge | [x] |
 | 2.1 | `models/tools.go` | Add tool name constants | [x] |
 | 2.2 | `tools/manifests/memory.json` | Create tool manifest | [x] |
 | 2.3 | `tools/memory_tools.go` | Create memory tool handlers | [x] |

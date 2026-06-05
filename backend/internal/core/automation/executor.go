@@ -3,6 +3,8 @@ package automation
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -56,6 +58,10 @@ type LLMServiceProvider interface {
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
+	RecordDir() string
+	RootDir() string
+	RunLoggingEnabled() bool
+	SelectModels() (string, string)
 }
 
 // DefaultTaskExecutor is a placeholder that marks execution as running.
@@ -92,54 +98,138 @@ func NewLLMTaskExecutor(svc LLMServiceProvider) TaskExecutor {
 
 func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
 	startTime := time.Now()
-	resp := &ExecuteResponse{
-		State: req.State,
-	}
-
+	resp := &ExecuteResponse{State: req.State}
 	if resp.State == nil {
 		resp.State = &models.AgentState{}
 	}
-
-	// Mark as running
 	resp.State.SetRunning(req.AutomationName)
 
-	// Get LLM client (real or playback from recording)
-	var client proxy.Client
-	var err error
+	if req.Model == "" {
+		primary, _ := e.svc.SelectModels()
+		req.Model = primary
+	}
 
+	procLog := e.svc.ProcessLogger(req.WorkspaceID)
+	client, err := e.getLLMClient(ctx, req, resp, startTime)
+	if err != nil {
+		return resp, err
+	}
+	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
+
+	execCtx := models.WithTaskName(ctx, req.AutomationName)
+	execCtx = models.WithRunID(execCtx, generateRunID())
+	execCtx = assistant.WithUsageTracker(execCtx)
+
+	runDir, eventSink, _, runLog := e.setupRunDir(execCtx, client, req, procLog)
+	procLog = runLog
+	var capturedEvents []any
+
+	agentOpts := e.buildAgentOptions(execCtx, client, req, procLog, &capturedEvents, eventSink)
+	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
+
+	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
+	systemPrompt := prompts.AssembleSystemPrompt(customRules)
+
+	history := []proxy.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: e.buildPrompt(req.TaskContent, req)},
+	}
+
+	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
+
+	if eventSink != nil {
+		eventSink.Close()
+	}
+	if tl, ok := procLog.(*teeLogger); ok {
+		tl.Close()
+	}
+	if rcl, ok := client.(interface{ CloseRun(string) }); ok {
+		rcl.CloseRun(models.GetRunID(execCtx))
+	}
+
+	if t := assistant.GetUsageTracker(execCtx); t != nil {
+		procLog.Info("Usage", "llm_calls", t.LLMCalls, "tool_calls", t.ToolCalls,
+			"input_tokens", t.InputTokens, "output_tokens", t.OutputTokens)
+	}
+
+	if agErr != nil {
+		return e.handleAgentError(req, resp, procLog, execCtx, runDir, capturedEvents, startTime, agErr)
+	}
+
+	return e.handleAgentSuccess(req, resp, procLog, execCtx, runDir, capturedEvents, startTime, finalReply, fullHistory)
+}
+
+// getLLMClient returns the LLM client for a live model or playback recording.
+func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, resp *ExecuteResponse, startTime time.Time) (proxy.Client, error) {
 	if req.RecordingRef != "" {
-		client, err = e.svc.GetPlaybackClient(ctx, req.RecordingRef)
+		client, err := e.svc.GetPlaybackClient(ctx, req.RecordingRef)
 		if err != nil {
 			errStr := fmt.Sprintf("failed to load recording %s: %v", req.RecordingRef, err)
 			resp.State.LastError = errStr
 			resp.State.SetRunning("")
 			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
-			return resp, fmt.Errorf("failed to load recording: %w", err)
+			return nil, fmt.Errorf("failed to load recording: %w", err)
 		}
 		procLog := e.svc.ProcessLogger(req.WorkspaceID)
 		procLog.Info("Running automation from recording", "recording", req.RecordingRef)
-	} else {
-		if req.Model != "" {
-			client, err = e.svc.GetClientForModel(ctx, req.Model)
-		} else {
-			clientProvider := e.svc.ClientProvider()
-			client, err = clientProvider.GetClient(ctx)
-		}
-		if err != nil {
-			errStr := fmt.Sprintf("failed to get llm client: %v", err)
-			resp.State.LastError = errStr
-			resp.State.SetRunning("")
-			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
-			return resp, fmt.Errorf("failed to get llm client: %w", err)
-		}
+		return client, nil
 	}
 
-	// Initialize the unified Agent
-	procLog := e.svc.ProcessLogger(req.WorkspaceID)
-	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
+	var client proxy.Client
+	var err error
+	if req.Model != "" {
+		client, err = e.svc.GetClientForModel(ctx, req.Model)
+	} else {
+		client, err = e.svc.ClientProvider().GetClient(ctx)
+	}
+	if err != nil {
+		errStr := fmt.Sprintf("failed to get llm client: %v", err)
+		resp.State.LastError = errStr
+		resp.State.SetRunning("")
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+		return nil, fmt.Errorf("failed to get llm client: %w", err)
+	}
+	return client, nil
+}
 
-	var capturedEvents []any
-	agentOpts := assistant.AgentOptions{
+func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*RunDir, *EventSink, bool, logging.Logger) {
+	if !e.svc.RunLoggingEnabled() {
+		return nil, nil, false, procLog
+	}
+	rootDir := e.svc.RootDir()
+	if rootDir == "" || req.Model == "" {
+		return nil, nil, false, procLog
+	}
+	parent := filepath.Join(rootDir, "runs")
+	runDir, rErr := NewRunDir(parent, req.Model, req.AutomationName)
+	if rErr != nil {
+		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
+		return nil, nil, false, procLog
+	}
+	eventSink, esErr := NewEventSink(runDir.EventsPath())
+	if esErr != nil {
+		procLog.Warn("failed to create event sink, continuing without", "error", esErr)
+		return runDir, nil, false, procLog
+	}
+	hasRecording := false
+	if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
+		rcl.SetDirForRun(models.GetRunID(ctx), runDir.Root)
+		hasRecording = true
+	} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
+		rcl.SetDir(runDir.Root)
+		hasRecording = true
+	}
+	runLog, tlErr := newTeeLogger(procLog, runDir.LogPath())
+	if tlErr != nil {
+		procLog.Warn("failed to create run log, continuing without", "error", tlErr)
+		return runDir, eventSink, hasRecording, procLog
+	}
+	return runDir, eventSink, hasRecording, runLog
+}
+
+// buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
+func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger, capturedEvents *[]any, eventSink *EventSink) assistant.AgentOptions {
+	opts := assistant.AgentOptions{
 		Logger:      procLog,
 		MaxSteps:    assistant.DefaultMaxSteps,
 		Guardrails:  e.svc.GuardrailEngine(),
@@ -147,8 +237,11 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		Orchestrator: e.svc.Orchestrator(),
 		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
-			capturedEvents = append(capturedEvents, ev)
+			*capturedEvents = append(*capturedEvents, ev)
 			e.svc.Events().Publish(req.WorkspaceID, ev)
+			if eventSink != nil {
+				eventSink.Write(ev)
+			}
 		},
 		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
 			e.svc.GuardrailDecisionStore(),
@@ -156,76 +249,81 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 				e.svc.Events().Publish(req.WorkspaceID, ev)
 			},
 		),
-		MemoryStore: e.svc.MemoryStore(),
+		MemoryStore:  e.svc.MemoryStore(),
+		ToolCacheCap: 500,
 	}
-	// Apply per-model overrides when available.
-	if req.Model != "" {
-		if cfg, ok := e.svc.ModelConfig(req.Model); ok {
-			agentOpts.ProviderType = cfg.Provider
-			if cfg.MaxSteps > 0 {
-				agentOpts.MaxSteps = cfg.MaxSteps
-			}
-			if cfg.ContextBudget > 0 {
-				agentOpts.ContextBudget = cfg.ContextBudget
-			}
-			if cfg.MaxTokens > 0 {
-				agentOpts.MaxResponseTokens = cfg.MaxTokens
-			}
-			if cfg.ReasoningBudget > 0 {
-				agentOpts.ReasoningBudget = cfg.ReasoningBudget
-			}
-			if cfg.ToolCallFormat == "native" {
-				native := true
-				agentOpts.UseNativeTools = &native
-			}
-			if cfg.Prefill != nil && *cfg.Prefill {
-				agentOpts.UsePrefill = true
-			}
-			if cfg.TimeoutMinutes > 0 {
-				agentOpts.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
-			}
-			if cfg.EnableExecutionPlan {
-				tools, listErr := e.svc.ToolProvider().ListTools(ctx)
-				if listErr == nil && len(tools) > 0 {
-					agentOpts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools, procLog)
-					procLog.Debug("execution plan strategy enabled", "tools", len(tools))
-				}
-			}
-			procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
+	if req.Model == "" {
+		opts.State = e.buildPlanState(req.TaskContent)
+		return opts
+	}
+	cfg, ok := e.svc.ModelConfig(req.Model)
+	if !ok {
+		opts.State = e.buildPlanState(req.TaskContent)
+		return opts
+	}
+	opts.ProviderType = cfg.Provider
+	if cfg.MaxSteps > 0 {
+		opts.MaxSteps = cfg.MaxSteps
+	}
+	if cfg.ContextBudget > 0 {
+		opts.ContextBudget = cfg.ContextBudget
+	}
+	if cfg.MaxTokens > 0 {
+		opts.MaxResponseTokens = cfg.MaxTokens
+	}
+	if cfg.ReasoningBudget > 0 {
+		opts.ReasoningBudget = cfg.ReasoningBudget
+	}
+	if cfg.ToolCallFormat == "native" {
+		native := true
+		opts.UseNativeTools = &native
+	}
+	if cfg.Prefill != nil && *cfg.Prefill {
+		opts.UsePrefill = true
+	}
+	if cfg.TimeoutMinutes > 0 {
+		opts.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
+	}
+	if cfg.EnableExecutionPlan {
+		tools, listErr := e.svc.ToolProvider().ListTools(ctx)
+		if listErr == nil && len(tools) > 0 {
+			opts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools, procLog)
+			procLog.Debug("execution plan strategy enabled", "tools", len(tools))
 		}
 	}
-	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
+	procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
+	opts.State = e.buildPlanState(req.TaskContent)
+	return opts
+}
 
-	// Load workspace-specific rules and assemble the final system prompt
-	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
-	systemPrompt := prompts.AssembleSystemPrompt(customRules)
-
-	history := []proxy.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: e.buildPrompt(req)},
+// handleAgentError writes run-meta and records the failed run.
+func (e *LLMTaskExecutor) handleAgentError(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, capturedEvents []any, startTime time.Time, agErr error) (*ExecuteResponse, error) {
+	errStr := fmt.Sprintf("agent execution failed: %v", agErr)
+	if runDir != nil {
+		meta := RunMeta{
+			Model:      req.Model,
+			Task:       req.AutomationName,
+			DurationMs: time.Since(startTime).Milliseconds(),
+			Error:      errStr,
+		}
+		if t := assistant.GetUsageTracker(execCtx); t != nil {
+			meta.LLMCalls = t.LLMCalls
+			meta.ToolCalls = t.ToolCalls
+		}
+		meta.RecordingPath = runDir.RecordingRelPath(e.svc.RecordDir())
+		runDir.WriteMeta(meta)
 	}
+	resp.State.LastError = errStr
+	resp.State.SetRunning("")
+	e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
+	return resp, fmt.Errorf("agent execution failed: %w", agErr)
+}
 
-	// Inject task name and unique run ID for recording organisation
-	execCtx := models.WithTaskName(ctx, req.AutomationName)
-	execCtx = models.WithRunID(execCtx, generateRunID())
-
-	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
-	if t := assistant.GetUsageTracker(execCtx); t != nil {
-		procLog.Info("Usage", "llm_calls", t.LLMCalls, "tool_calls", t.ToolCalls,
-			"input_tokens", t.InputTokens, "output_tokens", t.OutputTokens)
-	}
-	if agErr != nil {
-		errStr := fmt.Sprintf("agent execution failed: %v", agErr)
-		resp.State.LastError = errStr
-		resp.State.SetRunning("")
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
-		return resp, fmt.Errorf("agent execution failed: %w", agErr)
-	}
-
-	var runResult = finalReply
+// handleAgentSuccess formats output, writes per-run artifacts, and records the run.
+func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, capturedEvents []any, startTime time.Time, finalReply string, fullHistory []proxy.Message) (*ExecuteResponse, error) {
+	runResult := finalReply
 	var runError string
 
-	// Collect any tool calls for result summary if no final reply content (rare but possible)
 	if finalReply == "" && len(fullHistory) > 1 {
 		toolCount := 0
 		for _, msg := range fullHistory {
@@ -258,11 +356,9 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 
 	elapsed := time.Since(startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
-
 	resp.Output = fullOutput
 	resp.State.LastOutput = fullOutput
 	runResult = fullOutput
-
 	resp.State.SetRunning("")
 
 	// Push a concluding message to the UI stream to clear "thinking..."
@@ -274,9 +370,27 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		},
 	})
 
-	// Record to history
-	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
+	if runDir != nil {
+		runDir.WriteFinalReport(output)
+		resultPreview := output
+		if len(resultPreview) > 120 {
+			resultPreview = resultPreview[:120] + "..."
+		}
+		meta := RunMeta{
+			Model:         req.Model,
+			Task:          req.AutomationName,
+			DurationMs:    time.Since(startTime).Milliseconds(),
+			Result:        resultPreview,
+			RecordingPath: runDir.RecordingRelPath(e.svc.RecordDir()),
+		}
+		if t := assistant.GetUsageTracker(execCtx); t != nil {
+			meta.LLMCalls = t.LLMCalls
+			meta.ToolCalls = t.ToolCalls
+		}
+		runDir.WriteMeta(meta)
+	}
 
+	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
 	return resp, nil
 }
 
@@ -301,9 +415,6 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		return
 	}
 
-	// Prune events to prevent state.json bloat (105MB issue)
-	prunedEvents := pruneEvents(events)
-
 	run := models.AutomationRun{
 		ID:             generateRunID(),
 		WorkspaceID:    req.WorkspaceID,
@@ -314,7 +425,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
 		RecordingRef:   req.RecordingRef,
-		Events:         prunedEvents,
+		Events:         nil, // events live in the run dir, not in state.json
 	}
 
 	// Add to full history (capped to last 50 for performance)
@@ -338,9 +449,225 @@ func generateRunID() string {
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
-func (e *LLMTaskExecutor) buildPrompt(req ExecuteRequest) string {
+// annotateTaskWithMemories scans the task content line by line and appends
+// a proximity annotation below lines that match a memory entry in FTS5 AND
+// share at least one non-stop-word with that entry (word overlap). Capped at
+// maxAnnotations to prevent context bloat — 46 annotations added ~4600 chars
+// to the prompt, triggering the physical sieve and causing repetition loops.
+// Returns the annotated content and the count of annotations added.
+func (e *LLMTaskExecutor) annotateTaskWithMemories(ctx context.Context, wsID, taskContent string) (string, int) {
+	memStore := e.svc.MemoryStore()
+	if memStore == nil {
+		return taskContent, 0
+	}
+
+	const maxAnnotations = 5
+	lines := strings.Split(taskContent, "\n")
+	annotated := make([]string, 0, len(lines))
+	count := 0
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		annotated = append(annotated, line)
+
+		if trimmed == "" || len(trimmed) < 15 || strings.HasPrefix(trimmed, "---") || count >= maxAnnotations {
+			continue
+		}
+
+		entries, err := memStore.Search(ctx, wsID, trimmed, 1)
+		if err != nil || len(entries) == 0 {
+			continue
+		}
+
+		entry := entries[0]
+
+		// Word overlap check: at least one non-stop-word in the task line must
+		// also appear in the memory entry's title or content. This filters out
+		// coincidental FTS5 matches on common words ("Step 1: list directory"
+		// matching a memory about compliance-audit because both happen to
+		// contain "file").
+		if !wordsOverlap(trimmed, entry.Title+" "+entry.Content) {
+			continue
+		}
+
+		preview := entry.Content
+		if len(preview) > 80 {
+			preview = preview[:80] + "..."
+		}
+		annotated = append(annotated, fmt.Sprintf("  ↳ [Memory: %s — %s]", entry.Title, preview))
+		count++
+	}
+
+	return strings.Join(annotated, "\n"), count
+}
+
+var annotationStopWords = map[string]bool{
+	"step": true, "task": true, "run": true, "the": true, "a": true, "an": true,
+	"and": true, "or": true, "to": true, "in": true, "of": true, "for": true,
+	"with": true, "on": true, "by": true, "at": true, "is": true, "be": true,
+	"do": true, "not": true, "are": true, "was": true, "will": true, "can": true,
+}
+
+// wordsOverlap returns true when the two strings share at least one non-stop-
+// word (case-insensitive). Used by annotateTaskWithMemories to filter out
+// coincidental FTS5 matches.
+func wordsOverlap(a, b string) bool {
+	wordsA := extractNonStopWords(a)
+	if len(wordsA) == 0 {
+		return false
+	}
+	set := make(map[string]bool, len(wordsA))
+	for _, w := range wordsA {
+		set[w] = true
+	}
+	for _, w := range extractNonStopWords(b) {
+		if set[w] {
+			return true
+		}
+	}
+	return false
+}
+
+// extractNonStopWords lowercases and splits a string into non-stop-word tokens.
+func extractNonStopWords(s string) []string {
+	var words []string
+	var cur strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			cur.WriteRune(r)
+		} else {
+			if cur.Len() > 0 {
+				w := strings.ToLower(cur.String())
+				if !annotationStopWords[w] {
+					words = append(words, w)
+				}
+				cur.Reset()
+			}
+		}
+	}
+	if cur.Len() > 0 {
+		w := strings.ToLower(cur.String())
+		if !annotationStopWords[w] {
+			words = append(words, w)
+		}
+	}
+	return words
+}
+
+// buildPriorRunSeededHistory extracts tool call and result pairs from the last
+// automation run's event log and converts them to proxy.Message format for
+// injection into the initial history. Seeds from any prior run with events,
+// even if the run had an error — completed tool calls are still valid and the
+// model naturally skips steps already in its conversation history.
+func (e *LLMTaskExecutor) buildPriorRunSeededHistory(req ExecuteRequest) []proxy.Message {
+	if req.State == nil {
+		return nil
+	}
+	lastRun, ok := req.State.LastRuns[req.AutomationName]
+	if !ok || lastRun == nil || len(lastRun.Events) == 0 {
+		return nil
+	}
+
+	var seeded []proxy.Message
+	for _, ev := range lastRun.Events {
+		aev, ok := ev.(assistant.AgentEvent)
+		if !ok {
+			continue
+		}
+		switch aev.Type {
+		case assistant.EventToolCall:
+			tc, ok := aev.Payload.(proxy.ToolCall)
+			if !ok {
+				continue
+			}
+			seeded = append(seeded, proxy.Message{
+				Role:      proxy.AssistantRole,
+				ToolCalls: []proxy.ToolCall{tc},
+			})
+		case assistant.EventToolResult:
+			payload, ok := aev.Payload.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := payload["id"].(string)
+			if id == "" {
+				continue
+			}
+			// The result can be any type (string, number, map). Format it
+			// as a string so the model sees the tool output verbatim.
+			seeded = append(seeded, proxy.Message{
+				Role:       proxy.ToolRole,
+				Content:    fmt.Sprintf("%v", payload["result"]),
+				ToolCallID: id,
+			})
+		}
+	}
+	return seeded
+}
+
+// buildAssistantPrefill generates an assistant-role message that cites the
+// current memories and primes the model to check them before each step.
+// Placing this in the assistant role makes the model treat the memory
+// check as its own most recent thought — models follow assistant-role
+// content more reliably than system-prompt guidance, especially smaller
+// ones where attention decays across long system prompts.
+func (e *LLMTaskExecutor) buildAssistantPrefill(entries []memory.MemoryEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(prompts.AssistantPrefillHeader)
+	for _, entry := range entries {
+		b.WriteString(fmt.Sprintf("%s: %s\n", entry.Title, entry.Content))
+	}
+	b.WriteString(prompts.AssistantPrefillFooter)
+	return b.String()
+}
+
+func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) string {
 	return fmt.Sprintf(prompts.AutomationTaskPrompt,
-		req.WorkspaceID, req.TaskFile, req.TaskContent)
+		req.WorkspaceID, req.TaskFile, prompts.MemoryCheckGate+stripTaskContradictions(taskContent))
+}
+
+// stripTaskContradictions removes instructions that conflict with the Memory Check Gate.
+// The task file's own "Do not skip any step" directly overrides the memory check gate
+// instruction to skip steps when relevant_memories already contains the answer.
+func stripTaskContradictions(content string) string {
+	// Strip the task-completion instruction that contradicts Memory Check Gate.
+	// Build regex from the constant to handle whitespace variations between sentences.
+	quoted := regexp.QuoteMeta(prompts.TaskOrderInstruction)
+	re := regexp.MustCompile(`(?i)` + quoted + `\s*`)
+	return re.ReplaceAllString(content, "")
+}
+
+// buildPlanState parses the task content to extract step descriptions and
+// builds a PlanState that tracks execution progress. Returns nil when the
+// task doesn't have parseable step markers.
+func (e *LLMTaskExecutor) buildPlanState(taskContent string) *models.PlanState {
+	lines := strings.Split(taskContent, "\n")
+	var steps []models.Step
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Match step-like lines: "## Step N — Description" or "Step N: Description"
+		if matched, _ := regexp.MatchString(`(?i)^(##\s*)?Step\s+\d+`, trimmed); matched {
+			status := models.StatusPending
+			if len(steps) == 0 {
+				status = models.StatusActive
+			}
+			steps = append(steps, models.Step{Description: trimmed, Status: status})
+		}
+	}
+	if len(steps) == 0 {
+		return nil
+	}
+	return &models.PlanState{
+		Goal:                 "Execute task",
+		Steps:                steps,
+		LastAutoAdvancedStep: -1,
+	}
 }
 
 // ============================================================================

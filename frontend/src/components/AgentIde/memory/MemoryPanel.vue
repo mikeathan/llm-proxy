@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useMemory } from '../../../composables/useMemory'
+import { useConfirm } from '../../../composables/useConfirm'
 import type { MemoryEntry } from '../../../types/memory'
+import Icon from '../../icons/Icon.vue'
 
 const props = defineProps<{
   workspaceId: string | null
@@ -20,10 +22,24 @@ const {
   search,
   deleteMemory,
   selectMemory,
+  clearAllMemories,
 } = useMemory()
+
+const { confirm } = useConfirm()
 
 const filterType = ref<string>('')
 const isSearching = ref(false)
+
+const displayEntries = computed(() => isSearching.value ? searchResults.value : memories.value)
+
+const filterLabel = computed(() => {
+  switch (filterType.value) {
+    case 'long_term': return 'Permanent'
+    case 'daily': return 'Daily'
+    case 'user_profile': return 'User'
+    default: return 'All'
+  }
+})
 
 watch(() => props.workspaceId, (ws) => {
   if (ws) {
@@ -55,6 +71,54 @@ function clearSearch() {
 function handleSelect(entry: MemoryEntry) {
   selectMemory(entry)
   emit('select-memory', entry)
+}
+
+async function handleClearAll() {
+  if (!props.workspaceId || displayEntries.value.length === 0) return
+  const scope = filterLabel.value.toLowerCase()
+  const confirmed = await confirm({
+    title: `Clear ${filterLabel.value} Memories`,
+    message: `Delete all ${displayEntries.value.length} ${scope} memories? This cannot be undone.`,
+    type: 'error',
+    confirmText: `Clear ${filterLabel.value}`,
+    cancelText: 'Cancel',
+  })
+  if (!confirmed) return
+  await clearAllMemories(props.workspaceId, filterType.value || undefined)
+}
+
+async function handleDelete(entry: MemoryEntry) {
+  if (!props.workspaceId) return
+  const label = typeLabel(entry.memory_type).toLowerCase()
+  const confirmed = await confirm({
+    title: 'Delete Memory',
+    message: `Delete this ${label} memory "${entry.title || 'Untitled'}"? This cannot be undone.`,
+    type: 'error',
+    confirmText: 'Delete',
+    cancelText: 'Cancel',
+  })
+  if (!confirmed) return
+  await deleteMemory(props.workspaceId, entry.id)
+}
+
+function typeLabel(t: string): string {
+  switch (t) {
+    case 'long_term': return 'Permanent'
+    case 'daily': return 'Daily'
+    case 'session': return 'Session'
+    case 'user_profile': return 'User Profile'
+    default: return t
+  }
+}
+
+function badgeLabel(t: string): string {
+  switch (t) {
+    case 'long_term': return 'LT'
+    case 'daily': return 'D'
+    case 'session': return 'S'
+    case 'user_profile': return 'U'
+    default: return '?'
+  }
 }
 
 function formatTime(ts: string): string {
@@ -101,6 +165,12 @@ function formatTime(ts: string): string {
         class="filter-btn"
         @click="filterType = 'user_profile'"
       >User</button>
+      <button
+        v-if="displayEntries.length > 0"
+        @click="handleClearAll"
+        class="btn-clear-all ml-auto"
+        title="Clear memories"
+      >Clear</button>
     </div>
 
     <!-- Loading -->
@@ -125,19 +195,25 @@ function formatTime(ts: string): string {
         @click="handleSelect(entry)"
       >
         <div class="memory-header">
-          <span class="memory-title">{{ entry.title || 'Untitled' }}</span>
-          <span class="memory-type-badge" :class="'memory-type-badge--' + entry.memory_type">
-            {{ entry.memory_type === 'long_term' ? 'LT' : entry.memory_type === 'daily' ? 'D' : entry.memory_type === 'session' ? 'S' : 'U' }}
+          <span
+            class="memory-type-badge"
+            :class="'memory-type-badge--' + entry.memory_type"
+            :title="typeLabel(entry.memory_type)"
+          >
+            {{ badgeLabel(entry.memory_type) }}
           </span>
+          <span class="memory-title">{{ entry.title || 'Untitled' }}</span>
+          <button
+            @click.stop="handleDelete(entry)"
+            class="btn-delete"
+            title="Delete memory"
+          >
+            <Icon name="trash" size="sm" />
+          </button>
         </div>
         <div class="memory-snippet">{{ entry.content.slice(0, 80) }}{{ entry.content.length > 80 ? '...' : '' }}</div>
         <div class="memory-footer">
           <span class="memory-time">{{ formatTime(entry.created_at) }}</span>
-          <button
-            @click.stop="deleteMemory(props.workspaceId!, entry.id)"
-            class="btn-delete opacity-0 group-hover:opacity-100"
-            title="Delete memory"
-          >×</button>
         </div>
       </div>
     </div>
@@ -159,16 +235,17 @@ function formatTime(ts: string): string {
 .result-header { @apply px-2 py-1 text-xs font-semibold text-gray-500 bg-gray-50 dark:bg-gray-800; }
 .memory-list { @apply flex-1 overflow-y-auto; }
 .memory-item { @apply px-3 py-2 border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800; }
-.memory-header { @apply flex items-center justify-between mb-0.5; }
-.memory-title { @apply text-sm font-medium text-gray-900 dark:text-gray-100 truncate; }
-.memory-type-badge { @apply text-[10px] px-1 py-0.5 rounded font-mono; }
+.memory-header { @apply flex items-center gap-2 mb-0.5; }
+.memory-title { @apply flex-1 text-sm font-medium text-gray-900 dark:text-gray-100 truncate; }
+.memory-type-badge { @apply text-[10px] px-1 py-0.5 rounded font-mono shrink-0; }
 .memory-type-badge--long_term { @apply bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300; }
 .memory-type-badge--daily { @apply bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300; }
 .memory-type-badge--session { @apply bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300; }
 .memory-type-badge--user_profile { @apply bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300; }
 .memory-snippet { @apply text-xs text-gray-500 dark:text-gray-400 line-clamp-2; }
-.memory-footer { @apply flex items-center justify-between mt-1; }
+.memory-footer { @apply flex items-center mt-1; }
 .memory-time { @apply text-[10px] text-gray-400; }
-.btn-delete { @apply text-gray-400 hover:text-red-500 text-sm transition-opacity; }
+.btn-delete { @apply opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity; }
+.btn-clear-all { @apply px-2 py-0.5 text-xs rounded text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30; }
 .btn-clear-search, .btn-search { @apply px-1.5 py-0.5 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600; }
 </style>

@@ -3,7 +3,10 @@
 // search and shares the same database file as the ledger package.
 package memory
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type MemoryType string
 
@@ -29,9 +32,23 @@ type MemoryEntry struct {
 }
 
 func (e *MemoryEntry) CreatedAtTime() (time.Time, error) {
-	return time.Parse("2006-01-02 15:04:05", e.CreatedAt)
+	return parseMemoryTime(e.CreatedAt)
 }
 
 func (e *MemoryEntry) UpdatedAtTime() (time.Time, error) {
-	return time.Parse("2006-01-02 15:04:05", e.UpdatedAt)
+	return parseMemoryTime(e.UpdatedAt)
+}
+
+// parseMemoryTime handles both SQLite datetime('now') format
+// (2006-01-02 15:04:05) and ISO 8601 (2006-01-02T15:04:05Z).
+func parseMemoryTime(s string) (time.Time, error) {
+	t, err := time.Parse("2006-01-02 15:04:05", s)
+	if err == nil {
+		return t, nil
+	}
+	t, err = time.Parse(time.RFC3339, s)
+	if err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("cannot parse time %q: SQLite and RFC3339 both failed", s)
 }

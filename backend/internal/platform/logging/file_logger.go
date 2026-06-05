@@ -30,9 +30,10 @@ type FileLogger struct {
 	mu    sync.Mutex
 	level atomic.Value
 
-	out  *log.Logger
-	path string
-	ctx  []any
+	out    *log.Logger
+	path   string
+	ctx    []any
+	closer io.Closer
 }
 
 var _ Logger = (*FileLogger)(nil)
@@ -40,6 +41,7 @@ var _ Logger = (*FileLogger)(nil)
 func NewFileLogger(opts Options) (*FileLogger, error) {
 	var writers []io.Writer
 	logPath := ""
+	var closer io.Closer
 
 	if opts.Stdout {
 		writers = append(writers, os.Stdout)
@@ -56,6 +58,7 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		}
 		writers = append(writers, f)
 		logPath = path
+		closer = f
 	}
 
 	if len(writers) == 0 {
@@ -71,9 +74,10 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 	}
 
 	fileLogger := &FileLogger{
-		out:  log.New(mw, "", 0),
-		path: logPath,
-		ctx:  []any{},
+		out:    log.New(mw, "", 0),
+		path:   logPath,
+		ctx:    []any{},
+		closer: closer,
 	}
 	fileLogger.level.Store(level)
 	return fileLogger, nil
@@ -107,15 +111,23 @@ func (l *FileLogger) With(args ...any) Logger {
 	ctx = append(ctx, args...)
 
 	return &FileLogger{
-		level: l.level,
-		out:   l.out,
-		path:  l.path,
-		ctx:   ctx,
+		level:  l.level,
+		out:    l.out,
+		path:   l.path,
+		ctx:    ctx,
+		closer: l.closer,
 	}
 }
 
 func (l *FileLogger) LogPath() string {
 	return l.path
+}
+
+func (l *FileLogger) Close() error {
+	if l.closer != nil {
+		return l.closer.Close()
+	}
+	return nil
 }
 
 func (l *FileLogger) log(level Level, msg string, args ...any) {
@@ -138,6 +150,9 @@ func (l *FileLogger) log(level Level, msg string, args ...any) {
 	)
 
 	l.out.Println(line)
+	if f, ok := l.closer.(*os.File); ok && f != nil {
+		_ = f.Sync()
+	}
 }
 
 func (l *FileLogger) enabled(level Level) bool {

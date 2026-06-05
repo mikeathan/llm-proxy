@@ -148,3 +148,19 @@ func (h *MemoryHandlers) DeleteMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, map[string]string{"status": "deleted"})
 }
+
+func (h *MemoryHandlers) ClearWorkspace(w http.ResponseWriter, r *http.Request) {
+	wsID := r.PathValue("workspace")
+	if wsID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+		return
+	}
+	memType := memory.MemoryType(r.URL.Query().Get("type"))
+
+	n, err := h.store.DeleteAllByWorkspace(r.Context(), wsID, memType)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("clear failed: %v", err))
+		return
+	}
+	respondJSON(w, map[string]any{"status": "cleared", "deleted": n})
+}

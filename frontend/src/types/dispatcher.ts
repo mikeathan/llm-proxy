@@ -112,6 +112,7 @@ export interface GuardrailDecision {
 }
 
 export interface AgentEvent {
+  id?: string
   type: AgentEventType
   payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | GuardrailBlockedPayload | string
   timestamp?: string

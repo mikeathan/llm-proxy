@@ -22,13 +22,13 @@
       }
     },
     "memory_update": {
-      "description": "Save or update an important fact, decision, preference, or note so you can recall it in future conversations. Use this when the user tells you something you should remember permanently. To update an existing memory, provide 'old_text' with a unique substring of the original content. Use target='user' to save user preferences separately.",
+      "description": "Save or update an important fact, decision, preference, or note so you can recall it in future conversations. Use this when the user tells you something you should remember permanently. To update an existing memory, provide 'old_text' with a unique substring of the original content. Use target='user' to save user preferences separately. The same topic is automatically reused across calls — saving with an existing topic updates that entry rather than creating a duplicate.",
       "parameters": {
         "type": "object",
         "properties": {
           "topic": {
             "type": "string",
-            "description": "Short topic label for this memory"
+            "description": "Short topic label for this memory. Reusing an existing topic updates that entry in-place."
           },
           "content": {
             "type": "string",

@@ -110,6 +110,7 @@ export interface GlobalConfig {
   }
   agent_defaults: AgentDefaults
   provider_defaults?: Record<string, AgentDefaults>
+  run_logging?: { enabled: boolean }
 }
 
 export interface AgentDefinition {

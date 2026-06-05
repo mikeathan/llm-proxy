@@ -185,6 +185,15 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		if tc.Function.Name == models.ToolSubmitFinalAnswer {
 			return nil
 		}
+
+		// Flush the tool result cache after successful file mutation tools.
+		// This prevents stale reads — e.g. cat after write_file returning old data.
+		if tc.Function.Name == models.ToolFileWrite || tc.Function.Name == models.ToolFileAppend {
+			if a.toolCache != nil {
+				a.toolCache.Flush()
+				a.logger.Debug("tool cache flushed after file mutation", "tool", tc.Function.Name)
+			}
+		}
 	}
 	return nil
 }
@@ -314,6 +323,11 @@ func toolCategory(toolName string) string {
 func extractTaskSummary(rawArgs string) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
+			if s := extractTruncatedJSONField(rawArgs, key); s != "" {
+				return s
+			}
+		}
 		return "Task complete."
 	}
 	for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
@@ -327,6 +341,55 @@ func extractTaskSummary(rawArgs string) string {
 		}
 	}
 	return "Task complete."
+}
+
+// extractTruncatedJSONField extracts a string field value from truncated JSON
+// where the closing quote or brace may be missing.  Decodes JSON escape
+// sequences (\n, \t, \", \\, etc.) in the extracted content.
+func extractTruncatedJSONField(raw, field string) string {
+	prefix := `"` + field + `": "`
+	idx := strings.Index(raw, prefix)
+	if idx == -1 {
+		prefix = `"` + field + `" : "`
+		idx = strings.Index(raw, prefix)
+		if idx == -1 {
+			return ""
+		}
+	}
+	start := idx + len(prefix)
+	if start >= len(raw) {
+		return ""
+	}
+	content := raw[start:]
+	var out strings.Builder
+	for i := 0; i < len(content); i++ {
+		b := content[i]
+		if b == '\\' && i+1 < len(content) {
+			next := content[i+1]
+			switch next {
+			case 'n':
+				out.WriteByte('\n')
+			case 't':
+				out.WriteByte('\t')
+			case 'r':
+				out.WriteByte('\r')
+			case '\\':
+				out.WriteByte('\\')
+			case '"':
+				out.WriteByte('"')
+			default:
+				out.WriteByte('\\')
+				out.WriteByte(next)
+			}
+			i++
+			continue
+		}
+		if b == '"' {
+			break
+		}
+		out.WriteByte(b)
+	}
+	return out.String()
 }
 
 // validateToolArgs checks required parameters from the tool's JSON schema

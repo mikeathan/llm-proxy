@@ -470,3 +470,26 @@ func TestRecordingClient_DefaultModelName(t *testing.T) {
 		t.Fatalf("expected model 'unknown' in line, got %q", lines[0].Model)
 	}
 }
+
+func TestRecordingClient_Disabled(t *testing.T) {
+	underlying := &mockClient{
+		chatFn: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Role: "assistant", Content: "ok"}},
+				},
+			}, nil
+		},
+	}
+
+	rc := New(underlying, "", "gemma4")
+	resp, err := rc.Chat(context.Background(), proxy.ChatRequest{
+		Messages: []proxy.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed when disabled: %v", err)
+	}
+	if resp.Choices[0].Message.Content != "ok" {
+		t.Fatalf("unexpected content: %s", resp.Choices[0].Message.Content)
+	}
+}

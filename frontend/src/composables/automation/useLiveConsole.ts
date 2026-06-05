@@ -17,8 +17,14 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
   });
 
   const handleAgentEvent = (ev: AgentEvent) => {
+    // Deduplicate against events already received (SSE reconnect replay).
+    // Server-assigned IDs are stable across reconnections.
+    if (ev.id && liveEvents.value.some(e => e.id === ev.id)) {
+      return;
+    }
+
     // Assign a unique ID if it doesn't have one for better Vue list diffing
-    if (!(ev as any).id) {
+    if (!ev.id) {
        (ev as any).id = generateId();
     }
 

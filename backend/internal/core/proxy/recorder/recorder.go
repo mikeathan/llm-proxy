@@ -15,15 +15,20 @@ import (
 	"time"
 )
 
+type runState struct {
+	file    *os.File
+	writer  *bufio.Writer
+	encoder *json.Encoder
+}
+
 type RecordingClient struct {
 	underlying   proxy.Client
 	recordDir    string
 	modelName    string
 	mu           sync.Mutex
-	file         *os.File
-	writer       *bufio.Writer
-	encoder      *json.Encoder
-	currentRunID string
+	states       map[string]*runState
+	dirs         map[string]string
+	currentDir   string // fallback/legacy
 }
 
 func New(underlying proxy.Client, recordDir string, modelName string) *RecordingClient {
@@ -31,7 +36,32 @@ func New(underlying proxy.Client, recordDir string, modelName string) *Recording
 		underlying: underlying,
 		recordDir:  recordDir,
 		modelName:  modelName,
+		states:     make(map[string]*runState),
+		dirs:       make(map[string]string),
 	}
+}
+
+func (rc *RecordingClient) SetDir(dir string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.currentDir = dir
+}
+
+func (rc *RecordingClient) SetDirForRun(runID string, dir string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.dirs[runID] = dir
+}
+
+func (rc *RecordingClient) CloseRun(runID string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if state, ok := rc.states[runID]; ok {
+		_ = state.writer.Flush()
+		_ = state.file.Close()
+		delete(rc.states, runID)
+	}
+	delete(rc.dirs, runID)
 }
 
 func (rc *RecordingClient) ensureFile(ctx context.Context) error {
@@ -39,12 +69,9 @@ func (rc *RecordingClient) ensureFile(ctx context.Context) error {
 	defer rc.mu.Unlock()
 
 	runID := models.GetRunID(ctx)
-	if runID != "" && runID != rc.currentRunID {
-		rc.closeFile()
-		rc.currentRunID = runID
-	}
 
-	if rc.file != nil {
+	state := rc.states[runID]
+	if state != nil {
 		return nil
 	}
 
@@ -52,45 +79,56 @@ func (rc *RecordingClient) ensureFile(ctx context.Context) error {
 		rc.modelName = "unknown"
 	}
 
-	sessionID := generateSessionID()
-	timestamp := time.Now().UTC().Format("20060102T150405Z")
-
-	taskName := models.GetTaskName(ctx)
-	dir := filepath.Join(rc.recordDir, rc.modelName, taskName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("recorder: create dir %s: %w", dir, err)
+	targetDir := rc.dirs[runID]
+	if targetDir == "" && runID == "" {
+		targetDir = rc.currentDir
 	}
 
-	filename := fmt.Sprintf("%s_%s.jsonl", timestamp, sessionID)
-	filePath := filepath.Join(dir, filename)
+	if targetDir == "" && rc.recordDir == "" {
+		return nil
+	}
+
+	var filePath string
+	if targetDir != "" {
+		filePath = filepath.Join(targetDir, "recording.jsonl")
+	} else if rc.recordDir != "" {
+		sessionID := generateSessionID()
+		timestamp := time.Now().UTC().Format("20060102T150405Z")
+		taskName := models.GetTaskName(ctx)
+		dir := filepath.Join(rc.recordDir, rc.modelName, taskName)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("recorder: create dir %s: %w", dir, err)
+		}
+		filename := fmt.Sprintf("%s_%s.jsonl", timestamp, sessionID)
+		filePath = filepath.Join(dir, filename)
+	}
 
 	f, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("recorder: create file %s: %w", filePath, err)
 	}
 
-	rc.file = f
-	rc.writer = bufio.NewWriterSize(f, 65536)
-	rc.encoder = json.NewEncoder(rc.writer)
+	w := bufio.NewWriterSize(f, 65536)
+	rc.states[runID] = &runState{
+		file:    f,
+		writer:  w,
+		encoder: json.NewEncoder(w),
+	}
 	return nil
 }
 
 func (rc *RecordingClient) closeFile() {
-	if rc.file != nil {
-		_ = rc.writer.Flush()
-		_ = rc.file.Close()
-		rc.file = nil
-		rc.writer = nil
-		rc.encoder = nil
+	if state, ok := rc.states[""]; ok {
+		_ = state.writer.Flush()
+		_ = state.file.Close()
+		delete(rc.states, "")
 	}
 }
 
 func (rc *RecordingClient) flush() {
-	if rc.writer != nil {
-		_ = rc.writer.Flush()
-	}
-	if rc.file != nil {
-		_ = rc.file.Sync()
+	if state, ok := rc.states[""]; ok {
+		_ = state.writer.Flush()
+		_ = state.file.Sync()
 	}
 }
 
@@ -99,7 +137,7 @@ func (rc *RecordingClient) Chat(ctx context.Context, req proxy.ChatRequest) (*pr
 		return nil, err
 	}
 
-	rc.writeLine(recordLine{
+	rc.writeLine(ctx, recordLine{
 		Type:     "request",
 		Model:    rc.modelName,
 		Messages: req.Messages,
@@ -108,18 +146,18 @@ func (rc *RecordingClient) Chat(ctx context.Context, req proxy.ChatRequest) (*pr
 
 	resp, err := rc.underlying.Chat(ctx, req)
 	if err != nil {
-		rc.writeLine(recordLine{
+		rc.writeLine(ctx, recordLine{
 			Type:    "error",
 			Message: err.Error(),
 		})
 		return nil, err
 	}
 
-	rc.writeLine(recordLine{
+	rc.writeLine(ctx, recordLine{
 		Type:    "response",
 		Choices: resp.Choices,
 	})
-	rc.writeLine(recordLine{
+	rc.writeLine(ctx, recordLine{
 		Type:        "done",
 		TotalChunks: 1,
 	})
@@ -132,7 +170,7 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 		return nil, err
 	}
 
-	rc.writeLine(recordLine{
+	rc.writeLine(ctx, recordLine{
 		Type:     "request",
 		Model:    rc.modelName,
 		Messages: req.Messages,
@@ -141,7 +179,7 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 
 	underlyingCh, err := rc.underlying.Stream(ctx, req)
 	if err != nil {
-		rc.writeLine(recordLine{
+		rc.writeLine(ctx, recordLine{
 			Type:    "error",
 			Message: err.Error(),
 		})
@@ -156,14 +194,14 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 			select {
 			case chunk, ok := <-underlyingCh:
 				if !ok {
-					rc.writeLine(recordLine{
+					rc.writeLine(ctx, recordLine{
 						Type:        "done",
 						TotalChunks: chunks,
 					})
 					return
 				}
 				chunks++
-				rc.writeLine(recordLine{
+				rc.writeLine(ctx, recordLine{
 					Type:    "chunk",
 					Choices: chunk.Choices,
 				})
@@ -171,12 +209,12 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 				case out <- chunk:
 				case <-ctx.Done():
 					if chunks > 0 {
-						rc.writeLine(recordLine{
+						rc.writeLine(ctx, recordLine{
 							Type:        "done",
 							TotalChunks: chunks,
 						})
 					} else {
-						rc.writeLine(recordLine{
+						rc.writeLine(ctx, recordLine{
 							Type:    "error",
 							Message: "context cancelled",
 						})
@@ -185,12 +223,12 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 				}
 			case <-ctx.Done():
 				if chunks > 0 {
-					rc.writeLine(recordLine{
+					rc.writeLine(ctx, recordLine{
 						Type:        "done",
 						TotalChunks: chunks,
 					})
 				} else {
-					rc.writeLine(recordLine{
+					rc.writeLine(ctx, recordLine{
 						Type:    "error",
 						Message: "context cancelled",
 					})
@@ -203,14 +241,18 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 	return out, nil
 }
 
-func (rc *RecordingClient) writeLine(line recordLine) {
+func (rc *RecordingClient) writeLine(ctx context.Context, line recordLine) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	if rc.encoder != nil {
-		_ = rc.encoder.Encode(line)
-		if line.Type == "done" || line.Type == "error" {
-			_ = rc.writer.Flush()
-			_ = rc.file.Sync()
+	runID := models.GetRunID(ctx)
+	state := rc.states[runID]
+	if state != nil && state.encoder != nil {
+		_ = state.encoder.Encode(line)
+		if state.writer != nil {
+			_ = state.writer.Flush()
+		}
+		if state.file != nil {
+			_ = state.file.Sync()
 		}
 	}
 }

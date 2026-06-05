@@ -36,6 +36,7 @@ type RuntimeService interface {
 	ListProviderModels(context.Context, string, string) ([]models.ProviderModelInfo, error)
 	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
+	ApplyModelOverrides(overrides map[string]models.ModelOverride)
 }
 
 type AdminService interface {
@@ -86,6 +87,7 @@ type AdminService interface {
 	ServiceCredentials() (id, secret string)
 	ResetShell(workspaceID string) error
 	ListShellSessions() []models.TerminalSessionView
+	RunLoggingEnabled() bool
 }
 
 type AssistantService interface {
@@ -108,4 +110,6 @@ type AssistantService interface {
 	RootDir() string
 	Events() *automation.EventBus
 	MemoryStore() *memory.Store
+	RecordDir() string
+	RunLoggingEnabled() bool
 }

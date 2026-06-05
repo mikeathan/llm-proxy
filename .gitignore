@@ -52,3 +52,4 @@ backend/data/orchestrator.db*
 
 node_modules/
 .sandbox/
+backend/data/runs/*

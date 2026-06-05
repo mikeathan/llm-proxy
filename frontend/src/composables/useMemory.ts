@@ -76,6 +76,23 @@ export function useMemory() {
     }
   }
 
+  const clearAllMemories = async (workspaceId: string, type?: string) => {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await MemoryService.clearAll(workspaceId, type)
+      memories.value = []
+      searchResults.value = []
+      selectedMemory.value = null
+      return result.deleted
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to clear memories'
+      console.error(err)
+    } finally {
+      loading.value = false
+    }
+  }
+
   const selectMemory = (entry: MemoryEntry | null) => {
     selectedMemory.value = entry
   }
@@ -91,6 +108,7 @@ export function useMemory() {
     search,
     deleteMemory,
     updateMemory,
+    clearAllMemories,
     selectMemory,
   }
 }

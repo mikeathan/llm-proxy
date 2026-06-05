@@ -33,6 +33,7 @@ type AppContext struct {
 	hostSettings *storage.HostSettingsStore
 	terminal     shell.ShellProvider
 	configMu     sync.RWMutex
+	cliEnableRuns bool
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -98,12 +99,14 @@ func (s *AppContext) registerSubscribers() {
 	s.dataMgr.Registry().OnChange(func(reg models.RegistryData) {
 		logging.Info("Registry change detected, syncing LLM runtime")
 		s.manager.Sync()
+		s.manager.ApplyModelOverrides(s.GetSettings().ModelOverrides)
 	})
 
 	// 4. Secrets Changes -> Sync LLM Runtime (credentials updated)
 	s.dataMgr.EncryptedSecretStore().OnChange(func(data models.EncryptedSecretData) {
 		logging.Info("Secrets change detected, syncing LLM runtime")
 		s.manager.Sync()
+		s.manager.ApplyModelOverrides(s.GetSettings().ModelOverrides)
 	})
 }
 
@@ -149,7 +152,7 @@ func (s *AppContext) initOrchestrator() {
 
 	memStore, memErr := memory.New(p)
 	if memErr != nil {
-		logging.Warn("failed to initialize memory store, memory disabled", "error", memErr)
+		logging.Error("failed to initialize memory store, memory disabled — all memory features unavailable", "error", memErr)
 		return
 	}
 	s.memoryStore = memStore
@@ -231,6 +234,17 @@ func (s *AppContext) SetWorkspacesDir(dir string) {
 // Tier 1: System
 func (s *AppContext) GetSystem() models.SystemConfig {
 	return s.dataMgr.System().Get()
+}
+
+func (s *AppContext) RunLoggingEnabled() bool {
+	if s.cliEnableRuns {
+		return true
+	}
+	sys := s.GetSystem()
+	if sys.Server.RunLogging != nil {
+		return sys.Server.RunLogging.Enabled
+	}
+	return false
 }
 
 func (s *AppContext) UpdateSystem(fn func(*models.SystemConfig)) error {
@@ -344,6 +358,9 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		}
 		if req.Environment != nil {
 			sys.Server.Environment = req.Environment
+		}
+		if req.RunLogging != nil {
+			sys.Server.RunLogging = req.RunLogging
 		}
 
 		// 2. Sync GPU Configuration (moved into transaction for persistence)

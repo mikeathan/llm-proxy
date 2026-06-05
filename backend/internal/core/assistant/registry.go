@@ -231,6 +231,7 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 
 	if r.Memory != nil {
 		prompt += "\n\n" + prompts.MemoryProactiveNudge
+		prompt += "\n\n" + prompts.MemoryRecallNudge
 	}
 
 	return prompt, nil
@@ -414,5 +415,14 @@ func (r *LocalToolRegistry) registerSystemTools() {
 		// This tool allows the system to send error feedback back to the agent
 		// as a tool result when it makes a mistake in its tool-calling format.
 		return fmt.Sprintf("SYSTEM ERROR: %s", args.Error), nil
+	})
+
+	// complete_step allows the agent to explicitly mark a step as finished.
+	// The Go backend calls ConfirmOrCompleteStep() on the PlanState when this is
+	// detected — the handler just returns a confirmation message.
+	registerTool(r, models.CategorySystem, models.ToolCompleteStep, func(ctx context.Context, args struct {
+		Notes string `json:"notes"`
+	}) (any, error) {
+		return "Step completed. Proceeding to next step.", nil
 	})
 }
