@@ -19,7 +19,13 @@ import (
 )
 
 const (
-	streamReasoningBudgetDivisor  = 4           // reasoning_budget = max_tokens / 4 — caps thinking without cutting complex tool calls
+	// ⚠ DO NOT CHANGE THIS VALUE without running the full smoke test.
+	// divisor=4 was tried and caused recompilation loops at late turns because
+	// 682 tokens was too little for the model to plan the next step at turn 18+.
+	// divisor=3 gives 910 tokens — enough headroom.  Going higher than 3 wastes
+	// generation budget, going lower than 3 causes the planning-cutoff loop.
+	// See docs/audits/memory-injection-investigation.md for the investigation.
+	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
 	automationTemperature         = 0.1         // low temperature for deterministic automation tasks

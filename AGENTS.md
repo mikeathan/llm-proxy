@@ -28,7 +28,9 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
 
 ### Type Definitions
+
 `models/` contains ALL shared types. No logic, only structs, constants, and interfaces.
+
 - `models/config.go` — ModelConfig, ProviderConfig, GPUConfig, AgentGuardrailsConfig
 - `models/infrastructure.go` — SystemConfig, UserSettings, ModelOverride
 - `models/registry.go` — RegistryData, ModelRegistryEntry
@@ -38,6 +40,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
 - `models/workspace.go` — Workspace, AutomationRun, AgentState
 
 ### Core Systems
+
 - `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
@@ -48,6 +51,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
 - `internal/testing/llmprofiles/` — `FixtureClient` + `RunAgainstFixtures` (replay test framework)
 
 ### Infrastructure
+
 - `internal/platform/storage/` — Generic atomic JSON/YAML stores with change callbacks
 - `internal/platform/logging/` — Structured logging (global + per-workspace process logs)
 - `internal/app/` — Bootstrap, AppContext (central state manager), service wiring
@@ -56,19 +60,24 @@ See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
 ## Critical Contracts (Do Not Break)
 
 ### RuntimeManager Interface (`internal/core/llm/manager.go`)
+
 The `RuntimeManager` interface is implemented by `LLMRuntimeManager` (production) and `MockManager` (tests). Any method added to the interface MUST be added to both implementations.
 
 ### ToolProvider Interface (`internal/core/assistant/tool_provider.go`)
+
 Defines how tools are listed and provided to the agent. Implemented by `LocalToolRegistry`, `MCPNodeHerder`, and `MultiToolProvider`.
 
 ### Guardrail Decision Flow (`internal/core/assistant/agent.go`)
+
 When a tool call is blocked:
+
 1. `GuardrailDecisionCallback` is invoked with a decision ID
 2. Callback blocks on a channel (max 60s)
 3. Frontend resolves via `POST /admin/api/conversation/guardrail-decision`
 4. If `persist: true`, override saved to workspace config
 
 ### Model Persistence (Two-Tier)
+
 - Base model info → `registry.json` (handled by `PersistModel`/`PersistReplaceModel`/`PersistDeleteModel`)
 - Agent tuning overrides → `settings.yml` under `model_overrides:` (handled by `UpdateSettings`)
 - Both are written simultaneously in `handleAddModel` / `handleUpdateModel`
@@ -76,30 +85,36 @@ When a tool call is blocked:
 ## Coding Rules (Go)
 
 ### Comments
+
 - **No comments unless the WHY is non-obvious.** Well-named identifiers document the WHAT.
 - **Single-line only.** No multi-line docstrings or comment blocks.
 - If removing the comment wouldn't confuse a reader, remove it.
 
 ### Error Handling
+
 - Validate at system boundaries (user input, external APIs) — trust internal code.
 - Use `fmt.Errorf` with `%w` to wrap errors and maintain the chain.
 - Use sentinel errors from `models/llm.go` for known conditions (`ErrUnknownModel`, `ErrModelExists`, `ErrModelStarting`).
 
 ### Abstraction
+
 - Don't DRY until the pattern repeats 3+ times. Three similar lines > premature abstraction.
 - Don't add features, refactor, or introduce abstractions beyond what the task requires.
 - No feature flags, backward-compat shims, or `// TODO` stubs.
 
 ### Prompts
+
 - ALL prompt strings go in `internal/core/assistant/prompts/templates.go`. Nowhere else.
 - This includes system messages, nag prompts, parse-error feedback, JSON translations.
 
 ### Network & Terminal
+
 - All network I/O via `NetworkTools` (never raw `http.Client` or `net.Dial`).
 - All terminal execution via `ShellProvider` (never raw `os/exec`).
 - All file paths validated with `IsSecurePath` for workspace jailing.
 
 ### Cyclomatic Complexity & Readability
+
 - Keep functions short and focused: limit any function to a maximum of 80 lines. If a function grows larger, extract sub-logic into small, well-named helper functions.
 - Keep cyclomatic complexity under 10 per function. Avoid nested conditionals deeper than 3 levels; instead, structure flow with early returns and guard clauses ("happy path to the left").
 - Encapsulate transient loop or session state in temporary structs (e.g. `agentRunner`) instead of passing multiple pointers to simple type counters (like `*int`, `*bool`) between functions.
@@ -142,13 +157,15 @@ When a tool call is blocked:
 
 8. **Forgetting `tool_choice: "required"` for native tools in automation** — When `useNativeTools` is true and the request is an automation task, the agent sets `tool_choice: "required"`, `temperature: 0.1`, and `reasoning_budget: max_tokens/3` on the `ChatRequest`. This forces the LLM to always call a tool (preventing thinking-only EOS responses) and caps wasted thinking tokens so the model has budget left for the actual tool call. The `omitempty` tags ensure these fields are omitted for XML mode or non-automation contexts.
 
-    Both `reasoning_budget` and `thinking_budget_tokens` are sent in the request for broad provider compatibility. OpenAI ignores the unknown `thinking_budget_tokens` field; llama.cpp reads `thinking_budget_tokens` (server-side enforcement) and ignores the unknown `reasoning_budget` field. See `models/llm_messages.go` `ChatRequest` and `stream.go` `prepareChatRequest()`.
+   Both `reasoning_budget` and `thinking_budget_tokens` are sent in the request for broad provider compatibility. OpenAI ignores the unknown `thinking_budget_tokens` field; llama.cpp reads `thinking_budget_tokens` (server-side enforcement) and ignores the unknown `reasoning_budget` field. See `models/llm_messages.go` `ChatRequest` and `stream.go` `prepareChatRequest()`.
 
-    Even when `reasoning_budget` is 0 in the model config, the agent **dynamically computes** `max_tokens/3` in `prepareChatRequest()` and syncs it to `a.reasoningBudget`. See `stream.go` `prepareChatRequest()`.
+   Even when `reasoning_budget` is 0 in the model config, the agent **dynamically computes** `max_tokens/3` in `prepareChatRequest()` and syncs it to `a.reasoningBudget`. See `stream.go` `prepareChatRequest()`.
 
-9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/4`) will exhaust their allocated thinking tokens before the stuck threshold fires. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `stream.go` `stuckThreshold()`.
+9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/3`) will exhaust their allocated thinking tokens before the stuck threshold fires. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `stream.go` `stuckThreshold()`.
 
-    Some models (e.g. Qwen 3.5) emit `<tool_call>` blocks inside `<think>` reasoning content. Before declaring stuck, `processStream` scans the accumulated reasoning content for embedded `<tool_call>` blocks. If found, `<think>` tags are stripped and the cleaned content is promoted to `fullMsg.Content` so the XML tool call parser can process it downstream. This prevents a false stuck detection when the tool call is invisible to the native-tool parser. See `agent.go` `toolCallInContent` regex and `cleanReasoningContent()`.
+    **Do NOT change `streamReasoningBudgetDivisor` from 3.** Divisor 4 was tried in production and caused recompilation loops at turn 18+: 682 tokens was too few for the model to plan its next step in a 40+ message history. Divisor 3 (910 tokens) was the minimum that eliminated the loops. Higher divisors waste the output budget; lower divisors cause mid-reasoning cutoff. The smoke test covers this — run it before and after any change. See `docs/audits/memory-injection-investigation.md`.
+
+   Some models (e.g. Qwen 3.5) emit `<tool_call>` blocks inside `<think>` reasoning content. Before declaring stuck, `processStream` scans the accumulated reasoning content for embedded `<tool_call>` blocks. If found, `<think>` tags are stripped and the cleaned content is promoted to `fullMsg.Content` so the XML tool call parser can process it downstream. This prevents a false stuck detection when the tool call is invisible to the native-tool parser. See `agent.go` `toolCallInContent` regex and `cleanReasoningContent()`.
 
 10. **Progressive sieve recovery on consecutive stuck events** — On the 1st reasoning-stuck event, the reactive sieve (first 2 + last 6 messages) is applied and a nag prompt ("Stop analyzing, call a tool") is added to the history. On the 2nd consecutive stuck event, an aggressive sieve (first 2 + last 3 messages) is applied with a stronger nag prompt. On the 3rd consecutive stuck event, the agent fails with a clear error ("model stuck in reasoning loop"). This prevents infinite spinning while giving verbose models (Gemma 4) multiple chances to recover. Note: the stuck detection triggers a retry, not a fail — progressive sieve catches repeated failures.
 
@@ -170,15 +187,14 @@ When a tool call is blocked:
 
 18. **Passive memory injection (context only, no step skipping, one-time only)** — Memory is injected as `<relevant_memories>` context for the model ONCE per session (first turn only), like Hermes Agent. No `MemoryCheckGate`, no step-skipping logic, no per-turn re-injection, and no `recordStepMemories()` DB writes. For automation tasks, memory injection is disabled entirely because the task prompt is too generic as a search query and the positioned `<memory>` block overwrites the finalization instruction. `findOverlappingEntry()` in `memory_tools.go` computes **Jaccard similarity** on topic words (≥0.70) and content (≥0.90) to deduplicate entries. See `stream.go` `injectActiveMemory()` and `docs/audits/memory-injection-investigation.md`.
 
+19. **Reasoning budget enforcement is warn-only, never terminate** — The proxy checks `reasonUsed > reasoningBudget` in `stream.go` `processStream()` but does NOT terminate the stream. It only logs a warning. Do NOT add `return nil` here. The server (llama.cpp) enforces `reasoning_budget` at the API level by forcing the model out of thinking mode when the budget is exhausted. If the proxy terminates on the budget check, it kills the stream before the first content chunk arrives (the transition happens across chunk boundaries), triggering the XML/non-streaming fallback chain unnecessarily. The stuck detector (`maxTokens × 2` chars of pure reasoning) and `maxTokens` overall budget provide sufficient protection against runaway generation. See `stream.go` `processStream()` — the `if term.ShouldTerminate` block is deliberately warn-only.
 
-
-20. **Reasoning budget enforcement is warn-only, never terminate** — The proxy checks `reasonUsed > reasoningBudget` in `stream.go` `processStream()` but does NOT terminate the stream. It only logs a warning. Do NOT add `return nil` here. The server (llama.cpp) enforces `reasoning_budget` at the API level by forcing the model out of thinking mode when the budget is exhausted. If the proxy terminates on the budget check, it kills the stream before the first content chunk arrives (the transition happens across chunk boundaries), triggering the XML/non-streaming fallback chain unnecessarily. The stuck detector (`maxTokens × 2` chars of pure reasoning) and `maxTokens` overall budget provide sufficient protection against runaway generation. See `stream.go` `processStream()` — the `if term.ShouldTerminate` block is deliberately warn-only.
-
-21. **RAG payload moved to end of prompt for KV cache stability** — `injectActiveMemory()` emits `<relevant_memories>` as a separate system message wrapped in `<memory>` tags, placed right before the current user turn. This keeps the system prompt + conversation history KV cache stable across turns — only the final `<memory>` message changes. See `stream.go` `injectActiveMemory()`.
+20. **RAG payload moved to end of prompt for KV cache stability** — `injectActiveMemory()` emits `<relevant_memories>` as a separate system message wrapped in `<memory>` tags, placed right before the current user turn. This keeps the system prompt + conversation history KV cache stable across turns — only the final `<memory>` message changes. See `stream.go` `injectActiveMemory()`.
 
 ## File Change Checklist
 
 When adding a new model-level field, update these files:
+
 1. `models/config.go` or `models/infrastructure.go` — type definition
 2. `internal/transport/http/registry_handlers.go` — add/update request structs
 3. `internal/transport/http/admin_handlers.go` — view struct
@@ -188,12 +204,14 @@ When adding a new model-level field, update these files:
 7. Frontend component (if UI field)
 
 When adding a tool:
+
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
 4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
 
 When adding a prompt:
+
 1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
 2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
 
@@ -283,6 +301,7 @@ The `recordreplay` build tag ensures these tests are excluded from `go test ./..
 ### File Change Checklist
 
 When adding a new model-level field, update these files:
+
 1. `models/config.go` or `models/infrastructure.go` — type definition
 2. `internal/transport/http/registry_handlers.go` — add/update request structs
 3. `internal/transport/http/admin_handlers.go` — view struct
@@ -292,12 +311,14 @@ When adding a new model-level field, update these files:
 7. Frontend component (if UI field)
 
 When adding a tool:
+
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
 4. `internal/core/assistant/registry.go` — registration
 
 When adding a prompt:
+
 1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
 2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
 
