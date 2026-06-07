@@ -1,3 +1,7 @@
+---
+status: not_implemented
+related_specs: [SPEC-003]
+---
 # PLAN-001: Discovery Panel Implementation
 
 **Status: NOT IMPLEMENTED**

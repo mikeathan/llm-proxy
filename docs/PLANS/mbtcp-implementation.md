@@ -1,3 +1,8 @@
+---
+status: proposed
+date: 2026-06-03
+related_specs: [SPEC-004]
+---
 # MBTCP: Memory-Backed Tool Call Pre-emption
 
 **Status:** Proposed

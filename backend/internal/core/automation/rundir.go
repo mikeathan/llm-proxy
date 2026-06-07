@@ -35,13 +35,13 @@ type RunMeta struct {
 	RecordingPath  string `json:"recording_path,omitempty"`
 }
 
-// NewRunDir creates the run directory under parent/{model}/{task}/{timestamp}_{sessionID}.
+// NewRunDir creates the run directory under parent/{workspaceID}/{task}/{model}/{timestamp}_{sessionID}.
 // parent is the base directory (record-dir or data/runs/) — must already exist.
-func NewRunDir(parent, model, task string) (*RunDir, error) {
+func NewRunDir(parent, workspaceID, task, model string) (*RunDir, error) {
 	sessionID := generateSessionID()
 	timestamp := time.Now().UTC().Format("20060102T150405Z")
 	dirName := fmt.Sprintf("%s_%s", timestamp, sessionID)
-	root := filepath.Join(parent, model, task, dirName)
+	root := filepath.Join(parent, workspaceID, task, model, dirName)
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return nil, fmt.Errorf("create run dir %s: %w", root, err)
 	}

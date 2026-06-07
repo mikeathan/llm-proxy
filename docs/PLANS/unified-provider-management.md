@@ -1,3 +1,6 @@
+---
+status: not_implemented
+---
 # Unified Provider & Model Management
 
 **Status: NOT IMPLEMENTED**

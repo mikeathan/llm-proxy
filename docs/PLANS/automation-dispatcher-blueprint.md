@@ -1,8 +1,14 @@
+---
+status: superseded
+date: 2026-04-01
+superseded_by: SPEC-007
+---
+
 # Unified Automation Dispatcher & Agent IDE - Architectural Blueprint
 
 **Date:** 1 April 2026  
 **Target:** Go 1.24+ / Vue 3.5+  
-**Status:** Architectural Specification
+**Status:** Superseded by SPEC-007
 
 ---
 

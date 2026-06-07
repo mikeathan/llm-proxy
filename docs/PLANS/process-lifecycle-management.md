@@ -1,3 +1,6 @@
+---
+status: complete
+---
 # Process Lifecycle Management — Orphan Cleanup & Admin Process View
 
 **Status: COMPLETE ✅**

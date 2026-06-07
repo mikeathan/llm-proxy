@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-005]
+---
 # Resource-Aware Orchestration Layer: Detailed Implementation Plan
 
 **Status: COMPLETE**

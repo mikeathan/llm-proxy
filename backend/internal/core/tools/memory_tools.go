@@ -187,18 +187,19 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 }
 
 // findOverlappingEntry searches existing memories using the new topic + content
-// as an FTS5 query, then computes Jaccard similarity on normalized topic words.
-// If any existing entry's topic has Jaccard ≥ 0.70 vs the new topic, the entry
-// is returned for in-place update. This catches near-duplicate entries with
-// different topic names — for example, "smoke-test-status" (["smoke", "test", "status"])
-// vs "llm-smoke-test-results" (["llm", "smoke", "test", "results"]) → J = 3/4 = 0.75 → match.
+// as an FTS5 query, then computes Jaccard similarity on normalized topic words
+// (threshold 0.70) and content words (threshold 0.90). Topic match catches
+// near-synonym entries like "smoke-test-status" vs "llm-smoke-test-results" (J=0.75).
+// Content match catches the same fact stored under different topics — for example,
+// "tool_versions" (content: "TypeScript 6.0.3") vs "typescript_version" (same content).
 func (m *MemoryToolProvider) findOverlappingEntry(ctx context.Context, wsID, topic, content string) *memory.MemoryEntry {
 	newWords := topicWords(topic)
 	if len(newWords) < 2 {
 		return nil
 	}
+	newContentWords := topicWords(content)
 
-	entries, err := m.store.Search(ctx, wsID, content+" "+topic, 3)
+	entries, err := m.store.Search(ctx, wsID, content+" "+topic, 5)
 	if err != nil || len(entries) == 0 {
 		return nil
 	}
@@ -207,6 +208,12 @@ func (m *MemoryToolProvider) findOverlappingEntry(ctx context.Context, wsID, top
 		oldWords := topicWords(existing.Title)
 		if topicJaccard(newWords, oldWords) >= 0.70 {
 			return &existing
+		}
+		if len(newContentWords) >= 2 {
+			oldContentWords := topicWords(existing.Content)
+			if topicJaccard(newContentWords, oldContentWords) >= 0.90 {
+				return &existing
+			}
 		}
 	}
 	return nil

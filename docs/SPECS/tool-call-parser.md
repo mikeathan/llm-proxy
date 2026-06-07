@@ -1,3 +1,14 @@
+---
+id: SPEC-002
+title: Tool Call Parser
+version: "1.0"
+status: stable
+last_updated: 2026-05-28
+constitution_references: [II.4]
+related_specs: [SPEC-001]
+supersedes:
+---
+
 # SPEC: Tool Call Parser
 
 ## I. Intent

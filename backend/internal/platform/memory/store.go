@@ -88,6 +88,8 @@ const listByTypeSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? 
 // listSQL lists all memories for a workspace, most recently updated first.
 const listSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`
 
+
+
 // getSQL fetches a single memory entry by ID within a workspace.
 const getSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND id = ?`
 
@@ -115,6 +117,9 @@ const deleteByTypeWorkspaceSQL = `DELETE FROM memories WHERE workspace_id = ? AN
 
 // deleteOlderThanSQL removes memories of a given type created before a cutoff timestamp.
 const deleteOlderThanSQL = `DELETE FROM memories WHERE memory_type = ? AND created_at < ?`
+
+// sqliteDateTimeFormat is the standard SQLite datetime function format.
+const sqliteDateTimeFormat = "2006-01-02 15:04:05"
 
 type Store struct {
 	db *sql.DB
@@ -320,7 +325,7 @@ func (s *Store) DeleteAllByWorkspace(ctx context.Context, workspaceID string, me
 }
 
 func (s *Store) DeleteOlderThan(ctx context.Context, memoryType MemoryType, before time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, deleteOlderThanSQL, string(memoryType), before.UTC().Format("2006-01-02 15:04:05"))
+	res, err := s.db.ExecContext(ctx, deleteOlderThanSQL, string(memoryType), before.UTC().Format(sqliteDateTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("memory delete older than: %w", err)
 	}

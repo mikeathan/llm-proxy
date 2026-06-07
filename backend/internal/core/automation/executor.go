@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -102,6 +101,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	if resp.State == nil {
 		resp.State = &models.AgentState{}
 	}
+	req.State = resp.State
 	resp.State.SetRunning(req.AutomationName)
 
 	if req.Model == "" {
@@ -201,7 +201,7 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 		return nil, nil, false, procLog
 	}
 	parent := filepath.Join(rootDir, "runs")
-	runDir, rErr := NewRunDir(parent, req.Model, req.AutomationName)
+	runDir, rErr := NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
 	if rErr != nil {
 		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
 		return nil, nil, false, procLog
@@ -230,10 +230,10 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
 func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger, capturedEvents *[]any, eventSink *EventSink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
-		Logger:      procLog,
-		MaxSteps:    assistant.DefaultMaxSteps,
-		Guardrails:  e.svc.GuardrailEngine(),
-		WorkspaceID: req.WorkspaceID,
+		Logger:       procLog,
+		MaxSteps:     assistant.DefaultMaxSteps,
+		Guardrails:   e.svc.GuardrailEngine(),
+		WorkspaceID:  req.WorkspaceID,
 		Orchestrator: e.svc.Orchestrator(),
 		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
@@ -249,16 +249,12 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 				e.svc.Events().Publish(req.WorkspaceID, ev)
 			},
 		),
-		MemoryStore:  e.svc.MemoryStore(),
-		ToolCacheCap: 500,
 	}
 	if req.Model == "" {
-		opts.State = e.buildPlanState(req.TaskContent)
 		return opts
 	}
 	cfg, ok := e.svc.ModelConfig(req.Model)
 	if !ok {
-		opts.State = e.buildPlanState(req.TaskContent)
 		return opts
 	}
 	opts.ProviderType = cfg.Provider
@@ -292,7 +288,6 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 		}
 	}
 	procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
-	opts.State = e.buildPlanState(req.TaskContent)
 	return opts
 }
 
@@ -605,70 +600,11 @@ func (e *LLMTaskExecutor) buildPriorRunSeededHistory(req ExecuteRequest) []proxy
 	return seeded
 }
 
-// buildAssistantPrefill generates an assistant-role message that cites the
-// current memories and primes the model to check them before each step.
-// Placing this in the assistant role makes the model treat the memory
-// check as its own most recent thought — models follow assistant-role
-// content more reliably than system-prompt guidance, especially smaller
-// ones where attention decays across long system prompts.
-func (e *LLMTaskExecutor) buildAssistantPrefill(entries []memory.MemoryEntry) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(prompts.AssistantPrefillHeader)
-	for _, entry := range entries {
-		b.WriteString(fmt.Sprintf("%s: %s\n", entry.Title, entry.Content))
-	}
-	b.WriteString(prompts.AssistantPrefillFooter)
-	return b.String()
-}
-
 func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) string {
 	return fmt.Sprintf(prompts.AutomationTaskPrompt,
-		req.WorkspaceID, req.TaskFile, prompts.MemoryCheckGate+stripTaskContradictions(taskContent))
+		req.WorkspaceID, req.TaskFile, taskContent)
 }
 
-// stripTaskContradictions removes instructions that conflict with the Memory Check Gate.
-// The task file's own "Do not skip any step" directly overrides the memory check gate
-// instruction to skip steps when relevant_memories already contains the answer.
-func stripTaskContradictions(content string) string {
-	// Strip the task-completion instruction that contradicts Memory Check Gate.
-	// Build regex from the constant to handle whitespace variations between sentences.
-	quoted := regexp.QuoteMeta(prompts.TaskOrderInstruction)
-	re := regexp.MustCompile(`(?i)` + quoted + `\s*`)
-	return re.ReplaceAllString(content, "")
-}
-
-// buildPlanState parses the task content to extract step descriptions and
-// builds a PlanState that tracks execution progress. Returns nil when the
-// task doesn't have parseable step markers.
-func (e *LLMTaskExecutor) buildPlanState(taskContent string) *models.PlanState {
-	lines := strings.Split(taskContent, "\n")
-	var steps []models.Step
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		// Match step-like lines: "## Step N — Description" or "Step N: Description"
-		if matched, _ := regexp.MatchString(`(?i)^(##\s*)?Step\s+\d+`, trimmed); matched {
-			status := models.StatusPending
-			if len(steps) == 0 {
-				status = models.StatusActive
-			}
-			steps = append(steps, models.Step{Description: trimmed, Status: status})
-		}
-	}
-	if len(steps) == 0 {
-		return nil
-	}
-	return &models.PlanState{
-		Goal:                 "Execute task",
-		Steps:                steps,
-		LastAutoAdvancedStep: -1,
-	}
-}
 
 // ============================================================================
 // Pulse Logic (Smart Skip)

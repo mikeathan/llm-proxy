@@ -186,14 +186,6 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			return nil
 		}
 
-		// Flush the tool result cache after successful file mutation tools.
-		// This prevents stale reads — e.g. cat after write_file returning old data.
-		if tc.Function.Name == models.ToolFileWrite || tc.Function.Name == models.ToolFileAppend {
-			if a.toolCache != nil {
-				a.toolCache.Flush()
-				a.logger.Debug("tool cache flushed after file mutation", "tool", tc.Function.Name)
-			}
-		}
 	}
 	return nil
 }

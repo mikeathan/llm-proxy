@@ -1,3 +1,7 @@
+---
+status: not_implemented
+---
+
 # Plan: Recording Playback for Automations
 
 ## Summary

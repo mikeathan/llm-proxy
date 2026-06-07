@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-001]
+---
 # Auto-Compute context_budget (and prefill) for Local LLMs
 
 **Status: COMPLETE**

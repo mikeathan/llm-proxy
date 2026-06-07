@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — caps thinking without cutting complex tool calls
+	streamReasoningBudgetDivisor  = 4           // reasoning_budget = max_tokens / 4 — caps thinking without cutting complex tool calls
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
 	automationTemperature         = 0.1         // low temperature for deterministic automation tasks
@@ -71,10 +71,21 @@ func (a *Agent) prepareMessagesForTurn(
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
-	prepared = a.injectActiveMemory(prepared, history)
+	// Skip memory injection for automation tasks.  The memory search uses the
+	// full task prompt (hundreds of words) as the query, which returns generic
+	// irrelevant entries (tool_versions, system_os_info, previous run outcomes)
+	// via FTS5 broad-match.  The <memory> block is appended at the END of
+	// prepared messages — the most salient position for the model — so it
+	// overwrites the finalization instruction ("call submit_final_answer")
+	// in the model's attention.  For a 4B model at step 10 with 18+ turns of
+	// history, this pushes the model to call notify_user instead.
+	// See docs/audits/memory-injection-investigation.md
+	isAutoCtx := a.findAutomationCtx(history)
+	if !isAutoCtx {
+		prepared = a.injectActiveMemory(prepared, history)
+	}
 
 	var prefill string
-	isAutoCtx := a.findAutomationCtx(history)
 	if a.shouldPrefill(isAutoCtx) {
 		prefill = prompts.AutomationPrefline
 		prepared = append(prepared, proxy.Message{
@@ -87,13 +98,20 @@ func (a *Agent) prepareMessagesForTurn(
 
 // injectActiveMemory searches for relevant memories using the last user
 // message (or cached automation task prompt) as query, and appends the
-// result as a separate system message wrapped in <memory> tags right before
-// the current user turn. This keeps the system prompt + state block +
-// conversation history KV cache stable — only this final message changes.
+// result as a separate system message wrapped in <memory> tags at the end
+// of prepared messages.  This runs ONCE per session (first turn only) to
+// avoid per-turn noise.  Memories saved mid-session become visible on the
+// next session.  See docs/audits/memory-injection-investigation.md
+// for the rationale and alternatives tried.
 func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
 	if a.memoryStore == nil {
 		return prepared
 	}
+
+	if a.memoryInjected {
+		return prepared
+	}
+	a.memoryInjected = true
 
 	lastUserMsg := ""
 	for i := len(history) - 1; i >= 0; i-- {
@@ -328,6 +346,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		}
 		if streamErr != nil {
 			a.logger.Warn("streaming not supported, falling back to non-streaming")
+			a.memoryInjected = false  // retry injection on the non-streaming path
 			return a.computeNextResponseNonStreaming(ctx, history, tools)
 		}
 	}
@@ -376,8 +395,10 @@ func injectRetryContext(history []proxy.Message) []proxy.Message {
 }
 
 // checkStreamStuck aborts early when reasoning content exceeds the threshold
-// with no text or tool call output.  The threshold is scaled by maxTokens * 2
-// so models with larger budgets get more runway before the safety net fires.
+// with no text or tool call output.  The threshold is scaled by
+// reasoningBudget * 2 (in chars) so models that don't enforce the budget
+// server-side are caught mid-stream; falls back to maxTokens * 2 when the
+// reasoning budget is 0 (non-automation turns).
 func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	if a.skipStuckCheck || len(fullMsg.Content) > 0 || len(fullMsg.ToolCalls) > 0 {
 		return false

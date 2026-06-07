@@ -8,32 +8,24 @@ Never run any git operation (stash, commit, add, unstage, reset, push, pull, bra
 
 ## Quick Start
 
+See [`CLAUDE.md`](CLAUDE.md) for build commands and [`docs/INDEX.md`](docs/INDEX.md) for documentation navigation.
+
 Go module root is `backend/`. All `go` commands run from that directory.
-
-The memory store uses SQLite FTS5 for full-text search. FTS5 is included automatically via the `modernc.org/sqlite` driver — no build tags needed.
-
-```bash
-cd backend
-go build ./...          # must pass
-go vet ./...            # no official linter; this is the sanity check
-go test ./...           # must pass
-go test ./internal/core/assistant/... -v   # agent loop tests
-go test ./internal/core/proxy/... -v       # parser + history tests
-go test -tags recordreplay ./internal/core/assistant/... -v  # recording replay tests
-go run main.go --data ./data               # start server on :4001
-go run main.go --data ./data --record-dir=testdata/recordings  # record mode
-```
-
 Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification is manual.
 
 ## Before You Write Any Code
 
 1. Read `CONSTITUTION.md` — it defines 12 immutable invariants. Your change must comply with all of them.
-2. If modifying the agent loop or tool parser, read `docs/SPECS/agent-loop.md` and `docs/SPECS/tool-call-parser.md`.
+2. Read the relevant SPEC file(s) for the subsystem you are modifying. See [`docs/INDEX.md`](docs/INDEX.md) for the mapping of subsystems to SPEC IDs (SPEC-001 through SPEC-008).
 3. `.agents/rules/` has deeper Go and Vue guidance — check there if a task needs architecture-level patterns.
-4. Run `go build ./... && go test ./...` to establish a clean baseline.
+4. See [`docs/INDEX.md`](docs/INDEX.md) for the full documentation catalog.
+5. Run `go build ./... && go test ./...` to establish a clean baseline.
+
+**Spec maintenance**: After any major subsystem change (new feature, refactor, behavior change), update the corresponding SPEC and add a new entry to `docs/PLANS/` documenting what changed and why. Specs are the contract — they must stay in sync with the code.
 
 ## Architecture (What Lives Where)
+
+See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
 
 ### Type Definitions
 `models/` contains ALL shared types. No logic, only structs, constants, and interfaces.
@@ -154,7 +146,7 @@ When a tool call is blocked:
 
     Even when `reasoning_budget` is 0 in the model config, the agent **dynamically computes** `max_tokens/3` in `prepareChatRequest()` and syncs it to `a.reasoningBudget`. See `stream.go` `prepareChatRequest()`.
 
-9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/4`) will exhaust their allocated thinking tokens before the stuck threshold fires. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `agent.go` `stuckThreshold()`.
+9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/4`) will exhaust their allocated thinking tokens before the stuck threshold fires. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `stream.go` `stuckThreshold()`.
 
     Some models (e.g. Qwen 3.5) emit `<tool_call>` blocks inside `<think>` reasoning content. Before declaring stuck, `processStream` scans the accumulated reasoning content for embedded `<tool_call>` blocks. If found, `<think>` tags are stripped and the cleaned content is promoted to `fullMsg.Content` so the XML tool call parser can process it downstream. This prevents a false stuck detection when the tool call is invisible to the native-tool parser. See `agent.go` `toolCallInContent` regex and `cleanReasoningContent()`.
 
@@ -176,21 +168,13 @@ When a tool call is blocked:
 
 17. **Settings override `tool_call_format: ""` blocks the default** — When the UI saves "Default" for an existing model, the save handler writes `tool_call_format: ""` to settings.yml. This empty string override takes highest priority and blocks `ApplyMetadataDefaults` from filling in `"native"`. The model silently switches to XML text mode. If you see a model unexpectedly failing with XML parse errors, check settings.yml for `tool_call_format: ""` and either remove it or set it to `"native"`.
 
-18. **Stale progress memories confuse the agent in automation** — When an agent stores progress memory (e.g. "Completed Steps 1-6 of LLM Smoke Test") during automation execution, that memory is injected as active context in subsequent runs via `injectActiveMemory()`. This creates a contradiction: the memory says "steps done" but the new task prompt says "execute all steps." The model wastes reasoning cycles reconciling the outdated progress with the current task state. Accumulated redundant entries (e.g. `tool_versions` + `dev_environment_setup` both describing the same TypeScript install) also bloat the context and slow generation.
+18. **Passive memory injection (context only, no step skipping, one-time only)** — Memory is injected as `<relevant_memories>` context for the model ONCE per session (first turn only), like Hermes Agent. No `MemoryCheckGate`, no step-skipping logic, no per-turn re-injection, and no `recordStepMemories()` DB writes. For automation tasks, memory injection is disabled entirely because the task prompt is too generic as a search query and the positioned `<memory>` block overwrites the finalization instruction. `findOverlappingEntry()` in `memory_tools.go` computes **Jaccard similarity** on topic words (≥0.70) and content (≥0.90) to deduplicate entries. See `stream.go` `injectActiveMemory()` and `docs/audits/memory-injection-investigation.md`.
 
-    The fix is three-layered: (1) the `AutomationTaskPrompt` tells the agent to write memory entries as "answers to a specific question a future agent would ask" — durable fact lookups, not session outcomes. (2) `MemoryProactiveNudge` in `prompts/templates.go` explicitly categorizes what to save and what to skip. (3) `findOverlappingEntry()` in `memory_tools.go` computes **Jaccard similarity** on normalized topic words — if J ≥ 0.70 against an existing entry, the new entry updates the existing one in-place (or returns "already saved" if content is identical). The agent can save freely — the system deduplicates at write time. See `memory_tools.go` `findOverlappingEntry()` and `prompts/templates.go` `AutomationTaskPrompt`.
 
-19. **Memory injection uses industry-standard pattern (no separate LLM call)** — The memory system follows the same approach as Hermes Agent, OpenClaw, Cursor, and Claude Code: (1) the agent saves durable facts via `memory_update`, (2) `injectActiveMemory()` appends `<relevant_memories>` to the system prompt at session start as a static text block, (3) the `AutomationTaskPrompt` instructs the agent to review memories before each step. A `MemoryCheckGate` ("[Memory Check Gate]") is prepended to the task content to reinforce the instruction directly in the task section. No separate LLM call, no task rewriting, no startup delay. See `stream.go` `injectActiveMemory()` and `prompts/templates.go` `MemoryCheckGate` / `AutomationTaskPrompt`.
-
-    Additionally, `interceptRedundantToolCalls()` in `session.go` provides infrastructure-level enforcement using an LRU exact-match cache of terminal command results. When the model calls `execute_terminal_command` and the exact command string (plus CWD) has been executed before, the synthetic cached result is injected without executing the tool. This has zero false positives. Cache is flushed after file mutation tools (`write_file`, `append_file`). Only `execute_terminal_command` is intercepted. See `session.go` `interceptRedundantToolCalls()` and `tool_cache.go`.
 
 20. **Reasoning budget enforcement is warn-only, never terminate** — The proxy checks `reasonUsed > reasoningBudget` in `stream.go` `processStream()` but does NOT terminate the stream. It only logs a warning. Do NOT add `return nil` here. The server (llama.cpp) enforces `reasoning_budget` at the API level by forcing the model out of thinking mode when the budget is exhausted. If the proxy terminates on the budget check, it kills the stream before the first content chunk arrives (the transition happens across chunk boundaries), triggering the XML/non-streaming fallback chain unnecessarily. The stuck detector (`maxTokens × 2` chars of pure reasoning) and `maxTokens` overall budget provide sufficient protection against runaway generation. See `stream.go` `processStream()` — the `if term.ShouldTerminate` block is deliberately warn-only.
 
-21. **Execution state object pinned at index [1] survives sieve truncation** — A `PlanState` block (`[DONE]`/`[ACTIVE]`/`[PENDING]`) is injected as a system message at index [1] of the prompt for automation runs. The Go backend updates it when the agent calls `complete_step`. After the sieve fires and truncates conversation history, this pinned block survives — the model sees "Step 3 [DONE], Step 4 [ACTIVE]" and continues from where it left off instead of restarting at Step 1. See `models/state.go` `PlanState` and `session.go` `executeTurn()` state injection.
-
-22. **The `complete_step` tool explicitly marks step completion** — A dedicated tool the agent calls when a step's requirements are satisfied. The handler returns a confirmation and the call + result enter standard history. The state block at index [1] maintains ground truth regardless of history length. See `models/tools.go` `ToolCompleteStep`, `tools/manifests/system.json`, and `session.go` `complete_step` handling.
-
-23. **RAG payload moved to end of prompt for KV cache stability** — `injectActiveMemory()` emits `<relevant_memories>` as a separate system message wrapped in `<memory>` tags, placed right before the current user turn. This keeps the system prompt + state block + conversation history KV cache stable across turns — only the final `<memory>` message changes. See `stream.go` `injectActiveMemory()`.
+21. **RAG payload moved to end of prompt for KV cache stability** — `injectActiveMemory()` emits `<relevant_memories>` as a separate system message wrapped in `<memory>` tags, placed right before the current user turn. This keeps the system prompt + conversation history KV cache stable across turns — only the final `<memory>` message changes. See `stream.go` `injectActiveMemory()`.
 
 ## File Change Checklist
 

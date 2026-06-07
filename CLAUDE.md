@@ -257,36 +257,9 @@ When a tool call is blocked:
 
 ## Agent Loop: Step-by-Step
 
-The agent loop is in `internal/core/assistant/agent.go`, method `Execute()` (line ~97):
+See [`docs/SPECS/agent-loop.md`](docs/SPECS/agent-loop.md) (SPEC-001) for the authoritative specification.
 
-1. **Create execution context** with 30-minute timeout
-2. **Loop** for up to `maxSteps` iterations (default 25, per-model override possible):
-   a. Publish `step_start` event
-   b. Create per-turn context with 10-minute timeout
-   c. **Physical Sieve**: If history chars > `contextBudget` (default 8000):
-      - Keep: system prompt + first user message + last 3 turns
-      - Drop: all middle turns
-      - Insert `SieveSystemNote` (explains pruning) and `ContextSieveWarning`
-   d. **List tools** from ToolProvider (local + MCP)
-   e. `computeNextResponse()`: stream LLM response
-      - Normalize history (role conversion, merge consecutive same-role)
-      - For automation: inject tool manual into system prompt, optionally prefill with `<tool_call>\n`
-      - Stream via SSE, accumulate content + native tool_calls
-      - Fall back to non-streaming if streaming fails
-   f. `handleContentToolCalls()`: parse XML `<tool_call>` blocks from text content
-      - Extract with regex, clean from content (save tokens)
-      - Convert to structured `ToolCall` objects
-   g. Validate native tool calls against available tools
-   h. **Deduplicate** tool calls within same turn (by name + args hash)
-   i. **Repetition Detection**: same tool+args 3+ times → nag; 5+ → abort
-   j. Append assistant message to history
-   k. `processToolCalls()`: execute each tool
-      - Reject batched `submit_final_answer` (must be alone)
-      - Validate arguments against tool schema (required params)
-      - Run guardrail validation → block/pause if needed
-      - Execute via Engine → append result to history
-   l. If `submit_final_answer` called → return summary, exit loop
-3. If max steps exceeded → return error
+The agent loop runs in `internal/core/assistant/agent.go`, method `Execute()` (line ~97).
 
 ### Context Sieve Algorithm
 ```
@@ -439,24 +412,7 @@ When a tool call is blocked, the agent does NOT silently fail:
 
 ## Coding Rules
 
-### Go
-- **No comments unless WHY is non-obvious** — well-named identifiers document the WHAT
-- **Single-line comments only** (no multi-line docstrings or comment blocks)
-- **Error handling at system boundaries only** — trust internal code, validate at entry points
-- **No feature flags or backward-compat shims** — change the code directly
-- **No half-finished implementations** — complete or don't start
-- **Three similar lines > premature abstraction** — don't DRY until the pattern is clear
-- **All prompts in templates.go** — never hardcode prompt strings in logic files
-- **Use sentinel errors** from `models/llm.go` for known error conditions
-- **All network I/O through NetworkTools** — never raw `http.Client` or `net.Dial`
-- **All terminal execution through ShellProvider** — never raw `os/exec`
-
-### TypeScript/Vue
-- **Composables are singletons** — state is module-level, shared across components
-- **Polling uses mountCount pattern** — stop polling when no subscribers
-- **Vue refs, not reactive()** — use `ref()` for all reactive state
-- **Type imports from `types/`** — all type definitions in barrel-exported files
-- **Services are stateless** — API calls only, no local state
+See [`AGENTS.md`](AGENTS.md) for the canonical coding rules. Key highlights:
 
 ### General
 - **Constitution first** — check invariants before writing code

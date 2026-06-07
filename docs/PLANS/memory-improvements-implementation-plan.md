@@ -1,3 +1,7 @@
+---
+status: partial
+related_specs: [SPEC-004]
+---
 # Memory Improvements — Detailed Implementation Plan
 
 Based on the Hermes Agent comparison analysis (`docs/hermes-memory-comparison.md`).

@@ -7,6 +7,8 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/nodeherder"
@@ -18,7 +20,6 @@ import (
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
-	"strings"
 )
 
 // getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides merged with defaults.
@@ -229,11 +230,6 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 		prompt += r.FormatToolsForPrompt()
 	}
 
-	if r.Memory != nil {
-		prompt += "\n\n" + prompts.MemoryProactiveNudge
-		prompt += "\n\n" + prompts.MemoryRecallNudge
-	}
-
 	return prompt, nil
 }
 
@@ -417,12 +413,4 @@ func (r *LocalToolRegistry) registerSystemTools() {
 		return fmt.Sprintf("SYSTEM ERROR: %s", args.Error), nil
 	})
 
-	// complete_step allows the agent to explicitly mark a step as finished.
-	// The Go backend calls ConfirmOrCompleteStep() on the PlanState when this is
-	// detected — the handler just returns a confirmation message.
-	registerTool(r, models.CategorySystem, models.ToolCompleteStep, func(ctx context.Context, args struct {
-		Notes string `json:"notes"`
-	}) (any, error) {
-		return "Step completed. Proceeding to next step.", nil
-	})
 }

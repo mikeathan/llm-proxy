@@ -45,16 +45,20 @@ func TestAgent_RecallsMemoryInNewSession(t *testing.T) {
 		t.Fatalf("seed memory: %v", err)
 	}
 
+	var callCount int
 	var capturedSystemPrompt string
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			var sb strings.Builder
-			for _, msg := range req.Messages {
-				if msg.Role == proxy.SystemRole || msg.Role == proxy.UserRole {
-					sb.WriteString(msg.Content)
+			callCount++
+			if callCount == 1 {
+				var sb strings.Builder
+				for _, msg := range req.Messages {
+					if msg.Role == proxy.SystemRole || msg.Role == proxy.UserRole {
+						sb.WriteString(msg.Content)
+					}
 				}
+				capturedSystemPrompt = sb.String()
 			}
-			capturedSystemPrompt = sb.String()
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{Role: "assistant", Content: "# Done\nTask finished"}},
@@ -201,6 +205,69 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 	}
 }
 
+func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := context.Background()
+
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			// Return submit_final_answer so the agent completes cleanly
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []proxy.ToolCall{
+							{
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      models.ToolSubmitFinalAnswer,
+									Arguments: `{"summary": "test report"}`,
+								},
+							},
+						},
+					}},
+				},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemoryUpdate}},
+		},
+	}
+	engine := &MockEngine{Result: map[string]any{"status": "saved"}}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		WorkspaceID:   "ws-1",
+		MemoryStore:   store,
+		ContextBudget: 100,
+	})
+
+	// Automation task history — contains AutomationMarker
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "test system prompt"},
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the steps in 'test.md'.\n---\nStep 1\n---\n\nCall submit_final_answer when done."},
+	}
+	for i := 0; i < 3; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "intermediate response with lots of text to eat up budget and trigger the flush mechanism"})
+		history = append(history, proxy.Message{Role: proxy.UserRole, Content: "continue with more details and keep going so the budget is exceeded"})
+	}
+
+	_, finalHistory, err := agent.Execute(ctx, history)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Verify the nudge was NOT injected for automation tasks
+	for _, msg := range finalHistory {
+		if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "memory_update") {
+			t.Error("pre-sieve nudge should NOT appear in automation task history")
+		}
+	}
+}
+
 func TestAgent_ActiveMemory_NoMatch_NoInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
@@ -254,16 +321,20 @@ func TestAgent_UsageMeterInPrompt(t *testing.T) {
 		t.Fatalf("seed memory: %v", err)
 	}
 
+	var callCount int
 	var capturedSystemPrompt string
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			var sb strings.Builder
-			for _, msg := range req.Messages {
-				if msg.Role == proxy.SystemRole || msg.Role == proxy.UserRole {
-					sb.WriteString(msg.Content)
+			callCount++
+			if callCount == 1 {
+				var sb strings.Builder
+				for _, msg := range req.Messages {
+					if msg.Role == proxy.SystemRole || msg.Role == proxy.UserRole {
+						sb.WriteString(msg.Content)
+					}
 				}
+				capturedSystemPrompt = sb.String()
 			}
-			capturedSystemPrompt = sb.String()
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{Role: "assistant", Content: "# Done\nTask finished"}},
@@ -284,13 +355,8 @@ func TestAgent_UsageMeterInPrompt(t *testing.T) {
 		{Role: proxy.SystemRole, Content: "test prompt"},
 		{Role: proxy.UserRole, Content: "how should I build?"},
 	})
-
-	_, _, err = agent.Execute(ctx, []proxy.Message{
-		{Role: proxy.SystemRole, Content: "test prompt"},
-		{Role: proxy.UserRole, Content: "build"},
-	})
 	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
+		t.Fatalf("first Execute failed: %v", err)
 	}
 
 	if !strings.Contains(capturedSystemPrompt, "<memory>") {
@@ -312,16 +378,20 @@ func TestAgent_UserProfileInjection(t *testing.T) {
 	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", "agent")
 	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", "agent")
 
+	var callCount int
 	var capturedSystemPrompt string
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			var sb strings.Builder
-			for _, msg := range req.Messages {
-				if msg.Role == proxy.SystemRole || msg.Role == proxy.UserRole {
-					sb.WriteString(msg.Content)
+			callCount++
+			if callCount == 1 {
+				var sb strings.Builder
+				for _, msg := range req.Messages {
+					if msg.Role == proxy.SystemRole || msg.Role == proxy.UserRole {
+						sb.WriteString(msg.Content)
+					}
 				}
+				capturedSystemPrompt = sb.String()
 			}
-			capturedSystemPrompt = sb.String()
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{Role: "assistant", Content: "# Done\nOK"}},
@@ -462,7 +532,9 @@ func TestInjectActiveMemory_CachesTaskPrompt(t *testing.T) {
 		t.Error("memory should be injected when the full task prompt is present")
 	}
 
-	// Second call: history contains only tool results — no task prompt
+	// Second call: memory is only injected once per Agent; the automated
+	// prompt is already cached from the first call.
+	agent.memoryInjected = false
 	secondPrepared := []proxy.Message{
 		{Role: proxy.SystemRole, Content: systemPrompt},
 		{Role: proxy.UserRole, Content: "Observation: file written successfully"},

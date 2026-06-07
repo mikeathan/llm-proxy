@@ -29,12 +29,6 @@ const (
 	ToolMemorySearch = "memory_search"
 	ToolMemoryUpdate = "memory_update"
 
-	// Execution control
-	// ToolCompleteStep marks the current step as done and advances the
-	// PlanState at index [1] of the prompt. The Go backend handles the
-	// transition — the tool call + result enter standard history.
-	ToolCompleteStep = "complete_step"
-
 	// System
 	ToolSubmitFinalAnswer = "submit_final_answer"
 	ToolSystemError       = "system_error"

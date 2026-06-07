@@ -1,3 +1,14 @@
+---
+id: SPEC-003
+title: Discovery Panel
+version: "1.0"
+status: stable
+last_updated: 2026-05-30
+constitution_references: []
+related_specs: []
+supersedes:
+---
+
 # SPEC: Discovery Panel
 
 ## I. Intent

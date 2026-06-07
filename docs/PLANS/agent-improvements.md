@@ -1,3 +1,7 @@
+---
+status: partial
+related_specs: [SPEC-001]
+---
 # Agent Improvements Plan
 
 Merged findings from [OpenClaw](https://github.com/openclaw/openclaw) and [agent-sdk-go](https://github.com/Ingenimax/agent-sdk-go) into 7 independent, testable, non-breaking phases.

@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-001]
+---
 # Tool Choice & Temperature — Implementation Plan
 
 **Status: COMPLETE**

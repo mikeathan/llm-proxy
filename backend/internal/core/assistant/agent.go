@@ -67,8 +67,9 @@ type Agent struct {
 	observer        Observer
 	workspaceID     string
 	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
-	prefillDisabled bool                       // set true after first prefill rejection by server
-	usePrefill      bool                       // automation mode prefill (<tool_call> stub)
+	prefillDisabled   bool  // set true after first prefill rejection by server
+	usePrefill        bool  // automation mode prefill (<tool_call> stub)
+	memoryInjected    bool  // one-time injection at session start; no per-turn re-inject
 	suppressReasoningBudget bool               // XML fallback: skip interceptor budget check and API budget fields
 	skipStuckCheck          bool               // XML fallback: disable stuck detection
 	
@@ -77,10 +78,8 @@ type Agent struct {
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
 
-	memoryStore          *memory.Store               // nil when memory is disabled
-	automationTaskPrompt string                     // cached original task prompt for memory search across turns
-	state                *models.PlanState           // execution state tracker ([DONE]/[ACTIVE]/[PENDING])
-	toolCache            *TokenCache                 // LRU cache for exact terminal command results
+	memoryStore          *memory.Store   // nil when memory is disabled
+	automationTaskPrompt string          // cached original task prompt for memory search across turns
 }
 
 type AgentOptions struct {
@@ -102,8 +101,6 @@ type AgentOptions struct {
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
 	MemoryStore              *memory.Store      // nil when memory is disabled
-	State                    *models.PlanState   // execution state tracker, nil when not in automation
-	ToolCacheCap             int                 // LRU cache capacity, 0 = disabled
 }
 
 type GuardrailDecisionStore struct {
@@ -257,8 +254,6 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		providerType:    opts.ProviderType,
 		planStrategy:    opts.PlanStrategy,
 		memoryStore:     opts.MemoryStore,
-		state:           opts.State,
-		toolCache:       NewTokenCache(opts.ToolCacheCap),
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
 	return a
@@ -276,17 +271,17 @@ type repetitionDetector struct {
 
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
 	for _, tc := range toolCalls {
-		key := toolKey{tc.Function.Name, normalizeArgs(tc.Function.Arguments)}
+		key := toolKey{tc.Function.Name, tc.Function.Arguments}
 		// submit_final_answer and system_error are expected to repeat in automation loops
 		if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
 			if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
 				rd.duplicateStreak++
 				logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
-			if rd.duplicateStreak >= 3 {
-				rd.duplicateStreak = 0
-				rd.recentCalls = nil
-				return true, prompts.ToolForceSkipMessage(key.name), nil
-			}
+				if rd.duplicateStreak >= 3 {
+					rd.duplicateStreak = 0
+					rd.recentCalls = nil
+					return true, "", fmt.Errorf("infinite loop detected: %s called 3+ times with identical args", key.name)
+				}
 				return true, prompts.AutomationDuplicateNagPrompt, nil
 			}
 			rd.duplicateStreak = 0

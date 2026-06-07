@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-001]
+---
 # Fix: Reasoning-Stuck Fallback Actually Retries Without Native Tools
 
 **Status: COMPLETE**

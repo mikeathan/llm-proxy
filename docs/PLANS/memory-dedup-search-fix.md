@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-004]
+---
 # Memory: Relevance Search + Jaccard Dedup
 
 **Status:** ✅ Complete

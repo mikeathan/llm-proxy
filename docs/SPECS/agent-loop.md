@@ -1,3 +1,14 @@
+---
+id: SPEC-001
+title: Agent Loop
+version: "1.0"
+status: stable
+last_updated: 2026-05-28
+constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
+related_specs: [SPEC-002, SPEC-004, SPEC-005]
+supersedes:
+---
+
 # SPEC: Agent Loop
 
 ## I. Intent

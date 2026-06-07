@@ -13,9 +13,7 @@
             "description": "The final report itself. Include the complete output with all findings, tables, and analysis. This is what the user sees — not a description of what was done."
           }
         },
-        "required": [
-          "summary"
-        ]
+        "required": ["summary"]
       }
     },
     "system_error": {
@@ -27,22 +25,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "error"
-        ]
-      }
-    },
-    "complete_step": {
-      "description": "Call this when the current step's requirements have been satisfied. Marks it done and progresses to the next step in the task.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "notes": {
-            "type": "string",
-            "description": "Brief summary of what was accomplished in this step."
-          }
-        },
-        "required": ["notes"]
+        "required": ["error"]
       }
     }
   },

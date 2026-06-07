@@ -1,3 +1,6 @@
+---
+status: reference
+---
 # System Blueprint: LLM-Proxy
 
 **Status: REFERENCE** — This is the system architecture document, not an implementation plan. All major components described here are implemented (3-tier config, agent loop, MCP integration, guardrails, admin UI).

@@ -1,3 +1,8 @@
+---
+status: reference
+date: 2026-06-03
+related_specs: [SPEC-004]
+---
 # Memory Injection Investigation Report
 
 **Date:** 2026-06-03
@@ -793,3 +798,108 @@ The context budget is currently 10924 chars (determined by `context_budget` on t
 - Need fewer reasoning tokens per decision (~300-500 vs ~700-2000)
 - Follow hierarchical instructions better ("check memory first" overrides "run X")
 - Generate faster (2-3x more tokens/sec on the same hardware)
+
+---
+
+### Attempt 7: notify_user description + prompt-level changes (June 7)
+
+After disabling memory injection for automation, the model began calling `notify_user` instead of
+`submit_final_answer` at task completion. Several prompt attempts were tried:
+
+#### 7a. Changing the `notify_user` tool description
+
+**What:** Changed from "Send notifications and reports to the user via external platforms"
+to "Send a short notification to the user during execution. Do NOT use this to submit
+final results — call submit_final_answer instead."
+
+**Result:** No change. The model's behavior was identical with both descriptions.
+The root cause was that `submit_final_answer` was never in the native tool schema sent
+to the LLM (a trailing comma in `system.json` caused Go's `json.Unmarshal` to reject
+the manifest, silently dropping both system tools).
+
+#### 7b. Removing memory nudge prompts from the task prompt
+
+**What:** Removed the `During execution — when you discover a durable fact...save it immediately
+with memory_update` paragraph from `AutomationTaskPrompt`. Removed `MemoryProactiveNudge` from
+`GetSystemPrompt()`.
+
+**Result:** Reduced noise but root cause was the missing `submit_final_answer` tool.
+
+#### 7c. Adding "Do NOT use notify_user" rules to DefaultRules
+
+**What:** Added a bullet to rule 6: "Do NOT use 'notify_user' to submit results."
+
+**Result:** No change. Negative instructions ("don't do X") are less effective than
+positive instructions ("do Y") for small models. The 4B model ignores this at step 10.
+
+---
+
+### Root Cause (June 7, Updated)
+
+The `submit_final_answer` and `system_error` tools were silently dropped from the tool registry
+because a trailing comma in `manifests/system.json` caused Go's strict `json.Unmarshal` to reject
+the manifest during `LoadManifestAsTool`. The function returned an error, `addTool` logged a
+warning and returned without adding the tools. The LLM never received `submit_final_answer` in
+its native tool schema, so despite the prompt telling it to call the tool, the model physically
+could not emit it.
+
+Event timeline:
+
+1. Memory branch introduced trailing comma in `system.json` line 34
+2. On every server restart, `InitializeAgentStack` → `registerAll()` → `registerSystemTools()`
+   → `registerTool` → `addTool` → `LoadManifestAsTool("", "system", "submit_final_answer")` fails
+   → warning logged, tool silently dropped
+3. The LLM receives 12 tools in its schema — none of them `submit_final_answer`
+4. The system prompt text still says "call 'submit_final_answer'" (it's built from `templates.go`,
+   not from the manifest)
+5. With `tool_choice: required`, the model must pick a tool; it falls back to `notify_user`
+   (closest match — "Send notifications and reports")
+6. Guardrail blocks `notify_user` → run fails with `context canceled`
+
+## Why memory injection works for interactive but not automation
+
+| Factor | Interactive | Automation |
+|--------|-------------|------------|
+| Search query | Short user message (1-2 sentences) | Full task prompt (hundreds of words) |
+| Query specificity | High — specific question | Low — generic instructions |
+| Result relevance | High — matches the user's question | Low — broad FTS5 matches |
+| Session length | Short (1-5 turns) | Long (18-35 turns) |
+| Attention budget | Ample | Exhausted at step 10 |
+| Model decision | "Answer the user's question" | "Pick a tool" (must choose one) |
+
+## What would fix memory injection for automation
+
+To re-enable memory injection for automation tasks, three things need to change:
+
+1. **Step-aware queries**: Instead of using the full task prompt, extract the current
+   step's keywords (e.g., "npm install typescript" from Step 5) and use those as the
+   search query. This returns relevant memories like "TypeScript version installed: 6.0.3".
+
+2. **Early injection**: Place the `<memory>` block near the START of the prompt (after
+   the system message, before the conversation history) rather than at the end. This
+   keeps it as context without displacing the finalization instructions.
+
+3. **Relevance filtering**: Score each memory entry for relevance to the current step.
+   Only inject entries above a threshold. Filter out entries like `system_os_info` that
+   are always irrelevant to step execution.
+
+## Files affected
+
+- `internal/core/assistant/stream.go` — `injectActiveMemory()` and `prepareMessagesForTurn()`
+- `internal/core/assistant/session.go` — `maybeFlushMemoryBeforeTurn()` automation check
+- `internal/core/assistant/prompts/templates.go` — `AutomationTaskPrompt` simplified, `MemoryProactiveNudge` removed
+- `internal/core/assistant/registry.go` — `MemoryProactiveNudge` removed from `GetSystemPrompt()`
+- `internal/core/automation/executor.go` — `MemoryStore` removed from AgentOptions
+- `internal/core/tools/manifests/system.json` — trailing comma fixed
+
+## Key takeaway
+
+Memory injection is not inherently broken — it works well for interactive sessions
+where queries are specific and sessions are short. The failure is specific to
+automation tasks where the query is too generic, the session is too long, and the
+model's attention is exhausted. Future work should focus on step-aware injection
+rather than removing the feature entirely.
+
+The `notify_user` mis-selection bug was ultimately caused by a single trailing comma
+in `system.json` that silently dropped `submit_final_answer` from the native tool schema.
+All prompt-level attempts to fix it were addressing the symptom, not the cause.

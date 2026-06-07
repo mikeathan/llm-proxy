@@ -228,260 +228,6 @@ func TestAgent_Execute_LoopDetection(t *testing.T) {
 	t.Logf("Loop detection exited with: %v", err)
 }
 
-// ── failTracker unit tests ──────────────────────────────────────────────
-
-func TestFailTracker_ExactFailure(t *testing.T) {
-	ft := newFailTracker()
-	toolName := "fetch_url"
-	args := `{"url":"https://httpbin.org/headers"}`
-
-	// Three errors with same tool + same args
-	g1 := ft.record(toolName, args, true)
-	if g1 != "" {
-		t.Fatalf("expected no guidance on 1st failure, got: %s", g1)
-	}
-	if ft.sameToolFailures[toolName] != 1 {
-		t.Errorf("expected sameToolFailures=1, got %d", ft.sameToolFailures[toolName])
-	}
-	if ft.exactFailures[toolName+"\x00"+args] != 1 {
-		t.Errorf("expected exactFailures=1, got %d", ft.exactFailures[toolName+"\x00"+args])
-	}
-
-	g2 := ft.record(toolName, args, true)
-	if !strings.Contains(g2, "WARNING") || !strings.Contains(g2, "identical") {
-		t.Fatalf("expected WARNING on 2nd identical failure, got: %s", g2)
-	}
-
-	g3 := ft.record(toolName, args, true)
-	if !strings.Contains(g3, "CRITICAL") {
-		t.Fatalf("expected CRITICAL on 3rd failure, got: %s", g3)
-	}
-	if !strings.Contains(g3, toolName) {
-		t.Errorf("expected guidance to mention tool name %s", toolName)
-	}
-}
-
-func TestFailTracker_SameToolDifferentArgs(t *testing.T) {
-	ft := newFailTracker()
-	toolName := "fetch_url"
-
-	// Three errors with same tool, different args
-	g1 := ft.record(toolName, `{"url":"https://example.com/a"}`, true)
-	if g1 != "" {
-		t.Fatalf("expected no guidance on 1st, got: %s", g1)
-	}
-
-	g2 := ft.record(toolName, `{"url":"https://example.com/b"}`, true)
-	if !strings.Contains(g2, "WARNING") {
-		t.Fatalf("expected WARNING on 2nd same-tool failure, got: %s", g2)
-	}
-
-	g3 := ft.record(toolName, `{"url":"https://example.com/c"}`, true)
-	if !strings.Contains(g3, "CRITICAL") {
-		t.Fatalf("expected CRITICAL on 3rd same-tool failure, got: %s", g3)
-	}
-	// Exact counters should be separate per args
-	exactKeyA := toolName + "\x00" + `{"url":"https://example.com/a"}`
-	if ft.exactFailures[exactKeyA] != 1 {
-		t.Errorf("expected exact count 1 for args A, got %d", ft.exactFailures[exactKeyA])
-	}
-}
-
-func TestFailTracker_ClearOnSuccess(t *testing.T) {
-	ft := newFailTracker()
-	toolName := "read_file"
-
-	// Two failures
-	ft.record(toolName, `{"path":"/foo"}`, true)
-	ft.record(toolName, `{"path":"/foo"}`, true)
-
-	if ft.sameToolFailures[toolName] != 2 {
-		t.Errorf("expected sameToolFailures=2 before success, got %d", ft.sameToolFailures[toolName])
-	}
-
-	// Success clears
-	guidance := ft.record(toolName, `{"path":"/foo"}`, false)
-	if guidance != "" {
-		t.Fatalf("expected empty guidance on success, got: %s", guidance)
-	}
-	if ft.sameToolFailures[toolName] != 0 {
-		t.Errorf("expected sameToolFailures=0 after success, got %d", ft.sameToolFailures[toolName])
-	}
-	// Exact counter should also be cleared
-	exactKey := toolName + "\x00" + `{"path":"/foo"}`
-	if _, ok := ft.exactFailures[exactKey]; ok {
-		t.Error("expected exactFailures to be cleared after success")
-	}
-}
-
-func TestFailTracker_MixedCalls(t *testing.T) {
-	ft := newFailTracker()
-
-	// fetch_url fails
-	ft.record("fetch_url", `{"url":"/a"}`, true)
-	// read_file succeeds (different tool — doesn't affect fetch_url counters)
-	ft.record("read_file", `{"path":"/x"}`, false)
-	// fetch_url fails again
-	ft.record("fetch_url", `{"url":"/b"}`, true)
-
-	if ft.sameToolFailures["fetch_url"] != 2 {
-		t.Errorf("expected fetch_url sameToolFailures=2, got %d", ft.sameToolFailures["fetch_url"])
-	}
-	if _, ok := ft.sameToolFailures["read_file"]; ok {
-		t.Error("read_file should have no entry after success")
-	}
-}
-
-func TestFailTracker_ExactVsSameThreshold(t *testing.T) {
-	ft := newFailTracker()
-	toolName := "test_tool"
-
-	// exact=3 with same args → CRITICAL (even though same=1 if only called once)
-	ft.record(toolName, `{"x":"a"}`, true)
-	ft.record(toolName, `{"x":"a"}`, true)
-	g3 := ft.record(toolName, `{"x":"a"}`, true)
-	if !strings.Contains(g3, "CRITICAL") {
-		t.Fatalf("expected CRITICAL on 3rd exact failure, got: %s", g3)
-	}
-}
-
-// ── isToolErrorResult unit tests ────────────────────────────────────────
-
-func TestIsToolErrorResult(t *testing.T) {
-	tests := []struct {
-		name     string
-		content  string
-		expected bool
-	}{
-		{"json error", `{"error":"503 Service Unavailable"}`, true},
-		{"json no error", `{"result":"ok"}`, false},
-		{"json with exit_code zero", `{"exit_code":0,"output":"ok"}`, false},
-		{"json with exit_code non-zero", `{"exit_code":1,"error":"command failed"}`, true},
-		{"bare string", "Success", false},
-		{"error prefix", "Error: something broke", true},
-		{"empty string", "", false},
-		{"json success", `{"success":true}`, false},
-		{"json with failed", `{"success":false,"error":"timeout"}`, true},
-		{"terminal error", `{"exit_code":2,"output":"killed"}`, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isToolErrorResult(tt.content)
-			if got != tt.expected {
-				t.Errorf("isToolErrorResult(%q) = %v, want %v", tt.content, got, tt.expected)
-			}
-		})
-	}
-}
-
-// ── normalizeArgs unit tests ────────────────────────────────────────────
-
-func TestNormalizeArgs(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"already canonical", `{"a":1,"b":2}`, `{"a":1,"b":2}`},
-		{"reordered keys", `{"b":2,"a":1}`, `{"a":1,"b":2}`},
-		{"non-json passthrough", `not-json`, `not-json`},
-		{"nested", `{"z":{"n":1},"a":2}`, `{"a":2,"z":{"n":1}}`},
-		{"empty object", `{}`, `{}`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeArgs(tt.input)
-			if got != tt.expected {
-				t.Errorf("normalizeArgs(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
-// ── Integration: tool failure skip ──────────────────────────────────────
-
-func TestAgent_Execute_ToolFailureSkip(t *testing.T) {
-	// Model keeps calling fetch_url, it keeps returning 503.
-	// After 3 failures the failTracker injects CRITICAL guidance
-	// and the model should move on (not get a fatal error).
-	client := &MockClient{
-		Response: proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{
-							{
-								ID: "call_fetch",
-								Function: proxy.FunctionCall{
-									Name:      "fetch_url",
-									Arguments: `{"url":"https://httpbin.org/headers"}`,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	provider := &MockProvider{
-		Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "fetch_url"}}},
-	}
-	// Always return error — simulates 503
-	engine := &MockEngine{
-		Result: "",
-		Err:    fmt.Errorf("server returned unexpected status: 503 Service Temporarily Unavailable"),
-	}
-
-	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:      15,
-		GlobalTimeout: 2 * time.Second,
-	})
-
-	ctx := context.Background()
-	_, history, err := agent.Execute(ctx, []proxy.Message{{Role: "user", Content: "fetch it"}})
-
-	// Should NOT get a fatal "infinite loop detected" — should survive
-	// with a timeout or starvation error instead
-	if err == nil {
-		t.Fatalf("expected an eventual error (timeout), got nil")
-	}
-	if strings.Contains(err.Error(), "infinite loop") {
-		t.Fatalf("agent should not fatal on tool failure loop, got: %v", err)
-	}
-	t.Logf("Tool failure recovery exited with: %v", err)
-
-	// Verify guidance was injected into tool results (not separate user messages)
-	guidanceFound := false
-	for _, m := range history {
-		if m.Role == proxy.ToolRole && strings.Contains(m.Content, "CRITICAL") {
-			guidanceFound = true
-			break
-		}
-	}
-	if !guidanceFound {
-		// Print last few messages for debug
-		for i := max(0, len(history)-6); i < len(history); i++ {
-			t.Logf("history[%d] role=%s content=%s", i, history[i].Role, truncate(history[i].Content, 100))
-		}
-		t.Error("expected CRITICAL guidance appended to a tool result in history")
-	}
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func TestAgent_Execute_TotalTimeout(t *testing.T) {
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
@@ -2104,16 +1850,19 @@ func TestRepetitionDetector_StreakReset(t *testing.T) {
 		t.Errorf("expected duplicate on second consecutive, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
 	}
 
-	// Call tool A again -> consecutive duplicate (streak = 3 -> skip prompt, not fatal)
+	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal error)
 	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error on third consecutive duplicate: %v", err)
+	if err == nil {
+		t.Fatal("expected error on third consecutive duplicate, got nil")
+	}
+	if !strings.Contains(err.Error(), "infinite loop") {
+		t.Errorf("expected infinite loop error, got: %v", err)
 	}
 	if !isDup {
 		t.Error("expected third consecutive duplicate to be detected")
 	}
-	if !strings.Contains(nag, "CRITICAL") {
-		t.Errorf("expected CRITICAL skip prompt at streak 3, got %q", nag)
+	if nag != "" {
+		t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
 	}
 	if rd.duplicateStreak != 0 {
 		t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
@@ -2174,16 +1923,19 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 			t.Errorf("expected streak=2 after third A, got %d", rd.duplicateStreak)
 		}
 
-		// Fourth A: consecutive duplicate, streak=3 → skip prompt (not fatal)
+		// Fourth A: consecutive duplicate, streak=3 → fatal error
 		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error on 4th consecutive duplicate: %v", err)
+		if err == nil {
+			t.Fatal("expected error on 4th consecutive duplicate, got nil")
+		}
+		if !strings.Contains(err.Error(), "infinite loop") {
+			t.Errorf("expected infinite loop error, got: %v", err)
 		}
 		if !isDup {
 			t.Error("expected 4th consecutive duplicate to be detected")
 		}
-		if !strings.Contains(nag, "CRITICAL") {
-			t.Errorf("expected CRITICAL skip prompt at streak 3, got %q", nag)
+		if nag != "" {
+			t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
 		}
 		if rd.duplicateStreak != 0 {
 			t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)

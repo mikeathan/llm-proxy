@@ -1,3 +1,7 @@
+---
+status: not_implemented
+related_specs: [SPEC-001]
+---
 # Plan: Auto-Detect Native Tool Format & Jinja Template from GGUF
 
 **Status: NOT IMPLEMENTED**

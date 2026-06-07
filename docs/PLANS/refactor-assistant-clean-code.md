@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-001]
+---
 # Refactoring Assistant Package — Clean Code & Architecture
 
 **Status: COMPLETE ✅**

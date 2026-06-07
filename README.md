@@ -216,21 +216,8 @@ model_overrides:
 
 ## Agent Loop
 
-The agent loop runs in `internal/core/assistant/agent.go`. Each iteration:
-
-1. **Physical Sieve** — If history exceeds `ContextBudget`, prune middle turns (keep system prompt + first user message + last 3 turns)
-2. **List tools** — Aggregate local tools + MCP tools
-3. **Compute response** — Stream LLM completion, accumulate text + native tool_calls
-4. **Parse tool calls** — Extract `<tool_call>` XML from text (fallback path). Native tool_calls from deltas (primary path).
-5. **Validate** — Guardrail engine checks each tool call against rules
-6. **Execute** — Run tool, append result to history
-7. **Repeat** — Until `submit_final_answer` or maxSteps
-
-Tool call format (XML):
-
-```xml
-<tool_call>{"tool":"tool_name","args":{"key":"value"}}</tool_call>
-```
+See [`docs/SPECS/agent-loop.md`](docs/SPECS/agent-loop.md) (SPEC-001) for the full specification.  
+See [`CLAUDE.md`](CLAUDE.md) for architecture, invariants, and API reference.
 
 ## Frontend
 
@@ -250,28 +237,7 @@ Vue 3 + Vite + TypeScript. The production build is embedded via `//go:embed`. Af
 
 ## Architecture
 
-```
-backend/
-├── main.go                    — Entry point
-├── models/                    — Shared types (no logic)
-├── internal/
-│   ├── app/                   — Bootstrap, AppContext state manager
-│   ├── core/
-│   │   ├── assistant/         — Agent loop, tool providers, guardrails, prompts
-│   │   ├── automation/        — Task scheduler, executor, event bus
-│   │   ├── llm/               — Model lifecycle, GGUF scanner, provider registry
-│   │   ├── mcp/               — MCP client (SSE transport)
-│   │   ├── proxy/
-│   │   │   ├── ...            — LLM HTTP client, XML parser, history normalization
-│   │   │   └── recorder/      — RecordingClient decorator (JSONL capture)
-│   │   └── tools/             — Tool implementations (terminal, fs, network, search)
-│   ├── platform/              — Logging, storage, persistence, metrics
-│   ├── shell/                 — Persistent shell sessions
-│   ├── testing/
-│   │   ├── mocks/             — Shared test mocks
-│   │   └── llmprofiles/       — FixtureClient + RunAgainstFixtures (replay testing)
-│   └── transport/http/        — HTTP handlers + embedded frontend
-```
+See [`CLAUDE.md`](CLAUDE.md) for the full architecture tree, directory map, and invariants.
 
 ## Documentation
 

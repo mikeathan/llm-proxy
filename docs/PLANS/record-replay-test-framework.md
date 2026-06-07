@@ -1,3 +1,7 @@
+---
+status: complete
+date: 2026-05-24
+---
 # Plan: Record-and-Replay LLM Testing Framework
 
 **Status: COMPLETE (2026-05-24)**

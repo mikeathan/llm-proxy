@@ -1,3 +1,7 @@
+---
+status: partial
+related_specs: [SPEC-001]
+---
 # Plan - Enhanced Agent Flow & Model Compatibility
 
 **Status: PARTIAL**

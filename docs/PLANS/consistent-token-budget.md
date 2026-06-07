@@ -1,3 +1,7 @@
+---
+status: complete
+related_specs: [SPEC-005]
+---
 # Consistent Token Budget Computation
 
 **Status: COMPLETE**
