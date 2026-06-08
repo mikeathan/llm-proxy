@@ -343,6 +343,35 @@ func TestHasExternalAccess(t *testing.T) {
 	}
 }
 
+func TestAssertAllowedCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		segments []string
+		allowed  []string
+		wantErr  bool
+	}{
+		{name: "allowed command", segments: []string{"ls -la"}, allowed: []string{"ls"}, wantErr: false},
+		{name: "disallowed command", segments: []string{"rm -rf /"}, allowed: []string{"ls"}, wantErr: true},
+		{name: "empty segment", segments: []string{""}, allowed: []string{"ls"}, wantErr: false},
+		{name: "shell comment", segments: []string{"# Step 1: list directory"}, allowed: []string{"ls"}, wantErr: false},
+		{name: "comment before command", segments: []string{"# Step 6\nls -la"}, allowed: []string{"ls"}, wantErr: false},
+		{name: "comment then disallowed", segments: []string{"# comment\nrm -rf"}, allowed: []string{"ls"}, wantErr: true},
+		{name: "mixed chain", segments: []string{"ls -la", "echo hello"}, allowed: []string{"ls", "echo"}, wantErr: false},
+		{name: "mixed chain one bad", segments: []string{"ls -la", "rm -rf"}, allowed: []string{"ls"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := assertAllowedCommand(tt.segments, tt.allowed)
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestMergeWithAllowedExternalPaths(t *testing.T) {
 	base := &models.AgentGuardrailsConfig{
 		Terminal: models.TerminalGuardrailsConfig{
