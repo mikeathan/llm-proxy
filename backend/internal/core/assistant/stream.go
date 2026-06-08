@@ -61,7 +61,7 @@ func (a *Agent) buildChatRequest(
 		if a.reasoningBudget > 0 {
 			req.SetReasoningBudget(a.reasoningBudget)
 		} else {
-			a.reasoningBudget = a.maxTokens / streamReasoningBudgetDivisor
+			a.reasoningBudget = DefaultReasoningBudget(a.maxTokens)
 			req.SetReasoningBudget(a.reasoningBudget)
 		}
 	}
@@ -286,7 +286,7 @@ func (a *Agent) handlePrefillRejection(
 		Tools:           nil,
 		MaxTokens:       a.maxTokens,
 		Temperature:     DefaultAutomationTemperature,
-		ReasoningBudget: a.maxTokens / streamReasoningBudgetDivisor,
+		ReasoningBudget: DefaultReasoningBudget(a.maxTokens),
 	}
 	return a.client.Stream(ctx, req)
 }
@@ -613,7 +613,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			MaxTokens:   a.maxTokens,
 			Temperature: DefaultAutomationTemperature,
 		}
-		req.SetReasoningBudget(a.maxTokens / streamReasoningBudgetDivisor)
+		req.SetReasoningBudget(DefaultReasoningBudget(a.maxTokens))
 		if a.suppressReasoningBudget {
 			req.SetReasoningBudget(0)
 		}

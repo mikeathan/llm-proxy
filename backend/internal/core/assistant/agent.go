@@ -31,6 +31,17 @@ const (
 	AgentRetryTimeout           = 5 * time.Minute   // tool-support-fallback retry timeout
 )
 
+// DefaultReasoningBudget returns the auto-computed reasoning budget for a given
+// max_tokens value. Divisor 3 gives ~910 tokens for 2730 max_tokens — enough to
+// review history and plan the next tool call. Shared by stream.go (runtime) and
+// admin_view.go (API response) so the computation is in one place.
+func DefaultReasoningBudget(maxTokens int) int {
+	if maxTokens <= 0 {
+		return 0
+	}
+	return maxTokens / 3
+}
+
 type ProviderTuningDefaults struct {
 	MaxSteps        int
 	ContextBudget   int

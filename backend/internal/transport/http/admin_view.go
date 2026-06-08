@@ -32,6 +32,9 @@ func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudg
 		temperature = assistant.DefaultAutomationTemperature
 	}
 	reasoningBudget = mc.ReasoningBudget
+	if reasoningBudget == 0 {
+		reasoningBudget = assistant.DefaultReasoningBudget(maxTokens)
+	}
 	slotTimeout = mc.SlotTimeout
 	timeoutMinutes = mc.TimeoutMinutes
 	if timeoutMinutes == 0 {
