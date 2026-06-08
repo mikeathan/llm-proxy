@@ -28,7 +28,6 @@ const (
 	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
-	automationTemperature         = 0.1         // low temperature for deterministic automation tasks
 	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
 )
 
@@ -54,7 +53,11 @@ func (a *Agent) buildChatRequest(
 		req.ToolChoice = proxy.ToolChoiceRequired
 	}
 	if isAutomationCtx {
-		req.Temperature = automationTemperature
+		if a.temperature > 0 {
+			req.Temperature = a.temperature
+		} else {
+			req.Temperature = DefaultAutomationTemperature
+		}
 		if a.reasoningBudget > 0 {
 			req.SetReasoningBudget(a.reasoningBudget)
 		} else {
@@ -282,7 +285,7 @@ func (a *Agent) handlePrefillRejection(
 		Messages:        prepared,
 		Tools:           nil,
 		MaxTokens:       a.maxTokens,
-		Temperature:     automationTemperature,
+		Temperature:     DefaultAutomationTemperature,
 		ReasoningBudget: a.maxTokens / streamReasoningBudgetDivisor,
 	}
 	return a.client.Stream(ctx, req)
@@ -608,7 +611,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			Messages:    preparedHistory,
 			Tools:       nil,
 			MaxTokens:   a.maxTokens,
-			Temperature: automationTemperature,
+			Temperature: DefaultAutomationTemperature,
 		}
 		req.SetReasoningBudget(a.maxTokens / streamReasoningBudgetDivisor)
 		if a.suppressReasoningBudget {
@@ -654,7 +657,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 		Messages:    prepared,
 		Tools:       nil,
 		MaxTokens:   a.maxTokens,
-		Temperature: automationTemperature,
+		Temperature: DefaultAutomationTemperature,
 	}
 
 	a.logger.Info("xml stream retry sent", "model", a.modelName, "max_tokens", a.maxTokens, "prefill", prefill != "")
@@ -671,7 +674,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 			Messages:    prepared,
 			Tools:       nil,
 			MaxTokens:   a.maxTokens,
-			Temperature: automationTemperature,
+			Temperature: DefaultAutomationTemperature,
 		}
 		ch, err = a.client.Stream(ctx, req)
 	}

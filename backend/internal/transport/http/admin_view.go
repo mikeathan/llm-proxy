@@ -74,8 +74,10 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 			MaxSteps:         mc.MaxSteps,
 			ContextBudget:    mc.ContextBudget,
 			MaxTokens:        mc.MaxTokens,
+			Temperature:      mc.Temperature,
 			ReasoningBudget:  mc.ReasoningBudget,
 			SlotTimeout:      mc.SlotTimeout,
+			TimeoutMinutes:   mc.TimeoutMinutes,
 			ToolCallFormat:   mc.ToolCallFormat,
 		}
 

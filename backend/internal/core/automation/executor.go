@@ -270,6 +270,9 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 	if cfg.ReasoningBudget > 0 {
 		opts.ReasoningBudget = cfg.ReasoningBudget
 	}
+	if cfg.Temperature > 0 {
+		opts.Temperature = cfg.Temperature
+	}
 	if cfg.ToolCallFormat == "native" {
 		native := true
 		opts.UseNativeTools = &native

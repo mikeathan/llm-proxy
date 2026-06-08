@@ -3,7 +3,7 @@ id: SPEC-001
 title: Agent Loop
 version: "1.0"
 status: stable
-last_updated: 2026-05-28
+last_updated: 2026-06-08
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -98,6 +98,14 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 ### 12. History Normalization (Constitution II.8)
 - `NormalizeHistory()`: strips `ToolCalls` when `useNativeTools=false`. Converts `tool` role → `user` role with `tool_call_id` embedded in content (`Tool result [call_N]: <json>`) to avoid Jinja template errors in llama.cpp while preserving call/result association. No auto-nags. Consolidates consecutive same-role messages.
 - `SanitizeHistory()`: preserves `role`, `content`, `tool_calls`, `tool_call_id`.
+
+### 13. Per-Model Temperature and Timeout Overrides
+- `ModelConfig.Temperature` (float64) overrides the hardcoded `DefaultAutomationTemperature` (0.1) for automation tasks. 0 = use default.
+- `ModelConfig.TimeoutMinutes` (int) overrides `AgentGlobalTimeout` (30 min) per execution. 0 = use default.
+- Both are stored in `settings.yml` under `model_overrides.<name>`. Persisted via `writeModelOverrides()` in `registry_handlers.go`.
+- Applied in `executor.go` `buildAgentOptions()`: `cfg.Temperature` → `opts.Temperature`, `cfg.TimeoutMinutes` → `opts.GlobalTimeout`.
+- At the LLM request level: `buildChatRequest()` uses `a.temperature` if set (>0), else falls back to `DefaultAutomationTemperature`. Llama.cpp server-level `--repeat-penalty`, `--frequency-penalty`, and `--presence-penalty` are set server-side (not in ChatRequest).
+- Frontend exposes these as number inputs in the Agent Tuning grid with `title`-attribute tooltips and input constraints (min/max/step).
 
 ## III. Technical Architecture
 

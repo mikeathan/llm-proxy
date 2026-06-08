@@ -34,6 +34,7 @@ type ModelOverride struct {
 	MaxSteps        int     `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
 	ContextBudget   int     `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
 	MaxTokens       int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Temperature     float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
 	ToolCallFormat  string  `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
 	Prefill         *bool   `yaml:"prefill,omitempty" json:"prefill,omitempty"`
 	ReasoningBudget int     `yaml:"reasoning_budget,omitempty" json:"reasoning_budget,omitempty"`

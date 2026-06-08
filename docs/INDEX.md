@@ -49,6 +49,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
 | `docs/PLANS/plan-recordings.md` | Recording Playback for Automations | not_implemented | — | — |
 | `docs/PLANS/enhanced-agent-flow-and-compatibility.md` | Enhanced Agent Flow & Model Compatibility | partial | — | SPEC-001 |
+| `docs/PLANS/ephemeral-turn-context.md` | Ephemeral Turn Context — Reduce Recap Overhead | reverted | 2026-06-08 | SPEC-001 |
 | `docs/PLANS/automation-dispatcher-blueprint.md` | Unified Automation Dispatcher — Blueprint | superseded | 2026-04-01 | SPEC-007 |
 | `docs/PLANS/system-blueprint.md` | System Blueprint: LLM-Proxy | reference | — | all |
 
@@ -57,6 +58,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Status | Date |
 |------|-------|--------|------|
 | `docs/audits/agent-stability-report.md` | Agent Stability Audit (13 issues) | complete | 2026-05-28 |
+| `docs/audits/ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete | 2026-06-08 |
 | `docs/audits/memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference | 2026-06-03 |
 | `docs/audits/remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete | 2026-06-03 |
 

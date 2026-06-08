@@ -356,10 +356,11 @@ type ModelConfig struct {
 	MaxSteps            int          `json:"max_steps,omitempty"`
 	ContextBudget       int          `json:"context_budget,omitempty"`
 	MaxTokens           int          `json:"max_tokens,omitempty"`
-	ToolCallFormat      string       `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Temperature         float64      `json:"temperature,omitempty"`          // overrides the 0.1 automation default
+	ToolCallFormat      string       `json:"tool_call_format,omitempty"`     // "xml" or "native"
 	Prefill             *bool        `json:"prefill,omitempty"`
-	TimeoutMinutes      int          `json:"timeout_minutes,omitempty"` // per-execution timeout, 0 = use global default (30 min)
-	EnableExecutionPlan bool `json:"enable_execution_plan,omitempty"`
+	TimeoutMinutes      int          `json:"timeout_minutes,omitempty"`      // per-execution timeout, 0 = use global default (30 min)
+	EnableExecutionPlan bool         `json:"enable_execution_plan,omitempty"`
 
 	// Resource-aware orchestration. Zero values mean "use provider default."
 	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens

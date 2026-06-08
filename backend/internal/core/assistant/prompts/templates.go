@@ -372,6 +372,7 @@ Execute the instructions found in '%s':
 %s
 ---
 
+When you modify code that requires compilation, chain the compile and run commands together so the output reflects the latest edit. All data in your final report must be traced to an actual tool result — if a tool returned an error, report it as-is. Do not reconstruct or assume outputs.
 Call ` + models.ToolSubmitFinalAnswer + ` when done.`
 
 // Memory update guidance constants are kept in the system prompt to encourage

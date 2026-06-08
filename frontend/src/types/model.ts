@@ -35,8 +35,10 @@ export interface Model {
   max_steps?: number
   context_budget?: number
   max_tokens?: number
+  temperature?: number
   reasoning_budget?: number
   slot_timeout?: number
+  timeout_minutes?: number
   tool_call_format?: string
 }
 
@@ -93,7 +95,9 @@ export interface NewModelForm {
   max_steps?: number
   context_budget?: number
   max_tokens?: number
+  temperature?: number
   reasoning_budget?: number
   slot_timeout?: number
+  timeout_minutes?: number
   tool_call_format?: string
 }

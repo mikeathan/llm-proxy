@@ -20,14 +20,15 @@ import (
 )
 
 const (
-	DefaultMaxSteps         = 25
-	DefaultContextBudget    = 8000   // chars, not tokens — rough heuristic for context window pressure
-	DefaultMaxTokens        = 3072
-	MinReasoningStuckThreshold = 2000  // chars; floor for stuck detection even at small max_tokens
-	DefaultStarvationLimit  = 15
-	AgentGlobalTimeout      = 30 * time.Minute  // total wall-clock for one Execute call
-	AgentTurnTimeout        = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
-	AgentRetryTimeout       = 5 * time.Minute   // tool-support-fallback retry timeout
+	DefaultMaxSteps             = 25
+	DefaultContextBudget        = 8000   // chars, not tokens — rough heuristic for context window pressure
+	DefaultMaxTokens            = 3072
+	DefaultAutomationTemperature = 0.1   // low temperature for deterministic automation tasks
+	MinReasoningStuckThreshold  = 2000   // chars; floor for stuck detection even at small max_tokens
+	DefaultStarvationLimit      = 15
+	AgentGlobalTimeout          = 30 * time.Minute  // total wall-clock for one Execute call
+	AgentTurnTimeout            = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
+	AgentRetryTimeout           = 5 * time.Minute   // tool-support-fallback retry timeout
 )
 
 type ProviderTuningDefaults struct {
@@ -61,6 +62,7 @@ type Agent struct {
 	contextBudget   int
 	maxTokens       int
 	reasoningBudget int
+	temperature     float64
 	icuWeight       float64
 	globalTimeout   time.Duration
 	useNativeTools  bool
@@ -87,6 +89,7 @@ type AgentOptions struct {
 	ContextBudget            int
 	MaxResponseTokens        int
 	ReasoningBudget          int
+	Temperature              float64
 	ICUWeight                float64
 	Logger                   logging.Logger
 	Guardrails               *guardrails.GuardrailEngine
@@ -242,6 +245,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		contextBudget:   opts.ContextBudget,
 		maxTokens:       opts.MaxResponseTokens,
 		reasoningBudget: opts.ReasoningBudget,
+		temperature:     opts.Temperature,
 		icuWeight:       opts.ICUWeight,
 		globalTimeout:   opts.GlobalTimeout,
 		useNativeTools:  useNative,

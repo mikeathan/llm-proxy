@@ -188,8 +188,10 @@ type modelFormRequest struct {
 	MaxSteps             int                   `json:"max_steps"`
 	ContextBudget        int                   `json:"context_budget"`
 	MaxTokens            int                   `json:"max_tokens"`
+	Temperature          float64               `json:"temperature"`
 	ReasoningBudget      int                   `json:"reasoning_budget"`
 	SlotTimeout          int                   `json:"slot_timeout"`
+	TimeoutMinutes       int                   `json:"timeout_minutes"`
 	ToolCallFormat       string                `json:"tool_call_format"`
 	Pricing              *models.ModelPricing  `json:"pricing"`
 	Limits               *models.ModelLimits   `json:"limits"`
@@ -293,6 +295,7 @@ func (r *modelFormRequest) enrichMetadataFromProviders() {
 func hasModelOverrides(cfg models.ModelConfig) bool {
 	return cfg.MaxSteps > 0 || cfg.ReasoningBudget > 0 || cfg.SlotTimeout > 0 ||
 		cfg.ToolCallFormat != "" || (cfg.Prefill != nil && *cfg.Prefill) || cfg.TimeoutMinutes > 0 ||
+		cfg.Temperature > 0 ||
 		(cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0)
 }
 
@@ -310,6 +313,7 @@ func writeModelOverrides(name string, cfg models.ModelConfig, updateFn func(func
 				MaxSteps:        cfg.MaxSteps,
 				ReasoningBudget: cfg.ReasoningBudget,
 				SlotTimeout:     cfg.SlotTimeout,
+				Temperature:     cfg.Temperature,
 				ICUWeight:       weight,
 				ToolCallFormat:  cfg.ToolCallFormat,
 				Prefill:         cfg.Prefill,
