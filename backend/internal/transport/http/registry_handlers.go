@@ -323,6 +323,33 @@ func writeModelOverrides(name string, cfg models.ModelConfig, updateFn func(func
 	}
 }
 
+// modelConfigFromRequest builds a ModelConfig from a form request, capturing
+// the agent-tuning fields and identity fields in one place.  The caller
+// provides the varying parameters (filename, path, args, environment) rather
+// than repeating the full struct literal at every call site.
+func modelConfigFromRequest(req modelFormRequest, filename, path string, args []string, env map[string]string) models.ModelConfig {
+	return models.ModelConfig{
+		Name:            req.Name,
+		Provider:        req.Provider,
+		Filename:        filename,
+		Path:            path,
+		Args:            args,
+		Port:            req.Port,
+		Environment:     env,
+		ProviderConfig:  &req.ProviderConfig,
+		Metadata:        req.Metadata,
+		Prefill:         req.Prefill,
+		MaxSteps:        req.MaxSteps,
+		ContextBudget:   req.ContextBudget,
+		MaxTokens:       req.MaxTokens,
+		Temperature:     req.Temperature,
+		ReasoningBudget: req.ReasoningBudget,
+		SlotTimeout:     req.SlotTimeout,
+		TimeoutMinutes:  req.TimeoutMinutes,
+		ToolCallFormat:  req.ToolCallFormat,
+	}
+}
+
 // handleAddModel registers a new model in the runtime and persists it.
 // For OpenRouter (and similar providers that return pricing), it
 // auto-computes InternalCreditWeight from the pricing data so ICU weight
@@ -334,7 +361,8 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 	logging.Info("[addModel] received", "name", req.Name, "provider", req.Provider,
 		"meta", req.Meta, "limits", req.Limits, "pricing", req.Pricing,
-		"max_steps", req.MaxSteps, "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens)
+		"max_steps", req.MaxSteps, "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens,
+		"temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
 
 	if req.Provider == "" {
 		req.Provider = "local"
@@ -386,24 +414,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	req.enrichMetadataFromProviders()
 
 	logging.Debug("[addModel] before ApplyMetadataDefaults", "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens, "reasoning", req.ReasoningBudget, "metadata", req.Metadata)
-	runtimeCfg := models.ModelConfig{
-		Name:             req.Name,
-		Provider:         req.Provider,
-		Filename:         filename,
-		Path:             fullPath,
-		Args:             runtimeArgs,
-		Port:             req.Port,
-		Environment:      h.admin.Environment(),
-		ProviderConfig:   &req.ProviderConfig,
-		Metadata:         req.Metadata,
-		Prefill:          req.Prefill,
-		MaxSteps:         req.MaxSteps,
-		ContextBudget:    req.ContextBudget,
-		MaxTokens:        req.MaxTokens,
-		ReasoningBudget:  req.ReasoningBudget,
-		SlotTimeout:      req.SlotTimeout,
-		ToolCallFormat:   req.ToolCallFormat,
-	}
+	runtimeCfg := modelConfigFromRequest(req, filename, fullPath, runtimeArgs, h.admin.Environment())
 	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
 	logging.Info("[addModel] after ApplyMetadataDefaults", "ctx_budget", runtimeCfg.ContextBudget, "max_tokens", runtimeCfg.MaxTokens, "reasoning", runtimeCfg.ReasoningBudget)
 
@@ -416,22 +427,7 @@ func (h *AdminHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	persistCfg := models.ModelConfig{
-		Name:           req.Name,
-		Provider:       req.Provider,
-		Filename:       filename,
-		Args:           append([]string{}, req.Args...),
-		Port:           req.Port,
-		ProviderConfig: &req.ProviderConfig,
-		Metadata:       req.Metadata,
-		Prefill:        req.Prefill,
-		MaxSteps:       req.MaxSteps,
-		ContextBudget:  req.ContextBudget,
-		MaxTokens:      req.MaxTokens,
-		ReasoningBudget: req.ReasoningBudget,
-		SlotTimeout:    req.SlotTimeout,
-		ToolCallFormat: req.ToolCallFormat,
-	}
+	persistCfg := modelConfigFromRequest(req, filename, "", append([]string{}, req.Args...), nil)
 	logging.Debug("[addModel] persist ApplyMetadataDefaults", "input_budget", req.ContextBudget)
 	orchestrator.ApplyMetadataDefaults(&persistCfg)
 	logging.Debug("[addModel] persist result", "output_budget", persistCfg.ContextBudget, "output_max_tokens", persistCfg.MaxTokens)
@@ -455,7 +451,8 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	}
 	logging.Info("[updateModel] body decoded", "name", req.Name, "provider", req.Provider,
 		"meta", req.Meta, "limits", req.Limits, "pricing", req.Pricing,
-		"ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens, "reasoning", req.ReasoningBudget)
+		"ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens,
+		"temperature", req.Temperature, "reasoning", req.ReasoningBudget)
 
 	if req.Name == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing model name")
@@ -516,24 +513,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	runtimeCfg := models.ModelConfig{
-		Name:             req.Name,
-		Provider:         req.Provider,
-		Filename:         req.Filename,
-		Path:             fullPath,
-		Args:             runtimeArgs,
-		Port:             req.Port,
-		Environment:      h.admin.Environment(),
-		ProviderConfig:   &req.ProviderConfig,
-		Metadata:         req.Metadata,
-		Prefill:          req.Prefill,
-		MaxSteps:         req.MaxSteps,
-		ContextBudget:    req.ContextBudget,
-		MaxTokens:        req.MaxTokens,
-		ReasoningBudget:  req.ReasoningBudget,
-		SlotTimeout:      req.SlotTimeout,
-		ToolCallFormat:   req.ToolCallFormat,
-	}
+	runtimeCfg := modelConfigFromRequest(req, req.Filename, fullPath, runtimeArgs, h.admin.Environment())
 	logging.Debug("[updateModel] before runtime ApplyMetadataDefaults", "runtime_before", runtimeCfg.ContextBudget)
 	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
 	logging.Info("[updateModel] after runtime ApplyMetadataDefaults", "runtime_after", runtimeCfg.ContextBudget)
@@ -546,22 +526,7 @@ func (h *AdminHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	persistCfg := models.ModelConfig{
-		Name:             req.Name,
-		Provider:         req.Provider,
-		Filename:         req.Filename,
-		Args:             append([]string{}, req.Args...),
-		Port:             req.Port,
-		ProviderConfig:   &req.ProviderConfig,
-		Metadata:         req.Metadata,
-		Prefill:          req.Prefill,
-		MaxSteps:         req.MaxSteps,
-		ContextBudget:    req.ContextBudget,
-		MaxTokens:        req.MaxTokens,
-		ReasoningBudget:  req.ReasoningBudget,
-		SlotTimeout:      req.SlotTimeout,
-		ToolCallFormat:   req.ToolCallFormat,
-	}
+	persistCfg := modelConfigFromRequest(req, req.Filename, "", append([]string{}, req.Args...), nil)
 	logging.Debug("[updateModel] persist ApplyMetadataDefaults", "input_budget", req.ContextBudget)
 	orchestrator.ApplyMetadataDefaults(&persistCfg)
 	logging.Info("[updateModel] persist result", "output_budget", persistCfg.ContextBudget, "output_max_tokens", persistCfg.MaxTokens)

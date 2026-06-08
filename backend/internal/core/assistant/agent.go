@@ -42,6 +42,17 @@ func DefaultReasoningBudget(maxTokens int) int {
 	return maxTokens / 3
 }
 
+// ReasoningBudgetExceeded returns true when accumulated reasoning content
+// (in characters) exceeds the token budget by a wide enough margin to indicate
+// the server is not enforcing the limit. The factor of 4 converts tokens to
+// approximate characters (~4 chars per token for typical text).
+func ReasoningBudgetExceeded(reasoningChars int, budgetTokens int) bool {
+	if budgetTokens <= 0 {
+		return false
+	}
+	return reasoningChars > budgetTokens*4
+}
+
 type ProviderTuningDefaults struct {
 	MaxSteps        int
 	ContextBudget   int

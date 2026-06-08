@@ -333,7 +333,8 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	ch, streamErr := a.client.Stream(ctx, req)
 	a.logger.Info("stream request sent", "model", a.modelName,
-		"max_tokens", a.maxTokens, "tool_choice", req.ToolChoice)
+		"max_tokens", a.maxTokens, "tool_choice", req.ToolChoice,
+		"temperature", req.Temperature)
 
 	if a.orch != nil && a.orch.Budget != nil && txnID != "" {
 		defer func() {
@@ -371,7 +372,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	reasons := len(fullMsg.ReasoningContent)
-	if a.reasoningBudget > 0 && reasons > a.reasoningBudget*2 {
+	if ReasoningBudgetExceeded(reasons, a.reasoningBudget) {
 		a.logger.Warn("reasoning budget far exceeded — server may not be enforcing",
 			"reasoning_budget", a.reasoningBudget,
 			"reasoning_len", reasons,
