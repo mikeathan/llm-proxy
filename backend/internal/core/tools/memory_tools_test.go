@@ -330,8 +330,8 @@ func TestMemoryUpdateTool_TopicDedup(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry after topic dedup, got %d", len(entries))
 	}
-	if entries[0].Content != "Steps 1-3 done" {
-		t.Errorf("expected content 'Steps 1-3 done', got: %s", entries[0].Content)
+	if entries[0].Content != "Step 1 done\nSteps 1-3 done" {
+		t.Errorf("expected content 'Step 1 done\\nSteps 1-3 done', got: %s", entries[0].Content)
 	}
 }
 

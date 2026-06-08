@@ -130,7 +130,14 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 		return "", fmt.Errorf("memory update failed: %w", err)
 	}
 	if existing != nil {
-		if err := m.store.Update(ctx, wsID, existing.ID, topic, content); err != nil {
+		// Append new content to existing topic entry instead of overwriting.
+		// Multiple memory_update calls with the same topic (e.g. "Aris Thorne
+		// Persona Facts") accumulate facts rather than silently losing them.
+		combined := content
+		if !strings.Contains(existing.Content, content) {
+			combined = existing.Content + "\n" + content
+		}
+		if err := m.store.Update(ctx, wsID, existing.ID, topic, combined); err != nil {
 			return "", fmt.Errorf("memory update failed: %w", err)
 		}
 		mt := resolveMemType(target, memoryType)
@@ -144,7 +151,8 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 			logging.Info("memory_update result", "topic", topic, "action", "already_saved", "existing_id", existing.ID, "match", "jaccard")
 			return fmt.Sprintf("already saved — matching entry found for topic %q (id: %d)", existing.Title, existing.ID), nil
 		}
-		if err := m.store.Update(ctx, wsID, existing.ID, topic, content); err != nil {
+		combined := existing.Content + "\n" + content
+		if err := m.store.Update(ctx, wsID, existing.ID, topic, combined); err != nil {
 			return "", fmt.Errorf("memory update failed: %w", err)
 		}
 		mt := resolveMemType(target, memoryType)

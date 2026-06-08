@@ -7,9 +7,9 @@ Stress-test the agent's memory subsystem by feeding distributed facts about a fi
 
 ### Execution Strategy
 
-#### Phase 1: Seeded Facts
+#### Phase 1: Save Facts
 
-Present the agent with the following facts, ONE per turn (do not batch them):
+Save the following facts to memory using `memory_update`, one at a time (do not batch them into a single call):
 
 1. "Dr. Aris Thorne works at the Xenolith Research Institute."
 2. "Dr. Thorne's primary field is exometeorology — the study of weather on exoplanets."
@@ -19,11 +19,9 @@ Present the agent with the following facts, ONE per turn (do not batch them):
 6. "The Xenolith Institute is located in Nuuk, Greenland."
 7. "Dr. Thorne's collaborative project codename is 'Project Chimera'."
 
-Wait at least one unrelated exchange before proceeding to Phase 2.
+#### Phase 2: Answer Questions
 
-#### Phase 2: Recall Interrogation
-
-Ask the agent each of the following. A correct answer must draw from facts in Phase 1. If the agent cannot answer after one attempt, note the failure and continue.
+Use `memory_search` **at most once** to retrieve all stored facts. Then answer each of the following questions from the search result:
 
 - "What is Aris Thorne's field of study?"
 - "Where is the Xenolith Institute located, and what is Dr. Thorne's room number there?"
@@ -31,9 +29,9 @@ Ask the agent each of the following. A correct answer must draw from facts in Ph
 - "What is the name and species of Dr. Thorne's pet?"
 - "In what year was Dr. Thorne's paper on tidally locked super-Earths published, and what was its title?"
 
-#### Phase 3: Synthesis & Temporal Reasoning
+#### Phase 3: Write Biography
 
-Ask the agent to produce a single, coherent 3-sentence biography of Dr. Aris Thorne. The biography must:
+Produce a single, coherent 3-sentence biography of Dr. Aris Thorne. The biography must:
 
 - Reference at least 5 distinct facts from Phase 1.
 - Correctly order events mentioned (e.g., the paper predates current work).

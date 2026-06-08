@@ -291,8 +291,10 @@ type toolKey struct {
 }
 
 type repetitionDetector struct {
-	recentCalls     []toolKey
-	duplicateStreak int
+	recentCalls           []toolKey
+	duplicateStreak       int
+	lastTool              string
+	consecutiveToolStreak int
 }
 
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
@@ -311,6 +313,21 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 				return true, prompts.AutomationDuplicateNagPrompt, nil
 			}
 			rd.duplicateStreak = 0
+
+			// Catch same-tool-any-args spirals (e.g. memory_search with varying queries).
+			if tc.Function.Name == rd.lastTool {
+				rd.consecutiveToolStreak++
+			if rd.consecutiveToolStreak >= 12 {
+				rd.consecutiveToolStreak = 0
+				rd.lastTool = ""
+				rd.recentCalls = nil
+				return true, "", fmt.Errorf("spiral detected: %s called %d+ consecutive times", key.name, 12)
+				}
+			} else {
+				rd.consecutiveToolStreak = 0
+				rd.lastTool = tc.Function.Name
+			}
+
 			if len(rd.recentCalls) >= 3 {
 				rd.recentCalls = rd.recentCalls[1:]
 			}
