@@ -34,6 +34,9 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/agent-memory-system.md` | Agent Memory System | complete | — | SPEC-004 |
 | `docs/PLANS/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
 | `docs/PLANS/interactive-user-input.md` | Interactive User Input (ask_user Tool) | proposed | 2026-06-08 | SPEC-001, SPEC-007 |
+| `docs/PLANS/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | proposed | 2026-06-09 | SPEC-001, SPEC-003 |
+| `docs/PLANS/memory-tags-system.md` | Memory Tags System | complete | 2026-06-08 | SPEC-004 |
+| `backend/data/templates/memory-tags-test.md` | Memory Tags & Type Isolation Test | reference | 2026-06-09 | SPEC-004 |
 | `docs/PLANS/resource-aware-orchestration.md` | Resource-Aware Orchestration | complete | — | SPEC-005 |
 | `docs/PLANS/consistent-token-budget.md` | Consistent Token Budget | complete | — | SPEC-005 |
 | `docs/PLANS/auto-context-budget.md` | Auto-Compute Context Budget | complete | — | SPEC-001 |

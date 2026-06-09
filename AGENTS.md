@@ -88,6 +88,7 @@ When a tool call is blocked:
 
 - **No comments unless the WHY is non-obvious.** Well-named identifiers document the WHAT.
 - **Single-line only.** No multi-line docstrings or comment blocks.
+- **Never remove existing comments unless they are stale** (referencing removed code, outdated behavior, or incorrect logic). If a comment is still accurate, keep it.
 - If removing the comment wouldn't confuse a reader, remove it.
 
 ### Error Handling

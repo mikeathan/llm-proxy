@@ -34,8 +34,9 @@ func TestMemorySearchTool(t *testing.T) {
 	}
 	provider := NewMemoryToolProvider(store.Store)
 	args := struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
+		Query interface{} `json:"query"`
+		Limit int         `json:"limit"`
+		Tags  []string `json:"tags"`
 	}{
 		Query: "port",
 		Limit: 5,
@@ -60,8 +61,9 @@ func TestMemorySearchTool_EmptyQuery(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
 	args := struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
+		Query interface{} `json:"query"`
+		Limit int         `json:"limit"`
+		Tags  []string `json:"tags"`
 	}{
 		Query: "",
 		Limit: 5,
@@ -83,7 +85,8 @@ func TestMemoryUpdateTool(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "test key",
 		Content:    "test content",
@@ -108,7 +111,8 @@ func TestMemoryUpdateTool_MissingRequired(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:   "",
 		Content: "",
@@ -163,7 +167,8 @@ func TestMemoryUpdateTool_Duplicate(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "my topic",
 		Content:    "exact duplicate content",
@@ -214,7 +219,8 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "port",
 		Content:    "database port is 5433",
@@ -234,7 +240,8 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "port",
 		Content:    "database port is 5433 (updated)",
@@ -271,7 +278,8 @@ func TestMemoryUpdateTool_UpdateByOldText_NotFound(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "port",
 		Content:    "database port is 5433",
@@ -299,7 +307,8 @@ func TestMemoryUpdateTool_TopicDedup(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "smoke-test-progress",
 		Content:    "Step 1 done",
@@ -345,7 +354,8 @@ func TestMemoryUpdateTool_OldTextBackwardCompat(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "first entry",
 		Content:    "this is entry one",
@@ -390,7 +400,8 @@ func TestMemoryUpdateTool_SemanticDedup(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "smoke-test-status",
 		Content:    "Smoke test executed successfully",
@@ -440,7 +451,8 @@ func TestMemoryUpdateTool_SemanticDedup_NoFalsePositive(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "first entry",
 		Content:    "this is entry one",
@@ -487,7 +499,8 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 		Content    string `json:"content"`
 		MemoryType string `json:"memory_type"`
 		OldText    string `json:"old_text"`
-		Target     string `json:"target"`
+		Target     string   `json:"target"`
+		Tags       []string `json:"tags"`
 	}{
 		Topic:      "ts-version",
 		Content:    "TypeScript 6.0.3 is installed",

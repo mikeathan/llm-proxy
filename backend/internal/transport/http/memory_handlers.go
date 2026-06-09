@@ -122,7 +122,7 @@ func (h *MemoryHandlers) UpdateMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.Update(r.Context(), wsID, id, req.Title, req.Content); err != nil {
+	if err := h.store.Update(r.Context(), wsID, id, req.Title, req.Content, nil, memory.ReplaceTags); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("update failed: %v", err))
 		return
 	}

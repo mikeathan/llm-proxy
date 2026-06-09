@@ -26,22 +26,30 @@ func NewMemoryToolProvider(store *memory.Store) *MemoryToolProvider {
 
 // Search runs a full-text query against stored memories and returns results formatted
 // as markdown with triple-dash separators between entries.
+//
+// Query is interface{} rather than string because the model occasionally emits
+// query: {} (invalid JSON for a string field). The type assertion silently
+// tolerates null, "", or any non-string value rather than crashing the tool call.
+// See docs/PLANS/llamacpp-grammar-constraint.md for the planned proper fix.
 func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit"`
+	Query interface{} `json:"query"`
+	Limit int         `json:"limit"`
+	Tags  []string    `json:"tags"`
 }) (any, error) {
 	if m.store == nil {
 		return "memory is not available", nil
 	}
-	if args.Query == "" {
-		return "please provide a search query", nil
+
+	query, _ := args.Query.(string)
+	if query == "" && len(args.Tags) == 0 {
+		return "please provide a search query or tags", nil
 	}
 	if args.Limit <= 0 || args.Limit > 20 {
 		args.Limit = 5
 	}
 
 	wsID := models.GetWorkspaceID(ctx)
-	entries, err := m.store.Search(ctx, wsID, args.Query, args.Limit)
+	entries, err := m.store.Search(ctx, wsID, query, args.Limit, memory.SearchOption{Tags: args.Tags})
 	if err != nil {
 		return "", fmt.Errorf("memory search failed: %w", err)
 	}
@@ -69,11 +77,12 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 // falls through to create a new entry rather than erroring. This lets agents use old_text
 // as an upsert key without needing to track entry IDs.
 func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
-	Topic      string `json:"topic"`
-	Content    string `json:"content"`
-	MemoryType string `json:"memory_type"`
-	OldText    string `json:"old_text"`
-	Target     string `json:"target"`
+	Topic      string   `json:"topic"`
+	Content    string   `json:"content"`
+	MemoryType string   `json:"memory_type"`
+	OldText    string   `json:"old_text"`
+	Target     string   `json:"target"`
+	Tags       []string `json:"tags"`
 }) (any, error) {
 	if m.store == nil {
 		return "memory is not available", nil
@@ -88,7 +97,7 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 		existing, err := m.store.FindByContentSubstring(ctx, wsID, args.OldText)
 		if err == nil {
 			mt := resolveMemType(args.Target, args.MemoryType)
-			if err := m.store.Update(ctx, wsID, existing.ID, args.Topic, args.Content); err != nil {
+		if err := m.store.Update(ctx, wsID, existing.ID, args.Topic, args.Content, args.Tags, memory.ReplaceTags); err != nil {
 				return "", fmt.Errorf("memory update failed: %w", err)
 			}
 			logging.Info("memory_update result", "topic", args.Topic, "action", "updated", "existing_id", existing.ID, "match", "old_text")
@@ -101,7 +110,7 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 		}
 	}
 
-	return m.insertEntry(ctx, wsID, args.Topic, args.Content, args.Target, args.MemoryType)
+	return m.insertEntry(ctx, wsID, args.Topic, args.Content, args.Tags, args.Target, args.MemoryType)
 }
 
 // resolveMemType maps the user-facing target and memory_type strings to the internal
@@ -124,7 +133,7 @@ func resolveMemType(target, memoryType string) memory.MemoryType {
 // insertEntry checks for topic-based duplicates before inserting. If an entry with the
 // same topic already exists it is updated in-place, ensuring one entry per unique topic.
 // Falls back to FTS4 content search + word-overlap dedup, then exact content match.
-func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, content, target, memoryType string) (any, error) {
+func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, content string, tags []string, target, memoryType string) (any, error) {
 	existing, err := m.store.FindByTitle(ctx, wsID, topic)
 	if err != nil {
 		return "", fmt.Errorf("memory update failed: %w", err)
@@ -137,7 +146,7 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 		if !strings.Contains(existing.Content, content) {
 			combined = existing.Content + "\n" + content
 		}
-		if err := m.store.Update(ctx, wsID, existing.ID, topic, combined); err != nil {
+		if err := m.store.Update(ctx, wsID, existing.ID, topic, combined, tags, memory.MergeTags); err != nil {
 			return "", fmt.Errorf("memory update failed: %w", err)
 		}
 		mt := resolveMemType(target, memoryType)
@@ -152,7 +161,7 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 			return fmt.Sprintf("already saved — matching entry found for topic %q (id: %d)", existing.Title, existing.ID), nil
 		}
 		combined := existing.Content + "\n" + content
-		if err := m.store.Update(ctx, wsID, existing.ID, topic, combined); err != nil {
+		if err := m.store.Update(ctx, wsID, existing.ID, topic, combined, tags, memory.MergeTags); err != nil {
 			return "", fmt.Errorf("memory update failed: %w", err)
 		}
 		mt := resolveMemType(target, memoryType)
@@ -169,7 +178,7 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 			logging.Info("memory_update result", "topic", topic, "action", "already_saved", "match", "user_content_dup")
 			return fmt.Sprintf("already saved — duplicate content for topic %q", topic), nil
 		}
-		id, err := m.store.Insert(ctx, wsID, memory.UserProfile, topic, content, "agent")
+		id, err := m.store.Insert(ctx, wsID, memory.UserProfile, topic, content, tags, "agent")
 		if err != nil {
 			return "", fmt.Errorf("memory update failed: %w", err)
 		}
@@ -186,7 +195,7 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, topic, conte
 		logging.Info("memory_update result", "topic", topic, "action", "already_saved", "match", "content_dup")
 		return fmt.Sprintf("already saved — duplicate content for topic %q", topic), nil
 	}
-	id, err := m.store.Insert(ctx, wsID, mt, topic, content, "agent")
+	id, err := m.store.Insert(ctx, wsID, mt, topic, content, tags, "agent")
 	if err != nil {
 		return "", fmt.Errorf("memory update failed: %w", err)
 	}

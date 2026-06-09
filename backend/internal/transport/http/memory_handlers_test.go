@@ -37,9 +37,9 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 func seedMemories(t *testing.T, store *memory.Store) {
 	t.Helper()
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", memory.LongTerm, "topic-a", "content a", "agent")
-	store.Insert(ctx, "ws-1", memory.Daily, "topic-b", "content b", "agent")
-	store.Insert(ctx, "ws-2", memory.LongTerm, "topic-c", "content c", "agent")
+	store.Insert(ctx, "ws-1", memory.LongTerm, "topic-a", "content a", nil, "agent")
+	store.Insert(ctx, "ws-1", memory.Daily, "topic-b", "content b", nil, "agent")
+	store.Insert(ctx, "ws-2", memory.LongTerm, "topic-c", "content c", nil, "agent")
 }
 
 func TestClearWorkspace_All(t *testing.T) {

@@ -16,9 +16,14 @@
             "type": "integer",
             "description": "Maximum number of results to return (1-20)",
             "default": 5
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional — only return entries that have all of these tags"
           }
         },
-        "required": ["query"]
+        "required": []
       }
     },
     "memory_update": {
@@ -49,6 +54,11 @@
             "enum": ["memory", "user"],
             "default": "memory",
             "description": "Where to save: 'memory' for workspace facts, 'user' for user preferences and profile"
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional labels for grouping this entry (e.g. [\"persona\", \"exometeorology\"]). Search by tag to find all related entries."
           }
         },
         "required": ["topic", "content"]

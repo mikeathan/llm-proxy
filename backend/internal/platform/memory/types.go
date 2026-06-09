@@ -4,6 +4,7 @@
 package memory
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -17,6 +18,13 @@ const (
 	UserProfile MemoryType = "user_profile"
 )
 
+// SearchOption carries optional filters for Store.Search(). Tags filters by
+// exact tag match (all must be present). MemType replaces the old variadic.
+type SearchOption struct {
+	Tags    []string
+	MemType MemoryType
+}
+
 // MemoryEntry stores datetime as string to match go-sqlite3 scan behavior.
 // The existing ledger code (store.go:233-242) follows the same pattern:
 // scan DATETIME columns as string, parse with time.Parse when needed.
@@ -26,9 +34,25 @@ type MemoryEntry struct {
 	MemoryType  MemoryType `json:"memory_type"`
 	Title       string     `json:"title"`
 	Content     string     `json:"content"`
+	Tags        []string   `json:"tags"`
 	Source      string     `json:"source"`
 	CreatedAt   string     `json:"created_at"`
 	UpdatedAt   string     `json:"updated_at"`
+}
+
+// scanMemoryEntry is a shared row scanner for all Store methods to avoid
+// duplicating the 9-column Scan call at every query site.
+func scanMemoryEntry(row interface{ Scan(dest ...any) error }) (MemoryEntry, error) {
+	var e MemoryEntry
+	var tagsStr string
+	if err := row.Scan(&e.ID, &e.WorkspaceID, &e.MemoryType, &e.Title,
+		&e.Content, &tagsStr, &e.Source, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		return MemoryEntry{}, err
+	}
+	if tagsStr != "" && tagsStr != "[]" {
+		json.Unmarshal([]byte(tagsStr), &e.Tags)
+	}
+	return e, nil
 }
 
 func (e *MemoryEntry) CreatedAtTime() (time.Time, error) {

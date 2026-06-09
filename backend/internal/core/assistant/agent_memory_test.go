@@ -40,7 +40,7 @@ func TestAgent_RecallsMemoryInNewSession(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", nil, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestAgent_ActiveMemory_NoMatch_NoInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", memory.LongTerm, "database", "port is 5433", "agent")
+	store.Insert(ctx, "ws-1", memory.LongTerm, "database", "port is 5433", nil, "agent")
 
 	captured := ""
 	client := &MockClient{
@@ -316,7 +316,7 @@ func TestAgent_UsageMeterInPrompt(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", nil, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
@@ -374,9 +374,9 @@ func TestAgent_UserProfileInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "use go build ./...", "agent")
-	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", "agent")
-	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", "agent")
+	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "use go build ./...", nil, "agent")
+	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", nil, "agent")
+	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", nil, "agent")
 
 	var callCount int
 	var capturedSystemPrompt string
@@ -431,11 +431,11 @@ func TestInjectActiveMemory_KeepsProgressInAutomation(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", nil, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
-	_, err = store.Insert(ctx, "ws-1", memory.LongTerm, "llm-smoke-test-progress", "Completed Steps 1-6 of LLM Smoke Test.", "agent")
+	_, err = store.Insert(ctx, "ws-1", memory.LongTerm, "llm-smoke-test-progress", "Completed Steps 1-6 of LLM Smoke Test.", nil, "agent")
 	if err != nil {
 		t.Fatalf("seed progress memory: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestInjectActiveMemory_CachesTaskPrompt(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "tool_versions", "TypeScript version: 6.0.3", "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "tool_versions", "TypeScript version: 6.0.3", nil, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}

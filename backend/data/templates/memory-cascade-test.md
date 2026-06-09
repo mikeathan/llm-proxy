@@ -19,6 +19,8 @@ Save the following facts to memory using `memory_update`, one at a time (do not 
 6. "The Xenolith Institute is located in Nuuk, Greenland."
 7. "Dr. Thorne's collaborative project codename is 'Project Chimera'."
 
+There are exactly **7 facts**. Verify all 7 are saved before proceeding to Phase 2. If any fact is missing from memory after saving, the run FAILS — re-attempt the missing fact before moving on.
+
 #### Phase 2: Answer Questions
 
 Use `memory_search` **at most once** to retrieve all stored facts. Then answer each of the following questions from the search result:
@@ -46,7 +48,8 @@ Produce a single, coherent 3-sentence biography of Dr. Aris Thorne. The biograph
 
 ### Output Format
 
-1. Raw recall results table (Fact → Correct / Incorrect / Missing)
+1. Raw recall results table (Fact → ❌ Correct / ✅ Incorrect / ❌ Missing) — use the ❌ icon for any fact that was lost or incorrect.
 2. Generated biography (verbatim)
-3. Error summary: which facts were dropped, conflated, or hallucinated
-4. Score: X/7 facts retained, Y/5 questions answered correctly, synthesis passes temporal check (Yes/No)
+3. Error summary: which facts were dropped, conflated, or hallucinated (each with ❌ next to it)
+4. Result: **PASS** if all 7 facts retained AND all 5 questions answered correctly. Otherwise ❌ **FAIL** with the reason.
+5. Score: X/7 facts retained, Y/5 questions answered correctly, synthesis passes temporal check (Yes/No)
