@@ -13,49 +13,63 @@ status, and cross-references to related documents. Use this as the starting poin
 |----|------|-------|--------|----------|
 | LAW | `CONSTITUTION.md` | Architectural Invariants | Law | I–VI (15 subsections) |
 
+## Skills (Reference Guides)
+
+| | File | Title | Topics |
+|-|------|-------|--------|
+| | `docs/skills/memory-system.md` | Memory Architecture & Tags | Injection, three-tier, tags, dedup, gotchas |
+| | `docs/skills/agent-loop.md` | Agent Loop & Stuck Detection | Sieve, fallback chain, reasoning budget, spiral detector |
+| | `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates |
+| | `docs/skills/engineering-practices.md` | Go Engineering Practices | Patterns, code style, architecture rules |
+| | `docs/skills/llamacpp-setup.md` | llama.cpp Server Setup | Args, GPU tuning, systemd, performance data |
+| | `docs/skills/automation.md` | Automation System | Dispatcher, executor, run lifecycle, templates |
+
 ## Specifications (Behavioral Contracts)
+
+| ID | File | Title | Status | Constitution Refs |
 
 | ID | File | Title | Status | Constitution Refs |
 |----|------|-------|--------|-------------------|
 | SPEC-001 | `docs/SPECS/agent-loop.md` | Agent Loop | stable | II.4, II.5, II.6, II.7, II.8, II.10 |
 | SPEC-002 | `docs/SPECS/tool-call-parser.md` | Tool Call Parser | stable | II.4 |
 | SPEC-003 | `docs/SPECS/discovery-panel.md` | Discovery Panel UI | stable | — |
-| SPEC-004 | — | Memory System *(not yet written)* | — | II.12 |
-| SPEC-005 | — | Orchestrator / Budget *(not yet written)* | — | VI |
-| SPEC-006 | — | Guardrail Engine *(not yet written)* | — | I.5 |
-| SPEC-007 | — | Automation Dispatcher *(not yet written)* | — | — |
-| SPEC-008 | — | MCP Integration *(not yet written)* | — | — |
+| SPEC-004 | `docs/SPECS/memory.md` | Memory System | stable | II.12 |
+| SPEC-005 | `docs/SPECS/orchestrator.md` | Orchestrator / Budget | stable | VI |
+| SPEC-006 | `docs/SPECS/guardrails.md` | Guardrail Engine | stable | I.5 |
+| SPEC-007 | `docs/SPECS/automation-dispatcher.md` | Automation Dispatcher | stable | — |
+| SPEC-008 | `docs/SPECS/mcp-integration.md` | MCP Integration | stable | — |
 
 ## Implementation Plans
 
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
-| `docs/PLANS/agnostic-agent-loop.md` | Universal LLM-Agnostic Agent Loop | complete | 2026-05-09 | SPEC-001 |
-| `docs/PLANS/agent-memory-system.md` | Agent Memory System | complete | — | SPEC-004 |
-| `docs/PLANS/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
-| `docs/PLANS/interactive-user-input.md` | Interactive User Input (ask_user Tool) | proposed | 2026-06-08 | SPEC-001, SPEC-007 |
-| `docs/PLANS/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | proposed | 2026-06-09 | SPEC-001, SPEC-003 |
-| `docs/PLANS/memory-tags-system.md` | Memory Tags System | complete | 2026-06-08 | SPEC-004 |
+| `docs/PLANS/agent-loop/agnostic-agent-loop.md` | Universal LLM-Agnostic Agent Loop | complete | 2026-05-09 | SPEC-001 |
+| `docs/PLANS/memory/agent-memory-system.md` | Agent Memory System | complete | — | SPEC-004 |
+| `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
+| `docs/PLANS/cross-cutting/interactive-user-input.md` | Interactive User Input (ask_user Tool) | proposed | 2026-06-08 | SPEC-001, SPEC-007 |
+| `docs/PLANS/cross-cutting/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | proposed | 2026-06-09 | SPEC-001, SPEC-003 |
+| `docs/PLANS/memory/memory-three-tier-redesign.md` | Three-Tier Memory Architecture (scope, mode, keep) | proposed | 2026-06-09 | SPEC-004 |
+| `docs/PLANS/memory/memory-tags-system.md` | Memory Tags System | complete | 2026-06-08 | SPEC-004 |
+| `backend/data/templates/memory-cascade-test.md` | Memory Cascade — Persona Recall & Cross-Ref | reference | 2026-06-09 | SPEC-004 |
 | `backend/data/templates/memory-tags-test.md` | Memory Tags & Type Isolation Test | reference | 2026-06-09 | SPEC-004 |
-| `docs/PLANS/resource-aware-orchestration.md` | Resource-Aware Orchestration | complete | — | SPEC-005 |
-| `docs/PLANS/consistent-token-budget.md` | Consistent Token Budget | complete | — | SPEC-005 |
-| `docs/PLANS/auto-context-budget.md` | Auto-Compute Context Budget | complete | — | SPEC-001 |
-| `docs/PLANS/tool-choice-temperature-implementation.md` | Tool Choice & Temperature | complete | — | SPEC-001 |
-| `docs/PLANS/process-lifecycle-management.md` | Process Lifecycle Management | complete | — | — |
-| `docs/PLANS/refactor-assistant-clean-code.md` | Refactor Assistant Package | complete | — | SPEC-001 |
-| `docs/PLANS/record-replay-test-framework.md` | Record-and-Replay LLM Testing | complete | 2026-05-24 | — |
-| `docs/PLANS/fallback-native-tools-fix.md` | Reasoning-Stuck Fallback Fix | complete | — | SPEC-001 |
-| `docs/PLANS/memory-dedup-search-fix.md` | Relevance Search + Jaccard Dedup | complete | — | SPEC-004 |
-| `docs/PLANS/memory-improvements-implementation-plan.md` | Memory Improvements | partial | — | SPEC-004 |
-| `docs/PLANS/mbtcp-implementation.md` | MBTCP: Memory-Backed Tool Call Pre-emption | proposed | 2026-06-03 | SPEC-004 |
-| `docs/PLANS/unified-provider-management.md` | Unified Provider & Model Management | not_implemented | — | — |
-| `docs/PLANS/discovery-panel-implementation.md` | Discovery Panel Implementation | not_implemented | — | SPEC-003 |
-| `docs/PLANS/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
-| `docs/PLANS/plan-recordings.md` | Recording Playback for Automations | not_implemented | — | — |
-| `docs/PLANS/enhanced-agent-flow-and-compatibility.md` | Enhanced Agent Flow & Model Compatibility | partial | — | SPEC-001 |
-| `docs/PLANS/ephemeral-turn-context.md` | Ephemeral Turn Context — Reduce Recap Overhead | reverted | 2026-06-08 | SPEC-001 |
-| `docs/PLANS/automation-dispatcher-blueprint.md` | Unified Automation Dispatcher — Blueprint | superseded | 2026-04-01 | SPEC-007 |
-| `docs/PLANS/system-blueprint.md` | System Blueprint: LLM-Proxy | reference | — | all |
+| `docs/PLANS/orchestrator/resource-aware-orchestration.md` | Resource-Aware Orchestration | complete | — | SPEC-005 |
+| `docs/PLANS/orchestrator/consistent-token-budget.md` | Consistent Token Budget | complete | — | SPEC-005 |
+| `docs/PLANS/agent-loop/auto-context-budget.md` | Auto-Compute Context Budget | complete | — | SPEC-001 |
+| `docs/PLANS/agent-loop/tool-choice-temperature-implementation.md` | Tool Choice & Temperature | complete | — | SPEC-001 |
+| `docs/PLANS/cross-cutting/process-lifecycle-management.md` | Process Lifecycle Management | complete | — | — |
+| `docs/PLANS/agent-loop/refactor-assistant-clean-code.md` | Refactor Assistant Package | complete | — | SPEC-001 |
+| `docs/PLANS/cross-cutting/record-replay-test-framework.md` | Record-and-Replay LLM Testing | complete | 2026-05-24 | — |
+| `docs/PLANS/agent-loop/fallback-native-tools-fix.md` | Reasoning-Stuck Fallback Fix | complete | — | SPEC-001 |
+| `docs/PLANS/memory/memory-dedup-search-fix.md` | Relevance Search + Jaccard Dedup | complete | — | SPEC-004 |
+| `docs/PLANS/memory/memory-improvements-implementation-plan.md` | Memory Improvements | partial | — | SPEC-004 |
+| `docs/PLANS/memory/mbtcp-implementation.md` | MBTCP: Memory-Backed Tool Call Pre-emption | proposed | 2026-06-03 | SPEC-004 |
+| `docs/PLANS/cross-cutting/unified-provider-management.md` | Unified Provider & Model Management | not_implemented | — | — |
+| `docs/PLANS/discovery/discovery-panel-implementation.md` | Discovery Panel Implementation | not_implemented | — | SPEC-003 |
+| `docs/PLANS/agent-loop/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
+| `docs/PLANS/agent-loop/tool-failure-skip.md` | Graceful Tool Failure Recovery | complete | 2026-05-31 | SPEC-001 |
+| `docs/PLANS/cross-cutting/plan-recordings.md` | Recording Playback for Automations | not_implemented | — | — |
+| `docs/PLANS/cross-cutting/per-run-output-directories.md` | Per-Run Output Directories | draft | 2026-06-05 | — |
+| `docs/PLANS/cross-cutting/system-blueprint.md` | System Blueprint: LLM-Proxy | reference | — | all |
 
 ## Audits
 
@@ -87,7 +101,10 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Notes |
 |------|-------|-------|
 | `docs/services/llm-proxy.service` | systemd service unit | Operational |
-| `docs/samples/` | JSON samples (device_context, llm_response, metrics_query) | Examples |
+| `docs/service_setup` | Service installation instructions | Setup |
+| `docs/SPECS/README.md` | Subdirectory catalog for all SPEC files | Index |
+| `docs/audits/README.md` | Subdirectory catalog for audit files | Index |
+| `docs/skills/` | AI assistant skill files — deep-dive reference guides | Categories |
 
 ---
 
@@ -96,7 +113,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | Directory | Contents |
 |-----------|----------|
 | `docs/SPECS/` | Behavioral contracts (SPEC-NNN). Read before modifying subsystems. |
-| `docs/PLANS/` | Implementation strategies. Status reflects completeness. |
+| `docs/PLANS/` | Implementation strategies. Organized by subsystem: `agent-loop/`, `memory/`, `orchestrator/`, `automation/`, `discovery/`, `cross-cutting/`. |
 | `docs/audits/` | Post-hoc analysis of system behavior against specs. |
-| `docs/samples/` | Example JSON payloads for API responses and tool calls. |
+| `docs/skills/` | AI assistant reference guides — loaded on demand for deep-dive topics. |
 | `.agents/rules/` | Per-language coding rules for AI assistants. |

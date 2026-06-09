@@ -241,13 +241,12 @@ See [`CLAUDE.md`](CLAUDE.md) for the full architecture tree, directory map, and 
 
 ## Documentation
 
+See [`docs/INDEX.md`](docs/INDEX.md) for the full documentation catalog (specifications, plans, audits, skills).
+
+Key entry points:
 - `CONSTITUTION.md` — Immutable architectural laws (read first)
 - `CLAUDE.md` — Project guide with invariants and API reference
 - `AGENTS.md` — Instructions for AI coding assistants
-- `docs/SPECS/agent-loop.md` — Agent loop specification
-- `docs/SPECS/tool-call-parser.md` — Tool call parser specification
-- `docs/PLANS/agnostic-agent-loop.md` — Implementation plan
-- `docs/audits/agent-stability-report.md` — Stability audit results
 
 ## License
 

@@ -49,7 +49,7 @@ visible `Content`. The injected message is pure overhead — ~30 tokens/turn wit
 zero reduction in internal recap.
 
 The entire ephemeral turn context feature was reverted. The code is back to
-baseline. See `docs/PLANS/ephemeral-turn-context.md` (status: reverted).
+baseline. See `docs/PLANS/agent-loop/ephemeral-turn-context.md` (status: reverted).
 
 ## Resolution: Per-Model Temperature Override
 

@@ -15,13 +15,19 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 
 ## Before You Write Any Code
 
-1. Read `CONSTITUTION.md` — it defines 12 immutable invariants. Your change must comply with all of them.
+1. Read `CONSTITUTION.md` — it defines 6 architectural sections covering validation boundaries, system prompt format, model architecture, terminal/network safety, no telemetry, and abstraction/invariants. Your change must comply with all of them.
 2. Read the relevant SPEC file(s) for the subsystem you are modifying. See [`docs/INDEX.md`](docs/INDEX.md) for the mapping of subsystems to SPEC IDs (SPEC-001 through SPEC-008).
 3. `.agents/rules/` has deeper Go and Vue guidance — check there if a task needs architecture-level patterns.
 4. See [`docs/INDEX.md`](docs/INDEX.md) for the full documentation catalog.
 5. Run `go build ./... && go test ./...` to establish a clean baseline.
 
-**Spec maintenance**: After any major subsystem change (new feature, refactor, behavior change), update the corresponding SPEC and add a new entry to `docs/PLANS/` documenting what changed and why. Specs are the contract — they must stay in sync with the code.
+**Documentation stewardship**: After any change (new feature, refactor, behavior fix, or revert), update all affected docs:
+- **SPEC files** (`docs/SPECS/`) — update behavioral contracts if the change alters system behaviour
+- **Plan files** (`docs/PLANS/`) — add a new entry documenting what changed and why, organized by subsystem
+- **Skill files** (`docs/skills/`) — add new gotchas, patterns, or architecture decisions discovered during the work
+- **INDEX** (`docs/INDEX.md`) — add entries for any new files created; update statuses for changed plans
+- **Audits** (`docs/audits/`) — create a new audit for any regression or post-mortem analysis
+- **AGENTS.md** — update Common Pitfalls if a new pattern emerges that future agents should know
 
 ## Architecture (What Lives Where)
 
@@ -178,45 +184,23 @@ When a tool call is blocked:
 
 13. **Lifecycle events for UI progress** — The agent emits `lifecycle` events with a `phase` field for structured progress reporting: `stuck_detected` (with `reasoning_chars`), `fallback_started` (with `reason` and `mode`), `fallback_waiting` (with `elapsed` time), and `fallback_completed`. These are appended as system messages in the frontend, never overwriting assistant streaming content. The non-streaming heartbeat (`computeNextResponseNonStreaming`) uses `fallback_waiting` with elapsed time instead of the old `tool_stream` overwrite. See `agent_events.go` `notifyLifecycle()`.
 
-14. **Goroutine leak fix in `processStream` heartbeat** — The 30-second heartbeat goroutine now selects on a `streamDone` channel (closed via `defer`) in addition to `ctx.Done()`. This ensures the goroutine exits when `processStream` returns for ANY reason (stuck detection, stream EOF, errors), not just context cancellation. Prevents misleading "stream still generating" log lines after the stream has ended. See `agent.go` `processStream()`.
+14. **Goroutine leak fix in `processStream` heartbeat** — The 30-second heartbeat goroutine now selects on a `streamDone` channel (closed via `defer`) in addition to `ctx.Done()`. This ensures the goroutine exits when `processStream` returns for ANY reason (stuck detection, stream EOF, errors), not just context cancellation. Prevents misleading "stream still generating" log lines after the stream has ended. See `agent.go` `processStream()` and `docs/skills/agent-loop.md`.
 
 15. **Context resolution order in `resolveContextLength`** — The priority is `Metadata.Nctx` (serving context from llama.cpp `/slots`) → `Metadata.ContextLength` (training context from GGUF) → `knownCtx` (model name fragment) → `providerCtxDefaults` (per-provider). Forgetting to check `Nctx` first causes the proxy to ignore the detected server context size and fall through to the provider default (128K), resulting in `max_tokens` and `reasoning_budget` that exceed the actual server capacity. See `internal/core/orchestrator/budget_squeezer.go`.
 
-16. **`ApplyMetadataDefaults` sets `ToolCallFormat` to `"native"` when empty** — This matches the UI's "Default" value for cloud provider tiers. Models that need XML text mode must explicitly set `tool_call_format: xml` in the settings.yml override. The stuck-detector fix (Gemini) ensures that models that struggle with native tools gracefully fall back to non-streaming rather than triggering the death spiral. See `internal/core/orchestrator/budget_squeezer.go`.
+16. **`ApplyMetadataDefaults` sets `ToolCallFormat` to `"native"` when empty** — See `docs/skills/agent-loop.md` (hook system) and `internal/core/orchestrator/budget_squeezer.go`.
 
 17. **Settings override `tool_call_format: ""` blocks the default** — When the UI saves "Default" for an existing model, the save handler writes `tool_call_format: ""` to settings.yml. This empty string override takes highest priority and blocks `ApplyMetadataDefaults` from filling in `"native"`. The model silently switches to XML text mode. If you see a model unexpectedly failing with XML parse errors, check settings.yml for `tool_call_format: ""` and either remove it or set it to `"native"`.
 
-18. **Passive memory injection (context only, no step skipping, one-time only)** — Memory is injected as `<relevant_memories>` context for the model ONCE per session (first turn only), like Hermes Agent. No `MemoryCheckGate`, no step-skipping logic, no per-turn re-injection, and no `recordStepMemories()` DB writes. For automation tasks, memory injection is disabled entirely because the task prompt is too generic as a search query and the positioned `<memory>` block overwrites the finalization instruction. `findOverlappingEntry()` in `memory_tools.go` computes **Jaccard similarity** on topic words (≥0.70) and content (≥0.90) to deduplicate entries. See `stream.go` `injectActiveMemory()` and `docs/audits/memory-injection-investigation.md`.
+18. **Memory system — see `docs/skills/memory-system.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
 
-19. **Reasoning budget enforcement is warn-only, never terminate** — The proxy checks `reasonUsed > reasoningBudget` in `stream.go` `processStream()` but does NOT terminate the stream. It only logs a warning. Do NOT add `return nil` here. The server (llama.cpp) enforces `reasoning_budget` at the API level by forcing the model out of thinking mode when the budget is exhausted. If the proxy terminates on the budget check, it kills the stream before the first content chunk arrives (the transition happens across chunk boundaries), triggering the XML/non-streaming fallback chain unnecessarily. The stuck detector (`maxTokens × 2` chars of pure reasoning) and `maxTokens` overall budget provide sufficient protection against runaway generation. See `stream.go` `processStream()` — the `if term.ShouldTerminate` block is deliberately warn-only.
+19. **Agent loop mechanics — see `docs/skills/agent-loop.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
 
-20. **RAG payload moved to end of prompt for KV cache stability** — `injectActiveMemory()` emits `<relevant_memories>` as a separate system message wrapped in `<memory>` tags, placed right before the current user turn. This keeps the system prompt + conversation history KV cache stable across turns — only the final `<memory>` message changes. See `stream.go` `injectActiveMemory()`.
-
-## File Change Checklist
-
-When adding a new model-level field, update these files:
-
-1. `models/config.go` or `models/infrastructure.go` — type definition
-2. `internal/transport/http/registry_handlers.go` — add/update request structs
-3. `internal/transport/http/admin_handlers.go` — view struct
-4. `internal/transport/http/admin_view.go` — view mapping
-5. `internal/core/llm/manager.go` — if field affects runtime behavior
-6. `internal/testing/mocks/manager.go` — if interface changed
-7. Frontend component (if UI field)
-
-When adding a tool:
-
-1. `models/tools.go` — constant
-2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
-3. `internal/core/tools/{tool_category}.go` — implementation
-4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
-
-When adding a prompt:
-
-1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
-2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
+20. **Testing — see `docs/skills/testing-guide.md`** for: running smoke tests, analysing run output, record-replay testing, common pitfalls.
 
 ## Test Patterns
+
+See `docs/skills/testing-guide.md` for the full test patterns guide (smoke tests, record-replay, run analysis).
 
 - Mock the LLM client, use real tool providers where possible
 - Agent tests at `internal/core/assistant/agent_test.go`
@@ -273,6 +257,19 @@ The `recordreplay` build tag ensures these tests are excluded from `go test ./..
    - Structured logging with `logging.Info/Debug/Warn/Error` and key-value pairs.
    - No secrets in logs or error messages.
 
+### Engineering Patterns
+
+1. **Constants over magic values**: Every hardcoded string, int, or float that appears in logic must be a named constant (`const`, not `var`). Group related constants at the top of the file. Exceptions: `0`, `1`, `""`, `nil` in zero-value initialisation or loop counters.
+2. **Strategy Pattern for branching to extend**: When a `switch` or `if-else` chain grows with new cases over time, replace it with a strategy map. New cases become registrations, not new branches. Follows Open/Closed — the function is closed for modification, open for extension.
+3. **Value Objects for domain primitives**: Use typed constants (`type Scope string`) with a `Validate()` method instead of raw strings. Catches invalid states at compile time and makes the domain vocabulary explicit. Only for values that have a bounded set of valid states — not for freeform strings like names or messages.
+4. **Null Object over nil checks**: Prefer returning a no-op object over nil when a function has a valid "do nothing" path. The caller shouldn't need to check for nil before every call. Only applies when the nil case has a meaningful no-op behaviour — not for error paths.
+5. **Command Query Separation**: A function either returns data OR mutates state, never both. A save operation returns `error` or `ok`. A query returns data. If a function currently does both, split it into two.
+6. **Defensive programming at boundaries**: Validate all inputs at system boundaries (API handlers, tool handlers, store methods). Trust internal callers. If an invalid state is impossible at the call site but the function signature allows it, document the assumption with a comment.
+7. **No silent failures**: Every error must be handled — either returned to the caller, logged, or explicitly ignored with a comment explaining why (`_ = doSomething()  // best-effort cleanup`). Never use `_ =` without a comment.
+8. **Immutability for function parameters**: Don't modify input slices or maps. Make a copy first (`append([]T{}, input...)` for slices, a fresh `map` for maps). The original caller's data should be unchanged after the call.
+9. **Guard clauses over nested ifs**: Return early for error/null/edge cases. The happy path should be flat and left-aligned. Never nest deeper than 3 levels.
+10. **Function composition for complex conditions**: Extract multi-condition checks into a named helper function. `if isRetryable(err)` is better than `if errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || ...`. The helper name documents the WHY.
+
 ### File Organization
 
 - **One primary type per file**, named after the type (e.g., `agent.go` → `Agent`, `session.go` → `runSession`).
@@ -316,7 +313,7 @@ When adding a tool:
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
-4. `internal/core/assistant/registry.go` — registration
+4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
 
 When adding a prompt:
 

@@ -3,7 +3,7 @@
 **Status:** complete
 **Date:** 2026-06-08
 **Related specs:** SPEC-004
-**Depends on:** `docs/PLANS/interactive-user-input.md` (separate effort, not a blocker)
+**Depends on:** `docs/PLANS/cross-cutting/interactive-user-input.md` (separate effort, not a blocker)
 
 ## Problem
 

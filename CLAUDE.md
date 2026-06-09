@@ -219,7 +219,7 @@ Nag injection belongs in the agent loop (`agent.go`), NOT in `NormalizeHistory()
 - The HTTP client does NOT strip tools — the agent controls this decision
 - When native tools are enabled, XML parser still runs as fallback for non-function-calling responses
 - Automation mode with native tools sends `tool_choice: "required"`, `temperature: 0.1`, and
-  `reasoning_budget: max_tokens/2` on the `ChatRequest` to force the model to always call a tool
+  `reasoning_budget: max_tokens/3` on the `ChatRequest` to force the model to always call a tool
   (preventing thinking-only EOS responses) and cap wasted thinking tokens so the model has budget
   left for the actual tool call. These fields are omitted for XML mode or non-automation contexts
   via `omitempty`.
@@ -257,20 +257,9 @@ When a tool call is blocked:
 
 ## Agent Loop: Step-by-Step
 
-See [`docs/SPECS/agent-loop.md`](docs/SPECS/agent-loop.md) (SPEC-001) for the authoritative specification.
+See [`docs/SPECS/agent-loop.md`](docs/SPECS/agent-loop.md) (SPEC-001) for the authoritative specification and `docs/skills/agent-loop.md` for the execution flow, sieve algorithm, stuck detection, and reasoning budget details.
 
 The agent loop runs in `internal/core/assistant/agent.go`, method `Execute()` (line ~97).
-
-### Context Sieve Algorithm
-```
-totalChars = sum(len(msg.content) for msg in history)
-if totalChars > contextBudget:
-    keep = [history[0]]              // system prompt
-    keep += [firstUserMessage]       // original task
-    keep += history[-min(10, len)]   // last N turns
-    keep = deduplicate(keep)
-    history = keep[0:1] + [SieveSystemNote] + keep[1:]
-```
 
 ### Content Filtering During Streaming
 The `FilterStreamingMarkup()` function in `content_filter.go` hides `<tool_call>` patterns from UI display during streaming. This prevents the user from seeing partial, un-executed tool calls. Complete tool calls are only shown after execution.

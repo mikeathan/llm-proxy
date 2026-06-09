@@ -6,7 +6,7 @@ status: stable
 last_updated: 2026-05-28
 constitution_references: []
 related_specs: [SPEC-001, SPEC-005, SPEC-006]
-supersedes: docs/PLANS/automation-dispatcher-blueprint.md
+supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 ---
 
 # SPEC: Automation Dispatcher

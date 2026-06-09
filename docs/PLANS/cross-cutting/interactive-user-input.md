@@ -65,7 +65,7 @@ and the agent resumes with the answer as a tool result.
 6. `internal/transport/http/router.go` — register routes
 7. `frontend/src/composables/usePendingQuestions.ts` — polling logic
 8. `frontend/src/components/AskUserModal.vue` — notification UI
-9. `docs/PLANS/interactive-user-input.md` — this plan
+9. `docs/PLANS/cross-cutting/interactive-user-input.md` — this plan
 
 ## Edge Cases
 
