@@ -472,6 +472,121 @@ func TestIsFTSStopWord(t *testing.T) {
 	}
 }
 
+func TestSearchHot(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "build", "use go build ./...", []string{"hot"}, "agent")
+	store.Insert(ctx, "ws-1", LongTerm, "version", "TypeScript 6.0.3", []string{"hot"}, "agent")
+	store.Insert(ctx, "ws-1", LongTerm, "port", "database port is 5433", nil, "agent")
+	store.Insert(ctx, "global", UserProfile, "name", "Alice", []string{"hot"}, "agent")
+
+	entries, err := store.SearchHot(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("SearchHot failed: %v", err)
+	}
+
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 hot entries (2 ws-1 + 1 global), got %d", len(entries))
+	}
+
+	titles := make(map[string]bool)
+	for _, e := range entries {
+		titles[e.Title] = true
+	}
+	if !titles["build"] {
+		t.Error("expected 'build' in hot results")
+	}
+	if !titles["version"] {
+		t.Error("expected 'version' in hot results")
+	}
+	if !titles["name"] {
+		t.Error("expected global 'name' in hot results")
+	}
+	if titles["port"] {
+		t.Error("'port' has no hot tag and should NOT appear")
+	}
+}
+
+func TestSearchHot_ScopeExclusion(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "local", "local hot entry", []string{"hot"}, "agent")
+	store.Insert(ctx, "ws-2", LongTerm, "other", "other workspace hot entry", []string{"hot"}, "agent")
+
+	entries, err := store.SearchHot(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("SearchHot failed: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry for ws-1, got %d", len(entries))
+	}
+	if entries[0].Title != "local" {
+		t.Errorf("expected 'local', got '%s'", entries[0].Title)
+	}
+}
+
+func TestScopeValidate(t *testing.T) {
+	if err := Scope("user").Validate(); err != nil {
+		t.Errorf("expected nil for scope 'user', got: %v", err)
+	}
+	if err := Scope("workspace").Validate(); err != nil {
+		t.Errorf("expected nil for scope 'workspace', got: %v", err)
+	}
+	if err := Scope("garbage").Validate(); err == nil {
+		t.Error("expected error for invalid scope 'garbage'")
+	}
+}
+
+func TestModeValidate(t *testing.T) {
+	if err := Mode("always").Validate(); err != nil {
+		t.Errorf("expected nil for mode 'always', got: %v", err)
+	}
+	if err := Mode("on_demand").Validate(); err != nil {
+		t.Errorf("expected nil for mode 'on_demand', got: %v", err)
+	}
+	if err := Mode("garbage").Validate(); err == nil {
+		t.Error("expected error for invalid mode 'garbage'")
+	}
+}
+
+func TestKeepValidate(t *testing.T) {
+	if err := Keep("permanent").Validate(); err != nil {
+		t.Errorf("expected nil for keep 'permanent', got: %v", err)
+	}
+	if err := Keep("session").Validate(); err != nil {
+		t.Errorf("expected nil for keep 'session', got: %v", err)
+	}
+	if err := Keep("garbage").Validate(); err == nil {
+		t.Error("expected error for invalid keep 'garbage'")
+	}
+}
+
+func TestSearchHot_EmptyResult(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	store.Insert(ctx, "ws-1", LongTerm, "not-hot", "no hot tag here", nil, "agent")
+
+	entries, err := store.SearchHot(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("SearchHot failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 entries (no hot tags), got %d", len(entries))
+	}
+
+	entries, err = store.SearchHot(ctx, "ws-empty")
+	if err != nil {
+		t.Fatalf("SearchHot on empty workspace failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 entries for empty workspace, got %d", len(entries))
+	}
+}
+
 func TestSanitiseFTSQuery_Empty(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

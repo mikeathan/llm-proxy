@@ -70,7 +70,9 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, strip `<think>` tags and promote to `Content` so the XML parser can process it. See `cleanReasoningContent()`.
 - On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars`.
 - Fallback chain:
-  a. **Native tools + empty stream** → retry via XML streaming: temporarily disable `useNativeTools`, suppress `tool_choice`, suppress `reasoningBudget`, skip stuck check (user sees tokens in real-time), emit `lifecycle` event (`fallback_started`).
+  a. **Native tools + empty stream** → depends on `usePrefill`:
+     i. **Native-only** (`usePrefill=false`): skip XML retry, go directly to non-streaming + nag prompt. The XML retry would waste ~60s for models that can't produce `<tool_call>` blocks.
+     ii. **XML-text** (`usePrefill=true`, e.g. local models): retry via XML streaming — temporarily disable `useNativeTools`, suppress `tool_choice`, suppress `reasoningBudget`, skip stuck check (user sees tokens in real-time), emit `lifecycle` event (`fallback_started`).
   b. **XML stream also empty** → fall back to `computeNextResponseNonStreaming` as last resort.
   c. **Non-streaming also fails** → starvation count increments, sieve nudges model.
 - Progressive sieve recovery handles repeated stuck events (1st: reactive sieve + nag, 2nd: aggressive sieve + stronger nag, 3rd: fail with clear error).

@@ -24,17 +24,26 @@ TABLE memories (
 
 FTS5 indexes `title, content, tags` with BM25 relevance ranking.
 
-## Three-Tier Architecture (upcoming)
+## Three-Tier Architecture
 
-The current system is being redesigned from flat storage to a three-tier model.
-**Do NOT implement this until the plan is approved.**
+The flat `memory_type`/`target`/`tags` model has been replaced by three clean parameters:
 
-| Tier | scope | mode | keep | `workspace_id` | `memory_type` | `tags` | Injected? |
-|------|-------|------|------|---------------|--------------|--------|-----------|
-| Hot+Global | user | always | permanent | `"global"` | `user_profile` | `["hot"]` | ✅ Every session |
-| Hot+Local | workspace | always | permanent | active WS | `long_term` | `["hot"]` | ✅ This workspace |
-| Cold | workspace | on_demand | permanent | active WS | `long_term` | `[]` | ❌ Search only |
-| Session | workspace | on_demand | session | active WS | `session` | `[]` | ❌ Search only |
+| Parameter | Values | What the model asks itself |
+|-----------|--------|--------------------------|
+| `scope` | `"user"` / `"workspace"` | "Does this apply to me or to this project?" |
+| `mode` | `"always"` / `"on_demand"` | "Do I need this every session or just sometimes?" |
+| `keep` | `"permanent"` / `"session"` | "Should this last forever or just this conversation?" |
+
+### All 6 valid combinations
+
+| scope | mode | keep | `workspace_id` | `memory_type` | `tags` | Injected? |
+|-------|------|------|---------------|--------------|--------|-----------|
+| user | always | permanent | `"global"` | `user_profile` | `["hot"]` | ✅ |
+| user | on_demand | permanent | `"global"` | `user_profile` | `[]` | ❌ |
+| user | on_demand | session | `"global"` | `user_profile` | `[]` | ❌ |
+| workspace | always | permanent | active WS | `long_term` | `["hot"]` | ✅ |
+| workspace | on_demand | permanent | active WS | `long_term` | `[]` | ❌ |
+| workspace | on_demand | session | active WS | `session` | `[]` | ❌ |
 
 **Only `mode: "always"` triggers injection.** The injection query uses `json_each` for exact tag matching:
 
@@ -45,7 +54,7 @@ WHERE (m.workspace_id = 'global' AND EXISTS (SELECT 1 FROM json_each(m.tags) WHE
 ORDER BY m.updated_at DESC
 ```
 
-**Strategy pattern** for route resolution (Open/Closed — adding a combo is one map entry, not a new `case`):
+**Strategy pattern** for route resolution (in `memory_tools.go`):
 
 ```go
 var routeStrategies = map[string]RouteStrategy{
@@ -58,7 +67,7 @@ var routeStrategies = map[string]RouteStrategy{
 }
 ```
 
-**Value Objects** for compile-time safety:
+**Value Objects** for compile-time safety (in `types.go`):
 
 ```go
 type Scope string
@@ -66,20 +75,19 @@ const ( ScopeUser Scope = "user"; ScopeWorkspace Scope = "workspace" )
 func (s Scope) Validate() error { ... }
 ```
 
-## Current Injection (`injectActiveMemory()`, stream.go:115)
+## Injection (`injectActiveMemory()`, stream.go:115)
 
 - Runs ONCE per session (first turn only, `a.memoryInjected` flag)
-- Searches by FTS5 using last user message as query (or cached automation task)
-- Also fetches up to 20 `user_profile` entries
+- Fetches ALL entries with `tags: ["hot"]` via `SearchHot()` — no FTS5 query needed
 - Injects as `<memory>` system message right before the last user message
-- For automation: the task prompt is too generic as search query — returns irrelevant results
-- Injection fires BEFORE any facts are saved → freshly-saved facts never injected
+- Text capped at `maxHotInjectionChars` (2000), truncated on entry boundaries
+- Non-hot entries are searchable but never injected
+- `user_profile` entries now covered by hot tag injection (no separate fetch)
 
 ## Known Issues
 
 1. **Instruction Hierarchy** — 4B model ignores injected memory when explicit task instructions ("run X") conflict with general guidance ("check memory first"). Proven across 8+ attempts. NOT solved by any current plan.
 2. **Tag-only search can miss older entries** — `updated_at DESC` with default limit 5. Fix: use `query + tags` combined search (BM25 relevance).
-3. **FTS5 injection path is unreliable** — Task prompt too generic as search query.
 
 ## Deduplication
 

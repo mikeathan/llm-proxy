@@ -12,6 +12,7 @@ import (
 )
 
 const secureFileMode = 0600
+const maxWriteFileContent = 800 // Must match the manifest maxLength
 
 // FileSystemTools provides secure file operations.
 type FileSystemTools struct {
@@ -176,6 +177,11 @@ func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content st
 	absPath, err := f.ValidatePath(ctx, path, true)
 	if err != nil {
 		return err
+	}
+
+	if len(content) > maxWriteFileContent {
+		return fmt.Errorf("content too long (%d chars, max %d). Write the first %d characters, then use append_file to add the rest",
+			len(content), maxWriteFileContent, maxWriteFileContent)
 	}
 
 	cfg := f.configProvider(ctx)

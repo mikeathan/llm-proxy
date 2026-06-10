@@ -14,19 +14,66 @@ import (
 // mockStore wraps memory.Store, using real backing for Insert so we can verify writes.
 type mockMemoryStore struct {
 	*memory.Store
-	searchFn func(ctx context.Context, workspaceID, query string, limit int) ([]memory.MemoryEntry, error)
+	searchFn func(ctx context.Context, workspaceID, query string, limit int, opts ...memory.SearchOption) ([]memory.MemoryEntry, error)
 }
 
-func (m *mockMemoryStore) Search(ctx context.Context, workspaceID, query string, limit int) ([]memory.MemoryEntry, error) {
+func (m *mockMemoryStore) Search(ctx context.Context, workspaceID, query string, limit int, opts ...memory.SearchOption) ([]memory.MemoryEntry, error) {
 	if m.searchFn != nil {
-		return m.searchFn(ctx, workspaceID, query, limit)
+		return m.searchFn(ctx, workspaceID, query, limit, opts...)
 	}
-	return m.Store.Search(ctx, workspaceID, query, limit)
+	return m.Store.Search(ctx, workspaceID, query, limit, opts...)
+}
+
+func TestResolveParams_AllCombos(t *testing.T) {
+	cases := []struct {
+		scope        memory.Scope
+		mode         memory.Mode
+		keep         memory.Keep
+		wantWS       string
+		wantMemType  string
+		wantTags     []string
+	}{
+		{memory.ScopeUser, memory.ModeAlways, memory.KeepPermanent, "global", "user_profile", []string{"hot"}},
+		{memory.ScopeUser, memory.ModeOnDemand, memory.KeepPermanent, "global", "user_profile", nil},
+		{memory.ScopeUser, memory.ModeOnDemand, memory.KeepSession, "global", "user_profile", nil},
+		{memory.ScopeWorkspace, memory.ModeAlways, memory.KeepPermanent, "my-ws", "long_term", []string{"hot"}},
+		{memory.ScopeWorkspace, memory.ModeOnDemand, memory.KeepPermanent, "my-ws", "long_term", nil},
+		{memory.ScopeWorkspace, memory.ModeOnDemand, memory.KeepSession, "my-ws", "session", nil},
+	}
+	for _, c := range cases {
+		route, err := resolveParams(c.scope, c.mode, c.keep, "my-ws")
+		if err != nil {
+			t.Errorf("resolveParams(%s, %s, %s) unexpected error: %v", c.scope, c.mode, c.keep, err)
+			continue
+		}
+		if route.WorkspaceID != c.wantWS {
+			t.Errorf("resolveParams(%s, %s, %s) WorkspaceID = %q, want %q", c.scope, c.mode, c.keep, route.WorkspaceID, c.wantWS)
+		}
+		if route.MemoryType != c.wantMemType {
+			t.Errorf("resolveParams(%s, %s, %s) MemoryType = %q, want %q", c.scope, c.mode, c.keep, route.MemoryType, c.wantMemType)
+		}
+		if len(route.Tags) != len(c.wantTags) {
+			t.Errorf("resolveParams(%s, %s, %s) tags = %v, want %v", c.scope, c.mode, c.keep, route.Tags, c.wantTags)
+		} else {
+			for i := range route.Tags {
+				if route.Tags[i] != c.wantTags[i] {
+					t.Errorf("resolveParams(%s, %s, %s) tags[%d] = %q, want %q", c.scope, c.mode, c.keep, i, route.Tags[i], c.wantTags[i])
+				}
+			}
+		}
+	}
+}
+
+func TestResolveParams_InvalidCombination(t *testing.T) {
+	_, err := resolveParams("garbage", "garbage", "garbage", "ws-1")
+	if err == nil {
+		t.Fatal("expected error for invalid combination")
+	}
 }
 
 func TestMemorySearchTool(t *testing.T) {
 	store := &mockMemoryStore{
-		searchFn: func(ctx context.Context, workspaceID, query string, limit int) ([]memory.MemoryEntry, error) {
+		searchFn: func(ctx context.Context, workspaceID, query string, limit int, opts ...memory.SearchOption) ([]memory.MemoryEntry, error) {
 			return []memory.MemoryEntry{
 				{Title: "port", Content: "test DB port is 5433", MemoryType: memory.LongTerm},
 			}, nil
@@ -34,9 +81,10 @@ func TestMemorySearchTool(t *testing.T) {
 	}
 	provider := NewMemoryToolProvider(store.Store)
 	args := struct {
-		Query interface{} `json:"query"`
-		Limit int         `json:"limit"`
-		Tags  []string `json:"tags"`
+		Query interface{}  `json:"query"`
+		Limit int          `json:"limit"`
+		Scope memory.Scope `json:"scope"`
+		Tags  []string     `json:"tags"`
 	}{
 		Query: "port",
 		Limit: 5,
@@ -61,9 +109,10 @@ func TestMemorySearchTool_EmptyQuery(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
 	args := struct {
-		Query interface{} `json:"query"`
-		Limit int         `json:"limit"`
-		Tags  []string `json:"tags"`
+		Query interface{}  `json:"query"`
+		Limit int          `json:"limit"`
+		Scope memory.Scope `json:"scope"`
+		Tags  []string     `json:"tags"`
 	}{
 		Query: "",
 		Limit: 5,
@@ -81,16 +130,16 @@ func TestMemoryUpdateTool(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "test key",
-		Content:    "test content",
-		MemoryType: "long_term",
+		Content: "test content",
+		Scope:   "workspace",
+		Mode:    "on_demand",
+		Keep:    "permanent",
 	}
 
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
@@ -107,14 +156,12 @@ func TestMemoryUpdateTool_MissingRequired(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:   "",
 		Content: "",
 	}
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
@@ -163,16 +210,14 @@ func TestMemoryUpdateTool_Duplicate(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "my topic",
-		Content:    "exact duplicate content",
-		MemoryType: "long_term",
+		Content: "exact duplicate content",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
 	result, err := provider.Update(ctx, args)
@@ -195,9 +240,9 @@ func TestMemoryUpdateTool_Duplicate(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected string, got %T", result)
 	}
-	// Topic dedup matches the existing entry and updates in-place.
-	if !strings.Contains(resultStr, "updated memory entry") {
-		t.Errorf("expected 'updated memory entry', got: %s", resultStr)
+	// Jaccard dedup + exact content match catches duplicates.
+	if !strings.Contains(resultStr, "already saved") {
+		t.Errorf("expected 'already saved', got: %s", resultStr)
 	}
 
 	entries, err := store.List(ctx, "ws-1", "", 10, 0)
@@ -215,16 +260,14 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	createArgs := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "port",
-		Content:    "database port is 5433",
-		MemoryType: "long_term",
+		Content: "database port is 5433",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
 	result, err := provider.Update(ctx, createArgs)
@@ -236,17 +279,15 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 	}
 
 	updateArgs := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "port",
-		Content:    "database port is 5433 (updated)",
-		MemoryType: "long_term",
-		OldText:    "5433",
+		Content: "database port is 5433 (updated)",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
+		OldText: "5433",
 	}
 
 	result, err = provider.Update(ctx, updateArgs)
@@ -274,17 +315,15 @@ func TestMemoryUpdateTool_UpdateByOldText_NotFound(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 
 	createArgs := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "port",
-		Content:    "database port is 5433",
-		MemoryType: "long_term",
-		OldText:    "nonexistent text",
+		Content: "database port is 5433",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
+		OldText: "nonexistent text",
 	}
 
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
@@ -297,22 +336,20 @@ func TestMemoryUpdateTool_UpdateByOldText_NotFound(t *testing.T) {
 	}
 }
 
-func TestMemoryUpdateTool_TopicDedup(t *testing.T) {
+func TestMemoryUpdateTool_SeparateSaves(t *testing.T) {
 	store := newRealTestStore(t)
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "smoke-test-progress",
-		Content:    "Step 1 done",
-		MemoryType: "long_term",
+		Content: "Step 1 done",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
 	result, err := provider.Update(ctx, args)
@@ -326,21 +363,18 @@ func TestMemoryUpdateTool_TopicDedup(t *testing.T) {
 	args.Content = "Steps 1-3 done"
 	result, err = provider.Update(ctx, args)
 	if err != nil {
-		t.Fatalf("second Update (same topic) failed: %v", err)
+		t.Fatalf("second Update (different content) failed: %v", err)
 	}
-	if !strings.Contains(result.(string), "updated memory entry") {
-		t.Errorf("expected 'updated memory entry', got: %s", result)
+	if !strings.Contains(result.(string), "saved to memory") {
+		t.Errorf("expected 'saved to memory' (separate entry), got: %s", result)
 	}
 
 	entries, err := store.List(ctx, "ws-1", "", 10, 0)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry after topic dedup, got %d", len(entries))
-	}
-	if entries[0].Content != "Step 1 done\nSteps 1-3 done" {
-		t.Errorf("expected content 'Step 1 done\\nSteps 1-3 done', got: %s", entries[0].Content)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 separate entries, got %d", len(entries))
 	}
 }
 
@@ -349,20 +383,18 @@ func TestMemoryUpdateTool_OldTextBackwardCompat(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+	createArgs := struct {
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "first entry",
-		Content:    "this is entry one",
-		MemoryType: "long_term",
+		Content: "this is entry one",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
-	result, err := provider.Update(ctx, args)
+	result, err := provider.Update(ctx, createArgs)
 	if err != nil {
 		t.Fatalf("first Update failed: %v", err)
 	}
@@ -370,10 +402,9 @@ func TestMemoryUpdateTool_OldTextBackwardCompat(t *testing.T) {
 		t.Errorf("expected 'saved to memory', got: %s", result)
 	}
 
-	args.Topic = "second entry"
-	args.Content = "this is entry two"
+	createArgs.Content = "this is entry two"
 
-	result, err = provider.Update(ctx, args)
+	result, err = provider.Update(ctx, createArgs)
 	if err != nil {
 		t.Fatalf("second Update failed: %v", err)
 	}
@@ -386,7 +417,7 @@ func TestMemoryUpdateTool_OldTextBackwardCompat(t *testing.T) {
 		t.Fatalf("List failed: %v", err)
 	}
 	if len(entries) != 2 {
-		t.Errorf("expected 2 entries (no old_text means insert), got %d", len(entries))
+		t.Errorf("expected 2 entries (separate content = separate entries), got %d", len(entries))
 	}
 }
 
@@ -396,16 +427,14 @@ func TestMemoryUpdateTool_SemanticDedup(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "smoke-test-status",
-		Content:    "Smoke test executed successfully",
-		MemoryType: "long_term",
+		Content: "Smoke test executed successfully",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
 	result, err := provider.Update(ctx, args)
@@ -416,28 +445,23 @@ func TestMemoryUpdateTool_SemanticDedup(t *testing.T) {
 		t.Errorf("expected 'saved to memory', got: %s", result)
 	}
 
-	args.Topic = "llm-smoke-test-status"
 	args.Content = "LLM smoke test completed — all outputs captured and verified"
 
 	result, err = provider.Update(ctx, args)
 	if err != nil {
-		t.Fatalf("second Update (semantic dedup) failed: %v", err)
+		t.Fatalf("second Update failed: %v", err)
 	}
-	// Topics share "smoke" + "test" → Jaccard = 3/4 = 0.75 ≥ 0.70,
-	// and content differs → update in-place.
-	if !strings.Contains(result.(string), "updated memory entry") {
-		t.Errorf("expected 'updated memory entry' after Jaccard dedup, got: %s", result)
+	// Different content with only 2 shared words ("smoke", "test") — below 0.90 Jaccard threshold → separate entries.
+	if !strings.Contains(result.(string), "saved to memory") {
+		t.Errorf("expected 'saved to memory' (separate entry), got: %s", result)
 	}
 
 	entries, err := store.List(ctx, "ws-1", "", 10, 0)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry after semantic dedup, got %d", len(entries))
-	}
-	if entries[0].Title != "llm-smoke-test-status" {
-		t.Errorf("expected updated title 'llm-smoke-test-status', got: %s", entries[0].Title)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (distinct content, low Jaccard overlap), got %d", len(entries))
 	}
 }
 
@@ -447,16 +471,14 @@ func TestMemoryUpdateTool_SemanticDedup_NoFalsePositive(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "first entry",
-		Content:    "this is entry one",
-		MemoryType: "long_term",
+		Content: "this is entry one",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
 	result, err := provider.Update(ctx, args)
@@ -467,15 +489,14 @@ func TestMemoryUpdateTool_SemanticDedup_NoFalsePositive(t *testing.T) {
 		t.Errorf("expected 'saved to memory', got: %s", result)
 	}
 
-	args.Topic = "second entry"
 	args.Content = "this is entry two"
 
 	result, err = provider.Update(ctx, args)
 	if err != nil {
 		t.Fatalf("second Update failed: %v", err)
 	}
-	// Topics "first entry" → ["first"] and "second entry" → ["second"]
-	// share zero words → Jaccard = 0 → no match → separate entries.
+	// Content "this is entry one" and "this is entry two" share "this", "is", "entry"
+	// but the Jaccard threshold is 0.90 for content.  With 3 shared / 4 unique ≈ 0.75, no match → separate entries.
 	if !strings.Contains(result.(string), "saved to memory") {
 		t.Errorf("expected 'saved to memory' (separate entry), got: %s", result)
 	}
@@ -495,16 +516,14 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	args := struct {
-		Topic      string `json:"topic"`
-		Content    string `json:"content"`
-		MemoryType string `json:"memory_type"`
-		OldText    string `json:"old_text"`
-		Target     string   `json:"target"`
-		Tags       []string `json:"tags"`
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
 	}{
-		Topic:      "ts-version",
-		Content:    "TypeScript 6.0.3 is installed",
-		MemoryType: "long_term",
+		Content: "TypeScript 6.0.3 is installed",
+		Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
 
 	result, err := provider.Update(ctx, args)
@@ -515,11 +534,7 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 		t.Errorf("expected 'saved to memory', got: %s", result)
 	}
 
-	// Different topic but same content — Jaccard comparison will fail (no topic overlap),
-	// but exact content match via Exists should catch it.
-	args.Topic = "typescript_version"
-	args.Content = "TypeScript 6.0.3 is installed"
-
+	// Same content — exact content match via Exists should catch it.
 	result, err = provider.Update(ctx, args)
 	if err != nil {
 		t.Fatalf("second Update failed: %v", err)

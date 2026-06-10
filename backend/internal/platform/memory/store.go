@@ -72,13 +72,13 @@ const insertSQL = `INSERT INTO memories (workspace_id, memory_type, title, conte
 const searchFTSandTagsSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.created_at, m.updated_at
 FROM memories m
 JOIN memories_fts f ON m.id = f.rowid
-WHERE m.workspace_id = ? AND memories_fts MATCH ?`
+WHERE %s AND memories_fts MATCH ?`
 
 // searchTagsOnlySQL lists entries filtered by tag without an FTS query.
 // Used when the agent provides tags but no text query.
 const searchTagsOnlySQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.created_at, m.updated_at
 FROM memories m
-WHERE m.workspace_id = ?`
+WHERE %s`
 
 // selectColumnsSQL is the shared column projection used by list/get/find queries,
 // now including the tags column.

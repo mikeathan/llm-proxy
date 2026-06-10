@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from "vue";
+import { onMounted, onUnmounted, ref, computed, nextTick } from "vue";
 import { useDispatcher } from "../../composables/useDispatcher";
 import { useModels } from "../../composables/useModels";
 import type { Automation, RecordingMeta } from "../../types/dispatcher";
@@ -65,6 +65,7 @@ const selectedRun = ref<AutomationRun | null>(null);
 const selectedWorkspace = ref<string | null>(null);
 const selectedMemory = ref<MemoryEntry | null>(null);
 const selectedFile = ref<{ workspace: string; filename: string } | null>(null);
+const sidebarRef = ref<HTMLElement | null>(null);
 const editAutomation = ref<Automation | null>(null);
 
 /* ── Content & Loading State ── */
@@ -218,6 +219,9 @@ const handleSelectRun = (run: AutomationRun) => {
 const handleEditAutomation = (auto: Automation) => {
   editAutomation.value = auto;
   leftTab.value = "automations";
+  nextTick(() => {
+    sidebarRef.value?.scrollTo(0, 0);
+  });
 };
 
 const handleCancelEdit = () => {
@@ -571,7 +575,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         </div>
       </div>
 
-      <div class="sidebar-content">
+      <div ref="sidebarRef" class="sidebar-content">
         <!-- Explorer Tab -->
         <WorkspaceExplorer
           v-if="leftTab === 'explorer'"

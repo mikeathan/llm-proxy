@@ -18,11 +18,60 @@ const (
 	UserProfile MemoryType = "user_profile"
 )
 
+// ── Three-tier value objects ──────────────────────────────────────────────
+
+type Scope string
+
+const (
+	ScopeUser      Scope = "user"
+	ScopeWorkspace Scope = "workspace"
+)
+
+func (s Scope) Validate() error {
+	if s != ScopeUser && s != ScopeWorkspace {
+		return fmt.Errorf("invalid scope: %s", s)
+	}
+	return nil
+}
+
+type Mode string
+
+const (
+	ModeAlways   Mode = "always"
+	ModeOnDemand Mode = "on_demand"
+)
+
+func (m Mode) Validate() error {
+	if m != ModeAlways && m != ModeOnDemand {
+		return fmt.Errorf("invalid mode: %s", m)
+	}
+	return nil
+}
+
+type Keep string
+
+const (
+	KeepPermanent Keep = "permanent"
+	KeepSession   Keep = "session"
+)
+
+func (k Keep) Validate() error {
+	if k != KeepPermanent && k != KeepSession {
+		return fmt.Errorf("invalid keep: %s", k)
+	}
+	return nil
+}
+
+// ── Search options ────────────────────────────────────────────────────────
+
 // SearchOption carries optional filters for Store.Search(). Tags filters by
 // exact tag match (all must be present). MemType replaces the old variadic.
+// WorkspaceID overrides the workspace filter when set (e.g., for global scope).
 type SearchOption struct {
-	Tags    []string
-	MemType MemoryType
+	Tags                []string
+	MemType             MemoryType
+	WorkspaceID         string
+	SearchAllWorkspaces bool
 }
 
 // MemoryEntry stores datetime as string to match go-sqlite3 scan behavior.

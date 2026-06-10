@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -36,11 +37,59 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 	return memStore
 }
 
+func TestBuildHotInjection(t *testing.T) {
+	entries := []memory.MemoryEntry{
+		{Title: "build", Content: "use go build"},
+		{Title: "test", Content: "run go test"},
+	}
+	result := buildHotInjection(entries)
+	expected := "- build: use go build\n- test: run go test\n"
+	if result != expected {
+		t.Errorf("got %q, want %q", result, expected)
+	}
+}
+
+func TestBuildHotInjection_Truncation(t *testing.T) {
+	entries := make([]memory.MemoryEntry, 10)
+	for i := range entries {
+		entries[i] = memory.MemoryEntry{
+			Title:   fmt.Sprintf("fact-%d", i),
+			Content: strings.Repeat("X", 400-i),
+		}
+	}
+	result := buildHotInjection(entries)
+	if result == "" {
+		t.Fatal("expected non-empty result")
+	}
+	if !strings.Contains(result, "fact-0") {
+		t.Error("expected first entry to appear")
+	}
+	if strings.Contains(result, "fact-9") {
+		t.Error("last entry should not appear (exceeds maxHotInjectionChars)")
+	}
+	// Each line is "- fact-N: XXX...\n" > 400 chars, so at most 4 fit in 2000.
+	lines := strings.Count(result, "\n")
+	if lines > 5 {
+		t.Errorf("expected at most 5 lines (truncated on entry boundary), got %d", lines)
+	}
+}
+
+func TestBuildHotInjection_Empty(t *testing.T) {
+	result := buildHotInjection(nil)
+	if result != "" {
+		t.Errorf("expected empty string for nil entries, got %q", result)
+	}
+	result = buildHotInjection([]memory.MemoryEntry{})
+	if result != "" {
+		t.Errorf("expected empty string for empty entries, got %q", result)
+	}
+}
+
 func TestAgent_RecallsMemoryInNewSession(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", nil, "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", []string{"hot"}, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
@@ -143,7 +192,7 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 										ID: "call_mem",
 										Function: proxy.FunctionCall{
 											Name:      models.ToolMemoryUpdate,
-											Arguments: `{"topic":"build","content":"run go build ./...","memory_type":"long_term"}`,
+											Arguments: `{"content":"run go build ./...","scope":"workspace","mode":"on_demand","keep":"permanent"}`,
 										},
 									},
 								},
@@ -312,11 +361,11 @@ func TestAgent_ActiveMemory_NoMatch_NoInjection(t *testing.T) {
 	}
 }
 
-func TestAgent_UsageMeterInPrompt(t *testing.T) {
+func TestAgent_HotMemoryInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", nil, "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
@@ -362,11 +411,8 @@ func TestAgent_UsageMeterInPrompt(t *testing.T) {
 	if !strings.Contains(capturedSystemPrompt, "<memory>") {
 		t.Error("expected <memory> in system prompt")
 	}
-	if !strings.Contains(capturedSystemPrompt, "[memory store:") {
-		t.Error("expected usage meter in system prompt")
-	}
-	if !strings.Contains(capturedSystemPrompt, "/4000 chars]") {
-		t.Error("expected char limit indicator in usage meter")
+	if !strings.Contains(capturedSystemPrompt, "go build") {
+		t.Error("expected hot memory content in system prompt")
 	}
 }
 
@@ -374,9 +420,9 @@ func TestAgent_UserProfileInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "use go build ./...", nil, "agent")
-	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", nil, "agent")
-	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", nil, "agent")
+	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "use go build ./...", []string{"hot"}, "agent")
+	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", []string{"hot"}, "agent")
+	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", []string{"hot"}, "agent")
 
 	var callCount int
 	var capturedSystemPrompt string
@@ -419,23 +465,23 @@ func TestAgent_UserProfileInjection(t *testing.T) {
 	if !strings.Contains(capturedSystemPrompt, "<memory>") {
 		t.Error("expected <memory> in system prompt")
 	}
-	if !strings.Contains(capturedSystemPrompt, "<user_profile>") {
-		t.Error("expected <user_profile> in system prompt")
-	}
 	if !strings.Contains(capturedSystemPrompt, "Alice") {
+		t.Error("expected user profile content in system prompt")
+	}
+	if !strings.Contains(capturedSystemPrompt, "concise") {
 		t.Error("expected user profile content in system prompt")
 	}
 }
 
-func TestInjectActiveMemory_KeepsProgressInAutomation(t *testing.T) {
+func TestInjectActiveMemory_HotEntriesInjected(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", nil, "agent")
+	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", []string{"hot"}, "agent")
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
-	_, err = store.Insert(ctx, "ws-1", memory.LongTerm, "llm-smoke-test-progress", "Completed Steps 1-6 of LLM Smoke Test.", nil, "agent")
+	_, err = store.Insert(ctx, "ws-1", memory.LongTerm, "smoke-test-progress", "Completed Steps 1-6 of LLM Smoke Test.", nil, "agent")
 	if err != nil {
 		t.Fatalf("seed progress memory: %v", err)
 	}
@@ -450,13 +496,9 @@ func TestInjectActiveMemory_KeepsProgressInAutomation(t *testing.T) {
 		MemoryStore: store,
 	})
 
-	automationMsg := prompts.AutomationMarker + " in workspace 'ws-1'.\n" +
-		"Run go build and smoke-test steps.\n" +
-		"Execute the instructions found in 'test.md':\n---\nStep 1\n---\n"
-	systemPrompt := "test system prompt"
 	prepared := []proxy.Message{
-		{Role: proxy.SystemRole, Content: systemPrompt},
-		{Role: proxy.UserRole, Content: automationMsg},
+		{Role: proxy.SystemRole, Content: "test system prompt"},
+		{Role: proxy.UserRole, Content: "Hello"},
 	}
 
 	result := agent.injectActiveMemory(prepared, prepared)
@@ -470,24 +512,21 @@ func TestInjectActiveMemory_KeepsProgressInAutomation(t *testing.T) {
 	}
 	resultSystem = sb.String()
 
-	// Both memories should be injected — the task prompt guidance tells the agent
-	// how to use the progress memory, not filter it.
-	if !strings.Contains(resultSystem, "Completed Steps 1-6") {
-		t.Error("progress memory should still be injected in automation context")
-	}
+	// Only the hot-tagged entry should be injected. The non-hot entry is excluded.
 	if !strings.Contains(resultSystem, "go build") {
-		t.Error("non-progress memory should still be injected")
+		t.Error("hot entry should be injected")
+	}
+	if strings.Contains(resultSystem, "Completed Steps 1-6") {
+		t.Error("non-hot entry should NOT be injected")
 	}
 }
 
-func TestInjectActiveMemory_CachesTaskPrompt(t *testing.T) {
+func TestInjectActiveMemory_HotOnly(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "tool_versions", "TypeScript version: 6.0.3", nil, "agent")
-	if err != nil {
-		t.Fatalf("seed memory: %v", err)
-	}
+	// Non-hot entry should NOT be injected
+	store.Insert(ctx, "ws-1", memory.LongTerm, "tool_versions", "TypeScript version: 6.0.3", nil, "agent")
 
 	client := &MockClient{}
 	provider := &MockProvider{}
@@ -499,59 +538,23 @@ func TestInjectActiveMemory_CachesTaskPrompt(t *testing.T) {
 		MemoryStore: store,
 	})
 
-	if agent.automationTaskPrompt != "" {
-		t.Fatal("automationTaskPrompt should start empty")
+	prepared := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "test system prompt"},
+		{Role: proxy.UserRole, Content: "hello"},
 	}
 
-	taskPrompt := prompts.AutomationMarker + " in workspace 'ws-1'.\n" +
-		"Run go build and typescript steps.\n" +
-		"Execute the instructions found in 'test.md':\n---\nStep 1\n---\n"
-	systemPrompt := "test system prompt"
+	result := agent.injectActiveMemory(prepared, prepared)
 
-	// First call: history contains the full task prompt
-	firstPrepared := []proxy.Message{
-		{Role: proxy.SystemRole, Content: systemPrompt},
-		{Role: proxy.UserRole, Content: taskPrompt},
-	}
-	result1 := agent.injectActiveMemory(firstPrepared, firstPrepared)
-	if agent.automationTaskPrompt != taskPrompt {
-		t.Fatal("agent should cache the task prompt after first invocation")
-	}
-
-	var result1System string
-	{
-		var sb strings.Builder
-		for _, msg := range result1 {
-			if msg.Role == proxy.SystemRole {
-				sb.WriteString(msg.Content)
-			}
+	var resultSystem string
+	var sb strings.Builder
+	for _, msg := range result {
+		if msg.Role == proxy.SystemRole {
+			sb.WriteString(msg.Content)
 		}
-		result1System = sb.String()
 	}
-	if !strings.Contains(result1System, "TypeScript") {
-		t.Error("memory should be injected when the full task prompt is present")
-	}
+	resultSystem = sb.String()
 
-	// Second call: memory is only injected once per Agent; the automated
-	// prompt is already cached from the first call.
-	agent.memoryInjected = false
-	secondPrepared := []proxy.Message{
-		{Role: proxy.SystemRole, Content: systemPrompt},
-		{Role: proxy.UserRole, Content: "Observation: file written successfully"},
-	}
-	result2 := agent.injectActiveMemory(secondPrepared, secondPrepared)
-
-	var result2System string
-	{
-		var sb strings.Builder
-		for _, msg := range result2 {
-			if msg.Role == proxy.SystemRole {
-				sb.WriteString(msg.Content)
-			}
-		}
-		result2System = sb.String()
-	}
-	if !strings.Contains(result2System, "TypeScript") {
-		t.Error("memory should still be injected using cached task prompt despite degraded lastUserMsg")
+	if strings.Contains(resultSystem, "TypeScript") {
+		t.Error("non-hot memory should NOT be injected")
 	}
 }

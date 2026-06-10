@@ -29,6 +29,7 @@ const (
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
 	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
+	maxHotInjectionChars          = 2000        // character cap for hot memory injection
 )
 
 var (
@@ -60,9 +61,6 @@ func (a *Agent) buildChatRequest(
 		}
 		if a.reasoningBudget > 0 {
 			req.SetReasoningBudget(a.reasoningBudget)
-		} else {
-			a.reasoningBudget = DefaultReasoningBudget(a.maxTokens)
-			req.SetReasoningBudget(a.reasoningBudget)
 		}
 	}
 	return req
@@ -80,14 +78,10 @@ func (a *Agent) prepareMessagesForTurn(
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
-	// Skip memory injection for automation tasks.  The memory search uses the
-	// full task prompt (hundreds of words) as the query, which returns generic
-	// irrelevant entries (tool_versions, system_os_info, previous run outcomes)
-	// via FTS5 broad-match.  The <memory> block is appended at the END of
-	// prepared messages — the most salient position for the model — so it
-	// overwrites the finalization instruction ("call submit_final_answer")
-	// in the model's attention.  For a 4B model at step 10 with 18+ turns of
-	// history, this pushes the model to call notify_user instead.
+	// Inject hot (mode:"always") memory entries.  Only non-automation sessions
+	// get injection — automation tasks have explicit step-by-step instructions
+	// that override general context.  The <memory> block is inserted right
+	// before the last user message for KV cache stability.
 	// See docs/audits/memory-injection-investigation.md
 	isAutoCtx := a.findAutomationCtx(history)
 	if !isAutoCtx {
@@ -105,12 +99,10 @@ func (a *Agent) prepareMessagesForTurn(
 	return prepared, prefill
 }
 
-// injectActiveMemory searches for relevant memories using the last user
-// message (or cached automation task prompt) as query, and appends the
-// result as a separate system message wrapped in <memory> tags at the end
-// of prepared messages.  This runs ONCE per session (first turn only) to
-// avoid per-turn noise.  Memories saved mid-session become visible on the
-// next session.  See docs/audits/memory-injection-investigation.md
+// injectActiveMemory fetches all hot (mode:"always") entries via SearchHot
+// and injects them as a <memory> system message before the last user message.
+// Runs ONCE per session (first turn only).  The hot tag query replaces the old
+// FTS5 search + separate user_profile fetch.  See docs/audits/memory-injection-investigation.md
 // for the rationale and alternatives tried.
 func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
 	if a.memoryStore == nil {
@@ -122,119 +114,46 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 	}
 	a.memoryInjected = true
 
-	lastUserMsg := ""
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == proxy.UserRole {
-			c := history[i].Content
-			if strings.HasPrefix(c, "SYSTEM") || strings.HasPrefix(c, "REJECTED") {
-				continue
-			}
-			if strings.Contains(c, "conversation history is about to be compressed") {
-				continue
-			}
-			if strings.Contains(c, "Stop analyzing") || strings.Contains(c, "Stop writing") {
-				continue
-			}
-			lastUserMsg = c
+	ctx := context.Background()
+	entries, err := a.memoryStore.SearchHot(ctx, a.workspaceID)
+	if err != nil || len(entries) == 0 {
+		return prepared
+	}
+
+	content := buildHotInjection(entries)
+	if content == "" {
+		return prepared
+	}
+
+	msg := proxy.Message{
+		Role:    proxy.SystemRole,
+		Content: "<memory>\n" + content + "\n</memory>",
+	}
+
+	// Insert right before the last user message for KV cache stability.
+	insertIdx := len(prepared) - 1
+	if insertIdx < 0 {
+		insertIdx = 0
+	}
+	result := make([]proxy.Message, 0, len(prepared)+1)
+	result = append(result, prepared[:insertIdx]...)
+	result = append(result, msg)
+	result = append(result, prepared[insertIdx:]...)
+	return result
+}
+
+// buildHotInjection formats hot memory entries as "- Title: Content\n" lines.
+// Truncates at maxHotInjectionChars on entry boundaries — never splits a fact.
+func buildHotInjection(entries []memory.MemoryEntry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		line := fmt.Sprintf("- %s: %s\n", e.Title, e.Content)
+		if b.Len()+len(line) > maxHotInjectionChars {
 			break
 		}
+		b.WriteString(line)
 	}
-	if lastUserMsg == "" {
-		return prepared
-	}
-
-	if a.automationTaskPrompt == "" {
-		for _, msg := range history {
-			if msg.Role == proxy.UserRole && strings.Contains(msg.Content, prompts.AutomationMarker) {
-				a.automationTaskPrompt = msg.Content
-				break
-			}
-		}
-	}
-
-	query := lastUserMsg
-	if a.automationTaskPrompt != "" {
-		query = a.automationTaskPrompt
-	}
-
-	ctx := context.Background()
-	entries, err := a.memoryStore.Search(ctx, a.workspaceID, query, 5)
-	profileEntries, peErr := a.memoryStore.List(ctx, a.workspaceID, memory.UserProfile, 20, 0)
-
-	if len(entries) > 0 {
-		titles := make([]string, len(entries))
-		for i, e := range entries {
-			titles[i] = e.Title
-		}
-		a.logger.Debug("memory injection", "query", query, "titles", titles)
-	}
-
-	if (err != nil || len(entries) == 0) && (peErr != nil || len(profileEntries) == 0) {
-		return prepared
-	}
-
-	var b strings.Builder
-
-	if len(entries) > 0 {
-		b.WriteString(prompts.RelevantMemoriesHeader)
-		for i, e := range entries {
-			if i > 0 {
-				b.WriteString("---\n")
-			}
-			b.WriteString("**")
-			b.WriteString(e.Title)
-			b.WriteString("**: ")
-			b.WriteString(e.Content)
-			b.WriteString("\n")
-		}
-		if meter := memoryUsageMeter(ctx, a.memoryStore, a.workspaceID); meter != "" {
-			b.WriteString(meter)
-		}
-		b.WriteString(prompts.RelevantMemoriesFooter)
-	}
-
-	if len(profileEntries) > 0 {
-		b.WriteString("\n")
-		b.WriteString(prompts.UserProfileHeader)
-		for i, e := range profileEntries {
-			if i > 0 {
-				b.WriteString("---\n")
-			}
-			b.WriteString("**")
-			b.WriteString(e.Title)
-			b.WriteString("**: ")
-			b.WriteString(e.Content)
-			b.WriteString("\n")
-		}
-		b.WriteString(prompts.UserProfileFooter)
-	}
-
-	memBlock := b.String()
-	runes := []rune(memBlock)
-	if len(runes) > 2500 {
-		memBlock = string(runes[:2500]) + "\n...[truncated]"
-		if strings.Contains(memBlock, "<relevant_memories>") && !strings.Contains(memBlock, "</relevant_memories>") {
-			memBlock += prompts.RelevantMemoriesFooter
-		}
-		if strings.Contains(memBlock, "<user_profile>") && !strings.Contains(memBlock, "</user_profile>") {
-			memBlock += prompts.UserProfileFooter
-		}
-	}
-	if memBlock == "" {
-		return prepared
-	}
-
-	// Append memory block as a separate system message at the end of prepared
-	// messages, right before the current user turn.  This keeps the system
-	// prompt + state + history KV cache stable — only this final message
-	// changes each turn.
-	prepared = append(prepared, proxy.Message{
-		Role:    proxy.SystemRole,
-		Content: "<memory>\n" + memBlock + "\n</memory>",
-	})
-
-	a.notifyMemoryRecall(lastUserMsg, len(entries)+len(profileEntries))
-	return prepared
+	return b.String()
 }
 
 func (a *Agent) doPreflightCheck(
@@ -282,11 +201,10 @@ func (a *Agent) handlePrefillRejection(
 		prepared = a.injectToolInstructions(prepared, tools)
 	}
 	req := proxy.ChatRequest{
-		Messages:        prepared,
-		Tools:           nil,
-		MaxTokens:       a.maxTokens,
-		Temperature:     DefaultAutomationTemperature,
-		ReasoningBudget: DefaultReasoningBudget(a.maxTokens),
+		Messages:    prepared,
+		Tools:       nil,
+		MaxTokens:   a.maxTokens,
+		Temperature: DefaultAutomationTemperature,
 	}
 	return a.client.Stream(ctx, req)
 }
@@ -297,6 +215,19 @@ func (a *Agent) handleEmptyStream(
 ) (proxy.Message, error) {
 	history = injectRetryContext(history)
 	if llmTools != nil {
+		// Native tools produced an empty response.  For native-only models
+		// (usePrefill=false) the XML retry never produces tool calls either,
+		// so skip it and go straight to non-streaming + nag prompt.
+		// For models with prefill (usePrefill=true, i.e. local XML-text models)
+		// the XML retry may still produce <tool_call> blocks.
+		if !a.usePrefill {
+			a.logger.Info("empty response with native tools, returning stuck signal for nag recovery")
+			return proxy.Message{
+				Role:             proxy.AssistantRole,
+				ReasoningContent: "[stuck]",
+			}, nil
+		}
+
 		a.logger.Info("empty response with native tools, retrying in XML mode")
 		a.notifyLifecycle("fallback_started", map[string]any{
 			"reason": "empty stream with native tools", "mode": "xml",
@@ -614,7 +545,6 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			MaxTokens:   a.maxTokens,
 			Temperature: DefaultAutomationTemperature,
 		}
-		req.SetReasoningBudget(DefaultReasoningBudget(a.maxTokens))
 		if a.suppressReasoningBudget {
 			req.SetReasoningBudget(0)
 		}

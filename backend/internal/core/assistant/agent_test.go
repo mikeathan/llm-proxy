@@ -446,35 +446,31 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 	}
 }
 
-func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
-	toolsPassed := false
+func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
+	chatCalled := false
+	streamCalls := 0
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-			ch := make(chan *proxy.ChatResponse, 1)
+			ch := make(chan *proxy.ChatResponse, 3)
 			go func() {
 				defer close(ch)
+				streamCalls++
+				// First call: empty stream → stuck → handleEmptyStream → nag prompt
+				if streamCalls == 1 {
+					return // empty stream
+				}
+				// Second call (after nag): return valid tool call
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+					Content: `<tool_call>
+{"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
+</tool_call>`,
+				}}}}
 			}()
 			return ch, nil
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			if len(req.Tools) > 0 {
-				toolsPassed = true
-			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Task complete"}`,
-							},
-						}},
-					},
-				}},
-			}, nil
+			chatCalled = true
+			return nil, nil
 		},
 	}
 
@@ -487,7 +483,7 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:      5,
-		GlobalTimeout: 2 * time.Second,
+		GlobalTimeout: 5 * time.Second,
 	})
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
@@ -495,11 +491,11 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if toolsPassed {
-		t.Error("non-streaming fallback should NOT receive native tools — should retry with XML text mode")
+	if chatCalled {
+		t.Error("no non-streaming fallback should be called for native-only models")
 	}
 	if !agent.useNativeTools {
-		t.Error("agent should restore native tools after temporary fallback override")
+		t.Error("agent should restore native tools after empty-stream fallback")
 	}
 }
 
@@ -1673,8 +1669,8 @@ func TestAgent_Execute_NativeToolsSetsToolChoice(t *testing.T) {
 	if capturedReq.Temperature != 0.1 {
 		t.Errorf("expected Temperature=0.1 for automation, got %f", capturedReq.Temperature)
 	}
-	if capturedReq.ReasoningBudget == 0 {
-		t.Errorf("expected non-zero ReasoningBudget for native tools+automation, got %d", capturedReq.ReasoningBudget)
+	if capturedReq.ReasoningBudget != 0 {
+		t.Errorf("expected zero ReasoningBudget (not configured), got %d", capturedReq.ReasoningBudget)
 	}
 }
 
@@ -1752,8 +1748,8 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	if capturedReq.Temperature != 0.1 {
 		t.Errorf("expected Temperature=0.1 for XML mode (automation), got %f", capturedReq.Temperature)
 	}
-	if capturedReq.ReasoningBudget == 0 {
-		t.Errorf("expected non-zero ReasoningBudget for XML mode (automation), got %d", capturedReq.ReasoningBudget)
+	if capturedReq.ReasoningBudget != 0 {
+		t.Errorf("expected zero ReasoningBudget (not configured), got %d", capturedReq.ReasoningBudget)
 	}
 }
 
@@ -3180,7 +3176,7 @@ func TestGuardrailDecisionCallback_WaitsIndefinitely(t *testing.T) {
 	}
 }
 
-func TestPrepareChatRequest_DynamicReasoningBudget(t *testing.T) {
+func TestPrepareChatRequest_ZeroReasoningBudget(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
@@ -3191,11 +3187,10 @@ func TestPrepareChatRequest_DynamicReasoningBudget(t *testing.T) {
 	provider := &MockProvider{}
 	engine := &MockEngine{}
 
-	maxTokens := 4096
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:          5,
-		MaxResponseTokens: maxTokens,
-		ReasoningBudget:   0, // explicitly zero — dynamic path should kick in
+		MaxResponseTokens: 4096,
+		ReasoningBudget:   0, // non-reasoning model — should NOT auto-assign
 	})
 
 	prepared := []proxy.Message{
@@ -3205,17 +3200,14 @@ func TestPrepareChatRequest_DynamicReasoningBudget(t *testing.T) {
 
 	req := agent.buildChatRequest(prepared, nil, true)
 
-	if agent.reasoningBudget != maxTokens/streamReasoningBudgetDivisor {
-		t.Errorf("expected agent.reasoningBudget = %d, got %d",
-			maxTokens/streamReasoningBudgetDivisor, agent.reasoningBudget)
+	if agent.reasoningBudget != 0 {
+		t.Errorf("expected agent.reasoningBudget = 0 for non-reasoning model, got %d", agent.reasoningBudget)
 	}
-	if req.ReasoningBudget != maxTokens/streamReasoningBudgetDivisor {
-		t.Errorf("expected req.ReasoningBudget = %d, got %d",
-			maxTokens/streamReasoningBudgetDivisor, req.ReasoningBudget)
+	if req.ReasoningBudget != 0 {
+		t.Errorf("expected req.ReasoningBudget = 0 for non-reasoning model, got %d", req.ReasoningBudget)
 	}
-	if req.ThinkingBudgetTokens != maxTokens/streamReasoningBudgetDivisor {
-		t.Errorf("expected req.ThinkingBudgetTokens = %d, got %d",
-			maxTokens/streamReasoningBudgetDivisor, req.ThinkingBudgetTokens)
+	if req.ThinkingBudgetTokens != 0 {
+		t.Errorf("expected req.ThinkingBudgetTokens = 0 for non-reasoning model, got %d", req.ThinkingBudgetTokens)
 	}
 }
 

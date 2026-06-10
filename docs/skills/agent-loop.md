@@ -55,8 +55,8 @@ executor.go Execute()
 ## Fallback Chain
 
 When native tools stream returns empty:
-1. **XML streaming retry** — disables `useNativeTools`, suppresses `tool_choice` and `reasoningBudget`. Stuck detection skipped.
-2. If XML stream also empty → **non-streaming Chat** as last resort.
+1. **Native-only models** (`usePrefill=false`): skip XML retry, go directly to **non-streaming Chat** + nag prompt.
+2. **XML-text models** (`usePrefill=true`): retry via **XML streaming** (disables `useNativeTools`, suppresses `tool_choice` and `reasoningBudget`, stuck detection skipped). If also empty → **non-streaming Chat**.
 3. Non-streaming heartbeat uses `fallback_waiting` lifecycle events with elapsed time.
 
 ## Key Constants

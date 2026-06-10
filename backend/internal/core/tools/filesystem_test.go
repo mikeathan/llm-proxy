@@ -5,6 +5,7 @@ import (
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -81,6 +82,34 @@ func TestIsSecurePath(t *testing.T) {
 				t.Errorf("IsSecurePath(%q) allowed = %v, want %v (err: %v)", tt.path, isAllowed, tt.allowed, err)
 			}
 		})
+	}
+}
+
+func TestFileSystemTools_WriteFile_MaxLength(t *testing.T) {
+	tmpDir := t.TempDir()
+	tools := NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{tmpDir},
+		}
+	})
+
+	testFile := filepath.Join(tmpDir, "long.txt")
+
+	// Content under 800 chars should succeed.
+	err := tools.WriteFile(context.Background(), testFile, "short content")
+	if err != nil {
+		t.Fatalf("WriteFile under limit should succeed: %v", err)
+	}
+
+	// Content over 800 chars should fail with the expected error.
+	longContent := strings.Repeat("x", 801)
+	err = tools.WriteFile(context.Background(), testFile, longContent)
+	if err == nil {
+		t.Fatal("WriteFile over limit should return an error")
+	}
+	if !strings.Contains(err.Error(), "content too long") {
+		t.Errorf("expected 'content too long' error, got: %v", err)
 	}
 }
 

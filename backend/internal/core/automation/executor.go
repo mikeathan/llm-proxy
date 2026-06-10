@@ -128,7 +128,11 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
 
 	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
-	systemPrompt := prompts.AssembleSystemPrompt(customRules)
+	useNativeTools := false
+	if cfg, ok := e.svc.ModelConfig(req.Model); ok {
+		useNativeTools = cfg.ToolCallFormat == "native"
+	}
+	systemPrompt := prompts.AssembleSystemPrompt(customRules, useNativeTools)
 
 	history := []proxy.Message{
 		{Role: "system", Content: systemPrompt},

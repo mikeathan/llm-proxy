@@ -102,8 +102,7 @@ type Agent struct {
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
 
-	memoryStore          *memory.Store   // nil when memory is disabled
-	automationTaskPrompt string          // cached original task prompt for memory search across turns
+	memoryStore *memory.Store // nil when memory is disabled
 }
 
 type AgentOptions struct {
@@ -456,17 +455,3 @@ func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy
 	return newHistory
 }
 
-// memoryUsageMeter returns a formatted memory usage line for the agent to see
-// inside the <relevant_memories> block. Returns empty string when the store
-// errors out or has no content — avoids injecting noise on an empty store.
-func memoryUsageMeter(ctx context.Context, store *memory.Store, workspaceID string) string {
-	charCount, err := store.WorkspaceCharCount(ctx, workspaceID)
-	if err != nil || charCount == 0 {
-		return ""
-	}
-	pct := charCount * 100 / prompts.SoftMemoryCharLimit
-	if pct > 100 {
-		pct = 100
-	}
-	return fmt.Sprintf("---\n[memory store: %d%% — %d/%d chars]\n", pct, charCount, prompts.SoftMemoryCharLimit)
-}

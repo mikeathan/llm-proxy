@@ -17,6 +17,11 @@
             "description": "Maximum number of results to return (1-20)",
             "default": 5
           },
+          "scope": {
+            "type": "string",
+            "enum": ["user", "workspace"],
+            "description": "Optional: 'user' to search user facts, 'workspace' to search project facts. Omit to search both."
+          },
           "tags": {
             "type": "array",
             "items": { "type": "string" },
@@ -27,41 +32,35 @@
       }
     },
     "memory_update": {
-      "description": "Save or update an important fact, decision, preference, or note so you can recall it in future conversations. Use this when the user tells you something you should remember permanently. To update an existing memory, provide 'old_text' with a unique substring of the original content. Use target='user' to save user preferences separately. The same topic is automatically reused across calls — saving with an existing topic updates that entry rather than creating a duplicate.",
+      "description": "Save a fact to memory. Use scope, mode, and keep to control where it goes and how long it lasts.",
       "parameters": {
         "type": "object",
         "properties": {
-          "topic": {
-            "type": "string",
-            "description": "Short topic label for this memory. Reusing an existing topic updates that entry in-place."
-          },
           "content": {
             "type": "string",
-            "description": "The fact, decision, preference, or note to remember"
+            "description": "The fact or rule to remember."
           },
-          "memory_type": {
+          "scope": {
             "type": "string",
-            "enum": ["long_term", "daily", "session"],
-            "default": "long_term",
-            "description": "How long to remember this: long_term (permanent), daily (day-scoped), session (current conversation only)"
+            "enum": ["user", "workspace"],
+            "description": "Scope: 'user' for personal facts (applies everywhere), 'workspace' for project facts (this project only)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["always", "on_demand"],
+            "description": "Mode: 'always' = reference in nearly every session, injected at start (use sparingly). 'on_demand' = searchable when needed."
+          },
+          "keep": {
+            "type": "string",
+            "enum": ["permanent", "session"],
+            "description": "Keep: 'permanent' = lasts forever. 'session' = forgotten when conversation ends."
           },
           "old_text": {
             "type": "string",
             "description": "Unique substring of existing memory content to update (omit to create new)"
-          },
-          "target": {
-            "type": "string",
-            "enum": ["memory", "user"],
-            "default": "memory",
-            "description": "Where to save: 'memory' for workspace facts, 'user' for user preferences and profile"
-          },
-          "tags": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional labels for grouping this entry (e.g. [\"persona\", \"exometeorology\"]). Search by tag to find all related entries."
           }
         },
-        "required": ["topic", "content"]
+        "required": ["content", "scope", "mode", "keep"]
       }
     }
   },

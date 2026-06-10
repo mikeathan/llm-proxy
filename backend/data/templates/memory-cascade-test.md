@@ -9,7 +9,7 @@ Stress-test the agent's memory subsystem by feeding distributed facts about a fi
 
 #### Phase 1: Save Facts
 
-Save the following facts to memory using `memory_update`, one at a time (do not batch them into a single call):
+Save the following facts to memory using `memory_update` with `scope: "workspace", mode: "on_demand", keep: "permanent"`, one at a time (do not batch them into a single call):
 
 1. "Dr. Aris Thorne works at the Xenolith Research Institute."
 2. "Dr. Thorne's primary field is exometeorology — the study of weather on exoplanets."

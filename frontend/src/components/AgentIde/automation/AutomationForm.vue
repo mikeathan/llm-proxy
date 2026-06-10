@@ -21,16 +21,15 @@ const emit = defineEmits<{
   (e: "cancel-edit"): void;
 }>();
 
-const isCollapsed = ref(props.hasAutomations && !props.editAutomation);
-
-watch(
-  () => props.hasAutomations,
-  (val) => {
-    if (!props.editAutomation) {
-      isCollapsed.value = val;
-    }
-  },
-);
+// Collapse state is derived from props — no watchers needed.
+// When editing, the form is always expanded. When creating, it follows
+// hasAutomations unless the user manually toggled the header.
+const userCollapsed = ref(false);
+const isCollapsed = computed(() => {
+  if (props.editAutomation) return false;
+  if (userCollapsed.value) return true;
+  return props.hasAutomations;
+});
 
 const selectedWorkspace = ref("");
 
@@ -88,30 +87,25 @@ const syncModelSource = () => {
   }
 };
 
+// Single watcher — populate form fields when the edit target changes.
 watch(
-  () => props.editAutomation,
-  (newVal) => {
-    if (newVal) {
-      selectedWorkspace.value = newVal.workspace;
-      // Sync provider key first so filteredModels is ready
+  () => props.editAutomation?.id,
+  () => {
+    const editTarget = props.editAutomation;
+    if (editTarget) {
+      selectedWorkspace.value = editTarget.workspace;
       syncModelSource();
-      // Set form values
       form.value = {
-        name: newVal.name,
-        triggerType: newVal.trigger || "cron",
-        triggerValue: newVal.trigger_value || "",
-
-        taskFile: newVal.task_file,
-        strategy: newVal.strategy,
-        model: newVal.model || "",
+        name: editTarget.name,
+        triggerType: editTarget.trigger || "cron",
+        triggerValue: editTarget.trigger_value || "",
+        taskFile: editTarget.task_file,
+        strategy: editTarget.strategy,
+        model: editTarget.model || "",
       };
-      isCollapsed.value = false;
+      userCollapsed.value = false;
     } else {
       resetForm();
-      // Collapse if we have other automations
-      if (props.hasAutomations) {
-        isCollapsed.value = true;
-      }
     }
   },
   { immediate: true },
@@ -275,7 +269,7 @@ const handleCancel = () => {
   if (props.editAutomation) {
     emit("cancel-edit");
   } else {
-    isCollapsed.value = true;
+    userCollapsed.value = true;
   }
 };
 </script>
@@ -284,7 +278,7 @@ const handleCancel = () => {
   <div class="form-container">
     <div
       class="form-header"
-      @click="isCollapsed = !isCollapsed"
+      @click="userCollapsed = !userCollapsed"
     >
       <div class="header-title">
         {{ editAutomation ? "Edit Automation" : "Create Automation" }}
