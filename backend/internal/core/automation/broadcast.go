@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"github.com/google/uuid"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/platform/logging"
 	"sync"
@@ -49,6 +50,14 @@ func (b *EventBus) Unsubscribe(workspaceID string, ch chan assistant.AgentEvent)
 }
 
 func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
+	// Assign a stable ID if the source didn't provide one (e.g. guardrail events
+	// constructed outside the agent's notify method, or lifecycle events from
+	// the executor).  This ID survives SSE reconnection, allowing the frontend
+	// to deduplicate replayed events.
+	if event.ID == "" {
+		event.ID = uuid.NewString()
+	}
+
 	b.mu.Lock()
 	// When a guardrail decision is invalidated (resolved or cancelled), remove
 	// the corresponding blocked event from recent so reconnecting clients don't

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/ledger"
 )
 
@@ -181,8 +182,8 @@ func New(store *ledger.Store) *Orchestrator {
 	}
 }
 
-func NewOrchestrator(dbPath string) (*Orchestrator, error) {
-	store, err := ledger.Open(dbPath)
+func NewOrchestrator(p db.Provider) (*Orchestrator, error) {
+	store, err := ledger.New(p)
 	if err != nil {
 		return nil, err
 	}

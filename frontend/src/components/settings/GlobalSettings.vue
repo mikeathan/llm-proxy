@@ -60,6 +60,18 @@ const environmentStr = computed({
   },
 });
 
+const runLoggingEnabled = computed({
+  get: () => props.editConfig.run_logging?.enabled ?? false,
+  set: (val: boolean) => {
+    const clone = { ...props.editConfig };
+    if (!clone.run_logging) {
+      clone.run_logging = { enabled: false };
+    }
+    clone.run_logging.enabled = val;
+    emit("update:editConfig", clone);
+  }
+});
+
 function submitConfig() {
   emit("updateConfig");
 }
@@ -239,14 +251,38 @@ function handleRestart() {
       </div>
 
       <div class="form-section">
-        <label class="form-label">System Log Level</label>
-        <div class="form-helper mb-custom">
-          Change the verbosity of proxy logging in the terminal
+        <h3 class="section-title">Logging Settings</h3>
+        <div class="form-helper mb-4">
+          Configure system and execution logging.
         </div>
-        <LogLevelPanel
-          :modelValue="logLevel"
-          @update="$emit('updateLogLevel', $event)"
-        />
+
+        <div class="space-y-4">
+          <div class="form-group">
+            <label class="form-label">System Log Level</label>
+            <div class="form-helper">
+              Change the verbosity of proxy logging in the terminal
+            </div>
+            <LogLevelPanel
+              :modelValue="logLevel"
+              @update="$emit('updateLogLevel', $event)"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Workspace Run Logging</label>
+            <div class="form-helper">
+              Enable per-run logs, execution history, and event streams inside workspace directories
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer mt-2 w-fit">
+              <input
+                type="checkbox"
+                v-model="runLoggingEnabled"
+                class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
+              />
+              <span class="text-sm text-gray-300">Enable Run Logging</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div class="form-actions gap-3">

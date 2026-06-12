@@ -7,17 +7,19 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
-	"strings"
 )
 
 // getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides merged with defaults.
@@ -60,6 +62,7 @@ type LocalToolRegistry struct {
 	Search          *tools.InternetTools
 	FileSystem      *tools.FileSystemTools
 	Network         *tools.NetworkTools
+	Memory          *tools.MemoryToolProvider
 }
 
 func NewLocalToolRegistry(
@@ -68,6 +71,7 @@ func NewLocalToolRegistry(
 	search *tools.InternetTools,
 	fsTools *tools.FileSystemTools,
 	network *tools.NetworkTools,
+	memoryTools *tools.MemoryToolProvider,
 ) *LocalToolRegistry {
 	r := &LocalToolRegistry{
 		handlers:      make(map[string]ToolHandler),
@@ -76,6 +80,7 @@ func NewLocalToolRegistry(
 		Search:        search,
 		FileSystem:    fsTools,
 		Network:       network,
+		Memory:        memoryTools,
 	}
 	r.registerAll()
 	return r
@@ -148,6 +153,13 @@ func initSearchTools(appCtx interface {
 	})
 }
 
+func initMemoryTools(store *memory.Store) *tools.MemoryToolProvider {
+	if store == nil {
+		return nil
+	}
+	return tools.NewMemoryToolProvider(store)
+}
+
 func initFileSystemTools(
 	resolver storage.Resolver,
 	persistence *persistence.WorkspaceManager,
@@ -175,6 +187,7 @@ func InitializeAgentStack(
 		Resolver() storage.Resolver
 		Secrets() models.SecretsStore
 		GetGuardrails() models.AgentGuardrailsConfig
+		MemoryStore() *memory.Store
 	},
 	persistence *persistence.WorkspaceManager,
 	mcp nodeherder.MCPService,
@@ -193,8 +206,9 @@ func InitializeAgentStack(
 	network := initNetworkTools(persistence, defaultGuardrails, logger)
 	search := initSearchTools(appCtx, network)
 	fsTools := initFileSystemTools(resolver, persistence, defaultGuardrails)
+	memTools := initMemoryTools(appCtx.MemoryStore())
 
-	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network)
+	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network, memTools)
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
@@ -211,9 +225,6 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 	prompt := prompts.LocalAssistantPrompt
 
-	// Append tool definitions to the system prompt so the model sees them as text.
-	// This is critical for local models where we might bypass the native tools API
-	// to avoid parser bugs in local servers (like llama-server).
 	if len(r.toolDefinitions) > 0 {
 		prompt += "\n\nAVAILABLE TOOLS:\n"
 		prompt += r.FormatToolsForPrompt()
@@ -289,6 +300,7 @@ func (r *LocalToolRegistry) registerAll() {
 	r.registerSearchTools()
 	r.registerFileSystemTools()
 	r.registerNetworkTools()
+	r.registerMemoryTools()
 	r.registerSystemTools()
 }
 
@@ -349,6 +361,14 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 	}) (any, error) {
 		return "Content appended successfully", r.FileSystem.AppendFile(ctx, args.Path, args.Content)
 	})
+
+	registerTool(r, "filesystem", models.ToolFileEditBlock, func(ctx context.Context, args struct {
+		Path     string `json:"path"`
+		OldBlock string `json:"old_block"`
+		NewBlock string `json:"new_block"`
+	}) (any, error) {
+		return r.FileSystem.EditFileBlock(ctx, args.Path, args.OldBlock, args.NewBlock)
+	})
 }
 
 func (r *LocalToolRegistry) registerNetworkTools() {
@@ -375,6 +395,14 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 		return r.Network.GetNetworkInfo(ctx)
 	})
 }
+func (r *LocalToolRegistry) registerMemoryTools() {
+	if r.Memory == nil {
+		return
+	}
+	registerTool(r, models.CategoryMemory, models.ToolMemorySearch, r.Memory.Search)
+	registerTool(r, models.CategoryMemory, models.ToolMemoryUpdate, r.Memory.Update)
+}
+
 func (r *LocalToolRegistry) registerSystemTools() {
 	registerTool(r, models.CategorySystem, models.ToolSubmitFinalAnswer, func(ctx context.Context, args struct {
 		Summary string `json:"summary"`
@@ -392,4 +420,5 @@ func (r *LocalToolRegistry) registerSystemTools() {
 		// as a tool result when it makes a mistake in its tool-calling format.
 		return fmt.Sprintf("SYSTEM ERROR: %s", args.Error), nil
 	})
+
 }

@@ -83,7 +83,9 @@ export interface AgentDefaults {
   max_steps: number
   context_budget: number
   max_tokens: number
+  temperature: number
   reasoning_budget: number
+  timeout_minutes: number
   tool_call_format: string
   prefill: boolean
 }
@@ -110,6 +112,7 @@ export interface GlobalConfig {
   }
   agent_defaults: AgentDefaults
   provider_defaults?: Record<string, AgentDefaults>
+  run_logging?: { enabled: boolean }
 }
 
 export interface AgentDefinition {

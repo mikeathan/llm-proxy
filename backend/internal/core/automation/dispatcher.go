@@ -22,6 +22,11 @@ import (
 
 const MaxHistorySize = 100
 
+// automationTimeout is the maximum time a single automation run can take.
+// It covers the slowest model (Qwen 4B at ~5min for complex tasks) plus
+// error recovery time. The per-turn timeout (AgentTurnTimeout) is 10 min.
+const automationTimeout = 10 * time.Minute
+
 // Dispatcher manages automation execution via a cron scheduler.
 type Dispatcher struct {
 	registry    *AutomationRegistry
@@ -384,7 +389,7 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 			return // Not time to run yet
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), automationTimeout)
 		defer cancel()
 
 		if err := d.executeAutomation(ctx, entry, ""); err != nil {

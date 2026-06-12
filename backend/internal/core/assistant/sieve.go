@@ -113,8 +113,11 @@ func (a *aggressiveSieve) Sieve(history []proxy.Message) []proxy.Message {
 }
 
 // Sieve constants — shared between compression and message-dropping sieves.
+//
+// Locked head protects the first N messages from ever being dropped.
+// Must be ≥3 to keep: [0]=system prompt, [1]=user task, [2]=any additional context.
 const (
-	sieveLockedHead      = 2
+	sieveLockedHead      = 3
 	sievePhysicalTail    = 10
 	sieveReactiveTail    = 6
 	sieveAggressiveTail  = 3

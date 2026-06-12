@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"sync"
@@ -19,15 +20,38 @@ import (
 )
 
 const (
-	DefaultMaxSteps         = 25
-	DefaultContextBudget    = 8000   // chars, not tokens — rough heuristic for context window pressure
-	DefaultMaxTokens        = 3072
-	MinReasoningStuckThreshold = 2000  // chars; floor for stuck detection even at small max_tokens
-	DefaultStarvationLimit  = 15
-	AgentGlobalTimeout      = 30 * time.Minute  // total wall-clock for one Execute call
-	AgentTurnTimeout        = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
-	AgentRetryTimeout       = 5 * time.Minute   // tool-support-fallback retry timeout
+	DefaultMaxSteps             = 25
+	DefaultContextBudget        = 8000   // chars, not tokens — rough heuristic for context window pressure
+	DefaultMaxTokens            = 3072
+	DefaultAutomationTemperature = 0.1   // low temperature for deterministic automation tasks
+	MinReasoningStuckThreshold  = 2000   // chars; floor for stuck detection even at small max_tokens
+	DefaultStarvationLimit      = 15
+	AgentGlobalTimeout          = 30 * time.Minute  // total wall-clock for one Execute call
+	AgentTurnTimeout            = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
+	AgentRetryTimeout           = 5 * time.Minute   // tool-support-fallback retry timeout
 )
+
+// DefaultReasoningBudget returns the auto-computed reasoning budget for a given
+// max_tokens value. Divisor 3 gives ~910 tokens for 2730 max_tokens — enough to
+// review history and plan the next tool call. Shared by stream.go (runtime) and
+// admin_view.go (API response) so the computation is in one place.
+func DefaultReasoningBudget(maxTokens int) int {
+	if maxTokens <= 0 {
+		return 0
+	}
+	return maxTokens / 3
+}
+
+// ReasoningBudgetExceeded returns true when accumulated reasoning content
+// (in characters) exceeds the token budget by a wide enough margin to indicate
+// the server is not enforcing the limit. The factor of 4 converts tokens to
+// approximate characters (~4 chars per token for typical text).
+func ReasoningBudgetExceeded(reasoningChars int, budgetTokens int) bool {
+	if budgetTokens <= 0 {
+		return false
+	}
+	return reasoningChars > budgetTokens*4
+}
 
 type ProviderTuningDefaults struct {
 	MaxSteps        int
@@ -60,21 +84,25 @@ type Agent struct {
 	contextBudget   int
 	maxTokens       int
 	reasoningBudget int
+	temperature     float64
 	icuWeight       float64
 	globalTimeout   time.Duration
 	useNativeTools  bool
 	observer        Observer
 	workspaceID     string
 	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
-	prefillDisabled bool                       // set true after first prefill rejection by server
-	usePrefill      bool                       // automation mode prefill (<tool_call> stub)
-	suppressReasoningBudget bool               // XML fallback: don't cap reasoning budget
+	prefillDisabled   bool  // set true after first prefill rejection by server
+	usePrefill        bool  // automation mode prefill (<tool_call> stub)
+	memoryInjected    bool  // one-time injection at session start; no per-turn re-inject
+	suppressReasoningBudget bool               // XML fallback: skip interceptor budget check and API budget fields
 	skipStuckCheck          bool               // XML fallback: disable stuck detection
 	
 	orch            *orchestrator.Orchestrator
 	modelName       string
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
+
+	memoryStore *memory.Store // nil when memory is disabled
 }
 
 type AgentOptions struct {
@@ -82,6 +110,7 @@ type AgentOptions struct {
 	ContextBudget            int
 	MaxResponseTokens        int
 	ReasoningBudget          int
+	Temperature              float64
 	ICUWeight                float64
 	Logger                   logging.Logger
 	Guardrails               *guardrails.GuardrailEngine
@@ -95,6 +124,7 @@ type AgentOptions struct {
 	ProviderType             string
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
+	MemoryStore              *memory.Store      // nil when memory is disabled
 }
 
 type GuardrailDecisionStore struct {
@@ -236,6 +266,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		contextBudget:   opts.ContextBudget,
 		maxTokens:       opts.MaxResponseTokens,
 		reasoningBudget: opts.ReasoningBudget,
+		temperature:     opts.Temperature,
 		icuWeight:       opts.ICUWeight,
 		globalTimeout:   opts.GlobalTimeout,
 		useNativeTools:  useNative,
@@ -247,7 +278,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		modelName:       opts.ModelName,
 		providerType:    opts.ProviderType,
 		planStrategy:    opts.PlanStrategy,
-
+		memoryStore:     opts.MemoryStore,
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
 	return a
@@ -259,8 +290,10 @@ type toolKey struct {
 }
 
 type repetitionDetector struct {
-	recentCalls     []toolKey
-	duplicateStreak int
+	recentCalls           []toolKey
+	duplicateStreak       int
+	lastTool              string
+	consecutiveToolStreak int
 }
 
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
@@ -272,11 +305,28 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 				rd.duplicateStreak++
 				logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
 				if rd.duplicateStreak >= 3 {
-					return true, "", fmt.Errorf("infinite loop detected: model keeps calling %s(%s) after %d nags", key.name, key.args, rd.duplicateStreak)
+					rd.duplicateStreak = 0
+					rd.recentCalls = nil
+					return true, "", fmt.Errorf("infinite loop detected: %s called 3+ times with identical args", key.name)
 				}
 				return true, prompts.AutomationDuplicateNagPrompt, nil
 			}
 			rd.duplicateStreak = 0
+
+			// Catch same-tool-any-args spirals (e.g. memory_search with varying queries).
+			if tc.Function.Name == rd.lastTool {
+				rd.consecutiveToolStreak++
+			if rd.consecutiveToolStreak >= 12 {
+				rd.consecutiveToolStreak = 0
+				rd.lastTool = ""
+				rd.recentCalls = nil
+				return true, "", fmt.Errorf("spiral detected: %s called %d+ consecutive times", key.name, 12)
+				}
+			} else {
+				rd.consecutiveToolStreak = 0
+				rd.lastTool = tc.Function.Name
+			}
+
 			if len(rd.recentCalls) >= 3 {
 				rd.recentCalls = rd.recentCalls[1:]
 			}
@@ -290,7 +340,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	execCtx, cancel := context.WithTimeout(ctx, a.globalTimeout)
 	defer cancel()
 
-	execCtx = withUsageTracker(execCtx)
+	execCtx = WithUsageTracker(execCtx)
 
 	// Plan strategy short-circuits: if enabled, generate a plan for the last user
 	// message and execute it step-by-step. Falls back to the agent loop on failure.
@@ -404,3 +454,4 @@ func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy
 	}
 	return newHistory
 }
+

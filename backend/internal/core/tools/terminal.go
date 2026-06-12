@@ -94,7 +94,7 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 	// 2. Check Whitelist (on each segment of a chained command)
 	if len(cfg.AllowedCommands) > 0 {
 		segments := splitCommandSegments(cleanCmd)
-		if err := checkWhitelist(segments, cfg.AllowedCommands); err != nil {
+		if err := assertAllowedCommand(segments, cfg.AllowedCommands); err != nil {
 			logging.Debug("guardrail blocked", "rule", "whitelist", "error", err.Error())
 			return err
 		}
@@ -260,21 +260,36 @@ func checkBlockedPatterns(command string, patterns []string, cache *sync.Map) er
 	return nil
 }
 
-func checkWhitelist(segments []string, allowed []string) error {
+// assertAllowedCommand checks that every command segment starts with a base
+// command in the allowed list. Leading shell comments (# ...) are stripped
+// before checking so model annotations like "# Step 6\ntsc ..." don't block
+// the actual command.
+func assertAllowedCommand(segments []string, allowed []string) error {
 	for _, seg := range segments {
 		words := strings.Fields(seg)
 		if len(words) == 0 {
 			continue
 		}
 		baseCmd := words[0]
-		isAllowed := false
+		if strings.HasPrefix(baseCmd, "#") {
+			_, after, ok := strings.Cut(seg, "\n")
+			if !ok || strings.TrimSpace(after) == "" {
+				continue
+			}
+			words = strings.Fields(strings.TrimSpace(after))
+			if len(words) == 0 {
+				continue
+			}
+			baseCmd = words[0]
+		}
+		found := false
 		for _, a := range allowed {
 			if a == baseCmd {
-				isAllowed = true
+				found = true
 				break
 			}
 		}
-		if !isAllowed {
+		if !found {
 			return fmt.Errorf("command '%s' in chain is not in the allowed whitelist", baseCmd)
 		}
 	}

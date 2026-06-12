@@ -7,10 +7,12 @@
  */
 import arrowDown from "./arrow-down.svg?raw";
 import arrowUp from "./arrow-up.svg?raw";
+import trash from "./trash.svg?raw";
 
 export const SVG_ICONS = {
   "arrow-down": arrowDown,
   "arrow-up": arrowUp,
+  trash,
 } as const;
 
 export type SvgIconName = keyof typeof SVG_ICONS;

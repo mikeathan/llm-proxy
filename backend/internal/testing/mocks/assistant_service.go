@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
@@ -145,9 +146,14 @@ func (m *MockAssistantService) Events() *automation.EventBus {
 	return automation.NewEventBus()
 }
 
+func (m *MockAssistantService) MemoryStore() *memory.Store { return nil }
+
 func (m *MockAssistantService) Orchestrator() *orchestrator.Orchestrator {
 	return nil
 }
+
+func (m *MockAssistantService) RecordDir() string { return "" }
+func (m *MockAssistantService) RunLoggingEnabled() bool { return true }
 
 func NewMockAssistantService(
 	client proxy.LLMClientProvider,

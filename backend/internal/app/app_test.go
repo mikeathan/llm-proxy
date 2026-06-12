@@ -21,7 +21,7 @@ func TestAppBoots(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalTestDataManager(t)
-	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, "")
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
 
 	if a == nil {
 		t.Fatal("app not initialized")
@@ -32,7 +32,7 @@ func TestRoutesExist(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalTestDataManager(t)
-	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, "")
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
 
 	tests := []string{
 		"/admin/",
@@ -57,7 +57,7 @@ func TestMethodEnforcement(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalTestDataManager(t)
-	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, "")
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
 
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
 	rec := httptest.NewRecorder()

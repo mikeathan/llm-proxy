@@ -157,7 +157,7 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
 	
 	//  Phase 3: Structural Truncation for ReadFile (3000 chars)
@@ -219,5 +219,98 @@ func (f *FileSystemTools) AppendFile(ctx context.Context, path string, content s
 	defer fh.Close()
 	_, err = fh.WriteString(content)
 	return err
+}
+
+func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlock string, newBlock string) (string, error) {
+	absPath, err := f.ValidatePath(ctx, path, false)
+	if err != nil {
+		return "", err
+	}
+
+	if oldBlock == "" {
+		return "", fmt.Errorf("old_block cannot be empty")
+	}
+
+	raw, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("file does not exist: use write_file to create it, or verify the path")
+	}
+
+	fileContent := string(raw)
+	normFile := normalizeBlock(fileContent)
+	normOld := normalizeBlock(oldBlock)
+
+	idx := strings.Index(normFile, normOld)
+	if idx < 0 {
+		return "", fmt.Errorf("block not found in file. Read the file to verify the exact content, then try again with the correct old_block")
+	}
+
+	nextIdx := strings.Index(normFile[idx+1:], normOld)
+	if nextIdx >= 0 {
+		return "", fmt.Errorf("found 2 matching blocks. Include more surrounding context (3-5 lines) in old_block to make the match unique")
+	}
+
+	// Build the replacement by preserving the original content's whitespace.
+	newContent := buildReplacement(fileContent, oldBlock, newBlock, idx, normFile, normOld)
+
+	cfg := f.configProvider(ctx)
+	totalSize := len(newContent)
+	if cfg.MaxFileSizeKB > 0 && (totalSize/1024) > cfg.MaxFileSizeKB {
+		return "", fmt.Errorf("resulting file would exceed quota (max %d KB)", cfg.MaxFileSizeKB)
+	}
+
+	if err := os.WriteFile(absPath, []byte(newContent), secureFileMode); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Replaced 1 block (%d bytes).", len(oldBlock)), nil
+}
+
+// normalizeBlock strips trailing whitespace per line and normalizes line endings
+// so the model doesn't need to match whitespace precisely.
+func normalizeBlock(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		// Strip \r from \r\n, then trim trailing spaces/tabs.
+		line = strings.TrimRight(strings.TrimRight(line, "\r"), " \t")
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// buildReplacement replaces the normalized-match region in the original content
+// with newBlock, preserving original whitespace outside the replaced block.
+func buildReplacement(content, oldBlock, newBlock string, normIdx int, normContent, normOld string) string {
+	origPos := 0
+	normPos := 0
+	origLen := len(content)
+	normOldLen := len(normOld)
+	matchEnd := normIdx + normOldLen
+
+	start := -1
+
+	for origPos < origLen && normPos < matchEnd {
+		oc := content[origPos]
+		nc := normContent[normPos]
+
+		if oc == nc {
+			if normPos == normIdx {
+				start = origPos
+			}
+			normPos++
+			origPos++
+		} else if oc == ' ' || oc == '\t' || oc == '\r' {
+			origPos++
+		} else {
+			origPos++
+		}
+	}
+
+	if start < 0 {
+		return content
+	}
+
+	end := origPos
+
+	return content[:start] + newBlock + content[end:]
 }
 

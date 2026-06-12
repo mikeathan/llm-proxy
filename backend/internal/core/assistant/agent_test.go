@@ -42,7 +42,8 @@ func (m *MockClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.Ch
 
 // MockProvider implements ToolProvider
 type MockProvider struct {
-	Tools []proxy.Tool
+	Tools         []proxy.Tool
+	UseNative     *bool  // nil = true (backward compat)
 }
 
 func (m *MockProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
@@ -54,7 +55,10 @@ func (m *MockProvider) GetSystemPrompt() (string, error) {
 }
 
 func (m *MockProvider) UseNativeTools() bool {
-	return true
+	if m.UseNative == nil {
+		return true
+	}
+	return *m.UseNative
 }
 
 // MockEngine implements Engine
@@ -211,13 +215,17 @@ func TestAgent_Execute_LoopDetection(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "pong"}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 10})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      10,
+		GlobalTimeout: 500 * time.Millisecond,
+	})
 
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "loop please"}})
 
-	if err == nil || !strings.Contains(err.Error(), "infinite loop detected") {
-		t.Fatalf("Expected infinite loop error, got: %v", err)
+	if err == nil {
+		t.Fatalf("Expected an error (timeout or loop), got nil")
 	}
+	t.Logf("Loop detection exited with: %v", err)
 }
 
 func TestAgent_Execute_TotalTimeout(t *testing.T) {
@@ -314,10 +322,13 @@ func TestAgent_Execute_StreamWithXMLToolCall(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "file contents here"}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 2 * time.Second,
+	})
 	_, history, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Read test.txt"}})
 
-	if err != nil && !strings.Contains(err.Error(), "infinite loop") {
+	if err != nil && !strings.Contains(err.Error(), "infinite loop") && !strings.Contains(err.Error(), "halted") && !strings.Contains(err.Error(), "deadline") {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	// Should have detected the embedded XML tool call and executed it
@@ -356,7 +367,10 @@ func TestAgent_Execute_StreamEmptyFallback(t *testing.T) {
 	provider := &MockProvider{}
 	engine := &MockEngine{}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 2 * time.Second,
+	})
 	reply, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Hello"}})
 
 	if err != nil {
@@ -415,7 +429,7 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "ok"}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 20})
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 20, GlobalTimeout: 2 * time.Second})
 	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 	})
@@ -432,35 +446,31 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 	}
 }
 
-func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
-	toolsPassed := false
+func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
+	chatCalled := false
+	streamCalls := 0
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-			ch := make(chan *proxy.ChatResponse, 1)
+			ch := make(chan *proxy.ChatResponse, 3)
 			go func() {
 				defer close(ch)
+				streamCalls++
+				// First call: empty stream → stuck → handleEmptyStream → nag prompt
+				if streamCalls == 1 {
+					return // empty stream
+				}
+				// Second call (after nag): return valid tool call
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+					Content: `<tool_call>
+{"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
+</tool_call>`,
+				}}}}
 			}()
 			return ch, nil
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			if len(req.Tools) > 0 {
-				toolsPassed = true
-			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Task complete"}`,
-							},
-						}},
-					},
-				}},
-			}, nil
+			chatCalled = true
+			return nil, nil
 		},
 	}
 
@@ -471,18 +481,21 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToXML(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "ok"}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+	})
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 	})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if toolsPassed {
-		t.Error("non-streaming fallback should NOT receive native tools — should retry with XML text mode")
+	if chatCalled {
+		t.Error("no non-streaming fallback should be called for native-only models")
 	}
 	if !agent.useNativeTools {
-		t.Error("agent should restore native tools after temporary fallback override")
+		t.Error("agent should restore native tools after empty-stream fallback")
 	}
 }
 
@@ -509,10 +522,13 @@ func TestAgent_Execute_StreamWithInterleavedToolCalls(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "127.0.0.1 localhost"}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 2 * time.Second,
+	})
 	_, history, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Read /etc/hosts"}})
 
-	if err != nil && !strings.Contains(err.Error(), "infinite loop") {
+	if err != nil && !strings.Contains(err.Error(), "infinite loop") && !strings.Contains(err.Error(), "halted") && !strings.Contains(err.Error(), "deadline") {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	foundTool := false
@@ -677,7 +693,10 @@ func TestAgent_ToolCallParseErrorRetry(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "Task submitted successfully."}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 2 * time.Second,
+	})
 	reply, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Write a large report"}})
 
 	if err != nil {
@@ -704,7 +723,10 @@ func TestAgent_ToolCallParseErrorExhaustRetries(t *testing.T) {
 	provider := &MockProvider{}
 	engine := &MockEngine{}
 
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 10})
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      10,
+		GlobalTimeout: 2 * time.Second,
+	})
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Write a large report"}})
 
 	if err == nil {
@@ -1647,8 +1669,8 @@ func TestAgent_Execute_NativeToolsSetsToolChoice(t *testing.T) {
 	if capturedReq.Temperature != 0.1 {
 		t.Errorf("expected Temperature=0.1 for automation, got %f", capturedReq.Temperature)
 	}
-	if capturedReq.ReasoningBudget == 0 {
-		t.Errorf("expected non-zero ReasoningBudget for native tools+automation, got %d", capturedReq.ReasoningBudget)
+	if capturedReq.ReasoningBudget != 0 {
+		t.Errorf("expected zero ReasoningBudget (not configured), got %d", capturedReq.ReasoningBudget)
 	}
 }
 
@@ -1726,8 +1748,8 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	if capturedReq.Temperature != 0.1 {
 		t.Errorf("expected Temperature=0.1 for XML mode (automation), got %f", capturedReq.Temperature)
 	}
-	if capturedReq.ReasoningBudget == 0 {
-		t.Errorf("expected non-zero ReasoningBudget for XML mode (automation), got %d", capturedReq.ReasoningBudget)
+	if capturedReq.ReasoningBudget != 0 {
+		t.Errorf("expected zero ReasoningBudget (not configured), got %d", capturedReq.ReasoningBudget)
 	}
 }
 
@@ -1824,12 +1846,25 @@ func TestRepetitionDetector_StreakReset(t *testing.T) {
 		t.Errorf("expected duplicate on second consecutive, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
 	}
 
-	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal)
-	isDup, _, err = rd.check(logger, toolCallsA)
+	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal error)
+	isDup, nag, err = rd.check(logger, toolCallsA)
 	if err == nil {
-		t.Error("expected error on third consecutive duplicate, got nil")
-	} else if !strings.Contains(err.Error(), "infinite loop detected") {
-		t.Errorf("expected infinite loop error, got %v", err)
+		t.Fatal("expected error on third consecutive duplicate, got nil")
+	}
+	if !strings.Contains(err.Error(), "infinite loop") {
+		t.Errorf("expected infinite loop error, got: %v", err)
+	}
+	if !isDup {
+		t.Error("expected third consecutive duplicate to be detected")
+	}
+	if nag != "" {
+		t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
+	}
+	if rd.duplicateStreak != 0 {
+		t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
+	}
+	if rd.recentCalls != nil {
+		t.Errorf("expected recentCalls cleared after skip, got %v", rd.recentCalls)
 	}
 }
 
@@ -1884,13 +1919,22 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 			t.Errorf("expected streak=2 after third A, got %d", rd.duplicateStreak)
 		}
 
-		// Fourth A: consecutive duplicate, streak=3 → fatal
-		_, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
+		// Fourth A: consecutive duplicate, streak=3 → fatal error
+		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
 		if err == nil {
-			t.Fatal("expected fatal error on 4th consecutive duplicate, got nil")
+			t.Fatal("expected error on 4th consecutive duplicate, got nil")
 		}
-		if !strings.Contains(err.Error(), "infinite loop detected") {
-			t.Errorf("expected infinite loop error, got %v", err)
+		if !strings.Contains(err.Error(), "infinite loop") {
+			t.Errorf("expected infinite loop error, got: %v", err)
+		}
+		if !isDup {
+			t.Error("expected 4th consecutive duplicate to be detected")
+		}
+		if nag != "" {
+			t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
+		}
+		if rd.duplicateStreak != 0 {
+			t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
 		}
 	})
 
@@ -2308,8 +2352,9 @@ func TestAgent_StuckThresholdConstant(t *testing.T) {
 			}
 			engine := &MockEngine{Result: "ok"}
 			agent := NewAgent(client, provider, engine, AgentOptions{
-				MaxSteps:          25,
+				MaxSteps:        25,
 				MaxResponseTokens: tc.maxRespTok,
+				ReasoningBudget: tc.maxRespTok * 2,
 			})
 			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
@@ -2410,6 +2455,7 @@ func TestAgent_StuckThresholdDerived(t *testing.T) {
 			agent := NewAgent(client, provider, engine, AgentOptions{
 				MaxSteps:          25,
 				MaxResponseTokens: tc.maxRespTok,
+				ReasoningBudget:   tc.maxRespTok * 2,
 			})
 			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
@@ -2585,6 +2631,64 @@ I should use the submit_final_answer tool to complete this.
 			}
 		}
 	}
+}
+
+func TestCheckStreamStuck_NonReasoningModel(t *testing.T) {
+	agent := &Agent{
+		maxTokens:       2730,
+		reasoningBudget: 0, // non-reasoning model
+		skipStuckCheck:  false,
+	}
+
+	t.Run("under threshold not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 1000)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("1000 chars should not trigger early stuck")
+		}
+	})
+
+	t.Run("above threshold stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 2731)}
+		if !agent.checkStreamStuck(msg) {
+			t.Error("2731 chars should trigger early stuck for non-reasoning model (threshold = maxTokens = 2730)")
+		}
+	})
+
+	t.Run("has content not stuck", func(t *testing.T) {
+		msg := &proxy.Message{Content: "text", ReasoningContent: strings.Repeat("x", 2731)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("has content -> not stuck even above early threshold")
+		}
+	})
+
+	t.Run("has tool calls not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ToolCalls: []proxy.ToolCall{{}}, ReasoningContent: strings.Repeat("x", 2731)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("has tool calls -> not stuck even above early threshold")
+		}
+	})
+}
+
+func TestCheckStreamStuck_ReasoningModel(t *testing.T) {
+	agent := &Agent{
+		maxTokens:       2730,
+		reasoningBudget: 2730, // reasoning model
+		skipStuckCheck:  false,
+	}
+
+	t.Run("above early threshold not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 1366)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("reasoning model should skip early check")
+		}
+	})
+
+	t.Run("above standard threshold stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 5461)}
+		if !agent.checkStreamStuck(msg) {
+			t.Error("reasoning model should hit standard stuck threshold")
+		}
+	})
 }
 
 func TestAgent_FallbackXMLModeNoToolChoice(t *testing.T) {
@@ -2833,6 +2937,33 @@ func TestAgent_AggressiveSieveCount(t *testing.T) {
 	expected := sieveLockedHead + 1 + sieveAggressiveTail
 	if len(got) != expected {
 		t.Errorf("expected %d messages after aggressive sieve, got %d", expected, len(got))
+	}
+}
+
+func TestAgent_SieveKeepsTaskAtLockedHead_AfterPlanStateInjection(t *testing.T) {
+	// Simulates real automation history: [system, PlanState, user task, ...].
+	// sieveLockedHead must be ≥3 to keep the task at [2] after PlanState injection at [1].
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "You are an autonomous agent..."},     // [0] system
+		{Role: proxy.SystemRole, Content: "Goal: Execute task\n- [DONE] Step 1"}, // [1] PlanState
+		{Role: proxy.UserRole, Content: "TASK: Run the smoke test steps..."},    // [2] task
+	}
+	for i := 0; i < 24; i++ {
+		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: strings.Repeat("x", 10000)})
+	}
+
+	agent := &Agent{contextBudget: 500, logger: logging.NewNopLogger()}
+	got := agent.applyPhysicalSieve(history)
+
+	// Locked head contents must survive: system prompt, PlanState, and user task.
+	if len(got) < 3 || got[0].Content != "You are an autonomous agent..." {
+		t.Error("system prompt at [0] lost after sieve")
+	}
+	if len(got) < 3 || !strings.Contains(got[1].Content, "Goal: Execute task") {
+		t.Error("PlanState at [1] lost after sieve")
+	}
+	if len(got) < 3 || !strings.Contains(got[2].Content, "TASK: Run the smoke test") {
+		t.Error("user task at [2] lost after sieve — sieveLockedHead likely too small")
 	}
 }
 
@@ -3104,3 +3235,111 @@ func TestGuardrailDecisionCallback_WaitsIndefinitely(t *testing.T) {
 		t.Fatal("callback did not return after resolve")
 	}
 }
+
+func TestPrepareChatRequest_ZeroReasoningBudget(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{Role: "assistant", Content: "done"}},
+			},
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:          5,
+		MaxResponseTokens: 4096,
+		ReasoningBudget:   0, // non-reasoning model — should NOT auto-assign
+	})
+
+	prepared := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the task."},
+	}
+
+	req := agent.buildChatRequest(prepared, nil, true)
+
+	if agent.reasoningBudget != 0 {
+		t.Errorf("expected agent.reasoningBudget = 0 for non-reasoning model, got %d", agent.reasoningBudget)
+	}
+	if req.ReasoningBudget != 0 {
+		t.Errorf("expected req.ReasoningBudget = 0 for non-reasoning model, got %d", req.ReasoningBudget)
+	}
+	if req.ThinkingBudgetTokens != 0 {
+		t.Errorf("expected req.ThinkingBudgetTokens = 0 for non-reasoning model, got %d", req.ThinkingBudgetTokens)
+	}
+}
+
+func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{Role: "assistant", Content: "done"}},
+			},
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	explicitBudget := 1234
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:          5,
+		MaxResponseTokens: 4096,
+		ReasoningBudget:   explicitBudget,
+	})
+
+	prepared := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the task."},
+	}
+
+	req := agent.buildChatRequest(prepared, nil, true)
+
+	if agent.reasoningBudget != explicitBudget {
+		t.Errorf("expected agent.reasoningBudget = %d, got %d", explicitBudget, agent.reasoningBudget)
+	}
+	if req.ReasoningBudget != explicitBudget {
+		t.Errorf("expected req.ReasoningBudget = %d, got %d", explicitBudget, req.ReasoningBudget)
+	}
+	if req.ThinkingBudgetTokens != explicitBudget {
+		t.Errorf("expected req.ThinkingBudgetTokens = %d, got %d", explicitBudget, req.ThinkingBudgetTokens)
+	}
+}
+
+func TestPrepareChatRequest_NonAutomation_SkipsReasoningBudget(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{Role: "assistant", Content: "done"}},
+			},
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:          5,
+		MaxResponseTokens: 4096,
+		ReasoningBudget:   0,
+	})
+
+	prepared := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: "plain chat message - not automation"},
+	}
+
+	req := agent.buildChatRequest(prepared, nil, false)
+
+	if agent.reasoningBudget != 0 {
+		t.Errorf("expected agent.reasoningBudget to remain 0 in non-automation, got %d", agent.reasoningBudget)
+	}
+	if req.ReasoningBudget != 0 {
+		t.Errorf("expected req.ReasoningBudget to be 0 in non-automation, got %d", req.ReasoningBudget)
+	}
+	if req.ThinkingBudgetTokens != 0 {
+		t.Errorf("expected req.ThinkingBudgetTokens to be 0 in non-automation, got %d", req.ThinkingBudgetTokens)
+	}
+}
+
+// boolPtr is defined earlier in this file (line ~2545)

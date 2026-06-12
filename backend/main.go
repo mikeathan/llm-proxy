@@ -27,7 +27,8 @@ var (
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	dataFlag := flag.String("data", "data", "path to data directory containing config, secrets, and registry")
-	recordDir := flag.String("record-dir", "", "path to record LLM responses to testdata/recordings for replay testing")
+	recordEnabled := flag.Bool("record", false, "enable recording of LLM responses for replay testing (saved under {data}/runs/)")
+	enableRuns := flag.Bool("enable-runs", false, "enable per-run output (events.jsonl, run.log, etc.)")
 	flag.Parse()
 
 	// Load Environment (.env files)
@@ -61,11 +62,11 @@ func main() {
 	defer dataMgr.Close()
 
 	// Bootstrap using the new DataManager and app context
-	proxyApp := app.New(ctx, dataMgr, logger, buildInfo, *recordDir)
+	proxyApp := app.New(ctx, dataMgr, logger, buildInfo, *recordEnabled, *enableRuns)
 	bindAddr := app.ResolveBindAddr(dataMgr)
 
-	if *recordDir != "" {
-		logging.Info("Recording LLM responses", "dir", *recordDir)
+	if *recordEnabled {
+		logging.Info("Recording enabled — LLM responses saved under {data}/runs/")
 	}
 
 	logStartup(logger, buildInfo, bindAddr)

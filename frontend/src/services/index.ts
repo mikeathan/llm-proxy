@@ -2,3 +2,4 @@
 export { AdminApiService } from './adminService'
 export { McpApiService } from './mcpService'
 export { MetricsApiService } from './metricsService'
+export { MemoryService } from './memoryService'

@@ -12,10 +12,11 @@ const (
 	ToolNotifyUser = "notify_user"
 
 	// FileSystem
-	ToolFileRead      = "read_file"
-	ToolFileWrite     = "write_file"
-	ToolFileAppend    = "append_file"
-	ToolDirectoryList = "list_directory"
+	ToolFileRead       = "read_file"
+	ToolFileWrite      = "write_file"
+	ToolFileAppend     = "append_file"
+	ToolFileEditBlock  = "edit_file_block"
+	ToolDirectoryList  = "list_directory"
 	
 	// Network
 	ToolNetworkFetch = "fetch_url"
@@ -24,6 +25,10 @@ const (
 
 	// Security/Admin
 	ToolApplyGuardrails = "security_guardrails"
+
+	// Memory
+	ToolMemorySearch = "memory_search"
+	ToolMemoryUpdate = "memory_update"
 
 	// System
 	ToolSubmitFinalAnswer = "submit_final_answer"
@@ -38,5 +43,6 @@ const (
 	CategoryFileSystem    = "filesystem"
 	CategoryNetwork       = "network"
 	CategoryGlobal        = "security"
+	CategoryMemory        = "memory"
 	CategorySystem        = "system"
 )

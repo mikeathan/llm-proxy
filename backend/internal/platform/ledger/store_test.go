@@ -5,6 +5,10 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/platform/db"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -16,9 +20,14 @@ func newTestStore(t *testing.T) *Store {
 	path := f.Name()
 	f.Close()
 	t.Cleanup(func() { os.Remove(path) })
-	store, err := Open(path)
+	p, err := db.Open(path)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.DB().Close() })
+	store, err := New(p)
+	if err != nil {
+		t.Fatalf("ledger.New: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
 	return store
@@ -257,6 +266,15 @@ func TestStore_PurgeTransactions_DeletesOnlyOld(t *testing.T) {
 	}
 }
 
+func openTestDB(path string, t *testing.T) db.Provider {
+	t.Helper()
+	p, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	return p
+}
+
 func TestStore_AutonomousCleaner(t *testing.T) {
 	f, err := os.CreateTemp("", "ledger-cleaner-test-*.db")
 	if err != nil {
@@ -266,9 +284,10 @@ func TestStore_AutonomousCleaner(t *testing.T) {
 	f.Close()
 	defer os.Remove(path)
 
-	store1, err := Open(path)
+	db1 := openTestDB(path, t)
+	store1, err := New(db1)
 	if err != nil {
-		t.Fatalf("Open store1: %v", err)
+		t.Fatalf("New store1: %v", err)
 	}
 	ctx := context.Background()
 
@@ -310,15 +329,16 @@ func TestStore_AutonomousCleaner(t *testing.T) {
 		t.Fatalf("RecordTransaction recent: %v", err)
 	}
 
-	if err := store1.Close(); err != nil {
-		t.Fatalf("Close store1: %v", err)
-	}
+	store1.Close()
+	db1.DB().Close()
 
-	store2, err := Open(path)
+	db2 := openTestDB(path, t)
+	store2, err := New(db2)
 	if err != nil {
-		t.Fatalf("Open store2: %v", err)
+		t.Fatalf("New store2: %v", err)
 	}
 	defer store2.Close()
+	defer db2.DB().Close()
 
 	time.Sleep(50 * time.Millisecond)
 

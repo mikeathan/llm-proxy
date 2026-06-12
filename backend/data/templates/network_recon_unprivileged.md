@@ -1,6 +1,6 @@
 ## Task: Network Reconnaissance (Non-Privileged)
 **ID:** `network-recon-unprivileged`
-**Category:** Reconnaissance
+**Category:** network
 
 Perform a multi-phase, optimized network scan to identify active hosts and their exposed services without requiring root privileges.
 

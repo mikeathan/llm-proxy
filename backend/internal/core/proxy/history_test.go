@@ -63,8 +63,9 @@ func TestNormalizeHistory_XMLMode_EmptyContentWithToolCall(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(got))
 	}
-	if got[0].Content != "Called tool: list_directory" {
-		t.Fatalf("expected 'Called tool: list_directory', got %q", got[0].Content)
+	expected := "<tool_call>\n{\"tool\": \"list_directory\", \"args\": {\"path\":\".\"}}\n</tool_call>"
+	if got[0].Content != expected {
+		t.Fatalf("expected %q, got %q", expected, got[0].Content)
 	}
 	if len(got[0].ToolCalls) != 0 {
 		t.Fatal("XML mode should strip tool calls")
@@ -84,8 +85,9 @@ func TestNormalizeHistory_XMLMode_MultipleToolCalls(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(got))
 	}
-	if got[0].Content != "Called tool: list_directory, read_file" {
-		t.Fatalf("expected 'Called tool: list_directory, read_file', got %q", got[0].Content)
+	expected := "<tool_call>\n{\"tool\": \"list_directory\", \"args\": {}}\n</tool_call>\n<tool_call>\n{\"tool\": \"read_file\", \"args\": {}}\n</tool_call>"
+	if got[0].Content != expected {
+		t.Fatalf("expected %q, got %q", expected, got[0].Content)
 	}
 }
 
@@ -167,8 +169,8 @@ func TestNormalizeHistory_XMLMode_FullNativeRoundTrip(t *testing.T) {
 	if got[1].Content != "List files and write a report." {
 		t.Fatalf("user message should be preserved, got %q", got[1].Content)
 	}
-	if got[2].Content != "Called tool: list_directory" {
-		t.Fatalf("expected 'Called tool: list_directory', got %q", got[2].Content)
+	if got[2].Content != "<tool_call>\n{\"tool\": \"list_directory\", \"args\": {\"path\":\".\"}}\n</tool_call>" {
+		t.Fatalf("expected XML tool call, got %q", got[2].Content)
 	}
 	if len(got[2].ToolCalls) != 0 {
 		t.Fatal("tool calls should be stripped in XML mode")
@@ -176,8 +178,8 @@ func TestNormalizeHistory_XMLMode_FullNativeRoundTrip(t *testing.T) {
 	if got[3].Role != UserRole {
 		t.Fatal("tool role should be converted to user role")
 	}
-	if got[4].Content != "Called tool: write_file" {
-		t.Fatalf("expected 'Called tool: write_file', got %q", got[4].Content)
+	if got[4].Content != "<tool_call>\n{\"tool\": \"write_file\", \"args\": {\"path\":\"report.md\",\"content\":\"done\"}}\n</tool_call>" {
+		t.Fatalf("expected XML tool call, got %q", got[4].Content)
 	}
 	if got[5].Role != UserRole {
 		t.Fatal("tool role should be converted to user role")
