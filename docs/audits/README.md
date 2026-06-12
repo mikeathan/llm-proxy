@@ -9,3 +9,4 @@ They identify gaps, regressions, and bugs found during testing or production use
 | `ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete |
 | `memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference |
 | `remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete |
+| `write-file-truncation-cycles.md` | write_file Truncation Cycles, Block Editing & Early Reasoning Stuck Detection | reference |

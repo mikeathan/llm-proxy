@@ -26,6 +26,7 @@ const (
 	// generation budget, going lower than 3 causes the planning-cutoff loop.
 	// See docs/audits/memory-injection-investigation.md for the investigation.
 	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
+	stuckNonReasoningDivisor      = 1           // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
 	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
@@ -344,6 +345,16 @@ func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	if a.skipStuckCheck || len(fullMsg.Content) > 0 || len(fullMsg.ToolCalls) > 0 {
 		return false
 	}
+
+	// Models with reasoningBudget == 0 get no server-side thinking enforcement.
+	// If they produce reasoning content, catch them at maxTokens / divisor chars
+	// rather than waiting for the full threshold.  Divisor=1 (maxTokens) avoids
+	// false positives on models like Gemma 4 that output legitimate <think> blocks
+	// before producing content/tool calls (~1371 chars observed).
+	if a.reasoningBudget == 0 && len(fullMsg.ReasoningContent) > a.maxTokens/stuckNonReasoningDivisor {
+		return true
+	}
+
 	return len(fullMsg.ReasoningContent) > a.stuckThreshold()
 }
 

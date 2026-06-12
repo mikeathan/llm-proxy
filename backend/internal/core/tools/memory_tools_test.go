@@ -126,6 +126,128 @@ func TestMemorySearchTool_EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestMemorySearchTool_EmptyQueryReturnsEntries(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+
+	// Save a few entries.
+	for _, content := range []string{"first entry", "second entry", "third entry"} {
+		_, err := provider.Update(ctx, struct {
+			Content string        `json:"content"`
+			Scope   memory.Scope  `json:"scope"`
+			Mode    memory.Mode   `json:"mode"`
+			Keep    memory.Keep   `json:"keep"`
+			OldText string        `json:"old_text"`
+		}{Content: content, Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
+		if err != nil {
+			t.Fatalf("save %q failed: %v", content, err)
+		}
+	}
+
+	// Empty query with workspace scope should return the 3 saved entries.
+	args := struct {
+		Query interface{}  `json:"query"`
+		Limit int          `json:"limit"`
+		Scope memory.Scope `json:"scope"`
+		Tags  []string     `json:"tags"`
+	}{Query: "", Limit: 10, Scope: "workspace"}
+
+	result, err := provider.Search(ctx, args)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	resultStr, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(resultStr, "Entry 1/3") {
+		t.Errorf("expected 'Entry 1/3' in result, got: %s", resultStr)
+	}
+	if strings.Contains(resultStr, "no memories found matching") {
+		t.Errorf("empty query returned no results when entries exist: %s", resultStr)
+	}
+}
+
+func TestMemorySearchTool_ListAllMemories(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+
+	// Save workspace and user entries.
+	provider.Update(ctx, struct {
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
+	}{Content: "workspace fact", Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
+	provider.Update(ctx, struct {
+		Content string        `json:"content"`
+		Scope   memory.Scope  `json:"scope"`
+		Mode    memory.Mode   `json:"mode"`
+		Keep    memory.Keep   `json:"keep"`
+		OldText string        `json:"old_text"`
+	}{Content: "user fact", Scope: "user", Mode: "on_demand", Keep: "permanent"})
+
+	t.Run("workspace scope returns workspace entry", func(t *testing.T) {
+		entries, err := provider.listAllMemories(ctx, "ws-1", "workspace", 10)
+		if err != nil {
+			t.Fatalf("listAllMemories failed: %v", err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 workspace entry, got %d", len(entries))
+		}
+		if !strings.Contains(entries[0].Content, "workspace fact") {
+			t.Errorf("expected workspace fact, got: %s", entries[0].Content)
+		}
+	})
+
+	t.Run("user scope returns user entry", func(t *testing.T) {
+		entries, err := provider.listAllMemories(ctx, "ws-1", "user", 10)
+		if err != nil {
+			t.Fatalf("listAllMemories failed: %v", err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 user entry, got %d", len(entries))
+		}
+		if !strings.Contains(entries[0].Content, "user fact") {
+			t.Errorf("expected user fact, got: %s", entries[0].Content)
+		}
+	})
+
+	t.Run("no scope returns both entries merged", func(t *testing.T) {
+		entries, err := provider.listAllMemories(ctx, "ws-1", "", 10)
+		if err != nil {
+			t.Fatalf("listAllMemories failed: %v", err)
+		}
+		if len(entries) != 2 {
+			t.Fatalf("expected 2 entries (workspace + user), got %d", len(entries))
+		}
+	})
+}
+
+func TestMergeAndCap(t *testing.T) {
+	a := []memory.MemoryEntry{{ID: 1, Content: "a1"}, {ID: 2, Content: "a2"}}
+	b := []memory.MemoryEntry{{ID: 2, Content: "b2 (dup)"}, {ID: 3, Content: "b3"}}
+
+	result := mergeAndCap(a, b, 10)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 merged entries, got %d", len(result))
+	}
+	// ID 2 from b should be skipped (duplicate).
+	for _, e := range result {
+		if e.Content == "b2 (dup)" {
+			t.Error("duplicate entry with ID 2 should not be in result")
+		}
+	}
+
+	resultCapped := mergeAndCap(a, b, 2)
+	if len(resultCapped) != 2 {
+		t.Fatalf("expected 2 capped entries, got %d", len(resultCapped))
+	}
+}
+
 func TestMemoryUpdateTool(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)

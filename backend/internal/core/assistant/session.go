@@ -190,11 +190,15 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 				return "", s.history, dupErr
 			}
 			if isDuplicate {
+				nag := nagPrompt
+				if len(turnMsg.ToolCalls) > 0 && turnMsg.ToolCalls[0].Function.Name == models.ToolFileRead {
+					nag = prompts.AutomationReadFileNagPrompt
+				}
 				s.history = append(s.history, turnMsg)
 				s.agent.notify(EventMessage, turnMsg)
 				s.history = append(s.history, proxy.Message{
 					Role:    proxy.UserRole,
-					Content: nagPrompt,
+					Content: nag,
 				})
 				continue
 			}

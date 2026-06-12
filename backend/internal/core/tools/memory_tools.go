@@ -62,8 +62,8 @@ func resolveParams(scope memory.Scope, mode memory.Mode, keep memory.Keep, wsID 
 
 // ── Search ────────────────────────────────────────────────────────────────
 
-// Search runs a full-text query against stored memories and returns results formatted
-// as markdown with triple-dash separators between entries.
+// Search runs a full-text query against stored memories and returns results
+// prefixed with Entry N/M so the model can always determine the exact count.
 //
 // Query is interface{} rather than string because the model occasionally emits
 // query: {} (invalid JSON for a string field). The type assertion silently
@@ -83,29 +83,32 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 	}
 
 	query, _ := args.Query.(string)
-	if strings.TrimSpace(query) == "" && len(args.Tags) == 0 {
-		return "please provide a search query or tags", nil
-	}
 	if args.Limit <= 0 || args.Limit > 20 {
 		args.Limit = 5
 	}
 
 	wsID := models.GetWorkspaceID(ctx)
-	opt := memory.SearchOption{Tags: args.Tags}
-	switch args.Scope {
-	case memory.ScopeUser:
-		opt.WorkspaceID = "global"
-	case memory.ScopeWorkspace:
-		opt.WorkspaceID = wsID
-	default:
-		opt.SearchAllWorkspaces = true
-	}
+	var entries []memory.MemoryEntry
+	var err error
 
-	entries, err := m.store.Search(ctx, wsID, query, args.Limit, opt)
-	if err != nil {
-		if strings.Contains(err.Error(), "fts5: syntax error") {
+	if strings.TrimSpace(query) == "" && len(args.Tags) == 0 {
+		entries, err = m.listAllMemories(ctx, wsID, args.Scope, args.Limit)
+	} else {
+		opt := memory.SearchOption{Tags: args.Tags}
+		switch args.Scope {
+		case memory.ScopeUser:
+			opt.WorkspaceID = "global"
+		case memory.ScopeWorkspace:
+			opt.WorkspaceID = wsID
+		default:
+			opt.SearchAllWorkspaces = true
+		}
+		entries, err = m.store.Search(ctx, wsID, query, args.Limit, opt)
+		if err != nil && strings.Contains(err.Error(), "fts5: syntax error") {
 			return "Invalid search query. Use plain words separated by spaces (e.g. 'birthday TypeScript'). No special characters, wildcards, or operators.", nil
 		}
+	}
+	if err != nil {
 		return "", fmt.Errorf("memory search failed: %w", err)
 	}
 	if len(entries) == 0 {
@@ -114,17 +117,56 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 
 	var b strings.Builder
 	for i, e := range entries {
-		if i > 0 {
-			b.WriteString("\n---\n")
-		}
-		fmt.Fprintf(&b, "**%s**", e.Title)
+		fmt.Fprintf(&b, "Entry %d/%d — **%s**", i+1, len(entries), e.Title)
 		if e.MemoryType != memory.LongTerm {
 			fmt.Fprintf(&b, " [%s]", e.MemoryType)
 		}
 		b.WriteString("\n")
 		b.WriteString(e.Content)
+		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+// listAllMemories returns all entries for the given scope without an FTS5 query.
+func (m *MemoryToolProvider) listAllMemories(ctx context.Context, wsID string, scope memory.Scope, limit int) ([]memory.MemoryEntry, error) {
+	switch scope {
+	case memory.ScopeUser:
+		return m.store.List(ctx, "global", "", limit, 0)
+	case memory.ScopeWorkspace:
+		return m.store.List(ctx, wsID, "", limit, 0)
+	default:
+		wsEntries, err := m.store.List(ctx, wsID, "", limit, 0)
+		if err != nil {
+			return nil, err
+		}
+		globalEntries, err := m.store.List(ctx, "global", "", limit, 0)
+		if err != nil {
+			return nil, err
+		}
+		return mergeAndCap(wsEntries, globalEntries, limit), nil
+	}
+}
+
+// mergeAndCap merges two entry slices by ID (primary first), deduplicates, and caps.
+func mergeAndCap(a, b []memory.MemoryEntry, limit int) []memory.MemoryEntry {
+	seen := map[int64]bool{}
+	result := make([]memory.MemoryEntry, 0, limit)
+
+	for _, e := range a {
+		seen[e.ID] = true
+		result = append(result, e)
+	}
+	for _, e := range b {
+		if len(result) >= limit {
+			break
+		}
+		if !seen[e.ID] {
+			result = append(result, e)
+			seen[e.ID] = true
+		}
+	}
+	return result
 }
 
 // Update saves a new memory or updates an existing one. Uses scope, mode, and keep
@@ -153,7 +195,7 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 	wsID := models.GetWorkspaceID(ctx)
 	route, err := resolveParams(args.Scope, args.Mode, args.Keep, wsID)
 	if err != nil {
-		return "", fmt.Errorf("invalid memory parameters: %w", err)
+		return "", fmt.Errorf("invalid memory parameters — provide scope ('user'/'workspace'), mode ('always'/'on_demand'), keep ('permanent'/'session'): %w", err)
 	}
 	ctx = models.WithWorkspaceID(ctx, route.WorkspaceID)
 	saveWS := route.WorkspaceID

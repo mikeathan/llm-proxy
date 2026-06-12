@@ -137,7 +137,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		if err := validateToolArgs(tc, toolsList); err != nil {
 			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
 			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
-			if tc.Function.Name == models.ToolFileWrite && isTruncationError(err.Error()) {
+			if isTruncationError(err.Error()) {
 				errMsg = prompts.AutomationContentTooLongPrompt
 			}
 			mu.Lock()

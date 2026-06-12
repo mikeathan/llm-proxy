@@ -1,7 +1,7 @@
 ## Task: Memory Cascade — Persona Recall & Cross-Reference
 
 **ID:** `memory-cascade-test`
-**Category:** Testing
+**Category:** memory
 
 Stress-test the agent's memory subsystem by feeding distributed facts about a fictional persona across multiple turns, then verifying recall, synthesis, and temporal ordering.
 

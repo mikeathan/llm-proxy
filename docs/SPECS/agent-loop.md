@@ -56,7 +56,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Parse errors: inject `ParseError.Feedback(availableTools)` — specific format guidance with valid tool names.
 - No parse error but no tool calls: inject `AutomationNagPrompt`.
 - Tool validation failure: treat as parse error, clear invalid tool calls, inject feedback.
-- Content too long (write exceeds model output limits): inject `AutomationContentTooLongPrompt` — instructs the model to use `write_file` for the first chunk, then `append_file` for subsequent chunks.
+- Content too long (write exceeds server JSON parse limit): inject `AutomationContentTooLongPrompt` — instructs the model to use `write_file` for the first chunk, then `append_file` for subsequent chunks.
+- Write file content size is NOT enforced by the Go handler. The manifest `maxLength` was removed entirely — server-side grammar constraints were causing silent truncation at exactly `maxLength` chars. The model's own `max_tokens` is the only output cap. If content exceeds server JSON parse limits, the natural JSON parse error triggers recovery.
 
 ### 7. Native Tool Support (Constitution II.5)
 - Controlled by `Agent.useNativeTools` (resolved from `AgentOptions.UseNativeTools` > `ToolProvider.UseNativeTools()`).
@@ -66,6 +67,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 8. Reasoning Stuck Detection & Fallback
 - Scaled threshold: `stuckThreshold()` returns `max(maxTokens * 2, MinReasoningStuckThreshold)`. Safety net for servers not enforcing reasoning budgets.
+- Early detection for models without reasoning budget (`reasoningBudget == 0`): fires at `maxTokens / stuckNonReasoningDivisor` chars (currently divisor=1 → threshold = `maxTokens`). NOTE: `reasoningBudget == 0` does NOT mean the model can't reason — local GGUF models (Gemma 4, GPT-OSS-20B) produce legitimate `<think>` blocks without an explicit budget. Divisor=1 avoids false positives on these models while catching stuck states 2x faster than the `maxTokens * 2` baseline. Reasoning models with an explicit budget (`reasoningBudget > 0`) skip this check entirely.
 - Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
 - Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, strip `<think>` tags and promote to `Content` so the XML parser can process it. See `cleanReasoningContent()`.
 - On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars`.

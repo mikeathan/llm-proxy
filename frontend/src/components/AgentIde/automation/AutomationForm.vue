@@ -27,8 +27,7 @@ const emit = defineEmits<{
 const userCollapsed = ref(false);
 const isCollapsed = computed(() => {
   if (props.editAutomation) return false;
-  if (userCollapsed.value) return true;
-  return props.hasAutomations;
+  return props.hasAutomations && !userCollapsed.value;
 });
 
 const selectedWorkspace = ref("");

@@ -1,6 +1,6 @@
 ## Task: Fast Web Service Discovery
 **ID:** `web-discovery-fast`
-**Category:** Audit
+**Category:** network
 
 Scan specifically for web applications and management interfaces, identifying software stacks and redirect behavior.
 

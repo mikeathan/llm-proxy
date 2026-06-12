@@ -68,7 +68,7 @@ Generates a prompt fragment tailored to the specific failure:
 - **JSON parse failed**: "FORMAT ERROR: Found <tool_call> tags but the JSON inside was invalid: [error]. Ensure you use double-quotes for keys and string values, no trailing commas. Available tools: ..."
 - **Unknown tool**: "TOOL ERROR: Unknown tool '[name]'. Available tools: ..."
 
-A separate prompt (`AutomationContentTooLongPrompt` in `templates.go`) handles the case where the model's `write_file` content exceeds the output limit — it instructs the model to use `write_file` + `append_file` for multi-chunk writes.
+A separate prompt (`AutomationContentTooLongPrompt` in `templates.go`) handles the case where the model's `write_file` content exceeds the server JSON parse limit — it instructs the model to use `write_file` + `append_file` for multi-chunk writes. (Note: `maxLength` was removed from `filesystem.json` to prevent grammar-engine truncation at the server level.)
 
 ### 5. Tool Validation
 `ValidateToolCall(call, availableTools)` checks the parsed tool name against the registry. Returns a `ParseError` with `ToolName` set if the tool is not recognized.

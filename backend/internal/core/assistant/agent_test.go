@@ -2352,8 +2352,9 @@ func TestAgent_StuckThresholdConstant(t *testing.T) {
 			}
 			engine := &MockEngine{Result: "ok"}
 			agent := NewAgent(client, provider, engine, AgentOptions{
-				MaxSteps:          25,
+				MaxSteps:        25,
 				MaxResponseTokens: tc.maxRespTok,
+				ReasoningBudget: tc.maxRespTok * 2,
 			})
 			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
@@ -2454,6 +2455,7 @@ func TestAgent_StuckThresholdDerived(t *testing.T) {
 			agent := NewAgent(client, provider, engine, AgentOptions{
 				MaxSteps:          25,
 				MaxResponseTokens: tc.maxRespTok,
+				ReasoningBudget:   tc.maxRespTok * 2,
 			})
 			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
@@ -2629,6 +2631,64 @@ I should use the submit_final_answer tool to complete this.
 			}
 		}
 	}
+}
+
+func TestCheckStreamStuck_NonReasoningModel(t *testing.T) {
+	agent := &Agent{
+		maxTokens:       2730,
+		reasoningBudget: 0, // non-reasoning model
+		skipStuckCheck:  false,
+	}
+
+	t.Run("under threshold not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 1000)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("1000 chars should not trigger early stuck")
+		}
+	})
+
+	t.Run("above threshold stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 2731)}
+		if !agent.checkStreamStuck(msg) {
+			t.Error("2731 chars should trigger early stuck for non-reasoning model (threshold = maxTokens = 2730)")
+		}
+	})
+
+	t.Run("has content not stuck", func(t *testing.T) {
+		msg := &proxy.Message{Content: "text", ReasoningContent: strings.Repeat("x", 2731)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("has content -> not stuck even above early threshold")
+		}
+	})
+
+	t.Run("has tool calls not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ToolCalls: []proxy.ToolCall{{}}, ReasoningContent: strings.Repeat("x", 2731)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("has tool calls -> not stuck even above early threshold")
+		}
+	})
+}
+
+func TestCheckStreamStuck_ReasoningModel(t *testing.T) {
+	agent := &Agent{
+		maxTokens:       2730,
+		reasoningBudget: 2730, // reasoning model
+		skipStuckCheck:  false,
+	}
+
+	t.Run("above early threshold not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 1366)}
+		if agent.checkStreamStuck(msg) {
+			t.Error("reasoning model should skip early check")
+		}
+	})
+
+	t.Run("above standard threshold stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 5461)}
+		if !agent.checkStreamStuck(msg) {
+			t.Error("reasoning model should hit standard stuck threshold")
+		}
+	})
 }
 
 func TestAgent_FallbackXMLModeNoToolChoice(t *testing.T) {

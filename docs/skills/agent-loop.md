@@ -38,6 +38,8 @@ executor.go Execute()
 
 **Reasoning stuck (token-level):** When reasoning content exceeds `maxTokens * 2` chars (floor 2000), the stream is aborted. A `lifecycle` event with phase `stuck_detected` is emitted.
 
+**Early stuck for models without reasoning budget:** When `reasoningBudget == 0` (no server-side thinking enforcement), stuck fires at `maxTokens / stuckNonReasoningDivisor` chars instead — currently divisor=1 gives threshold at `maxTokens` (e.g. 2048 chars for a local model). Divisor=2 was tried but caused false positives on Gemma 4 (~1371 chars of legitimate `<think>` blocks before output). See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`.
+
 **Progressive sieve recovery:**
 - 1st stuck → reactive sieve (first 2 + last 6 messages) + nag prompt
 - 2nd consecutive stuck → aggressive sieve (first 2 + last 3 messages) + stronger nag

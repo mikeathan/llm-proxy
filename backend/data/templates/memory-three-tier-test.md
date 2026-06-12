@@ -1,7 +1,7 @@
 ## Task: Memory Three-Tier Test
 
 **ID:** `memory-three-tier-test`
-**Category:** Testing
+**Category:** memory
 
 Validate the three-tier memory architecture: scope, mode, and keep parameters.
 

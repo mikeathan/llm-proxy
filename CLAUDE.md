@@ -274,8 +274,9 @@ The `FilterStreamingMarkup()` function in `content_filter.go` hides `<tool_call>
 | `ToolTerminalExecute` | `execute_terminal_command` | terminal | Run shell commands in jailed session |
 | `ToolListDirectory` | `list_directory` | filesystem | List directory contents |
 | `ToolFileRead` | `read_file` | filesystem | Read file contents |
-| `ToolFileWrite` | `write_file` | filesystem | Write/create files (max 800 chars per call); use `append_file` for longer output |
-| `ToolFileAppend` | `append_file` | filesystem | Append content to existing file (max 1200 chars per call) |
+| `ToolFileWrite` | `write_file` | filesystem | Write/create files. No server-side length enforcement — model is self-limited by `max_tokens`. For large content, use `append_file` to add more. |
+| `ToolFileAppend` | `append_file` | filesystem | Append content to existing file. No server-side length enforcement. |
+| `ToolFileEditBlock` | `edit_file_block` | filesystem | Replace exact block of text in existing file. Trailing whitespace normalized for matching. Error on multiple matches — include more context to disambiguate. |
 | `ToolNetworkFetch` | `fetch_url` | network | HTTP GET request |
 | `ToolNetworkScan` | `scan_local_network` | network | Scan LAN for devices |
 | `ToolNetworkInfo` | `get_network_info` | network | Get local IP/subnet |

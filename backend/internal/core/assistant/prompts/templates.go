@@ -240,6 +240,16 @@ const AutomationXMLModeGuide = "SYSTEM: Respond with ONLY a tool call in this ex
 // valid tool name and arguments.
 const AutomationPrefline = "<tool_call>\n{\"tool\":\""
 
+// AutomationReadFileNagPrompt is injected when the model reads the same file
+// multiple times. The model already has the content — it needs to decide what
+// to do next (compile, overwrite, or edit), not re-read.
+const AutomationReadFileNagPrompt = "SYSTEM: You already read this file and have its contents. " +
+	"If the code is correct, compile and run it. " +
+	"If the code needs changes, overwrite it with write_file or edit it with edit_file_block. " +
+	"Do not read the same file again.\n\n" +
+	"Respond with ONLY a tool call. Nothing else.\n\n" +
+	automationNagFormatExample
+
 // AutomationDuplicateNagPrompt is injected when a model repeats reasoning without acting.
 const AutomationDuplicateNagPrompt = "SYSTEM CRITICAL: You already ran this exact command and it succeeded. Do the NEXT step.\n\n" +
 	"Respond with ONLY a tool call. Nothing else.\n\n" +
@@ -264,12 +274,12 @@ const AutomationRejectedSubmissionPrompt = "REJECTED: '" + models.ToolSubmitFina
 	"IMPORTANT: Your summary MUST include ALL data requested in the task (e.g., file contents, tree visualizations, execution outputs)."
 
 // AutomationContentTooLongPrompt is sent when a write_file call fails because the
-// content argument was too large, causing JSON truncation.
+// content argument was too large, causing the server JSON parser to reject it.
 const AutomationContentTooLongPrompt = "TOO LONG: The content you tried to write exceeded the response limit.\n\n" +
 	"Use write_file for the first chunk of content, then append_file to add more to the SAME file:\n" +
-	"  1. write_file(report.md, \"...first 800 chars...\")\n" +
-	"  2. append_file(report.md, \"...next content...\")\n" +
-	"  3. append_file(report.md, \"...final section...\")\n" +
+	"  1. write_file(report.md, \"...first chunk...\")\n" +
+	"  2. append_file(report.md, \"...next chunk...\")\n" +
+	"  3. append_file(report.md, \"...final chunk...\")\n" +
 	"All chunks go into ONE file.\n\n" +
 	"Respond with ONLY a tool call. Nothing else."
 

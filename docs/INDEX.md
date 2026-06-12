@@ -19,6 +19,8 @@ status, and cross-references to related documents. Use this as the starting poin
 |-|------|-------|--------|
 | | `docs/skills/memory-system.md` | Memory Architecture & Tags | Injection, three-tier, tags, dedup, gotchas |
 | | `docs/skills/agent-loop.md` | Agent Loop & Stuck Detection | Sieve, fallback chain, reasoning budget, spiral detector |
+| | `docs/skills/tool-failure-investigation.md` | Tool Failure Investigation | Error tracing, handler scoping, recovery prompt verification |
+
 | | `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates |
 | | `docs/skills/engineering-practices.md` | Go Engineering Practices | Patterns, code style, architecture rules |
 | | `docs/skills/llamacpp-setup.md` | llama.cpp Server Setup | Args, GPU tuning, systemd, performance data |
@@ -50,7 +52,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/cross-cutting/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | proposed | 2026-06-09 | SPEC-001, SPEC-003 |
 | `docs/PLANS/memory/memory-three-tier-redesign.md` | Three-Tier Memory Architecture (scope, mode, keep) | complete | 2026-06-09 | SPEC-004 |
 | `docs/PLANS/memory/memory-tags-system.md` | Memory Tags System | complete | 2026-06-08 | SPEC-004 |
-| `backend/data/templates/memory-cascade-test.md` | Memory Cascade — Persona Recall & Cross-Ref | reference | 2026-06-09 | SPEC-004 |
+| `backend/data/templates/memory-cascade-test.md` | Memory Cascade — Persona Recall & Cross-Ref | reference | 2026-06-10 | SPEC-004 |
 | `backend/data/templates/memory-three-tier-test.md` | Three-Tier Memory Architecture Test (save + scope-filtered search) | reference | 2026-06-10 | SPEC-004 |
 | `docs/PLANS/orchestrator/resource-aware-orchestration.md` | Resource-Aware Orchestration | complete | — | SPEC-005 |
 | `docs/PLANS/orchestrator/consistent-token-budget.md` | Consistent Token Budget | complete | — | SPEC-005 |
@@ -79,6 +81,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/audits/ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete | 2026-06-08 |
 | `docs/audits/memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference | 2026-06-03 |
 | `docs/audits/remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete | 2026-06-03 |
+
 
 ## Agent Rules (AI Assistant Guidance)
 

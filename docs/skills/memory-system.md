@@ -101,3 +101,22 @@ func (s Scope) Validate() error { ... }
 - Memory is per-workspace. `workspace_id = 'global'` is reserved for cross-workspace user profile entries.
 - The `Search` method's `sanitiseFTSQuery` wraps each term in double-quotes and joins with `OR`. Without this, FTS5 crashes on consecutive `OR` operators.
 - Stop words (`step`, `task`, `run`, `use`, `check`) are filtered from the FTS5 query to prevent generic matches.
+
+## Search Routes
+
+`memory_search` has two code paths depending on whether a query is provided:
+
+| Input | Path | Query | Order | Use case |
+|-------|------|-------|-------|----------|
+| `query:""` + no `tags` | `listAllMemories()` → `store.List()` | `SELECT ... ORDER BY updated_at DESC LIMIT ?` | Most recent first | "Return everything." Never errors — returns up to `limit` recent entries. |
+| `query:"birthday"` or with `tags` | `store.Search()` → FTS5 | FTS5 BM25 ranking with JOIN on tags | Relevance | "Find specific fact." Targeted keyword search. |
+
+### Why two paths
+
+Models naturally call `memory_search(query:"")` expecting it to mean "give me everything."
+Returning an error forced the model to waste 3-4 turns retrying before switching to
+keywords. The `List` path satisfies this expectation while being bounded by the same
+`limit` cap (default 5, max 20) as FTS5 searches.
+
+The FTS5 path is always available for precise searches — `List` is only a fallback
+for when both `query` and `tags` are empty.
