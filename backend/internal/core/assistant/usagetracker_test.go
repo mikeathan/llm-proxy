@@ -76,7 +76,7 @@ func TestGetUsageTracker_NoTracker(t *testing.T) {
 }
 
 func TestGetUsageTracker_WithTracker(t *testing.T) {
-	ctx := withUsageTracker(context.Background())
+	ctx := WithUsageTracker(context.Background())
 	tracker := GetUsageTracker(ctx)
 	if tracker == nil {
 		t.Fatal("expected non-nil tracker")

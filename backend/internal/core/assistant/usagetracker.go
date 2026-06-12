@@ -23,7 +23,10 @@ type UsageTracker struct {
 	mu              sync.Mutex
 }
 
-func withUsageTracker(ctx context.Context) context.Context {
+func WithUsageTracker(ctx context.Context) context.Context {
+	if GetUsageTracker(ctx) != nil {
+		return ctx
+	}
 	return context.WithValue(ctx, usageKey, &UsageTracker{})
 }
 

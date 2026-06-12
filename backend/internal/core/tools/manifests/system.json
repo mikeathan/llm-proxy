@@ -13,9 +13,7 @@
             "description": "The final report itself. Include the complete output with all findings, tables, and analysis. This is what the user sees — not a description of what was done."
           }
         },
-        "required": [
-          "summary"
-        ]
+        "required": ["summary"]
       }
     },
     "system_error": {
@@ -27,9 +25,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "error"
-        ]
+        "required": ["error"]
       }
     }
   },

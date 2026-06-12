@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"llm-proxy/internal/platform/db"
 )
 
 const migrateSQL = `
@@ -70,6 +70,42 @@ CREATE TABLE IF NOT EXISTS entity_metadata (
 CREATE INDEX IF NOT EXISTS idx_meta_lookup ON entity_metadata(entity_type, entity_id);
 `
 
+// recordTransactionSQL logs an ICU debit against a workspace budget.
+const recordTransactionSQL = `INSERT INTO icu_ledger (transaction_id, workspace_id, model_name, provider_type, icu_debit, request_tokens, response_tokens, reasoning_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+
+// recordRefundSQL marks a transaction as refunded, idempotent via refund_status check.
+const recordRefundSQL = `UPDATE icu_ledger SET icu_credit = icu_credit + ?, refund_status = 'full' WHERE transaction_id = ? AND refund_status = 'none'`
+
+// getBalanceSQL retrieves the total ICU balance for a workspace in a window.
+const getBalanceSQL = `SELECT total_icu FROM icu_balances WHERE workspace_id = ? AND window_start = ?`
+
+// updateBalanceSQL upserts an ICU balance row, accumulating credits in the window.
+const updateBalanceSQL = `INSERT INTO icu_balances (workspace_id, window_start, total_icu, last_updated) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(workspace_id, window_start) DO UPDATE SET total_icu = total_icu + EXCLUDED.total_icu, last_updated = datetime('now')`
+
+// saveSlotSQL upserts a KV-cache slot record for a model on a specific host.
+const saveSlotSQL = `INSERT INTO active_slots (model_name, slot_id, host, port, cache_key, expires_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(model_name, host, port) DO UPDATE SET slot_id = EXCLUDED.slot_id, cache_key = EXCLUDED.cache_key, expires_at = EXCLUDED.expires_at, last_used_at = datetime('now')`
+
+// getActiveSlotSQL retrieves a non-expired slot matching model, host, port, and cache key.
+const getActiveSlotSQL = `SELECT slot_id, host, port, cache_key, expires_at, last_used_at FROM active_slots WHERE model_name = ? AND host = ? AND port = ? AND cache_key = ? AND expires_at > datetime('now')`
+
+// expireSlotsSQL deletes all slots that have passed their expiry timestamp.
+const expireSlotsSQL = `DELETE FROM active_slots WHERE expires_at <= datetime('now')`
+
+// purgeTransactionsSQL deletes ledger entries older than the cutoff.
+const purgeTransactionsSQL = `DELETE FROM icu_ledger WHERE created_at < ?`
+
+// setEntityMetadataSQL upserts a key-value metadata entry for an entity.
+const setEntityMetadataSQL = `INSERT INTO entity_metadata (entity_type, entity_id, key, value, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(entity_type, entity_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')`
+
+// getEntityMetadataSQL fetches a single metadata value by entity type, ID, and key.
+const getEntityMetadataSQL = `SELECT value FROM entity_metadata WHERE entity_type = ? AND entity_id = ? AND key = ?`
+
+// deleteEntityMetadataSQL removes a single metadata entry by type, ID, and key.
+const deleteEntityMetadataSQL = `DELETE FROM entity_metadata WHERE entity_type = ? AND entity_id = ? AND key = ?`
+
+// listEntityMetadataSQL fetches all key-value pairs for a given entity.
+const listEntityMetadataSQL = `SELECT key, value FROM entity_metadata WHERE entity_type = ? AND entity_id = ?`
+
 const (
 	defaultCleanInterval = 15 * time.Minute
 	defaultRetentionAge  = 24 * time.Hour
@@ -108,23 +144,15 @@ type SlotRecord struct {
 	LastUsedAt time.Time
 }
 
-func Open(path string) (*Store, error) {
-	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_foreign_keys=ON"
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("ledger open: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
-	if _, err := db.Exec(migrateSQL); err != nil {
-		db.Close()
+func New(p db.Provider) (*Store, error) {
+	database := p.DB()
+	if _, err := database.Exec(migrateSQL); err != nil {
 		return nil, fmt.Errorf("ledger migrate: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &Store{
-		db:     db,
+		db:     database,
 		cancel: cancel,
 	}
 
@@ -138,15 +166,12 @@ func (s *Store) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	return s.db.Close()
+	return nil
 }
 
 func (s *Store) RecordTransaction(ctx context.Context, tx ICUTransaction) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO icu_ledger (transaction_id, workspace_id, model_name, provider_type, icu_debit, request_tokens, response_tokens, reasoning_tokens)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		tx.TransactionID, tx.WorkspaceID, tx.ModelName, tx.ProviderType, tx.ICUDebit, tx.RequestTokens, tx.ResponseTokens, tx.ReasoningTokens,
-	)
+	_, err := s.db.ExecContext(ctx, recordTransactionSQL,
+		tx.TransactionID, tx.WorkspaceID, tx.ModelName, tx.ProviderType, tx.ICUDebit, tx.RequestTokens, tx.ResponseTokens, tx.ReasoningTokens)
 	if err != nil {
 		return fmt.Errorf("record transaction: %w", err)
 	}
@@ -156,10 +181,7 @@ func (s *Store) RecordTransaction(ctx context.Context, tx ICUTransaction) error 
 // RecordRefund marks a previously debited transaction as fully refunded.
 // Idempotency is enforced at the SQL level — refund_status = 'none' check.
 func (s *Store) RecordRefund(ctx context.Context, transactionID string, amount int64) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE icu_ledger SET icu_credit = icu_credit + ?, refund_status = 'full' WHERE transaction_id = ? AND refund_status = 'none'`,
-		amount, transactionID,
-	)
+	res, err := s.db.ExecContext(ctx, recordRefundSQL, amount, transactionID)
 	if err != nil {
 		return fmt.Errorf("record refund: %w", err)
 	}
@@ -172,10 +194,7 @@ func (s *Store) RecordRefund(ctx context.Context, transactionID string, amount i
 
 func (s *Store) GetBalance(ctx context.Context, workspaceID string, windowStart time.Time) (int64, error) {
 	var total sql.NullInt64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT total_icu FROM icu_balances WHERE workspace_id = ? AND window_start = ?`,
-		workspaceID, windowStart.UTC().Format("2006-01-02 15:04:05"),
-	).Scan(&total)
+	err := s.db.QueryRowContext(ctx, getBalanceSQL, workspaceID, windowStart.UTC().Format("2006-01-02 15:04:05")).Scan(&total)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -190,14 +209,7 @@ func (s *Store) GetBalance(ctx context.Context, workspaceID string, windowStart 
 
 func (s *Store) UpdateBalance(ctx context.Context, workspaceID string, windowStart time.Time, delta int64) error {
 	ws := windowStart.UTC().Format("2006-01-02 15:04:05")
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO icu_balances (workspace_id, window_start, total_icu, last_updated)
-		 VALUES (?, ?, ?, datetime('now'))
-		 ON CONFLICT(workspace_id, window_start) DO UPDATE SET
-		 total_icu = total_icu + EXCLUDED.total_icu,
-		 last_updated = datetime('now')`,
-		workspaceID, ws, delta,
-	)
+	_, err := s.db.ExecContext(ctx, updateBalanceSQL, workspaceID, ws, delta)
 	if err != nil {
 		return fmt.Errorf("update balance: %w", err)
 	}
@@ -205,16 +217,7 @@ func (s *Store) UpdateBalance(ctx context.Context, workspaceID string, windowSta
 }
 
 func (s *Store) SaveSlot(ctx context.Context, slot SlotRecord) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO active_slots (model_name, slot_id, host, port, cache_key, expires_at, last_used_at)
-		 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-		 ON CONFLICT(model_name, host, port) DO UPDATE SET
-		 slot_id = EXCLUDED.slot_id,
-		 cache_key = EXCLUDED.cache_key,
-		 expires_at = EXCLUDED.expires_at,
-		 last_used_at = datetime('now')`,
-		slot.ModelName, slot.SlotID, slot.Host, slot.Port, slot.CacheKey, slot.ExpiresAt.UTC().Format("2006-01-02 15:04:05"),
-	)
+	_, err := s.db.ExecContext(ctx, saveSlotSQL, slot.ModelName, slot.SlotID, slot.Host, slot.Port, slot.CacheKey, slot.ExpiresAt.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return fmt.Errorf("save slot: %w", err)
 	}
@@ -222,12 +225,7 @@ func (s *Store) SaveSlot(ctx context.Context, slot SlotRecord) error {
 }
 
 func (s *Store) GetActiveSlot(ctx context.Context, modelName, host string, port int, cacheKey string) (*SlotRecord, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT slot_id, host, port, cache_key, expires_at, last_used_at
-		 FROM active_slots
-		 WHERE model_name = ? AND host = ? AND port = ? AND cache_key = ? AND expires_at > datetime('now')`,
-		modelName, host, port, cacheKey,
-	)
+	row := s.db.QueryRowContext(ctx, getActiveSlotSQL, modelName, host, port, cacheKey)
 	var slot SlotRecord
 	slot.ModelName = modelName
 	var expiresStr, lastUsedStr string
@@ -244,7 +242,7 @@ func (s *Store) GetActiveSlot(ctx context.Context, modelName, host string, port 
 }
 
 func (s *Store) ExpireSlots(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM active_slots WHERE expires_at <= datetime('now')`)
+	_, err := s.db.ExecContext(ctx, expireSlotsSQL)
 	if err != nil {
 		return fmt.Errorf("expire slots: %w", err)
 	}
@@ -252,10 +250,7 @@ func (s *Store) ExpireSlots(ctx context.Context) error {
 }
 
 func (s *Store) PurgeTransactions(ctx context.Context, before time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM icu_ledger WHERE created_at < ?`,
-		before.UTC().Format("2006-01-02 15:04:05"),
-	)
+	_, err := s.db.ExecContext(ctx, purgeTransactionsSQL, before.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return fmt.Errorf("purge transactions: %w", err)
 	}
@@ -265,14 +260,7 @@ func (s *Store) PurgeTransactions(ctx context.Context, before time.Time) error {
 
 
 func (s *Store) SetEntityMetadata(ctx context.Context, entityType, entityID, key string, value []byte) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO entity_metadata (entity_type, entity_id, key, value, updated_at)
-		 VALUES (?, ?, ?, ?, datetime('now'))
-		 ON CONFLICT(entity_type, entity_id, key) DO UPDATE SET
-		 value = EXCLUDED.value,
-		 updated_at = datetime('now')`,
-		entityType, entityID, key, value,
-	)
+	_, err := s.db.ExecContext(ctx, setEntityMetadataSQL, entityType, entityID, key, value)
 	if err != nil {
 		return fmt.Errorf("set entity metadata: %w", err)
 	}
@@ -281,10 +269,7 @@ func (s *Store) SetEntityMetadata(ctx context.Context, entityType, entityID, key
 
 func (s *Store) GetEntityMetadata(ctx context.Context, entityType, entityID, key string) ([]byte, error) {
 	var value []byte
-	err := s.db.QueryRowContext(ctx,
-		`SELECT value FROM entity_metadata WHERE entity_type = ? AND entity_id = ? AND key = ?`,
-		entityType, entityID, key,
-	).Scan(&value)
+	err := s.db.QueryRowContext(ctx, getEntityMetadataSQL, entityType, entityID, key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -295,10 +280,7 @@ func (s *Store) GetEntityMetadata(ctx context.Context, entityType, entityID, key
 }
 
 func (s *Store) DeleteEntityMetadata(ctx context.Context, entityType, entityID, key string) error {
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM entity_metadata WHERE entity_type = ? AND entity_id = ? AND key = ?`,
-		entityType, entityID, key,
-	)
+	_, err := s.db.ExecContext(ctx, deleteEntityMetadataSQL, entityType, entityID, key)
 	if err != nil {
 		return fmt.Errorf("delete entity metadata: %w", err)
 	}
@@ -306,10 +288,7 @@ func (s *Store) DeleteEntityMetadata(ctx context.Context, entityType, entityID, 
 }
 
 func (s *Store) ListEntityMetadata(ctx context.Context, entityType, entityID string) (map[string][]byte, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT key, value FROM entity_metadata WHERE entity_type = ? AND entity_id = ?`,
-		entityType, entityID,
-	)
+	rows, err := s.db.QueryContext(ctx, listEntityMetadataSQL, entityType, entityID)
 	if err != nil {
 		return nil, fmt.Errorf("list entity metadata: %w", err)
 	}

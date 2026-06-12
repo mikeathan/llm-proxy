@@ -1,7 +1,7 @@
 ## Task: LLM Smoke Test — Multi-Tool Coverage
 
 **ID:** `llm-smoke-test`
-**Category:** Testing
+**Category:** system
 TASK: You are an autonomous agent. Complete ALL steps below in order. Do not skip any step. Submit a final summary when done.
 
 CRITICAL RULES:

@@ -115,11 +115,11 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 	}
 	req.Header.Set("User-Agent", "LLM-Proxy-Agent/1.0")
 
-	resp, err := n.httpClient.Do(req)
-	if err != nil {
-		n.logger.Error("Network fetch failed", "url", targetURL, "error", err)
-		return "", fmt.Errorf("failed to fetch content from the provided URL")
-	}
+		resp, err := n.httpClient.Do(req)
+		if err != nil {
+			n.logger.Error("Network fetch failed", "url", targetURL, "error", err)
+			return "", fmt.Errorf("failed to fetch content from '%s': %s", targetURL, err.Error())
+		}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

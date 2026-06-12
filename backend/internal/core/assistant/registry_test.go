@@ -5,19 +5,22 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/db"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestLocalToolRegistry_Discovery(t *testing.T) {
 	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		return models.FileSystemGuardrailsConfig{}
-	}), nil)
+	}), nil, nil)
 	toolsList, err := r.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools failed: %v", err)
@@ -40,7 +43,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 
 	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		return models.FileSystemGuardrailsConfig{}
-	}), nil)
+	}), nil, nil)
 
 	call := proxy.ToolCall{
 		Function: proxy.FunctionCall{
@@ -80,7 +83,7 @@ func TestInitializeAgentStack_FileSystemIsolation(t *testing.T) {
 	}
 
 	// 1. Initialize the stack
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, nil, nil, nil, nil)
+	provider, _, _ := 	assistant.InitializeAgentStack(appCtx, nil, nil, nil, nil, nil)
 
 	// 2. Access the MultiToolProvider
 	multiProvider := provider.(*assistant.MultiToolProvider)
@@ -258,6 +261,7 @@ func (m *mockAppContext) Resolver() storage.Resolver {
 func (m *mockAppContext) Secrets() models.SecretsStore {
 	return &mocks.MockSecretsStore{}
 }
+func (m *mockAppContext) MemoryStore() *memory.Store { return nil }
 
 type mockAppContextWithDirs struct {
 	workspacesDir string
@@ -270,6 +274,56 @@ func (m *mockAppContextWithDirs) RootDir() string                  { return "" }
 func (m *mockAppContextWithDirs) Secrets() models.SecretsStore     { return &mocks.MockSecretsStore{} }
 func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
+}
+func (m *mockAppContextWithDirs) MemoryStore() *memory.Store { return nil }
+
+func TestSystemPrompt_IncludesMemoryNudge(t *testing.T) {
+	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{}
+	})
+
+	t.Run("with memory tools", func(t *testing.T) {
+		f, err := os.CreateTemp("", "registry-test-*.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := f.Name()
+		f.Close()
+		t.Cleanup(func() { os.Remove(path) })
+
+		p, err := db.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { p.DB().Close() })
+
+		store, err := memory.New(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		memTools := tools.NewMemoryToolProvider(store)
+		r := assistant.NewLocalToolRegistry(nil, nil, nil, fsTools, nil, memTools)
+
+		prompt, err := r.GetSystemPrompt()
+		if err != nil {
+			t.Fatalf("GetSystemPrompt failed: %v", err)
+		}
+		if !strings.Contains(prompt, "memory_update") {
+			t.Error("expected proactive memory nudge in system prompt when memory tools are registered")
+		}
+	})
+
+	t.Run("without memory tools", func(t *testing.T) {
+		r := assistant.NewLocalToolRegistry(nil, nil, nil, fsTools, nil, nil)
+		prompt, err := r.GetSystemPrompt()
+		if err != nil {
+			t.Fatalf("GetSystemPrompt failed: %v", err)
+		}
+		if strings.Contains(prompt, "Proactively use `memory_update`") {
+			t.Error("unexpected memory nudge when no memory tools are registered")
+		}
+	})
 }
 
 func TestFileSystem_IsSecurePath(t *testing.T) {

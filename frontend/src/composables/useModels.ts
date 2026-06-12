@@ -16,7 +16,9 @@ const agentDefaults = computed<AgentDefaults>(() => state.value?.config?.agent_d
   max_steps: 25,
   context_budget: 8000,
   max_tokens: 3072,
+  temperature: 0.1,
   reasoning_budget: 0,
+  timeout_minutes: 30,
   tool_call_format: '',
   prefill: false,
 })

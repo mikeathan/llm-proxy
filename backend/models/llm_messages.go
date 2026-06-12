@@ -34,15 +34,24 @@ type Message struct {
 
 // Chat Request
 type ChatRequest struct {
-	Model           string          `json:"model"`
-	Messages        []Message       `json:"messages"`
-	MaxTokens       int             `json:"max_tokens,omitempty"`
-	Temperature     float64         `json:"temperature,omitempty"`
-	ReasoningBudget int             `json:"reasoning_budget,omitempty"`
-	Tools           []Tool          `json:"tools,omitempty"`
-	ToolChoice      ToolChoice      `json:"tool_choice,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	Model                string          `json:"model"`
+	Messages             []Message       `json:"messages"`
+	MaxTokens            int             `json:"max_tokens,omitempty"`
+	Temperature          float64         `json:"temperature,omitempty"`
+	ReasoningBudget      int             `json:"reasoning_budget,omitempty"`
+	ThinkingBudgetTokens int             `json:"thinking_budget_tokens,omitempty"`
+	Tools                []Tool          `json:"tools,omitempty"`
+	ToolChoice           ToolChoice      `json:"tool_choice,omitempty"`
+	Stream               bool            `json:"stream,omitempty"`
+	ResponseFormat       *ResponseFormat `json:"response_format,omitempty"`
+}
+
+// SetReasoningBudget sets both reasoning_budget (OpenAI-compatible) and
+// thinking_budget_tokens (llama.cpp-compatible) to the same value, so the
+// budget is enforced regardless of which backend is serving the request.
+func (r *ChatRequest) SetReasoningBudget(budget int) {
+	r.ReasoningBudget = budget
+	r.ThinkingBudgetTokens = budget
 }
 
 type ToolCall struct {

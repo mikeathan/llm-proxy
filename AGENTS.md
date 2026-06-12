@@ -8,33 +8,35 @@ Never run any git operation (stash, commit, add, unstage, reset, push, pull, bra
 
 ## Quick Start
 
+See [`CLAUDE.md`](CLAUDE.md) for build commands and [`docs/INDEX.md`](docs/INDEX.md) for documentation navigation.
+
 Go module root is `backend/`. All `go` commands run from that directory.
-
-```bash
-cd backend
-go build ./...          # must pass
-go vet ./...            # no official linter; this is the sanity check
-go test ./...           # must pass
-go test ./internal/core/assistant/... -v   # agent loop tests
-go test ./internal/core/proxy/... -v       # parser + history tests
-go test -tags recordreplay ./internal/core/assistant/... -v  # recording replay tests
-go run main.go --data ./data               # start server on :4001
-go run main.go --data ./data --record-dir=testdata/recordings  # record mode
-```
-
 Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification is manual.
 
 ## Before You Write Any Code
 
-1. Read `CONSTITUTION.md` — it defines 12 immutable invariants. Your change must comply with all of them.
-2. If modifying the agent loop or tool parser, read `docs/SPECS/agent-loop.md` and `docs/SPECS/tool-call-parser.md`.
+1. Read `CONSTITUTION.md` — it defines 6 architectural sections covering validation boundaries, system prompt format, model architecture, terminal/network safety, no telemetry, and abstraction/invariants. Your change must comply with all of them.
+2. Read the relevant SPEC file(s) for the subsystem you are modifying. See [`docs/INDEX.md`](docs/INDEX.md) for the mapping of subsystems to SPEC IDs (SPEC-001 through SPEC-008).
 3. `.agents/rules/` has deeper Go and Vue guidance — check there if a task needs architecture-level patterns.
-4. Run `go build ./... && go test ./...` to establish a clean baseline.
+4. See [`docs/INDEX.md`](docs/INDEX.md) for the full documentation catalog.
+5. Run `go build ./... && go test ./...` to establish a clean baseline.
+
+**Documentation stewardship**: After any change (new feature, refactor, behavior fix, or revert), update all affected docs:
+- **SPEC files** (`docs/SPECS/`) — update behavioral contracts if the change alters system behaviour
+- **Plan files** (`docs/PLANS/`) — add a new entry documenting what changed and why, organized by subsystem
+- **Skill files** (`docs/skills/`) — add new gotchas, patterns, or architecture decisions discovered during the work
+- **INDEX** (`docs/INDEX.md`) — add entries for any new files created; update statuses for changed plans
+- **Audits** (`docs/audits/`) — create a new audit for any regression or post-mortem analysis
+- **AGENTS.md** — update Common Pitfalls if a new pattern emerges that future agents should know
 
 ## Architecture (What Lives Where)
 
+See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
+
 ### Type Definitions
+
 `models/` contains ALL shared types. No logic, only structs, constants, and interfaces.
+
 - `models/config.go` — ModelConfig, ProviderConfig, GPUConfig, AgentGuardrailsConfig
 - `models/infrastructure.go` — SystemConfig, UserSettings, ModelOverride
 - `models/registry.go` — RegistryData, ModelRegistryEntry
@@ -44,16 +46,18 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 - `models/workspace.go` — Workspace, AutomationRun, AgentState
 
 ### Core Systems
+
 - `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
 - `internal/core/automation/` — Scheduled task dispatch and execution
-- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search)
+- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory)
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
 - `internal/testing/llmprofiles/` — `FixtureClient` + `RunAgainstFixtures` (replay test framework)
 
 ### Infrastructure
+
 - `internal/platform/storage/` — Generic atomic JSON/YAML stores with change callbacks
 - `internal/platform/logging/` — Structured logging (global + per-workspace process logs)
 - `internal/app/` — Bootstrap, AppContext (central state manager), service wiring
@@ -62,19 +66,24 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 ## Critical Contracts (Do Not Break)
 
 ### RuntimeManager Interface (`internal/core/llm/manager.go`)
+
 The `RuntimeManager` interface is implemented by `LLMRuntimeManager` (production) and `MockManager` (tests). Any method added to the interface MUST be added to both implementations.
 
 ### ToolProvider Interface (`internal/core/assistant/tool_provider.go`)
+
 Defines how tools are listed and provided to the agent. Implemented by `LocalToolRegistry`, `MCPNodeHerder`, and `MultiToolProvider`.
 
 ### Guardrail Decision Flow (`internal/core/assistant/agent.go`)
+
 When a tool call is blocked:
+
 1. `GuardrailDecisionCallback` is invoked with a decision ID
 2. Callback blocks on a channel (max 60s)
 3. Frontend resolves via `POST /admin/api/conversation/guardrail-decision`
 4. If `persist: true`, override saved to workspace config
 
 ### Model Persistence (Two-Tier)
+
 - Base model info → `registry.json` (handled by `PersistModel`/`PersistReplaceModel`/`PersistDeleteModel`)
 - Agent tuning overrides → `settings.yml` under `model_overrides:` (handled by `UpdateSettings`)
 - Both are written simultaneously in `handleAddModel` / `handleUpdateModel`
@@ -82,30 +91,37 @@ When a tool call is blocked:
 ## Coding Rules (Go)
 
 ### Comments
+
 - **No comments unless the WHY is non-obvious.** Well-named identifiers document the WHAT.
 - **Single-line only.** No multi-line docstrings or comment blocks.
+- **Never remove existing comments unless they are stale** (referencing removed code, outdated behavior, or incorrect logic). If a comment is still accurate, keep it.
 - If removing the comment wouldn't confuse a reader, remove it.
 
 ### Error Handling
+
 - Validate at system boundaries (user input, external APIs) — trust internal code.
 - Use `fmt.Errorf` with `%w` to wrap errors and maintain the chain.
 - Use sentinel errors from `models/llm.go` for known conditions (`ErrUnknownModel`, `ErrModelExists`, `ErrModelStarting`).
 
 ### Abstraction
+
 - Don't DRY until the pattern repeats 3+ times. Three similar lines > premature abstraction.
 - Don't add features, refactor, or introduce abstractions beyond what the task requires.
 - No feature flags, backward-compat shims, or `// TODO` stubs.
 
 ### Prompts
+
 - ALL prompt strings go in `internal/core/assistant/prompts/templates.go`. Nowhere else.
 - This includes system messages, nag prompts, parse-error feedback, JSON translations.
 
 ### Network & Terminal
+
 - All network I/O via `NetworkTools` (never raw `http.Client` or `net.Dial`).
 - All terminal execution via `ShellProvider` (never raw `os/exec`).
 - All file paths validated with `IsSecurePath` for workspace jailing.
 
 ### Cyclomatic Complexity & Readability
+
 - Keep functions short and focused: limit any function to a maximum of 80 lines. If a function grows larger, extract sub-logic into small, well-named helper functions.
 - Keep cyclomatic complexity under 10 per function. Avoid nested conditionals deeper than 3 levels; instead, structure flow with early returns and guard clauses ("happy path to the left").
 - Encapsulate transient loop or session state in temporary structs (e.g. `agentRunner`) instead of passing multiple pointers to simple type counters (like `*int`, `*bool`) between functions.
@@ -126,6 +142,8 @@ When a tool call is blocked:
 
 ## Common Pitfalls
 
+0. **MemoryStore nil-safety** — The `Agent.memoryStore` field is nil when memory is disabled. All code paths (active injection, pre-sieve flush, memory tools) must check `if a.memoryStore == nil` before dereferencing. This is the same pattern as `orch` (orchestrator nil-safety).
+
 1. **Changing an interface without updating mocks** — The `MockManager` in `internal/testing/mocks/` must implement every method of `RuntimeManager` interface. Build fails on missing methods.
 
 2. **Hardcoding prompt strings in logic files** — All prompts live in `templates.go`. Check there first before writing new ones.
@@ -144,50 +162,49 @@ When a tool call is blocked:
 
 7. **Removing the XML parser** — Even with native tools enabled globally, the XML parser must remain as fallback for non-function-calling responses. Both paths coexist.
 
-8. **Forgetting `tool_choice: "required"` for native tools in automation** — When `useNativeTools` is true and the request is an automation task, the agent sets `tool_choice: "required"`, `temperature: 0.1`, and `reasoning_budget: max_tokens/4` on the `ChatRequest`. This forces the LLM to always call a tool (preventing thinking-only EOS responses) and caps wasted thinking tokens so the model has budget left for the actual tool call. The `omitempty` tags ensure these fields are omitted for XML mode or non-automation contexts.
+8. **Forgetting `tool_choice: "required"` for native tools in automation** — When `useNativeTools` is true and the request is an automation task, the agent sets `tool_choice: "required"`, `temperature: 0.1`, and `reasoning_budget: max_tokens/3` on the `ChatRequest`. This forces the LLM to always call a tool (preventing thinking-only EOS responses) and caps wasted thinking tokens so the model has budget left for the actual tool call. The `omitempty` tags ensure these fields are omitted for XML mode or non-automation contexts.
 
-9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/4`) will exhaust their allocated thinking tokens before the stuck threshold fires. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `agent.go` `stuckThreshold()`.
+   Both `reasoning_budget` and `thinking_budget_tokens` are sent in the request for broad provider compatibility. OpenAI ignores the unknown `thinking_budget_tokens` field; llama.cpp reads `thinking_budget_tokens` (server-side enforcement) and ignores the unknown `reasoning_budget` field. See `models/llm_messages.go` `ChatRequest` and `stream.go` `prepareChatRequest()`.
 
-    Some models (e.g. Qwen 3.5) emit `<tool_call>` blocks inside `<think>` reasoning content. Before declaring stuck, `processStream` scans the accumulated reasoning content for embedded `<tool_call>` blocks. If found, `<think>` tags are stripped and the cleaned content is promoted to `fullMsg.Content` so the XML tool call parser can process it downstream. This prevents a false stuck detection when the tool call is invisible to the native-tool parser. See `agent.go` `toolCallInContent` regex and `cleanReasoningContent()`.
+   Even when `reasoning_budget` is 0 in the model config, the agent **dynamically computes** `max_tokens/3` in `prepareChatRequest()` and syncs it to `a.reasoningBudget`. See `stream.go` `prepareChatRequest()`.
+
+9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/3`) will exhaust their allocated thinking tokens before the stuck threshold fires. For models with `reasoningBudget == 0` (no server-side enforcement), an additional earlier check fires at `maxTokens / stuckNonReasoningDivisor` chars. Current divisor=1 gives threshold at `maxTokens` — catches stuck 2x faster than the baseline while avoiding false positives on models (e.g. Gemma 4) that produce legitimate reasoning content without an explicit budget. See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`, and `docs/audits/write-file-truncation-cycles.md` for the tuning history. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `stream.go` `stuckThreshold()`.
+
+    **Do NOT change `streamReasoningBudgetDivisor` from 3.** Divisor 4 was tried in production and caused recompilation loops at turn 18+: 682 tokens was too few for the model to plan its next step in a 40+ message history. Divisor 3 (910 tokens) was the minimum that eliminated the loops. Higher divisors waste the output budget; lower divisors cause mid-reasoning cutoff. The smoke test covers this — run it before and after any change. See `docs/audits/memory-injection-investigation.md`.
+
+   Some models (e.g. Qwen 3.5) emit `<tool_call>` blocks inside `<think>` reasoning content. Before declaring stuck, `processStream` scans the accumulated reasoning content for embedded `<tool_call>` blocks. If found, `<think>` tags are stripped and the cleaned content is promoted to `fullMsg.Content` so the XML tool call parser can process it downstream. This prevents a false stuck detection when the tool call is invisible to the native-tool parser. See `agent.go` `toolCallInContent` regex and `cleanReasoningContent()`.
 
 10. **Progressive sieve recovery on consecutive stuck events** — On the 1st reasoning-stuck event, the reactive sieve (first 2 + last 6 messages) is applied and a nag prompt ("Stop analyzing, call a tool") is added to the history. On the 2nd consecutive stuck event, an aggressive sieve (first 2 + last 3 messages) is applied with a stronger nag prompt. On the 3rd consecutive stuck event, the agent fails with a clear error ("model stuck in reasoning loop"). This prevents infinite spinning while giving verbose models (Gemma 4) multiple chances to recover. Note: the stuck detection triggers a retry, not a fail — progressive sieve catches repeated failures.
 
 11. **Context compression in `applyPhysicalSieve`** — Before dropping old messages when context budget is exceeded, the sieve first compresses long `Content` (>4000 chars) and `ReasoningContent` (>2000 chars) in older messages by truncating to head+tail with a `...[Truncated]...` marker. Only if compression isn't enough are messages dropped. This preserves message structure while reducing token consumption. See `agent.go` `truncateLongContent()`.
 
-12. **Native tools empty-stream falls back to XML streaming** — When streaming with native tools returns empty (no content, no tool calls, only reasoning), the fallback retries **via streaming with XML text mode** instead of non-streaming Chat. This temporarily disables `useNativeTools`, suppresses `tool_choice`, and suppresses `reasoningBudget`. Stuck detection is **skipped** on the retry so the user sees the model's reasoning tokens arrive in real-time — the per-turn timeout (10 min) and starvation counter (15 no-tool turns) provide the safety net. If the XML stream also returns empty, falls back to `computeNextResponseNonStreaming` as a last resort. See `agent.go` `computeNextResponseStreamXML()`.
+12. **Native tools empty-stream fallback depends on model format** — When streaming with native tools returns empty (no content, no tool calls, only reasoning), the fallback depends on `usePrefill`:
+    - **Native-only models** (`usePrefill=false`, e.g. OpenAI-compatible models): skips the XML retry entirely, goes directly to non-streaming Chat + nag prompt. The XML retry would waste ~60s with stuck detection disabled (the model can't produce `<tool_call>` blocks).
+    - **XML-text models** (`usePrefill=true`, e.g. local models): retries via XML streaming with `useNativeTools` temporarily disabled, `tool_choice` suppressed, `reasoningBudget` suppressed, and stuck detection skipped. If the XML stream also returns empty, falls back to non-streaming Chat. See `agent.go` `computeNextResponseStreamXML()`.
+
+    When normalizing history for XML mode, `NormalizeHistory()` converts native tool calls to `<tool_call>` XML blocks matching the system prompt format (not "Called tool: X" text). This ensures the model sees consistent format examples in its conversation history. See `history.go` `NormalizeHistory()`.
 
 13. **Lifecycle events for UI progress** — The agent emits `lifecycle` events with a `phase` field for structured progress reporting: `stuck_detected` (with `reasoning_chars`), `fallback_started` (with `reason` and `mode`), `fallback_waiting` (with `elapsed` time), and `fallback_completed`. These are appended as system messages in the frontend, never overwriting assistant streaming content. The non-streaming heartbeat (`computeNextResponseNonStreaming`) uses `fallback_waiting` with elapsed time instead of the old `tool_stream` overwrite. See `agent_events.go` `notifyLifecycle()`.
 
-14. **Goroutine leak fix in `processStream` heartbeat** — The 30-second heartbeat goroutine now selects on a `streamDone` channel (closed via `defer`) in addition to `ctx.Done()`. This ensures the goroutine exits when `processStream` returns for ANY reason (stuck detection, stream EOF, errors), not just context cancellation. Prevents misleading "stream still generating" log lines after the stream has ended. See `agent.go` `processStream()`.
+14. **Goroutine leak fix in `processStream` heartbeat** — The 30-second heartbeat goroutine now selects on a `streamDone` channel (closed via `defer`) in addition to `ctx.Done()`. This ensures the goroutine exits when `processStream` returns for ANY reason (stuck detection, stream EOF, errors), not just context cancellation. Prevents misleading "stream still generating" log lines after the stream has ended. See `agent.go` `processStream()` and `docs/skills/agent-loop.md`.
 
 15. **Context resolution order in `resolveContextLength`** — The priority is `Metadata.Nctx` (serving context from llama.cpp `/slots`) → `Metadata.ContextLength` (training context from GGUF) → `knownCtx` (model name fragment) → `providerCtxDefaults` (per-provider). Forgetting to check `Nctx` first causes the proxy to ignore the detected server context size and fall through to the provider default (128K), resulting in `max_tokens` and `reasoning_budget` that exceed the actual server capacity. See `internal/core/orchestrator/budget_squeezer.go`.
 
-16. **`ApplyMetadataDefaults` sets `ToolCallFormat` to `"native"` when empty** — This matches the UI's "Default" value for cloud provider tiers. Models that need XML text mode must explicitly set `tool_call_format: xml` in the settings.yml override. The stuck-detector fix (Gemini) ensures that models that struggle with native tools gracefully fall back to non-streaming rather than triggering the death spiral. See `internal/core/orchestrator/budget_squeezer.go`.
+16. **`ApplyMetadataDefaults` sets `ToolCallFormat` to `"native"` when empty** — See `docs/skills/agent-loop.md` (hook system) and `internal/core/orchestrator/budget_squeezer.go`.
 
 17. **Settings override `tool_call_format: ""` blocks the default** — When the UI saves "Default" for an existing model, the save handler writes `tool_call_format: ""` to settings.yml. This empty string override takes highest priority and blocks `ApplyMetadataDefaults` from filling in `"native"`. The model silently switches to XML text mode. If you see a model unexpectedly failing with XML parse errors, check settings.yml for `tool_call_format: ""` and either remove it or set it to `"native"`.
 
-## File Change Checklist
+18. **Memory system — see `docs/skills/memory-system.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
 
-When adding a new model-level field, update these files:
-1. `models/config.go` or `models/infrastructure.go` — type definition
-2. `internal/transport/http/registry_handlers.go` — add/update request structs
-3. `internal/transport/http/admin_handlers.go` — view struct
-4. `internal/transport/http/admin_view.go` — view mapping
-5. `internal/core/llm/manager.go` — if field affects runtime behavior
-6. `internal/testing/mocks/manager.go` — if interface changed
-7. Frontend component (if UI field)
+19. **Agent loop mechanics — see `docs/skills/agent-loop.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
 
-When adding a tool:
-1. `models/tools.go` — constant
-2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
-3. `internal/core/tools/{tool_category}.go` — implementation
-4. `internal/core/assistant/registry.go` — registration
+20. **Testing — see `docs/skills/testing-guide.md`** for: running smoke tests, analysing run output, record-replay testing, common pitfalls.
 
-When adding a prompt:
-1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
-2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
+21. **`maxLength` removed from `filesystem.json` manifest** — The `maxLength` properties were removed because servers enforce it as a grammar constraint, silently truncating content. See `docs/audits/write-file-truncation-cycles.md` for full root-cause analysis.
 
 ## Test Patterns
+
+See `docs/skills/testing-guide.md` for the full test patterns guide (smoke tests, record-replay, run analysis).
 
 - Mock the LLM client, use real tool providers where possible
 - Agent tests at `internal/core/assistant/agent_test.go`
@@ -244,6 +261,19 @@ The `recordreplay` build tag ensures these tests are excluded from `go test ./..
    - Structured logging with `logging.Info/Debug/Warn/Error` and key-value pairs.
    - No secrets in logs or error messages.
 
+### Engineering Patterns
+
+1. **Constants over magic values**: Every hardcoded string, int, or float that appears in logic must be a named constant (`const`, not `var`). Group related constants at the top of the file. Exceptions: `0`, `1`, `""`, `nil` in zero-value initialisation or loop counters.
+2. **Strategy Pattern for branching to extend**: When a `switch` or `if-else` chain grows with new cases over time, replace it with a strategy map. New cases become registrations, not new branches. Follows Open/Closed — the function is closed for modification, open for extension.
+3. **Value Objects for domain primitives**: Use typed constants (`type Scope string`) with a `Validate()` method instead of raw strings. Catches invalid states at compile time and makes the domain vocabulary explicit. Only for values that have a bounded set of valid states — not for freeform strings like names or messages.
+4. **Null Object over nil checks**: Prefer returning a no-op object over nil when a function has a valid "do nothing" path. The caller shouldn't need to check for nil before every call. Only applies when the nil case has a meaningful no-op behaviour — not for error paths.
+5. **Command Query Separation**: A function either returns data OR mutates state, never both. A save operation returns `error` or `ok`. A query returns data. If a function currently does both, split it into two.
+6. **Defensive programming at boundaries**: Validate all inputs at system boundaries (API handlers, tool handlers, store methods). Trust internal callers. If an invalid state is impossible at the call site but the function signature allows it, document the assumption with a comment.
+7. **No silent failures**: Every error must be handled — either returned to the caller, logged, or explicitly ignored with a comment explaining why (`_ = doSomething()  // best-effort cleanup`). Never use `_ =` without a comment.
+8. **Immutability for function parameters**: Don't modify input slices or maps. Make a copy first (`append([]T{}, input...)` for slices, a fresh `map` for maps). The original caller's data should be unchanged after the call.
+9. **Guard clauses over nested ifs**: Return early for error/null/edge cases. The happy path should be flat and left-aligned. Never nest deeper than 3 levels.
+10. **Function composition for complex conditions**: Extract multi-condition checks into a named helper function. `if isRetryable(err)` is better than `if errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || ...`. The helper name documents the WHY.
+
 ### File Organization
 
 - **One primary type per file**, named after the type (e.g., `agent.go` → `Agent`, `session.go` → `runSession`).
@@ -273,6 +303,7 @@ The `recordreplay` build tag ensures these tests are excluded from `go test ./..
 ### File Change Checklist
 
 When adding a new model-level field, update these files:
+
 1. `models/config.go` or `models/infrastructure.go` — type definition
 2. `internal/transport/http/registry_handlers.go` — add/update request structs
 3. `internal/transport/http/admin_handlers.go` — view struct
@@ -282,12 +313,14 @@ When adding a new model-level field, update these files:
 7. Frontend component (if UI field)
 
 When adding a tool:
+
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
-4. `internal/core/assistant/registry.go` — registration
+4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
 
 When adding a prompt:
+
 1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
 2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
 

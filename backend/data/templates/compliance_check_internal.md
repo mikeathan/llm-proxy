@@ -1,6 +1,6 @@
 ## Task: Compliance & High-Risk Port Audit
 **ID:** `compliance-check-internal`
-**Category:** Security
+**Category:** network
 
 Audit internal hosts for the presence of legacy or high-risk services that should not be exposed.
 

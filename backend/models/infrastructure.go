@@ -1,9 +1,9 @@
 package models
 
 const (
-	AddrAllInterfaces = "0.0.0.0"
-	AddrLocalhost     = "127.0.0.1"
-	DefaultAppPort    = "4001"
+	AddrAllInterfaces     = "0.0.0.0"
+	AddrLocalhost         = "127.0.0.1"
+	DefaultAppPort        = "4001"
 	DefaultModelPortStart = 8081
 )
 
@@ -15,9 +15,10 @@ type SystemConfig struct {
 		IdleTimeoutSecs int               `json:"idle_timeout_seconds"`
 		Environment     map[string]string `json:"environment,omitempty"`
 		LogLevel        string            `json:"log_level,omitempty"`
+		RunLogging      *RunLoggingConfig `json:"run_logging,omitempty"`
 	} `json:"server"`
 
-	WorkspacesDir string `json:"workspaces_dir"`
+	WorkspacesDir string        `json:"workspaces_dir"`
 	Metrics       MetricsConfig `json:"metrics,omitempty"`
 }
 
@@ -33,6 +34,7 @@ type ModelOverride struct {
 	MaxSteps        int     `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
 	ContextBudget   int     `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
 	MaxTokens       int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Temperature     float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
 	ToolCallFormat  string  `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
 	Prefill         *bool   `yaml:"prefill,omitempty" json:"prefill,omitempty"`
 	ReasoningBudget int     `yaml:"reasoning_budget,omitempty" json:"reasoning_budget,omitempty"`
@@ -43,30 +45,56 @@ type ModelOverride struct {
 
 // UserSettings represents the user-level settings (Tier 2: settings.yml)
 type UserSettings struct {
-	Local          LocalSettings               `yaml:"local" json:"local"`
-	Guardrails     *AgentGuardrailsConfig      `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
-	ModelOverrides map[string]ModelOverride    `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
+	Local          LocalSettings            `yaml:"local" json:"local"`
+	Guardrails     *AgentGuardrailsConfig   `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
+	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
+	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
+	RunOutput      *RunLoggingConfig            `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
+}
+
+type RunLoggingConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
+func DefaultRunLoggingConfig() RunLoggingConfig {
+	return RunLoggingConfig{Enabled: false}
+}
+
+type MemoryConfig struct {
+	Enabled        bool    `yaml:"enabled" json:"enabled"`
+	SearchTopK     int     `yaml:"search_top_k,omitempty" json:"search_top_k,omitempty"`
+	FlushThreshold float64 `yaml:"flush_threshold,omitempty" json:"flush_threshold,omitempty"`
+	RetentionDays  int     `yaml:"retention_days,omitempty" json:"retention_days,omitempty"`
+}
+
+func DefaultMemoryConfig() MemoryConfig {
+	return MemoryConfig{
+		Enabled:        true,
+		SearchTopK:     5,
+		FlushThreshold: 0.7,
+		RetentionDays:  90,
+	}
 }
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
 type SystemUpdatePayload struct {
-	WorkspacesDir       string                         `json:"workspaces_dir,omitempty"`
-	ModelHost           string                         `json:"model_host,omitempty"`
-	IdleTimeoutSecs     int                            `json:"idle_timeout_seconds,omitempty"`
-	GPUProvider         string                         `json:"gpu_provider,omitempty"`
-	GPUBinary           string                         `json:"gpu_binary,omitempty"`
-	GPUIndex            *int                           `json:"gpu_index,omitempty"`
-	GPUSysfsPath        string                         `json:"gpu_sysfs_path,omitempty"`
-	ServiceClientID     string                         `json:"service_client_id,omitempty"`
-	ServiceClientSecret string                         `json:"service_client_secret,omitempty"`
-	Environment         map[string]string              `json:"environment,omitempty"`
-	DefaultArgs         []string                       `json:"default_args,omitempty"`
-	PrimaryModel        string                         `json:"primary_model,omitempty"`
-	FallbackModel       string                         `json:"fallback_model,omitempty"`
-	Communication       *CommunicationConfig           `json:"communication,omitempty"`
-	Search              *SearchConfig                  `json:"search,omitempty"`
-	Providers           map[string]ProviderItem        `json:"providers,omitempty"`
-	Guardrails          *AgentGuardrailsConfig         `json:"guardrails,omitempty"`
-	Bind                string                         `json:"bind,omitempty"` // For AdminSystemHandler specifically
+	WorkspacesDir       string                  `json:"workspaces_dir,omitempty"`
+	ModelHost           string                  `json:"model_host,omitempty"`
+	IdleTimeoutSecs     int                     `json:"idle_timeout_seconds,omitempty"`
+	GPUProvider         string                  `json:"gpu_provider,omitempty"`
+	GPUBinary           string                  `json:"gpu_binary,omitempty"`
+	GPUIndex            *int                    `json:"gpu_index,omitempty"`
+	GPUSysfsPath        string                  `json:"gpu_sysfs_path,omitempty"`
+	ServiceClientID     string                  `json:"service_client_id,omitempty"`
+	ServiceClientSecret string                  `json:"service_client_secret,omitempty"`
+	Environment         map[string]string       `json:"environment,omitempty"`
+	DefaultArgs         []string                `json:"default_args,omitempty"`
+	PrimaryModel        string                  `json:"primary_model,omitempty"`
+	FallbackModel       string                  `json:"fallback_model,omitempty"`
+	Communication       *CommunicationConfig    `json:"communication,omitempty"`
+	Search              *SearchConfig           `json:"search,omitempty"`
+	Providers           map[string]ProviderItem `json:"providers,omitempty"`
+	Guardrails          *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
+	Bind                string                  `json:"bind,omitempty"` // For AdminSystemHandler specifically
+	RunLogging          *RunLoggingConfig       `json:"run_logging,omitempty"`
 }
-

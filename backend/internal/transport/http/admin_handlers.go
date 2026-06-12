@@ -103,8 +103,10 @@ type adminModelView struct {
 	MaxSteps         int                    `json:"max_steps"`
 	ContextBudget    int                    `json:"context_budget"`
 	MaxTokens        int                    `json:"max_tokens"`
+	Temperature      float64                `json:"temperature"`
 	ReasoningBudget  int                    `json:"reasoning_budget"`
 	SlotTimeout      int                    `json:"slot_timeout"`
+	TimeoutMinutes   int                    `json:"timeout_minutes"`
 	ToolCallFormat   string                 `json:"tool_call_format"`
 }
 
@@ -138,12 +140,14 @@ type adminStateResponse struct {
 // adminTuningDefaults exposes the agent loop's runtime defaults to the frontend
 // so the UI can prefill model forms with values that match actual runtime behaviour.
 type adminTuningDefaults struct {
-	MaxSteps        int    `json:"max_steps"`
-	ContextBudget   int    `json:"context_budget"`
-	MaxTokens       int    `json:"max_tokens"`
-	ReasoningBudget int    `json:"reasoning_budget"`
-	ToolCallFormat  string `json:"tool_call_format"`
-	Prefill         bool   `json:"prefill"`
+	MaxSteps        int     `json:"max_steps"`
+	ContextBudget   int     `json:"context_budget"`
+	MaxTokens       int     `json:"max_tokens"`
+	Temperature     float64 `json:"temperature"`
+	ReasoningBudget int     `json:"reasoning_budget"`
+	TimeoutMinutes  int     `json:"timeout_minutes"`
+	ToolCallFormat  string  `json:"tool_call_format"`
+	Prefill         bool    `json:"prefill"`
 }
 
 type adminConfigView struct {
@@ -164,6 +168,7 @@ type adminConfigView struct {
 	Search              models.SearchConfig             `json:"search"`
 	AgentDefaults       adminTuningDefaults             `json:"agent_defaults"`
 	ProviderDefaults    map[string]adminTuningDefaults  `json:"provider_defaults"`
+	RunLogging          *models.RunLoggingConfig        `json:"run_logging,omitempty"`
 }
 
 type adminSystemView struct {
@@ -298,11 +303,14 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 				MaxSteps:        assistant.DefaultMaxSteps,
 				ContextBudget:   assistant.DefaultContextBudget,
 				MaxTokens:       assistant.DefaultMaxTokens,
+				Temperature:     assistant.DefaultAutomationTemperature,
 				ReasoningBudget: 0,
+				TimeoutMinutes:  int(assistant.AgentGlobalTimeout.Minutes()),
 				ToolCallFormat:  "",
 				Prefill:         false,
 			},
 			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
+			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}
 
@@ -359,7 +367,9 @@ func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[st
 			MaxSteps:        v.MaxSteps,
 			ContextBudget:   v.ContextBudget,
 			MaxTokens:       v.MaxTokens,
+			Temperature:     assistant.DefaultAutomationTemperature,
 			ReasoningBudget: v.ReasoningBudget,
+			TimeoutMinutes:  int(assistant.AgentGlobalTimeout.Minutes()),
 			ToolCallFormat:  v.ToolCallFormat,
 			Prefill:         v.Prefill,
 		}

@@ -4,6 +4,7 @@ import { useModels } from "../../composables/useModels";
 import { useConfirm } from "../../composables/useConfirm";
 import { formatBytes, formatParameters } from "../../utils/formatters";
 import BaseButton from "../common/BaseButton.vue";
+import InfoTooltip from "../common/InfoTooltip.vue";
 import { PROVIDER_STYLES } from "../../constants/providers";
 import type { APIKeyItem, ProviderType } from "../../types/admin";
 import type { Model, AvailableModel } from "../../types/model";
@@ -43,7 +44,9 @@ const agentDefaults = computed(() => {
     max_steps: 25,
     context_budget: 8000,
     max_tokens: 3072,
+    temperature: 0.1,
     reasoning_budget: 0,
+    timeout_minutes: 30,
     tool_call_format: '',
     prefill: false,
   };
@@ -393,7 +396,9 @@ const isSubmitDisabled = computed(() => {
             <div class="form-section-divider">Agent Tuning (per-model overrides)</div>
             <div class="tuning-grid">
               <div class="form-group">
-                <label class="form-label">Max Steps</label>
+                <label class="form-label">Max Steps
+                  <InfoTooltip text="Maximum number of agent loop iterations before forced finalization" />
+                </label>
                 <input
                   v-model.number="modelForm.max_steps"
                   type="number"
@@ -403,7 +408,9 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Context Budget (chars)</label>
+                <label class="form-label">Context Budget (chars)
+                  <InfoTooltip text="Character limit for conversation history before truncation" />
+                </label>
                 <input
                   v-model.number="modelForm.context_budget"
                   type="number"
@@ -413,7 +420,57 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Tool Call Format</label>
+                <label class="form-label">Max Tokens
+                  <InfoTooltip text="Maximum tokens per LLM response. Overrides metadata-derived default" />
+                </label>
+                <input
+                  v-model.number="modelForm.max_tokens"
+                  type="number"
+                  class="form-input"
+                  placeholder="3072"
+                  min="64" max="131072" step="64"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Reasoning Budget
+                  <InfoTooltip text="Thinking tokens budget before producing a response. 0 = auto-computed from max_tokens" />
+                </label>
+                <input
+                  v-model.number="modelForm.reasoning_budget"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (auto)"
+                  min="0" max="65536" step="128"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Temperature
+                  <InfoTooltip text="Controls randomness (0=deterministic, 2=creative). Default: 0.1" />
+                </label>
+                <input
+                  v-model.number="modelForm.temperature"
+                  type="number"
+                  class="form-input"
+                  placeholder="0.1"
+                  min="0" max="2" step="0.05"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Timeout (min)
+                  <InfoTooltip text="Per-execution timeout in minutes. 0 = use global default (30 min)" />
+                </label>
+                <input
+                  v-model.number="modelForm.timeout_minutes"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (default)"
+                  min="0" max="120" step="5"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tool Call Format
+                  <InfoTooltip text="How tool calls are formatted in the LLM request (native=JSON, xml=XML text)" />
+                </label>
                 <select v-model="modelForm.tool_call_format" class="form-input">
                   <option value="">Default (native)</option>
                   <option value="native">Native Tools</option>
@@ -421,7 +478,9 @@ const isSubmitDisabled = computed(() => {
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Prefill</label>
+                <label class="form-label">Prefill
+                  <InfoTooltip text="Prepend a tool-call stub to guide the model's output format" />
+                </label>
                 <label class="flex items-center gap-2 cursor-pointer mt-2">
                   <input
                     type="checkbox"
@@ -518,7 +577,9 @@ const isSubmitDisabled = computed(() => {
             <div class="form-section-divider">Agent Tuning (per-model overrides)</div>
             <div class="tuning-grid">
               <div class="form-group">
-                <label class="form-label">Max Steps</label>
+                <label class="form-label">Max Steps
+                  <InfoTooltip text="Maximum number of agent loop iterations before forced finalization" />
+                </label>
                 <input
                   v-model.number="modelForm.max_steps"
                   type="number"
@@ -528,7 +589,9 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Context Budget (chars)</label>
+                <label class="form-label">Context Budget (chars)
+                  <InfoTooltip text="Character limit for conversation history before truncation" />
+                </label>
                 <input
                   v-model.number="modelForm.context_budget"
                   type="number"
@@ -538,7 +601,57 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Tool Call Format</label>
+                <label class="form-label">Max Tokens
+                  <InfoTooltip text="Maximum tokens per LLM response. Overrides metadata-derived default" />
+                </label>
+                <input
+                  v-model.number="modelForm.max_tokens"
+                  type="number"
+                  class="form-input"
+                  placeholder="3072"
+                  min="64" max="131072" step="64"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Reasoning Budget
+                  <InfoTooltip text="Thinking tokens budget before producing a response. 0 = auto-computed from max_tokens" />
+                </label>
+                <input
+                  v-model.number="modelForm.reasoning_budget"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (auto)"
+                  min="0" max="65536" step="128"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Temperature
+                  <InfoTooltip text="Controls randomness (0=deterministic, 2=creative). Default: 0.1" />
+                </label>
+                <input
+                  v-model.number="modelForm.temperature"
+                  type="number"
+                  class="form-input"
+                  placeholder="0.1"
+                  min="0" max="2" step="0.05"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Timeout (min)
+                  <InfoTooltip text="Per-execution timeout in minutes. 0 = use global default (30 min)" />
+                </label>
+                <input
+                  v-model.number="modelForm.timeout_minutes"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (default)"
+                  min="0" max="120" step="5"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tool Call Format
+                  <InfoTooltip text="How tool calls are formatted in the LLM request (native=JSON, xml=XML text)" />
+                </label>
                 <select v-model="modelForm.tool_call_format" class="form-input">
                   <option value="">Default (native)</option>
                   <option value="native">Native Tools</option>
@@ -546,7 +659,9 @@ const isSubmitDisabled = computed(() => {
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Prefill</label>
+                <label class="form-label">Prefill
+                  <InfoTooltip text="Prepend a tool-call stub to guide the model's output format" />
+                </label>
                 <label class="flex items-center gap-2 cursor-pointer mt-2">
                   <input
                     type="checkbox"
@@ -597,7 +712,9 @@ const isSubmitDisabled = computed(() => {
             <div class="form-section-divider">Agent Tuning (per-model overrides)</div>
             <div class="tuning-grid">
               <div class="form-group">
-                <label class="form-label">Max Steps</label>
+                <label class="form-label">Max Steps
+                  <InfoTooltip text="Maximum number of agent loop iterations before forced finalization" />
+                </label>
                 <input
                   v-model.number="editingModel.max_steps"
                   type="number"
@@ -607,7 +724,9 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Context Budget (chars)</label>
+                <label class="form-label">Context Budget (chars)
+                  <InfoTooltip text="Character limit for conversation history before truncation" />
+                </label>
                 <input
                   v-model.number="editingModel.context_budget"
                   type="number"
@@ -617,7 +736,57 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Tool Call Format</label>
+                <label class="form-label">Max Tokens
+                  <InfoTooltip text="Maximum tokens per LLM response. Overrides metadata-derived default" />
+                </label>
+                <input
+                  v-model.number="editingModel.max_tokens"
+                  type="number"
+                  class="form-input"
+                  placeholder="3072"
+                  min="64" max="131072" step="64"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Reasoning Budget
+                  <InfoTooltip text="Thinking tokens budget before producing a response. 0 = auto-computed from max_tokens" />
+                </label>
+                <input
+                  v-model.number="editingModel.reasoning_budget"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (auto)"
+                  min="0" max="65536" step="128"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Temperature
+                  <InfoTooltip text="Controls randomness (0=deterministic, 2=creative). Default: 0.1" />
+                </label>
+                <input
+                  v-model.number="editingModel.temperature"
+                  type="number"
+                  class="form-input"
+                  placeholder="0.1"
+                  min="0" max="2" step="0.05"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Timeout (min)
+                  <InfoTooltip text="Per-execution timeout in minutes. 0 = use global default (30 min)" />
+                </label>
+                <input
+                  v-model.number="editingModel.timeout_minutes"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (default)"
+                  min="0" max="120" step="5"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tool Call Format
+                  <InfoTooltip text="How tool calls are formatted in the LLM request (native=JSON, xml=XML text)" />
+                </label>
                 <select v-model="editingModel.tool_call_format" class="form-input">
                   <option value="">Default (native)</option>
                   <option value="native">Native Tools</option>
@@ -625,7 +794,9 @@ const isSubmitDisabled = computed(() => {
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Prefill</label>
+                <label class="form-label">Prefill
+                  <InfoTooltip text="Prepend a tool-call stub to guide the model's output format" />
+                </label>
                 <label class="flex items-center gap-2 cursor-pointer mt-2">
                   <input
                     type="checkbox"
@@ -675,7 +846,9 @@ const isSubmitDisabled = computed(() => {
             <div class="form-section-divider">Agent Tuning (per-model overrides)</div>
             <div class="tuning-grid">
               <div class="form-group">
-                <label class="form-label">Max Steps</label>
+                <label class="form-label">Max Steps
+                  <InfoTooltip text="Maximum number of agent loop iterations before forced finalization" />
+                </label>
                 <input
                   v-model.number="editingModel.max_steps"
                   type="number"
@@ -685,7 +858,9 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Context Budget (chars)</label>
+                <label class="form-label">Context Budget (chars)
+                  <InfoTooltip text="Character limit for conversation history before truncation" />
+                </label>
                 <input
                   v-model.number="editingModel.context_budget"
                   type="number"
@@ -695,7 +870,57 @@ const isSubmitDisabled = computed(() => {
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">Tool Call Format</label>
+                <label class="form-label">Max Tokens
+                  <InfoTooltip text="Maximum tokens per LLM response. Overrides metadata-derived default" />
+                </label>
+                <input
+                  v-model.number="editingModel.max_tokens"
+                  type="number"
+                  class="form-input"
+                  placeholder="3072"
+                  min="64" max="131072" step="64"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Reasoning Budget
+                  <InfoTooltip text="Thinking tokens budget before producing a response. 0 = auto-computed from max_tokens" />
+                </label>
+                <input
+                  v-model.number="editingModel.reasoning_budget"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (auto)"
+                  min="0" max="65536" step="128"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Temperature
+                  <InfoTooltip text="Controls randomness (0=deterministic, 2=creative). Default: 0.1" />
+                </label>
+                <input
+                  v-model.number="editingModel.temperature"
+                  type="number"
+                  class="form-input"
+                  placeholder="0.1"
+                  min="0" max="2" step="0.05"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Timeout (min)
+                  <InfoTooltip text="Per-execution timeout in minutes. 0 = use global default (30 min)" />
+                </label>
+                <input
+                  v-model.number="editingModel.timeout_minutes"
+                  type="number"
+                  class="form-input"
+                  placeholder="0 (default)"
+                  min="0" max="120" step="5"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tool Call Format
+                  <InfoTooltip text="How tool calls are formatted in the LLM request (native=JSON, xml=XML text)" />
+                </label>
                 <select v-model="editingModel.tool_call_format" class="form-input">
                   <option value="">Default (native)</option>
                   <option value="native">Native Tools</option>
@@ -703,7 +928,9 @@ const isSubmitDisabled = computed(() => {
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Prefill</label>
+                <label class="form-label">Prefill
+                  <InfoTooltip text="Prepend a tool-call stub to guide the model's output format" />
+                </label>
                 <label class="flex items-center gap-2 cursor-pointer mt-2">
                   <input
                     type="checkbox"

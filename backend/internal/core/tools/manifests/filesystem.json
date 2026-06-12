@@ -13,9 +13,7 @@
             "description": "Single path to list. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple paths, emit multiple tool call tags."
           }
         },
-        "required": [
-          "path"
-        ]
+        "required": ["path"]
       }
     },
     "read_file": {
@@ -28,9 +26,7 @@
             "description": "Single path to read. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
           }
         },
-        "required": [
-          "path"
-        ]
+        "required": ["path"]
       }
     },
     "write_file": {
@@ -44,14 +40,31 @@
           },
           "content": {
             "type": "string",
-            "description": "The exact string content to write. Keep content under 800 characters. For longer output, break into multiple write_file calls with separate paths (e.g. report_part1.md, report_part2.md). For JSON files, this MUST be a JSON-formatted string, NOT a JSON object.",
-            "maxLength": 800
+            "description": "The exact string content to write. For JSON files, this MUST be a JSON-formatted string, NOT a JSON object."
           }
         },
-        "required": [
-          "path",
-          "content"
-        ]
+        "required": ["path", "content"]
+      }
+    },
+    "edit_file_block": {
+      "description": "Replace an exact block of text in an existing file. Use this to fix bugs or edit existing code without rewriting the entire file. If the block appears multiple times, include more surrounding context (3-5 lines) in old_block.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to edit. Paths are automatically resolved relative to the workspace root."
+          },
+          "old_block": {
+            "type": "string",
+            "description": "The exact text to locate. Surrounding whitespace is normalized, so indentation differences are tolerated. If the block appears multiple times, include extra context lines."
+          },
+          "new_block": {
+            "type": "string",
+            "description": "The replacement text."
+          }
+        },
+        "required": ["path", "old_block", "new_block"]
       }
     },
     "append_file": {
@@ -65,14 +78,10 @@
           },
           "content": {
             "type": "string",
-            "description": "The content to append to the file. Keep content under 1200 characters per call. Use this to build large reports incrementally — start with write_file and continue with append_file.",
-            "maxLength": 1200
+            "description": "The content to append to the file. Use this to build large files incrementally — start with write_file and continue with append_file."
           }
         },
-        "required": [
-          "path",
-          "content"
-        ]
+        "required": ["path", "content"]
       }
     }
   },

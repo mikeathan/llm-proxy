@@ -14,28 +14,28 @@ import (
 )
 
 const (
-	sessionMaxSieveRetries         = 3    // consecutive context-overflow errors before giving up
-	sessionMinHistoryForSieve      = 2    // fewer messages and the sieve can't operate
-	sessionModelCompatNotifyAfter  = 5    // consecutive parse errors before suggesting model swap
-	sessionWriteTrimThreshold      = 1000 // chars above which write_file content is replaced with a stub
-	sessionPreviewMaxLen           = 500  // chars for parse-error content preview in log
-	sessionTruncationFeedbackLen   = 400  // chars above which truncated content gets a guidance message
-	sessionParseErrorEscalation    = 2    // same-error-kind streak before escalating feedback
-	sessionConsecutiveChatExit     = 2    // non-automation: exit after N consecutive chat-only turns
-	sessionMinMonologueLen         = 10   // chars below which repetition check is skipped
+	sessionMaxSieveRetries        = 3    // consecutive context-overflow errors before giving up
+	sessionMinHistoryForSieve     = 2    // fewer messages and the sieve can't operate
+	sessionModelCompatNotifyAfter = 5    // consecutive parse errors before suggesting model swap
+	sessionWriteTrimThreshold     = 1000 // chars above which write_file content is replaced with a stub
+	sessionPreviewMaxLen          = 500  // chars for parse-error content preview in log
+	sessionTruncationFeedbackLen  = 400  // chars above which truncated content gets a guidance message
+	sessionParseErrorEscalation   = 2    // same-error-kind streak before escalating feedback
+	sessionConsecutiveChatExit    = 2    // non-automation: exit after N consecutive chat-only turns
+	sessionMinMonologueLen        = 10   // chars below which repetition check is skipped
 )
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
 // Fields replace the old pointer-to-primitive pattern (was *int, *bool, *string).
 type runSession struct {
-	agent   *Agent
-	ctx     context.Context
+	agent *Agent
+	ctx   context.Context
 
-	history        []proxy.Message
-	steps          int
-	sieveStreak    int
+	history         []proxy.Message
+	steps           int
+	sieveStreak     int
 	starvationCount int
-	warnedAdvisory bool
+	warnedAdvisory  bool
 
 	parseErrorStreak    int
 	lastParseErrorKind  string
@@ -44,6 +44,7 @@ type runSession struct {
 
 	isAutomation bool
 	rd           repetitionDetector
+	memoryFlushSent bool // prevents repeated pre-sieve nudges across turns
 }
 
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
@@ -152,6 +153,8 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			s.agent.logger.Warn("agent exceeded advisory step limit, continuing", "steps", s.steps)
 		}
 
+		s.maybeFlushMemoryBeforeTurn()
+
 		s.agent.notifyStepStart(s.steps)
 		s.agent.notifyThinking()
 
@@ -187,11 +190,15 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 				return "", s.history, dupErr
 			}
 			if isDuplicate {
+				nag := nagPrompt
+				if len(turnMsg.ToolCalls) > 0 && turnMsg.ToolCalls[0].Function.Name == models.ToolFileRead {
+					nag = prompts.AutomationReadFileNagPrompt
+				}
 				s.history = append(s.history, turnMsg)
 				s.agent.notify(EventMessage, turnMsg)
 				s.history = append(s.history, proxy.Message{
 					Role:    proxy.UserRole,
-					Content: nagPrompt,
+					Content: nag,
 				})
 				continue
 			}
@@ -459,3 +466,36 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 	}
 	return false
 }
+
+func (s *runSession) maybeFlushMemoryBeforeTurn() {
+	if s.agent.memoryStore == nil || s.memoryFlushSent {
+		return
+	}
+
+	// Don't fire pre-sieve nudge for automation — it redirects the model
+	// from submit_final_answer into memory_update/notify_user loops.
+	if s.agent.findAutomationCtx(s.history) {
+		return
+	}
+
+	totalChars := 0
+	for _, m := range s.history {
+		totalChars += len(m.Content)
+	}
+	if totalChars == 0 || s.agent.contextBudget == 0 {
+		return
+	}
+
+	ratio := float64(totalChars) / float64(s.agent.contextBudget)
+	if ratio < 0.7 {
+		return
+	}
+
+	s.history = append(s.history, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: prompts.PreSieveMemoryNudge,
+	})
+	s.memoryFlushSent = true
+}
+
+

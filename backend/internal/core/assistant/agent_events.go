@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"llm-proxy/internal/core/proxy"
 )
 
@@ -22,9 +23,12 @@ const (
 	EventError                AgentEventType = "error"
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
+	EventMemoryRecall         AgentEventType = "memory_recall"
+	EventMemoryFlush          AgentEventType = "memory_flush"
 )
 
 type AgentEvent struct {
+	ID        string         `json:"id"`
 	Type      AgentEventType `json:"type"`
 	Payload   any            `json:"payload"`
 	Timestamp time.Time      `json:"timestamp"`
@@ -64,6 +68,7 @@ type Observer func(AgentEvent)
 func (a *Agent) notify(t AgentEventType, payload any) {
 	if a.observer != nil {
 		a.observer(AgentEvent{
+			ID:        uuid.NewString(),
 			Type:      t,
 			Payload:   payload,
 			Timestamp: time.Now(),
@@ -131,6 +136,14 @@ func (a *Agent) notifyLifecycle(phase string, extra map[string]any) {
 		payload[k] = v
 	}
 	a.notify(EventLifecycle, payload)
+}
+
+func (a *Agent) notifyMemoryRecall(query string, count int) {
+	a.notify(EventMemoryRecall, map[string]any{"query": query, "count": count})
+}
+
+func (a *Agent) notifyMemoryFlush(count int) {
+	a.notify(EventMemoryFlush, map[string]any{"saved_count": count})
 }
 
 func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {

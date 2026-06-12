@@ -15,14 +15,22 @@ import (
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/memory"
 )
 
 const (
-	streamReasoningBudgetDivisor  = 4           // default reasoning_budget = max_tokens / 4
+	// ⚠ DO NOT CHANGE THIS VALUE without running the full smoke test.
+	// divisor=4 was tried and caused recompilation loops at late turns because
+	// 682 tokens was too little for the model to plan the next step at turn 18+.
+	// divisor=3 gives 910 tokens — enough headroom.  Going higher than 3 wastes
+	// generation budget, going lower than 3 causes the planning-cutoff loop.
+	// See docs/audits/memory-injection-investigation.md for the investigation.
+	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
+	stuckNonReasoningDivisor      = 1           // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
-	automationTemperature         = 0.1         // low temperature for deterministic automation tasks
 	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
+	maxHotInjectionChars          = 2000        // character cap for hot memory injection
 )
 
 var (
@@ -47,11 +55,13 @@ func (a *Agent) buildChatRequest(
 		req.ToolChoice = proxy.ToolChoiceRequired
 	}
 	if isAutomationCtx {
-		req.Temperature = automationTemperature
-		if a.reasoningBudget > 0 {
-			req.ReasoningBudget = a.reasoningBudget
+		if a.temperature > 0 {
+			req.Temperature = a.temperature
 		} else {
-			req.ReasoningBudget = a.maxTokens / streamReasoningBudgetDivisor
+			req.Temperature = DefaultAutomationTemperature
+		}
+		if a.reasoningBudget > 0 {
+			req.SetReasoningBudget(a.reasoningBudget)
 		}
 	}
 	return req
@@ -69,8 +79,17 @@ func (a *Agent) prepareMessagesForTurn(
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
-	var prefill string
+	// Inject hot (mode:"always") memory entries.  Only non-automation sessions
+	// get injection — automation tasks have explicit step-by-step instructions
+	// that override general context.  The <memory> block is inserted right
+	// before the last user message for KV cache stability.
+	// See docs/audits/memory-injection-investigation.md
 	isAutoCtx := a.findAutomationCtx(history)
+	if !isAutoCtx {
+		prepared = a.injectActiveMemory(prepared, history)
+	}
+
+	var prefill string
 	if a.shouldPrefill(isAutoCtx) {
 		prefill = prompts.AutomationPrefline
 		prepared = append(prepared, proxy.Message{
@@ -79,6 +98,63 @@ func (a *Agent) prepareMessagesForTurn(
 		})
 	}
 	return prepared, prefill
+}
+
+// injectActiveMemory fetches all hot (mode:"always") entries via SearchHot
+// and injects them as a <memory> system message before the last user message.
+// Runs ONCE per session (first turn only).  The hot tag query replaces the old
+// FTS5 search + separate user_profile fetch.  See docs/audits/memory-injection-investigation.md
+// for the rationale and alternatives tried.
+func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
+	if a.memoryStore == nil {
+		return prepared
+	}
+
+	if a.memoryInjected {
+		return prepared
+	}
+	a.memoryInjected = true
+
+	ctx := context.Background()
+	entries, err := a.memoryStore.SearchHot(ctx, a.workspaceID)
+	if err != nil || len(entries) == 0 {
+		return prepared
+	}
+
+	content := buildHotInjection(entries)
+	if content == "" {
+		return prepared
+	}
+
+	msg := proxy.Message{
+		Role:    proxy.SystemRole,
+		Content: "<memory>\n" + content + "\n</memory>",
+	}
+
+	// Insert right before the last user message for KV cache stability.
+	insertIdx := len(prepared) - 1
+	if insertIdx < 0 {
+		insertIdx = 0
+	}
+	result := make([]proxy.Message, 0, len(prepared)+1)
+	result = append(result, prepared[:insertIdx]...)
+	result = append(result, msg)
+	result = append(result, prepared[insertIdx:]...)
+	return result
+}
+
+// buildHotInjection formats hot memory entries as "- Title: Content\n" lines.
+// Truncates at maxHotInjectionChars on entry boundaries — never splits a fact.
+func buildHotInjection(entries []memory.MemoryEntry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		line := fmt.Sprintf("- %s: %s\n", e.Title, e.Content)
+		if b.Len()+len(line) > maxHotInjectionChars {
+			break
+		}
+		b.WriteString(line)
+	}
+	return b.String()
 }
 
 func (a *Agent) doPreflightCheck(
@@ -126,11 +202,10 @@ func (a *Agent) handlePrefillRejection(
 		prepared = a.injectToolInstructions(prepared, tools)
 	}
 	req := proxy.ChatRequest{
-		Messages:        prepared,
-		Tools:           nil,
-		MaxTokens:       a.maxTokens,
-		Temperature:     automationTemperature,
-		ReasoningBudget: a.maxTokens / streamReasoningBudgetDivisor,
+		Messages:    prepared,
+		Tools:       nil,
+		MaxTokens:   a.maxTokens,
+		Temperature: DefaultAutomationTemperature,
 	}
 	return a.client.Stream(ctx, req)
 }
@@ -141,6 +216,19 @@ func (a *Agent) handleEmptyStream(
 ) (proxy.Message, error) {
 	history = injectRetryContext(history)
 	if llmTools != nil {
+		// Native tools produced an empty response.  For native-only models
+		// (usePrefill=false) the XML retry never produces tool calls either,
+		// so skip it and go straight to non-streaming + nag prompt.
+		// For models with prefill (usePrefill=true, i.e. local XML-text models)
+		// the XML retry may still produce <tool_call> blocks.
+		if !a.usePrefill {
+			a.logger.Info("empty response with native tools, returning stuck signal for nag recovery")
+			return proxy.Message{
+				Role:             proxy.AssistantRole,
+				ReasoningContent: "[stuck]",
+			}, nil
+		}
+
 		a.logger.Info("empty response with native tools, retrying in XML mode")
 		a.notifyLifecycle("fallback_started", map[string]any{
 			"reason": "empty stream with native tools", "mode": "xml",
@@ -177,7 +265,8 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	ch, streamErr := a.client.Stream(ctx, req)
 	a.logger.Info("stream request sent", "model", a.modelName,
-		"max_tokens", a.maxTokens, "tool_choice", req.ToolChoice)
+		"max_tokens", a.maxTokens, "tool_choice", req.ToolChoice,
+		"temperature", req.Temperature)
 
 	if a.orch != nil && a.orch.Budget != nil && txnID != "" {
 		defer func() {
@@ -199,6 +288,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		}
 		if streamErr != nil {
 			a.logger.Warn("streaming not supported, falling back to non-streaming")
+			a.memoryInjected = false  // retry injection on the non-streaming path
 			return a.computeNextResponseNonStreaming(ctx, history, tools)
 		}
 	}
@@ -213,9 +303,16 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		fullMsg.Content = prefill + fullMsg.Content
 	}
 
+	reasons := len(fullMsg.ReasoningContent)
+	if ReasoningBudgetExceeded(reasons, a.reasoningBudget) {
+		a.logger.Warn("reasoning budget far exceeded — server may not be enforcing",
+			"reasoning_budget", a.reasoningBudget,
+			"reasoning_len", reasons,
+			"model", a.modelName)
+	}
 	a.logger.Info("stream completed",
 		"content_len", len(fullMsg.Content),
-		"reasoning_len", len(fullMsg.ReasoningContent),
+		"reasoning_len", reasons,
 		"tool_calls", len(fullMsg.ToolCalls))
 
 	if t := GetUsageTracker(ctx); t != nil {
@@ -240,12 +337,24 @@ func injectRetryContext(history []proxy.Message) []proxy.Message {
 }
 
 // checkStreamStuck aborts early when reasoning content exceeds the threshold
-// with no text or tool call output.  The threshold is scaled by maxTokens * 2
-// so models with larger budgets get more runway before the safety net fires.
+// with no text or tool call output.  The threshold is scaled by
+// reasoningBudget * 2 (in chars) so models that don't enforce the budget
+// server-side are caught mid-stream; falls back to maxTokens * 2 when the
+// reasoning budget is 0 (non-automation turns).
 func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	if a.skipStuckCheck || len(fullMsg.Content) > 0 || len(fullMsg.ToolCalls) > 0 {
 		return false
 	}
+
+	// Models with reasoningBudget == 0 get no server-side thinking enforcement.
+	// If they produce reasoning content, catch them at maxTokens / divisor chars
+	// rather than waiting for the full threshold.  Divisor=1 (maxTokens) avoids
+	// false positives on models like Gemma 4 that output legitimate <think> blocks
+	// before producing content/tool calls (~1371 chars observed).
+	if a.reasoningBudget == 0 && len(fullMsg.ReasoningContent) > a.maxTokens/stuckNonReasoningDivisor {
+		return true
+	}
+
 	return len(fullMsg.ReasoningContent) > a.stuckThreshold()
 }
 
@@ -269,6 +378,7 @@ func (a *Agent) tryExtractToolCallFromReasoning(fullMsg *proxy.Message) bool {
 
 func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) error {
 	var tokUsed, reasonUsed int
+	var budgetWarned bool
 
 	streamDone := make(chan struct{})
 	defer close(streamDone)
@@ -316,12 +426,25 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					tokUsed += result.TokensUsed
 					reasonUsed += result.ReasoningUsed
 
-					term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
-						orchestrator.StreamChunk{},
-						tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
-					)
-					if term.ShouldTerminate {
-						return fmt.Errorf("stream terminated: token budget exceeded (%d tokens used)", tokUsed)
+					if !a.suppressReasoningBudget {
+						term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
+							orchestrator.StreamChunk{},
+							tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
+						)
+						if term.ShouldTerminate && !budgetWarned {
+							budgetWarned = true
+							// Warn only — do NOT terminate. The server (llama.cpp)
+							// enforces reasoning_budget at the API level by forcing
+							// the model out of thinking mode. Terminating here would
+							// kill the stream before the first content chunk arrives,
+							// triggering the XML/non-streaming fallback chain. The
+							// stuck detector (maxTokens × 2 chars) and maxTokens
+							// budget provide sufficient protection. See AGENTS.md
+							// pitfall #20 for the reasoning behind warn-only.
+							a.logger.Warn("reasoning budget exceeded, letting server enforcement handle it",
+								"tokens_used", tokUsed, "reasoning_used", reasonUsed,
+								"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
+						}
 					}
 				}
 
@@ -387,7 +510,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	isAutomationCtx := a.findAutomationCtx(history)
 	req := a.buildChatRequest(preparedHistory, llmTools, isAutomationCtx)
 	if isAutomationCtx && a.suppressReasoningBudget {
-		req.ReasoningBudget = 0
+		req.SetReasoningBudget(0)
 	}
 
 	if rawReq, err := json.Marshal(req); err == nil {
@@ -428,14 +551,13 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
 		}
 		req = proxy.ChatRequest{
-			Messages:  preparedHistory,
-			Tools:     nil,
-			MaxTokens: a.maxTokens,
-			Temperature: automationTemperature,
-			ReasoningBudget: a.maxTokens / streamReasoningBudgetDivisor,
+			Messages:    preparedHistory,
+			Tools:       nil,
+			MaxTokens:   a.maxTokens,
+			Temperature: DefaultAutomationTemperature,
 		}
 		if a.suppressReasoningBudget {
-			req.ReasoningBudget = 0
+			req.SetReasoningBudget(0)
 		}
 		resp, err = a.client.Chat(chatCtx, req)
 	}
@@ -477,7 +599,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 		Messages:    prepared,
 		Tools:       nil,
 		MaxTokens:   a.maxTokens,
-		Temperature: automationTemperature,
+		Temperature: DefaultAutomationTemperature,
 	}
 
 	a.logger.Info("xml stream retry sent", "model", a.modelName, "max_tokens", a.maxTokens, "prefill", prefill != "")
@@ -494,7 +616,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 			Messages:    prepared,
 			Tools:       nil,
 			MaxTokens:   a.maxTokens,
-			Temperature: automationTemperature,
+			Temperature: DefaultAutomationTemperature,
 		}
 		ch, err = a.client.Stream(ctx, req)
 	}

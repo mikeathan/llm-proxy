@@ -1,28 +1,50 @@
-## Task: TypeScript Logic & Interface Test
+## Task: TypeScript Data Processor
 
 **ID:** `ts-logic-interface-test`
-**Category:** Development
+**Category:** development
 
-Verify the agent's ability to handle TypeScript interfaces, array manipulation, and the standard compilation-to-execution pipeline.
+Validate the agent's ability to write typed TypeScript with interfaces, array operations, string formatting, and console output.
 
 ### Execution Strategy
 
-#### Action: Logic & Type Validation
+#### Phase 1: Write Application
 
-**Action:** Create a directory named `ts-logic-test` and populate it with a functional TypeScript application.
+Create a directory `ts-dashboard` with `app.ts`.
 
-- **Source File**: `app.ts` defining a `Product` interface (name: string, price: number, category: string).
-- **Data Logic**: Initialize an array of 5 products and implement a filter function for items < $50.
-- **Runtime**: Compile and execute the code using a robust command (e.g., `npx ts-node app.ts` or `npx tsc && node app.js`) and log the filtered results.
+**Interface to define:**
+
+- `DayTemp(day: string, high: number, low: number)` — represents a single day's temperature range
+
+**Function to implement:**
+
+- `formatBar(value, max, width)` — returns a progress bar string using `█` and `░` characters (e.g. `█████░░░░░` for half)
+
+**Main logic:**
+
+1. Create an array of 5 `DayTemp` entries (Mon-Fri with realistic high/low values)
+2. For each day, log: the day, a progress bar for the high temperature, and the high temperature value
+3. Use `Array.forEach` to iterate
+
+Example output:
+```
+Mon: ████████░░ 25°C
+Tue: █████████░ 28°C
+Wed: ██████░░░░ 22°C
+```
+
+#### Phase 2: Compile & Run
+
+- Compile with `--strict` and `--target ES2020` (or use `npx ts-node`)
+- Run the output
+
+#### Phase 3: Report
+
+1. Source Code Block (filename and key functions used)
+2. Compilation Status
+3. Generated Output
 
 ### Analysis Goals
 
-- Confirm successful transpilation of TypeScript interfaces.
-- Verify logic execution within the restricted sandbox environment.
-- Validate the agent's ability to capture and present console output accurately.
-
-### Output Format
-
-1. Source Code Block (`app.ts`)
-2. Compilation Status
-3. Filtered Product List (Console Output)
+- Verify TypeScript interface usage and strict mode compilation
+- Confirm array operations and string formatting
+- Confirm console output is captured in report

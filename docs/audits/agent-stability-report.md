@@ -22,7 +22,7 @@
 Refer to `docs/SPECS/agent-loop.md` for the current architecture specification.
 Refer to `docs/SPECS/tool-call-parser.md` for the parser behavior specification.
 Refer to `CONSTITUTION.md` for the amended Constitutional laws (II.5–II.9).
-Refer to `docs/PLANS/agnostic-agent-loop.md` for the original design plan and implementation divergences.
+Refer to `docs/PLANS/agent-loop/agnostic-agent-loop.md` for the original design plan and implementation divergences.
 
 ## Summary
 

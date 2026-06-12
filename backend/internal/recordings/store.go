@@ -101,6 +101,9 @@ func (s *RecordingStore) Refresh() error {
 			return nil
 		}
 
+		// Support two layouts:
+		//   Old flat: {model}/{task}/{timestamp}_{session}.jsonl
+		//   New nested: {model}/{task}/{timestamp}_{session}/recording.jsonl
 		parts := strings.SplitN(rel, string(filepath.Separator), 3)
 		model := ""
 		automation := ""
@@ -116,7 +119,15 @@ func (s *RecordingStore) Refresh() error {
 			return nil
 		}
 
-		ts, sessionID := parseRecordingFilename(d.Name())
+		var ts time.Time
+		var sessionID string
+		if d.Name() == "recording.jsonl" && len(parts) >= 3 {
+			// Nested: extract timestamp and session from parent directory name.
+			parentDir := filepath.Base(filepath.Dir(path))
+			ts, sessionID = parseRecordingFilename(parentDir + ".jsonl")
+		} else {
+			ts, sessionID = parseRecordingFilename(d.Name())
+		}
 
 		id := rel
 		entries[id] = RecordingMeta{

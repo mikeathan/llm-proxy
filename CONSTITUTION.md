@@ -1,6 +1,6 @@
-# Antigravity Constitution (The Law)
+# Constitution (The Law)
 
-This document defines the immutable architectural and security laws of the Antigravity project. All code must adhere to these rules without exception.
+This document defines the immutable architectural and security laws of the project. All code must adhere to these rules without exception.
 
 ## I. Network Security (The Guarded Hull)
 
@@ -52,11 +52,20 @@ This document defines the immutable architectural and security laws of the Antig
      *   Passed to `AgentOptions` when creating the Agent.
      *   The agent uses them directly — no global defaults override per-model settings.
      *   Provider-tier defaults (`assistant/agent.go`) define baseline values for each provider type (local, gemini, openai, openrouter, etc.). These defaults are applied when creating new model entries but do not override explicitly set per-model values.
-12. **Prompt Centralization** (SINGLE SOURCE OF TRUTH): `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings.
+12. **Agent Memory System**: The agent can persist and recall facts across conversations via a SQLite-backed memory store.
+      *   **Storage**: Memories are stored in a dedicated `memories` table with an FTS5 full-text index (`memories_fts`) in `orchestrator.db`, sharing the same database file as the ledger. The `memory.Store` package (`internal/platform/memory/`) provides all CRUD and search operations.
+      *   **Tools**: `memory_search` and `memory_update` are registered tools available to all agents. `memory_search(query, scope, tags)` performs FTS5 keyword search with BM25 ranking and optional scope/tag filtering; `memory_update(content, scope, mode, keep)` saves a new memory with three-tier routing.
+      *   **Active Memory Injection**: Once per session (first LLM turn only), the agent searches memory using the last user message as query. Relevant memories are injected as a separate system message wrapped in `<memory>` tags at the end of prepared messages. The injection is capped at 3000 runes and happens only once to avoid per-turn noise — memories saved mid-session become visible on the next session. For automation tasks, memory injection is disabled entirely (the full task prompt is too generic as a search query, and the `<memory>` block at the end of 18+ turns of history overwrites the finalization instruction in the model's attention). See `docs/audits/memory-injection-investigation.md` for the rationale. All prompt strings live in `templates.go` (Constitution II.12 applies).
+     *   **Pre-Sieve Flush**: When context usage exceeds the flush threshold (default 70% of `ContextBudget`), a nudge message is appended asking the agent to save important context to memory via `memory_update`. A `memoryFlushSent` flag prevents repeated nudges across consecutive turns; the flag resets when the physical sieve actually prunes history.
+     *   **Configuration**: Memory is configurable via `UserSettings.Memory` (Tier 2 settings.yml). `Enabled`, `SearchTopK`, `FlushThreshold`, and `RetentionDays` are user-settable. When disabled, the memory store is nil and all operations are no-ops.
+     *   **Workspace Isolation**: All queries filter by `workspace_id`. Agents in different workspaces have independent memories.
+     *   **Lifecycle Events**: `memory_recall` and `memory_flush` events are emitted to the UI for observability.
+
+13. **Prompt Centralization** (SINGLE SOURCE OF TRUTH): `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings.
     *   System messages, nag prompts, parse-error feedback, JSON error translations.
     *   Escalation prefixes, protocol instructions, system rule text.
     *   No hardcoded prompt strings anywhere else — not in `agent.go`, not in `tool_call_parser.go`, not in any other logic file.
-    *   When adding or modifying a prompt, `templates.go` is the only valid location.
+     *   When adding or modifying a prompt, `templates.go` is the only valid location.
 
 ## III. Data & Metadata (The High-Fidelity Rule)
 
@@ -91,7 +100,7 @@ This document defines the immutable architectural and security laws of the Antig
 ## V. Governance (The Living Law)
 
 1.  **Constitution over Convenience**: If a feature requires violating these laws, the law must be formally amended in the Constitution after a security review, rather than bypassed in the implementation.
-2.  **Spec-First Development**: Before modifying the agent subsystem, read `docs/SPECS/agent-loop.md` and `docs/SPECS/tool-call-parser.md`. After implementing, update the relevant spec and amend this Constitution if architectural rules changed.
+2.  **Spec-First Development**: Before modifying a subsystem, read its corresponding SPEC (`docs/SPECS/`, cataloged in `docs/INDEX.md`). After implementing, update the relevant spec and amend this Constitution if architectural rules changed.
 3.  **No Half-Finished Implementations**: Complete the feature or don't start. No stubs, no `// TODO`, no feature flags for incomplete work.
 
 ## VI. Resource-Aware Orchestration (The Budget Deck)
@@ -118,7 +127,7 @@ The Orchestration Layer (`internal/core/orchestrator/`) provides a unified token
 
 7.  **Slot Persistence for llama.cpp**: Local model KV caches are tracked in SQLite (`orchestrator.db`, WAL mode) to avoid re-processing the system prompt on repeated requests. Cache keys include sampling parameters (temperature, top-p, presence penalty) to prevent KV cache state corruption. The slot manager calls `POST /slots/{n}?action=save|restore` on the llama.cpp server.
 
-8.  **Storage**: The ledger package (`internal/platform/ledger/`) is a decoupled SQLite store in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and `entity_metadata` (entity_type/entity_id/key/value — generic, reusable by future Memory/Knowledge modules without schema changes). The orchestrator imports ledger; future memory modules will import ledger directly — no circular dependency.
+8.  **Storage**: The ledger package (`internal/platform/ledger/`) is a decoupled SQLite store in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and `entity_metadata` (entity_type/entity_id/key/value — generic, reusable by future Memory/Knowledge modules without schema changes). The memory package (`internal/platform/memory/`) adds `memories` (content storage) and `memories_fts` (FTS5 full-text index with BM25 ranking and sync triggers) to the same database file via the ledger's `DB()` getter. The orchestrator imports ledger; memory imports ledger's `*sql.DB` — no circular dependency.
 
 9.  **Nil-Safe Orchestrator**: When `Agent.orch == nil` (tests, simple deployments), all budget and slot checks are no-ops. The agent loop operates identically with or without the orchestrator active, meeting the zero-latency-impact regression gate.
 

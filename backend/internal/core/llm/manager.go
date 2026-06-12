@@ -578,6 +578,10 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		if override.TimeoutMinutes > 0 {
 			cfg.TimeoutMinutes = override.TimeoutMinutes
 		}
+		if override.Temperature > 0 {
+			cfg.Temperature = override.Temperature
+			logging.Info("ApplyModelOverrides: Temperature override applied", "model", name, "value", override.Temperature)
+		}
 		if override.Prefill != nil {
 			cfg.Prefill = override.Prefill
 		}

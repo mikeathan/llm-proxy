@@ -24,11 +24,24 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		newMsg := msg
 		if !useNativeTools {
 			if len(newMsg.ToolCalls) > 0 && newMsg.Content == "" {
-				names := make([]string, len(newMsg.ToolCalls))
+				var buf strings.Builder
 				for j, tc := range newMsg.ToolCalls {
-					names[j] = tc.Function.Name
+					if j > 0 {
+						buf.WriteString("\n")
+					}
+					args := tc.Function.Arguments
+					if args == "" {
+						args = "{}"
+					}
+					buf.WriteString("<tool_call>\n")
+					buf.WriteString("{\"tool\": \"")
+					buf.WriteString(tc.Function.Name)
+					buf.WriteString("\", \"args\": ")
+					buf.WriteString(args)
+					buf.WriteString("}\n")
+					buf.WriteString("</tool_call>")
 				}
-				newMsg.Content = "Called tool: " + strings.Join(names, ", ")
+				newMsg.Content = buf.String()
 			}
 			newMsg.ToolCalls = nil
 			if msg.Role == ToolRole {

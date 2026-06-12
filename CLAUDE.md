@@ -1,4 +1,4 @@
-# Antigravity LLM Proxy — Project Guide
+# LLM Proxy — Project Guide
 
 ## Quick Reference
 
@@ -219,7 +219,7 @@ Nag injection belongs in the agent loop (`agent.go`), NOT in `NormalizeHistory()
 - The HTTP client does NOT strip tools — the agent controls this decision
 - When native tools are enabled, XML parser still runs as fallback for non-function-calling responses
 - Automation mode with native tools sends `tool_choice: "required"`, `temperature: 0.1`, and
-  `reasoning_budget: max_tokens/2` on the `ChatRequest` to force the model to always call a tool
+  `reasoning_budget: max_tokens/3` on the `ChatRequest` to force the model to always call a tool
   (preventing thinking-only EOS responses) and cap wasted thinking tokens so the model has budget
   left for the actual tool call. These fields are omitted for XML mode or non-automation contexts
   via `omitempty`.
@@ -257,47 +257,9 @@ When a tool call is blocked:
 
 ## Agent Loop: Step-by-Step
 
-The agent loop is in `internal/core/assistant/agent.go`, method `Execute()` (line ~97):
+See [`docs/SPECS/agent-loop.md`](docs/SPECS/agent-loop.md) (SPEC-001) for the authoritative specification and `docs/skills/agent-loop.md` for the execution flow, sieve algorithm, stuck detection, and reasoning budget details.
 
-1. **Create execution context** with 30-minute timeout
-2. **Loop** for up to `maxSteps` iterations (default 25, per-model override possible):
-   a. Publish `step_start` event
-   b. Create per-turn context with 10-minute timeout
-   c. **Physical Sieve**: If history chars > `contextBudget` (default 8000):
-      - Keep: system prompt + first user message + last 3 turns
-      - Drop: all middle turns
-      - Insert `SieveSystemNote` (explains pruning) and `ContextSieveWarning`
-   d. **List tools** from ToolProvider (local + MCP)
-   e. `computeNextResponse()`: stream LLM response
-      - Normalize history (role conversion, merge consecutive same-role)
-      - For automation: inject tool manual into system prompt, optionally prefill with `<tool_call>\n`
-      - Stream via SSE, accumulate content + native tool_calls
-      - Fall back to non-streaming if streaming fails
-   f. `handleContentToolCalls()`: parse XML `<tool_call>` blocks from text content
-      - Extract with regex, clean from content (save tokens)
-      - Convert to structured `ToolCall` objects
-   g. Validate native tool calls against available tools
-   h. **Deduplicate** tool calls within same turn (by name + args hash)
-   i. **Repetition Detection**: same tool+args 3+ times → nag; 5+ → abort
-   j. Append assistant message to history
-   k. `processToolCalls()`: execute each tool
-      - Reject batched `submit_final_answer` (must be alone)
-      - Validate arguments against tool schema (required params)
-      - Run guardrail validation → block/pause if needed
-      - Execute via Engine → append result to history
-   l. If `submit_final_answer` called → return summary, exit loop
-3. If max steps exceeded → return error
-
-### Context Sieve Algorithm
-```
-totalChars = sum(len(msg.content) for msg in history)
-if totalChars > contextBudget:
-    keep = [history[0]]              // system prompt
-    keep += [firstUserMessage]       // original task
-    keep += history[-min(10, len)]   // last N turns
-    keep = deduplicate(keep)
-    history = keep[0:1] + [SieveSystemNote] + keep[1:]
-```
+The agent loop runs in `internal/core/assistant/agent.go`, method `Execute()` (line ~97).
 
 ### Content Filtering During Streaming
 The `FilterStreamingMarkup()` function in `content_filter.go` hides `<tool_call>` patterns from UI display during streaming. This prevents the user from seeing partial, un-executed tool calls. Complete tool calls are only shown after execution.
@@ -312,8 +274,9 @@ The `FilterStreamingMarkup()` function in `content_filter.go` hides `<tool_call>
 | `ToolTerminalExecute` | `execute_terminal_command` | terminal | Run shell commands in jailed session |
 | `ToolListDirectory` | `list_directory` | filesystem | List directory contents |
 | `ToolFileRead` | `read_file` | filesystem | Read file contents |
-| `ToolFileWrite` | `write_file` | filesystem | Write/create files (max 800 chars per call); use `append_file` for longer output |
-| `ToolFileAppend` | `append_file` | filesystem | Append content to existing file (max 1200 chars per call) |
+| `ToolFileWrite` | `write_file` | filesystem | Write/create files. No server-side length enforcement — model is self-limited by `max_tokens`. For large content, use `append_file` to add more. |
+| `ToolFileAppend` | `append_file` | filesystem | Append content to existing file. No server-side length enforcement. |
+| `ToolFileEditBlock` | `edit_file_block` | filesystem | Replace exact block of text in existing file. Trailing whitespace normalized for matching. Error on multiple matches — include more context to disambiguate. |
 | `ToolNetworkFetch` | `fetch_url` | network | HTTP GET request |
 | `ToolNetworkScan` | `scan_local_network` | network | Scan LAN for devices |
 | `ToolNetworkInfo` | `get_network_info` | network | Get local IP/subnet |
@@ -439,24 +402,7 @@ When a tool call is blocked, the agent does NOT silently fail:
 
 ## Coding Rules
 
-### Go
-- **No comments unless WHY is non-obvious** — well-named identifiers document the WHAT
-- **Single-line comments only** (no multi-line docstrings or comment blocks)
-- **Error handling at system boundaries only** — trust internal code, validate at entry points
-- **No feature flags or backward-compat shims** — change the code directly
-- **No half-finished implementations** — complete or don't start
-- **Three similar lines > premature abstraction** — don't DRY until the pattern is clear
-- **All prompts in templates.go** — never hardcode prompt strings in logic files
-- **Use sentinel errors** from `models/llm.go` for known error conditions
-- **All network I/O through NetworkTools** — never raw `http.Client` or `net.Dial`
-- **All terminal execution through ShellProvider** — never raw `os/exec`
-
-### TypeScript/Vue
-- **Composables are singletons** — state is module-level, shared across components
-- **Polling uses mountCount pattern** — stop polling when no subscribers
-- **Vue refs, not reactive()** — use `ref()` for all reactive state
-- **Type imports from `types/`** — all type definitions in barrel-exported files
-- **Services are stateless** — API calls only, no local state
+See [`AGENTS.md`](AGENTS.md) for the canonical coding rules. Key highlights:
 
 ### General
 - **Constitution first** — check invariants before writing code

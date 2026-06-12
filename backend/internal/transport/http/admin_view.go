@@ -3,11 +3,46 @@ package api
 import (
 	"context"
 	"fmt"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/models"
 	"path/filepath"
 )
+
+// modelViewTuning computes the effective agent-tuning values for a single model.
+// Zero values from settings.yml overrides are replaced with runtime defaults so
+// the frontend always sees the actual effective value, not a raw zero.
+func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudget, maxTokens int, temperature float64, reasoningBudget, slotTimeout, timeoutMinutes int, toolCallFormat string) {
+	prefill = mc.Prefill != nil && *mc.Prefill
+	maxSteps = mc.MaxSteps
+	if maxSteps == 0 {
+		maxSteps = assistant.DefaultMaxSteps
+	}
+	contextBudget = mc.ContextBudget
+	if contextBudget == 0 {
+		contextBudget = assistant.DefaultContextBudget
+	}
+	maxTokens = mc.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = assistant.DefaultMaxTokens
+	}
+	temperature = mc.Temperature
+	if temperature == 0 {
+		temperature = assistant.DefaultAutomationTemperature
+	}
+	reasoningBudget = mc.ReasoningBudget
+	if reasoningBudget == 0 {
+		reasoningBudget = assistant.DefaultReasoningBudget(maxTokens)
+	}
+	slotTimeout = mc.SlotTimeout
+	timeoutMinutes = mc.TimeoutMinutes
+	if timeoutMinutes == 0 {
+		timeoutMinutes = int(assistant.AgentGlobalTimeout.Minutes())
+	}
+	toolCallFormat = mc.ToolCallFormat
+	return
+}
 
 // getProvidersView constructs a unified view of all providers (Registry + Local)
 // and enriches them with masked API keys from the secrets store.
@@ -59,6 +94,8 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 			}
 		}
 
+		prefill, maxSteps, contextBudget, maxTokens, temperature, reasoningBudget, slotTimeout, timeoutMinutes, toolCallFormat := modelViewTuning(mc)
+
 		view := adminModelView{
 			Name:             mc.Name,
 			Provider:         mc.Provider,
@@ -70,13 +107,15 @@ func (h *AdminHandlers) getModelsView(ctx context.Context, modelsList []models.M
 			Ready:            mc.Name == activeName && activeReady,
 			ProviderConfig:   mc.ProviderConfig,
 			Metadata:         meta,
-			Prefill:          mc.Prefill != nil && *mc.Prefill,
-			MaxSteps:         mc.MaxSteps,
-			ContextBudget:    mc.ContextBudget,
-			MaxTokens:        mc.MaxTokens,
-			ReasoningBudget:  mc.ReasoningBudget,
-			SlotTimeout:      mc.SlotTimeout,
-			ToolCallFormat:   mc.ToolCallFormat,
+			Prefill:          prefill,
+			MaxSteps:         maxSteps,
+			ContextBudget:    contextBudget,
+			MaxTokens:        maxTokens,
+			Temperature:      temperature,
+			ReasoningBudget:  reasoningBudget,
+			SlotTimeout:      slotTimeout,
+			TimeoutMinutes:   timeoutMinutes,
+			ToolCallFormat:   toolCallFormat,
 		}
 
 		if mc.Port > 0 {

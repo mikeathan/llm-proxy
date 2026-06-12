@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from "vue";
+import { onMounted, onUnmounted, ref, computed, nextTick } from "vue";
 import { useDispatcher } from "../../composables/useDispatcher";
 import { useModels } from "../../composables/useModels";
 import type { Automation, RecordingMeta } from "../../types/dispatcher";
+import type { MemoryEntry } from "../../types/memory";
 import { DispatcherService } from "../../services/dispatcherService";
 
 import WorkspaceExplorer from "./workspace/WorkspaceExplorer.vue";
@@ -15,6 +16,8 @@ import SystemPulseDashboard from "./system/SystemPulseDashboard.vue";
 import HistoricalRunDetails from "./automation/HistoricalRunDetails.vue";
 import AutomationDetails from "./automation/AutomationDetails.vue";
 import RecordingsPanel from "./recordings/RecordingsPanel.vue";
+import MemoryPanel from "./memory/MemoryPanel.vue";
+import MemoryDetail from "./memory/MemoryDetail.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
 import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
 import TemplateLibrary from "./system/TemplateLibrary.vue";
@@ -55,11 +58,14 @@ const {
 } = useDispatcher();
 
 /* ── UI & Selection State ── */
-const leftTab = ref<"explorer" | "automations" | "recordings" | "activity">("explorer");
+const leftTab = ref<"explorer" | "automations" | "recordings" | "memory" | "activity">("explorer");
+const recordingsEnabled = ref(false);
 const selectedAutomationId = ref<string | null>(null);
 const selectedRun = ref<AutomationRun | null>(null);
 const selectedWorkspace = ref<string | null>(null);
+const selectedMemory = ref<MemoryEntry | null>(null);
 const selectedFile = ref<{ workspace: string; filename: string } | null>(null);
+const sidebarRef = ref<HTMLElement | null>(null);
 const editAutomation = ref<Automation | null>(null);
 
 /* ── Content & Loading State ── */
@@ -92,6 +98,7 @@ const selectedAutomation = computed(() => {
 const activeMainView = computed(() => {
   if (settingsWorkspaceId.value) return "workspace-settings";
   if (selectedRun.value) return "history";
+  if (selectedMemory.value && selectedWorkspace.value) return "memory-detail";
   if (selectedFile.value) return "editor";
   if (selectedAutomation.value) return "automation";
   if (selectedWorkspace.value && workspaceMiddleTab.value === "chat")
@@ -144,7 +151,16 @@ onMounted(() => {
   refreshModels();
   refreshHistory();
 
+  DispatcherService.getRecordingStatus()
+    .then((status) => {
+      recordingsEnabled.value = status.enabled;
+    })
+    .catch((err) => {
+      console.error("Failed to check recording status", err);
+    });
+
   updateLayout();
+  window.addEventListener("resize", updateLayout);
   // Start background polling to keep the Pulse and Running States alive
   historyInterval = setInterval(() => {
     refreshHistory();
@@ -203,6 +219,9 @@ const handleSelectRun = (run: AutomationRun) => {
 const handleEditAutomation = (auto: Automation) => {
   editAutomation.value = auto;
   leftTab.value = "automations";
+  nextTick(() => {
+    sidebarRef.value?.scrollTo(0, 0);
+  });
 };
 
 const handleCancelEdit = () => {
@@ -241,6 +260,10 @@ const handleSelectWorkspace = async (wsId: string) => {
   selectedFile.value = null;
   settingsWorkspaceId.value = null;
   workspaceMiddleTab.value = "pulse";
+
+  if (!selectedWorkspace.value && leftTab.value === "memory") {
+    leftTab.value = "explorer";
+  }
 
   if (selectedWorkspace.value) {
     await fetchWorkspaceFiles(wsId);
@@ -489,7 +512,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       </div>
 
       <div class="sidebar-header">
-        <div class="sidebar-tabs">
+        <div class="sidebar-tabs" :class="recordingsEnabled ? 'grid-cols-3' : 'grid-cols-2'">
           <button
             @click="leftTab = 'explorer'"
             class="sidebar-tab"
@@ -513,6 +536,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             Automations
           </button>
           <button
+            v-if="recordingsEnabled"
             @click="leftTab = 'recordings'"
             class="sidebar-tab"
             :class="
@@ -524,20 +548,34 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             Recordings
           </button>
         </div>
-        <BaseButton
-          @click="showTemplates = true"
-          :disabled="!selectedWorkspace"
-          variant="ghost"
-          icon="document"
-          size="sm"
-          className="!text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20"
-          title="Open Task Playbook Library"
-        >
-          Playbooks
-        </BaseButton>
+        <div class="flex gap-2 w-full">
+          <BaseButton
+            @click="leftTab = 'memory'"
+            :disabled="!selectedWorkspace"
+            variant="ghost"
+            icon="search"
+            size="sm"
+            className="flex-1 !text-purple-400 hover:!bg-purple-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
+            :class="leftTab === 'memory' ? '!bg-purple-600/25 ring-1 ring-purple-500/50' : '!bg-purple-600/10'"
+            title="Open Workspace Memory Panel"
+          >
+            Memory
+          </BaseButton>
+          <BaseButton
+            @click="showTemplates = true"
+            :disabled="!selectedWorkspace"
+            variant="ghost"
+            icon="document"
+            size="sm"
+            className="flex-1 !text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
+            title="Open Task Playbook Library"
+          >
+            Playbooks
+          </BaseButton>
+        </div>
       </div>
 
-      <div class="sidebar-content">
+      <div ref="sidebarRef" class="sidebar-content">
         <!-- Explorer Tab -->
         <WorkspaceExplorer
           v-if="leftTab === 'explorer'"
@@ -596,6 +634,13 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           @stop-automation="handleStopRecording"
           @show-automation="handleShowAutomation"
         />
+
+        <!-- Memory Tab -->
+        <MemoryPanel
+          v-else-if="leftTab === 'memory'"
+          :workspace-id="selectedWorkspace"
+          @select-memory="(e: MemoryEntry) => selectedMemory = e"
+        />
       </div>
     </div>
 
@@ -624,6 +669,15 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         v-else-if="activeMainView === 'history'"
         :run="selectedRun!"
         @close="handleCloseDetails"
+      />
+
+      <!-- Memory Detail View -->
+      <MemoryDetail
+        v-else-if="activeMainView === 'memory-detail' && selectedMemory && selectedWorkspace"
+        :entry="selectedMemory"
+        :workspace-id="selectedWorkspace"
+        @close="selectedMemory = null"
+        @updated="selectedMemory = null"
       />
 
       <!-- Workspace Settings View -->
@@ -792,11 +846,11 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 }
 
 .sidebar-tabs {
-  @apply flex bg-gray-900 rounded p-1;
+  @apply grid gap-1 bg-gray-900 rounded p-1;
 }
 
 .sidebar-tab {
-  @apply flex-1 py-1 text-xs font-medium rounded transition-colors;
+  @apply py-1.5 text-xs font-medium rounded transition-colors text-center truncate disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-400;
 }
 
 .sidebar-tab--active {

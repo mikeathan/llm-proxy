@@ -10,8 +10,10 @@ import (
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
@@ -21,6 +23,8 @@ import (
 type AppContext struct {
 	manager      llm.RuntimeManager
 	orch         *orchestrator.Orchestrator
+	dbProvider   db.Provider      // shared SQLite connection for ledger + memory
+	memoryStore  *memory.Store    // agent memory, nil when disabled
 	dataMgr      *storage.DataManager
 	resolver     *storage.PathResolver
 	rootDir      string
@@ -29,6 +33,7 @@ type AppContext struct {
 	hostSettings *storage.HostSettingsStore
 	terminal     shell.ShellProvider
 	configMu     sync.RWMutex
+	cliEnableRuns bool
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -94,12 +99,14 @@ func (s *AppContext) registerSubscribers() {
 	s.dataMgr.Registry().OnChange(func(reg models.RegistryData) {
 		logging.Info("Registry change detected, syncing LLM runtime")
 		s.manager.Sync()
+		s.manager.ApplyModelOverrides(s.GetSettings().ModelOverrides)
 	})
 
 	// 4. Secrets Changes -> Sync LLM Runtime (credentials updated)
 	s.dataMgr.EncryptedSecretStore().OnChange(func(data models.EncryptedSecretData) {
 		logging.Info("Secrets change detected, syncing LLM runtime")
 		s.manager.Sync()
+		s.manager.ApplyModelOverrides(s.GetSettings().ModelOverrides)
 	})
 }
 
@@ -128,13 +135,36 @@ func (s *AppContext) Orchestrator() *orchestrator.Orchestrator {
 
 func (s *AppContext) initOrchestrator() {
 	dbPath := filepath.Join(s.rootDir, "orchestrator.db")
-	orch, err := orchestrator.NewOrchestrator(dbPath)
+	p, err := db.Open(dbPath)
+	if err != nil {
+		logging.Warn("failed to open orchestrator database", "error", err)
+		return
+	}
+	s.dbProvider = p
+
+	orch, err := orchestrator.NewOrchestrator(p)
 	if err != nil {
 		logging.Warn("failed to initialize orchestrator, running without budget control", "error", err)
 		return
 	}
 	s.orch = orch
 	logging.Info("Orchestrator initialized", "db", dbPath)
+
+	memStore, memErr := memory.New(p)
+	if memErr != nil {
+		logging.Error("failed to initialize memory store, memory disabled — all memory features unavailable", "error", memErr)
+		return
+	}
+	s.memoryStore = memStore
+	logging.Info("Memory store initialized", "db", dbPath)
+}
+
+func (s *AppContext) DBProvider() db.Provider {
+	return s.dbProvider
+}
+
+func (s *AppContext) MemoryStore() *memory.Store {
+	return s.memoryStore
 }
 
 func (s *AppContext) refreshMetricsService() {
@@ -204,6 +234,17 @@ func (s *AppContext) SetWorkspacesDir(dir string) {
 // Tier 1: System
 func (s *AppContext) GetSystem() models.SystemConfig {
 	return s.dataMgr.System().Get()
+}
+
+func (s *AppContext) RunLoggingEnabled() bool {
+	if s.cliEnableRuns {
+		return true
+	}
+	sys := s.GetSystem()
+	if sys.Server.RunLogging != nil {
+		return sys.Server.RunLogging.Enabled
+	}
+	return false
 }
 
 func (s *AppContext) UpdateSystem(fn func(*models.SystemConfig)) error {
@@ -317,6 +358,9 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		}
 		if req.Environment != nil {
 			sys.Server.Environment = req.Environment
+		}
+		if req.RunLogging != nil {
+			sys.Server.RunLogging = req.RunLogging
 		}
 
 		// 2. Sync GPU Configuration (moved into transaction for persistence)
@@ -689,6 +733,10 @@ func (s *AppContext) Shutdown() {
 	if s.terminal != nil {
 		logging.Info("Shutting down shell provider...")
 		s.terminal.Shutdown()
+	}
+	if s.dbProvider != nil {
+		logging.Info("Shutting down shared database...")
+		s.dbProvider.DB().Close()
 	}
 }
 
