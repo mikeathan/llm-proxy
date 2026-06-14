@@ -4,6 +4,7 @@ import type { AvailableModel } from '../../types'
 import { extractDynamicTags, formatFileSize } from '../../utils/model-discovery'
 import { useModelDiscovery } from '../../composables/useModelDiscovery'
 import ModelTags from './ModelTags.vue'
+import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{
   availableModels: AvailableModel[]
@@ -50,7 +51,7 @@ function isConfigured(filename: string) {
           >
             <div class="group-info">
               <div class="chevron" :class="{ 'rotate-90': expandedGroups.has(group.name) }">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+                <Icon name="chevron-right" size="sm" />
               </div>
               <div class="group-details">
                 <div class="group-name">{{ group.name }}</div>
@@ -103,7 +104,7 @@ function isConfigured(filename: string) {
                   Select
                 </button>
                 <div v-else class="check-icon">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+                  <Icon name="check" size="sm" />
                 </div>
               </div>
             </div>

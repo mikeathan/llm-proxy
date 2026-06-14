@@ -27,6 +27,7 @@ import { useTemplates } from "../../composables/useTemplates";
 import { useMetrics } from "../../composables/useMetrics";
 import BaseButton from "../common/BaseButton.vue";
 import MetricsPulse from "../common/MetricsPulse.vue";
+import Icon from "../icons/Icon.vue";
 
 /* ── Composables & Services ── */
 const { state: adminState, refresh: refreshModels } = useModels();
@@ -493,20 +494,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             <span class="error-text">{{ error }}</span>
           </div>
           <button @click="clearError" class="btn-dismiss" title="Dismiss error">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-3.5 w-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <Icon name="close" size="sm" />
           </button>
         </div>
       </div>
@@ -700,20 +688,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             class="btn-icon-round group"
             title="Close editor and return to dashboard"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <Icon name="close" size="sm" />
           </button>
         </div>
         <FileEditor

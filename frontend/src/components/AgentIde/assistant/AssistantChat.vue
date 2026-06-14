@@ -9,6 +9,8 @@ import ToolCallBlock from "../../../components/common/ToolCallBlock.vue";
 import ToolResultBlock from "../../../components/common/ToolResultBlock.vue";
 import GuardrailBanner from "../../../components/common/GuardrailBanner.vue";
 import LifecycleMessage from "../../../components/common/LifecycleMessage.vue";
+import CollapsiblePanel from "../../../components/common/CollapsiblePanel.vue";
+import Icon from "../../../components/icons/Icon.vue";
 
 const props = defineProps<{
   workspaceId: string;
@@ -136,55 +138,18 @@ const toolResultRaw = (tr: any): string => {
 
 <template>
   <div class="assistant-shell">
-    <!-- Sidebar Toggle Button -->
-    <button
-      class="sidebar-toggle"
-      @click="sidebarCollapsed = !sidebarCollapsed"
-      :title="sidebarCollapsed ? 'Show conversations' : 'Hide conversations'"
+    <!-- Left Sidebar: Session List (collapsible) -->
+    <CollapsiblePanel
+      :collapsed="sidebarCollapsed"
+      title="Conversations"
+      position="left"
+      @toggle="sidebarCollapsed = !sidebarCollapsed"
     >
-      <svg
-        v-if="sidebarCollapsed"
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-4 w-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-      </svg>
-      <svg
-        v-else
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-4 w-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-      </svg>
-    </button>
-
-    <!-- Left Sidebar: Session List -->
-    <div v-show="!sidebarCollapsed" class="session-sidebar">
-      <div class="sidebar-header">
-        <h3 class="sidebar-title">Conversations</h3>
+      <template #header-actions>
         <button @click="initWorkspace" class="btn-new" title="New Chat">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
+          <Icon name="plus" size="sm" />
         </button>
-      </div>
+      </template>
 
       <div class="session-list">
         <div v-if="sessions.length === 0" class="empty-sessions">
@@ -204,7 +169,6 @@ const toolResultRaw = (tr: any): string => {
               {{ session.snippet || "Empty conversation" }}
             </div>
             <div class="session-time">{{ formatTime(session.updated_at || '') }}</div>
-
           </button>
 
           <button
@@ -212,24 +176,11 @@ const toolResultRaw = (tr: any): string => {
             class="btn-delete"
             title="Delete conversation"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-3.5 w-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-              />
-            </svg>
+            <Icon name="trash" size="xs" />
           </button>
         </div>
       </div>
-    </div>
+    </CollapsiblePanel>
 
     <!-- Main Chat Area -->
     <div class="chat-area">
@@ -239,9 +190,7 @@ const toolResultRaw = (tr: any): string => {
           <h2 class="chat-title">{{ workspaceId }}</h2>
         </div>
         <button @click="emit('close')" class="btn-chat-close" title="Exit Chat">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" size="sm" />
         </button>
       </header>
 
@@ -371,20 +320,7 @@ const toolResultRaw = (tr: any): string => {
           :disabled="!inputMessage.trim() || loading"
           class="btn-send"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-            />
-          </svg>
+          <Icon name="send" size="md" />
         </button>
       </div>
     </div>
@@ -396,11 +332,7 @@ const toolResultRaw = (tr: any): string => {
   @apply h-full flex bg-gray-800 rounded-lg overflow-hidden border border-white/5;
 }
 
-/* Sidebar Toggle */
-.sidebar-toggle {
-  @apply w-8 shrink-0 flex items-center justify-center bg-gray-800/30 hover:bg-gray-700 text-gray-500 hover:text-gray-300 transition-colors cursor-pointer border-r border-gray-700;
-  @apply focus:outline-none;
-}
+
 
 /* Sidebar */
 .session-sidebar {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import Icon from '../icons/Icon.vue';
 
 const props = defineProps<{
   text: any; // Text or object to copy
@@ -42,9 +43,7 @@ const handleCopy = async (event: Event) => {
     class="copy-btn"
   >
     <!-- Checkmark SVG -->
-    <svg v-if="isCopied" xmlns="http://www.w3.org/2000/svg" :class="[sizeClass, 'text-green-400']" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-    </svg>
+    <Icon v-if="isCopied" name="check" size="sm" class="text-green-400" />
     <!-- Copy / Duplicate SVG -->
     <svg v-else xmlns="http://www.w3.org/2000/svg" :class="sizeClass" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
