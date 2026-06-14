@@ -185,9 +185,19 @@ const toolResultRaw = (tr: any): string => {
     <!-- Main Chat Area -->
     <div class="chat-area">
       <header class="chat-header">
-        <div class="chat-info">
-          <span class="chat-status">Agent Online</span>
-          <h2 class="chat-title">{{ workspaceId }}</h2>
+        <div class="flex items-center gap-4">
+          <button
+            v-if="sidebarCollapsed"
+            @click="sidebarCollapsed = false"
+            class="btn-sidebar-expand"
+            title="Show Conversations"
+          >
+            <Icon name="chevron-double-right" size="sm" />
+          </button>
+          <div class="chat-info">
+            <span class="chat-status">Agent Online</span>
+            <h2 class="chat-title">{{ workspaceId }}</h2>
+          </div>
         </div>
         <button @click="emit('close')" class="btn-chat-close" title="Exit Chat">
           <Icon name="close" size="sm" />
@@ -335,10 +345,6 @@ const toolResultRaw = (tr: any): string => {
 
 
 /* Sidebar */
-.session-sidebar {
-  @apply w-64 border-r border-gray-700 flex flex-col bg-gray-800/50;
-}
-
 .sidebar-header {
   @apply p-4 border-b border-gray-700 flex items-center justify-between shrink-0;
 }
@@ -413,6 +419,10 @@ const toolResultRaw = (tr: any): string => {
 
 .chat-title {
   @apply text-xs font-bold text-gray-200 leading-none;
+}
+
+.btn-sidebar-expand {
+  @apply p-1.5 rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-700 shadow-sm text-gray-400 hover:text-gray-200 transition-colors flex items-center justify-center focus:outline-none;
 }
 
 .btn-chat-close {
