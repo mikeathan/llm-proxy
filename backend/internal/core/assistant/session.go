@@ -372,8 +372,9 @@ func (s *runSession) handleNoToolCalls(
 		s.agent.logger.Info("premature termination detected — model is repeating or producing empty output")
 		return turnMsg.Content, true, nil
 	}
-	// Non-automation: first response is always text-only (model introduces itself)
-	if s.steps == 1 {
+	// First response with content: exit so the user sees the answer.
+	// If the model only produced reasoning (empty content), keep going.
+	if s.steps == 1 && strings.TrimSpace(turnMsg.Content) != "" {
 		return turnMsg.Content, true, nil
 	}
 	if s.agent.countConsecutiveChat(s.history) >= sessionConsecutiveChatExit {

@@ -11,10 +11,10 @@ export interface ToolCall {
 
 export interface AssistantMessage {
   role: AssistantRole
-
   content: string
   tool_calls?: ToolCall[]
   tool_call_id?: string
+  toolResult?: { name: string; result: any; error?: string }
 }
 
 export interface SessionBrief {
@@ -40,7 +40,10 @@ export interface ChatRequestPayload {
   timezone?: string
 }
 
+import type { AgentEvent } from './dispatcher'
+
 export interface ChatResponsePayload {
   reply: string
   conversation_id: string
+  events?: AgentEvent[]
 }

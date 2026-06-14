@@ -21,8 +21,9 @@ status, and cross-references to related documents. Use this as the starting poin
 | | `docs/skills/agent-loop.md` | Agent Loop & Stuck Detection | Sieve, fallback chain, reasoning budget, spiral detector |
 | | `docs/skills/tool-failure-investigation.md` | Tool Failure Investigation | Error tracing, handler scoping, recovery prompt verification |
 
-| | `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates |
-| | `docs/skills/engineering-practices.md` | Go Engineering Practices | Patterns, code style, architecture rules |
+| | `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates, MockClient patterns |
+| | `docs/skills/engineering-practices.md` | Engineering Practices | Go patterns, code style, frontend icon conventions, file checklists |
+| | `docs/skills/event-streaming-patterns.md` | Event Streaming Patterns | SSE composables, observer chaining, guardrail flow, heartbeat cleanup, dedup |
 | | `docs/skills/llamacpp-setup.md` | llama.cpp Server Setup | Args, GPU tuning, systemd, performance data |
 | | `docs/skills/automation.md` | Automation System | Dispatcher, executor, run lifecycle, templates |
 
@@ -49,7 +50,8 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/memory/agent-memory-system.md` | Agent Memory System | complete | — | SPEC-004 |
 | `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
 | `docs/PLANS/cross-cutting/interactive-user-input.md` | Interactive User Input (ask_user Tool) | proposed | 2026-06-08 | SPEC-001, SPEC-007 |
-| `docs/PLANS/cross-cutting/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | proposed | 2026-06-09 | SPEC-001, SPEC-003 |
+| `docs/PLANS/cross-cutting/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | complete | 2026-06-12 | SPEC-001, SPEC-003 |
+| `docs/PLANS/cross-cutting/assistant-automation-parity.md` | Assistant-Automation Parity + Frontend UX Improvements | complete | 2026-06-12 | SPEC-001, SPEC-006, SPEC-008 |
 | `docs/PLANS/memory/memory-three-tier-redesign.md` | Three-Tier Memory Architecture (scope, mode, keep) | complete | 2026-06-09 | SPEC-004 |
 | `docs/PLANS/memory/memory-tags-system.md` | Memory Tags System | complete | 2026-06-08 | SPEC-004 |
 | `backend/data/templates/memory-cascade-test.md` | Memory Cascade — Persona Recall & Cross-Ref | reference | 2026-06-10 | SPEC-004 |

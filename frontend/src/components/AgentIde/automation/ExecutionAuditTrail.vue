@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { marked } from "marked";
+import { TOOL_RESULT_ICON, GUARDRAIL_ICON } from "../../../constants/icons";
 import {
   getRoleLabel,
   getRoleClass,
@@ -78,7 +79,7 @@ defineProps<{
         <div v-else-if="ev.type === 'tool_result'" class="event-result">
           <details class="res-details">
             <summary class="res-summary">
-              <span class="res-icon">✅</span>
+              <span class="res-icon">{{ TOOL_RESULT_ICON }}</span>
               <span class="res-name"
                 >{{ getToolResPayload(ev).name }} finished</span
               >
@@ -103,7 +104,7 @@ defineProps<{
           class="event-violation"
         >
           <div class="violation-header">
-            <span class="violation-icon">🛑</span>
+            <span class="violation-icon">{{ GUARDRAIL_ICON }}</span>
             <span class="violation-title"
               >Guardrail Blocked:
               {{ getViolationPayload(ev).tool || "Unknown Tool" }}</span

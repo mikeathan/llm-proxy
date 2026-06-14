@@ -158,7 +158,7 @@ When a tool call is blocked:
    - `getModelsView()` mapping in `admin_view.go`
    - Both `runtimeCfg` and `persistCfg` in the handler
 
-6. **Forcing native tools on local models without opt-in** — Local models default to XML text mode. A model can opt into native via `ToolCallFormat: "native"`, but don't change the default. The XML parser is the fallback.
+6. **Forcing native tools on local models without opt-in** — `LocalToolRegistry.UseNativeTools()` returns `false`, but `Agent.useNativeTools` is resolved from `AgentOptions.UseNativeTools` first (`NewAgent` line 244-247). In automation, `buildAgentOptions` sets `opts.UseNativeTools = true` when `ToolCallFormat` is `"native"` or `""` — which is the case for all local models after `ApplyMetadataDefaults` fills in the default. **Local models in automation use native tools by default.** Non-automation (assistant conversations) leaves opts nil, falling through to `ProviderTiers` which returns `false`. The XML parser is always the fallback. See `agent.go` `NewAgent()`, `executor.go` `buildAgentOptions()`, and `registry.go` `LocalToolRegistry.UseNativeTools()`.
 
 7. **Removing the XML parser** — Even with native tools enabled globally, the XML parser must remain as fallback for non-function-calling responses. Both paths coexist.
 
@@ -184,7 +184,7 @@ When a tool call is blocked:
 
     When normalizing history for XML mode, `NormalizeHistory()` converts native tool calls to `<tool_call>` XML blocks matching the system prompt format (not "Called tool: X" text). This ensures the model sees consistent format examples in its conversation history. See `history.go` `NormalizeHistory()`.
 
-13. **Lifecycle events for UI progress** — The agent emits `lifecycle` events with a `phase` field for structured progress reporting: `stuck_detected` (with `reasoning_chars`), `fallback_started` (with `reason` and `mode`), `fallback_waiting` (with `elapsed` time), and `fallback_completed`. These are appended as system messages in the frontend, never overwriting assistant streaming content. The non-streaming heartbeat (`computeNextResponseNonStreaming`) uses `fallback_waiting` with elapsed time instead of the old `tool_stream` overwrite. See `agent_events.go` `notifyLifecycle()`.
+13. **Lifecycle events for UI progress** — The agent emits `lifecycle` events with a `phase` field for structured progress reporting: `stuck_detected` (with `reasoning_chars`), `fallback_started` (with `reason` and `mode`), `fallback_waiting` (with `elapsed` time), and `fallback_completed`. These are appended as system messages in the frontend, never overwriting assistant streaming content. The non-streaming heartbeat (`computeNextResponseNonStreaming`) uses `fallback_waiting` with elapsed time instead of the old `tool_stream` overwrite. See `agent_events.go` `notifyLifecycle()` and `docs/skills/event-streaming-patterns.md` for SSE flow, observer chaining, and deduplication.
 
 14. **Goroutine leak fix in `processStream` heartbeat** — The 30-second heartbeat goroutine now selects on a `streamDone` channel (closed via `defer`) in addition to `ctx.Done()`. This ensures the goroutine exits when `processStream` returns for ANY reason (stuck detection, stream EOF, errors), not just context cancellation. Prevents misleading "stream still generating" log lines after the stream has ended. See `agent.go` `processStream()` and `docs/skills/agent-loop.md`.
 
@@ -198,7 +198,7 @@ When a tool call is blocked:
 
 19. **Agent loop mechanics — see `docs/skills/agent-loop.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
 
-20. **Testing — see `docs/skills/testing-guide.md`** for: running smoke tests, analysing run output, record-replay testing, common pitfalls.
+20. **Testing — see `docs/skills/testing-guide.md`** for: running smoke tests, analysing run output, record-replay testing, MockClient patterns, common pitfalls.
 
 21. **`maxLength` removed from `filesystem.json` manifest** — The `maxLength` properties were removed because servers enforce it as a grammar constraint, silently truncating content. See `docs/audits/write-file-truncation-cycles.md` for full root-cause analysis.
 

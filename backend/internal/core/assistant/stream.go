@@ -39,6 +39,13 @@ var (
 		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"](.*?)['"]\s*\}?\s*\]?`),
 		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`),
 	}
+
+	// providerConstraints maps provider types to output constraint implementations.
+	// Only local providers use GBNF grammar for tool call argument enforcement.
+	// Cloud providers (openai, gemini, etc.) already validate via native tool API.
+	providerConstraints = map[string]proxy.RequestConstraint{
+		"local": &proxy.GBNFConstraint{},
+	}
 )
 
 func (a *Agent) buildChatRequest(
@@ -62,6 +69,15 @@ func (a *Agent) buildChatRequest(
 		}
 		if a.reasoningBudget > 0 {
 			req.SetReasoningBudget(a.reasoningBudget)
+		}
+	}
+	// Apply provider-specific output constraint when native tools are active.
+	// Local providers get GBNF grammar to prevent invalid JSON in tool call
+	// arguments at the token generation level.  Cloud providers are skipped —
+	// their native tool API already returns structured, valid JSON.
+	if a.useNativeTools && len(llmTools) > 0 {
+		if constraint, ok := providerConstraints[a.providerType]; ok {
+			constraint.Apply(&req, llmTools)
 		}
 	}
 	return req

@@ -15,11 +15,14 @@ import {
   getToolCallPayload,
   getToolResPayload,
   getViolationPayload,
-  getBlockedPayload,
   formatEventsToText,
 } from "../../../utils/dispatcher";
 import { marked } from "marked";
 import CopyButton from "../../common/CopyButton.vue";
+import ToolCallBlock from "../../common/ToolCallBlock.vue";
+import ToolResultBlock from "../../common/ToolResultBlock.vue";
+import GuardrailBanner from "../../common/GuardrailBanner.vue";
+import LifecycleMessage from "../../common/LifecycleMessage.vue";
 
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
 import { useAutoScroll } from "../../../composables/useAutoScroll";
@@ -133,29 +136,13 @@ const formatTime = (ts?: string) => {
       </div>
     </div>
 
-    <!-- Guardrail Approval Banner -->
-    <div v-if="pendingDecision" class="guardrail-approval-banner">
-      <div class="approval-header">
-        <span class="approval-icon">🛑</span>
-        <span class="approval-title">Guardrail Blocked — Action Required</span>
-      </div>
-      <div class="approval-details">
-        <div><strong>Tool:</strong> {{ pendingDecision.tool }}</div>
-        <div><strong>Reason:</strong> {{ pendingDecision.reason }}</div>
-        <div><strong>Category:</strong> {{ pendingDecision.category }}</div>
-      </div>
-      <div class="approval-actions">
-        <button class="btn-approve" @click="submitDecision(true, true)">
-          Allow &amp; Remember
-        </button>
-        <button class="btn-approve-once" @click="submitDecision(true, false)">
-          Allow Once
-        </button>
-        <button class="btn-deny" @click="submitDecision(false, false)">
-          Deny
-        </button>
-      </div>
-    </div>
+    <!-- Guardrail Approval Banner (shared component) -->
+    <GuardrailBanner
+      v-if="pendingDecision"
+      :decision="pendingDecision"
+      @allow="(persist: boolean) => submitDecision(true, persist)"
+      @deny="() => submitDecision(false, false)"
+    />
 
     <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer" @scroll="updateWasNearBottom()">
       <div v-if="displayEvents.length === 0" class="term-empty">
@@ -201,45 +188,27 @@ const formatTime = (ts?: string) => {
             </span>
           </div>
 
-          <!-- Tool Call -->
-          <div v-else-if="ev.type === 'tool_call'" class="line-tool">
-            <div class="tool-run-header">
-              <span class="tool-icon">🛠️</span>
-              <span class="tool-name"
-                >Executing {{ getToolCallPayload(ev).function.name }}...</span
-              >
-              <CopyButton
-                :text="getToolCallPayload(ev).function.arguments"
-                iconSize="sm"
-                class="btn-copy-mini"
-              />
-            </div>
-            <pre class="tool-args">{{
-              getToolCallPayload(ev).function.arguments
-            }}</pre>
-          </div>
+          <!-- Tool Call (shared component) -->
+          <ToolCallBlock
+            v-else-if="ev.type === 'tool_call'"
+            :name="getToolCallPayload(ev).function.name"
+            :args="getToolCallPayload(ev).function.arguments"
+          />
 
-          <!-- Tool Result -->
-          <div v-else-if="ev.type === 'tool_result'" class="line-result">
-            <details class="res-details">
-              <summary class="res-summary">
-                <span class="res-icon">✅</span>
-                <span class="res-name"
-                  >{{ getToolResPayload(ev).name }} finished</span
-                >
-                <CopyButton
-                  :text="getToolResPayload(ev).result"
-                  class="btn-copy-mini ml-1"
-                />
-                <span class="res-hint ml-1">(click to view)</span>
-              </summary>
-              <pre class="res-body">{{
-                typeof getToolResPayload(ev).result === "string"
-                  ? getToolResPayload(ev).result
-                  : JSON.stringify(getToolResPayload(ev).result, null, 2)
-              }}</pre>
-            </details>
-          </div>
+          <!-- Tool Result (shared component) -->
+          <ToolResultBlock
+            v-else-if="ev.type === 'tool_result'"
+            :name="getToolResPayload(ev).name"
+            :result="getToolResPayload(ev).result"
+            :error="getToolResPayload(ev).error"
+          />
+
+          <!-- Lifecycle (shared component) -->
+          <LifecycleMessage
+            v-else-if="ev.type === 'lifecycle'"
+            :phase="(ev.payload as any).phase"
+            :payload="(ev.payload as any)"
+          />
 
           <!-- Guardrail Violation -->
           <div
@@ -257,22 +226,7 @@ const formatTime = (ts?: string) => {
             </div>
           </div>
 
-          <!-- Guardrail Blocked (Awaiting Decision) -->
-          <div
-            v-else-if="ev.type === 'guardrail_blocked'"
-            class="line-violation"
-          >
-            <div class="violation-header">
-              <span class="violation-icon">🛑</span>
-              <span class="violation-title"
-                >Guardrail Blocked — Awaiting Approval</span
-              >
-            </div>
-            <div class="violation-body">
-              <div><strong>Tool:</strong> {{ getBlockedPayload(ev).tool }}</div>
-              <div><strong>Reason:</strong> {{ getBlockedPayload(ev).reason }}</div>
-            </div>
-          </div>
+          <!-- Guardrail Blocked (Awaiting Decision) — rendered via GuardrailBanner in the approval UI -->
         </div>
       </div>
     </div>

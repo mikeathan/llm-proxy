@@ -44,6 +44,9 @@ type ChatRequest struct {
 	ToolChoice           ToolChoice      `json:"tool_choice,omitempty"`
 	Stream               bool            `json:"stream,omitempty"`
 	ResponseFormat       *ResponseFormat `json:"response_format,omitempty"`
+	Grammar              *string         `json:"grammar,omitempty"`               // llama.cpp / TGI: GBNF grammar string
+	GuidedJSON           *string         `json:"guided_json,omitempty"`           // vLLM: JSON schema for guided decoding
+	GuidedGrammar        *string         `json:"guided_grammar,omitempty"`        // vLLM: GBNF grammar alternative
 }
 
 // SetReasoningBudget sets both reasoning_budget (OpenAI-compatible) and

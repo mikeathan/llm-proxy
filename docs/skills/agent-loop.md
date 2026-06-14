@@ -54,6 +54,24 @@ executor.go Execute()
 - **Warn-only, never terminate** — the proxy warns when exceeded but does NOT kill the stream
 - Model-specific: llama.cpp enforces at API level, OpenAI ignores
 
+## Output Constraint (GBNF Grammar)
+
+When native tools are active in automation (`useNativeTools = true`, `tool_choice: "required"`),
+the agent applies a **GBNF grammar constraint** to prevent malformed JSON in tool call arguments:
+
+- **Local providers** (llama.cpp): `GBNFConstraint` generates a disjunctive GBNF grammar from
+  all tool schemas and sets `req.Grammar`. This constrains token generation so the model can
+  only produce valid JSON matching one of the available tool schemas.
+- **Cloud providers** (OpenAI, Gemini): Skipped — their native tool API already returns
+  structured valid JSON.
+- **XML text mode**: Skipped — `useNativeTools` is false, so `llmTools` is nil and the
+  constraint code is never reached.
+
+The constraint is optional (never fatal). If `Apply()` returns false (unsupported types,
+empty schema, etc.), the request is sent unchanged and the existing parsing handles it.
+
+See `proxy/tool_constraint.go` `GBNFConstraint` and `stream.go` `buildChatRequest()`.
+
 ## Fallback Chain
 
 When native tools stream returns empty:
@@ -81,6 +99,63 @@ When native tools stream returns empty:
 1. **Exact duplicate args** — streak ≥ 3 → aborts with "infinite loop"
 2. **Same tool, any args** — 12+ consecutive calls to same tool → aborts with "spiral detected"
 3. Streak < 3 → injects AutomationDuplicateNagPrompt and continues
+
+## Tool Call Data Flow
+
+### History Normalization (`NormalizeHistory` in `history.go`)
+
+Before each LLM call, history is normalized based on `useNativeTools`:
+
+**When `useNativeTools=true` (native mode):**
+- `ToolRole` messages kept as-is with `Content` = raw JSON result
+- `ToolCalls` arrays preserved on assistant messages
+- Standard OpenAI-style `tools` + `tool_choice` format
+
+**When `useNativeTools=false` (XML mode):**
+- `ToolRole` messages **converted to `UserRole`** with `"Tool result [callID]: ..."` prefix
+- `ToolCalls` arrays **emptied** and serialized to XML in `Content`:
+  ```
+  <tool_call>
+  {"tool": "memory_search", "args": {"query": "foo"}}
+  </tool_call>
+  ```
+- Consecutive same-role messages are merged (except messages with `ToolCallID`)
+- Empty content is filled with placeholders (`"Thinking..."`, `"Tool result: ..."`)
+- `ReasoningContent`, `Name`, and non-standard fields are stripped by `SanitizeHistory`
+
+**Effect on debugging:** A history dump with `useNativeTools=false` looks fundamentally
+different from one with `true`. There will be no `ToolRole` messages or `ToolCalls` arrays.
+The model sees `UserRole` messages with `"Tool result"` text prefixes instead.
+
+### `useNativeTools` Resolution (Three-State `*bool`)
+
+`AgentOptions.UseNativeTools` is a `*bool` — nil, `&false`, or `&true`:
+
+| Value | Behaviour |
+|-------|-----------|
+| `nil` (unset) | Use `provider.UseNativeTools()` — `LocalToolRegistry` returns `false`, `MockNodeHerder` returns `true` |
+| `&true` | Force native mode — `tool_choice: "required"` in automation, `NormalizeHistory` keeps ToolRole |
+| `&false` | Force XML mode — `tool_choice` not set, `NormalizeHistory` converts ToolRole → UserRole |
+
+**Important:** `&false` is NOT the same as `nil`. Setting `UseNativeTools: &false`
+silently overrides the provider's `UseNativeTools()` return value. This changed the
+tool role format in the assistant handler and broke the agnostic flow test.
+
+### `appendToolResult` Double-JSON-Marshaling
+
+In `processToolCalls`, the tool result is marshaled to JSON TWICE:
+1. In the caller (`processToolCalls` lines 159-170) to create `finalResult`
+2. In `appendToolResult` (line 443) via `json.Marshal(result)`
+
+This is wasteful and can produce different output if `result` is a pointer type
+modified between the two calls. When adding new tool execution paths, prefer
+passing pre-serialized strings to `appendToolResult`: `string(json.Marshal(result))`.
+
+```go
+// Correct — single marshal in caller:
+raw, _ := json.Marshal(result)
+a.appendToolResult(history, tc, string(raw))
+```
 
 ## Important Gotchas
 

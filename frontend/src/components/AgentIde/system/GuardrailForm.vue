@@ -337,8 +337,8 @@ watch(
               Allowed External Paths
               <span
                 v-if="local.terminal.allowed_external_paths?.length"
-                class="external-warning-badge"
-              >⚠ External Access</span>
+              class="external-warning-badge"
+            >⚠️ External Access</span>
             </label>
             <textarea
               v-model="terminalExternalPathsRaw"

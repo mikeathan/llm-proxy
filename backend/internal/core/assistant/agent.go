@@ -233,6 +233,41 @@ func (o *AgentOptions) applyDefaults() {
 	}
 }
 
+// ApplyModelConfig copies model-level overrides from cfg into the options.
+// Returns true when cfg.EnableExecutionPlan is true and the caller should
+// set opts.PlanStrategy after this call (requires external dependencies).
+func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
+	if cfg.Provider != "" {
+		o.ProviderType = cfg.Provider
+	}
+	if cfg.MaxSteps > 0 {
+		o.MaxSteps = cfg.MaxSteps
+	}
+	if cfg.ContextBudget > 0 {
+		o.ContextBudget = cfg.ContextBudget
+	}
+	if cfg.MaxTokens > 0 {
+		o.MaxResponseTokens = cfg.MaxTokens
+	}
+	if cfg.ReasoningBudget > 0 {
+		o.ReasoningBudget = cfg.ReasoningBudget
+	}
+	if cfg.Temperature > 0 {
+		o.Temperature = cfg.Temperature
+	}
+	if cfg.ToolCallFormat == "native" {
+		native := true
+		o.UseNativeTools = &native
+	}
+	if cfg.Prefill != nil && *cfg.Prefill {
+		o.UsePrefill = true
+	}
+	if cfg.TimeoutMinutes > 0 {
+		o.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
+	}
+	return cfg.EnableExecutionPlan
+}
+
 func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts AgentOptions) *Agent {
 	opts.applyDefaults()
 

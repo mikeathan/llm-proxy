@@ -4,7 +4,11 @@ import { useAssistant } from "../../../composables/useAssistant";
 import { marked } from "marked";
 import { formatTime } from "../../../utils/time";
 import { getRoleLabel } from "../../../domain/assistant";
-
+import { getToolCallPayload, getToolResPayload } from "../../../utils/dispatcher";
+import ToolCallBlock from "../../../components/common/ToolCallBlock.vue";
+import ToolResultBlock from "../../../components/common/ToolResultBlock.vue";
+import GuardrailBanner from "../../../components/common/GuardrailBanner.vue";
+import LifecycleMessage from "../../../components/common/LifecycleMessage.vue";
 
 const props = defineProps<{
   workspaceId: string;
@@ -20,6 +24,9 @@ const {
   messages,
   sessions,
   currentSessionId,
+  streamingContent,
+  liveEvents,
+  pendingDecision,
   fetchSessions,
   loadSession,
   newSession,
@@ -28,10 +35,9 @@ const {
   activeWorkspaceId,
 } = useAssistant();
 
-
-
 const inputMessage = ref("");
 const messageContainer = ref<HTMLElement | null>(null);
+const sidebarCollapsed = ref(true);
 
 onMounted(() => {
   if (props.workspaceId) {
@@ -51,7 +57,6 @@ const initWorkspace = async () => {
     activeWorkspaceId.value === props.workspaceId &&
     messages.value.length > 0
   ) {
-    // Already in this workspace and have a conversation active, just refresh sessions list
     await fetchSessions(props.workspaceId);
     scrollToBottom();
     return;
@@ -94,19 +99,73 @@ const renderMarkdown = (content: string) => {
   return marked.parse(content) as string;
 };
 
-
-
 const isLastMessageUser = computed(() => {
   if (messages.value.length === 0) return false;
   const lastMessage = messages.value[messages.value.length - 1];
   return lastMessage?.role === "user";
 });
+
+const hasStreamingContent = computed(() => streamingContent.value.length > 0);
+
+const toolCallEvents = computed(() => liveEvents.value.filter(ev => ev.type === 'tool_call'))
+const toolResultEvents = computed(() => liveEvents.value.filter(ev => ev.type === 'tool_result'))
+const lifecycleEvents = computed(() => liveEvents.value.filter(ev => ev.type === 'lifecycle'))
+
+const toolResultContent = (tr: any): string => {
+  if (!tr) return ""
+  if (typeof tr.result === "string") return tr.result
+  if (typeof tr.result === "object" && tr.result !== null) {
+    if (typeof tr.result.content === "string") return tr.result.content
+    return JSON.stringify(tr.result, null, 2)
+  }
+  return ""
+}
+
+const hasRawData = (tr: any): boolean => {
+  if (!tr) return false
+  if (typeof tr.result === "string") return false
+  if (typeof tr.result === "object" && tr.result !== null && typeof tr.result.content === "string") return true
+  return typeof tr.result === "object" && tr.result !== null
+}
+
+const toolResultRaw = (tr: any): string => {
+  if (!tr) return ""
+  return JSON.stringify(tr.result, null, 2)
+}
 </script>
 
 <template>
   <div class="assistant-shell">
+    <!-- Sidebar Toggle Button -->
+    <button
+      class="sidebar-toggle"
+      @click="sidebarCollapsed = !sidebarCollapsed"
+      :title="sidebarCollapsed ? 'Show conversations' : 'Hide conversations'"
+    >
+      <svg
+        v-if="sidebarCollapsed"
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-4 w-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+      </svg>
+      <svg
+        v-else
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-4 w-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+      </svg>
+    </button>
+
     <!-- Left Sidebar: Session List -->
-    <div class="session-sidebar">
+    <div v-show="!sidebarCollapsed" class="session-sidebar">
       <div class="sidebar-header">
         <h3 class="sidebar-title">Conversations</h3>
         <button @click="initWorkspace" class="btn-new" title="New Chat">
@@ -191,9 +250,14 @@ const isLastMessageUser = computed(() => {
         {{ error }}
       </div>
 
+      <!-- Guardrail Banner -->
+      <div v-if="pendingDecision" class="guardrail-banner-wrapper">
+        <GuardrailBanner :decision="pendingDecision" @allow="(..._args: any[]) => {}" @deny="() => {}" />
+      </div>
+
       <!-- Messages -->
       <div class="message-container" ref="messageContainer">
-        <div v-if="messages.length === 0" class="chat-empty">
+        <div v-if="messages.length === 0 && !loading && !hasStreamingContent" class="chat-empty">
           <div class="welcome-icon">💬</div>
           <h3>Workspace Assistant</h3>
           <p>
@@ -204,31 +268,89 @@ const isLastMessageUser = computed(() => {
           <p>Ask it to scan files, check metrics, or help you debug.</p>
         </div>
 
+        <!-- Existing messages -->
         <div
           v-for="(msg, idx) in messages"
-          :key="idx"
+          :key="'msg-' + idx"
           class="message-wrapper"
           :class="`message-wrapper--${msg.role}`"
         >
-          <div class="message-bubble" :class="`message-bubble--${msg.role}`">
+          <!-- Tool messages: render as structured result blocks -->
+          <div v-if="msg.role === 'tool'" class="message-bubble message-bubble--tool">
+            <div class="message-role">Tool Result</div>
+            <div class="message-content markdown-body" v-html="renderMarkdown(toolResultContent(msg.toolResult))"></div>
+            <details class="tool-result-details" v-if="hasRawData(msg.toolResult)">
+              <summary class="tool-result-summary">
+                <span class="tool-result-hint">(view raw)</span>
+              </summary>
+              <pre class="tool-result-body">{{ toolResultRaw(msg.toolResult) }}</pre>
+            </details>
+          </div>
+
+          <!-- Assistant messages with tool calls: render inline -->
+          <div v-else-if="msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0" class="message-bubble message-bubble--assistant">
+            <div class="message-role">Assistant</div>
+            <div v-if="msg.content" class="message-content markdown-body" v-html="renderMarkdown(msg.content)"></div>
+            <div v-for="(tc, tci) in msg.tool_calls" :key="'tc-' + tci" class="tool-call-inline">
+              <ToolCallBlock :name="tc.function.name" :args="tc.function.arguments" />
+            </div>
+          </div>
+
+          <!-- Normal assistant/user messages -->
+          <div v-else class="message-bubble" :class="`message-bubble--${msg.role}`">
             <div class="message-role">
               {{ getRoleLabel(msg.role).replace(':', '') }}
             </div>
-
             <div
+              v-if="msg.content"
               class="message-content markdown-body"
               v-html="renderMarkdown(msg.content)"
             ></div>
           </div>
         </div>
 
+        <!-- Live events from SSE (tool calls, results, lifecycle) -->
+        <!-- Each event type rendered independently — no v-else-if, so unknown types render nothing -->
+        <ToolCallBlock
+          v-for="(ev, idx) in toolCallEvents"
+          :key="'tc-' + idx"
+          :name="getToolCallPayload(ev).function.name"
+          :args="getToolCallPayload(ev).function.arguments"
+        />
+        <ToolResultBlock
+          v-for="(ev, idx) in toolResultEvents"
+          :key="'tr-' + idx"
+          :name="getToolResPayload(ev).name"
+          :result="getToolResPayload(ev).result"
+          :error="getToolResPayload(ev).error"
+        />
+        <LifecycleMessage
+          v-for="(ev, idx) in lifecycleEvents"
+          :key="'lc-' + idx"
+          :phase="(ev.payload as any).phase"
+          :payload="(ev.payload as any)"
+        />
+
+        <!-- Streaming content (replaces loading spinner) -->
         <div
-          v-if="loading && isLastMessageUser"
+          v-if="loading && hasStreamingContent"
           class="message-wrapper message-wrapper--assistant"
         >
-          <div
-            class="message-bubble message-bubble--assistant typing-indicator"
-          >
+          <div class="message-bubble message-bubble--assistant">
+            <div class="message-role">Assistant</div>
+            <div
+              class="message-content markdown-body"
+              v-html="renderMarkdown(streamingContent)"
+            ></div>
+          </div>
+        </div>
+
+        <!-- Fallback loading spinner when SSE hasn't started yet -->
+        <div
+          v-if="loading && !hasStreamingContent && isLastMessageUser"
+          class="message-wrapper message-wrapper--assistant"
+        >
+          <div class="message-bubble message-bubble--assistant typing-indicator">
             <span></span><span></span><span></span>
           </div>
         </div>
@@ -272,6 +394,12 @@ const isLastMessageUser = computed(() => {
 <style scoped lang="postcss">
 .assistant-shell {
   @apply h-full flex bg-gray-800 rounded-lg overflow-hidden border border-white/5;
+}
+
+/* Sidebar Toggle */
+.sidebar-toggle {
+  @apply w-8 shrink-0 flex items-center justify-center bg-gray-800/30 hover:bg-gray-700 text-gray-500 hover:text-gray-300 transition-colors cursor-pointer border-r border-gray-700;
+  @apply focus:outline-none;
 }
 
 /* Sidebar */
@@ -402,6 +530,38 @@ const isLastMessageUser = computed(() => {
 
 .message-content {
   @apply text-sm leading-relaxed;
+}
+
+.message-bubble--tool {
+  @apply bg-gray-800 text-gray-200 border border-yellow-500/30 rounded-tl-sm;
+}
+
+.tool-result-details {
+  @apply cursor-pointer outline-none;
+}
+
+.tool-result-summary {
+  @apply flex items-center gap-2 select-none hover:opacity-80 transition-opacity outline-none list-none text-sm;
+}
+
+.tool-result-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-result-icon {
+  @apply text-sm;
+}
+
+.tool-result-hint {
+  @apply text-gray-600 text-[10px] italic;
+}
+
+.tool-result-body {
+  @apply bg-[#161b22] border border-gray-800 rounded p-3 mt-2 text-[11px] text-green-500/80 overflow-y-auto max-h-80 whitespace-pre-wrap;
+}
+
+.tool-call-inline {
+  @apply mt-2;
 }
 
 /* Base markdown styles to ensure tables/code blocks fit */
