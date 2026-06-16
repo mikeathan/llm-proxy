@@ -2,6 +2,7 @@
 import { ref, onMounted, watch, computed } from "vue";
 import { useAssistant } from "../../../composables/useAssistant";
 import { marked } from "marked";
+import { formatToolResultValue, hasStructuredData, formatToolResultRaw } from "../../../utils/format";
 import { formatTime } from "../../../utils/time";
 import { getRoleLabel } from "../../../domain/assistant";
 import { getToolCallPayload, getToolResPayload } from "../../../utils/dispatcher";
@@ -113,27 +114,9 @@ const toolCallEvents = computed(() => liveEvents.value.filter(ev => ev.type === 
 const toolResultEvents = computed(() => liveEvents.value.filter(ev => ev.type === 'tool_result'))
 const lifecycleEvents = computed(() => liveEvents.value.filter(ev => ev.type === 'lifecycle'))
 
-const toolResultContent = (tr: any): string => {
-  if (!tr) return ""
-  if (typeof tr.result === "string") return tr.result
-  if (typeof tr.result === "object" && tr.result !== null) {
-    if (typeof tr.result.content === "string") return tr.result.content
-    return JSON.stringify(tr.result, null, 2)
-  }
-  return ""
-}
-
-const hasRawData = (tr: any): boolean => {
-  if (!tr) return false
-  if (typeof tr.result === "string") return false
-  if (typeof tr.result === "object" && tr.result !== null && typeof tr.result.content === "string") return true
-  return typeof tr.result === "object" && tr.result !== null
-}
-
-const toolResultRaw = (tr: any): string => {
-  if (!tr) return ""
-  return JSON.stringify(tr.result, null, 2)
-}
+const toolResultContent = (tr: any) => formatToolResultValue(tr?.result)
+const hasRawData = (tr: any) => hasStructuredData(tr?.result)
+const toolResultRaw = (tr: any) => formatToolResultRaw(tr?.result)
 </script>
 
 <template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { marked } from "marked";
-import { TOOL_RESULT_ICON, GUARDRAIL_ICON } from "../../../constants/icons";
+import CopyButton from "../../../components/common/CopyButton.vue";
+import { TEXT_EVENT_TOOL_RESULT, TEXT_EVENT_GUARDRAIL_BLOCKED } from "../../../constants/icons";
 import {
   getRoleLabel,
   getRoleClass,
@@ -79,18 +80,18 @@ defineProps<{
         <div v-else-if="ev.type === 'tool_result'" class="event-result">
           <details class="res-details">
             <summary class="res-summary">
-              <span class="res-icon">{{ TOOL_RESULT_ICON }}</span>
+              <span class="res-icon">{{ TEXT_EVENT_TOOL_RESULT }}</span>
               <span class="res-name"
                 >{{ getToolResPayload(ev).name }} finished</span
               >
-              <CopyButton
-                :text="getToolResPayload(ev).result"
-                iconSize="sm"
-                class="btn-copy-mini"
-                title="Copy result"
-              />
               <span class="res-hint">(click to view result)</span>
             </summary>
+            <CopyButton
+              :text="getToolResPayload(ev).result"
+              iconSize="sm"
+              class="btn-copy-mini result-copy-btn"
+              title="Copy result"
+            />
             <pre class="res-data">{{
               typeof getToolResPayload(ev).result === "string"
                 ? getToolResPayload(ev).result
@@ -104,7 +105,7 @@ defineProps<{
           class="event-violation"
         >
           <div class="violation-header">
-            <span class="violation-icon">{{ GUARDRAIL_ICON }}</span>
+            <span class="violation-icon">{{ TEXT_EVENT_GUARDRAIL_BLOCKED }}</span>
             <span class="violation-title"
               >Guardrail Blocked:
               {{ getViolationPayload(ev).tool || "Unknown Tool" }}</span
@@ -205,6 +206,17 @@ defineProps<{
 
 .event-result {
   @apply border-l-green-500/50;
+}
+
+.res-details {
+  @apply relative;
+}
+
+.result-copy-btn {
+  @apply absolute top-0 right-0 z-10 opacity-0 transition-opacity;
+}
+.res-details:hover .result-copy-btn {
+  @apply opacity-100;
 }
 
 .res-summary {

@@ -27,10 +27,13 @@ export const LIFECYCLE_ICONS: Record<string, string> = {
   fallback_completed: "✅",
 }
 
-// ── Tool event icons ──
-export const TOOL_CALL_ICON = "🛠️"
-export const TOOL_RESULT_ICON = "✅"
-export const GUARDRAIL_ICON = "🛑"
+// ── Tool event emojis for plain-text formatting (dispatcher.ts text export) ──
+// These are NOT used in Vue templates — UI tool calls/results use SVG icons
+// from assets/svg/ via Icon.vue.  These are only referenced by getEventIcon()
+// for plain-text copy/paste output.
+export const TEXT_EVENT_TOOL_CALL = "🛠️"
+export const TEXT_EVENT_TOOL_RESULT = "✅"
+export const TEXT_EVENT_GUARDRAIL_BLOCKED = "🛑"
 
 // ── Common UI icons ──
 export const CHAT_ICON = "💬"
@@ -57,6 +60,8 @@ export const getPhaseMessage = (phase: string, payload: Record<string, any>): st
       return `${LIFECYCLE_ICONS[phase]} Waiting for non-streaming response... (elapsed: ${payload.elapsed || "0s"})`
     case "fallback_completed":
       return `${LIFECYCLE_ICONS[phase]} Fallback completed successfully`
+    case "completed":
+      return ``
     default:
       return ""
   }
@@ -65,10 +70,10 @@ export const getPhaseMessage = (phase: string, payload: Record<string, any>): st
 // ── Event-to-icon mapping used by text formatters ──
 export const getEventIcon = (type: string): string => {
   switch (type) {
-    case "tool_call": return TOOL_CALL_ICON
-    case "tool_result": return TOOL_RESULT_ICON
-    case "guardrail_violation": return GUARDRAIL_ICON
-    case "guardrail_blocked": return GUARDRAIL_ICON
+    case "tool_call": return TEXT_EVENT_TOOL_CALL
+    case "tool_result": return TEXT_EVENT_TOOL_RESULT
+    case "guardrail_violation": return TEXT_EVENT_GUARDRAIL_BLOCKED
+    case "guardrail_blocked": return TEXT_EVENT_GUARDRAIL_BLOCKED
     case "lifecycle": return ""
     default: return ""
   }

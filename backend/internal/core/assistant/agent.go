@@ -92,9 +92,8 @@ type Agent struct {
 	workspaceID     string
 	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
 	prefillDisabled   bool  // set true after first prefill rejection by server
-	usePrefill        bool  // automation mode prefill (<tool_call> stub)
+	usePrefill        bool  // enable <tool_call> stub prefill for XML-text models
 	memoryInjected    bool  // one-time injection at session start; no per-turn re-inject
-	suppressReasoningBudget bool               // XML fallback: skip interceptor budget check and API budget fields
 	skipStuckCheck          bool               // XML fallback: disable stuck detection
 	
 	orch            *orchestrator.Orchestrator
@@ -102,7 +101,8 @@ type Agent struct {
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
 
-	memoryStore *memory.Store // nil when memory is disabled
+	memoryStore     *memory.Store // nil when memory is disabled
+	enableHotMemory bool          // inject hot memory at session start
 }
 
 type AgentOptions struct {
@@ -125,6 +125,8 @@ type AgentOptions struct {
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
 	MemoryStore              *memory.Store      // nil when memory is disabled
+
+	EnableHotMemory bool // inject hot memory at session start
 }
 
 type GuardrailDecisionStore struct {
@@ -313,7 +315,8 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		modelName:       opts.ModelName,
 		providerType:    opts.ProviderType,
 		planStrategy:    opts.PlanStrategy,
-		memoryStore:     opts.MemoryStore,
+		memoryStore:   opts.MemoryStore,
+		enableHotMemory: opts.EnableHotMemory,
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
 	return a

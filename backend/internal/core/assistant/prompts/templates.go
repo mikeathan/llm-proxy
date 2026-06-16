@@ -283,6 +283,15 @@ const AutomationContentTooLongPrompt = "TOO LONG: The content you tried to write
 	"All chunks go into ONE file.\n\n" +
 	"Respond with ONLY a tool call. Nothing else."
 
+// AutomationJSONSyntaxPrompt is sent when the JSON inside a tool call argument
+// has syntax errors (unescaped quotes, missing closing braces).  The model
+// needs to escape any double quotes inside string values with backslash.
+const AutomationJSONSyntaxPrompt = "JSON SYNTAX ERROR: The arguments in your tool call have unescaped quotes or special characters.\n\n" +
+	"All double quotes inside string values must be escaped with a backslash: `\\\"`.\n" +
+	"Newlines inside strings are fine — do NOT escape them. Example:\n\n" +
+	"  {\"content\": \"The file says \\\"hello\\\" and \\\"goodbye\\\".\"}\n\n" +
+	"Fix the quoting and retry with a valid tool call."
+
 // It asks the model to output its intended actions as a JSON array so the backend
 // can execute the plan directly without relying on XML parsing.
 const AutomationJSONPlanPrompt = `XML tool calling failed. Switch to JSON PLAN MODE.

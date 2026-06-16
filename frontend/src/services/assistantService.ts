@@ -6,12 +6,13 @@ import type {
 } from '../types/assistant'
 
 export class AssistantService {
-  static async sendMessage(payload: ChatRequestPayload): Promise<ChatResponsePayload> {
+  static async sendMessage(payload: ChatRequestPayload, signal?: AbortSignal): Promise<ChatResponsePayload> {
     const res = await fetch('/admin/api/conversation/message', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal,
       body: JSON.stringify({
         workspace_id: payload.workspace_id,
         conversation_id: payload.conversation_id || '',

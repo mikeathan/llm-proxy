@@ -71,6 +71,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/discovery/discovery-panel-implementation.md` | Discovery Panel Implementation | not_implemented | — | SPEC-003 |
 | `docs/PLANS/agent-loop/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
 | `docs/PLANS/agent-loop/tool-failure-skip.md` | Graceful Tool Failure Recovery | complete | 2026-05-31 | SPEC-001 |
+| `docs/PLANS/agent-loop/unify-assistant-automation.md` | Unify Assistant & Automation Agent Paths | complete | 2026-06-15 | SPEC-001 |
 | `docs/PLANS/cross-cutting/plan-recordings.md` | Recording Playback for Automations | not_implemented | — | — |
 | `docs/PLANS/cross-cutting/per-run-output-directories.md` | Per-Run Output Directories | draft | 2026-06-05 | — |
 | `docs/PLANS/cross-cutting/system-blueprint.md` | System Blueprint: LLM-Proxy | reference | — | all |

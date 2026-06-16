@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import CopyButton from "./CopyButton.vue";
-import { TOOL_RESULT_ICON } from "../../constants/icons";
+import { TEXT_EVENT_TOOL_RESULT } from "../../constants/icons";
 
 const props = defineProps<{
   name: string;
@@ -20,11 +20,11 @@ const resultText = computed(() =>
   <div class="tool-result-block">
     <details class="res-details">
       <summary class="res-summary">
-        <span class="res-icon">{{ TOOL_RESULT_ICON }}</span>
+        <span class="res-icon">{{ TEXT_EVENT_TOOL_RESULT }}</span>
         <span class="res-name">{{ name }} finished</span>
-        <CopyButton :text="resultText" class="btn-copy-mini ml-1" />
         <span class="res-hint ml-1">(click to view)</span>
       </summary>
+      <CopyButton :text="resultText" class="btn-copy-mini summary-copy-btn" />
       <pre class="res-body">{{ resultText }}</pre>
     </details>
   </div>
@@ -36,7 +36,14 @@ const resultText = computed(() =>
 }
 
 .res-details {
-  @apply cursor-pointer outline-none;
+  @apply cursor-pointer outline-none relative;
+}
+
+.summary-copy-btn {
+  @apply absolute top-0 right-0 z-10 opacity-0 transition-opacity;
+}
+.res-details:hover .summary-copy-btn {
+  @apply opacity-100;
 }
 
 .res-summary {

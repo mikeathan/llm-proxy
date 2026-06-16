@@ -11,23 +11,20 @@ import (
 
 func TestIsSecurePath(t *testing.T) {
 	tmpDir := t.TempDir()
-	
-	// Create a simulated structure
+
 	ws1 := filepath.Join(tmpDir, models.WorkspacesDirName, "workspace-1")
 	ws11 := filepath.Join(tmpDir, models.WorkspacesDirName, "workspace-11")
 	other := filepath.Join(tmpDir, "outside")
-	
+
 	_ = os.MkdirAll(ws1, 0755)
 	_ = os.MkdirAll(ws11, 0755)
 	_ = os.MkdirAll(other, 0755)
 
 	allowedRoots := []string{ws1}
 
-	// Create symlink escape
 	escapeLink := filepath.Join(ws1, "escape")
 	_ = os.Symlink(other, escapeLink)
 
-	// Create symlink in parent directory
 	parentLinkDir := filepath.Join(ws1, "parent-link")
 	_ = os.MkdirAll(parentLinkDir, 0755)
 	_ = os.Symlink(other, filepath.Join(parentLinkDir, "evil-link"))
@@ -37,41 +34,13 @@ func TestIsSecurePath(t *testing.T) {
 		path    string
 		allowed bool
 	}{
-		{
-			name:    "file inside workspace",
-			path:    filepath.Join(ws1, "test.txt"),
-			allowed: true,
-		},
-		{
-			name:    "workspace root itself",
-			path:    ws1,
-			allowed: true,
-		},
-		{
-			name:    "file in similar-named workspace (JAILBREAK ATTEMPT)",
-			path:    filepath.Join(ws11, "secret.txt"),
-			allowed: false, // Should be false because of ws1 prefix vs ws11
-		},
-		{
-			name:    "file totally outside",
-			path:    filepath.Join(other, "foo.txt"),
-			allowed: false,
-		},
-		{
-			name:    "traversal attempt",
-			path:    filepath.Join(ws1, "..", "workspace-11", "secret.txt"),
-			allowed: false,
-		},
-		{
-			name:    "symlink escape attempt (SEC-H1)",
-			path:    filepath.Join(ws1, "escape", "secret.txt"),
-			allowed: false,
-		},
-		{
-			name:    "parent symlink escape attempt (SEC-H1)",
-			path:    filepath.Join(ws1, "parent-link", "evil-link", "secret.txt"),
-			allowed: false,
-		},
+		{name: "file inside workspace", path: filepath.Join(ws1, "test.txt"), allowed: true},
+		{name: "workspace root itself", path: ws1, allowed: true},
+		{name: "similar-named workspace", path: filepath.Join(ws11, "secret.txt"), allowed: false},
+		{name: "file totally outside", path: filepath.Join(other, "foo.txt"), allowed: false},
+		{name: "traversal attempt", path: filepath.Join(ws1, "..", "workspace-11", "secret.txt"), allowed: false},
+		{name: "symlink escape", path: filepath.Join(ws1, "escape", "secret.txt"), allowed: false},
+		{name: "parent symlink escape", path: filepath.Join(ws1, "parent-link", "evil-link", "secret.txt"), allowed: false},
 	}
 
 	for _, tt := range tests {
@@ -80,6 +49,52 @@ func TestIsSecurePath(t *testing.T) {
 			isAllowed := err == nil
 			if isAllowed != tt.allowed {
 				t.Errorf("IsSecurePath(%q) allowed = %v, want %v (err: %v)", tt.path, isAllowed, tt.allowed, err)
+			}
+		})
+	}
+}
+
+func TestIsSecurePath_EdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(wsDir, 0755)
+
+	runsDir := filepath.Join(tmpDir, "runs")
+	_ = os.MkdirAll(runsDir, 0755)
+
+	wsSimilar := filepath.Join(tmpDir, "workspace-similar")
+	_ = os.MkdirAll(wsSimilar, 0755)
+
+	outsideDir := filepath.Join(tmpDir, "outside")
+	_ = os.MkdirAll(outsideDir, 0755)
+	_ = os.Symlink(outsideDir, filepath.Join(wsDir, "escape-link"))
+
+	chain1 := filepath.Join(wsDir, "chain1")
+	chain2 := filepath.Join(tmpDir, "chain2")
+	_ = os.Symlink(chain2, chain1)
+	_ = os.Symlink(runsDir, chain2)
+
+	allowed := []string{wsDir}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{name: "inside workspace", path: filepath.Join(wsDir, "test.txt"), wantErr: false},
+		{name: "sibling same prefix", path: filepath.Join(wsSimilar, "test.txt"), wantErr: true},
+		{name: "outside runs", path: filepath.Join(runsDir, "recording.jsonl"), wantErr: true},
+		{name: "symlink escape", path: filepath.Join(wsDir, "escape-link", "secret.txt"), wantErr: true},
+		{name: "symlink chain", path: filepath.Join(wsDir, "chain1", "secret.txt"), wantErr: true},
+		{name: "root itself", path: wsDir, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := IsSecurePath(tt.path, allowed)
+			gotErr := err != nil
+			if gotErr != tt.wantErr {
+				t.Errorf("IsSecurePath(%q) error = %v, wantErr = %v", tt.path, gotErr, tt.wantErr)
 			}
 		})
 	}
@@ -105,8 +120,6 @@ func TestFileSystemTools_EditFileBlock_NormalizeBlock(t *testing.T) {
 	}
 }
 
-
-
 func TestFileSystemTools_EditFileBlock(t *testing.T) {
 	tmpDir := t.TempDir()
 	tools := NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
@@ -116,7 +129,6 @@ func TestFileSystemTools_EditFileBlock(t *testing.T) {
 		}
 	})
 
-	// Helper to create a file.
 	create := func(name, content string) {
 		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0600); err != nil {
 			t.Fatalf("create %s: %v", name, err)
@@ -209,14 +221,12 @@ func TestFileSystemTools_WriteFile_AnyLength(t *testing.T) {
 		}
 	})
 
-	// Short content should succeed.
 	shortFile := filepath.Join(tmpDir, "short.txt")
 	err := tools.WriteFile(context.Background(), shortFile, "short content")
 	if err != nil {
 		t.Fatalf("WriteFile short content should succeed: %v", err)
 	}
 
-	// Long content (over 800 chars) should also succeed — no artificial limit.
 	longFile := filepath.Join(tmpDir, "long.txt")
 	longContent := strings.Repeat("x", 5000)
 	err = tools.WriteFile(context.Background(), longFile, longContent)
@@ -224,7 +234,6 @@ func TestFileSystemTools_WriteFile_AnyLength(t *testing.T) {
 		t.Fatalf("WriteFile long content should succeed: %v", err)
 	}
 
-	// Verify the full content was written.
 	readback, err := os.ReadFile(longFile)
 	if err != nil {
 		t.Fatalf("ReadFile after long write failed: %v", err)
@@ -233,8 +242,6 @@ func TestFileSystemTools_WriteFile_AnyLength(t *testing.T) {
 		t.Fatalf("expected full content to match, got %d of %d chars", len(readback), len(longContent))
 	}
 }
-
-
 
 func TestFileSystemTools_WritePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -256,9 +263,194 @@ func TestFileSystemTools_WritePermissions(t *testing.T) {
 		t.Fatalf("Stat failed: %v", err)
 	}
 
-	// Mode() returns FileMode. On Unix, the bottom 9 bits are permissions.
-	// We expect 0600 (-rw-------)
 	if mode := info.Mode().Perm(); mode != 0600 {
 		t.Errorf("Expected permissions 0600, got %o", mode)
+	}
+}
+
+// ── Security path validation tests ──
+
+func TestValidateFileSystemPath_Security(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(wsDir, 0755)
+
+	runsDir := filepath.Join(tmpDir, "runs")
+	_ = os.MkdirAll(runsDir, 0755)
+
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{wsDir},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{name: "file inside workspace", path: "test.txt", wantErr: false},
+		{name: "subdirectory", path: "subdir/file.txt", wantErr: false},
+		{name: "parent traversal", path: "../outside.txt", wantErr: true},
+		{name: "deep traversal", path: "../../etc/passwd", wantErr: true},
+		{name: "traversal into runs", path: "../runs/recording.jsonl", wantErr: true},
+		{name: "hidden directory", path: ".secret/config.yml", wantErr: true},
+		{name: "hidden file", path: ".env", wantErr: true},
+		{name: "hidden in subdir", path: "subdir/.secret.txt", wantErr: true},
+		{name: "current dir", path: ".", wantErr: false},
+		{name: "empty path", path: "", wantErr: false}, // resolved to workspace root
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := NewFileSystemTools(cfg)
+			_, err := f.ValidatePath(context.Background(), tt.path, false)
+			if gotErr := err != nil; gotErr != tt.wantErr {
+				t.Errorf("ValidatePath(%q) error = %v, wantErr = %v", tt.path, gotErr, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateFileSystemPath_AbsoluteOutside(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	runsDir := filepath.Join(tmpDir, "runs")
+	_ = os.MkdirAll(wsDir, 0755)
+	_ = os.MkdirAll(runsDir, 0755)
+
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{wsDir},
+		}
+	}
+
+	f := NewFileSystemTools(cfg)
+
+	absOutsidePaths := []string{
+		runsDir,
+		filepath.Join(runsDir, "recording.jsonl"),
+		"/etc/passwd",
+		"/tmp",
+	}
+
+	for _, p := range absOutsidePaths {
+		t.Run(filepath.Base(p), func(t *testing.T) {
+			_, err := f.ValidatePath(context.Background(), p, false)
+			if err == nil {
+				t.Errorf("expected error for absolute path outside workspace: %s", p)
+			}
+		})
+	}
+}
+
+func TestValidateFileSystemPath_BlockedFilenames(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(wsDir, 0755)
+
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:          true,
+			AllowedPaths:     []string{wsDir},
+			BlockedFilenames: []string{".env", "config.json", "secrets"},
+		}
+	}
+
+	f := NewFileSystemTools(cfg)
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{name: "allowed", path: "notes.txt", wantErr: false},
+		{name: "blocked exact", path: ".env", wantErr: true},
+		{name: "blocked prefix", path: "secrets.yaml", wantErr: true},
+		{name: "blocked in subdir", path: "subdir/.env", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := f.ValidatePath(context.Background(), tt.path, false)
+			if gotErr := err != nil; gotErr != tt.wantErr {
+				t.Errorf("ValidatePath(%q) error = %v, wantErr = %v", tt.path, gotErr, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateFileSystemPath_ReadOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(wsDir, 0755)
+
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			ReadOnly:     true,
+			AllowedPaths: []string{wsDir},
+		}
+	}
+
+	f := NewFileSystemTools(cfg)
+
+	_, err := f.ValidatePath(context.Background(), "test.txt", false)
+	if err != nil {
+		t.Errorf("read should work: %v", err)
+	}
+
+	_, err = f.ValidatePath(context.Background(), "test.txt", true)
+	if err == nil {
+		t.Error("write should fail in read-only mode")
+	}
+}
+
+func TestValidateFileSystemPath_NoAllowedRoots(t *testing.T) {
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{},
+		}
+	}
+
+	f := NewFileSystemTools(cfg)
+	_, err := f.ValidatePath(context.Background(), "test.txt", false)
+	if err == nil {
+		t.Error("expected error when no allowed roots")
+	}
+}
+
+func TestValidateFileSystemPath_BlockedSystemFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(wsDir, 0755)
+
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{wsDir},
+		}
+	}
+
+	f := NewFileSystemTools(cfg)
+
+	systemFiles := []string{
+		models.ConfigFilename,
+		models.StateFilename,
+		models.LockFilename,
+		models.SystemConfigFilename,
+		models.SecretsFilename,
+		models.RegistryFilename,
+	}
+	for _, name := range systemFiles {
+		t.Run(name, func(t *testing.T) {
+			_, err := f.ValidatePath(context.Background(), name, true)
+			if err == nil {
+				t.Errorf("expected error for system file: %s", name)
+			}
+		})
 	}
 }

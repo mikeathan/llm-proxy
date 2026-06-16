@@ -75,12 +75,26 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "# Summary\nHello world"}},
+				{Message: proxy.Message{
+					Role: "assistant",
+					ToolCalls: []proxy.ToolCall{{
+						ID:   "call_submit",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      models.ToolSubmitFinalAnswer,
+							Arguments: `{"summary": "# Summary\nHello world"}`,
+						},
+					}},
+				}},
 			},
 		},
 	}
-	provider := &MockProvider{}
-	engine := &MockEngine{}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
 	
@@ -92,8 +106,8 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	if reply != "# Summary\nHello world" {
 		t.Errorf("Expected '# Summary\nHello world', got '%s'", reply)
 	}
-	if len(history) != 2 { // user + assistant
-		t.Errorf("Expected history length 2, got %d", len(history))
+	if len(history) != 4 { // user + assistant(submit) + tool result + reply
+		t.Errorf("Expected history length 4, got %d", len(history))
 	}
 	if client.Calls != 1 {
 		t.Errorf("Expected 1 client call, got %d", client.Calls)
@@ -127,6 +141,7 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "get_weather"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
 		},
 	}
 	engine := &MockEngine{Result: "Sunny"}
@@ -167,7 +182,17 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 		
 		return &proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "# Summary\nIt is sunny in London."}},
+				{Message: proxy.Message{
+					Role: "assistant",
+					ToolCalls: []proxy.ToolCall{{
+						ID:   "call_submit",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      models.ToolSubmitFinalAnswer,
+							Arguments: `{"summary": "# Summary\nIt is sunny in London."}`,
+						},
+					}},
+				}},
 			},
 		}, nil
 	}
@@ -183,8 +208,8 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	if client.Calls != 2 {
 		t.Errorf("Expected 2 client calls, got %d", client.Calls)
 	}
-	if len(history) != 4 { // user + assistant (tc) + tool result + assistant (final)
-		t.Errorf("Expected history length 4, got %d", len(history))
+	if len(history) != 6 { // user + assistant(tc) + tool result + assistant(submit) + tool result + reply
+		t.Errorf("Expected history length 6, got %d", len(history))
 	}
 }
 
@@ -359,13 +384,29 @@ func TestAgent_Execute_StreamEmptyFallback(t *testing.T) {
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			callCount++
 			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", Content: "Fallback response"}}},
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "Fallback response"}`,
+							},
+						}},
+					},
+				}},
 			}, nil
 		},
 	}
 
-	provider := &MockProvider{}
-	engine := &MockEngine{}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:      5,
@@ -957,13 +998,27 @@ func TestAgent_ToolSupportFallback(t *testing.T) {
 			}
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
-					{Message: proxy.Message{Role: "assistant", Content: "Fallback without tools."}},
+					{Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "Fallback without tools."}`,
+							},
+						}},
+					}},
 				},
 			}, nil
 		},
 	}
-	provider := &MockProvider{}
-	engine := &MockEngine{}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
 	reply, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Hi"}})
@@ -1011,29 +1066,12 @@ func TestAgent_ParseErrorStreakNotification(t *testing.T) {
 		events = append(events, ev)
 	}
 
-	// Use automation marker so the agent doesn't exit on first step
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " read the file"},
 	})
 
-	if err == nil {
-		t.Fatal("expected error after exhausting retries with persistent parse errors")
-	}
-	if !strings.Contains(err.Error(), "stalled") {
-		t.Errorf("expected stalled agent error, got: %v", err)
-	}
-
-	// Should have received a model compat warning from the streak
-	compatWarnings := 0
-	for _, ev := range events {
-		if ev.Type == EventMessage {
-			if msg, ok := ev.Payload.(proxy.Message); ok && strings.Contains(msg.Content, "model is not generating valid tool calls") {
-				compatWarnings++
-			}
-		}
-	}
-	if compatWarnings == 0 {
-		t.Error("expected at least one model compat warning notification")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
 	}
 }
 
@@ -1055,18 +1093,17 @@ func TestAgent_PrematureTerminationInAutomation(t *testing.T) {
 
 	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
 
-	// Trigger automation mode via the automation marker in user content
 	history := []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " some task"},
 	}
 
-	_, _, err := agent.Execute(context.Background(), history)
+	reply, _, err := agent.Execute(context.Background(), history)
 
-	if err == nil {
-		t.Fatal("expected stalled agent error in automation mode without tool calls")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "stalled") {
-		t.Errorf("expected stalled agent error, got: %v", err)
+	if reply != "Chatting instead of using tools." {
+		t.Errorf("expected model output, got: %s", reply)
 	}
 }
 
@@ -1093,7 +1130,17 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 			}
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
-					{Message: proxy.Message{Role: "assistant", Content: "It is sunny."}},
+					{Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "It is sunny."}`,
+							},
+						}},
+					}},
 				},
 			}, nil
 		},
@@ -1101,6 +1148,7 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "get_weather"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
 		},
 	}
 	engine := &MockEngine{Result: `"Sunny"`}
@@ -1176,12 +1224,26 @@ func TestAgent_PhysicalContextSieve(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "# Summary\nDone"}},
+				{Message: proxy.Message{
+					Role: "assistant",
+					ToolCalls: []proxy.ToolCall{{
+						ID:   "call_submit",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      models.ToolSubmitFinalAnswer,
+							Arguments: `{"summary": "# Summary\nDone"}`,
+						},
+					}},
+				}},
 			},
 		},
 	}
-	provider := &MockProvider{}
-	engine := &MockEngine{}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:      5,
@@ -1398,6 +1460,7 @@ func TestAgent_Execute_GuardrailDecisionApproval(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
 		},
 	}
 	engine := &MockEngine{Result: "success"}
@@ -1485,6 +1548,7 @@ func TestAgent_Execute_GuardrailDecisionDenial(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
 		},
 	}
 	engine := &MockEngine{Result: "success"}
@@ -1666,8 +1730,8 @@ func TestAgent_Execute_NativeToolsSetsToolChoice(t *testing.T) {
 	if capturedReq.ToolChoice != proxy.ToolChoiceRequired {
 		t.Errorf("expected ToolChoice=%q, got %q", proxy.ToolChoiceRequired, capturedReq.ToolChoice)
 	}
-	if capturedReq.Temperature != 0.1 {
-		t.Errorf("expected Temperature=0.1 for automation, got %f", capturedReq.Temperature)
+	if capturedReq.Temperature != 0 {
+		t.Errorf("expected Temperature=0 (not configured), got %f", capturedReq.Temperature)
 	}
 	if capturedReq.ReasoningBudget != 0 {
 		t.Errorf("expected zero ReasoningBudget (not configured), got %d", capturedReq.ReasoningBudget)
@@ -1703,8 +1767,8 @@ func TestAgent_Execute_NativeToolsTemperatureSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if capturedReq.Temperature != 0.1 {
-		t.Errorf("expected Temperature=0.1 for automation, got %f", capturedReq.Temperature)
+	if capturedReq.Temperature != 0 {
+		t.Errorf("expected Temperature=0 (not configured), got %f", capturedReq.Temperature)
 	}
 }
 
@@ -1745,8 +1809,8 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	if capturedReq.ToolChoice != "" {
 		t.Errorf("expected empty ToolChoice for XML mode, got %q", capturedReq.ToolChoice)
 	}
-	if capturedReq.Temperature != 0.1 {
-		t.Errorf("expected Temperature=0.1 for XML mode (automation), got %f", capturedReq.Temperature)
+	if capturedReq.Temperature != 0 {
+		t.Errorf("expected Temperature=0 (not configured), got %f", capturedReq.Temperature)
 	}
 	if capturedReq.ReasoningBudget != 0 {
 		t.Errorf("expected zero ReasoningBudget (not configured), got %d", capturedReq.ReasoningBudget)
@@ -3258,7 +3322,7 @@ func TestPrepareChatRequest_ZeroReasoningBudget(t *testing.T) {
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the task."},
 	}
 
-	req := agent.buildChatRequest(prepared, nil, true)
+	req := agent.buildChatRequest(prepared, nil)
 
 	if agent.reasoningBudget != 0 {
 		t.Errorf("expected agent.reasoningBudget = 0 for non-reasoning model, got %d", agent.reasoningBudget)
@@ -3294,7 +3358,7 @@ func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the task."},
 	}
 
-	req := agent.buildChatRequest(prepared, nil, true)
+	req := agent.buildChatRequest(prepared, nil)
 
 	if agent.reasoningBudget != explicitBudget {
 		t.Errorf("expected agent.reasoningBudget = %d, got %d", explicitBudget, agent.reasoningBudget)
@@ -3307,7 +3371,7 @@ func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
 	}
 }
 
-func TestPrepareChatRequest_NonAutomation_SkipsReasoningBudget(t *testing.T) {
+func TestPrepareChatRequest_ZeroBudgetHasNoEffect(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
@@ -3326,19 +3390,19 @@ func TestPrepareChatRequest_NonAutomation_SkipsReasoningBudget(t *testing.T) {
 
 	prepared := []proxy.Message{
 		{Role: proxy.SystemRole, Content: "system prompt"},
-		{Role: proxy.UserRole, Content: "plain chat message - not automation"},
+		{Role: proxy.UserRole, Content: "plain chat message"},
 	}
 
-	req := agent.buildChatRequest(prepared, nil, false)
+	req := agent.buildChatRequest(prepared, nil)
 
 	if agent.reasoningBudget != 0 {
-		t.Errorf("expected agent.reasoningBudget to remain 0 in non-automation, got %d", agent.reasoningBudget)
+		t.Errorf("expected agent.reasoningBudget = 0, got %d", agent.reasoningBudget)
 	}
 	if req.ReasoningBudget != 0 {
-		t.Errorf("expected req.ReasoningBudget to be 0 in non-automation, got %d", req.ReasoningBudget)
+		t.Errorf("expected req.ReasoningBudget = 0, got %d", req.ReasoningBudget)
 	}
 	if req.ThinkingBudgetTokens != 0 {
-		t.Errorf("expected req.ThinkingBudgetTokens to be 0 in non-automation, got %d", req.ThinkingBudgetTokens)
+		t.Errorf("expected req.ThinkingBudgetTokens = 0, got %d", req.ThinkingBudgetTokens)
 	}
 }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import CopyButton from "./CopyButton.vue";
-import { TOOL_CALL_ICON } from "../../constants/icons";
+import { TEXT_EVENT_TOOL_CALL } from "../../constants/icons";
 
 const props = defineProps<{
   name: string;
@@ -11,7 +11,7 @@ const props = defineProps<{
 <template>
   <div class="tool-call-block">
     <div class="tool-run-header">
-      <span class="tool-icon">{{ TOOL_CALL_ICON }}</span>
+      <span class="tool-icon">{{ TEXT_EVENT_TOOL_CALL }}</span>
       <span class="tool-name">Executing {{ name }}...</span>
       <CopyButton :text="args" iconSize="sm" class="btn-copy-mini" />
     </div>

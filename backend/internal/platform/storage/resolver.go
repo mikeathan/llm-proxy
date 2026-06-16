@@ -12,6 +12,7 @@ type Resolver interface {
 	MetadataRoot() string
 	WorkspaceDir(id string) string
 	InternalDir(id string) string
+	SessionsDir(id string) string
 	Config(id string) string
 	State(id string) string
 	Lock(id string) string
@@ -58,6 +59,13 @@ func (r *PathResolver) Heartbeat(id string) string {
 // This is now located in the central metadata directory, not inside the workspace.
 func (r *PathResolver) InternalDir(id string) string {
 	return filepath.Join(r.metadataDir, id)
+}
+
+// SessionsDir returns the path to the assistant session files for a workspace.
+// Sessions are stored in the metadata directory, outside the workspace, so the
+// agent cannot read them via file tools.
+func (r *PathResolver) SessionsDir(id string) string {
+	return filepath.Join(r.metadataDir, id, "sessions")
 }
 
 func (r *PathResolver) Lock(id string) string {

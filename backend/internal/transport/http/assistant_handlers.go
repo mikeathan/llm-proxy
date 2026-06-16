@@ -61,7 +61,13 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.handleAssistant(r.Context(), payload, log)
+	// Use a background context for agent execution — not tied to the HTTP
+	// request context.  The agent has its own timeouts (GlobalTimeout,
+	// AgentTurnTimeout) so it won't run forever.  This prevents the browser
+	// or a network proxy from killing the agent mid-response when the HTTP
+	// connection is idle.
+	execCtx := context.Background()
+	result, err := h.handleAssistant(execCtx, payload, log)
 	if err != nil {
 		writeJSONError(w, err.Status, err.Message)
 		return
@@ -139,9 +145,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	modelName, _ := h.svc.SelectModels()
 	useNativeTools := false
-	var modelCfg models.ModelConfig
 	if cfg, ok := h.svc.ModelConfig(modelName); ok {
-		modelCfg = cfg
 		useNativeTools = cfg.ToolCallFormat == "native"
 	}
 
@@ -197,7 +201,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
-	// Build agent options matching automation's buildAgentOptions pattern.
+	// Build agent options using the shared builder.
 	var collectedEvents []assistant.AgentEvent
 	publishObs := func(ev assistant.AgentEvent) {
 		collectedEvents = append(collectedEvents, ev)
@@ -207,29 +211,18 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
-	opts := assistant.AgentOptions{
-		Logger:      runLog,
-		MaxSteps:    assistant.DefaultMaxSteps,
-		Guardrails:  h.guardrails,
-		WorkspaceID: payload.WorkspaceID,
-		ModelName:   modelName,
-		Observer:    publishObs,
-		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
-			h.svc.GuardrailDecisionStore(),
-			publishObs,
-		),
-	}
+	builder := NewAgentBuilder(h.svc).
+		WithLogger(runLog).
+		WithGuardrails().
+		WithWorkspaceID(payload.WorkspaceID).
+		WithModelName(modelName).
+		WithHotMemory(true).
+		WithObserver(publishObs).
+		WithGuardrailDecisionHandler(assistant.NewGuardrailDecisionCallback(h.svc.GuardrailDecisionStore(), publishObs)).
+		WithOrchestrator().
+		WithModelConfig(ctx, modelName, h.provider, client)
 
-	// Apply model config overrides using the shared helper.
-	if opts.ApplyModelConfig(modelCfg) {
-		tools, listErr := h.provider.ListTools(ctx)
-		if listErr == nil && len(tools) > 0 {
-			opts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools, procLog)
-		}
-	}
-	opts.Orchestrator = h.svc.Orchestrator()
-
-	agent := assistant.NewAgent(client, h.provider, h.engine, opts)
+	agent := builder.Build(client, h.provider, h.engine)
 
 	reply, updatedHistory, agErr := agent.Execute(execCtx, session.History)
 
@@ -245,7 +238,28 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	}
 
 	if agErr != nil {
-		log.Error("agent execution failed", "error", agErr)
+		if errors.Is(agErr, context.Canceled) {
+			log.Info("assistant execution canceled by user", "error", agErr)
+			session.History = updatedHistory
+			if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
+				log.Error("failed to save session after cancel", "error", pErr)
+			}
+			eventsJSON := make([]map[string]any, 0, len(collectedEvents))
+			for _, ev := range collectedEvents {
+				eventsJSON = append(eventsJSON, map[string]any{
+					"type":    ev.Type,
+					"payload": ev.Payload,
+				})
+			}
+			return map[string]any{
+				"reply":           reply,
+				"conversation_id": session.ID,
+				"workspace_id":    session.WorkspaceID,
+				"events":          eventsJSON,
+				"canceled":        true,
+			}, nil
+		}
+		log.Error("assistant execution failed", "error", agErr)
 		return nil, &handlerError{Status: http.StatusInternalServerError, Message: agErr.Error()}
 	}
 
@@ -253,23 +267,6 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	session.History = updatedHistory
 	if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
 		log.Error("failed to save session", "error", pErr)
-	}
-
-	// Write run metadata and final report to the run directory.
-	if runDir != nil {
-		if reply != "" {
-			runDir.WriteFinalReport(reply)
-		}
-		meta := automation.RunMeta{
-			Model:      modelName,
-			Task:       session.ID,
-			DurationMs: 0,
-		}
-		if t := assistant.GetUsageTracker(execCtx); t != nil {
-			meta.LLMCalls = t.LLMCalls
-			meta.ToolCalls = t.ToolCalls
-		}
-		runDir.WriteMeta(meta)
 	}
 
 	eventsJSON := make([]map[string]any, 0, len(collectedEvents))
