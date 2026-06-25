@@ -21,9 +21,11 @@ status, and cross-references to related documents. Use this as the starting poin
 | | `docs/skills/agent-loop.md` | Agent Loop & Stuck Detection | Sieve, fallback chain, reasoning budget, spiral detector |
 | | `docs/skills/tool-failure-investigation.md` | Tool Failure Investigation | Error tracing, handler scoping, recovery prompt verification |
 
-| | `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates |
-| | `docs/skills/engineering-practices.md` | Go Engineering Practices | Patterns, code style, architecture rules |
+| | `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates, MockClient patterns |
+| | `docs/skills/engineering-practices.md` | Engineering Practices | Go patterns, code style, frontend icon conventions, file checklists |
+| | `docs/skills/event-streaming-patterns.md` | Event Streaming Patterns | SSE composables, observer chaining, guardrail flow, heartbeat cleanup, dedup |
 | | `docs/skills/llamacpp-setup.md` | llama.cpp Server Setup | Args, GPU tuning, systemd, performance data |
+| | `docs/skills/assistant-ui-chat.md` | Assistant UI Chat Architecture | Event handlers, segment system, inactivity timer, SSE timing, scroll behavior, common pitfalls |
 | | `docs/skills/automation.md` | Automation System | Dispatcher, executor, run lifecycle, templates |
 
 ## Specifications (Behavioral Contracts)
@@ -49,7 +51,8 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/memory/agent-memory-system.md` | Agent Memory System | complete | — | SPEC-004 |
 | `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
 | `docs/PLANS/cross-cutting/interactive-user-input.md` | Interactive User Input (ask_user Tool) | proposed | 2026-06-08 | SPEC-001, SPEC-007 |
-| `docs/PLANS/cross-cutting/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | proposed | 2026-06-09 | SPEC-001, SPEC-003 |
+| `docs/PLANS/cross-cutting/llamacpp-grammar-constraint.md` | GBNF Grammar Constraints for Tool Calls | complete | 2026-06-12 | SPEC-001, SPEC-003 |
+| `docs/PLANS/cross-cutting/assistant-automation-parity.md` | Assistant-Automation Parity + Frontend UX Improvements | complete | 2026-06-12 | SPEC-001, SPEC-006, SPEC-008 |
 | `docs/PLANS/memory/memory-three-tier-redesign.md` | Three-Tier Memory Architecture (scope, mode, keep) | complete | 2026-06-09 | SPEC-004 |
 | `docs/PLANS/memory/memory-tags-system.md` | Memory Tags System | complete | 2026-06-08 | SPEC-004 |
 | `backend/data/templates/memory-cascade-test.md` | Memory Cascade — Persona Recall & Cross-Ref | reference | 2026-06-10 | SPEC-004 |
@@ -67,8 +70,10 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/memory/mbtcp-implementation.md` | MBTCP: Memory-Backed Tool Call Pre-emption | proposed | 2026-06-03 | SPEC-004 |
 | `docs/PLANS/cross-cutting/unified-provider-management.md` | Unified Provider & Model Management | not_implemented | — | — |
 | `docs/PLANS/discovery/discovery-panel-implementation.md` | Discovery Panel Implementation | not_implemented | — | SPEC-003 |
+| `docs/PLANS/assistant-ui/consolidated-streaming-bubbles.md` | Consolidated Streaming Bubbles | complete | 2026-06-17 | SPEC-003 |
 | `docs/PLANS/agent-loop/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
 | `docs/PLANS/agent-loop/tool-failure-skip.md` | Graceful Tool Failure Recovery | complete | 2026-05-31 | SPEC-001 |
+| `docs/PLANS/agent-loop/unify-assistant-automation.md` | Unify Assistant & Automation Agent Paths | complete | 2026-06-15 | SPEC-001 |
 | `docs/PLANS/cross-cutting/plan-recordings.md` | Recording Playback for Automations | not_implemented | — | — |
 | `docs/PLANS/cross-cutting/per-run-output-directories.md` | Per-Run Output Directories | draft | 2026-06-05 | — |
 | `docs/PLANS/cross-cutting/system-blueprint.md` | System Blueprint: LLM-Proxy | reference | — | all |
@@ -95,8 +100,8 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Lines | Audience |
 |------|-------|-------|----------|
 | `README.md` | LLM Proxy — Quick Start & Config | 288 | End users |
-| `CLAUDE.md` | Project Guide — Architecture, Invariants, API | 465 | Developers |
-| `AGENTS.md` | Instructions for AI Coding Assistants | 321 | AI assistants |
+| `AGENTS.md` | Instructions for AI Coding Assistants | 100 | AI assistants |
+| `docs/architecture.md` | Architecture Reference (mappings, contracts, checklists, pitfalls) | 420 | Developers |
 | `CONSTITUTION.md` | Architectural Invariants — The Law | 143 | Everyone |
 
 ## Other Documents

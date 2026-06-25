@@ -92,9 +92,8 @@ type Agent struct {
 	workspaceID     string
 	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
 	prefillDisabled   bool  // set true after first prefill rejection by server
-	usePrefill        bool  // automation mode prefill (<tool_call> stub)
+	usePrefill        bool  // enable <tool_call> stub prefill for XML-text models
 	memoryInjected    bool  // one-time injection at session start; no per-turn re-inject
-	suppressReasoningBudget bool               // XML fallback: skip interceptor budget check and API budget fields
 	skipStuckCheck          bool               // XML fallback: disable stuck detection
 	
 	orch            *orchestrator.Orchestrator
@@ -102,7 +101,8 @@ type Agent struct {
 	providerType    string
 	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
 
-	memoryStore *memory.Store // nil when memory is disabled
+	memoryStore     *memory.Store // nil when memory is disabled
+	enableHotMemory bool          // inject hot memory at session start
 }
 
 type AgentOptions struct {
@@ -125,6 +125,8 @@ type AgentOptions struct {
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
 	MemoryStore              *memory.Store      // nil when memory is disabled
+
+	EnableHotMemory bool // inject hot memory at session start
 }
 
 type GuardrailDecisionStore struct {
@@ -233,6 +235,41 @@ func (o *AgentOptions) applyDefaults() {
 	}
 }
 
+// ApplyModelConfig copies model-level overrides from cfg into the options.
+// Returns true when cfg.EnableExecutionPlan is true and the caller should
+// set opts.PlanStrategy after this call (requires external dependencies).
+func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
+	if cfg.Provider != "" {
+		o.ProviderType = cfg.Provider
+	}
+	if cfg.MaxSteps > 0 {
+		o.MaxSteps = cfg.MaxSteps
+	}
+	if cfg.ContextBudget > 0 {
+		o.ContextBudget = cfg.ContextBudget
+	}
+	if cfg.MaxTokens > 0 {
+		o.MaxResponseTokens = cfg.MaxTokens
+	}
+	if cfg.ReasoningBudget > 0 {
+		o.ReasoningBudget = cfg.ReasoningBudget
+	}
+	if cfg.Temperature > 0 {
+		o.Temperature = cfg.Temperature
+	}
+	if cfg.ToolCallFormat == "native" {
+		native := true
+		o.UseNativeTools = &native
+	}
+	if cfg.Prefill != nil && *cfg.Prefill {
+		o.UsePrefill = true
+	}
+	if cfg.TimeoutMinutes > 0 {
+		o.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
+	}
+	return cfg.EnableExecutionPlan
+}
+
 func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts AgentOptions) *Agent {
 	opts.applyDefaults()
 
@@ -278,7 +315,8 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 		modelName:       opts.ModelName,
 		providerType:    opts.ProviderType,
 		planStrategy:    opts.PlanStrategy,
-		memoryStore:     opts.MemoryStore,
+		memoryStore:   opts.MemoryStore,
+		enableHotMemory: opts.EnableHotMemory,
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
 	return a

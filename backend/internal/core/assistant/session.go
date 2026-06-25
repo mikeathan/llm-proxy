@@ -21,7 +21,6 @@ const (
 	sessionPreviewMaxLen          = 500  // chars for parse-error content preview in log
 	sessionTruncationFeedbackLen  = 400  // chars above which truncated content gets a guidance message
 	sessionParseErrorEscalation   = 2    // same-error-kind streak before escalating feedback
-	sessionConsecutiveChatExit    = 2    // non-automation: exit after N consecutive chat-only turns
 	sessionMinMonologueLen        = 10   // chars below which repetition check is skipped
 )
 
@@ -42,24 +41,16 @@ type runSession struct {
 	totalErrorStreak    int
 	modelCompatNotified bool
 
-	isAutomation bool
-	rd           repetitionDetector
+	rd              repetitionDetector
 	memoryFlushSent bool // prevents repeated pre-sieve nudges across turns
 }
 
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
-	s := &runSession{
+	return &runSession{
 		agent:   agent,
 		ctx:     ctx,
 		history: append([]proxy.Message{}, history...),
 	}
-	for _, m := range s.history {
-		if prompts.IsAutomationTask(m.Content) {
-			s.isAutomation = true
-			break
-		}
-	}
-	return s
 }
 
 func (s *runSession) handleContextSizeError() error {
@@ -88,17 +79,26 @@ func (s *runSession) handleContextSizeError() error {
 	return nil
 }
 
-func (s *runSession) handleToolCallParseError() {
-	s.agent.logger.Warn("server-side tool call JSON parse error, sending length feedback to model")
-	s.totalErrorStreak++
-	if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
-		s.modelCompatNotified = true
-		s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
+func (s *runSession) handleToolCallParseError(err error) {
+	switch {
+	case isJSONSyntaxError(err):
+		s.agent.logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint", "error", err)
+		s.history = append(s.history, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: prompts.AutomationJSONSyntaxPrompt,
+		})
+	default:
+		s.agent.logger.Warn("server-side tool call JSON parse error, sending length feedback to model", "error", err)
+		s.totalErrorStreak++
+		if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
+			s.modelCompatNotified = true
+			s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
+		}
+		s.history = append(s.history, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: prompts.AutomationContentTooLongPrompt,
+		})
 	}
-	s.history = append(s.history, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.AutomationContentTooLongPrompt,
-	})
 }
 
 func (s *runSession) resetParseErrorState() {
@@ -173,7 +173,7 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			}
 
 			if isToolCallParseError(err) {
-				s.handleToolCallParseError()
+				s.handleToolCallParseError(err)
 				continue
 			}
 
@@ -206,12 +206,21 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			s.trimLargeWriteContent(&turnMsg)
 
 			s.history = append(s.history, turnMsg)
-			s.agent.notify(EventMessage, turnMsg)
 			if err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history); err != nil {
 				return "", s.history, err
 			}
+			// notify after tool execution so the frontend receives
+			// tool_call (with running spinner) before EventMessage
+			s.agent.notify(EventMessage, turnMsg)
 
 			if content, done := s.checkSubmitFinalAnswer(turnMsg); done {
+				s.agent.notifyLifecycle("completed", map[string]any{
+					"content": content,
+				})
+				s.history = append(s.history, proxy.Message{
+					Role:    proxy.AssistantRole,
+					Content: content,
+				})
 				return content, s.history, nil
 			}
 		} else {
@@ -322,67 +331,51 @@ func (s *runSession) handleNoToolCalls(
 		s.agent.notify(EventMessage, turnMsg)
 	}
 
-	if s.isAutomation {
-		if s.agent.isPrematureTermination(turnMsg, s.history) {
-			s.agent.logger.Warn("automation task — premature termination detected", "step", s.steps)
-			return turnMsg.Content, true, nil
-		}
+	if s.agent.isPrematureTermination(turnMsg, s.history) {
+		s.agent.logger.Warn("premature termination detected", "step", s.steps)
+		return turnMsg.Content, true, nil
+	}
 
+	if parseErr != nil {
+		// If XMLFound is false, the model produced plain text without any
+		// tool call attempt. In native-tools mode with tool_choice:required
+		// this is a protocol violation — nag to retry instead.
+		// Otherwise exit with the text as a conversational reply.
+		if !parseErr.XMLFound && strings.TrimSpace(turnMsg.Content) != "" {
+			if !s.agent.useNativeTools || len(toolsList) == 0 {
+				return turnMsg.Content, true, nil
+			}
+			parseErr = nil
+		}
 		if parseErr != nil {
-			errKind := parseErrorKind(parseErr)
-			if errKind == s.lastParseErrorKind {
-				s.parseErrorStreak++
-			} else {
-				s.parseErrorStreak = 0
-				s.lastParseErrorKind = errKind
+			if len(toolsList) == 0 {
+				return "", true, nil
 			}
 			s.totalErrorStreak++
 			if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
 				s.modelCompatNotified = true
 				s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
 			}
-
 			availableNames := proxy.AvailableToolNames(toolsList)
 			feedback := parseErr.Feedback(availableNames)
-
-			if s.parseErrorStreak >= sessionParseErrorEscalation {
-				feedback = fmt.Sprintf(prompts.ParseErrorEscalationPrefix, feedback)
-			}
-
-			s.agent.logger.Debug("injecting specific parse-error feedback",
-				"error", parseErr.Error(),
-				"streak", s.parseErrorStreak,
-				"feedback", feedback,
-			)
+			s.agent.logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
 			s.history = append(s.history, proxy.Message{
 				Role:    proxy.UserRole,
 				Content: feedback,
 			})
-		} else {
-			s.agent.logger.Warn("turn resulted in no action - nagging model", "step", s.steps, "nag", prompts.AutomationNagPrompt)
-			s.history = append(s.history, proxy.Message{
-				Role:    proxy.UserRole,
-				Content: prompts.AutomationNagPrompt,
-			})
+			return "", false, nil
 		}
-		return "", false, nil
 	}
 
-	if s.agent.isPrematureTermination(turnMsg, s.history) {
-		s.agent.logger.Info("premature termination detected — model is repeating or producing empty output")
-		return turnMsg.Content, true, nil
-	}
-	// Non-automation: first response is always text-only (model introduces itself)
-	if s.steps == 1 {
-		return turnMsg.Content, true, nil
-	}
-	if s.agent.countConsecutiveChat(s.history) >= sessionConsecutiveChatExit {
-		return turnMsg.Content, true, nil
-	}
-	if s.agent.precededByToolResult(s.history) {
+	if len(toolsList) == 0 && strings.TrimSpace(turnMsg.Content) != "" {
 		return turnMsg.Content, true, nil
 	}
 
+	s.agent.logger.Warn("no tool calls - nagging model", "step", s.steps)
+	s.history = append(s.history, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: prompts.AutomationNagPrompt,
+	})
 	return "", false, nil
 }
 
@@ -468,13 +461,7 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 }
 
 func (s *runSession) maybeFlushMemoryBeforeTurn() {
-	if s.agent.memoryStore == nil || s.memoryFlushSent {
-		return
-	}
-
-	// Don't fire pre-sieve nudge for automation — it redirects the model
-	// from submit_final_answer into memory_update/notify_user loops.
-	if s.agent.findAutomationCtx(s.history) {
+	if s.agent.memoryStore == nil || s.memoryFlushSent || !s.agent.enableHotMemory {
 		return
 	}
 
@@ -497,5 +484,3 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	})
 	s.memoryFlushSent = true
 }
-
-

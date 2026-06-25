@@ -236,6 +236,19 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		}
 		if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
 			cfg.Guardrails.FileSystem.AllowedPaths = append(cfg.Guardrails.FileSystem.AllowedPaths, a.Path)
+			ext := filepath.Ext(a.Path)
+			if ext != "" {
+				alreadyAllowed := false
+				for _, e := range cfg.Guardrails.FileSystem.AllowedExtensions {
+					if strings.EqualFold(e, ext) {
+						alreadyAllowed = true
+						break
+					}
+				}
+				if !alreadyAllowed {
+					cfg.Guardrails.FileSystem.AllowedExtensions = append(cfg.Guardrails.FileSystem.AllowedExtensions, ext)
+				}
+			}
 		}
 
 	case "network":

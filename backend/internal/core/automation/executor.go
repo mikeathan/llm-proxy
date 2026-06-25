@@ -261,33 +261,7 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 	if !ok {
 		return opts
 	}
-	opts.ProviderType = cfg.Provider
-	if cfg.MaxSteps > 0 {
-		opts.MaxSteps = cfg.MaxSteps
-	}
-	if cfg.ContextBudget > 0 {
-		opts.ContextBudget = cfg.ContextBudget
-	}
-	if cfg.MaxTokens > 0 {
-		opts.MaxResponseTokens = cfg.MaxTokens
-	}
-	if cfg.ReasoningBudget > 0 {
-		opts.ReasoningBudget = cfg.ReasoningBudget
-	}
-	if cfg.Temperature > 0 {
-		opts.Temperature = cfg.Temperature
-	}
-	if cfg.ToolCallFormat == "native" {
-		native := true
-		opts.UseNativeTools = &native
-	}
-	if cfg.Prefill != nil && *cfg.Prefill {
-		opts.UsePrefill = true
-	}
-	if cfg.TimeoutMinutes > 0 {
-		opts.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
-	}
-	if cfg.EnableExecutionPlan {
+	if opts.ApplyModelConfig(cfg) {
 		tools, listErr := e.svc.ToolProvider().ListTools(ctx)
 		if listErr == nil && len(tools) > 0 {
 			opts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools, procLog)

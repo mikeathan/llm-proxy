@@ -17,6 +17,14 @@ type teeLogger struct {
 	fileLogger *logging.FileLogger
 }
 
+func NewTeeLogger(wsLogger logging.Logger, runLogPath string) (logging.Logger, error) {
+	t, err := newTeeLogger(wsLogger, runLogPath)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 func newTeeLogger(wsLogger logging.Logger, runLogPath string) (*teeLogger, error) {
 	fl, err := logging.NewFileLogger(logging.Options{
 		Stdout: false,

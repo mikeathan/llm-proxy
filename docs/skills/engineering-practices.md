@@ -122,3 +122,28 @@ Extract multi-condition checks into a named helper. `if isRetryable(err)` is bet
 - Dependencies point inward: `internal/core/` → `internal/platform/` → Models. Never the reverse.
 - SOLID: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion.
 - Clean Architecture boundaries: transport handlers never contain business logic.
+
+## Frontend Conventions
+
+### Icon/Emoji Centralization
+
+All emoji and icon constants live in `frontend/src/constants/icons.ts`. Never hardcode
+`"⚠️"`, `"✅"`, or any Unicode symbol directly in a `.vue` template or `.ts` composable.
+Import the named constant instead. This centralises visual identity, prevents `⚠` vs `⚠️`
+variation-selector inconsistency, and makes global updates possible in one place.
+
+The frontend has **three competing icon systems** — know which to use:
+
+| System | Location | Icons | When to use |
+|--------|----------|-------|-------------|
+| `UIIcon.vue` | `components/common/UIIcon.vue` | 12 UI icons (close, plus, check, chevron-*, trash, settings, play, stop, spinner, document, search) | **Default for new UI work** |
+| `Icon.vue` | `components/icons/Icon.vue` | 3 SVG icons from `assets/svg/` (arrow-down, arrow-up, trash) | When SVG asset is needed from `assets/svg/index.ts` |
+| Raw inline `<svg>` | Scattered across ~16 files | ~40+ unique inline SVGs | Only for single-use decorative icons that don't fit existing systems |
+
+**Adding a new SVG icon used in 2+ components:**
+1. Add SVG file to `assets/svg/`
+2. Register in `assets/svg/index.ts` with named export
+3. Add case to `UIIcon.vue` if it's a standard UI icon
+4. Add named constant to `constants/icons.ts` if it's an emoji/Unicode symbol
+
+See the header comment in `constants/icons.ts` for the full rule.

@@ -1,0 +1,39 @@
+:root {
+  /* Agent Run Card */
+  --agent-run-bg: #1a1a2e;
+  --agent-run-border: #2d2d4a;
+  --agent-run-radius: 12px;
+  --agent-run-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --agent-run-header-bg: #16162a;
+
+  /* Steps */
+  --step-bg: #16213e;
+  --step-border: #2a2a4a;
+  --step-radius: 8px;
+  --step-hover-bg: #1c2a4a;
+
+  /* Status Colors */
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+  --color-running: #f59e0b;
+  --color-info: #3b82f6;
+
+  /* Text */
+  --color-text: #e2e8f0;
+  --color-text-muted: #94a3b8;
+  --color-text-dim: #64748b;
+  --color-text-inverse: #0f172a;
+
+  /* Fonts */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  --font-sans: 'Inter', 'SF Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Spacing */
+  --gap-sm: 4px;
+  --gap-md: 8px;
+  --gap-lg: 16px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}

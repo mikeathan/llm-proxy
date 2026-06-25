@@ -22,8 +22,6 @@ var workspaceFiles = []string{
 	models.ConfigFilename,
 }
 
-const sessionsDir = "sessions"
-
 // WorkspaceManager handles atomic file I/O for workspaces with flock locking.
 type WorkspaceManager struct {
 	resolver *storage.PathResolver
@@ -401,25 +399,46 @@ func (m *WorkspaceManager) DeleteTaskFile(workspaceID, filename string) error {
 }
 
 func (m *WorkspaceManager) DeleteWorkspace(workspaceID string) error {
-	path := m.resolver.WorkspaceDir(workspaceID)
-	return os.RemoveAll(path)
+	if err := os.RemoveAll(m.resolver.WorkspaceDir(workspaceID)); err != nil {
+		return err
+	}
+	return os.RemoveAll(m.resolver.SessionsDir(workspaceID))
 }
 
 // ============================================================================
 // Assistant Sessions
 // ============================================================================
 
+// sessionOldDir returns the legacy sessions path inside the workspace directory.
+func (m *WorkspaceManager) sessionOldDir(workspaceID string) string {
+	return filepath.Join(m.resolver.WorkspaceDir(workspaceID), "sessions")
+}
+
 // ReadSession reads a specific assistant session JSON file.
+// Falls back to the legacy workspace-located sessions directory if not found in the metadata dir.
 func (m *WorkspaceManager) ReadSession(workspaceID, sessionID string) (*models.AssistantSession, error) {
-	path := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir, sessionID+".json")
+	path := filepath.Join(m.resolver.SessionsDir(workspaceID), sessionID+".json")
 	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // Not found is not an error
+	if err == nil {
+		session := &models.AssistantSession{}
+		if err := json.Unmarshal(data, session); err != nil {
+			return nil, fmt.Errorf("failed to decode session %s: %w", sessionID, err)
 		}
+		return session, nil
+	}
+	if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read session %s: %w", sessionID, err)
 	}
 
+	// Fallback: check legacy path inside workspace
+	oldPath := filepath.Join(m.sessionOldDir(workspaceID), sessionID+".json")
+	data, err = os.ReadFile(oldPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read session %s: %w", sessionID, err)
+	}
 	session := &models.AssistantSession{}
 	if err := json.Unmarshal(data, session); err != nil {
 		return nil, fmt.Errorf("failed to decode session %s: %w", sessionID, err)
@@ -427,9 +446,24 @@ func (m *WorkspaceManager) ReadSession(workspaceID, sessionID string) (*models.A
 	return session, nil
 }
 
+// migrateSessionDir moves a session file from the legacy workspace location to the metadata directory.
+func (m *WorkspaceManager) migrateSessionDir(workspaceID, sessionID string) error {
+	oldPath := filepath.Join(m.sessionOldDir(workspaceID), sessionID+".json")
+	newDir := m.resolver.SessionsDir(workspaceID)
+	newPath := filepath.Join(newDir, sessionID+".json")
+
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		return fmt.Errorf("failed to create sessions dir: %w", err)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("failed to migrate session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
 // WriteSession writes an assistant session JSON file atomically.
 func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.AssistantSession) error {
-	dirPath := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir)
+	dirPath := m.resolver.SessionsDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create sessions dir: %w", err)
 	}
@@ -466,31 +500,46 @@ func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.Assi
 	return nil
 }
 
-// DeleteSession deletes an assistant session JSON file.
+// DeleteSession deletes an assistant session JSON file from both locations.
 func (m *WorkspaceManager) DeleteSession(workspaceID, sessionID string) error {
-	path := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir, sessionID+".json")
-	return os.Remove(path)
+	path := filepath.Join(m.resolver.SessionsDir(workspaceID), sessionID+".json")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	oldPath := filepath.Join(m.sessionOldDir(workspaceID), sessionID+".json")
+	os.Remove(oldPath)
+	return nil
 }
 
 // ListSessions returns a list of session summaries for a workspace.
+// Checks both the metadata directory and the legacy workspace directory.
 func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {
-	dirPath := filepath.Join(m.resolver.WorkspaceDir(workspaceID), sessionsDir)
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []models.SessionBrief{}, nil
+	// Collect unique session IDs from both new and legacy locations
+	seen := map[string]bool{}
+	var sessionIDs []string
+
+	collectIDs := func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
 		}
-		return nil, err
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			id := strings.TrimSuffix(entry.Name(), ".json")
+			if !seen[id] {
+				seen[id] = true
+				sessionIDs = append(sessionIDs, id)
+			}
+		}
 	}
 
-	var briefs []models.SessionBrief
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
+	collectIDs(m.resolver.SessionsDir(workspaceID))
+	collectIDs(m.sessionOldDir(workspaceID))
 
-		sessionID := strings.TrimSuffix(entry.Name(), ".json")
-		// We could optimize by only reading the first few bytes, but sessions are usually small.
+	var briefs []models.SessionBrief
+	for _, sessionID := range sessionIDs {
 		session, err := m.ReadSession(workspaceID, sessionID)
 		if err != nil || session == nil {
 			continue

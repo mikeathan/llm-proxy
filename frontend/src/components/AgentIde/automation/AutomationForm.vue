@@ -4,6 +4,7 @@ import cronstrue from "cronstrue";
 import type { Model } from "../../../types/model";
 import type { ProviderItem } from "../../../types/admin";
 import type { Automation } from "../../../types/dispatcher";
+import Icon from "../../icons/Icon.vue";
 
 const props = defineProps<{
   workspaces: { id: string }[];
@@ -291,21 +292,7 @@ const handleCancel = () => {
           Cancel
         </button>
         <div class="text-gray-400">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="header-arrow"
-            :class="{ 'header-arrow--collapsed': isCollapsed }"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M5 15l7-7 7 7"
-            />
-          </svg>
+          <Icon name="chevron-up" size="sm" class="header-arrow" :class="{ 'header-arrow--collapsed': isCollapsed }" />
         </div>
       </div>
     </div>

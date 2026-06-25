@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import UIIcon from './UIIcon.vue';
+import Icon from '../icons/Icon.vue';
 
 interface Props {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'glass';
@@ -55,9 +55,9 @@ const sizeClasses = computed(() => {
     :disabled="disabled || loading"
     :class="[baseClasses, variantClasses, sizeClasses, className]"
   >
-    <UIIcon v-if="loading" name="spinner" size="sm" class="mr-2" />
+    <Icon v-if="loading" name="spinner" size="sm" class="mr-2" />
     <template v-else>
-      <UIIcon v-if="icon" :name="(icon as any)" :size="size === 'lg' ? 'md' : 'sm'" :class="{ 'mr-2': !iconOnly }" />
+      <Icon v-if="icon" :name="(icon as any)" :size="size === 'lg' ? 'md' : 'sm'" :class="{ 'mr-2': !iconOnly }" />
       <slot v-if="!iconOnly"></slot>
     </template>
   </button>

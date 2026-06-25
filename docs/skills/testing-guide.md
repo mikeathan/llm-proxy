@@ -55,6 +55,93 @@ Each run produces:
 - Reasoning budget exceeded warnings are warn-only (expected)
 - Final report is coherent and covers all required topics
 
+## MockClient Patterns (Agent Tests)
+
+Agent tests in `internal/core/assistant/agent_test.go` use `MockClient` to simulate
+LLM responses. There are **three patterns** for controlling what the mock returns:
+
+### Pattern 1: Single fixed response (`client.Response`)
+
+Simplest — the mock returns the same response on every `Chat()` call.
+Use for single-turn tests where the model only needs to respond once:
+
+```go
+client := &MockClient{
+    Response: proxy.ChatResponse{
+        Choices: []proxy.Choice{
+            {Message: proxy.Message{Role: "assistant", Content: "# Summary\nHello world"}},
+        },
+    },
+}
+```
+
+Every call to `client.Chat()` returns the same `Response`.
+
+### Pattern 2: Response sequence (`client.Responses` array)
+
+The mock cycles through responses in order. Use for multi-turn tests where
+the model needs to call a tool, then respond:
+
+```go
+clientMock.Responses = []proxy.ChatResponse{
+    // 1. First LLM response: Call Tool
+    {Choices: []proxy.Choice{{
+        Message: proxy.Message{
+            Role: "assistant",
+            ToolCalls: []proxy.ToolCall{{...}},
+        },
+    }}},
+    // 2. Second LLM response: Final text
+    {Choices: []proxy.Choice{{
+        Message: proxy.Message{
+            Role:    "assistant",
+            Content: "# Summary\nThe result is done.",
+        },
+    }}},
+}
+```
+
+The mock returns `Responses[0]` on first call, `Responses[1]` on second, etc.
+If calls exceed the array length, the last response is reused.
+
+### Pattern 3: Custom logic (`client.ChatFunc`)
+
+For complex scenarios that need per-call logic. `client.Calls` is post-incremented
+(already incremented when `ChatFunc` runs):
+
+```go
+client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+    if client.Calls == 1 {
+        return toolCallResponse, nil
+    }
+    return finalResponse, nil
+}
+```
+
+### Critical: Streaming is disabled by default
+
+`MockClient.Stream()` returns `error "streaming not implemented in mock"` by default.
+This means agent tests **silently fall through to `Chat()`** — they never test the
+streaming code path. To test streaming, set `client.StreamFunc`.
+
+### Response handling order
+
+```
+client.Chat()
+  → client.Calls++
+  → if client.ChatFunc != nil → use ChatFunc
+  → if len(client.Responses) > 0 → cycle through Responses by index
+  → fall back to client.Response (single shared value)
+```
+
+### Common mistakes
+
+- **Off-by-one on `client.Calls`** — Post-incremented: first call has `Calls == 1`, not 0.
+- **Setting both `Response` AND `Responses`** — `Responses` takes priority if non-empty.
+- **Forgetting `StreamFunc`** — Tests silently test the non-streaming fallback, not streaming.
+- **Shared `Response` pointer** — `return &m.Response` returns the same pointer every time.
+  The response struct is reused, not copied. Make a copy inside `ChatFunc` if needed.
+
 ## Record-Replay Testing
 
 Record live interactions:

@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
 import { getMsgPayload } from "../../utils/dispatcher";
+import { getPhaseMessage } from "../../constants/icons";
 import type { AgentEvent, AgentMessagePayload, GuardrailBlockedPayload } from "../../types";
 import { generateId } from "../../utils/crypto";
 import { ApiService } from "../../services/api";
@@ -89,17 +90,7 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
     // overwrite the assistant's streaming content.
     if (ev.type === "lifecycle") {
       const payload = ev.payload as Record<string, any>;
-      const phase = payload.phase as string;
-      let text = "";
-      if (phase === "stuck_detected") {
-        text = `⚠️ Model stuck in reasoning loop (${payload.reasoning_chars} chars) — retrying...`;
-      } else if (phase === "fallback_started") {
-        text = `🔄 Switching to ${payload.mode || "fallback"} mode — ${payload.reason || ""}`;
-      } else if (phase === "fallback_waiting") {
-        text = `⏳ Waiting for non-streaming response... (elapsed: ${payload.elapsed || "0s"})`;
-      } else if (phase === "fallback_completed") {
-        text = `✅ Fallback completed successfully`;
-      }
+      const text = getPhaseMessage(payload.phase as string, payload);
       if (text) {
         liveEvents.value.push({
           type: "message",

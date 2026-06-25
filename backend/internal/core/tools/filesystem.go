@@ -27,25 +27,62 @@ func (f *FileSystemTools) Config(ctx context.Context) models.FileSystemGuardrail
 }
 
 func (f *FileSystemTools) ValidatePath(ctx context.Context, path string, isWrite bool) (string, error) {
-	return ValidateFileSystemPath(path, isWrite, f.configProvider(ctx))
+	return validateFilePath(path, isWrite, f.configProvider(ctx))
 }
 
 // ValidateFileSystemPath is a standalone validator for filesystem paths.
+// Used by the guardrail engine for policy enforcement including extension
+// checks.  The tool engine uses validateFilePath internally so that
+// guardrail- approved extension blocks are respected (not re-rejected).
 func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuardrailsConfig) (string, error) {
+	absPath, err := validateFilePath(path, isWrite, cfg)
+	if err != nil {
+		return "", err
+	}
+
+	// Extension check — policy layer only.  Not duplicated in validateFilePath
+	// so the tool engine does not re-reject what the guardrail already approved.
+	if len(cfg.AllowedExtensions) > 0 {
+		fi, err := os.Stat(absPath)
+		if err == nil && fi.IsDir() {
+			return absPath, nil
+		}
+
+		ext := filepath.Ext(absPath)
+		if !isWrite && ext == "" {
+			return absPath, nil
+		}
+
+		allowed := false
+		for _, a := range cfg.AllowedExtensions {
+			if strings.EqualFold(a, ext) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", fmt.Errorf("file extension '%s' is not allowed", ext)
+		}
+	}
+
+	return absPath, nil
+}
+
+// validateFilePath resolves and validates a path without checking file
+// extensions (enforced at guardrail level).  Used by the tool engine so
+// guardrail approvals for extension blocks are respected.
+func validateFilePath(path string, isWrite bool, cfg models.FileSystemGuardrailsConfig) (string, error) {
 	if !cfg.Enabled {
 		return "", fmt.Errorf("filesystem tools are disabled in configuration")
 	}
 
-	// 1. Check Read-Only Mode
 	if isWrite && cfg.ReadOnly {
 		return "", fmt.Errorf("filesystem is in read-only mode")
 	}
 
-	// 1.5 System Protection: Strictly block access to hidden files/folders and sensitive config files
 	base := filepath.Base(path)
 	isDot := path == "." || path == "./"
-	
-	// Check if any part of the path starts with "." (excluding "." and "..")
+
 	parts := strings.Split(filepath.ToSlash(path), "/")
 	hasHidden := false
 	for _, p := range parts {
@@ -64,12 +101,10 @@ func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuar
 
 	logging.Debug("Validating filesystem path", "path", path, "isWrite", isWrite, "allowedRoots", cfg.AllowedPaths)
 
-	// 1.6 Automatically resolve relative paths against the workspace root
 	if !filepath.IsAbs(path) && len(cfg.AllowedPaths) > 0 {
 		path = filepath.Join(cfg.AllowedPaths[0], path)
 	}
 
-	// 2. Resolve and Validate Path (Jailing)
 	absPath, err := IsSecurePath(path, cfg.AllowedPaths)
 	if err != nil {
 		return "", err
@@ -77,38 +112,9 @@ func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuar
 
 	filename := filepath.Base(absPath)
 
-	// 3. Check Blocked Filenames
 	for _, blocked := range cfg.BlockedFilenames {
 		if filename == blocked || strings.HasPrefix(filename, blocked) {
 			return "", fmt.Errorf("access to sensitive file '%s' is blocked by guardrails", filename)
-		}
-	}
-
-	// 4. Check Allowed Extensions (for both existing and new files)
-	if len(cfg.AllowedExtensions) > 0 {
-		fi, err := os.Stat(absPath)
-		if err == nil && fi.IsDir() {
-			return absPath, nil
-		}
-
-		ext := filepath.Ext(absPath)
-		// Skip extension check for extensionless paths in read mode.
-		// Directory paths, new directories, and paths whose stat failed
-		// may have no extension — blocking them would prevent the agent
-		// from working with directories that don't exist on disk yet.
-		if !isWrite && ext == "" {
-			return absPath, nil
-		}
-
-		allowed := false
-		for _, a := range cfg.AllowedExtensions {
-			if strings.EqualFold(a, ext) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return "", fmt.Errorf("file extension '%s' is not allowed", ext)
 		}
 	}
 
