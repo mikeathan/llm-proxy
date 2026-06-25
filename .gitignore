@@ -53,3 +53,7 @@ backend/data/orchestrator.db*
 node_modules/
 .sandbox/
 backend/data/runs/*
+start/.token-pilot/*
+start/.claude/*
+.token-pilot*
+.claude*

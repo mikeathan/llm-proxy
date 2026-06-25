@@ -204,7 +204,17 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 			}
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
-					{Message: proxy.Message{Role: "assistant", Content: "# Done\nTask finished"}},
+					{Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "done"}`,
+							},
+						}},
+					}},
 				},
 			}, nil
 		},
@@ -213,9 +223,10 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemoryUpdate}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
 		},
 	}
-	engine := &MockEngine{Result: map[string]any{"status": "saved"}}
+	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:        5,

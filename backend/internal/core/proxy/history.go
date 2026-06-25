@@ -64,6 +64,9 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	// Tool results (identified by non-empty ToolCallID) are never merged —
 	// merging a tool result with an adjacent nag message corrupts both and
 	// confuses the model into retrying already-successful tool calls.
+	// Only ASSISTANT messages are merged — user messages (including converted
+	// tool results) stay individual so the model sees clean turn boundaries
+	// and can distinguish a new question from old execution artifacts.
 	merged := make([]Message, 0, len(prepared))
 	merged = append(merged, prepared[0])
 
@@ -71,7 +74,8 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 		last := &merged[len(merged)-1]
 		current := prepared[i]
 
-		if last.Role == current.Role && last.ToolCallID == "" && current.ToolCallID == "" {
+		if last.Role == current.Role && last.Role == AssistantRole &&
+			last.ToolCallID == "" && current.ToolCallID == "" {
 			if current.Content != "" {
 				if last.Content != "" {
 					last.Content += "\n\n"

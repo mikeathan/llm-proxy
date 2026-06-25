@@ -1,9 +1,11 @@
 import { ref } from "vue";
-import { getMsgPayload } from "../utils/dispatcher";
 import type { AgentEvent, GuardrailBlockedPayload } from "../types";
 import { generateId } from "../utils/crypto";
 
-export function useAssistantSSE(workspaceId: () => string) {
+export function useAssistantSSE(
+  workspaceId: () => string,
+  onEvent?: (ev: AgentEvent) => void,
+) {
   const streamingContent = ref("");
   const liveEvents = ref<AgentEvent[]>([]);
   const isConnected = ref(false);
@@ -13,15 +15,12 @@ export function useAssistantSSE(workspaceId: () => string) {
   let receivedEventIds = new Set<string>();
 
   const handleAgentEvent = (ev: AgentEvent) => {
-    if (ev.id && receivedEventIds.has(ev.id)) {
-      return;
-    }
-    if (ev.id) {
-      receivedEventIds.add(ev.id);
-    }
-    if (!ev.id) {
-       (ev as any).id = generateId();
-    }
+    if (ev.id && receivedEventIds.has(ev.id)) return;
+    if (ev.id) receivedEventIds.add(ev.id);
+    if (!ev.id) (ev as any).id = generateId();
+
+    // Call external handler first (for messageBuilder, guardrails, etc.)
+    onEvent?.(ev);
 
     if (ev.type === "guardrail_blocked") {
       const payload = ev.payload as GuardrailBlockedPayload;
@@ -44,6 +43,7 @@ export function useAssistantSSE(workspaceId: () => string) {
 
     if (ev.type === "tool_stream") {
       streamingContent.value = ev.payload as string;
+      liveEvents.value.push(ev);
       return;
     }
 
@@ -58,10 +58,6 @@ export function useAssistantSSE(workspaceId: () => string) {
     }
 
     if (ev.type === "message") {
-      const payload = getMsgPayload(ev);
-      if (payload.role === "assistant") {
-        streamingContent.value = payload.content;
-      }
       liveEvents.value.push(ev);
       return;
     }
@@ -71,6 +67,8 @@ export function useAssistantSSE(workspaceId: () => string) {
 
   const connect = () => {
     if (eventSource) eventSource.close();
+
+    isConnected.value = false;
 
     const url = `/admin/api/dispatcher/workspaces/${workspaceId()}/live`;
     eventSource = new EventSource(url);

@@ -462,13 +462,12 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					fullMsg.ReasoningContent += reasoningChunk
 				}
 				if chunkContent != "" || reasoningChunk != "" {
-					displayText := fullMsg.ReasoningContent + fullMsg.Content
-					displayContent, hasToolCall := FilterStreamingMarkup(displayText)
-					if hasToolCall {
-						a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
-					} else {
-						a.notify(EventToolStream, displayContent)
-					}
+				displayText := fullMsg.Content
+				if displayText == "" {
+					displayText = fullMsg.ReasoningContent
+				}
+				displayContent, _ := FilterStreamingMarkup(displayText)
+				a.notify(EventToolStream, displayContent)
 				}
 				if len(choice.Delta.ToolCalls) > 0 {
 					for _, tc := range choice.Delta.ToolCalls {

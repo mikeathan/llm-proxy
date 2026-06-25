@@ -9,12 +9,19 @@ export interface ToolCall {
   }
 }
 
+export type Segment =
+  | { kind: 'reasoning', text: string }
+  | { kind: 'tool_call', name: string, args: string, status: 'running' | 'success' | 'error', result?: string, error?: string }
+  | { kind: 'final', text: string }
+
 export interface AssistantMessage {
   role: AssistantRole
   content: string
+  reasoning_content?: string
   tool_calls?: ToolCall[]
   tool_call_id?: string
   toolResult?: { name: string; result: any; error?: string }
+  segments?: Segment[]
 }
 
 export interface SessionBrief {

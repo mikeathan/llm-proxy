@@ -59,4 +59,4 @@ assistant path to miss `tool_choice: "required"`, `reasoning_budget`, and
 | `reasoning_budget` | Not sent | Sent to API | Sent when configured |
 | Memory injection | Yes | No | When `EnableHotMemory: true` |
 | Pre-sieve memory nudge | Yes | No | When `EnableHotMemory: true` |
-| No-tool-call handling | Exit on content | Nag + retry | Unified (exit on readable text, nag on empty) |
+| No-tool-call handling | Exit on content | Nag + retry | Unified (exit on readable text when non-native, nag on empty or native-tools protocol violation) |

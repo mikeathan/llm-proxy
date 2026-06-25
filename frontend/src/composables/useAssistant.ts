@@ -1,7 +1,7 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { AssistantService } from '../services/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
-import { toolCallEventToMessage, toolResultEventToMessage } from '../utils/dispatcher'
+import { useMessageBuilder } from '../utils/messageBuilder'
 import type { AssistantMessage, SessionBrief } from '../types/assistant'
 
 const loading = ref(false)
@@ -13,14 +13,22 @@ const activeWorkspaceId = ref<string | null>(null)
 const abortController = ref<AbortController | null>(null)
 
 export function useAssistant() {
+  const builder = useMessageBuilder(messages)
 
-  const sse = useAssistantSSE(() => activeWorkspaceId.value || '')
+  const sse = useAssistantSSE(
+    () => activeWorkspaceId.value || '',
+    (ev) => builder.handleEvent(ev),
+  )
 
   const streamingContent = sse.streamingContent
   const liveEvents = sse.liveEvents
   const pendingDecision = sse.pendingDecision
   const sseConnected = sse.isConnected
   const clearLiveEvents = sse.reset
+  const streaming = builder.streaming
+  const thinking = builder.thinking
+  const liveReasoning = builder.liveReasoning
+  const paused = builder.paused
 
   const cancel = () => {
     if (abortController.value) {
@@ -28,6 +36,7 @@ export function useAssistant() {
       abortController.value = null
     }
     sse.disconnect()
+    builder.reset()
     loading.value = false
   }
 
@@ -50,11 +59,16 @@ export function useAssistant() {
     error.value = null
     try {
       const session = await AssistantService.getSession(workspaceId, sessionId)
+      if (!session) {
+        error.value = 'Session not found'
+        newSession()
+        return
+      }
       currentSessionId.value = session.id
       messages.value = session.history || []
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to load session'
-      console.error(err)
+      console.error('Failed to load session, starting fresh:', err)
+      newSession()
     } finally {
       loading.value = false
     }
@@ -73,20 +87,37 @@ export function useAssistant() {
       activeWorkspaceId.value = workspaceId
     }
 
-    // Optimistically add user message
-    messages.value.push({
-      role: 'user',
-      content: text,
-    })
+    // For new conversations (no active session), clear stale messages
+    // so previous session data doesn't leak into the new chat
+    if (!currentSessionId.value) {
+      messages.value = []
+    }
+
+    messages.value.push({ role: 'user', content: text })
 
     loading.value = true
     error.value = null
 
-    // Start SSE for real-time events during execution
     sse.reset()
+    builder.reset()
     sse.connect()
+    builder.resetPauseTimer()
 
-    // Create abort controller for cancellation
+    // Wait for SSE connection before sending the agent request so
+    // tool_call/tool_result events arrive live instead of all at
+    // once from the recent buffer after the agent finishes
+    if (!sseConnected.value) {
+      await new Promise<void>((resolve) => {
+        const stop = watch(sseConnected, (connected) => {
+          if (connected) {
+            stop()
+            resolve()
+          }
+        })
+        setTimeout(() => { stop(); resolve() }, 5000)
+      })
+    }
+
     abortController.value = new AbortController()
 
     try {
@@ -96,47 +127,33 @@ export function useAssistant() {
         message: text,
       }, abortController.value.signal)
 
-      // Update session ID if it was a new session
-      if (!currentSessionId.value && response.conversation_id) {
-        currentSessionId.value = response.conversation_id
-      }
-
-      // Stop SSE once the HTTP response arrives
       sse.disconnect()
 
-      // Clear stale SSE events (message events are carried by reply, tool_call/tool_result come via response.events).
-      sse.reset()
-
-      // Handle any tool_call/tool_result events from the response first,
-      // so they appear above the final reply in the chat history.
-      if (response.events) {
-        for (const ev of response.events) {
-          if (ev.type === 'tool_call') {
-            messages.value.push(toolCallEventToMessage(ev))
-          } else if (ev.type === 'tool_result') {
-            messages.value.push(toolResultEventToMessage(ev))
-          }
-        }
+      if (!currentSessionId.value && response.conversation_id) {
+        currentSessionId.value = response.conversation_id
+        sessions.value.unshift({
+          id: response.conversation_id,
+          snippet: text.substring(0, 80),
+          updated_at: new Date().toISOString(),
+        })
       }
 
-      // Add assistant response last — use final reply from HTTP response.
-      messages.value.push({
-        role: 'assistant',
-        content: response.reply,
-      })
+      builder.finalize(response.reply)
+      builder.reset()
 
-      // Refresh session list so the new snippet appears
+      sse.reset()
+
       await fetchSessions(workspaceId)
 
     } catch (err) {
       if ((err as any)?.name === 'AbortError') {
-        // User cancelled — no error to show
         error.value = null
       } else {
         error.value = err instanceof Error ? err.message : 'Failed to send message'
         console.error(err)
       }
       sse.disconnect()
+      builder.reset()
     } finally {
       loading.value = false
       abortController.value = null
@@ -151,6 +168,8 @@ export function useAssistant() {
       sessions.value = sessions.value.filter(s => s.id !== sessionId)
       if (currentSessionId.value === sessionId) {
         newSession()
+      } else if (!currentSessionId.value && messages.value.length > 0) {
+        messages.value = []
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to delete session'
@@ -191,6 +210,10 @@ export function useAssistant() {
     pendingDecision,
     sseConnected,
     clearLiveEvents,
+    streaming,
+    thinking,
+    liveReasoning,
+    paused,
     cancel,
     abortController,
     fetchSessions,

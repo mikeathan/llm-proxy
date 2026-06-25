@@ -206,21 +206,23 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			s.trimLargeWriteContent(&turnMsg)
 
 			s.history = append(s.history, turnMsg)
-			s.agent.notify(EventMessage, turnMsg)
 			if err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history); err != nil {
 				return "", s.history, err
 			}
+			// notify after tool execution so the frontend receives
+			// tool_call (with running spinner) before EventMessage
+			s.agent.notify(EventMessage, turnMsg)
 
-	if content, done := s.checkSubmitFinalAnswer(turnMsg); done {
-		s.agent.notifyLifecycle("completed", map[string]any{
-			"content": content,
-		})
-		s.history = append(s.history, proxy.Message{
-			Role:    proxy.AssistantRole,
-			Content: content,
-		})
-		return content, s.history, nil
-	}
+			if content, done := s.checkSubmitFinalAnswer(turnMsg); done {
+				s.agent.notifyLifecycle("completed", map[string]any{
+					"content": content,
+				})
+				s.history = append(s.history, proxy.Message{
+					Role:    proxy.AssistantRole,
+					Content: content,
+				})
+				return content, s.history, nil
+			}
 		} else {
 			s.starvationCount++
 			if s.starvationCount >= DefaultStarvationLimit {
@@ -336,28 +338,33 @@ func (s *runSession) handleNoToolCalls(
 
 	if parseErr != nil {
 		// If XMLFound is false, the model produced plain text without any
-		// tool call attempt — exit with the text as a conversational reply.
-		// If XMLFound is true, the model attempted a tool call but got the
-		// format wrong — feed back the parse error so it retries correctly.
+		// tool call attempt. In native-tools mode with tool_choice:required
+		// this is a protocol violation — nag to retry instead.
+		// Otherwise exit with the text as a conversational reply.
 		if !parseErr.XMLFound && strings.TrimSpace(turnMsg.Content) != "" {
-			return turnMsg.Content, true, nil
+			if !s.agent.useNativeTools || len(toolsList) == 0 {
+				return turnMsg.Content, true, nil
+			}
+			parseErr = nil
 		}
-		if len(toolsList) == 0 {
-			return "", true, nil
+		if parseErr != nil {
+			if len(toolsList) == 0 {
+				return "", true, nil
+			}
+			s.totalErrorStreak++
+			if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
+				s.modelCompatNotified = true
+				s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
+			}
+			availableNames := proxy.AvailableToolNames(toolsList)
+			feedback := parseErr.Feedback(availableNames)
+			s.agent.logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
+			s.history = append(s.history, proxy.Message{
+				Role:    proxy.UserRole,
+				Content: feedback,
+			})
+			return "", false, nil
 		}
-		s.totalErrorStreak++
-		if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
-			s.modelCompatNotified = true
-			s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
-		}
-		availableNames := proxy.AvailableToolNames(toolsList)
-		feedback := parseErr.Feedback(availableNames)
-		s.agent.logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
-		s.history = append(s.history, proxy.Message{
-			Role:    proxy.UserRole,
-			Content: feedback,
-		})
-		return "", false, nil
 	}
 
 	if len(toolsList) == 0 && strings.TrimSpace(turnMsg.Content) != "" {
@@ -371,7 +378,6 @@ func (s *runSession) handleNoToolCalls(
 	})
 	return "", false, nil
 }
-
 
 // handleContentToolCalls tries XML parsing first (broader coverage), then
 // native format if the model is in native-tools mode.  Returns the first
@@ -478,6 +484,3 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	})
 	s.memoryFlushSent = true
 }
-
-
-

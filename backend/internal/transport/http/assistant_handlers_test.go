@@ -48,6 +48,12 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 				Name: "query_device",
 			},
 		},
+		{
+			Type: "function",
+			Function: proxy.FunctionSchema{
+				Name: models.ToolSubmitFinalAnswer,
+			},
+		},
 	})
 
 	// Setup Engine
@@ -94,8 +100,15 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 		{
 			Choices: []proxy.Choice{{
 				Message: proxy.Message{
-					Role:    proxy.AssistantRole,
-					Content: "# Summary\nThe lamp is on. It's working perfectly.",
+					Role: proxy.AssistantRole,
+					ToolCalls: []proxy.ToolCall{{
+						ID:   "call_submit",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      models.ToolSubmitFinalAnswer,
+							Arguments: `{"summary": "The lamp is on. It's working perfectly."}`,
+						},
+					}},
 				},
 			}},
 		},

@@ -201,6 +201,12 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
+	// Clear stale events from previous runs so the new SSE connection
+	// doesn't replay old tool_stream/message events (same pattern
+	// as automation's dispatcher.go:478)
+	h.svc.Events().Clear(payload.WorkspaceID)
+	defer h.svc.Events().Clear(payload.WorkspaceID)
+
 	// Build agent options using the shared builder.
 	var collectedEvents []assistant.AgentEvent
 	publishObs := func(ev assistant.AgentEvent) {
@@ -323,6 +329,7 @@ func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage,
 			Role: proxy.SystemRole,
 			Content: prompts.BuildSystemMessage(
 				systemPrompt,
+				useNativeTools,
 				payload.ConversationID,
 				payload.ContextVersion,
 				payload.Timezone,

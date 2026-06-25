@@ -25,6 +25,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | | `docs/skills/engineering-practices.md` | Engineering Practices | Go patterns, code style, frontend icon conventions, file checklists |
 | | `docs/skills/event-streaming-patterns.md` | Event Streaming Patterns | SSE composables, observer chaining, guardrail flow, heartbeat cleanup, dedup |
 | | `docs/skills/llamacpp-setup.md` | llama.cpp Server Setup | Args, GPU tuning, systemd, performance data |
+| | `docs/skills/assistant-ui-chat.md` | Assistant UI Chat Architecture | Event handlers, segment system, inactivity timer, SSE timing, scroll behavior, common pitfalls |
 | | `docs/skills/automation.md` | Automation System | Dispatcher, executor, run lifecycle, templates |
 
 ## Specifications (Behavioral Contracts)
@@ -69,6 +70,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/memory/mbtcp-implementation.md` | MBTCP: Memory-Backed Tool Call Pre-emption | proposed | 2026-06-03 | SPEC-004 |
 | `docs/PLANS/cross-cutting/unified-provider-management.md` | Unified Provider & Model Management | not_implemented | — | — |
 | `docs/PLANS/discovery/discovery-panel-implementation.md` | Discovery Panel Implementation | not_implemented | — | SPEC-003 |
+| `docs/PLANS/assistant-ui/consolidated-streaming-bubbles.md` | Consolidated Streaming Bubbles | complete | 2026-06-17 | SPEC-003 |
 | `docs/PLANS/agent-loop/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
 | `docs/PLANS/agent-loop/tool-failure-skip.md` | Graceful Tool Failure Recovery | complete | 2026-05-31 | SPEC-001 |
 | `docs/PLANS/agent-loop/unify-assistant-automation.md` | Unify Assistant & Automation Agent Paths | complete | 2026-06-15 | SPEC-001 |
@@ -98,8 +100,8 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Lines | Audience |
 |------|-------|-------|----------|
 | `README.md` | LLM Proxy — Quick Start & Config | 288 | End users |
-| `CLAUDE.md` | Project Guide — Architecture, Invariants, API | 465 | Developers |
-| `AGENTS.md` | Instructions for AI Coding Assistants | 321 | AI assistants |
+| `AGENTS.md` | Instructions for AI Coding Assistants | 100 | AI assistants |
+| `docs/architecture.md` | Architecture Reference (mappings, contracts, checklists, pitfalls) | 420 | Developers |
 | `CONSTITUTION.md` | Architectural Invariants — The Law | 143 | Everyone |
 
 ## Other Documents
