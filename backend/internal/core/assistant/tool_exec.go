@@ -195,6 +195,15 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 		a.notifyGuardrailViolation(tc.Function.Name, err)
 
+		// Security boundary violations (path outside workspace, blocked system files)
+		// are denied immediately — no approval dialog.
+		if isGuardrailSecurityBoundary(err) {
+			mu.Lock()
+			a.appendToolResult(history, tc, formatGuardrailError(err))
+			mu.Unlock()
+			return false, true
+		}
+
 		if a.onGuardrail != nil {
 			decision, decErr := a.onGuardrail(ctx, GuardrailBlockedPayload{
 				DecisionID: fmt.Sprintf("gr_%d", time.Now().UnixNano()),
@@ -219,6 +228,12 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		return false, true
 	}
 	return false, false
+}
+
+func isGuardrailSecurityBoundary(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "path access denied") ||
+		strings.Contains(s, "security violation")
 }
 
 func formatGuardrailError(err error) map[string]string {
@@ -422,8 +437,19 @@ func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
 	}
 	var args map[string]any
 	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		// Try to fix common JSON issues (unescaped quotes in string values)
+		// before rejecting.  The model often produces valid tool names but
+		// malformed JSON with unescaped quotes in content fields.
+		sanitized := sanitizeToolArgs(tc.Function.Arguments, err)
+		if sanitized != "" {
+			if err2 := json.Unmarshal([]byte(sanitized), &args); err2 == nil {
+				tc.Function.Arguments = sanitized
+				goto validated
+			}
+		}
 		return fmt.Errorf("failed to parse arguments as JSON: %w", err)
 	}
+validated:
 	for _, field := range required {
 		val, ok := args[field]
 		if !ok {
@@ -434,6 +460,98 @@ func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
 		}
 	}
 	return nil
+}
+
+// sanitizeToolArgs attempts to fix common JSON syntax issues in model-produced
+// tool call arguments.  Returns the sanitized string or "" if no fix is possible.
+// Handles the most frequent case: unescaped double quotes inside string values.
+func sanitizeToolArgs(raw string, originalErr error) string {
+	if raw == "" {
+		return ""
+	}
+	if isTruncationError(originalErr.Error()) {
+		return ""
+	}
+
+	// Walk the JSON tracking string boundaries with a simple state machine.
+	// When we encounter a '"' that lies inside a value string rather than
+	// at a structural position (object key, array element), escape it.
+	var result strings.Builder
+	result.Grow(len(raw) + 64)
+	inKey := false      // currently inside an object key
+	inStr := false      // currently inside a string (key or value)
+	afterColon := false // the last structural token was ':'
+
+	for i := 0; i < len(raw); i++ {
+		b := raw[i]
+
+		if b == '\\' {
+			result.WriteByte(b)
+			if i+1 < len(raw) {
+				i++
+				result.WriteByte(raw[i])
+			}
+			continue
+		}
+
+		if b == '"' {
+			if !inStr {
+				// Opening quote — determine if this is a key or value
+				inStr = true
+				inKey = !afterColon
+				afterColon = false
+				result.WriteByte(b)
+				continue
+			}
+			// Closing quote or embedded quote inside value
+			inStr = false
+			if inKey {
+				inKey = false
+				result.WriteByte(b)
+				continue
+			}
+			// We were in a value string.  Peek ahead to see if this quote
+			// is structural (closing the value) or embedded (needs escaping).
+			peekEnd := i + 1
+			for peekEnd < len(raw) && raw[peekEnd] == ' ' {
+				peekEnd++
+			}
+			if peekEnd >= len(raw) || raw[peekEnd] == ',' || raw[peekEnd] == '}' || raw[peekEnd] == ']' {
+				// Structural closing quote — keep as-is
+				afterColon = false
+				result.WriteByte(b)
+				continue
+			}
+			// Embedded quote — escape it
+			result.WriteByte('\\')
+			result.WriteByte(b)
+			inStr = true // still inside the string
+			continue
+		}
+
+		if b == ':' && !inStr {
+			afterColon = true
+			result.WriteByte(b)
+			continue
+		}
+
+		if (b == ',' || b == '{' || b == '[') && !inStr {
+			afterColon = false
+			result.WriteByte(b)
+			continue
+		}
+
+		result.WriteByte(b)
+	}
+
+	sanitized := result.String()
+	if sanitized == raw {
+		return ""
+	}
+	if err := json.Unmarshal([]byte(sanitized), &map[string]any{}); err != nil {
+		return ""
+	}
+	return sanitized
 }
 
 // appendToolResult marshals the tool result, truncates it (proxy.TruncateResult

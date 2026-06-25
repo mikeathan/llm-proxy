@@ -216,6 +216,47 @@ func TestNormalizeHistory_NativeMode_PreservesToolResults(t *testing.T) {
 	}
 }
 
+func TestNormalizeHistory_XMLMode_MultiTurnUserNotMerged(t *testing.T) {
+	// Simulates a multi-turn conversation: user asks task → agent completes →
+	// user asks a new question. Tool results (converted to UserRole) must NOT
+	// be merged with the second user message, so the model sees a clean "tell me a joke".
+	history := []Message{
+		{Role: SystemRole, Content: "You are a helpful assistant."},
+		{Role: UserRole, Content: "List files in the workspace."},
+		{Role: AssistantRole, Content: "",
+			ToolCalls: []ToolCall{
+				{ID: "tc1", Type: "function", Function: FunctionCall{Name: "list_directory", Arguments: `{"path":"."}`}},
+			},
+		},
+		{Role: ToolRole, Content: "file1.txt", ToolCallID: "tc1"},
+		{Role: AssistantRole, Content: "Here is the listing."},
+		{Role: UserRole, Content: "tell me a joke"},
+	}
+	got := NormalizeHistory(history, false)
+	if len(got) != 6 {
+		t.Fatalf("expected 6 messages (no merging of user messages), got %d", len(got))
+	}
+	// First user message
+	if got[1].Role != UserRole || got[1].Content != "List files in the workspace." {
+		t.Fatalf("first user message should be preserved, got %q", got[1].Content)
+	}
+	// Tool result converted to user role (index 3)
+	if got[3].Role != UserRole {
+		t.Fatal("tool role should be converted to user role")
+	}
+	if !startsWith(got[3].Content, "Tool result [tc1]") {
+		t.Fatalf("tool result prefix expected, got %q", got[3].Content)
+	}
+	// Second user message MUST be a separate message, not merged with the tool result
+	if got[5].Role != UserRole || got[5].Content != "tell me a joke" {
+		t.Fatalf("second user message should be separate and clean, got role=%v content=%q", got[5].Role, got[5].Content)
+	}
+}
+
+func startsWith(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
 func TestNormalizeHistory_XMLMode_ContentAndToolCallPreservesContent(t *testing.T) {
 	msg := Message{
 		Role:    AssistantRole,

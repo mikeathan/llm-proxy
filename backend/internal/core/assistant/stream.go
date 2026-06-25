@@ -39,29 +39,40 @@ var (
 		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"](.*?)['"]\s*\}?\s*\]?`),
 		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`),
 	}
+
+	// providerConstraints maps provider types to output constraint implementations.
+	// Only local providers use GBNF grammar for tool call argument enforcement.
+	// Cloud providers (openai, gemini, etc.) already validate via native tool API.
+	providerConstraints = map[string]proxy.RequestConstraint{
+		"local": &proxy.GBNFConstraint{},
+	}
 )
 
 func (a *Agent) buildChatRequest(
 	prepared []proxy.Message,
 	llmTools []proxy.Tool,
-	isAutomationCtx bool,
 ) proxy.ChatRequest {
 	req := proxy.ChatRequest{
 		Messages:  prepared,
 		Tools:     llmTools,
 		MaxTokens: a.maxTokens,
 	}
-	if a.useNativeTools && isAutomationCtx {
+	if a.useNativeTools && len(llmTools) > 0 {
 		req.ToolChoice = proxy.ToolChoiceRequired
 	}
-	if isAutomationCtx {
-		if a.temperature > 0 {
-			req.Temperature = a.temperature
-		} else {
-			req.Temperature = DefaultAutomationTemperature
-		}
-		if a.reasoningBudget > 0 {
-			req.SetReasoningBudget(a.reasoningBudget)
+	if a.temperature > 0 {
+		req.Temperature = a.temperature
+	}
+	if a.reasoningBudget > 0 {
+		req.SetReasoningBudget(a.reasoningBudget)
+	}
+	// Apply provider-specific output constraint when native tools are active.
+	// Local providers get GBNF grammar to prevent invalid JSON in tool call
+	// arguments at the token generation level.  Cloud providers are skipped —
+	// their native tool API already returns structured, valid JSON.
+	if a.useNativeTools && len(llmTools) > 0 {
+		if constraint, ok := providerConstraints[a.providerType]; ok {
+			constraint.Apply(&req, llmTools)
 		}
 	}
 	return req
@@ -79,18 +90,14 @@ func (a *Agent) prepareMessagesForTurn(
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
-	// Inject hot (mode:"always") memory entries.  Only non-automation sessions
-	// get injection — automation tasks have explicit step-by-step instructions
-	// that override general context.  The <memory> block is inserted right
-	// before the last user message for KV cache stability.
-	// See docs/audits/memory-injection-investigation.md
-	isAutoCtx := a.findAutomationCtx(history)
-	if !isAutoCtx {
+	// Hot memory (<memory> block) is injected right before the last user
+	// message for KV cache stability.  See docs/audits/memory-injection-investigation.md.
+	if a.enableHotMemory {
 		prepared = a.injectActiveMemory(prepared, history)
 	}
 
 	var prefill string
-	if a.shouldPrefill(isAutoCtx) {
+	if a.shouldPrefill() {
 		prefill = prompts.AutomationPrefline
 		prepared = append(prepared, proxy.Message{
 			Role:    proxy.AssistantRole,
@@ -202,10 +209,12 @@ func (a *Agent) handlePrefillRejection(
 		prepared = a.injectToolInstructions(prepared, tools)
 	}
 	req := proxy.ChatRequest{
-		Messages:    prepared,
-		Tools:       nil,
-		MaxTokens:   a.maxTokens,
-		Temperature: DefaultAutomationTemperature,
+		Messages:  prepared,
+		Tools:     nil,
+		MaxTokens: a.maxTokens,
+	}
+	if a.temperature > 0 {
+		req.Temperature = a.temperature
 	}
 	return a.client.Stream(ctx, req)
 }
@@ -234,12 +243,9 @@ func (a *Agent) handleEmptyStream(
 			"reason": "empty stream with native tools", "mode": "xml",
 		})
 		savedNative := a.useNativeTools
-		savedSuppress := a.suppressReasoningBudget
 		a.useNativeTools = false
-		a.suppressReasoningBudget = true
 		msg, err := a.computeNextResponseStreamXML(ctx, history, tools)
 		a.useNativeTools = savedNative
-		a.suppressReasoningBudget = savedSuppress
 		return msg, err
 	}
 	return a.computeNextResponseNonStreaming(ctx, history, tools)
@@ -255,8 +261,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	prepared, prefill := a.prepareMessagesForTurn(history, tools, llmTools)
-	isAutoCtx := a.findAutomationCtx(history)
-	req := a.buildChatRequest(prepared, llmTools, isAutoCtx)
+	req := a.buildChatRequest(prepared, llmTools)
 
 	txnID, pfErr := a.doPreflightCheck(ctx, history, &req)
 	if pfErr != nil {
@@ -426,26 +431,16 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					tokUsed += result.TokensUsed
 					reasonUsed += result.ReasoningUsed
 
-					if !a.suppressReasoningBudget {
-						term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
-							orchestrator.StreamChunk{},
-							tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
-						)
-						if term.ShouldTerminate && !budgetWarned {
-							budgetWarned = true
-							// Warn only — do NOT terminate. The server (llama.cpp)
-							// enforces reasoning_budget at the API level by forcing
-							// the model out of thinking mode. Terminating here would
-							// kill the stream before the first content chunk arrives,
-							// triggering the XML/non-streaming fallback chain. The
-							// stuck detector (maxTokens × 2 chars) and maxTokens
-							// budget provide sufficient protection. See AGENTS.md
-							// pitfall #20 for the reasoning behind warn-only.
-							a.logger.Warn("reasoning budget exceeded, letting server enforcement handle it",
-								"tokens_used", tokUsed, "reasoning_used", reasonUsed,
-								"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
-						}
-					}
+				term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
+					orchestrator.StreamChunk{},
+					tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
+				)
+				if term.ShouldTerminate && !budgetWarned {
+					budgetWarned = true
+					a.logger.Warn("reasoning budget exceeded, letting server enforcement handle it",
+						"tokens_used", tokUsed, "reasoning_used", reasonUsed,
+						"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
+				}
 				}
 
 				if a.tryExtractToolCallFromReasoning(fullMsg) {
@@ -467,13 +462,12 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					fullMsg.ReasoningContent += reasoningChunk
 				}
 				if chunkContent != "" || reasoningChunk != "" {
-					displayText := fullMsg.ReasoningContent + fullMsg.Content
-					displayContent, hasToolCall := FilterStreamingMarkup(displayText)
-					if hasToolCall {
-						a.notify(EventToolStream, displayContent+"\n\n🛠️ *Agent is initiating tool calls...*")
-					} else {
-						a.notify(EventToolStream, displayContent)
-					}
+				displayText := fullMsg.Content
+				if displayText == "" {
+					displayText = fullMsg.ReasoningContent
+				}
+				displayContent, _ := FilterStreamingMarkup(displayText)
+				a.notify(EventToolStream, displayContent)
 				}
 				if len(choice.Delta.ToolCalls) > 0 {
 					for _, tc := range choice.Delta.ToolCalls {
@@ -507,11 +501,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 	preparedHistory, prefill := a.prepareMessagesForTurn(history, tools, llmTools)
 
-	isAutomationCtx := a.findAutomationCtx(history)
-	req := a.buildChatRequest(preparedHistory, llmTools, isAutomationCtx)
-	if isAutomationCtx && a.suppressReasoningBudget {
-		req.SetReasoningBudget(0)
-	}
+	req := a.buildChatRequest(preparedHistory, llmTools)
 
 	if rawReq, err := json.Marshal(req); err == nil {
 		a.logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
@@ -551,13 +541,9 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
 		}
 		req = proxy.ChatRequest{
-			Messages:    preparedHistory,
-			Tools:       nil,
-			MaxTokens:   a.maxTokens,
-			Temperature: DefaultAutomationTemperature,
-		}
-		if a.suppressReasoningBudget {
-			req.SetReasoningBudget(0)
+			Messages:  preparedHistory,
+			Tools:     nil,
+			MaxTokens: a.maxTokens,
 		}
 		resp, err = a.client.Chat(chatCtx, req)
 	}
@@ -596,10 +582,12 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	prepared, prefill := a.prepareMessagesForTurn(history, tools, nil)
 
 	req := proxy.ChatRequest{
-		Messages:    prepared,
-		Tools:       nil,
-		MaxTokens:   a.maxTokens,
-		Temperature: DefaultAutomationTemperature,
+		Messages:  prepared,
+		Tools:     nil,
+		MaxTokens: a.maxTokens,
+	}
+	if a.temperature > 0 {
+		req.Temperature = a.temperature
 	}
 
 	a.logger.Info("xml stream retry sent", "model", a.modelName, "max_tokens", a.maxTokens, "prefill", prefill != "")
@@ -613,10 +601,12 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 		prefill = ""
 		prepared, _ = a.prepareMessagesForTurn(history, tools, nil)
 		req = proxy.ChatRequest{
-			Messages:    prepared,
-			Tools:       nil,
-			MaxTokens:   a.maxTokens,
-			Temperature: DefaultAutomationTemperature,
+			Messages:  prepared,
+			Tools:     nil,
+			MaxTokens: a.maxTokens,
+		}
+		if a.temperature > 0 {
+			req.Temperature = a.temperature
 		}
 		ch, err = a.client.Stream(ctx, req)
 	}
@@ -626,12 +616,11 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 		return a.computeNextResponseNonStreaming(ctx, history, tools)
 	}
 
-	savedSkip := a.skipStuckCheck
 	a.skipStuckCheck = true
 	var fullMsg proxy.Message
 	fullMsg.Role = proxy.AssistantRole
 	streamErr := a.processStream(ctx, ch, &fullMsg)
-	a.skipStuckCheck = savedSkip
+	a.skipStuckCheck = false
 
 	if streamErr != nil {
 		return proxy.Message{}, streamErr
@@ -653,17 +642,8 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	return fullMsg, nil
 }
 
-func (a *Agent) findAutomationCtx(history []proxy.Message) bool {
-	for _, m := range history {
-		if prompts.IsAutomationTask(m.Content) {
-			return true
-		}
-	}
-	return false
-}
-
-func (a *Agent) shouldPrefill(isAutomationCtx bool) bool {
-	return a.usePrefill && !a.prefillDisabled && isAutomationCtx && !a.useNativeTools
+func (a *Agent) shouldPrefill() bool {
+	return a.usePrefill && !a.prefillDisabled && !a.useNativeTools
 }
 
 func (a *Agent) stuckThreshold() int {

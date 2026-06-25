@@ -3,7 +3,7 @@ import { ref } from "vue";
 import type { APIKeyItem } from "../../types/admin";
 import InlineConfirm from "../ui/InlineConfirm.vue"
 import BaseButton from "../common/BaseButton.vue"
-import UIIcon from "../common/UIIcon.vue"
+import Icon from "../icons/Icon.vue"
 
 const props = defineProps<{
   apiKeys: APIKeyItem[];
@@ -265,13 +265,13 @@ function addKey() {
           class="test-feedback"
         >
           <div v-if="testLoading" class="test-loading">
-            <UIIcon name="spinner" size="xs" /> Verifying…
+            <Icon name="spinner" size="xs" /> Verifying…
           </div>
           <div v-else-if="testSuccess" class="test-success">
-            <UIIcon name="check" size="xs" class="inline" /> {{ testSuccess }}
+            <Icon name="check" size="xs" class="inline" /> {{ testSuccess }}
           </div>
           <div v-else-if="testError" class="test-error">
-            <UIIcon name="close" size="xs" class="inline" /> {{ testError }}
+            <Icon name="close" size="xs" class="inline" /> {{ testError }}
           </div>
         </div>
 

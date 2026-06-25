@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import type { AppTab } from "../../types";
+import Icon from "../icons/Icon.vue";
 
 defineProps<{
   activeTab: AppTab;
@@ -29,19 +30,7 @@ onMounted(async () => {
   <header class="header-container">
     <div class="header-inner">
       <h1 class="header-title">
-        <svg
-          class="header-icon"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M13 10V3L4 14h7v7l9-11h-7z"
-          ></path>
-        </svg>
+        <Icon name="lightning" size="md" class="header-icon" />
         LLM Proxy Admin
         <span v-if="version" class="version-badge">{{ version }}</span>
       </h1>

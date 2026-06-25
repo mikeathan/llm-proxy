@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useToast } from "../../composables/useToast";
+import { TOAST_SUCCESS, TOAST_ERROR, TOAST_WARNING, TOAST_INFO, TOAST_CLOSE } from "../../constants/icons";
 
 const { toasts, remove } = useToast();
 </script>
@@ -15,15 +16,15 @@ const { toasts, remove } = useToast();
         @click="remove(toast.id)"
       >
         <div class="toast-icon">
-          <span v-if="toast.type === 'success'">✓</span>
-          <span v-else-if="toast.type === 'error'">✕</span>
-          <span v-else-if="toast.type === 'warning'">⚠</span>
-          <span v-else>ℹ</span>
+          <span v-if="toast.type === 'success'">{{ TOAST_SUCCESS }}</span>
+          <span v-else-if="toast.type === 'error'">{{ TOAST_ERROR }}</span>
+          <span v-else-if="toast.type === 'warning'">{{ TOAST_WARNING }}</span>
+          <span v-else>{{ TOAST_INFO }}</span>
         </div>
         <div class="toast-content">
           {{ toast.message }}
         </div>
-        <button class="toast-close" @click.stop="remove(toast.id)">×</button>
+        <button class="toast-close" @click.stop="remove(toast.id)">{{ TOAST_CLOSE }}</button>
       </div>
     </TransitionGroup>
   </div>

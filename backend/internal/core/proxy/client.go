@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"llm-proxy/internal/platform/logging"
@@ -162,8 +163,11 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 
 			if err != nil {
 				if err != io.EOF {
-					// If the body was closed by our timer, this will return an error
-					logging.Error("LLM stream read error or timeout", "error", err)
+					if errors.Is(err, context.Canceled) {
+						logging.Debug("LLM stream closed by context cancel")
+					} else {
+						logging.Error("LLM stream read error or timeout", "error", err)
+					}
 				}
 				return
 			}

@@ -2,13 +2,18 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -56,7 +61,13 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.handleAssistant(r.Context(), payload, log)
+	// Use a background context for agent execution — not tied to the HTTP
+	// request context.  The agent has its own timeouts (GlobalTimeout,
+	// AgentTurnTimeout) so it won't run forever.  This prevents the browser
+	// or a network proxy from killing the agent mid-response when the HTTP
+	// connection is idle.
+	execCtx := context.Background()
+	result, err := h.handleAssistant(execCtx, payload, log)
 	if err != nil {
 		writeJSONError(w, err.Status, err.Message)
 		return
@@ -127,47 +138,134 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		}
 	}
 
-	// 2. Build or Update History
+	// 3. Load model config and resolve useNativeTools before building history
+	// so the system prompt selects the correct tool format instructions.
+	procLog := h.svc.ProcessLogger(payload.WorkspaceID)
+	procLog.Info("Assistant request started", "conversation", payload.ConversationID, "message", payload.Message)
+
+	modelName, _ := h.svc.SelectModels()
+	useNativeTools := false
+	if cfg, ok := h.svc.ModelConfig(modelName); ok {
+		useNativeTools = cfg.ToolCallFormat == "native"
+	}
+
+	// 2. Build or Update History (after model config is loaded for system prompt).
 	if len(session.History) == 0 {
-		initial, bErr := h.buildInitialHistory(payload)
+		initial, bErr := h.buildInitialHistory(payload, useNativeTools)
 		if bErr != nil {
 			return nil, &handlerError{Status: http.StatusInternalServerError, Message: "failed to build history"}
 		}
 		session.History = initial
 	} else {
-		// Just append user message to existing history
 		session.History = append(session.History, proxy.Message{
 			Role:    proxy.UserRole,
 			Content: payload.Message,
 		})
 	}
 
-	// Apply sliding window truncation to keep history within token limits
 	session.History = h.truncateHistory(session.History)
 
-	// 3. Initialize and Execute Agent
-	procLog := h.svc.ProcessLogger(payload.WorkspaceID)
-	procLog.Info("Assistant request started", "conversation", payload.ConversationID, "message", payload.Message)
+	// Generate run ID early so it's available for recording setup.
+	runID := generateRunID()
+	execCtx := models.WithTaskName(ctx, session.ID)
+	execCtx = models.WithRunID(execCtx, runID)
+	execCtx = assistant.WithUsageTracker(execCtx)
 
-	agent := assistant.NewAgent(client, h.provider, h.engine, assistant.AgentOptions{
-		Logger:      procLog,
-		MaxSteps:    20,
-		Guardrails:  h.guardrails,
-		WorkspaceID: payload.WorkspaceID,
-		Observer: func(ev assistant.AgentEvent) {
-			h.svc.Events().Publish(payload.WorkspaceID, ev)
-		},
-		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
-			h.svc.GuardrailDecisionStore(),
-			func(ev assistant.AgentEvent) {
-				h.svc.Events().Publish(payload.WorkspaceID, ev)
-			},
-			),
-	})
+	// Set up run directory and recording infrastructure (same pattern as automation's setupRunDir).
+	var runDir *automation.RunDir
+	var eventSink *automation.EventSink
+	var runLogCloser func()
+	runLog := procLog
+	if h.svc.RunLoggingEnabled() && modelName != "" {
+		parent := filepath.Join(h.svc.RootDir(), "runs")
+		rd, rErr := automation.NewRunDir(parent, payload.WorkspaceID, session.ID, modelName)
+		if rErr == nil {
+			runDir = rd
+			es, esErr := automation.NewEventSink(runDir.EventsPath())
+			if esErr == nil {
+				eventSink = es
+			}
+			if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
+				rcl.SetDirForRun(runID, runDir.Root)
+			} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
+				rcl.SetDir(runDir.Root)
+			}
+			if tl, tlErr := automation.NewTeeLogger(procLog, runDir.LogPath()); tlErr == nil {
+				runLog = tl
+				runLogCloser = func() {
+					if c, ok := tl.(interface{ Close() error }); ok {
+						c.Close()
+					}
+				}
+			}
+		}
+	}
 
-	reply, updatedHistory, agErr := agent.Execute(ctx, session.History)
+	// Clear stale events from previous runs so the new SSE connection
+	// doesn't replay old tool_stream/message events (same pattern
+	// as automation's dispatcher.go:478)
+	h.svc.Events().Clear(payload.WorkspaceID)
+	defer h.svc.Events().Clear(payload.WorkspaceID)
+
+	// Build agent options using the shared builder.
+	var collectedEvents []assistant.AgentEvent
+	publishObs := func(ev assistant.AgentEvent) {
+		collectedEvents = append(collectedEvents, ev)
+		h.svc.Events().Publish(payload.WorkspaceID, ev)
+		if eventSink != nil {
+			eventSink.Write(ev)
+		}
+	}
+
+	builder := NewAgentBuilder(h.svc).
+		WithLogger(runLog).
+		WithGuardrails().
+		WithWorkspaceID(payload.WorkspaceID).
+		WithModelName(modelName).
+		WithHotMemory(true).
+		WithObserver(publishObs).
+		WithGuardrailDecisionHandler(assistant.NewGuardrailDecisionCallback(h.svc.GuardrailDecisionStore(), publishObs)).
+		WithOrchestrator().
+		WithModelConfig(ctx, modelName, h.provider, client)
+
+	agent := builder.Build(client, h.provider, h.engine)
+
+	reply, updatedHistory, agErr := agent.Execute(execCtx, session.History)
+
+	// Close recording and run log infrastructure.
+	if eventSink != nil {
+		eventSink.Close()
+	}
+	if runLogCloser != nil {
+		runLogCloser()
+	}
+	if rcl, ok := client.(interface{ CloseRun(string) }); ok {
+		rcl.CloseRun(runID)
+	}
+
 	if agErr != nil {
-		log.Error("agent execution failed", "error", agErr)
+		if errors.Is(agErr, context.Canceled) {
+			log.Info("assistant execution canceled by user", "error", agErr)
+			session.History = updatedHistory
+			if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
+				log.Error("failed to save session after cancel", "error", pErr)
+			}
+			eventsJSON := make([]map[string]any, 0, len(collectedEvents))
+			for _, ev := range collectedEvents {
+				eventsJSON = append(eventsJSON, map[string]any{
+					"type":    ev.Type,
+					"payload": ev.Payload,
+				})
+			}
+			return map[string]any{
+				"reply":           reply,
+				"conversation_id": session.ID,
+				"workspace_id":    session.WorkspaceID,
+				"events":          eventsJSON,
+				"canceled":        true,
+			}, nil
+		}
+		log.Error("assistant execution failed", "error", agErr)
 		return nil, &handlerError{Status: http.StatusInternalServerError, Message: agErr.Error()}
 	}
 
@@ -175,13 +273,21 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	session.History = updatedHistory
 	if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
 		log.Error("failed to save session", "error", pErr)
-		// We continue anyway so the user gets the reply, but it's a warnable offense
+	}
+
+	eventsJSON := make([]map[string]any, 0, len(collectedEvents))
+	for _, ev := range collectedEvents {
+		eventsJSON = append(eventsJSON, map[string]any{
+			"type":    ev.Type,
+			"payload": ev.Payload,
+		})
 	}
 
 	return map[string]any{
 		"reply":           reply,
 		"conversation_id": session.ID,
 		"workspace_id":    session.WorkspaceID,
+		"events":          eventsJSON,
 	}, nil
 }
 
@@ -206,28 +312,24 @@ func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.
 	return client, nil
 }
 
-func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage) ([]proxy.Message, error) {
-	systemPrompt, err := h.provider.GetSystemPrompt()
-	if err != nil {
-		h.logger.Error("failed to get system prompt", "error", err)
-		return nil, err
-	}
-
-	jailPrompt := prompts.FileSystemRules
-
-	agentPrompt := ""
+func (h *AssistantMessageHandler) buildInitialHistory(payload *AssistantMessage, useNativeTools bool) ([]proxy.Message, error) {
+	// Read workspace-specific rules (same as automation reading "rules.md").
+	customRules := ""
 	if payload.WorkspaceID != "" && h.persistence != nil {
-		agentPromptStr, err := h.persistence.ReadTaskFile(payload.WorkspaceID, "agent.md")
-		if err == nil && agentPromptStr != "" {
-			agentPrompt = "\n\n# Workspace Agent Directives\n" + agentPromptStr
+		rules, err := h.persistence.ReadTaskFile(payload.WorkspaceID, "rules.md")
+		if err == nil && rules != "" {
+			customRules = rules
 		}
 	}
+
+	systemPrompt := prompts.AssembleSystemPrompt(customRules, useNativeTools)
 
 	return []proxy.Message{
 		{
 			Role: proxy.SystemRole,
 			Content: prompts.BuildSystemMessage(
-				systemPrompt+jailPrompt+agentPrompt,
+				systemPrompt,
+				useNativeTools,
 				payload.ConversationID,
 				payload.ContextVersion,
 				payload.Timezone,
@@ -365,4 +467,13 @@ func (h *AssistantMessageHandler) truncateHistory(history []proxy.Message) []pro
 	}
 
 	return history
+}
+
+// generateRunID returns a short unique identifier for a recording session.
+func generateRunID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }

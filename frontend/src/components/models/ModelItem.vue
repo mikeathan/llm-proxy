@@ -5,6 +5,7 @@ import { PROVIDER_STYLES } from "../../constants/providers";
 import type { Model, AdminState } from "../../types";
 import ModelTags from "./ModelTags.vue";
 import { inferMetadata } from "../../utils/model-discovery";
+import Icon from "../icons/Icon.vue";
 
 const props = defineProps<{
   model: Model;
@@ -103,8 +104,8 @@ function saveEdit() {
               :class="['btn-icon-toggle', model.active ? 'btn-icon-stop' : 'btn-icon-start']"
               :title="model.active ? 'Stop Model' : 'Start Model'"
             >
-              <svg v-if="!model.active" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M8 5v14l11-7z"/></svg>
-              <svg v-else viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+              <Icon v-if="!model.active" name="play" size="sm" />
+              <Icon v-else name="stop" size="sm" />
             </button>
 
             <button 
@@ -113,12 +114,12 @@ function saveEdit() {
               :class="['btn-icon-toggle', model.active ? 'btn-icon-stop' : 'btn-icon-start']"
               :title="model.active ? 'Deselect' : 'Select'"
             >
-              <svg v-if="!model.active" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="w-4 h-4"><path d="M5 13l4 4L19 7"/></svg>
-              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="w-4 h-4"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              <Icon v-if="!model.active" name="check" size="sm" />
+              <Icon v-else name="close" size="sm" />
             </button>
 
             <button @click="startEdit" class="btn-icon-utility" title="Edit Configuration">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-3.5 h-3.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <Icon name="edit" size="sm" />
             </button>
 
             <button 

@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { TemplateService } from '../../../services/templateService';
 import type { Template, TemplateMetadata } from '../../../types/templates';
-import UIIcon from '../../common/UIIcon.vue';
+import Icon from '../../icons/Icon.vue';
 import BaseButton from '../../common/BaseButton.vue';
 
 const props = defineProps<{
@@ -67,7 +67,7 @@ onMounted(fetchTemplates);
             <p class="text-xs text-gray-400 mt-1 italic">Inject expert-crafted automation steps</p>
           </div>
           <button @click="emit('close')" class="close-btn group">
-            <UIIcon name="close" size="sm" />
+            <Icon name="close" size="sm" />
           </button>
         </div>
 
@@ -80,7 +80,7 @@ onMounted(fetchTemplates);
               placeholder="Search playbooks..." 
               class="search-input"
             />
-            <UIIcon name="search" size="xs" class="absolute left-3 top-3 text-gray-500" />
+            <Icon name="search" size="xs" class="absolute left-3 top-3 text-gray-500" />
           </div>
 
           <div class="flex flex-wrap gap-2">

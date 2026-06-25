@@ -119,9 +119,10 @@ func TestAgent_RecallsMemoryInNewSession(t *testing.T) {
 	engine := &MockEngine{}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:    5,
-		WorkspaceID: "ws-1",
-		MemoryStore: store,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		EnableHotMemory: true,
 	})
 
 	_, _, err = agent.Execute(ctx, []proxy.Message{
@@ -203,7 +204,17 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 			}
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
-					{Message: proxy.Message{Role: "assistant", Content: "# Done\nTask finished"}},
+					{Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_submit",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "done"}`,
+							},
+						}},
+					}},
 				},
 			}, nil
 		},
@@ -212,15 +223,17 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemoryUpdate}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
 		},
 	}
-	engine := &MockEngine{Result: map[string]any{"status": "saved"}}
+	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:      5,
-		WorkspaceID:   "ws-1",
-		MemoryStore:   store,
-		ContextBudget: 100,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		ContextBudget:   100,
+		EnableHotMemory: true,
 	})
 
 	history := []proxy.Message{
@@ -288,13 +301,13 @@ func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
 	engine := &MockEngine{Result: map[string]any{"status": "saved"}}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:      5,
-		WorkspaceID:   "ws-1",
-		MemoryStore:   store,
-		ContextBudget: 100,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		ContextBudget:   100,
+		EnableHotMemory: true,
 	})
 
-	// Automation task history — contains AutomationMarker
 	history := []proxy.Message{
 		{Role: proxy.SystemRole, Content: "test system prompt"},
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the steps in 'test.md'.\n---\nStep 1\n---\n\nCall submit_final_answer when done."},
@@ -309,11 +322,16 @@ func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	// Verify the nudge was NOT injected for automation tasks
+	// With unified agent behavior, pre-sieve nudge fires for all contexts.
+	nudgeFound := false
 	for _, msg := range finalHistory {
 		if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "memory_update") {
-			t.Error("pre-sieve nudge should NOT appear in automation task history")
+			nudgeFound = true
+			break
 		}
+	}
+	if !nudgeFound {
+		t.Error("expected pre-sieve memory nudge in history")
 	}
 }
 
@@ -395,9 +413,10 @@ func TestAgent_HotMemoryInjection(t *testing.T) {
 	engine := &MockEngine{}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:    5,
-		WorkspaceID: "ws-1",
-		MemoryStore: store,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		EnableHotMemory: true,
 	})
 
 	_, _, err = agent.Execute(ctx, []proxy.Message{
@@ -449,9 +468,10 @@ func TestAgent_UserProfileInjection(t *testing.T) {
 	engine := &MockEngine{}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:    5,
-		WorkspaceID: "ws-1",
-		MemoryStore: store,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		EnableHotMemory: true,
 	})
 
 	_, _, err := agent.Execute(ctx, []proxy.Message{

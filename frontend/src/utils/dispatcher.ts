@@ -1,3 +1,4 @@
+import { getEventIcon } from "../constants/icons";
 import type {
   AgentEvent,
   AgentStepStartPayload,
@@ -60,7 +61,7 @@ export const formatEventsToText = (events: AgentEvent[]): string => {
       }
       if (ev.type === "tool_call") {
         const tc = getToolCallPayload(ev);
-        return `🛠️ Executing ${tc.function.name}...\n${tc.function.arguments}`;
+        return `${getEventIcon("tool_call")} Executing ${tc.function.name}...\n${tc.function.arguments}`;
       }
       if (ev.type === "tool_result") {
         const tr = getToolResPayload(ev);
@@ -68,18 +69,53 @@ export const formatEventsToText = (events: AgentEvent[]): string => {
           typeof tr.result === "string"
             ? tr.result
             : JSON.stringify(tr.result, null, 2);
-        return `✅ ${tr.name} finished\n${resStr}`;
+        return `${getEventIcon("tool_result")} ${tr.name} finished\n${resStr}`;
       }
       if (ev.type === "guardrail_violation") {
         const vp = getViolationPayload(ev);
-        return `🛑 Guardrail Blocked: ${vp.tool}\n${vp.error}`;
+        return `${getEventIcon("guardrail_violation")} Guardrail Blocked: ${vp.tool}\n${vp.error}`;
       }
       if (ev.type === "guardrail_blocked") {
         const bp = ev.payload as GuardrailBlockedPayload;
-        return `🛑 Guardrail Blocked — Awaiting Approval\nTool: ${bp.tool}\nReason: ${bp.reason}\nDecision ID: ${bp.decision_id}\nUse the approve/deny controls below to proceed.`;
+        return `${getEventIcon("guardrail_blocked")} Guardrail Blocked — Awaiting Approval\nTool: ${bp.tool}\nReason: ${bp.reason}\nDecision ID: ${bp.decision_id}\nUse the approve/deny controls below to proceed.`;
       }
       return "";
     })
     .filter(Boolean)
     .join("\n\n");
 };
+
+import type { AssistantMessage } from "../types/assistant";
+
+/**
+ * Converts a tool_call AgentEvent into an AssistantMessage for the chat history.
+ */
+export const toolCallEventToMessage = (ev: AgentEvent): AssistantMessage => {
+  const tc = getToolCallPayload(ev)
+  return {
+    role: 'assistant',
+    content: '',
+    tool_calls: [{
+      id: '',
+      type: 'function',
+      function: {
+        name: tc.function.name,
+        arguments: tc.function.arguments,
+      },
+    }],
+  }
+}
+
+/**
+ * Converts a tool_result AgentEvent into an AssistantMessage for the chat history.
+ * The full result object is preserved in toolResult for structured rendering.
+ */
+export const toolResultEventToMessage = (ev: AgentEvent): AssistantMessage => {
+  const tr = getToolResPayload(ev)
+  return {
+    role: 'tool',
+    content: '',
+    tool_call_id: '',
+    toolResult: tr,
+  }
+}

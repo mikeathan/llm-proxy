@@ -5,7 +5,7 @@ import MarkdownViewer from "../../common/MarkdownViewer.vue";
 import LiveConsole from "./LiveConsole.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
 import BaseButton from "../../common/BaseButton.vue";
-import UIIcon from "../../common/UIIcon.vue";
+import Icon from "../../icons/Icon.vue";
 
 const props = defineProps<{
   automation: Automation;
@@ -150,13 +150,13 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
                 </div>
                 <div class="entry-actions">
                   <span class="entry-duration">{{ run.duration_ms }}ms</span>
-                  <UIIcon
+                  <Icon
                     v-if="!expandedHistoryRuns[run.id]"
                     name="close"
                     size="xs"
                     class="rotate-45"
                   />
-                  <UIIcon v-else name="close" size="xs" class="text-blue-400" />
+                  <Icon v-else name="close" size="xs" class="text-blue-400" />
                 </div>
               </div>
 
@@ -184,7 +184,7 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
       <!-- LIVE EXECUTION STATUS (Shown during trigger and active runs) -->
       <div v-if="showLiveUI" class="result-banner result-banner--success">
         <div class="flex items-center gap-3">
-          <UIIcon name="spinner" size="xs" />
+          <Icon name="spinner" size="xs" />
           <span class="font-bold tracking-tight uppercase text-[10px]">
             {{ lastTriggerResult || "Automation in progress..." }}
           </span>

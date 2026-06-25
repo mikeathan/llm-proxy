@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { formatPercent, formatTokenRate } from "../../../utils/formatters";
 import type { SystemMetrics } from "../../../types/metrics";
+import Icon from "../../icons/Icon.vue";
 
 const props = defineProps<{
   metrics: SystemMetrics | null;
@@ -43,9 +44,7 @@ const getLoadColor = (val: number) => {
     <!-- Throughput -->
     <div class="metric-item throughput" title="LLM Throughput">
       <span class="metric-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
+        <Icon name="lightning" size="sm" />
       </span>
       <span class="metric-val text-white font-mono">{{ formatTokenRate(throughput) }}</span>
       <span class="metric-unit">t/s</span>

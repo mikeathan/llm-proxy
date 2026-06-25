@@ -40,6 +40,17 @@ func isToolCallParseError(err error) bool {
 	return strings.Contains(low, "failed to parse tool call arguments")
 }
 
+func isJSONSyntaxError(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "missing closing") ||
+		strings.Contains(low, "invalid string") ||
+		strings.Contains(low, "unexpected end") ||
+		strings.Contains(low, "parse error")
+}
+
 func isContextSizeError(err error) bool {
 	if err == nil {
 		return false
