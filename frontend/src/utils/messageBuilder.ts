@@ -218,6 +218,7 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
     lastClean = ''
     reasoningBuffer = ''
     reasoningCommitted = ''
+    liveReasoning.value = ''
     isFinalTurn = false
     currentToolArgs = ''
     streaming.value = false

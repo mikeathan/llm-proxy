@@ -2,6 +2,7 @@ import { ref, watch } from 'vue'
 import { AssistantService } from '../services/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../utils/messageBuilder'
+import { buildSegmentsFromHistory } from '../utils/turnGrouper'
 import type { AssistantMessage, SessionBrief } from '../types/assistant'
 
 const loading = ref(false)
@@ -30,11 +31,33 @@ export function useAssistant() {
   const liveReasoning = builder.liveReasoning
   const paused = builder.paused
 
-  const cancel = () => {
-    if (abortController.value) {
-      abortController.value.abort()
-      abortController.value = null
+  const cancel = async () => {
+    const ws = activeWorkspaceId.value
+    if (!ws) return
+    // Cancel by workspace — conversation_id is optional.  When the user
+    // stops the first send before the response returns a session_id, we
+    // still need the cancel signal to reach the backend.  The cancel
+    // response may carry back the real session_id; we use it to keep the
+    // cancelled turn in the same conversation as the next send.
+    try {
+      const resp = await AssistantService.cancelAgent(ws, currentSessionId.value ?? '')
+      if (resp.conversation_id && !currentSessionId.value) {
+        currentSessionId.value = resp.conversation_id
+        const lastUser = [...messages.value].reverse().find(m => m.role === 'user')
+        sessions.value.unshift({
+          id: resp.conversation_id,
+          snippet: (lastUser?.content ?? '').substring(0, 80),
+          updated_at: new Date().toISOString(),
+        })
+      }
+    } catch (err) {
+      console.warn('cancel agent request failed', err)
     }
+    // Do NOT abort the original HTTP request.  The cancel signal causes
+    // the in-flight `await AssistantService.sendMessage(...)` to resolve
+    // with the cancel response, which contains `conversation_id` and is
+    // the only place the frontend learns the session id when the first
+    // send is cancelled.  Aborting would discard it.
     sse.disconnect()
     builder.reset()
     loading.value = false
@@ -65,7 +88,29 @@ export function useAssistant() {
         return
       }
       currentSessionId.value = session.id
-      messages.value = session.history || []
+      messages.value = buildSegmentsFromHistory(session.history || [])
+      // Apply every cancelled turn's marker so all of them are shown as
+      // "Response interrupted" in the UI.  Older sessions may still have
+      // the legacy metadata keys; honour them as a fallback.
+      const indices = session.cancelled_indices
+      if (Array.isArray(indices)) {
+        for (const idx of indices) {
+          if (typeof idx === 'number' && messages.value[idx]) {
+            messages.value[idx].canceled = true
+          }
+        }
+      }
+      const legacyMsgIdx = session.metadata?.canceled_message_index
+      if (typeof legacyMsgIdx === 'number' && messages.value[legacyMsgIdx]) {
+        messages.value[legacyMsgIdx].canceled = true
+      }
+      const legacyUserIdx = session.metadata?.canceled_user_message_index
+      if (typeof legacyUserIdx === 'number' && messages.value[legacyUserIdx]) {
+        messages.value[legacyUserIdx].canceled = true
+      }
+      if (messages.value.length === 0) {
+        console.warn('Loaded session has empty history', sessionId)
+      }
     } catch (err) {
       console.error('Failed to load session, starting fresh:', err)
       newSession()
@@ -136,6 +181,27 @@ export function useAssistant() {
           snippet: text.substring(0, 80),
           updated_at: new Date().toISOString(),
         })
+      }
+
+      if (response.canceled) {
+        // Mark the current turn's messages by scanning from the end for the
+        // last user message (the one we just sent) and any assistant messages
+        // after it.  This avoids relying on backend indices that are offset
+        // by the system prompt not present in messages.value during the live
+        // state.
+        const msgs = messages.value
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i]
+          if (!m) continue
+          if (m.role === 'user') {
+            m.canceled = true
+            for (let j = i + 1; j < msgs.length; j++) {
+              const a = msgs[j]
+              if (a && a.role === 'assistant') a.canceled = true
+            }
+            break
+          }
+        }
       }
 
       builder.finalize(response.reply)

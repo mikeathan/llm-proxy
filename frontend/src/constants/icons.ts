@@ -41,6 +41,7 @@ export const SEARCH_ICON = "🔍"
 export const WARNING_ICON = "⚠️"   // with variation selector-16
 export const ERROR_ICON = "❌"
 export const CHECK_ICON = "✅"
+export const FOLDER_ICON = "📁"
 
 // ── Toast notification symbols (Unicode text, not emoji) ──
 export const TOAST_SUCCESS = "✓"

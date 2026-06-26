@@ -91,3 +91,7 @@ func (r *Router) Put(path string, handler http.HandlerFunc, opts ...RouteOption)
 func (r *Router) Delete(path string, handler http.HandlerFunc, opts ...RouteOption) {
 	r.Handle(http.MethodDelete, path, handler, opts...)
 }
+
+func (r *Router) Patch(path string, handler http.HandlerFunc, opts ...RouteOption) {
+	r.Handle(http.MethodPatch, path, handler, opts...)
+}

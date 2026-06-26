@@ -98,3 +98,4 @@ For deep directory mappings, file change checklists, and architectural invariant
 - Build output goes to `../backend/internal/transport/http/frontend_dist/` (Go embed)
 - `npm run build` runs `vue-tsc -b` (type-check) then `vite build` — TS errors fail the build
 - Model form defaults and derived names live in `src/utils/modelUtils.ts` — reusable across components
+- **Service response types**: every API method that calls `fetch()` must define its response type in `types/` and explicitly deserialise via `const data: T = await res.json(); return data`. Never return bare `res.json()` — the explicit variable type catches field mismatches at compile time if the backend shape changes.

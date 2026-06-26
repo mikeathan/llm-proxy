@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, nextTick } from "vue";
+import { onMounted, onUnmounted, ref, computed, nextTick, watch } from "vue";
 import { useDispatcher } from "../../composables/useDispatcher";
 import { useModels } from "../../composables/useModels";
 import type { Automation, RecordingMeta } from "../../types/dispatcher";
@@ -83,6 +83,7 @@ const settingsWorkspaceId = ref<string | null>(null);
 const workspaceExternalAccess = ref<Record<string, boolean>>({});
 const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
 const isMobile = ref(false);
+const assistantOpen = ref(false);
 
 /* ── Computed Properties ── */
 const models = computed(() => adminState.value?.models || []);
@@ -106,6 +107,21 @@ const activeMainView = computed(() => {
     return "assistant";
   return "dashboard";
 });
+
+const canOpenAssistant = computed(
+  () => !!selectedWorkspace.value && !selectedFile.value && !selectedAutomation.value
+);
+
+const toggleAssistant = () => {
+  if (!canOpenAssistant.value) {
+    return;
+  }
+  assistantOpen.value = !assistantOpen.value;
+};
+
+const closeAssistant = () => {
+  assistantOpen.value = false;
+};
 
 /* ── Methods & Handlers ── */
 const updateLayout = () => {
@@ -174,6 +190,15 @@ onUnmounted(() => {
   if (historyInterval) clearInterval(historyInterval);
   window.removeEventListener("resize", updateLayout);
 });
+
+// Auto-select the first workspace when none is selected and workspaces load.
+// Ensures the assistant is usable in mobile view without requiring the user
+// to manually open the workspace explorer first.
+watch(workspaces, (ws) => {
+  if (!selectedWorkspace.value && ws && ws.length > 0 && ws[0]) {
+    selectedWorkspace.value = ws[0].id;
+  }
+}, { immediate: true });
 
 const groupedByWorkspace = computed(() => {
   const groups: Record<string, Automation[]> = {};
@@ -470,6 +495,17 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       >
         Monitor
       </button>
+      <button
+        @click="toggleAssistant"
+        :disabled="!canOpenAssistant"
+        :class="[
+          'mobile-tab',
+          assistantOpen ? 'mobile-tab--active' : '',
+        ]"
+        title="Open Workspace Assistant"
+      >
+        Chat
+      </button>
     </div>
 
     <!-- Left Pane: Sidebar -->
@@ -561,6 +597,20 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             Playbooks
           </BaseButton>
         </div>
+        <div class="flex w-full">
+          <BaseButton
+            @click="toggleAssistant"
+            :disabled="!canOpenAssistant"
+            variant="ghost"
+            icon="lightning"
+            size="sm"
+            className="flex-1 !text-indigo-300 hover:!bg-indigo-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
+            :class="assistantOpen ? '!bg-indigo-600/25 ring-1 ring-indigo-500/50' : '!bg-indigo-600/15'"
+            title="Open Workspace Assistant Chat"
+          >
+            Chat
+          </BaseButton>
+        </div>
       </div>
 
       <div ref="sidebarRef" class="sidebar-content">
@@ -634,22 +684,14 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 
     <!-- Middle Pane: Details / Editor / Dashboard -->
     <div v-show="!isMobile || mobilePanel === 'workspace'" class="main-pane">
-      <!-- Assistant View -->
-      <AssistantChat
-        v-if="activeMainView === 'assistant'"
-        :workspaceId="selectedWorkspace!"
-        @close="workspaceMiddleTab = 'pulse'"
-      />
-
       <!-- Default Dashboard View -->
       <SystemPulseDashboard
-        v-else-if="activeMainView === 'dashboard'"
+        v-if="activeMainView === 'dashboard'"
         :selected-workspace="selectedWorkspace"
         :loading="loading"
         :workspace-history="workspaceHistory"
         @select-run="handleSelectRun"
         @clear-workspace="selectedWorkspace = null"
-        @open-chat="workspaceMiddleTab = 'chat'"
       />
 
       <!-- Historical Run View -->
@@ -769,6 +811,21 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       @close="showTemplates = false"
       @inject="handleInjectTemplate"
     />
+
+    <Teleport to="body">
+      <Transition name="assistant-overlay">
+        <div v-if="assistantOpen && selectedWorkspace" class="assistant-overlay">
+          <div class="assistant-overlay-backdrop" @click="closeAssistant"></div>
+          <div class="assistant-overlay-panel">
+            <AssistantChat
+              :workspaceId="selectedWorkspace"
+              :overlay="true"
+              @close="closeAssistant"
+            />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -921,5 +978,35 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 
 .metrics-container {
   @apply shrink-0;
+}
+
+/* ── Assistant Overlay ── */
+.assistant-overlay {
+  @apply fixed inset-0 z-40 flex;
+}
+
+.assistant-overlay-backdrop {
+  @apply absolute inset-0 bg-black/50 backdrop-blur-sm;
+}
+
+.assistant-overlay-panel {
+  @apply relative z-10 ml-auto w-full h-full sm:max-w-2xl;
+  animation: assistant-slide-in 0.25s ease-out;
+}
+
+@keyframes assistant-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.assistant-overlay-enter-active {
+  transition: opacity 0.25s ease-out;
+}
+.assistant-overlay-leave-active {
+  transition: opacity 0.2s ease-in;
+}
+.assistant-overlay-enter-from,
+.assistant-overlay-leave-to {
+  opacity: 0;
 }
 </style>
