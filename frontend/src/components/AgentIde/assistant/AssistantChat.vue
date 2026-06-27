@@ -11,7 +11,6 @@ import Icon from "../../../components/icons/Icon.vue";
 
 const props = defineProps<{
   workspaceId: string;
-  overlay?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -154,15 +153,18 @@ watch(loading, async (newVal, oldVal) => {
 
 <template>
   <div class="assistant-shell">
+    <div v-if="isMobile && !sidebarCollapsed" class="session-backdrop" @click="sidebarCollapsed = true"></div>
     <ChatSessionList
-      v-if="!sidebarCollapsed && !isMobile"
+      v-if="!sidebarCollapsed"
       :sessions="sessions"
       :current-session-id="currentSessionId"
+      :is-mobile="isMobile"
       @load="handleLoadSession"
       @delete="handleDeleteSession"
       @rename="handleRenameSession"
       @new-chat="handleNewChat"
       @clear-all="handleClearAll"
+      @close="sidebarCollapsed = true"
     />
 
     <div class="chat-area">
@@ -222,9 +224,10 @@ watch(loading, async (newVal, oldVal) => {
 <style scoped>
 @import url('../../../styles/theme.css');
 
-.assistant-shell { @apply h-full flex bg-gray-800 rounded-lg overflow-hidden border border-white/5; }
+.assistant-shell { @apply h-full flex flex-col overflow-hidden relative; }
+.session-backdrop { @apply fixed inset-0 bg-black/50 z-30; }
 .chat-area { @apply flex-1 flex flex-col bg-gray-900 relative; }
-.chat-header { @apply px-4 py-3 border-b border-gray-700 bg-gray-800/80 flex items-center justify-between backdrop-blur-sm z-10; }
+.chat-header { @apply px-4 py-3 bg-gray-800/40 border-b border-white/5 flex items-center justify-between z-10; }
 .chat-info { @apply flex flex-col; }
 .chat-status { @apply text-[9px] font-bold text-green-500 uppercase tracking-widest leading-none mb-1; }
 .chat-title { @apply text-xs font-bold text-gray-200 leading-none; }

@@ -117,7 +117,7 @@ function toolStepCount(segments: Segment[]): number {
 .message-wrapper--assistant { @apply justify-start; }
 
 .message-bubble { @apply max-w-full sm:max-w-[85%] rounded-2xl p-3 sm:p-4 flex flex-col gap-2 shadow-sm relative break-words; isolation: isolate; }
-.message-bubble--assistant { @apply bg-gray-800 text-gray-200 border border-gray-700; min-height: 60px; }
+.message-bubble--assistant { @apply bg-gray-800/40 border border-white/5 text-gray-200; min-height: 60px; }
 .message-bubble--assistant > :not(.arc-orbit-loader) { position: relative; z-index: 0; }
 
 .bubble-header { @apply flex items-center gap-2 select-none w-full; background: none; border: none; padding: 0; text-align: left; font-family: inherit; color: inherit; font-size: inherit; cursor: pointer; }

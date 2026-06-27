@@ -7,6 +7,7 @@ import Icon from '../../icons/Icon.vue'
 const props = defineProps<{
   sessions: SessionBrief[]
   currentSessionId: string | null
+  isMobile?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   (e: 'rename', sessionId: string, title: string): void
   (e: 'new-chat'): void
   (e: 'clear-all'): void
+  (e: 'close'): void
 }>()
 
 const renaming = ref<string | null>(null)
@@ -52,6 +54,14 @@ function cancelRename() {
         </button>
         <button @click="emit('new-chat')" class="btn-header-icon" title="New Chat">
           <Icon name="plus" size="sm" />
+        </button>
+        <button
+          v-if="props.isMobile"
+          @click="emit('close')"
+          class="btn-header-icon"
+          title="Close history"
+        >
+          <Icon name="close" size="sm" />
         </button>
       </div>
     </div>
@@ -110,12 +120,14 @@ function cancelRename() {
 
 <style scoped lang="postcss">
 .session-panel {
-  @apply flex flex-col h-full w-64 bg-gray-800/50 border-r border-gray-700 overflow-hidden;
+  @apply flex flex-col h-full w-64 bg-gray-800 border border-white/5 overflow-hidden;
+}
+@media (max-width: 639px) {
+  .session-panel { @apply fixed left-0 top-0 bottom-0 w-72 z-40; }
 }
 
 .session-panel-header {
-  @apply flex items-center justify-between px-3 py-2.5 border-b border-gray-700/50;
-}
+  @apply flex items-center justify-between px-3 py-2.5 border-b border-white/5; }
 
 .session-panel-title {
   @apply text-xs font-bold uppercase tracking-wider text-gray-400;

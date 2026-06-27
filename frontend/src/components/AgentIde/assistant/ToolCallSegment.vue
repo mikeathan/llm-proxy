@@ -72,7 +72,7 @@ const emit = defineEmits<{
 .segment-label { @apply flex-1 font-mono text-gray-500 truncate flex items-center gap-2; }
 .segment-name { @apply shrink-0; }
 .segment-chevron { @apply text-gray-600 w-3 h-3 flex items-center justify-center shrink-0; }
-.segment-detail { @apply mt-1 ml-6 p-2 bg-gray-900/50 rounded border border-gray-700/40 flex flex-col gap-2; }
+.segment-detail { @apply mt-1 ml-6 p-3 bg-gray-800/40 border border-white/5 rounded-2xl flex flex-col gap-2; }
 .segment-detail-row { @apply flex flex-col gap-1; }
 .segment-detail-key { @apply text-[10px] uppercase tracking-wider text-gray-500 font-semibold; }
 .segment-detail-value { @apply text-xs font-mono text-gray-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto; }

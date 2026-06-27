@@ -71,11 +71,13 @@ watch(
 
 <template>
   <div class="message-container" ref="messageContainer" @scroll="onContainerScroll">
-    <div v-if="messages.length === 0 && !loading" class="chat-empty">
-      <div class="welcome-icon"><Icon name="message" /></div>
-      <h3>Workspace Assistant</h3>
-      <p>You are talking to the agent bounded to <strong>{{ workspaceId }}</strong>.</p>
-      <p>Ask it to scan files, check metrics, or help debug issues.</p>
+    <div v-if="messages.length === 0 && !loading" class="chat-empty-card">
+      <div class="chat-empty">
+        <div class="welcome-icon"><Icon name="message" /></div>
+        <h3>Workspace Assistant</h3>
+        <p>You are talking to the agent bounded to <strong>{{ workspaceId }}</strong>.</p>
+        <p>Ask it to scan files, check metrics, or help debug issues.</p>
+      </div>
     </div>
 
     <div v-if="error" class="chat-error-banner">
@@ -113,7 +115,8 @@ watch(
 
 <style scoped>
 .message-container { @apply flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5; }
-.chat-empty { @apply m-auto flex flex-col items-center justify-center text-center text-gray-500 gap-3 max-w-sm px-6; }
+.chat-empty-card { @apply bg-gray-800/40 border border-white/5 rounded-2xl p-6 mx-1; }
+.chat-empty { @apply flex flex-col items-center justify-center text-center text-gray-500 gap-3 max-w-sm mx-auto; }
 .welcome-icon { @apply text-4xl mb-2 opacity-50; }
 .chat-error-banner { @apply flex items-start gap-2 px-3 py-2.5 mx-1 rounded-lg text-xs leading-relaxed; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); }
 .chat-error-text { @apply flex-1 text-red-300/90; }

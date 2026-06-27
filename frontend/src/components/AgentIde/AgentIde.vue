@@ -83,7 +83,7 @@ const settingsWorkspaceId = ref<string | null>(null);
 const workspaceExternalAccess = ref<Record<string, boolean>>({});
 const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace");
 const isMobile = ref(false);
-const assistantOpen = ref(false);
+
 
 /* ── Computed Properties ── */
 const models = computed(() => adminState.value?.models || []);
@@ -97,6 +97,8 @@ const selectedAutomation = computed(() => {
   );
 });
 
+const memoryActive = computed(() => leftTab.value === "memory");
+
 const activeMainView = computed(() => {
   if (settingsWorkspaceId.value) return "workspace-settings";
   if (selectedRun.value) return "history";
@@ -109,19 +111,15 @@ const activeMainView = computed(() => {
 });
 
 const canOpenAssistant = computed(
-  () => !!selectedWorkspace.value && !selectedFile.value && !selectedAutomation.value
+  () => !!selectedWorkspace.value
 );
 
-const toggleAssistant = () => {
-  if (!canOpenAssistant.value) {
-    return;
+function toggleAssistant() {
+  workspaceMiddleTab.value = workspaceMiddleTab.value === "chat" ? "pulse" : "chat";
+  if (isMobile.value) {
+    mobilePanel.value = "workspace";
   }
-  assistantOpen.value = !assistantOpen.value;
-};
-
-const closeAssistant = () => {
-  assistantOpen.value = false;
-};
+}
 
 /* ── Methods & Handlers ── */
 const updateLayout = () => {
@@ -469,7 +467,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
     <!-- Mobile Tab Bar -->
     <div class="mobile-tabs">
       <button
-        @click="mobilePanel = 'explorer'"
+        @click="mobilePanel = 'explorer'; workspaceMiddleTab = 'pulse'"
         :class="[
           'mobile-tab',
           mobilePanel === 'explorer' ? 'mobile-tab--active' : '',
@@ -478,16 +476,16 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         Explorer
       </button>
       <button
-        @click="mobilePanel = 'workspace'"
+        @click="mobilePanel = 'workspace'; workspaceMiddleTab = 'pulse'"
         :class="[
           'mobile-tab',
-          mobilePanel === 'workspace' ? 'mobile-tab--active' : '',
+          mobilePanel === 'workspace' && workspaceMiddleTab === 'pulse' ? 'mobile-tab--active' : '',
         ]"
       >
         Workspace
       </button>
       <button
-        @click="mobilePanel = 'monitor'"
+        @click="mobilePanel = 'monitor'; workspaceMiddleTab = 'pulse'"
         :class="[
           'mobile-tab',
           mobilePanel === 'monitor' ? 'mobile-tab--active' : '',
@@ -500,7 +498,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         :disabled="!canOpenAssistant"
         :class="[
           'mobile-tab',
-          assistantOpen ? 'mobile-tab--active' : '',
+          workspaceMiddleTab === 'chat' && mobilePanel === 'workspace' ? 'mobile-tab--active' : '',
         ]"
         title="Open Workspace Assistant"
       >
@@ -535,83 +533,47 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         </div>
       </div>
 
-      <div class="sidebar-header">
-        <div class="sidebar-tabs" :class="recordingsEnabled ? 'grid-cols-3' : 'grid-cols-2'">
-          <button
-            @click="leftTab = 'explorer'"
-            class="sidebar-tab"
-            :class="
-              leftTab === 'explorer'
-                ? 'sidebar-tab--active'
-                : 'sidebar-tab--inactive'
-            "
-          >
-            Explorer
-          </button>
-          <button
-            @click="leftTab = 'automations'"
-            class="sidebar-tab"
-            :class="
-              leftTab === 'automations'
-                ? 'sidebar-tab--active'
-                : 'sidebar-tab--inactive'
-            "
-          >
-            Automations
-          </button>
-          <button
-            v-if="recordingsEnabled"
-            @click="leftTab = 'recordings'"
-            class="sidebar-tab"
-            :class="
-              leftTab === 'recordings'
-                ? 'sidebar-tab--active'
-                : 'sidebar-tab--inactive'
-            "
-          >
-            Recordings
-          </button>
-        </div>
-        <div class="flex gap-2 w-full">
-          <BaseButton
-            @click="leftTab = 'memory'"
-            :disabled="!selectedWorkspace"
-            variant="ghost"
-            icon="search"
-            size="sm"
-            className="flex-1 !text-purple-400 hover:!bg-purple-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
-            :class="leftTab === 'memory' ? '!bg-purple-600/25 ring-1 ring-purple-500/50' : '!bg-purple-600/10'"
-            title="Open Workspace Memory Panel"
-          >
-            Memory
-          </BaseButton>
-          <BaseButton
-            @click="showTemplates = true"
-            :disabled="!selectedWorkspace"
-            variant="ghost"
-            icon="document"
-            size="sm"
-            className="flex-1 !text-blue-500 !bg-blue-600/10 hover:!bg-blue-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
-            title="Open Task Playbook Library"
-          >
-            Playbooks
-          </BaseButton>
-        </div>
-        <div class="flex w-full">
-          <BaseButton
-            @click="toggleAssistant"
-            :disabled="!canOpenAssistant"
-            variant="ghost"
-            icon="lightning"
-            size="sm"
-            className="flex-1 !text-indigo-300 hover:!bg-indigo-600/20 disabled:!opacity-30 disabled:!cursor-not-allowed"
-            :class="assistantOpen ? '!bg-indigo-600/25 ring-1 ring-indigo-500/50' : '!bg-indigo-600/15'"
-            title="Open Workspace Assistant Chat"
-          >
-            Chat
-          </BaseButton>
-        </div>
-      </div>
+          <div class="sidebar-header">
+            <div class="sidebar-tabs-icon" :class="recordingsEnabled ? 'grid-cols-3' : 'grid-cols-2'">
+              <button
+                @click="leftTab = 'explorer'"
+                class="sidebar-tab-icon"
+                :class="
+                  leftTab === 'explorer'
+                    ? 'sidebar-tab-icon--active'
+                    : 'sidebar-tab-icon--inactive'
+                "
+              >
+                <Icon name="lightning" size="sm" />
+                <span>Explorer</span>
+              </button>
+              <button
+                @click="leftTab = 'automations'"
+                class="sidebar-tab-icon"
+                :class="
+                  leftTab === 'automations'
+                    ? 'sidebar-tab-icon--active'
+                    : 'sidebar-tab-icon--inactive'
+                "
+              >
+                <Icon name="play" size="sm" />
+                <span>Automations</span>
+              </button>
+              <button
+                v-if="recordingsEnabled"
+                @click="leftTab = 'recordings'"
+                class="sidebar-tab-icon"
+                :class="
+                  leftTab === 'recordings'
+                    ? 'sidebar-tab-icon--active'
+                    : 'sidebar-tab-icon--inactive'
+                "
+              >
+                <Icon name="refresh" size="sm" />
+                <span>Recordings</span>
+              </button>
+            </div>
+          </div>
 
       <div ref="sidebarRef" class="sidebar-content">
         <!-- Explorer Tab -->
@@ -623,6 +585,8 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           :selectedFile="selectedFile"
           :loading="loading"
           :workspaceExternalAccess="workspaceExternalAccess"
+          :chat-active="workspaceMiddleTab === 'chat'"
+          :memory-active="memoryActive"
           @select-workspace="handleSelectWorkspace"
           @create-workspace="handleCreateWorkspace"
           @delete-workspace="handleDeleteWorkspace"
@@ -630,6 +594,9 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           @create-file="handleCreateFile"
           @delete-file="handleDeleteFile"
           @manage-guardrails="handleManageGuardrails"
+          @open-memory="leftTab = 'memory'"
+          @open-playbooks="showTemplates = true"
+          @open-chat="toggleAssistant"
         />
 
         <!-- Automations Tab -->
@@ -753,6 +720,13 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         :selectedRun="selectedRun"
         @close="handleCloseDetails"
       />
+
+      <!-- Assistant View (full main pane) -->
+      <AssistantChat
+        v-else-if="activeMainView === 'assistant' && selectedWorkspace"
+        :workspaceId="selectedWorkspace"
+        @close="workspaceMiddleTab = 'pulse'"
+      />
     </div>
 
     <!-- Right Pane: Monitor & Activity -->
@@ -812,20 +786,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       @inject="handleInjectTemplate"
     />
 
-    <Teleport to="body">
-      <Transition name="assistant-overlay">
-        <div v-if="assistantOpen && selectedWorkspace" class="assistant-overlay">
-          <div class="assistant-overlay-backdrop" @click="closeAssistant"></div>
-          <div class="assistant-overlay-panel">
-            <AssistantChat
-              :workspaceId="selectedWorkspace"
-              :overlay="true"
-              @close="closeAssistant"
-            />
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+
   </div>
 </template>
 
@@ -874,37 +835,29 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 }
 
 .sidebar-header {
-  @apply p-3 px-4 border-b border-gray-700 flex flex-col gap-2.5;
+  @apply p-2 px-3 border-b border-gray-700;
 }
 
-.sidebar-tabs {
-  @apply grid gap-1 bg-gray-900 rounded p-1;
+.sidebar-tabs-icon {
+  @apply grid gap-1 bg-gray-900 rounded p-0.5;
 }
 
-.sidebar-tab {
-  @apply py-1.5 text-xs font-medium rounded transition-colors text-center truncate disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-400;
+.sidebar-tab-icon {
+  @apply flex items-center justify-center gap-1.5 h-7 px-2 rounded transition-colors 
+         text-[10px] font-medium text-gray-400 truncate
+         disabled:opacity-30 disabled:cursor-not-allowed;
 }
 
-.sidebar-tab--active {
+.sidebar-tab-icon--active {
   @apply bg-gray-700 text-white;
 }
 
-.sidebar-tab--inactive {
-  @apply text-gray-400 hover:text-gray-200;
+.sidebar-tab-icon--inactive {
+  @apply hover:text-gray-200;
 }
 
 .sidebar-content {
   @apply flex-1 overflow-y-auto;
-}
-
-.btn-template-trigger {
-  @apply flex items-center justify-center gap-2 py-1.5 px-3 rounded bg-blue-600/10 
-         hover:bg-blue-600/20 text-blue-500 text-[10px] font-black uppercase tracking-wider 
-         transition-all border border-blue-500/20 active:scale-95;
-}
-
-.btn-template-trigger--disabled {
-  @apply opacity-30 grayscale cursor-not-allowed hover:bg-transparent;
 }
 
 .loading-message {
@@ -980,33 +933,5 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
   @apply shrink-0;
 }
 
-/* ── Assistant Overlay ── */
-.assistant-overlay {
-  @apply fixed inset-0 z-40 flex;
-}
 
-.assistant-overlay-backdrop {
-  @apply absolute inset-0 bg-black/50 backdrop-blur-sm;
-}
-
-.assistant-overlay-panel {
-  @apply relative z-10 ml-auto w-full h-full sm:max-w-2xl;
-  animation: assistant-slide-in 0.25s ease-out;
-}
-
-@keyframes assistant-slide-in {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
-}
-
-.assistant-overlay-enter-active {
-  transition: opacity 0.25s ease-out;
-}
-.assistant-overlay-leave-active {
-  transition: opacity 0.2s ease-in;
-}
-.assistant-overlay-enter-from,
-.assistant-overlay-leave-to {
-  opacity: 0;
-}
 </style>
