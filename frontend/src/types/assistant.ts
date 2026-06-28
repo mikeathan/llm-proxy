@@ -22,6 +22,7 @@ export interface AssistantMessage {
   tool_call_id?: string
   toolResult?: { name: string; result: any; error?: string }
   segments?: Segment[]
+  canceled?: boolean
 }
 
 export interface SessionBrief {
@@ -36,6 +37,8 @@ export interface AssistantSession {
   context_version: string
   timezone: string
   history: AssistantMessage[]
+  metadata?: Record<string, any>
+  cancelled_indices?: number[]
   updated_at: string
 }
 
@@ -53,4 +56,10 @@ export interface ChatResponsePayload {
   reply: string
   conversation_id: string
   events?: AgentEvent[]
+  canceled?: boolean
+}
+
+export interface CancelAgentResponse {
+  conversation_id: string
+  canceled: boolean
 }

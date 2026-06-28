@@ -71,6 +71,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
 - Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, strip `<think>` tags and promote to `Content` so the XML parser can process it. See `cleanReasoningContent()`.
 - On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars`.
+- **Token budget enforcement at the stream layer**: when the orchestrator's `StreamInterceptor` signals `ShouldTerminate` (token or reasoning budget exceeded), `processStream` returns nil, ending the stream client-side. Upstream servers do not always enforce `max_tokens`; without this client-side termination the model can generate indefinitely. A char cap of `maxTokens * 4` (via `exceedsContentCharCap`) is a fallback safety net for the case where the token counter underestimates output. The agent loop evaluates the partial turn (e.g. `isPrematureTermination`, `handleEmptyStream`, or normal turn processing) so the response is not silently dropped.
 - Fallback chain:
   a. **Native tools + empty stream** → depends on `usePrefill`:
      i. **Native-only** (`usePrefill=false`): skip XML retry, go directly to non-streaming + nag prompt. The XML retry would waste ~60s for models that can't produce `<tool_call>` blocks.

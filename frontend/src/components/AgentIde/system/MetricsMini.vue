@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { formatPercent, formatTokenRate } from "../../../utils/formatters";
+import { formatPercent, formatTokenRate } from "../../../utils/format/formatters";
 import type { SystemMetrics } from "../../../types/metrics";
 import Icon from "../../icons/Icon.vue";
 

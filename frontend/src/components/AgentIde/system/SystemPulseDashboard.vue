@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import type { AutomationRun } from "../../../types/dispatcher";
+import { FOLDER_ICON } from "../../../constants/icons";
 
 const props = defineProps<{
   selectedWorkspace?: string | null;
@@ -11,7 +12,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "select-run", run: AutomationRun): void;
   (e: "clear-workspace"): void;
-  (e: "open-chat"): void;
 }>();
 
 const filterMode = ref<"all" | "errors">("all");
@@ -30,58 +30,39 @@ const filteredHistory = computed(() => {
       <header class="header-section">
         <div class="header-row">
           <div class="header-left">
-            <h1 class="main-title">
-              System Pulse
-              <span v-if="selectedWorkspace" class="workspace-tag">
-                {{ selectedWorkspace }}
-                <button @click="emit('clear-workspace')" class="btn-tag-close">
-                  ✕
-                </button>
-              </span>
-            </h1>
+            <h1 class="main-title">System Pulse</h1>
             <p class="dashboard-subtitle">
-              {{
-                selectedWorkspace
-                  ? "Filtered Operational Stream"
-                  : "Global Real-time Operational Timeline"
-              }}
+              <span v-if="selectedWorkspace">
+                Activity log for
+                <span class="workspace-inline">
+                  <span class="workspace-icon">{{ FOLDER_ICON }}</span>
+                  <span class="workspace-name">{{ selectedWorkspace }}</span>
+                  <button @click="emit('clear-workspace')" class="workspace-clear" title="Show all workspaces">
+                    ✕
+                  </button>
+                </span>
+              </span>
+              <span v-else>Global activity log for all workspaces</span>
             </p>
           </div>
-          <!-- Mini Stats / Filter -->
-          <div class="header-right">
-            <div v-if="selectedWorkspace" class="action-box">
-              <button @click="emit('open-chat')" class="btn-assistant">
-                <span class="btn-assistant-icon">💬</span>
-                Open Assistant
-              </button>
-            </div>
-            <div v-else class="health-box">
-              <span class="health-label">Health</span>
-              <div class="health-bar">
-                <div v-for="i in 5" :key="i" class="health-tick"></div>
-              </div>
-            </div>
-          </div>
+          <div v-if="loading" class="loader-spinner"></div>
         </div>
 
-        <!-- Filter Bar -->
         <div class="filter-bar">
           <button
             @click="filterMode = 'all'"
             class="btn-filter"
             :class="{ 'btn-filter--active': filterMode === 'all' }"
           >
-            All Activity
+            All
           </button>
           <button
             @click="filterMode = 'errors'"
             class="btn-filter"
             :class="{ 'btn-filter--active': filterMode === 'errors' }"
           >
-            Errors Only
+            Errors
           </button>
-          <div class="spacer"></div>
-          <div v-if="loading" class="loader-spinner"></div>
         </div>
       </header>
 
@@ -174,76 +155,51 @@ const filteredHistory = computed(() => {
 }
 
 .header-section {
-  @apply flex flex-col gap-6 mb-12;
+  @apply flex flex-col gap-4 mb-8 sm:mb-10;
 }
 
 .header-row {
-  @apply flex items-center justify-between;
+  @apply flex items-start justify-between gap-3;
 }
 
 .header-left {
-  @apply space-y-1;
+  @apply min-w-0 flex-1;
 }
 
 .main-title {
-  @apply text-3xl font-black text-white tracking-tighter mb-1 flex items-center gap-3;
-}
-
-.workspace-tag {
-  @apply text-sm font-bold bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full border border-blue-500/20 flex items-center gap-2;
-}
-
-.btn-tag-close {
-  @apply hover:text-white transition-colors;
+  @apply text-2xl sm:text-3xl font-black text-white tracking-tighter;
 }
 
 .dashboard-subtitle {
-  @apply text-[10px] text-blue-400 font-bold uppercase tracking-[0.2em];
+  @apply text-sm text-gray-400 mt-1;
 }
 
-.header-right {
-  @apply flex gap-4;
+.workspace-inline {
+  @apply inline-flex items-center gap-1 ml-1;
 }
 
-.health-box {
-  @apply px-3 py-1.5 bg-gray-800 rounded-lg border border-white/5 flex items-center gap-3;
+.workspace-icon {
+  @apply text-blue-400 text-sm shrink-0;
 }
 
-.health-label {
-  @apply text-[10px] text-gray-500 font-bold uppercase;
+.workspace-name {
+  @apply font-mono text-blue-300 truncate max-w-[200px] sm:max-w-xs align-middle;
 }
 
-.health-bar {
-  @apply flex gap-1;
-}
-
-.health-tick {
-  @apply w-1.5 h-3 bg-green-500/40 rounded-sm;
-}
-
-.action-box {
-  @apply flex gap-3;
-}
-
-.btn-assistant {
-  @apply px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-lg shadow-blue-900/40 
-         transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-wider active:scale-95;
-}
-
-.btn-assistant-icon {
-  @apply text-sm;
+.workspace-clear {
+  @apply ml-1 text-gray-500 hover:text-red-400 transition-colors text-xs shrink-0 align-middle;
 }
 
 .filter-bar {
-  @apply flex items-center gap-2 pb-4 border-b border-white/5;
+  @apply flex items-center gap-1 pb-3 border-b border-white/5;
 }
 
 .btn-filter {
-  @apply px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-gray-300 transition-colors;
+  @apply px-2 py-1 text-sm text-gray-500 hover:text-gray-200 transition-colors;
 }
 
 .btn-filter--active {
-  @apply bg-blue-600 text-white rounded;
+  @apply text-white;
 }
 
 .spacer {

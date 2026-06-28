@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import type { Automation, AutomationRun } from "../../../types/dispatcher";
-import MarkdownViewer from "../../common/MarkdownViewer.vue";
+import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import LiveConsole from "./LiveConsole.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
-import BaseButton from "../../common/BaseButton.vue";
+import BaseButton from "../../common/buttons/BaseButton.vue";
 import Icon from "../../icons/Icon.vue";
 
 const props = defineProps<{

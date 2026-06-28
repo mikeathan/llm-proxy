@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject } from 'vue'
 import SystemStatus from './SystemStatus.vue'
-import { useModels } from '../../composables/useModels'
-import { useMetrics } from '../../composables/useMetrics'
+import { useModels } from '../../composables/models/useModels'
+import { useMetrics } from '../../composables/system/useMetrics'
 import { PROVIDER_STYLES } from '../../constants/providers'
 import type { SettingsTab } from '../../types'
 

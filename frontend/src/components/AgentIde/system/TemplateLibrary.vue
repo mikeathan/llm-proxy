@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { TemplateService } from '../../../services/templateService';
 import type { Template, TemplateMetadata } from '../../../types/templates';
 import Icon from '../../icons/Icon.vue';
-import BaseButton from '../../common/BaseButton.vue';
+import BaseButton from '../../common/buttons/BaseButton.vue';
 
 const props = defineProps<{
   show: boolean;

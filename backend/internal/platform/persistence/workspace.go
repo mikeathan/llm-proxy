@@ -511,6 +511,22 @@ func (m *WorkspaceManager) DeleteSession(workspaceID, sessionID string) error {
 	return nil
 }
 
+// DeleteAllSessions removes all assistant session files for a workspace.
+func (m *WorkspaceManager) DeleteAllSessions(workspaceID string) error {
+	dir := m.resolver.SessionsDir(workspaceID)
+	if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	oldDir := m.sessionOldDir(workspaceID)
+	if err := os.RemoveAll(oldDir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // ListSessions returns a list of session summaries for a workspace.
 // Checks both the metadata directory and the legacy workspace directory.
 func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {

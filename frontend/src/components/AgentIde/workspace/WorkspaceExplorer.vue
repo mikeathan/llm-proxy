@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import InlineConfirm from '../../ui/InlineConfirm.vue'
 import Icon from '../../icons/Icon.vue'
 
@@ -10,6 +10,8 @@ const props = defineProps<{
   selectedFile: { workspace: string, filename: string } | null
   loading: boolean
   workspaceExternalAccess?: Record<string, boolean>
+  chatActive?: boolean
+  memoryActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,13 +22,25 @@ const emit = defineEmits<{
   (e: 'create-file', workspace: string, filename: string): void
   (e: 'delete-file', workspace: string, filename: string): void
   (e: 'manage-guardrails', id: string): void
+  (e: 'open-memory'): void
+  (e: 'open-playbooks'): void
+  (e: 'open-chat'): void
 }>()
 
 const newWorkspaceName = ref('')
 const newFileName = ref('')
+const newWorkspaceOpen = ref(false)
+const newWsInput = ref<HTMLInputElement | null>(null)
 
 const confirmingDeleteWs = ref<string | null>(null)
 const confirmingDeleteFile = ref<{ ws: string, file: string } | null>(null)
+
+const toggleNewWorkspace = () => {
+  newWorkspaceOpen.value = !newWorkspaceOpen.value
+  if (newWorkspaceOpen.value) {
+    nextTick(() => newWsInput.value?.focus())
+  }
+}
 
 const confirmDeleteWorkspace = (id: string) => {
   emit('delete-workspace', id)
@@ -42,6 +56,7 @@ const handleCreateWorkspace = () => {
   if (!newWorkspaceName.value) return
   emit('create-workspace', newWorkspaceName.value)
   newWorkspaceName.value = ''
+  newWorkspaceOpen.value = false
 }
 
 const handleCreateFile = (workspace: string) => {
@@ -53,24 +68,50 @@ const handleCreateFile = (workspace: string) => {
 
 <template>
   <div class="explorer-shell">
-    <!-- New Workspace Action Bar -->
-    <div class="action-bar">
-      <div class="input-wrapper group">
-        <input 
-          v-model="newWorkspaceName" 
-          placeholder="New workspace name..." 
-          class="action-input" 
-          @keyup.enter="handleCreateWorkspace" 
-        />
-        <button 
-          @click="handleCreateWorkspace" 
-          class="btn-add-action"
-          title="Create Workspace"
-        >
+    <!-- Section Label + Actions -->
+    <div class="explorer-section-row">
+      <div class="explorer-section-left">
+        <span class="explorer-section-label">EXPLORER</span>
+      </div>
+      <div class="explorer-section-actions">
+        <button @click="emit('open-memory')" :disabled="!selectedWorkspace" class="action-pill" :class="{ 'action-pill--active': memoryActive }" title="Memory">
+          <Icon name="search" size="sm" />
+          <span>Memory</span>
+        </button>
+        <button @click="emit('open-playbooks')" :disabled="!selectedWorkspace" class="action-pill" title="Playbooks">
+          <Icon name="document" size="sm" />
+          <span>Playbooks</span>
+        </button>
+        <button @click="emit('open-chat')" :disabled="!selectedWorkspace" class="action-pill" :class="{ 'action-pill--active': chatActive }" title="Chat">
+          <Icon name="lightning" size="sm" />
+          <span>Chat</span>
+        </button>
+        <div class="action-sep"></div>
+        <button @click="toggleNewWorkspace" class="action-pill action-pill--add" :class="{ 'action-pill--active': newWorkspaceOpen }" title="New workspace">
           <Icon name="plus" size="sm" />
+          <span>New</span>
         </button>
       </div>
     </div>
+
+    <!-- Collapsible New Workspace Input -->
+    <Transition name="slide-down">
+      <div v-if="newWorkspaceOpen" class="action-bar">
+        <div class="input-wrapper group">
+          <input
+            ref="newWsInput"
+            v-model="newWorkspaceName"
+            placeholder="New workspace name..."
+            class="action-input"
+            @keyup.enter="handleCreateWorkspace"
+            @blur="newWorkspaceOpen = false"
+          />
+          <button @click="handleCreateWorkspace" class="btn-add-action" title="Create Workspace">
+            <Icon name="plus" size="sm" />
+          </button>
+        </div>
+      </div>
+    </Transition>
     
     <!-- Loading Skeleton (Only if empty) -->
     <div v-if="loading && workspaces.length === 0" class="loading-state">
@@ -205,11 +246,11 @@ const handleCreateFile = (workspace: string) => {
 
 <style scoped lang="postcss">
 .explorer-shell {
-  @apply flex flex-col h-full bg-black/20 text-gray-400 select-none;
+  @apply flex flex-col h-full bg-gray-900/40 text-gray-400 select-none;
 }
 
 .action-bar {
-  @apply p-4 border-b border-white/5 bg-white/[0.02];
+  @apply p-4 border-b border-white/5;
 }
 
 .input-wrapper {
@@ -243,15 +284,15 @@ const handleCreateFile = (workspace: string) => {
 }
 
 .explorer-content {
-  @apply divide-y divide-white/5 transition-opacity duration-300;
+  @apply px-3 py-3 space-y-2 transition-opacity duration-300;
 }
 
 .workspace-item {
-  @apply transition-colors duration-200 border-l-2 border-transparent;
+  @apply rounded-2xl border border-white/5 bg-gray-800/40 transition-colors duration-200 overflow-hidden;
 }
 
 .workspace-item--active {
-  @apply bg-white/[0.02] border-blue-500/50;
+  @apply border-blue-500/30 bg-gray-800/60;
 }
 
 .workspace-row {
@@ -287,7 +328,7 @@ const handleCreateFile = (workspace: string) => {
 }
 
 .file-section {
-  @apply bg-black/40 border-t border-white/5;
+  @apply bg-black/30 border-t border-white/5;
 }
 
 .file-action-bar {
@@ -314,6 +355,42 @@ const handleCreateFile = (workspace: string) => {
   @apply opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 px-1.5 transition-all hover:scale-110;
 }
 
+/* ── Section Row ── */
+.explorer-section-row {
+  @apply flex items-end justify-between px-4 py-2 pb-2 border-b border-white/5;
+}
+
+.explorer-section-left {
+  @apply flex items-center;
+}
+
+.explorer-section-label {
+  @apply text-[9px] font-bold text-gray-500 uppercase tracking-[0.2em];
+}
+
+.explorer-section-actions {
+  @apply flex items-end gap-1;
+}
+
+.action-sep {
+  @apply w-px self-stretch bg-white/5 mx-0.5;
+}
+
+.action-pill {
+  @apply flex flex-col items-center gap-0.5 py-1 px-1.5 rounded min-w-0
+         text-gray-500 hover:text-gray-200 hover:bg-white/5 transition-all
+         text-[8px] font-medium leading-tight
+         disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-500;
+}
+
+.action-pill--add {
+  @apply text-gray-400 hover:text-blue-400 hover:bg-blue-600/10;
+}
+
+.action-pill--active {
+  @apply text-blue-400 bg-blue-600/10;
+}
+
 /* Transitions */
 .fade-slide-enter-active, .fade-slide-leave-active {
   transition: all 0.2s ease-out;
@@ -331,5 +408,15 @@ const handleCreateFile = (workspace: string) => {
 .expand-enter-from, .expand-leave-to {
   max-height: 0;
   opacity: 0;
+}
+
+.slide-down-enter-active, .slide-down-leave-active {
+  transition: all 150ms ease;
+  overflow: hidden;
+}
+.slide-down-enter-from, .slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+  max-height: 0;
 }
 </style>

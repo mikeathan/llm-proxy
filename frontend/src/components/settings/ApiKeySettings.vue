@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import type { APIKeyItem } from "../../types/admin";
 import InlineConfirm from "../ui/InlineConfirm.vue"
-import BaseButton from "../common/BaseButton.vue"
+import BaseButton from "../common/buttons/BaseButton.vue"
 import Icon from "../icons/Icon.vue"
 
 const props = defineProps<{

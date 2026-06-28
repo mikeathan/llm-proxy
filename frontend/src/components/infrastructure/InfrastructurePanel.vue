@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useProcesses } from '../../composables/useProcesses'
+import { useProcesses } from '../../composables/automation/useProcesses'
 import { AdminApiService } from '../../services/adminService'
-import { useModels } from '../../composables/useModels'
-import { useConfirm } from '../../composables/useConfirm'
+import { useModels } from '../../composables/models/useModels'
+import { useConfirm } from '../../composables/ui/useConfirm'
 import { useToast } from '../../composables/useToast'
 
 const { processes, refresh } = useProcesses()

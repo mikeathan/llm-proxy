@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"llm-proxy/internal/core/assistant"
@@ -40,6 +41,12 @@ type AssistantMessageHandler struct {
 	guardrails  *guardrails.GuardrailEngine
 	persistence *persistence.WorkspaceManager
 	svc         AssistantService
+	running     sync.Map
+}
+
+type runningAgent struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
@@ -61,12 +68,29 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Use a background context for agent execution — not tied to the HTTP
-	// request context.  The agent has its own timeouts (GlobalTimeout,
-	// AgentTurnTimeout) so it won't run forever.  This prevents the browser
-	// or a network proxy from killing the agent mid-response when the HTTP
-	// connection is idle.
-	execCtx := context.Background()
+	// Cancel any prior in-flight assistant request for the same workspace
+	// before starting a new one.  This prevents an orphaned agent from
+	// continuing to publish events to the workspace event bus after the user
+	// has moved on.  Wait briefly (up to 2s) for the prior to finish draining
+	// (cancel + persist partial session + close run-log) so its events stop
+	// reaching the new SSE connection.
+	h.cancelPriorForWorkspace(payload.WorkspaceID, log)
+
+	// Use a cancellable background context for agent execution — not tied to
+	// the HTTP request context (so the agent isn't killed by proxy idle
+	// timeouts or browser disconnects) but cancellable via the explicit
+	// /assistant/cancel endpoint or by a subsequent request for the same
+	// workspace.  The agent has its own timeouts (GlobalTimeout,
+	// AgentTurnTimeout) so it won't run forever.
+	execCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	h.running.Store(payload.WorkspaceID, &runningAgent{cancel: cancel, done: done})
+	defer func() {
+		h.running.Delete(payload.WorkspaceID)
+		cancel()
+		close(done)
+	}()
+
 	result, err := h.handleAssistant(execCtx, payload, log)
 	if err != nil {
 		writeJSONError(w, err.Status, err.Message)
@@ -74,6 +98,41 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 
 	respondJSON(w, result)
+}
+
+// cancelPriorForWorkspace signals any in-flight agent for the same workspace
+// to stop and waits up to 2 seconds for it to fully exit.  Idempotent.
+func (h *AssistantMessageHandler) cancelPriorForWorkspace(workspaceID string, log logging.Logger) {
+	if workspaceID == "" {
+		return
+	}
+	v, ok := h.running.LoadAndDelete(workspaceID)
+	if !ok {
+		return
+	}
+	ra := v.(*runningAgent)
+	ra.cancel()
+	log.Info("canceled prior in-flight assistant request for workspace", "workspace", workspaceID)
+	select {
+	case <-ra.done:
+	case <-time.After(2 * time.Second):
+		log.Warn("prior assistant request did not exit within 2s; proceeding anyway", "workspace", workspaceID)
+	}
+}
+
+// CancelAgent signals the running agent for the given workspace to stop.
+// Returns true if a running agent was found and canceled, false otherwise.
+func (h *AssistantMessageHandler) CancelAgent(workspaceID, conversationID string) bool {
+	if workspaceID == "" {
+		return false
+	}
+	v, ok := h.running.LoadAndDelete(workspaceID)
+	if !ok {
+		return false
+	}
+	ra := v.(*runningAgent)
+	ra.cancel()
+	return true
 }
 
 func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.Request) (*AssistantMessage, logging.Logger, bool) {
@@ -230,7 +289,11 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	agent := builder.Build(client, h.provider, h.engine)
 
-	reply, updatedHistory, agErr := agent.Execute(execCtx, session.History)
+	// Strip cancelled turn messages from the LLM context so they don't
+	// bleed into the next turn's response.  The display path (GetSession)
+	// returns the unfiltered history.
+	llmHistory := filterCancelledTurns(session.History, session.CancelledIndices)
+	reply, updatedHistory, agErr := agent.Execute(execCtx, llmHistory)
 
 	// Close recording and run log infrastructure.
 	if eventSink != nil {
@@ -246,7 +309,19 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	if agErr != nil {
 		if errors.Is(agErr, context.Canceled) {
 			log.Info("assistant execution canceled by user", "error", agErr)
-			session.History = updatedHistory
+
+			// Append the messages the agent added to the full session
+			// history (with cancelled content intact for display).  The
+			// LLM was given a filtered history, but persistence preserves
+			// the cancelled content too.
+			cancelNewMessages := updatedHistory[len(llmHistory):]
+			session.History = append(session.History, cancelNewMessages...)
+
+			_, canceledUserIdx := computeCancelIndices(session.History)
+			if canceledUserIdx >= 0 {
+				session.CancelledIndices = append(session.CancelledIndices, canceledUserIdx)
+			}
+
 			if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
 				log.Error("failed to save session after cancel", "error", pErr)
 			}
@@ -270,7 +345,12 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	}
 
 	// 4. Persistence: Save Updated History
-	session.History = updatedHistory
+	// Append the messages the agent added during this turn to the full
+	// session history (which still contains cancelled turn messages for
+	// display).  The LLM was given a filtered history, but the persisted
+	// history keeps everything for the UI.
+	newMessages := updatedHistory[len(llmHistory):]
+	session.History = append(session.History, newMessages...)
 	if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
 		log.Error("failed to save session", "error", pErr)
 	}
@@ -403,6 +483,107 @@ func (h *AssistantMessageHandler) DeleteSession(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AssistantMessageHandler) DeleteAllSessions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+		return
+	}
+
+	if err := h.persistence.DeleteAllSessions(workspaceID); err != nil {
+		h.logger.Error("failed to delete all sessions", "workspace", workspaceID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete all sessions")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type RenameSessionRequest struct {
+	Title string `json:"title"`
+}
+
+func (h *AssistantMessageHandler) RenameSession(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspace")
+	sessionID := r.PathValue("session")
+
+	if workspaceID == "" || sessionID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace and session are required")
+		return
+	}
+
+	var req RenameSessionRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Title == "" {
+		writeJSONError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	session, err := h.persistence.ReadSession(workspaceID, sessionID)
+	if err != nil {
+		h.logger.Error("failed to read session for rename", "workspace", workspaceID, "session", sessionID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to read session")
+		return
+	}
+	if session == nil {
+		writeJSONError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	if session.Metadata == nil {
+		session.Metadata = make(map[string]any)
+	}
+	session.Metadata["title"] = req.Title
+
+	if err := h.persistence.WriteSession(workspaceID, session); err != nil {
+		h.logger.Error("failed to write renamed session", "workspace", workspaceID, "session", sessionID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to save session")
+		return
+	}
+
+	respondJSON(w, session)
+}
+
+// CancelAssistantRequest is the body for POST /admin/api/conversation/cancel.
+type CancelAssistantRequest struct {
+	WorkspaceID    string `json:"workspace_id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+// CancelAssistantHandler signals the running agent for the given workspace to
+// stop.  The conversation_id is optional: when empty, cancels by workspace
+// (used by the frontend when the user clicks Stop before the first response
+// returns a session_id).  Idempotent — returns 200 even if no agent was
+// running.  The echoed conversation_id lets the frontend learn the session
+// id from the cancel response if it didn't have one at click time.
+func (h *AssistantMessageHandler) CancelAssistantHandler(w http.ResponseWriter, r *http.Request) {
+	var req CancelAssistantRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.WorkspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+
+	canceled := h.CancelAgent(req.WorkspaceID, req.ConversationID)
+	h.logger.Info("assistant cancel requested",
+		"workspace", req.WorkspaceID,
+		"conversation", req.ConversationID,
+		"canceled", canceled)
+
+	respondJSON(w, map[string]any{
+		"status":          "ok",
+		"canceled":        canceled,
+		"conversation_id": req.ConversationID,
+	})
+}
+
 // GuardrailDecisionRequest is the request body for submitting a guardrail decision.
 type GuardrailDecisionRequest struct {
 	DecisionID string `json:"decision_id"`
@@ -467,6 +648,88 @@ func (h *AssistantMessageHandler) truncateHistory(history []proxy.Message) []pro
 	}
 
 	return history
+}
+
+// computeCancelIndices determines the cancel marker scope for a session
+// history at cancel time.  Returns:
+//   - canceledIdx: index of the last assistant message in the current turn,
+//     or -1 if the cancel happened before any assistant content was produced.
+//   - canceledUserIdx: index of the user message whose turn was cancelled.
+//     Always set when a cancel occurs; identifies which turn the cancel
+//     applies to so filterCancelledTurns can strip it from the LLM context.
+//
+// The caller persists canceledUserIdx by appending to AssistantSession.
+// CancelledIndices (a list that survives reloads) so multiple cancelled
+// turns in the same session are all marked and filtered.
+//
+// This avoids leaking the cancel marker into a prior turn's assistant
+// message when the user cancels during the thinking phase.
+func computeCancelIndices(history []proxy.Message) (canceledIdx, canceledUserIdx int) {
+	lastUserIdx, lastAssistantIdx := -1, -1
+	for i := len(history) - 1; i >= 0; i-- {
+		switch history[i].Role {
+		case proxy.AssistantRole:
+			if lastAssistantIdx < 0 {
+				lastAssistantIdx = i
+			}
+		case proxy.UserRole:
+			if lastUserIdx < 0 {
+				lastUserIdx = i
+			}
+		}
+		if lastUserIdx >= 0 && lastAssistantIdx >= 0 {
+			break
+		}
+	}
+
+	if lastUserIdx < 0 {
+		return -1, -1
+	}
+	if lastAssistantIdx > lastUserIdx {
+		return lastAssistantIdx, lastUserIdx
+	}
+	return -1, lastUserIdx
+}
+
+// filterCancelledTurns strips messages from every cancelled turn so they
+// don't leak into the LLM context on the next turn.  For each cancelled
+// user message index in `cancelledIndices`, the user message and any
+// subsequent messages (assistant/tool) up to the next user message are
+// removed.  Prior successful turns are kept intact.
+//
+// Display paths (GetSession) return the unfiltered history so the cancelled
+// content is still visible in the UI.
+func filterCancelledTurns(history []proxy.Message, cancelledIndices []int) []proxy.Message {
+	if len(cancelledIndices) == 0 {
+		return history
+	}
+
+	skipSet := make(map[int]bool, len(cancelledIndices))
+	for _, idx := range cancelledIndices {
+		if idx >= 0 && idx < len(history) {
+			skipSet[idx] = true
+		}
+	}
+	if len(skipSet) == 0 {
+		return history
+	}
+
+	result := make([]proxy.Message, 0, len(history))
+	skipping := false
+	for i, m := range history {
+		if skipSet[i] {
+			skipping = true
+			continue
+		}
+		if skipping && m.Role == proxy.UserRole {
+			skipping = false
+		}
+		if skipping {
+			continue
+		}
+		result = append(result, m)
+	}
+	return result
 }
 
 // generateRunID returns a short unique identifier for a recording session.

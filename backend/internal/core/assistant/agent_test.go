@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -3595,3 +3596,95 @@ func TestAgent_Execute_NativeToolsNoToolCalls_Starvation(t *testing.T) {
 }
 
 // boolPtr is defined earlier in this file (line ~2545)
+
+func TestExceedsContentCharCap(t *testing.T) {
+	agent := &Agent{maxTokens: 2730}
+
+	t.Run("under cap", func(t *testing.T) {
+		msg := &proxy.Message{Content: strings.Repeat("x", 10000)}
+		if agent.exceedsContentCharCap(msg) {
+			t.Error("10000 chars should be under cap (2730*4=10920)")
+		}
+	})
+
+	t.Run("at cap not exceeded", func(t *testing.T) {
+		msg := &proxy.Message{Content: strings.Repeat("x", 10920)}
+		if agent.exceedsContentCharCap(msg) {
+			t.Error("10920 chars should be at cap, not over (cap is 4*2730=10920)")
+		}
+	})
+
+	t.Run("over cap", func(t *testing.T) {
+		msg := &proxy.Message{Content: strings.Repeat("x", 10921)}
+		if !agent.exceedsContentCharCap(msg) {
+			t.Error("10921 chars should exceed cap")
+		}
+	})
+
+	t.Run("zero maxTokens disables", func(t *testing.T) {
+		zero := &Agent{maxTokens: 0}
+		msg := &proxy.Message{Content: strings.Repeat("x", 99999)}
+		if zero.exceedsContentCharCap(msg) {
+			t.Error("zero maxTokens should disable cap")
+		}
+	})
+}
+
+func TestAgent_CancelDuringStream_NoFallbackToNonStreaming(t *testing.T) {
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, context.Canceled
+		},
+		// No ChatFunc — fallback would call this; should NOT be reached.
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			t.Error("non-streaming ChatFunc was called; fallback should be skipped on cancel")
+			return nil, fmt.Errorf("should not reach")
+		},
+	}
+	agent := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, _, err := agent.Execute(ctx, []proxy.Message{{Role: "user", Content: "stop me"}})
+
+	if err == nil {
+		t.Fatal("expected error from canceled stream, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected error wrapping context.Canceled, got: %v", err)
+	}
+}
+
+func TestAgent_CancelDuringStreamXMLRetry_NoFallbackToNonStreaming(t *testing.T) {
+	// First stream call returns an error to trigger XML retry path.
+	// The XML retry also returns context.Canceled.  Must NOT fall back
+	// to non-streaming.
+	streamCallCount := 0
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			streamCallCount++
+			return nil, context.Canceled
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			t.Error("non-streaming ChatFunc was called; fallback should be skipped on cancel")
+			return nil, fmt.Errorf("should not reach")
+		},
+	}
+	agent := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5, UseNativeTools: boolPtr(false)})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, _, err := agent.Execute(ctx, []proxy.Message{{Role: "user", Content: "stop me"}})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected error wrapping context.Canceled, got: %v", err)
+	}
+	if streamCallCount == 0 {
+		t.Error("expected at least one stream call")
+	}
+}

@@ -540,10 +540,13 @@ func buildRouter(
 
 	// Conversation API
 	router.Any("/admin/api/conversation/message", assistant)
+	router.Post("/admin/api/conversation/cancel", assistant.CancelAssistantHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/conversation/guardrail-decision", assistant.GuardrailDecisionHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
 	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
+	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.DeleteAllSessions, jsonMethodNotAllowed)
+	router.Patch("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.RenameSession, jsonMethodNotAllowed)
 
 	// Memory API
 	if memoryHandlers != nil {

@@ -7,6 +7,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -30,6 +31,7 @@ const (
 	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
 	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
 	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
+	streamCharCapMultiplier       = 4           // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
 	maxHotInjectionChars          = 2000        // character cap for hot memory injection
 )
 
@@ -251,6 +253,14 @@ func (a *Agent) handleEmptyStream(
 	return a.computeNextResponseNonStreaming(ctx, history, tools)
 }
 
+// isUserCanceled returns true when err signals that the user explicitly
+// stopped the agent.  Used by fallback chains to bail out instead of
+// retrying — re-attempting after a cancel is wasted work that races with
+// the agent's outer loop seeing ctx.Err() and exiting.
+func isUserCanceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
 // computeNextResponse tries streaming first, with fallback to non-streaming
 // or XML-mode streaming on failure.  streamErr reuse across the deferred refund
 // closure and subsequent retries is intentional (shadow-free single var).
@@ -286,10 +296,20 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	if streamErr != nil {
+		// User cancel — bail out, do not fall back to a retry path.
+		// Falling back to non-streaming would issue another LLM call
+		// against a dead context; the outer loop's ctx.Err() check is
+		// the right place to handle termination.
+		if isUserCanceled(streamErr) {
+			return proxy.Message{}, streamErr
+		}
 		if prefill != "" && isPrefillThinkingError(streamErr) {
 			a.logger.Info("prefill rejected by server, retrying without prefill")
 			ch, streamErr = a.handlePrefillRejection(ctx, history, tools)
 			prefill = ""
+			if isUserCanceled(streamErr) {
+				return proxy.Message{}, streamErr
+			}
 		}
 		if streamErr != nil {
 			a.logger.Warn("streaming not supported, falling back to non-streaming")
@@ -385,6 +405,11 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 	var tokUsed, reasonUsed int
 	var budgetWarned bool
 
+	// [DIAG] Temporary diagnostic logging for intermittent no-tool-call issue.
+	// Remove after root cause is understood.
+	streamStartTime := time.Now()
+	var lastNoToolLog time.Time
+
 	streamDone := make(chan struct{})
 	defer close(streamDone)
 
@@ -395,6 +420,19 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 			select {
 			case <-ticker.C:
 				a.logger.Info("stream still generating", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent))
+				// [DIAG] Periodic check for no-tool-call state.
+				if a.useNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > 0 {
+					preview := fullMsg.Content
+					if len(preview) > 200 {
+						preview = preview[:200]
+					}
+					a.logger.Warn("[DIAG] no tool call detected at heartbeat",
+						"content_chars", len(fullMsg.Content),
+						"reasoning_chars", len(fullMsg.ReasoningContent),
+						"tool_calls", len(fullMsg.ToolCalls),
+						"content_preview", preview,
+						"elapsed", time.Since(streamStartTime).Seconds())
+				}
 			case <-ctx.Done():
 				return
 			case <-streamDone:
@@ -403,12 +441,26 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 		}
 	}()
 
+	// [DIAG] Helper to log stream end reason. Remove with other DIAG logs.
+	logStreamEnd := func(reason string) {
+		a.logger.Warn("[DIAG] stream ended",
+			"end_reason", reason,
+			"content_chars", len(fullMsg.Content),
+			"reasoning_chars", len(fullMsg.ReasoningContent),
+			"tool_calls", len(fullMsg.ToolCalls),
+			"elapsed", time.Since(streamStartTime).Seconds())
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
+			logStreamEnd("context_canceled")
 			return ctx.Err()
 		case resp, ok := <-ch:
 			if !ok {
+				if !budgetWarned && a.useNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > 0 {
+					logStreamEnd("eos_no_tool_call")
+				}
 				return nil
 			}
 			if len(resp.Choices) > 0 {
@@ -435,23 +487,33 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					orchestrator.StreamChunk{},
 					tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
 				)
-				if term.ShouldTerminate && !budgetWarned {
-					budgetWarned = true
-					a.logger.Warn("reasoning budget exceeded, letting server enforcement handle it",
-						"tokens_used", tokUsed, "reasoning_used", reasonUsed,
-						"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
+				if term.ShouldTerminate {
+					// Upstream servers don't always enforce max_tokens, so
+					// the client must end the stream when the interceptor
+					// signals budget exceeded. Returning nil hands the
+					// partial turn to the agent loop for evaluation.
+					if !budgetWarned {
+						budgetWarned = true
+						a.logger.Warn("token budget exceeded, terminating stream",
+							"tokens_used", tokUsed, "reasoning_used", reasonUsed,
+							"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
+					}
+					logStreamEnd("budget_exceeded")
+					return nil
 				}
 				}
 
-				if a.tryExtractToolCallFromReasoning(fullMsg) {
-					return nil
-				}
+			if a.tryExtractToolCallFromReasoning(fullMsg) {
+				logStreamEnd("extracted_tool_from_reasoning")
+				return nil
+			}
 
 				if a.checkStreamStuck(fullMsg) {
 					a.logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback", "reasoning_chars", len(fullMsg.ReasoningContent), "stuck_threshold", a.stuckThreshold())
 					a.notifyLifecycle("stuck_detected", map[string]any{
 						"reasoning_chars": len(fullMsg.ReasoningContent),
 					})
+					logStreamEnd("stuck_detected")
 					return nil
 				}
 
@@ -461,6 +523,33 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				if reasoningChunk != "" {
 					fullMsg.ReasoningContent += reasoningChunk
 				}
+			// [DIAG] Periodic no-tool-call check. Every 5 seconds while
+			// native-tools mode is active, content exists, and no tool
+			// calls detected. Remove with other DIAG logs.
+			if a.useNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > 0 && time.Since(lastNoToolLog) > 5*time.Second {
+				lastNoToolLog = time.Now()
+				preview := fullMsg.Content
+				if len(preview) > 200 {
+					preview = preview[:200]
+				}
+				a.logger.Warn("[DIAG] no tool call detected yet",
+					"content_chars", len(fullMsg.Content),
+					"reasoning_chars", len(fullMsg.ReasoningContent),
+					"tool_calls", len(fullMsg.ToolCalls),
+					"content_preview", preview,
+					"elapsed", time.Since(streamStartTime).Seconds())
+			}
+
+			if a.exceedsContentCharCap(fullMsg) {
+				// Safety net: ShouldTerminate above should have fired,
+				// but if the token counter underestimates output this
+				// prevents indefinite generation.
+				logStreamEnd("char_cap")
+				a.logger.Warn("content char cap reached, terminating stream",
+					"content_chars", len(fullMsg.Content),
+					"cap", a.maxTokens*streamCharCapMultiplier)
+				return nil
+			}
 				if chunkContent != "" || reasoningChunk != "" {
 				displayText := fullMsg.Content
 				if displayText == "" {
@@ -612,6 +701,9 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	}
 
 	if err != nil {
+		if isUserCanceled(err) {
+			return proxy.Message{}, err
+		}
 		a.logger.Warn("xml stream retry failed, falling back to non-streaming", "error", err)
 		return a.computeNextResponseNonStreaming(ctx, history, tools)
 	}
@@ -652,6 +744,16 @@ func (a *Agent) stuckThreshold() int {
 		return MinReasoningStuckThreshold
 	}
 	return threshold
+}
+
+// exceedsContentCharCap is a safety net for runaway streams where the
+// interceptor's token count underestimates output (e.g. provider returns
+// content in a way the token counter mis-parses).  Caps the raw content
+// character length at maxTokens * streamCharCapMultiplier.  Only fires after
+// the token-budget termination should have; if it fires, the token
+// counter has a bug we want to surface in logs.
+func (a *Agent) exceedsContentCharCap(fullMsg *proxy.Message) bool {
+	return a.maxTokens > 0 && len(fullMsg.Content) > a.maxTokens*streamCharCapMultiplier
 }
 
 func cleanReasoningContent(s string) string {

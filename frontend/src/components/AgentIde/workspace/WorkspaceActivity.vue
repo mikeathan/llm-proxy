@@ -18,7 +18,7 @@ const sortedHistory = computed(() => {
   );
 });
 
-import { formatDate } from "../../../utils/time";
+import { formatDate } from "../../../utils/format/time";
 
 
 const getStatusClass = (run: AutomationRun) => {
