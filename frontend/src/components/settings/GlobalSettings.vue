@@ -73,7 +73,7 @@ function commitEnvironment() {
 const runLoggingEnabled = computed({
   get: () => props.editConfig.run_logging?.enabled ?? false,
   set: (val: boolean) => {
-    const clone = { ...props.editConfig };
+    const clone = JSON.parse(JSON.stringify(props.editConfig));
     if (!clone.run_logging) {
       clone.run_logging = { enabled: false };
     }
