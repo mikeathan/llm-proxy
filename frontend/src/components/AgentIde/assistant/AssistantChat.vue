@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted, onUnmounted } from "vue";
-import { useAssistant } from "../../../composables/useAssistant";
+import { useAssistant } from "../../../composables/assistant/useAssistant";
 import { AssistantService } from "../../../services/assistantService";
-import { groupTurns } from "../../../utils/turnGrouper";
-import GuardrailBanner from "../../../components/common/GuardrailBanner.vue";
+import { groupTurns } from "../../../utils/message/turnGrouper";
+import GuardrailBanner from "../../../components/common/chat/GuardrailBanner.vue";
 import ChatSessionList from "./ChatSessionList.vue";
 import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";

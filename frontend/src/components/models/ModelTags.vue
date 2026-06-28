@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ModelMetadata } from '../../types'
-import { formatParameters } from '../../utils/model-discovery'
+import { formatParameters } from '../../utils/model/model-discovery'
 
 defineProps<{
   metadata?: ModelMetadata

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useMemory } from '../../../composables/useMemory'
+import { useMemory } from '../../../composables/memory/useMemory'
 import type { MemoryEntry } from '../../../types/memory'
 
 const props = defineProps<{

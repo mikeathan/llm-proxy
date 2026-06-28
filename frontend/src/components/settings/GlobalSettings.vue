@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import LogLevelPanel from "./LogLevelPanel.vue";
-import BaseButton from "../common/BaseButton.vue";
+import BaseButton from "../common/buttons/BaseButton.vue";
 import {
   argsToString,
   stringToArgs,

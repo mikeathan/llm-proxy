@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
-import { useModels } from "../../composables/useModels";
-import { useConfirm } from "../../composables/useConfirm";
-import { formatBytes, formatParameters } from "../../utils/formatters";
-import BaseButton from "../common/BaseButton.vue";
-import InfoTooltip from "../common/InfoTooltip.vue";
+import { useModels } from "../../composables/models/useModels";
+import { useConfirm } from "../../composables/ui/useConfirm";
+import { formatBytes, formatParameters } from "../../utils/format/formatters";
+import BaseButton from "../common/buttons/BaseButton.vue";
+import InfoTooltip from "../common/display/InfoTooltip.vue";
 import Icon from "../icons/Icon.vue";
 import { PROVIDER_STYLES } from "../../constants/providers";
 import type { APIKeyItem, ProviderType } from "../../types/admin";
@@ -14,8 +14,8 @@ import {
   deriveModelName,
   createEmptyModelForm,
   computeDefaultsFromContext,
-} from "../../utils/modelUtils";
-import type { ModelForm } from "../../utils/modelUtils";
+} from "../../utils/model/modelUtils";
+import type { ModelForm } from "../../utils/model/modelUtils";
 
 const {
   state,

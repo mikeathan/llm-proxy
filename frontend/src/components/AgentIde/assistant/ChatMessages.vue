@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
-import type { Turn } from '../../../utils/turnGrouper'
+import type { Turn } from '../../../utils/message/turnGrouper'
 import type { AssistantMessage } from '../../../types/assistant'
 import ChatBubble from './ChatBubble.vue'
 import UserMessage from './UserMessage.vue'

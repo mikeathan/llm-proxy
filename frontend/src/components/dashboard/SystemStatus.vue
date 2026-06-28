@@ -5,7 +5,7 @@ import {
   memPercent,
   formatTokenRate,
   gpuTempClass,
-} from "../../utils/formatters";
+} from "../../utils/format/formatters";
 import type { SystemMetrics } from "../../types/metrics";
 import type { ActiveModel } from "../../types/model";
 

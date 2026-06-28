@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, onMounted } from "vue";
 import LogLevelPanel from "../settings/LogLevelPanel.vue";
-import { useLogs } from "../../composables/useLogs";
-import { useMetrics } from "../../composables/useMetrics";
-import { useAutoScroll } from "../../composables/useAutoScroll";
+import { useLogs } from "../../composables/system/useLogs";
+import { useMetrics } from "../../composables/system/useMetrics";
+import { useAutoScroll } from "../../composables/ui/useAutoScroll";
 
 type LogTab = "app" | "process";
 const activeTab = ref<LogTab>("app");

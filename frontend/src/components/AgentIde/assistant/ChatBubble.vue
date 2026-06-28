@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { watch } from 'vue'
-import MarkdownViewer from '../../common/MarkdownViewer.vue'
+import MarkdownViewer from '../../common/display/MarkdownViewer.vue'
 import type { Segment } from '../../../types/assistant'
-import type { Turn } from '../../../utils/turnGrouper'
+import type { Turn } from '../../../utils/message/turnGrouper'
 import Icon from '../../icons/Icon.vue'
-import ArcOrbitLoader from '../../common/ArcOrbitLoader.vue'
+import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
-import { segKey } from '../../../composables/useToolDisplay'
+import { segKey } from '../../../composables/assistant/useToolDisplay'
 import { useElapsedTimer } from '../../../composables/useElapsedTimer'
 
 defineOptions({ inheritAttrs: false })

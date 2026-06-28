@@ -72,10 +72,12 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/discovery/discovery-panel-implementation.md` | Discovery Panel Implementation | not_implemented | — | SPEC-003 |
 | `docs/PLANS/assistant-ui/consolidated-streaming-bubbles.md` | Consolidated Streaming Bubbles | complete | 2026-06-17 | SPEC-003 |
 | `docs/PLANS/assistant-ui/overhaul-chat-history-layout.md` | Assistant UI Overhaul — Chat, History & Layout | active (Phase 1 ✅, Phase 2 ✅, Phase 3 ✅) | 2026-06-25 | SPEC-003 |
+| `docs/PLANS/assistant-ui/refactor-large-frontend.md` | Refactor Large Frontend Components (SOLID) | draft | 2026-06-27 | SPEC-003 |
 | `docs/PLANS/agent-loop/autodetect-native-format.md` | Auto-Detect Native Tool Format | not_implemented | — | SPEC-001 |
 | `docs/PLANS/agent-loop/tool-failure-skip.md` | Graceful Tool Failure Recovery | complete | 2026-05-31 | SPEC-001 |
 | `docs/PLANS/agent-loop/unify-assistant-automation.md` | Unify Assistant & Automation Agent Paths | complete | 2026-06-15 | SPEC-001 |
 | `docs/PLANS/cross-cutting/plan-recordings.md` | Recording Playback for Automations | not_implemented | — | — |
+| `docs/PLANS/cross-cutting/terminal-ui.md` | Terminal UI (Bubble Tea TUI client) | proposed | 2026-06-27 | SPEC-001, SPEC-003, SPEC-004, SPEC-006, SPEC-007, SPEC-008 |
 | `docs/PLANS/cross-cutting/per-run-output-directories.md` | Per-Run Output Directories | draft | 2026-06-05 | — |
 | `docs/PLANS/cross-cutting/system-blueprint.md` | System Blueprint: LLM-Proxy | reference | — | all |
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { SessionBrief } from '../../../types/assistant'
-import { formatTime } from '../../../utils/time'
+import { formatTime } from '../../../utils/format/time'
 import Icon from '../../icons/Icon.vue'
 
 const props = defineProps<{

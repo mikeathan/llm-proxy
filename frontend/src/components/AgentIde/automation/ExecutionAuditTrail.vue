@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { marked } from "marked";
-import CopyButton from "../../../components/common/CopyButton.vue";
+import CopyButton from "../../../components/common/display/CopyButton.vue";
 import { TEXT_EVENT_TOOL_RESULT, TEXT_EVENT_GUARDRAIL_BLOCKED } from "../../../constants/icons";
 import {
   getRoleLabel,

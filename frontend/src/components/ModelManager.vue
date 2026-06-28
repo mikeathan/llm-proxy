@@ -4,14 +4,14 @@ import ModelItem from "./models/ModelItem.vue";
 import LocalFields from "./models/LocalFields.vue";
 import CloudFields from "./models/CloudFields.vue";
 import DiscoveredList from "./models/DiscoveredList.vue";
-import { useProviders } from "../composables/useProviders";
+import { useProviders } from "../composables/models/useProviders";
 import {
   makeEmptyForm,
   tabToDefaultProvider,
   filterModelsByTab,
   deriveFriendlyName,
-} from "../utils/models";
-import { computeDefaultsFromContext } from "../utils/modelUtils";
+} from "../utils/model/models";
+import { computeDefaultsFromContext } from "../utils/model/modelUtils";
 import type { AdminState, AvailableModel, NewModelForm, Model } from "../types";
 
 const props = defineProps<{

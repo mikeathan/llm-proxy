@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import Icon from '../../icons/Icon.vue'
-import ArcOrbitLoader from '../../common/ArcOrbitLoader.vue'
+import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 
 defineProps<{
   loading: boolean

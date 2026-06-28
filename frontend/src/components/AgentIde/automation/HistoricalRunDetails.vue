@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AutomationRun } from "../../../types/dispatcher";
-import MarkdownViewer from "../../common/MarkdownViewer.vue";
+import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
 import Icon from "../../icons/Icon.vue";
 

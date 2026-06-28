@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Icon from '../../icons/Icon.vue'
-import { toolLabel, toolIconClass } from '../../../composables/useToolDisplay'
+import { toolLabel, toolIconClass } from '../../../composables/assistant/useToolDisplay'
 
 interface ToolCallSeg {
   kind: 'tool_call'

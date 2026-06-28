@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useModels } from "../../composables/useModels";
-import { getDefaultModelSettings } from "../../utils/modelUtils";
-import BaseButton from "../common/BaseButton.vue";
+import { useModels } from "../../composables/models/useModels";
+import { getDefaultModelSettings } from "../../utils/model/modelUtils";
+import BaseButton from "../common/buttons/BaseButton.vue";
 import type { Model, AvailableModel } from "../../types/model";
 
 const {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { useMemory } from '../../../composables/useMemory'
-import { useConfirm } from '../../../composables/useConfirm'
+import { useMemory } from '../../../composables/memory/useMemory'
+import { useConfirm } from '../../../composables/ui/useConfirm'
 import type { MemoryEntry } from '../../../types/memory'
 import Icon from '../../icons/Icon.vue'
 

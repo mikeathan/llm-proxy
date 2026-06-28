@@ -2,7 +2,7 @@
 import { toRaw } from "vue";
 import type { GlobalConfig } from "../../types/admin";
 import GuardrailForm from "../AgentIde/system/GuardrailForm.vue";
-import BaseButton from "../common/BaseButton.vue";
+import BaseButton from "../common/buttons/BaseButton.vue";
 
 const props = defineProps<{
   config: GlobalConfig;
