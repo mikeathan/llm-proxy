@@ -40,14 +40,14 @@ function cancelRename() {
 </script>
 
 <template>
-  <div class="session-panel">
+  <div class="session-panel" :class="{ 'session-panel--mobile': isMobile }">
     <div class="session-panel-header">
       <h3 class="session-panel-title">Conversations</h3>
-      <div class="flex items-center gap-1">
+      <div class="header-actions">
         <button
-          v-if="props.sessions.length > 0"
+          v-if="sessions.length > 0"
           @click="emit('clear-all')"
-          class="btn-clear-all"
+          class="btn-header-icon"
           title="Delete all conversations"
         >
           <Icon name="trash" size="xs" />
@@ -56,23 +56,23 @@ function cancelRename() {
           <Icon name="plus" size="sm" />
         </button>
         <button
-          v-if="props.isMobile"
+          v-if="isMobile"
           @click="emit('close')"
-          class="btn-header-icon"
-          title="Close history"
+          class="btn-header-icon btn-close"
+          title="Close"
         >
           <Icon name="close" size="sm" />
         </button>
       </div>
     </div>
 
-    <div v-if="props.sessions.length === 0" class="empty-sessions">
+    <div v-if="sessions.length === 0" class="empty-sessions">
       No history in this workspace.
     </div>
 
     <div class="session-list">
       <div
-        v-for="session in props.sessions"
+        v-for="session in sessions"
         :key="session.id"
         class="session-row"
         :class="{ 'session-row--active': currentSessionId === session.id }"
@@ -120,25 +120,32 @@ function cancelRename() {
 
 <style scoped lang="postcss">
 .session-panel {
-  @apply flex flex-col h-full w-64 bg-gray-800 border border-white/5 overflow-hidden;
+  @apply h-full w-full flex flex-col bg-gray-800/80 overflow-hidden;
 }
-@media (max-width: 639px) {
-  .session-panel { @apply fixed left-0 top-0 bottom-0 w-72 z-40; }
+
+.session-panel--mobile {
+  @apply bg-gray-800;
 }
 
 .session-panel-header {
-  @apply flex items-center justify-between px-3 py-2.5 border-b border-white/5; }
+  @apply flex items-center justify-between px-3 py-2.5 border-b border-white/5 shrink-0;
+}
 
 .session-panel-title {
   @apply text-xs font-bold uppercase tracking-wider text-gray-400;
 }
 
-.btn-header-icon {
-  @apply p-1.5 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors flex items-center justify-center;
+.header-actions {
+  @apply flex items-center gap-1;
 }
 
-.btn-clear-all {
-  @apply p-1 rounded-md hover:bg-red-500/15 text-gray-500 hover:text-red-400 transition-colors flex items-center justify-center;
+.btn-header-icon {
+  @apply p-1.5 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-all duration-150 flex items-center justify-center;
+}
+.btn-header-icon:active { @apply scale-95; }
+
+.btn-close {
+  @apply hover:bg-red-500/15 hover:text-red-400;
 }
 
 .empty-sessions {
@@ -150,11 +157,17 @@ function cancelRename() {
 }
 
 .session-row {
-  @apply relative flex items-center px-3 py-3 hover:bg-white/[0.03] transition-colors;
+  @apply relative flex items-center px-3 py-2.5 cursor-pointer transition-all duration-150;
+  border-left: 3px solid transparent;
+}
+
+.session-row:hover {
+  @apply bg-white/[0.04];
 }
 
 .session-row--active {
-  @apply bg-blue-600/10;
+  background-color: rgba(59, 130, 246, 0.08);
+  border-left-color: rgb(59, 130, 246);
 }
 
 .session-item {
@@ -181,7 +194,7 @@ function cancelRename() {
   @apply hidden gap-0.5 ml-2 shrink-0;
 }
 .session-row:hover .session-actions {
-  display: flex;
+  @apply flex;
 }
 
 .btn-action-icon {

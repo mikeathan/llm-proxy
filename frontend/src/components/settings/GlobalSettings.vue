@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import LogLevelPanel from "./LogLevelPanel.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
 import {
@@ -52,13 +52,23 @@ const defaultArgsStr = computed({
   },
 });
 
-const environmentStr = computed({
-  get: () => envMapToString(localProvider.value.environment),
-  set: (val: string) => {
-    const provider = { ...localProvider.value, environment: stringToEnvMap(val) };
+const environmentStr = ref(envMapToString(localProvider.value.environment));
+
+watch(() => localProvider.value.environment, (env) => {
+  const serialized = envMapToString(env);
+  if (environmentStr.value !== serialized) {
+    environmentStr.value = serialized;
+  }
+}, { deep: true });
+
+function commitEnvironment() {
+  const parsed = stringToEnvMap(environmentStr.value);
+  const serialized = envMapToString(parsed);
+  if (serialized !== envMapToString(localProvider.value.environment ?? {})) {
+    const provider = { ...localProvider.value, environment: parsed };
     localProvider.value = provider;
-  },
-});
+  }
+}
 
 const runLoggingEnabled = computed({
   get: () => props.editConfig.run_logging?.enabled ?? false,
@@ -191,6 +201,7 @@ function handleRestart() {
           class="form-input form-input--mono"
           rows="3"
           placeholder="HSA_OVERRIDE_GFX_VERSION=11.0.0&#10;AMD_SERIALIZE_KERNEL=1"
+          @blur="commitEnvironment"
         ></textarea>
       </div>
 
