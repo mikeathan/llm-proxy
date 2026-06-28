@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject } from "vue";
-import { useModels } from "../../composables/useModels";
-import { useProviders } from "../../composables/useProviders";
+import { useModels } from "../../composables/models/useModels";
+import { useProviders } from "../../composables/models/useProviders";
 import type { AdminState } from "../../types";
 import Icon from "../icons/Icon.vue";
 

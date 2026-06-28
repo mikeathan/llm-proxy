@@ -2,7 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import type { RecordingMeta, RecordingStatus, Automation } from '../../../types/dispatcher'
 import { DispatcherService } from '../../../services/dispatcherService'
-import { formatBytes, formatTS } from '../../../utils/formatters'
+import { formatBytes, formatTS } from '../../../utils/format/formatters'
 
 const props = defineProps<{
   automations: Automation[]

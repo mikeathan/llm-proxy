@@ -4,7 +4,7 @@ import { argsToString, stringToArgs } from "../../utils/config";
 import { PROVIDER_STYLES } from "../../constants/providers";
 import type { Model, AdminState } from "../../types";
 import ModelTags from "./ModelTags.vue";
-import { inferMetadata } from "../../utils/model-discovery";
+import { inferMetadata } from "../../utils/model/model-discovery";
 import Icon from "../icons/Icon.vue";
 
 const props = defineProps<{

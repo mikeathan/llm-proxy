@@ -1,31 +1,12 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch, computed, nextTick } from "vue";
-import type {
-  AgentEvent,
-} from "../../../types/dispatcher";
-import {
-  getRoleLabel,
-  getMessageClass,
-  getRoleClass,
-  getContentClass,
-} from "../../../domain/assistant";
-import {
-  getStepPayload,
-  getMsgPayload,
-  getToolCallPayload,
-  getToolResPayload,
-  getViolationPayload,
-  formatEventsToText,
-} from "../../../utils/dispatcher";
-import { marked } from "marked";
-import CopyButton from "../../common/CopyButton.vue";
-import ToolCallBlock from "../../common/ToolCallBlock.vue";
-import ToolResultBlock from "../../common/ToolResultBlock.vue";
-import GuardrailBanner from "../../common/GuardrailBanner.vue";
-import LifecycleMessage from "../../common/LifecycleMessage.vue";
+import type { AgentEvent } from "../../../types/dispatcher";
+import { formatEventsToText } from "../../../utils/dispatcher";
+import CopyButton from "../../common/display/CopyButton.vue";
 
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
-import { useAutoScroll } from "../../../composables/useAutoScroll";
+import { useAutoScroll } from "../../../composables/ui/useAutoScroll";
+import TerminalOutput from "./TerminalOutput.vue";
 import Icon from "../../../components/icons/Icon.vue";
 
 const props = defineProps<{
@@ -46,11 +27,11 @@ const {
   connect,
   disconnect,
   clearEvents,
-  submitDecision
+  submitDecision,
 } = useLiveConsole(
   () => props.workspaceId,
   () => props.isExecuting,
-  () => props.historyEvents
+  () => props.historyEvents,
 );
 
 onMounted(() => {
@@ -93,17 +74,6 @@ watch(
 const fullTerminalText = computed(() =>
   formatEventsToText(displayEvents.value),
 );
-
-const formatTime = (ts?: string) => {
-  if (!ts) return "";
-  const date = new Date(ts);
-  return date.toLocaleTimeString([], {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-};
 </script>
 
 <template>
@@ -136,100 +106,16 @@ const formatTime = (ts?: string) => {
       </div>
     </div>
 
-    <!-- Guardrail Approval Banner (shared component) -->
-    <GuardrailBanner
-      v-if="pendingDecision"
-      :decision="pendingDecision"
-      @allow="(persist: boolean) => submitDecision(true, persist)"
-      @deny="() => submitDecision(false, false)"
+    <TerminalOutput
+      :events="displayEvents"
+      :workspaceId="props.workspaceId"
+      :pendingDecision="pendingDecision"
+      :scrollDirection="scrollDirection"
+      @scroll-toggle="toggleScroll(scrollContainer)"
+      @allow-decision="(persist: boolean) => submitDecision(true, persist)"
+      @deny-decision="() => submitDecision(false, false)"
+      @scroll-update="updateWasNearBottom()"
     />
-
-    <div class="terminal-body" id="terminal-scroll-area" ref="scrollContainer" @scroll="updateWasNearBottom()">
-      <div v-if="displayEvents.length === 0" class="term-empty">
-        Waiting for activity in {{ workspaceId }}...
-      </div>
-
-      <div class="term-content">
-        <div v-for="ev in displayEvents" :key="(ev as any).id" class="term-line">
-          <!-- Step Block -->
-          <div v-if="ev.type === 'step_start'" class="line-step">
-            <span class="step-label">Step {{ getStepPayload(ev).step }}</span>
-            <span v-if="ev.timestamp" class="step-ts"
-              >[{{ formatTime(ev.timestamp) }}]</span
-            >
-          </div>
-
-          <!-- Message Block -->
-          <div
-            v-else-if="
-              (ev.type === 'message' || ev.type === 'error') &&
-              getMsgPayload(ev).content
-            "
-            class="line-msg"
-            :class="getMessageClass(getMsgPayload(ev).role, ev.type)"
-          >
-            <span
-              class="msg-role"
-              :class="getRoleClass(getMsgPayload(ev).role)"
-            >
-              {{ getRoleLabel(getMsgPayload(ev).role) }}
-            </span>
-            <div
-              v-if="getMsgPayload(ev).role === 'assistant'"
-              class="msg-content prose prose-invert max-w-none text-[11px] leading-snug"
-              v-html="marked.parse(getMsgPayload(ev).content)"
-            ></div>
-            <span
-              v-else
-              class="msg-content whitespace-pre-wrap"
-              :class="getContentClass(getMsgPayload(ev).role)"
-            >
-              {{ getMsgPayload(ev).content }}
-            </span>
-          </div>
-
-          <!-- Tool Call (shared component) -->
-          <ToolCallBlock
-            v-else-if="ev.type === 'tool_call'"
-            :name="getToolCallPayload(ev).function.name"
-            :args="getToolCallPayload(ev).function.arguments"
-          />
-
-          <!-- Tool Result (shared component) -->
-          <ToolResultBlock
-            v-else-if="ev.type === 'tool_result'"
-            :name="getToolResPayload(ev).name"
-            :result="getToolResPayload(ev).result"
-            :error="getToolResPayload(ev).error"
-          />
-
-          <!-- Lifecycle (shared component) -->
-          <LifecycleMessage
-            v-else-if="ev.type === 'lifecycle'"
-            :phase="(ev.payload as any).phase"
-            :payload="(ev.payload as any)"
-          />
-
-          <!-- Guardrail Violation -->
-          <div
-            v-else-if="ev.type === 'guardrail_violation'"
-            class="line-violation"
-          >
-            <div class="violation-header">
-              <span class="violation-icon">🛑</span>
-              <span class="violation-title"
-                >Guardrail Blocked: {{ getViolationPayload(ev).tool }}</span
-              >
-            </div>
-            <div class="violation-body">
-              {{ getViolationPayload(ev).error }}
-            </div>
-          </div>
-
-          <!-- Guardrail Blocked (Awaiting Decision) — rendered via GuardrailBanner in the approval UI -->
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -274,213 +160,5 @@ const formatTime = (ts?: string) => {
   @apply bg-gray-600/50;
 }
 
-.terminal-body {
-  @apply flex-1 overflow-y-auto p-4 bg-[#0d1117] leading-relaxed;
-}
 
-.term-empty {
-  @apply h-full flex items-center justify-center text-gray-600 italic text-[11px];
-}
-
-.term-content {
-  @apply space-y-3;
-}
-
-.term-line {
-  @apply max-w-full overflow-hidden;
-}
-
-/* Step Label */
-.line-step {
-  @apply mt-4 mb-2;
-}
-
-.step-label {
-  @apply text-blue-400 font-bold uppercase;
-}
-
-.step-ts {
-  @apply text-[10px] text-gray-600 ml-2 font-normal;
-}
-
-/* Message */
-.line-msg {
-  @apply mb-2;
-}
-
-.msg-role {
-  @apply mr-2;
-}
-
-.role-system {
-  @apply text-indigo-400 font-bold uppercase tracking-wider text-[10px];
-}
-
-.role-assistant {
-  @apply text-emerald-400 font-bold;
-}
-
-.role-user {
-  @apply text-amber-400 font-bold;
-}
-
-.msg-content {
-  @apply text-gray-300 flex-1;
-}
-
-/* Compact Typography Overrides for Terminal */
-.msg-content :deep(p) {
-  @apply mb-1 mt-0;
-}
-.msg-content :deep(h1),
-.msg-content :deep(h2),
-.msg-content :deep(h3) {
-  @apply text-gray-100 font-bold mt-2 mb-1;
-}
-.msg-content :deep(h3) {
-  @apply text-[11px];
-}
-.msg-content :deep(h2) {
-  @apply text-[12px];
-}
-.msg-content :deep(h1) {
-  @apply text-[14px];
-}
-
-.msg-content :deep(ul),
-.msg-content :deep(ol) {
-  @apply mb-1 ml-4;
-}
-
-.msg-content :deep(table) {
-  @apply my-2 border-collapse text-[10px] w-full;
-}
-
-.msg-content :deep(th),
-.msg-content :deep(td) {
-  @apply p-1 border border-gray-800 text-left;
-}
-
-.system-msg {
-  @apply border-l-2 border-indigo-500/30 pl-2 bg-indigo-500/5 py-1 my-1;
-}
-
-.system-error-msg {
-  @apply border-l-2 border-red-500/30 pl-2 bg-red-500/10 py-1 my-1;
-}
-
-.content-system {
-  @apply text-indigo-200/60 italic;
-}
-
-/* Tool execution block */
-.line-tool {
-  @apply mt-2 mb-2;
-}
-
-.tool-run-header {
-  @apply flex items-center gap-2 mb-1.5;
-}
-
-.tool-icon {
-  @apply text-sm opacity-90;
-}
-
-.tool-name {
-  @apply text-blue-300 font-semibold;
-}
-
-.btn-copy-mini {
-  @apply p-1 text-gray-500 hover:text-gray-300 transition-colors ml-1 focus:outline-none;
-}
-
-.tool-args {
-  @apply bg-[#161b22] border border-gray-800 rounded p-3 text-[11px] text-blue-200/70 overflow-x-auto whitespace-pre-wrap mt-1;
-}
-
-/* Tool Result Block */
-.line-result {
-  @apply mt-2 mb-4;
-}
-
-.res-details {
-  @apply cursor-pointer outline-none;
-}
-
-.res-summary {
-  @apply flex items-center gap-2 select-none hover:opacity-80 transition-opacity outline-none list-none;
-}
-
-.res-summary::-webkit-details-marker {
-  display: none;
-}
-
-.res-icon {
-  @apply text-sm;
-}
-
-.res-name {
-  @apply text-green-400 font-semibold;
-}
-
-.res-hint {
-  @apply text-gray-600 text-[10px] italic;
-}
-
-.res-body {
-  @apply bg-[#161b22] border border-gray-800 rounded p-3 mt-2 text-[11px] text-green-500/80 overflow-y-auto max-h-80 whitespace-pre-wrap;
-}
-
-.line-violation {
-  @apply mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg animate-in fade-in slide-in-from-left-2 backdrop-blur-sm;
-}
-
-.violation-header {
-  @apply flex items-center gap-2 mb-1.5;
-}
-
-.violation-title {
-  @apply text-red-400 font-bold text-xs uppercase tracking-widest;
-}
-
-.violation-body {
-  @apply text-[11px] text-red-100/70 pl-6 border-l border-red-500/30 py-1;
-}
-
-/* Guardrail Approval Banner */
-.guardrail-approval-banner {
-  @apply mx-4 mb-2 p-4 bg-amber-900/30 border border-amber-500/50 rounded-lg animate-in fade-in slide-in-from-top-2;
-}
-
-.approval-header {
-  @apply flex items-center gap-2 mb-3;
-}
-
-.approval-icon {
-  @apply text-lg;
-}
-
-.approval-title {
-  @apply text-amber-300 font-bold text-sm uppercase tracking-wide;
-}
-
-.approval-details {
-  @apply text-[11px] text-amber-100/80 space-y-1 mb-3 pl-6 border-l border-amber-500/30 py-1;
-}
-
-.approval-actions {
-  @apply flex gap-2 flex-wrap;
-}
-
-.btn-approve {
-  @apply px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
-}
-
-.btn-approve-once {
-  @apply px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
-}
-
-.btn-deny {
-  @apply px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
-}
 </style>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
-import cronstrue from "cronstrue";
+import { ref, computed } from "vue";
 import type { Model } from "../../../types/model";
 import type { ProviderItem } from "../../../types/admin";
 import type { Automation } from "../../../types/dispatcher";
+import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
+import CronEditor from "./CronEditor.vue";
 import Icon from "../../icons/Icon.vue";
 
 const props = defineProps<{
@@ -22,246 +23,55 @@ const emit = defineEmits<{
   (e: "cancel-edit"): void;
 }>();
 
-// Collapse state is derived from props — no watchers needed.
-// When editing, the form is always expanded. When creating, it follows
-// hasAutomations unless the user manually toggled the header.
 const userCollapsed = ref(false);
 const isCollapsed = computed(() => {
   if (props.editAutomation) return false;
   return props.hasAutomations && !userCollapsed.value;
 });
 
-const selectedWorkspace = ref("");
-
-watch(selectedWorkspace, (newVal) => {
-  if (newVal) {
-    emit("fetch-files", newVal);
-  }
-});
-
-const form = ref({
-  name: "",
-  triggerType: "cron",
-  triggerValue: "",
-  taskFile: "",
-  strategy: "persistent",
-  model: "",
-});
-
-// Model Selection Strategy state
-const modelSource = ref<"local" | "cloud">("local");
-const selectedProviderKey = ref(""); // "providerName/keyName"
-
-const resetForm = () => {
-  form.value = {
-    name: "",
-    triggerType: "cron",
-    triggerValue: "",
-    taskFile: "",
-    strategy: "persistent",
-    model: "",
-  };
-  selectedWorkspace.value = "";
-  selectedProviderKey.value = "";
-  modelSource.value = "local";
-};
-
-// Logic to derive model source and key from initial model name if editing
-const syncModelSource = () => {
-  if (props.editAutomation?.model) {
-    const modelName = props.editAutomation.model;
-    const modelObj = props.models.find((m) => m.name === modelName);
-    if (modelObj) {
-      let newKey = "";
-      if (modelObj.provider === "local") {
-        newKey = "local";
-      } else {
-        // For cloud models, reconstruct the key (empty string for default key)
-        const keyName = modelObj.provider_config?.api_key_name || "";
-        newKey = `${modelObj.provider}/${keyName}`;
-      }
-      if (selectedProviderKey.value !== newKey) {
-        selectedProviderKey.value = newKey;
-      }
-    }
-  }
-};
-
-// Single watcher — populate form fields when the edit target changes.
-watch(
-  () => props.editAutomation?.id,
-  () => {
-    const editTarget = props.editAutomation;
-    if (editTarget) {
-      selectedWorkspace.value = editTarget.workspace;
-      syncModelSource();
-      form.value = {
-        name: editTarget.name,
-        triggerType: editTarget.trigger || "cron",
-        triggerValue: editTarget.trigger_value || "",
-        taskFile: editTarget.task_file,
-        strategy: editTarget.strategy,
-        model: editTarget.model || "",
-      };
-      userCollapsed.value = false;
-    } else {
-      resetForm();
-    }
-  },
-  { immediate: true },
-);
-
-// Re-sync model source if models list was empty but now loaded
-watch(
-  () => props.models,
-  () => {
-    if (props.editAutomation) {
-      syncModelSource();
-    }
-  },
-  { deep: true },
-);
-
-const filteredModels = computed(() => {
-  if (selectedProviderKey.value === "local") {
-    return props.models.filter((m) => m.provider === "local");
-  }
-
-  if (!selectedProviderKey.value) return [];
-  const parts = selectedProviderKey.value.split("/");
-  const provider = parts[0];
-  const keyName = parts[1] || ""; // Handle both "provider/key" and "provider/"
-  
-  return props.models.filter(
-    (m) =>
-      m.provider === provider && (m.provider_config?.api_key_name || "") === keyName,
-  );
-});
-
-const cloudProvidersWithKeys = computed(() => {
-  const result: {
-    providerName: string;
-    keys: { name: string; id: string; keyVal: string }[];
-  }[] = [];
-  
-  for (const [name, p] of Object.entries(props.providers)) {
-    if (name === "local") continue;
-    
-    const keys: { name: string; id: string; keyVal: string }[] = [];
-    
-    // Add named keys if they exist
-    if (p.api_keys && p.api_keys.length > 0) {
-      p.api_keys.forEach(k => {
-        keys.push({ name: k.name, id: k.id, keyVal: k.name });
-      });
-    }
-    
-    // Skip providers with no credentials at all
-    if (keys.length === 0) continue;
-
-    result.push({
-      providerName: name,
-      keys: keys.map(k => ({ name: k.name, id: k.id, keyVal: k.keyVal }))
-    });
-  }
-  return result;
-});
-
-watch(selectedProviderKey, (_, oldVal) => {
-  // Reset model selection when connection changes
-  if (oldVal !== undefined) {
-    // If we're editing and the current model is already valid for the new provider/key,
-    // don't reset it. This prevents syncModelSource from overwriting the model
-    // during initial load of the edit form.
-    if (props.editAutomation && form.value.model) {
-      const isStillValid = filteredModels.value.some(m => m.name === form.value.model);
-      if (isStillValid) return;
-    }
-
-    if (filteredModels.value.length > 0 && filteredModels.value[0]) {
-      form.value.model = filteredModels.value[0].name;
-    } else {
-      form.value.model = "";
-    }
-  }
-});
-
-watch(selectedWorkspace, () => {
-  if (!props.editAutomation) {
-    form.value.taskFile = "";
-  }
-});
-
-const cronType = ref("custom");
-const cronEvery = ref(1);
-const cronUnit = ref("hours");
-
-watch([cronType, cronEvery, cronUnit], () => {
-  if (cronType.value === "custom") return;
-
-  if (cronType.value === "every") {
-    if (cronUnit.value === "minutes") {
-      form.value.triggerValue = `*/${cronEvery.value} * * * *`;
-    } else if (cronUnit.value === "hours") {
-      form.value.triggerValue = `0 */${cronEvery.value} * * *`;
-    } else if (cronUnit.value === "days") {
-      form.value.triggerValue = `0 0 */${cronEvery.value} * *`;
-    }
-  }
-});
-
-watch(
-  () => form.value.triggerType,
-  (newVal, oldVal) => {
-    if (oldVal !== undefined && !props.editAutomation) {
-      form.value.triggerValue = "";
-    }
-    if (newVal === "cron") {
-      cronType.value = "custom";
-    }
-  },
-);
-
-const cronDescription = ref("");
-watch(
-  () => form.value.triggerValue,
-  (newVal) => {
-    if (form.value.triggerType === "cron" && newVal) {
-      try {
-        cronDescription.value = cronstrue.toString(newVal);
-      } catch {
-        cronDescription.value = "Invalid cron expression";
-      }
-    } else {
-      cronDescription.value = "";
-    }
-  },
+const {
+  selectedWorkspace,
+  form,
+  selectedProviderKey,
+  filteredModels,
+  cloudProvidersWithKeys,
+  handleSubmit: validateSubmit,
+} = useAutomationForm(
+  props.models,
+  props.providers,
+  props.editAutomation ?? null,
+  (ws) => emit("fetch-files", ws),
 );
 
 const handleSubmit = () => {
-  if (!selectedWorkspace.value || !form.value.name) return;
+  const data = validateSubmit();
+  if (!data) return;
 
-  const data = {
-    name: form.value.name,
+  const payload = {
+    name: data.name,
     trigger: {
-      type: form.value.triggerType,
-      value: form.value.triggerValue,
+      type: data.triggerType,
+      value: data.triggerValue,
     },
-    task_file: form.value.taskFile,
-    strategy: form.value.strategy,
-    model: form.value.model,
+    task_file: data.taskFile,
+    strategy: data.strategy,
+    model: data.model,
   };
 
   if (props.editAutomation) {
-    emit(
-      "update-automation",
-      selectedWorkspace.value,
-      props.editAutomation.name,
-      data,
-    );
+    emit("update-automation", selectedWorkspace.value, props.editAutomation.name, payload);
   } else {
-    emit("create-automation", selectedWorkspace.value, data);
-    resetForm();
+    emit("create-automation", selectedWorkspace.value, payload);
+    selectedWorkspace.value = "";
+    form.value = {
+      name: "",
+      triggerType: "cron",
+      triggerValue: "",
+      taskFile: "",
+      strategy: "persistent",
+      model: "",
+    };
+    selectedProviderKey.value = "";
   }
 };
 
@@ -401,47 +211,12 @@ const handleCancel = () => {
             </select>
           </div>
 
-          <div v-if="form.triggerType === 'cron'" class="trigger-content">
-            <div class="flex gap-2">
-              <select
-                v-model="cronType"
-                class="select-input"
-              >
-                <option value="every">Simple Frequency</option>
-                <option value="custom">Custom Expression</option>
-              </select>
-            </div>
-
-            <div v-if="cronType === 'every'" class="cron-simple-row">
-              <span class="cron-simple-label">Run every</span>
-              <input
-                type="number"
-                v-model="cronEvery"
-                min="1"
-                class="cron-number-input"
-              />
-              <select
-                v-model="cronUnit"
-                class="cron-unit-select"
-              >
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-                <option value="days">Days</option>
-              </select>
-            </div>
-
-            <div class="cron-input-group">
-              <input
-                v-model="form.triggerValue"
-                placeholder="* * * * *"
-                :readonly="cronType !== 'custom'"
-                class="text-input font-mono"
-              />
-              <div class="cron-preview">
-                {{ cronDescription }}
-              </div>
-            </div>
-          </div>
+          <CronEditor
+            v-if="form.triggerType === 'cron'"
+            :modelValue="form.triggerValue"
+            :triggerType="form.triggerType"
+            @update:modelValue="form.triggerValue = $event"
+          />
 
           <div v-else-if="form.triggerType === 'interval'" class="trigger-content">
             <input
@@ -583,6 +358,10 @@ const handleCancel = () => {
 
 .trigger-content {
   @apply space-y-3;
+}
+
+.trigger-type-select {
+  @apply bg-gray-800 text-xs text-white px-2 py-1 rounded border border-gray-700 w-32;
 }
 
 .cron-simple-row {

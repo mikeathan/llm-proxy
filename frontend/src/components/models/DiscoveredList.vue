@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, toRefs } from 'vue'
 import type { AvailableModel } from '../../types'
-import { extractDynamicTags, formatFileSize } from '../../utils/model-discovery'
-import { useModelDiscovery } from '../../composables/useModelDiscovery'
+import { extractDynamicTags, formatFileSize } from '../../utils/model/model-discovery'
+import { useModelDiscovery } from '../../composables/models/useModelDiscovery'
 import ModelTags from './ModelTags.vue'
 import Icon from '../icons/Icon.vue'
 

@@ -316,6 +316,8 @@ npm install --save-dev typescript   ← <-- DID NOT EXECUTE
 
 **Result:** ✅ Eliminated the XML/non-streaming fallback chain. Previously, 200+ identical warning lines were logged per stream. Now it fires exactly once.
 
+**Reversed 2026-06-26**: The warn-only behavior above was reverted back to terminate-the-stream. The upstream-server-doesn't-enforce assumption proved true in practice (runaway joke-loop on local Qwen3.5-9B — model kept generating past 7000+ chars with no EOS). `processStream` now honors `ShouldTerminate` by returning nil instead of just logging. A char cap of `maxTokens * 4` (via `exceedsContentCharCap`) is added as a fallback safety net. No budget values were changed. See `docs/PLANS/cross-cutting/assistant-cancel-endpoint.md` § "Fix: honor ShouldTerminate + add char cap safety net" and `docs/architecture.md` invariant #10.
+
 **Log evidence (before):**
 ```
 12:49:21Z WARN reasoning budget exceeded ... (repeated 200+ times)
