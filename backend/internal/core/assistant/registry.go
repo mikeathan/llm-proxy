@@ -115,15 +115,24 @@ func initTerminalTools(
 func initCommunicationTools(appCtx interface {
 	GetRegistry() models.RegistryData
 	Secrets() models.SecretsStore
-}) *tools.CommunicationTools {
+}, network *tools.NetworkTools) *tools.CommunicationTools {
 	reg := appCtx.GetRegistry()
 	comm := tools.NewCommunicationTools()
-	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
-	if reg.Communication.Telegram.Enabled && telegramToken != "" {
-		comm.AddNotifier(&tools.TelegramNotifier{
-			Token:  telegramToken,
-			ChatID: reg.Communication.Telegram.ChatID,
-		})
+	for name, cfg := range reg.Communication.Connectors {
+		if !cfg.Enabled {
+			continue
+		}
+		switch cfg.Type {
+		case models.ConnectorTypeTelegram:
+			token := appCtx.Secrets().GetSecret("connector", name)
+			chatID := cfg.Settings["chat_id"]
+			if token == "" || chatID == "" {
+				continue
+			}
+			comm.AddConnector(name, cfg.Type, tools.NewTelegramNotifier(token, chatID, network.HTTPClient()))
+		default:
+			logging.Warn("unknown communication connector type", "name", name, "type", cfg.Type)
+		}
 	}
 	return comm
 }
@@ -202,8 +211,8 @@ func InitializeAgentStack(
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, resolver, persistence)
-	comm := initCommunicationTools(appCtx)
 	network := initNetworkTools(persistence, defaultGuardrails, logger)
+	comm := initCommunicationTools(appCtx, network)
 	search := initSearchTools(appCtx, network)
 	fsTools := initFileSystemTools(resolver, persistence, defaultGuardrails)
 	memTools := initMemoryTools(appCtx.MemoryStore())
@@ -315,12 +324,16 @@ func (r *LocalToolRegistry) registerTerminalTools() {
 
 func (r *LocalToolRegistry) registerCommunicationTools() {
 	registerTool(r, "communication", models.ToolNotifyUser, func(ctx context.Context, args struct {
-		Message string `json:"message"`
+		Message   string `json:"message"`
+		Connector string `json:"connector"` // optional — empty sends to all connectors
 	}) (any, error) {
 		if r.Communication == nil {
 			return nil, fmt.Errorf("communication tools not configured")
 		}
-		return "Notification sent successfully", r.Communication.NotifyAll(ctx, args.Message)
+		if err := r.Communication.NotifyAll(ctx, args.Message, args.Connector); err != nil {
+			return nil, err
+		}
+		return "Notification sent successfully", nil
 	})
 }
 

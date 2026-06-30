@@ -17,6 +17,7 @@ export const API_ENDPOINTS = {
   providerManifests: `${API_BASE}/providers/manifests`,
   testConnection: `${API_BASE}/providers/test`,
   secretsKeys: `${API_BASE}/secrets/keys`,
+  secretsTools: `${API_BASE}/secrets/tools`,
   restart: `${API_BASE}/system/restart`,
   hostSettings: `${API_BASE}/host`,
   terminalReset: `${API_BASE}/host/terminal/reset`,

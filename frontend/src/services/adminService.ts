@@ -87,6 +87,16 @@ export const AdminApiService = {
   deleteAllProviderKeys: (provider: string): Promise<APIKeyItem[]> =>
     del<APIKeyItem[]>(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`),
 
+  fetchToolSecret: (category: string, provider: string): Promise<string> =>
+    get<{ secret: string }>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`)
+      .then(r => r.secret),
+
+  saveToolSecret: (category: string, provider: string, secret: string): Promise<void> =>
+    put<void>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`, { secret }),
+
+  deleteToolSecret: (category: string, provider: string): Promise<void> =>
+    del<void>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`),
+
   restartSystem: (): Promise<void> =>
     post<void>(API_ENDPOINTS.restart),
     

@@ -285,11 +285,29 @@ func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	c.Network.BlockedIPs = mergeSlices(c.Network.BlockedIPs, other.Network.BlockedIPs)
 }
 
+// ConnectorType values for CommunicationConfig.Connectors[].Type
+const (
+	ConnectorTypeTelegram = "telegram"
+)
+
+// CommunicationConfig holds configuration for all outbound communication connectors.
+// Each entry in Connectors maps a user-assigned name (e.g. "my-telegram") to a
+// ConnectorConfig that specifies the type, settings, and secret reference.
+// This design is intentionally generic — adding a new platform (Slack, Discord, etc.)
+// requires no struct changes, only a new case in the registry switch.
 type CommunicationConfig struct {
-	Telegram struct {
-		Enabled bool   `json:"enabled"`
-		ChatID  string `json:"chat_id"`
-	} `json:"telegram"`
+	Connectors map[string]ConnectorConfig `json:"connectors"`
+}
+
+// ConnectorConfig defines a single communication channel.
+// Type is the platform identifier (e.g. "telegram", "slack").
+// Settings is a type-specific key-value map (e.g. {"chat_id": "12345"}).
+// SecretRef points to the secrets store key holding the auth token/credential.
+type ConnectorConfig struct {
+	Type      string            `json:"type"`
+	Enabled   bool              `json:"enabled"`
+	Settings  map[string]string `json:"settings"`
+	SecretRef string            `json:"secret_ref,omitempty"`
 }
 
 type SearchConfig struct {

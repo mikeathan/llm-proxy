@@ -2,9 +2,17 @@ import { ref } from "vue";
 import type { AgentEvent, GuardrailBlockedPayload } from "../../types";
 import { generateId } from "../../utils/crypto";
 
+export interface SessionLifecyclePayload {
+  phase: string
+  conversation_id?: string
+  workspace_id?: string
+  snippet?: string
+}
+
 export function useAssistantSSE(
   workspaceId: () => string,
   onEvent?: (ev: AgentEvent) => void,
+  onSessionUpdate?: (payload: SessionLifecyclePayload) => void,
 ) {
   const streamingContent = ref("");
   const liveEvents = ref<AgentEvent[]>([]);
@@ -48,7 +56,12 @@ export function useAssistantSSE(
     }
 
     if (ev.type === "lifecycle") {
-      liveEvents.value.push(ev);
+      const p = ev.payload as unknown as SessionLifecyclePayload
+      if (p.conversation_id && p.phase?.startsWith("session_")) {
+        onSessionUpdate?.(p)
+      } else {
+        liveEvents.value.push(ev)
+      }
       return;
     }
 

@@ -27,6 +27,14 @@ const (
 	EventMemoryFlush          AgentEventType = "memory_flush"
 )
 
+// Lifecycle phase constants for the AgentEvent lifecycle payload.
+// Used to communicate session state changes to the frontend via SSE.
+const (
+	PhaseSessionStarted   = "session_started"
+	PhaseSessionProgress  = "session_progress"
+	PhaseSessionCompleted = "session_completed"
+)
+
 type AgentEvent struct {
 	ID        string         `json:"id"`
 	Type      AgentEventType `json:"type"`

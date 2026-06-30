@@ -203,7 +203,7 @@ Extracted 3 new subcomponents:
 
 1. **Overlay, not replacement** — The assistant chat opens as a sliding overlay (right side) on desktop. The dashboard remains visible behind it. This keeps workspace context (active runs, metrics) while chatting. On mobile, the overlay goes full-screen.
 
-2. **Sessions auto-save** — Every message persists immediately via the existing `WriteSession` call in `handleAssistant`. No explicit "save" action needed. Session list refreshes on load and after each message exchange.
+2. **Sessions auto-save** — Every message persists immediately via the existing `WriteSession` call in `handleAssistant`. No explicit "save" action needed. Session list refreshes on load and after each message exchange. Running sessions show a green ● indicator that updates via workspace-level SSE lifecycle events (`session_started`, `session_progress`, `session_completed`).
 
 3. **Conversation ID as route param** — `?conversation=conv_20260625140500` in the URL so deep-linking and browser back/forward work with the session history.
 
@@ -222,9 +222,10 @@ Extracted 3 new subcomponents:
 | `frontend/src/components/AgentIde/assistant/ChatSessionList.vue` | 2 | New — session history sidebar |
 | `frontend/src/composables/useConversations.ts` | 2 | New — session state |
 | `frontend/src/composables/useAssistant.ts` | 2,5 | Modify — session load + cancel + reconnect |
-| `frontend/src/types/assistant.ts` | 2 | Add session types |
+| `frontend/src/types/assistant.ts` | 2 | Add session types + running badge |
 | `frontend/src/services/assistantService.ts` | 2,5 | Add rename, cancelRun, getRunStatus, clearAllSessions |
-| `backend/internal/transport/http/assistant_handlers.go` | 2,5 | Add RenameSession, RunStatus, CancelRun handlers |
+| `backend/internal/transport/http/assistant_handlers.go` | 2,5 | Add RenameSession, RunStatus, CancelRun handlers, session lifecycle events |
+| `backend/internal/core/assistant/agent_events.go` | 5 | Add PhaseSessionStarted/Progress/Completed constants |
 | `backend/internal/app/bootstrap.go` | 2,5 | Register new routes |
 | `backend/internal/core/assistant/stream.go` | 5 | Add context check in processStream |
 | `backend/internal/core/assistant/tool_exec.go` | 5 | Add context check in processToolCalls |

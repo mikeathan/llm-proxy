@@ -9,6 +9,7 @@ This document defines the immutable architectural and security laws of the proje
     *   **Agent Tools**: Must use `network.FetchURL` or `network.HTTPClient()`.
     *   **Infrastructure**: Must use `network.DialContext()` to ensure DNS rebinding protection and boundary checks (LAN vs Internet) are applied at the socket level.
 3.  **Boundary Enforcement**: The system must strictly distinguish between LAN access and Internet access. Tools must verify destination safety before the first byte is sent.
+4.  **Inbound Webhook Exemption**: Inbound HTTP handlers that receive messages from external platforms (webhooks, callbacks, bot API requests) are exempt from §I.1–I.3. They use standard `net/http` handlers and require no `NetworkTools` wrapper. The exemption applies only to receiving incoming connections — any outbound network call triggered by the handler (e.g. replying to a Telegram message) must still pass through `NetworkTools`.
 
 ## II. Resource Management (The Bounded Deck)
 
@@ -62,6 +63,7 @@ This document defines the immutable architectural and security laws of the proje
      *   **Lifecycle Events**: `memory_recall` and `memory_flush` events are emitted to the UI for observability.
 
 13. **Prompt Centralization** (SINGLE SOURCE OF TRUTH): `internal/core/assistant/prompts/templates.go` is the ONLY location for ALL prompt strings.
+14. **Goroutine Lifecycle Discipline**: Every goroutine must have an explicit termination path via `context.Context` or channel close. No goroutine shall be started with `context.Background()` unless it is tethered to the application's root lifecycle (`rootCtx`). Orphan goroutines — those without cancellation, timeout, or completion signaling — are prohibited. This applies to background workers, heartbeat loops, stream processors, and timer-based routines.
     *   System messages, nag prompts, parse-error feedback, JSON error translations.
     *   Escalation prefixes, protocol instructions, system rule text.
     *   No hardcoded prompt strings anywhere else — not in `agent.go`, not in `tool_call_parser.go`, not in any other logic file.
@@ -75,7 +77,7 @@ This document defines the immutable architectural and security laws of the proje
 4.  **Three-Tier Configuration Model**:
     *   **Tier 1 — `config.json`** (system): Infrastructure settings (bind, model_host, idle_timeout, environment, workspaces_dir).
     *   **Tier 2 — `settings.yml`** (user): Local paths (llama_server_binary, model_dir, default_args), guardrail overrides, per-model agent tuning overrides.
-    *   **Tier 3 — `registry.json`** (dynamic state): Model catalogue, provider definitions, MCP server list, primary/fallback models.
+    *   **Tier 3 — `registry.json`** (dynamic state): Model catalogue, provider definitions, MCP server list, communication connector configs, primary/fallback models.
     *   **Workspace overrides** — `{metadata}/{workspace}/config.yaml`: Per-workspace guardrails, automations, and settings.
 5.  **Model Persistence (Two-Tier)**: Model configuration is split across two persistence locations:
     *   **Base model info** → `registry.json`: name, provider, filename/model_id, port, args, credential_id, prefill flag.
@@ -105,30 +107,4 @@ This document defines the immutable architectural and security laws of the proje
 
 ## VI. Resource-Aware Orchestration (The Budget Deck)
 
-The Orchestration Layer (`internal/core/orchestrator/`) provides a unified token and cost budgeting system that treats VRAM slots and financial tokens as a single Computational Capital.
-
-1.  **ICU (Internal Credit Unit) Standard**: All model usage is denominated in ICUs. 1 ICU = 1 input token on a local 7B model. ICU weight resolution is 3-tier: user override (`InternalCreditWeight`) → GGUF parameter count (local models) → default 1.0. No static weight table exists — `provider_weights.go` was removed as stale. Weights are resolved at runtime from available data, not from a baked-in manifest.
-
-2.  **Context Length Resolution (5-Tier)**: `max_tokens`, `context_budget`, and `reasoning_budget` are auto-computed at model registration time via `ApplyMetadataDefaults()`:
-    - **Tier 0** — `/slots` endpoint serving context (`n_ctx`) from llama.cpp servers.  `OpenAICompatibleProvider.ListModels()` queries `GET /slots` and populates `ModelMeta.Nctx` with the actual serving context window.  This is preferred over `n_ctx_train` which reports training context (often 262K when the server runs with `--ctx-size 8192`).
-    - **Tier 1** — `Metadata.ContextLength` from GGUF scanner (local models, exact per-file), `n_ctx` from API meta (serving context), or `n_ctx_train` from API meta capped at 128K (training context values above 128K are never serving contexts for current cloud models and indicate a local llama.cpp where training context dwarfs the actual `--ctx-size`).
-    - **Tier 2** — `knownCtx` fragment map (~8 entries for models whose context differs from provider default: deepseek-v3=64K, o3/o4/claude=200K, gemini-1.5-pro=2M, mistral-small=32K)
-    - **Tier 3** — `providerCtxDefaults[Provider]` (one line per provider covers all future models: gemini/vertex=1M, openai/openrouter/nvidia/mulerouter=128K, local=8K).  Also used as a ceiling: if tier 1 metadata exceeds the provider default, it's capped.
-    - **Tier 4** — `ProviderTiers` fallback (2048-4096 tokens, always safe for any modern model)
-    - Only fields that are still 0 are set — user-customized values are never overwritten.
-
-3.  **Meta Parsing from Any OpenAI-Compatible Endpoint**: llama.cpp and similar servers return `meta.n_ctx_train` (training context) and `meta.n_params` (parameter count) in their `/v1/models` response.  Additionally, `GET /slots` returns `n_ctx` (serving context — the actual `--ctx-size` the server was launched with).  `OpenAICompatibleProvider.ListModels()` queries both endpoints: `/slots` is preferred for context resolution since it reports the real serving window; `/v1/models` provides parameter count and fallback context.  When the user adds a model from the dropdown, the meta flows through the frontend → `handleAddModel` → `enrichMetadataFromProviders()` (which prefers `n_ctx` over `n_ctx_train`, discarding `n_ctx_train` values above 128K as unreliable) → `Metadata.ContextLength` / `Metadata.Parameters`.  This provides exact per-model data without any static table or user input.
-
-4.  **Pre-Flight Check**: Before every LLM request, the orchestrator debits the projected ICU cost from the workspace balance. If the projected cost exceeds the remaining cap, the Budget Squeezer applies an adaptive reduction factor (hard floor: 0.2x). If even the squeezed request exceeds the cap, the request is rejected with `BUDGET_EXCEEDED`.
-
-5.  **Atomic ICU Refunds**: ICU debits recorded by the pre-flight check are refunded via `defer` if the downstream LLM request fails (network timeout, 5xx). Double-refunds are idempotent at the SQL level via `refund_status = 'none'` check.
-
-6.  **Stream Interception with Code Awareness**: Every SSE chunk in `processStream()` passes through the `StreamInterceptor`. Token counting uses an adaptive ratio: 0.5 chars/token for prose, 1.0 chars/token inside code fences. The interceptor calls `ReasoningNormalizer.Accumulate()` to separate reasoning tokens from content tokens regardless of provider — detection is from stream data, not a provider-name-to-format mapping. The interceptor may terminate a stream mid-response if per-turn budgets are exhausted.
-
-7.  **Slot Persistence for llama.cpp**: Local model KV caches are tracked in SQLite (`orchestrator.db`, WAL mode) to avoid re-processing the system prompt on repeated requests. Cache keys include sampling parameters (temperature, top-p, presence penalty) to prevent KV cache state corruption. The slot manager calls `POST /slots/{n}?action=save|restore` on the llama.cpp server.
-
-8.  **Storage**: The ledger package (`internal/platform/ledger/`) is a decoupled SQLite store in WAL mode (`_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL`). Schemas include `icu_ledger` (with `refund_status`), `icu_balances`, `active_slots`, and `entity_metadata` (entity_type/entity_id/key/value — generic, reusable by future Memory/Knowledge modules without schema changes). The memory package (`internal/platform/memory/`) adds `memories` (content storage) and `memories_fts` (FTS5 full-text index with BM25 ranking and sync triggers) to the same database file via the ledger's `DB()` getter. The orchestrator imports ledger; memory imports ledger's `*sql.DB` — no circular dependency.
-
-9.  **Nil-Safe Orchestrator**: When `Agent.orch == nil` (tests, simple deployments), all budget and slot checks are no-ops. The agent loop operates identically with or without the orchestrator active, meeting the zero-latency-impact regression gate.
-
-10. **Per-Model Configuration**: `ReasoningBudget`, `SlotTimeout`, `MaxTokens`, and `ICUWeight` flow through the existing `ModelConfig` → `AgentOptions` pipeline alongside `MaxSteps` and `ContextBudget`. `ReasoningNormalizer` detects the stream mode from data — models routed through OpenRouter, NVIDIA, or any gateway are handled transparently without maintaining a provider→format mapping.
+The full ICU budget system, context length resolution (5-tier), slot persistence, stream interception, and nil-safe operational rules are defined in **SPEC-005** (Resource-Aware Orchestration). All orchestration code must comply with that specification.

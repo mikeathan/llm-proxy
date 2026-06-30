@@ -44,10 +44,7 @@ const DEFAULT_CONFIG: GlobalConfig = {
     },
   },
   communication: {
-    telegram: {
-      enabled: false,
-      chat_id: '',
-    },
+    connectors: {},
   },
   agent_defaults: {
     max_steps: 25,

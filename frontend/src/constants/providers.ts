@@ -24,6 +24,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
   "nvidia",
   "vertex",
   "mcp",
+  "communication",
 ];
 
 export const PROVIDER_ICONS: Record<SettingsTab, string> = {
@@ -39,6 +40,7 @@ export const PROVIDER_ICONS: Record<SettingsTab, string> = {
   nvidia: "🟢",
   vertex: "⛰️",
   mcp: "🔌",
+  communication: "📡",
 };
 
 export const PROVIDER_LABELS: Record<SettingsTab, string> = {
@@ -54,6 +56,7 @@ export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   nvidia: "NVIDIA NIM",
   vertex: "Google Vertex AI",
   mcp: "MCP Servers",
+  communication: "Communication",
 };
 
 export const PROVIDER_STYLES: Record<ProviderType, string> = {

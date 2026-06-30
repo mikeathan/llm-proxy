@@ -3,6 +3,7 @@ import { AssistantService } from '../../services/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../../utils/message/messageBuilder'
 import { buildSegmentsFromHistory } from '../../utils/message/turnGrouper'
+import type { SessionLifecyclePayload } from './useAssistantSSE'
 import type { AssistantMessage, SessionBrief } from '../../types/assistant'
 
 const loading = ref(false)
@@ -19,6 +20,7 @@ export function useAssistant() {
   const sse = useAssistantSSE(
     () => activeWorkspaceId.value || '',
     (ev) => builder.handleEvent(ev),
+    applySessionUpdate,
   )
 
   const streamingContent = sse.streamingContent
@@ -67,8 +69,14 @@ export function useAssistant() {
     loading.value = true
     error.value = null
     try {
+      // Preserve in-memory running state — the disk doesn't store it and
+      // SSE lifecycle events update it faster than ListSessions re-reads.
+      const runningIds = new Set(sessions.value.filter(s => s.running).map(s => s.id))
       const result = await AssistantService.listSessions(workspaceId)
-      sessions.value = result || []
+      sessions.value = (result || []).map(s => ({
+        ...s,
+        running: s.running ?? runningIds.has(s.id)
+      }))
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch sessions'
       console.error(err)
@@ -78,6 +86,19 @@ export function useAssistant() {
   }
 
   const loadSession = async (workspaceId: string, sessionId: string) => {
+    // Running session: read user input from disk so the prompt is visible
+    // immediately, then reconnect SSE to replay live agent events.
+    if (sessions.value.find(s => s.id === sessionId)?.running) {
+      currentSessionId.value = sessionId
+      const session = await AssistantService.getSession(workspaceId, sessionId)
+      if (session) {
+        messages.value = buildSegmentsFromHistory(session.history || [])
+      }
+      sse.reset()
+      sse.connect()
+      return
+    }
+
     loading.value = true
     error.value = null
     try {
@@ -265,6 +286,43 @@ export function useAssistant() {
     }
   }
 
+  function applySessionUpdate(p: SessionLifecyclePayload) {
+    const cid = p.conversation_id
+    if (!cid) return
+    const idx = sessions.value.findIndex(s => s.id === cid)
+    if (p.phase === "session_started") {
+      if (idx === -1) {
+        sessions.value.unshift({
+          id: cid,
+          snippet: p.snippet ?? "",
+          updated_at: new Date().toISOString(),
+          running: true,
+        })
+      } else {
+        const existing = sessions.value[idx]
+        if (existing) sessions.value[idx] = { ...existing, running: true, snippet: p.snippet ?? existing.snippet }
+      }
+    } else if (p.phase === "session_progress") {
+      if (idx !== -1) {
+        const existing = sessions.value[idx]
+        if (existing) sessions.value[idx] = { ...existing, snippet: p.snippet ?? existing.snippet }
+      }
+    } else if (p.phase === "session_completed") {
+      if (idx !== -1) {
+        const existing = sessions.value[idx]
+        if (existing) sessions.value[idx] = { ...existing, running: false }
+      }
+    }
+  }
+
+  const cancelSession = async (workspaceId: string, sessionId: string) => {
+    try {
+      await AssistantService.cancelAgent(workspaceId, sessionId)
+    } catch (err) {
+      console.warn('cancel session failed', err)
+    }
+  }
+
   return {
     loading,
     error,
@@ -288,6 +346,7 @@ export function useAssistant() {
     sendMessage,
     deleteSession,
     deleteAllSessions,
+    cancelSession,
     activeWorkspaceId,
   }
 }

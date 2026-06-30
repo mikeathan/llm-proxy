@@ -29,6 +29,7 @@ export interface SessionBrief {
   id: string
   snippet: string
   updated_at: string
+  running?: boolean
 }
 
 export interface AssistantSession {

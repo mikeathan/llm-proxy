@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/core/assistant"
+	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
@@ -92,13 +92,13 @@ func (c *Container) BuildAppServices() *AppServices {
 
 	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
 	s.dispatcher = c.Dispatcher
-	s.guardrailDecisionStore = assistant.NewGuardrailDecisionStore()
+	s.guardrailDecisionStore = assistantPkg.NewGuardrailDecisionStore()
 
 	// Initialize Shell/Terminal Subsystem
 	shellManager, streamObserver := c.initShellOrchestrator(s)
 
 	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
-	s.toolProvider, s.engine, s.guardrailEngine = assistant.InitializeAgentStack(
+	s.toolProvider, s.engine, s.guardrailEngine = assistantPkg.InitializeAgentStack(
 		s.AppCtx,
 		s.persistence,
 		s.nodeHerder,
@@ -130,8 +130,8 @@ func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, 
 	}
 
 	streamObserver := func(streamType string, chunk []byte) {
-		s.Events().Publish("global", assistant.AgentEvent{
-			Type: assistant.EventToolStream, // Emits to the frontend console via EventBus
+		s.Events().Publish("global", assistantPkg.AgentEvent{
+			Type: assistantPkg.EventToolStream, // Emits to the frontend console via EventBus
 			Payload: map[string]any{
 				"stream": streamType,
 				"output": string(chunk),
@@ -150,16 +150,16 @@ type AppServices struct {
 	Runtime              llm.RuntimeManager
 	AppCtx               *AppContext
 	nodeHerder           nodeherder.MCPService
-	toolProvider         assistant.ToolProvider
+	toolProvider         assistantPkg.ToolProvider
 	clientProvider       proxy.LLMClientProvider
-	engine               assistant.Engine
+	engine               assistantPkg.Engine
 	guardrailEngine      *guardrails.GuardrailEngine
 	persistence          *persistence.WorkspaceManager
 	logger               logging.Logger
 	Clock                utils.Clock
 	dispatcher           *automation.Dispatcher
 	limiter              ratelimiter.Limiter
-	guardrailDecisionStore *assistant.GuardrailDecisionStore
+	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
 	RecordingStore       *recordings.RecordingStore
 	runLoggingEnabled          bool
 }
@@ -182,7 +182,7 @@ func (s AppServices) NodeHerder() nodeherder.MCPService {
 	return s.nodeHerder
 }
 
-func (s AppServices) ToolProvider() assistant.ToolProvider {
+func (s AppServices) ToolProvider() assistantPkg.ToolProvider {
 	return s.toolProvider
 }
 
@@ -202,7 +202,7 @@ func (s AppServices) SelectModels() (string, string) {
 	return s.AppCtx.SelectModels()
 }
 
-func (s AppServices) Engine() assistant.Engine {
+func (s AppServices) Engine() assistantPkg.Engine {
 	return s.engine
 }
 
@@ -252,7 +252,7 @@ func (s *AppServices) SetDispatcher(d *automation.Dispatcher) {
 	s.dispatcher = d
 }
 
-func (s AppServices) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
+func (s AppServices) GuardrailDecisionStore() *assistantPkg.GuardrailDecisionStore {
 	return s.guardrailDecisionStore
 }
 
@@ -433,7 +433,29 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 		memoryHandlers = api.NewMemoryHandlers(store)
 	}
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers, memoryHandlers)
+	// Extract CommunicationTools from the tool provider chain
+	var commTools *tools.CommunicationTools
+	if mtp, ok := s.ToolProvider().(*assistantPkg.MultiToolProvider); ok {
+		for _, p := range mtp.Providers {
+			if ltr, ok := p.(*assistantPkg.LocalToolRegistry); ok {
+				commTools = ltr.Communication
+				break
+			}
+		}
+	}
+
+	webhookHandler := &api.WebhookHandler{
+		Registry:    s.AppCtx.GetRegistry,
+		Persistence: s.Persistence(),
+		Secrets:     s.AppCtx.Secrets(),
+		Events:      s.Events(),
+		CommTools:   commTools,
+		Dispatcher:  disp,
+		Assistant:   assistant,
+		Logger:      s.Logger(),
+	}
+
+	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers, memoryHandlers, webhookHandler)
 }
 
 func buildRouter(
@@ -443,6 +465,7 @@ func buildRouter(
 	dispatcherHandlers *api.DispatcherHandlers,
 	recordings *api.RecordingHandlers,
 	memoryHandlers *api.MemoryHandlers,
+	webhooks *api.WebhookHandler,
 ) http.Handler {
 
 	router := api.NewRouter()
@@ -556,6 +579,11 @@ func buildRouter(
 		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.UpdateMemory, jsonMethodNotAllowed)
 		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.DeleteMemory, jsonMethodNotAllowed)
 		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}", memoryHandlers.ClearWorkspace, jsonMethodNotAllowed)
+	}
+
+	// Public webhooks — external platforms POST here (no admin auth)
+	if webhooks != nil {
+		router.Post("/api/v1/webhooks/{connector_name}", webhooks.ServeHTTP, jsonMethodNotAllowed)
 	}
 
 	return router

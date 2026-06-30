@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'load', sessionId: string): void
   (e: 'delete', sessionId: string): void
   (e: 'rename', sessionId: string, title: string): void
+  (e: 'cancel', sessionId: string): void
   (e: 'new-chat'): void
   (e: 'clear-all'): void
   (e: 'close'): void
@@ -36,6 +37,12 @@ function confirmRename() {
 
 function cancelRename() {
   renaming.value = null
+}
+
+const sourceIcon = (sessionId: string): string => {
+  if (sessionId.startsWith('wb_telegram')) return '📞'
+  if (sessionId.startsWith('wb_')) return '📡'
+  return ''
 }
 </script>
 
@@ -82,7 +89,11 @@ function cancelRename() {
           @click="emit('load', session.id)"
           class="session-item"
         >
-          <span class="session-snippet">{{ session.snippet || 'Empty conversation' }}</span>
+          <div class="session-item-row">
+            <span class="session-source">{{ sourceIcon(session.id) }}</span>
+            <span v-if="session.running" class="session-dot" title="Running">●</span>
+            <span class="session-snippet">{{ session.snippet || 'Empty conversation' }}</span>
+          </div>
           <span class="session-time">{{ formatTime(session.updated_at || '') }}</span>
         </button>
 
@@ -98,6 +109,14 @@ function cancelRename() {
         </div>
 
         <div v-if="renaming !== session.id" class="session-actions">
+          <button
+            v-if="session.running"
+            @click.stop="emit('cancel', session.id)"
+            class="btn-action-icon btn-cancel"
+            title="Cancel run"
+          >
+            <Icon name="close" size="xs" />
+          </button>
           <button
             @click.stop="startRename(session.id, session.snippet)"
             class="btn-action-icon"
@@ -174,8 +193,20 @@ function cancelRename() {
   @apply flex flex-col gap-0.5 text-left min-w-0 flex-1 bg-transparent border-none cursor-pointer self-stretch justify-center;
 }
 
+.session-item-row {
+  @apply flex items-center gap-1.5 min-w-0;
+}
+
+.session-source {
+  @apply text-[11px] shrink-0;
+}
+
+.session-dot {
+  @apply text-blue-500 text-[10px] shrink-0 animate-pulse;
+}
+
 .session-snippet {
-  @apply text-sm text-gray-200 truncate font-medium block w-full;
+  @apply text-sm text-gray-200 truncate font-medium min-w-0;
 }
 
 .session-time {
@@ -199,6 +230,13 @@ function cancelRename() {
 
 .btn-action-icon {
   @apply p-1 rounded hover:bg-gray-700/50 text-gray-500 hover:text-gray-300 transition-colors;
+}
+
+.btn-cancel {
+  @apply text-orange-400;
+}
+.btn-cancel:hover {
+  @apply bg-orange-500/15 text-orange-300;
 }
 
 .btn-delete:hover {

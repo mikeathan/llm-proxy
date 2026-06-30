@@ -217,6 +217,8 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 					if pErr := a.guardrails.PersistOverride(a.workspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
 						a.logger.Warn("failed to persist guardrail override", "error", pErr)
 					}
+				} else {
+					a.guardrails.MarkOverride(a.workspaceID, tc.Function.Name)
 				}
 				return true, false
 			}

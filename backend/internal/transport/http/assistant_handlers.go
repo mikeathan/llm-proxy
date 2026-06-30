@@ -177,24 +177,9 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		return nil, err
 	}
 
-	// 1. Load or Create Session
-	session, sErr := h.persistence.ReadSession(payload.WorkspaceID, payload.ConversationID)
-	if sErr != nil {
-		log.Error("failed to load session", "error", sErr)
-		return nil, &handlerError{Status: http.StatusInternalServerError, Message: "persistence error"}
-	}
-
-	if session == nil {
-		if payload.ConversationID == "" {
-			payload.ConversationID = "conv_" + time.Now().Format("20060102150405")
-		}
-		session = &models.AssistantSession{
-			ID:             payload.ConversationID,
-			WorkspaceID:    payload.WorkspaceID,
-			ContextVersion: payload.ContextVersion,
-			Timezone:       payload.Timezone,
-			History:        []proxy.Message{},
-		}
+	session, hErr := h.resolveSession(payload, log)
+	if hErr != nil {
+		return nil, hErr
 	}
 
 	// 3. Load model config and resolve useNativeTools before building history
@@ -224,41 +209,21 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	session.History = h.truncateHistory(session.History)
 
+	// Persist early so the session appears in the conversation sidebar
+	// even while the agent is still executing.  The final write after
+	// agent completion (or cancel) will overwrite with the full history.
+	if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
+		log.Warn("failed to persist session on user message", "error", pErr)
+	}
+	h.publishSessionLifecycle(payload.WorkspaceID, session.ID, payload.Message, assistant.PhaseSessionStarted)
+
 	// Generate run ID early so it's available for recording setup.
 	runID := generateRunID()
 	execCtx := models.WithTaskName(ctx, session.ID)
 	execCtx = models.WithRunID(execCtx, runID)
 	execCtx = assistant.WithUsageTracker(execCtx)
 
-	// Set up run directory and recording infrastructure (same pattern as automation's setupRunDir).
-	var runDir *automation.RunDir
-	var eventSink *automation.EventSink
-	var runLogCloser func()
-	runLog := procLog
-	if h.svc.RunLoggingEnabled() && modelName != "" {
-		parent := filepath.Join(h.svc.RootDir(), "runs")
-		rd, rErr := automation.NewRunDir(parent, payload.WorkspaceID, session.ID, modelName)
-		if rErr == nil {
-			runDir = rd
-			es, esErr := automation.NewEventSink(runDir.EventsPath())
-			if esErr == nil {
-				eventSink = es
-			}
-			if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
-				rcl.SetDirForRun(runID, runDir.Root)
-			} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
-				rcl.SetDir(runDir.Root)
-			}
-			if tl, tlErr := automation.NewTeeLogger(procLog, runDir.LogPath()); tlErr == nil {
-				runLog = tl
-				runLogCloser = func() {
-					if c, ok := tl.(interface{ Close() error }); ok {
-						c.Close()
-					}
-				}
-			}
-		}
-	}
+	_, eventSink, runLogCloser, runLog := h.setupRunInfra(client, payload, session, modelName, runID, procLog)
 
 	// Clear stale events from previous runs so the new SSE connection
 	// doesn't replay old tool_stream/message events (same pattern
@@ -268,11 +233,16 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	// Build agent options using the shared builder.
 	var collectedEvents []assistant.AgentEvent
+	sessionStep := 0
 	publishObs := func(ev assistant.AgentEvent) {
 		collectedEvents = append(collectedEvents, ev)
 		h.svc.Events().Publish(payload.WorkspaceID, ev)
 		if eventSink != nil {
 			eventSink.Write(ev)
+		}
+		if ev.Type == assistant.EventToolCall {
+			sessionStep++
+			h.publishSessionLifecycle(payload.WorkspaceID, session.ID, fmt.Sprintf("Step %d: %s", sessionStep, ev.Payload), assistant.PhaseSessionProgress)
 		}
 	}
 
@@ -314,8 +284,12 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 			// history (with cancelled content intact for display).  The
 			// LLM was given a filtered history, but persistence preserves
 			// the cancelled content too.
-			cancelNewMessages := updatedHistory[len(llmHistory):]
-			session.History = append(session.History, cancelNewMessages...)
+			if len(updatedHistory) >= len(llmHistory) {
+				cancelNewMessages := updatedHistory[len(llmHistory):]
+				session.History = append(session.History, cancelNewMessages...)
+			} else {
+				log.Warn("updatedHistory shorter than llmHistory (cancel)", "updated", len(updatedHistory), "llm", len(llmHistory))
+			}
 
 			_, canceledUserIdx := computeCancelIndices(session.History)
 			if canceledUserIdx >= 0 {
@@ -325,18 +299,12 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 			if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
 				log.Error("failed to save session after cancel", "error", pErr)
 			}
-			eventsJSON := make([]map[string]any, 0, len(collectedEvents))
-			for _, ev := range collectedEvents {
-				eventsJSON = append(eventsJSON, map[string]any{
-					"type":    ev.Type,
-					"payload": ev.Payload,
-				})
-			}
+			h.publishSessionLifecycle(payload.WorkspaceID, session.ID, "", assistant.PhaseSessionCompleted)
 			return map[string]any{
 				"reply":           reply,
 				"conversation_id": session.ID,
 				"workspace_id":    session.WorkspaceID,
-				"events":          eventsJSON,
+				"events":          formatCollectedEvents(collectedEvents),
 				"canceled":        true,
 			}, nil
 		}
@@ -349,25 +317,22 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	// session history (which still contains cancelled turn messages for
 	// display).  The LLM was given a filtered history, but the persisted
 	// history keeps everything for the UI.
-	newMessages := updatedHistory[len(llmHistory):]
-	session.History = append(session.History, newMessages...)
+	if len(updatedHistory) >= len(llmHistory) {
+		newMessages := updatedHistory[len(llmHistory):]
+		session.History = append(session.History, newMessages...)
+	} else {
+		log.Warn("updatedHistory shorter than llmHistory", "updated", len(updatedHistory), "llm", len(llmHistory))
+	}
 	if pErr := h.persistence.WriteSession(payload.WorkspaceID, session); pErr != nil {
 		log.Error("failed to save session", "error", pErr)
 	}
-
-	eventsJSON := make([]map[string]any, 0, len(collectedEvents))
-	for _, ev := range collectedEvents {
-		eventsJSON = append(eventsJSON, map[string]any{
-			"type":    ev.Type,
-			"payload": ev.Payload,
-		})
-	}
+	h.publishSessionLifecycle(payload.WorkspaceID, session.ID, "", assistant.PhaseSessionCompleted)
 
 	return map[string]any{
 		"reply":           reply,
 		"conversation_id": session.ID,
 		"workspace_id":    session.WorkspaceID,
-		"events":          eventsJSON,
+		"events":          formatCollectedEvents(collectedEvents),
 	}, nil
 }
 
@@ -739,4 +704,92 @@ func generateRunID() string {
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
+}
+
+// resolveSession loads an existing session or creates a new in-memory one.
+func (h *AssistantMessageHandler) resolveSession(payload *AssistantMessage, log logging.Logger) (*models.AssistantSession, *handlerError) {
+	session, sErr := h.persistence.ReadSession(payload.WorkspaceID, payload.ConversationID)
+	if sErr != nil {
+		log.Error("failed to load session", "error", sErr)
+		return nil, &handlerError{Status: http.StatusInternalServerError, Message: "persistence error"}
+	}
+
+	if session == nil {
+		if payload.ConversationID == "" {
+			payload.ConversationID = "conv_" + time.Now().Format("20060102150405")
+		}
+		session = &models.AssistantSession{
+			ID:             payload.ConversationID,
+			WorkspaceID:    payload.WorkspaceID,
+			ContextVersion: payload.ContextVersion,
+			Timezone:       payload.Timezone,
+			History:        []proxy.Message{},
+		}
+	}
+	return session, nil
+}
+
+// setupRunInfra creates run directory, event sink, run log, and tee logger
+// for recording infrastructure.  Returns zero values when run logging is disabled.
+func (h *AssistantMessageHandler) setupRunInfra(client proxy.Client, payload *AssistantMessage, session *models.AssistantSession, modelName string, runID string, procLog logging.Logger) (*automation.RunDir, *automation.EventSink, func(), logging.Logger) {
+	var runDir *automation.RunDir
+	var eventSink *automation.EventSink
+	var runLogCloser func()
+	runLog := procLog
+	if h.svc.RunLoggingEnabled() && modelName != "" {
+		parent := filepath.Join(h.svc.RootDir(), "runs")
+		rd, rErr := automation.NewRunDir(parent, payload.WorkspaceID, session.ID, modelName)
+		if rErr == nil {
+			runDir = rd
+			es, esErr := automation.NewEventSink(runDir.EventsPath())
+			if esErr == nil {
+				eventSink = es
+			}
+			if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
+				rcl.SetDirForRun(runID, runDir.Root)
+			} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
+				rcl.SetDir(runDir.Root)
+			}
+			if tl, tlErr := automation.NewTeeLogger(procLog, runDir.LogPath()); tlErr == nil {
+				runLog = tl
+				runLogCloser = func() {
+					if c, ok := tl.(interface{ Close() error }); ok {
+						c.Close()
+					}
+				}
+			}
+		}
+	}
+	return runDir, eventSink, runLogCloser, runLog
+}
+
+// formatCollectedEvents converts agent events into the wire format for the API response.
+func formatCollectedEvents(events []assistant.AgentEvent) []map[string]any {
+	out := make([]map[string]any, 0, len(events))
+	for _, ev := range events {
+		out = append(out, map[string]any{
+			"type":    ev.Type,
+			"payload": ev.Payload,
+		})
+	}
+	return out
+}
+
+// publishSessionLifecycle publishes a lifecycle event to the workspace event bus
+// so the frontend can update the conversation sidebar in real time.
+func (h *AssistantMessageHandler) publishSessionLifecycle(workspaceID, conversationID, snippet, phase string) {
+	if workspaceID == "" || conversationID == "" {
+		return
+	}
+	h.svc.Events().Publish(workspaceID, assistant.AgentEvent{
+		ID:        fmt.Sprintf("sse_%d", time.Now().UnixNano()),
+		Type:      assistant.EventLifecycle,
+		Payload: map[string]any{
+			"phase":           phase,
+			"conversation_id": conversationID,
+			"workspace_id":    workspaceID,
+			"snippet":         snippet,
+		},
+		Timestamp: time.Now(),
+	})
 }

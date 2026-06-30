@@ -698,12 +698,15 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	// Update communication settings
 	req := models.SystemUpdatePayload{
 		Communication: &models.CommunicationConfig{
-			Telegram: struct {
-				Enabled bool   `json:"enabled"`
-				ChatID  string `json:"chat_id"`
-			}{
-				Enabled: true,
-				ChatID:  "12345",
+			Connectors: map[string]models.ConnectorConfig{
+				"my-telegram": {
+					Type:    "telegram",
+					Enabled: true,
+					Settings: map[string]string{
+						"chat_id": "12345",
+					},
+					SecretRef: "my-telegram",
+				},
 			},
 		},
 	}
@@ -714,7 +717,8 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 
 	// Verify it went to registry, NOT system
 	reg := ctx.GetRegistry()
-	if !reg.Communication.Telegram.Enabled || reg.Communication.Telegram.ChatID != "12345" {
+	cfg, ok := reg.Communication.Connectors["my-telegram"]
+	if !ok || !cfg.Enabled || cfg.Settings["chat_id"] != "12345" {
 		t.Errorf("expected registry to have telegram config, got %+v", reg.Communication)
 	}
 
@@ -722,8 +726,9 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	loadedMgr, _ := storage.NewDataManager(dir)
 	_ = loadedMgr.LoadAll()
 	loadedReg := loadedMgr.Registry().Get()
-	if !loadedReg.Communication.Telegram.Enabled || loadedReg.Communication.Telegram.ChatID != "12345" {
-		t.Errorf("persistence failed for registry tool config")
+	loadedCfg, ok := loadedReg.Communication.Connectors["my-telegram"]
+	if !ok || !loadedCfg.Enabled || loadedCfg.Settings["chat_id"] != "12345" {
+		t.Errorf("persistence failed for registry tool config, got %+v", loadedReg.Communication)
 	}
 }
 

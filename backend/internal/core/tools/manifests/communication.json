@@ -1,10 +1,14 @@
 {
   "tool_name": "notify_user",
   "version": "1.0",
-  "description": "Send notifications and reports to the user via external platforms.",
+  "description": "Send notifications to the user. If 'connector' is specified, sends only to that platform type (e.g. 'telegram', 'slack'). If omitted, sends to ALL configured connectors. IMPORTANT: If this tool returns an error, the message was NOT delivered — report the failure to the user, do not say it succeeded.",
   "parameters": {
     "type": "object",
     "properties": {
+      "connector": {
+        "type": "string",
+        "description": "Optional. Platform type to send to (e.g. 'telegram', 'slack'). Matches the connector type configured in Settings. When omitted, the message is sent to ALL enabled connectors."
+      },
       "message": {
         "type": "string",
         "description": "The notification message or report content to send."

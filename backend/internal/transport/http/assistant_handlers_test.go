@@ -5,18 +5,19 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
-	"os"
 )
 
 // noopLogger for testing
@@ -773,5 +774,179 @@ func TestFilterCancelledTurns_IgnoresInvalidIndices(t *testing.T) {
 
 	if len(filtered) != 3 {
 		t.Errorf("expected history unchanged for invalid indices, got %d messages", len(filtered))
+	}
+}
+
+func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
+	logger := &noopLogger{}
+	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockClient := &mocks.MockLLMClientProvider{
+		Client: &mocks.MockLLMClient{},
+	}
+	mockLimiter := &mocks.MockRateLimiter{}
+	mockMCP.SetSystemPrompt("System Prompt")
+	mockMCP.SetToolsResult([]proxy.Tool{
+		{
+			Type: "function",
+			Function: proxy.FunctionSchema{Name: "query_device"},
+		},
+		{
+			Type: "function",
+			Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer},
+		},
+	})
+	engine := assistant.NewEngine(mockMCP, logger)
+
+	eventBus := automation.NewEventBus()
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
+	service.EventBusRef = eventBus
+
+	tmpWorkspaces := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
+	defer os.RemoveAll(tmpWorkspaces)
+
+	handler := NewAssistantMessageHandler(service)
+
+	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+	toolArgs := map[string]any{"target_name": "lamp"}
+	argsJSON, _ := json.Marshal(toolArgs)
+	clientMock.Responses = []proxy.ChatResponse{
+		{
+			Choices: []proxy.Choice{{
+				Message: proxy.Message{
+					Role: proxy.AssistantRole,
+					ToolCalls: []proxy.ToolCall{{
+						ID:   "call_1",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      "query_device",
+							Arguments: string(argsJSON),
+						},
+					}},
+				},
+			}},
+		},
+		{
+			Choices: []proxy.Choice{{
+				Message: proxy.Message{
+					Role: proxy.AssistantRole,
+					ToolCalls: []proxy.ToolCall{{
+						ID:   "call_submit",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      models.ToolSubmitFinalAnswer,
+							Arguments: `{"summary": "The lamp is on."}`,
+						},
+					}},
+				},
+			}},
+		},
+	}
+	mockMCP.SetCallToolResult(map[string]any{"state": "on"}, nil)
+
+	eventCh, _ := eventBus.Subscribe("test-ws")
+
+	reqBody := `{"conversation_id": "lifecycle-test", "workspace_id": "test-ws", "message": "check lamp"}`
+	req := httptest.NewRequest("POST", "/api/conversation/message", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var started, completed bool
+	var progressCount int
+	timeout := time.After(5 * time.Second)
+loop:
+	for {
+		select {
+		case ev := <-eventCh:
+			if ev.Type != assistant.EventLifecycle {
+				continue
+			}
+			p, ok := ev.Payload.(map[string]any)
+			if !ok {
+				continue
+			}
+			phase, _ := p["phase"].(string)
+			switch phase {
+			case assistant.PhaseSessionStarted:
+				started = true
+			case assistant.PhaseSessionProgress:
+				progressCount++
+			case assistant.PhaseSessionCompleted:
+				completed = true
+				break loop
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for session_completed lifecycle event")
+		}
+	}
+
+	if !started {
+		t.Error("expected session_started lifecycle event")
+	}
+	if progressCount == 0 {
+		t.Error("expected at least one session_progress lifecycle event (tool_call)")
+	}
+	if !completed {
+		t.Error("expected session_completed lifecycle event")
+	}
+}
+
+func TestPublishSessionLifecycle_SkipsEmptyIDs(t *testing.T) {
+	eventBus := automation.NewEventBus()
+	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
+	service.EventBusRef = eventBus
+
+	handler := NewAssistantMessageHandler(service)
+	ch, _ := eventBus.Subscribe("any-ws")
+
+	// Empty workspace should skip publishing
+	handler.publishSessionLifecycle("", "conv1", "hello", assistant.PhaseSessionStarted)
+	handler.publishSessionLifecycle("ws1", "", "hello", assistant.PhaseSessionStarted)
+
+	// Verify nothing was published
+	select {
+	case <-ch:
+		t.Error("expected no events for empty workspace/conversation IDs")
+	case <-time.After(10 * time.Millisecond):
+		// good
+	}
+}
+
+func TestPublishSessionLifecycle_PublishesWithCorrectPayload(t *testing.T) {
+	eventBus := automation.NewEventBus()
+	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
+	service.EventBusRef = eventBus
+
+	handler := NewAssistantMessageHandler(service)
+	ch, _ := eventBus.Subscribe("ws1")
+
+	handler.publishSessionLifecycle("ws1", "conv1", "hello world", assistant.PhaseSessionProgress)
+
+	select {
+	case ev := <-ch:
+		if ev.Type != assistant.EventLifecycle {
+			t.Errorf("expected lifecycle type, got %s", ev.Type)
+		}
+		p, ok := ev.Payload.(map[string]any)
+		if !ok {
+			t.Fatal("expected map payload")
+		}
+		if p["phase"] != assistant.PhaseSessionProgress {
+			t.Errorf("expected phase %q, got %v", assistant.PhaseSessionProgress, p["phase"])
+		}
+		if p["conversation_id"] != "conv1" {
+			t.Errorf("expected conversation_id 'conv1', got %v", p["conversation_id"])
+		}
+		if p["snippet"] != "hello world" {
+			t.Errorf("expected snippet 'hello world', got %v", p["snippet"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for lifecycle event")
 	}
 }
