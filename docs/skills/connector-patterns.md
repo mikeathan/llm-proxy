@@ -49,24 +49,41 @@ func (s *SlackNotifier) Send(ctx context.Context, message string) error {
 - Read response body on error for diagnostic detail (io.LimitReader to 1KB).
 - Call `defer resp.Body.Close()` immediately after the response check.
 
-### Step 3 — Registry Switch
+### Step 3 — Factory Registration
 
-Add a case in `initCommunicationTools` at `backend/internal/core/assistant/registry.go`:
+Register a connector factory in the notifier package's `init()` so the registry can build it dynamically by type string. Do NOT edit `initCommunicationTools` or `registry.go`:
 
 ```go
-case models.ConnectorTypeSlack:
-    webhookURL := cfg.Settings["webhook_url"]
-    if webhookURL == "" {
-        continue
-    }
-    comm.AddConnector(name, tools.NewSlackNotifier(webhookURL, network.HTTPClient()))
+package notifiers
+
+import (
+    "llm-proxy/internal/core/tools"
+    "llm-proxy/models"
+)
+
+func init() {
+    tools.RegisterConnectorFactory("slack", func(
+        name string,
+        cfg models.ConnectorConfig,
+        secrets models.SecretsStore,
+        network *tools.NetworkTools,
+    ) (tools.Connector, bool) {
+        webhookURL := cfg.Settings["webhook_url"]
+        if webhookURL == "" {
+            return nil, false
+        }
+        return NewSlackNotifier(webhookURL, network.HTTPClient()), true
+    })
+}
 ```
 
 **Pattern:**
 - Read each setting from `cfg.Settings["key"]`.
-- Read the secret/token from `appCtx.Secrets().GetSecret("connector", name)`.
+- Read the secret/token from `secrets.GetSecret("connector", name)`.
 - Call `network.HTTPClient()` — never construct a client directly.
-- If required settings are missing, `continue` (skip connector, log warning already handled by default case).
+- If required settings are missing, return `(nil, false)` to skip the connector (warning logged automatically by `buildConnector`).
+- Return `(tools.Connector, true)` on success.
+- See `backend/internal/core/tools/notifiers/telegram.go` `init()` for a reference implementation.
 
 ### Step 4 — Frontend Settings Option
 

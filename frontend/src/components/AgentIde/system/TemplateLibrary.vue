@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { TemplateService } from '../../../services/templateService';
+import { TemplateService } from '../../../services/template/templateService';
 import type { Template, TemplateMetadata } from '../../../types/templates';
 import Icon from '../../icons/Icon.vue';
 import BaseButton from '../../common/buttons/BaseButton.vue';

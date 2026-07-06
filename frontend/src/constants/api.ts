@@ -23,6 +23,8 @@ export const API_ENDPOINTS = {
   terminalReset: `${API_BASE}/host/terminal/reset`,
   terminalSessions: `${API_BASE}/host/terminal/sessions`,
   processes: `${API_BASE}/runtime/processes`,
+  connectorWebhook: (name: string) => `${API_BASE}/connectors/${encodeURIComponent(name)}/webhook`,
+  activeRuns: (workspaceId: string) => `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/active-runs`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

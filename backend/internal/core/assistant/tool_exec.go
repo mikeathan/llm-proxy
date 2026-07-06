@@ -112,7 +112,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		}
 	}
 	if hasSubmit && len(msg.ToolCalls) > 1 {
-		a.logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
+		a.deps.Logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
 		mu.Lock()
 		errorMsg := prompts.AutomationRejectedSubmissionPrompt
 		for _, tc := range msg.ToolCalls {
@@ -120,6 +120,12 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		}
 		mu.Unlock()
 		return nil
+	}
+
+	toolsList, listErr := a.deps.Provider.ListTools(ctx)
+	if listErr != nil {
+		a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
+		return fmt.Errorf("list tools: %w", listErr)
 	}
 
 	for _, tc := range msg.ToolCalls {
@@ -130,12 +136,11 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			continue
 		}
 
-		a.logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
-		a.logger.Info("executing tool", "name", tc.Function.Name)
+		a.deps.Logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+		a.deps.Logger.Info("executing tool", "name", tc.Function.Name)
 
-		toolsList, _ := a.provider.ListTools(ctx)
 		if err := validateToolArgs(tc, toolsList); err != nil {
-			a.logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
+			a.deps.Logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
 			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
 			if isTruncationError(err.Error()) {
 				errMsg = prompts.AutomationContentTooLongPrompt
@@ -152,11 +157,11 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		}
 
 		a.notifyToolCall(tc)
-		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
+		toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
 		if approved {
 			toolCtx = models.WithGuardrailApproved(toolCtx)
 		}
-		result, err := a.engine.ExecuteTool(toolCtx, tc)
+		result, err := a.deps.Engine.ExecuteTool(toolCtx, tc)
 		mu.Lock()
 		var finalResult any
 		if err != nil {
@@ -170,8 +175,8 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		}
 		a.appendToolResult(history, tc, finalResult)
 		resultStr, _ := json.Marshal(finalResult)
-		a.logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
-		a.logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
+		a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
+		a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
 		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
 		if t := GetUsageTracker(ctx); t != nil {
 			t.AddToolCall(tc.Function.Name)
@@ -179,7 +184,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		mu.Unlock()
 
 		if err != nil {
-			a.logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
+			a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
 			return nil
 		}
 		if tc.Function.Name == models.ToolSubmitFinalAnswer {
@@ -191,8 +196,8 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 }
 
 func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex) (approved, stopBatch bool) {
-	if err := a.guardrails.ValidateToolCall(ctx, tc, a.workspaceID); err != nil {
-		a.logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
+	if err := a.deps.Guardrails.ValidateToolCall(ctx, tc, a.config.WorkspaceID); err != nil {
+		a.deps.Logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 		a.notifyGuardrailViolation(tc.Function.Name, err)
 
 		// Security boundary violations (path outside workspace, blocked system files)
@@ -204,8 +209,8 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 			return false, true
 		}
 
-		if a.onGuardrail != nil {
-			decision, decErr := a.onGuardrail(ctx, GuardrailBlockedPayload{
+		if a.deps.OnGuardrail != nil {
+			decision, decErr := a.deps.OnGuardrail(ctx, GuardrailBlockedPayload{
 				DecisionID: fmt.Sprintf("gr_%d", time.Now().UnixNano()),
 				Tool:       tc.Function.Name,
 				Args:       tc.Function.Arguments,
@@ -214,11 +219,11 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 			})
 			if decErr == nil && decision.Allow {
 				if decision.Persist {
-					if pErr := a.guardrails.PersistOverride(a.workspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
-						a.logger.Warn("failed to persist guardrail override", "error", pErr)
+					if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
+						a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
 					}
 				} else {
-					a.guardrails.MarkOverride(a.workspaceID, tc.Function.Name)
+					a.deps.Guardrails.MarkOverride(a.config.WorkspaceID, tc.Function.Name)
 				}
 				return true, false
 			}
@@ -243,19 +248,26 @@ func formatGuardrailError(err error) map[string]string {
 }
 
 func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *ExecutionPlan) (string, []proxy.Message, error) {
-	a.logger.Debug("executing plan", "steps", len(plan.Steps), "description", plan.Description)
+	a.deps.Logger.Debug("executing plan", "steps", len(plan.Steps), "description", plan.Description)
 	currentHistory := append([]proxy.Message{}, history...)
+
+	toolsList, listErr := a.deps.Provider.ListTools(ctx)
+	if listErr != nil {
+		return "", currentHistory, fmt.Errorf("list tools: %w", listErr)
+	}
+
+	var mu sync.Mutex
 	for i, step := range plan.Steps {
 		if err := ctx.Err(); err != nil {
-			a.logger.Info("plan execution halted", "step", i, "error", err)
+			a.deps.Logger.Info("plan execution halted", "step", i, "error", err)
 			return "", currentHistory, fmt.Errorf("plan execution halted: %w", err)
 		}
 
-		a.logger.Debug("plan step", "step", i, "tool", step.ToolName, "description", step.Description)
+		a.deps.Logger.Debug("plan step", "step", i, "tool", step.ToolName, "description", step.Description)
 
 		argsJSON, err := json.Marshal(step.Parameters)
 		if err != nil {
-			a.logger.Info("plan step marshal failed", "step", i, "tool", step.ToolName, "error", err)
+			a.deps.Logger.Info("plan step marshal failed", "step", i, "tool", step.ToolName, "error", err)
 			return "", currentHistory, fmt.Errorf("plan step %d: marshal args: %w", i, err)
 		}
 
@@ -268,26 +280,31 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 			},
 		}
 
+		if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
+			a.deps.Logger.Info("plan step validation failed", "step", i, "tool", step.ToolName, "error", valErr)
+			return "", currentHistory, fmt.Errorf("plan step %d: invalid tool call: %w", i, valErr)
+		}
+
 		turnMsg := proxy.Message{
 			Role:      proxy.AssistantRole,
 			ToolCalls: []proxy.ToolCall{tc},
 		}
-
-		toolsList, listErr := a.provider.ListTools(ctx)
-		if listErr != nil {
-			a.logger.Info("plan step list tools failed", "step", i, "tool", step.ToolName, "error", listErr)
-			return "", currentHistory, fmt.Errorf("plan step %d: list tools: %w", i, listErr)
-		}
-
-		if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
-			a.logger.Info("plan step validation failed", "step", i, "tool", step.ToolName, "error", valErr)
-			return "", currentHistory, fmt.Errorf("plan step %d: invalid tool call: %w", i, valErr)
-		}
-
 		currentHistory = append(currentHistory, turnMsg)
 
-		toolCtx := models.WithWorkspaceID(ctx, a.workspaceID)
-		result, execErr := a.engine.ExecuteTool(toolCtx, tc)
+		approved, stopBatch := a.resolveGuardrail(ctx, tc, &currentHistory, &mu)
+		if stopBatch {
+			a.deps.Logger.Warn("plan step guardrail denied", "step", i, "tool", step.ToolName)
+			return "", currentHistory, fmt.Errorf("plan step %d: guardrail denied %s", i, step.ToolName)
+		}
+
+		a.notifyToolCall(tc)
+
+		toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
+		if approved {
+			toolCtx = models.WithGuardrailApproved(toolCtx)
+		}
+
+		result, execErr := a.deps.Engine.ExecuteTool(toolCtx, tc)
 		var finalResult any
 		if execErr != nil {
 			finalResult = map[string]string{"error": execErr.Error()}
@@ -295,17 +312,18 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 			finalResult = result
 		}
 		a.appendToolResult(&currentHistory, tc, finalResult)
+		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
 		if t := GetUsageTracker(ctx); t != nil {
 			t.AddToolCall(step.ToolName)
 		}
 
 		if execErr != nil {
-			a.logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
+			a.deps.Logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
 			return "", currentHistory, fmt.Errorf("plan step %d failed: %w", i, execErr)
 		}
 	}
 
-	a.logger.Debug("plan execution complete", "steps", len(plan.Steps))
+	a.deps.Logger.Debug("plan execution complete", "steps", len(plan.Steps))
 	return "[Plan execution complete]", currentHistory, nil
 }
 

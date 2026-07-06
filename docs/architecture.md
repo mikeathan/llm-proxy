@@ -18,7 +18,7 @@ This document contains architectural reference material extracted from the agent
 
 ### Core Systems
 
-- `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
+- `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers, ConversationService
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
@@ -26,6 +26,15 @@ This document contains architectural reference material extracted from the agent
 - `internal/core/automation/broadcast.go` — `EventBus.Subscribe` / `Publish` / `Unsubscribe` per workspace, fans out agent events to SSE-connected clients
 - `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory, communication)
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
+- `internal/core/orchestrator/` — Token budget management, context length resolution, slot scheduling, stream interleaving, reasoning budget normalization. See SPEC-005.
+  - `slot_manager.go` — Manages concurrent inference slots (per-model capacity, queueing, timeout).
+  - `budget_manager.go` — Token budget tracking per time window (`Spend`/`Refund`), throttling.
+  - `budget_squeezer.go` — Compression fallback when budgets are tight (reduces context).
+  - `stream_interceptor.go` — SSE stream parsing, interleaving parallel tool call outputs.
+  - `reasoning_normalizer.go` — Normalizes reasoning token formats across providers.
+- `internal/core/nodeherder/` — MCP tool provider adapter. Wraps the MCP orchestrator into a `ToolProvider` interface that the agent calls via `ListTools`/`ExecuteTool`. Manages MCP tool registration, mirroring, and credential injection.
+  - `provider.go` — `ListTools` (polls MCP server), `ExecuteTool` (forwards to MCP server via `CallTool`), subscription to system prompt updates.
+  - `token_manager.go` — Capability token resolution for MCP tool authentication.
 - `internal/testing/llmprofiles/` — `FixtureClient` + `RunAgainstFixtures` (replay test framework)
 
 ### Infrastructure
@@ -33,7 +42,8 @@ This document contains architectural reference material extracted from the agent
 - `internal/platform/storage/` — Generic atomic JSON/YAML stores with change callbacks
 - `internal/platform/logging/` — Structured logging (global + per-workspace process logs)
 - `internal/app/` — Bootstrap, AppContext (central state manager), service wiring
-- `internal/transport/http/` — All HTTP handlers + embedded frontend
+- `internal/transport/http/` — Router, middleware, frontend embed
+- `internal/transport/http/handlers/` — HTTP handler types (Admin, System, Process, MCP, Model, Secrets, Dispatcher, Assistant, Proxy, Recordings, Memory, Webhook)
 
 ## Critical Contracts (Do Not Break)
 
@@ -193,7 +203,7 @@ When adding a communication connector:
 
 1. `models/config.go` — `ConnectorConfig.Type` is the switch key (no struct change needed — generic map)
 2. `internal/core/tools/communication.go` — implement `Connector` interface (Send + Name), use injected `*http.Client` from `NetworkTools.HTTPClient()`
-3. `internal/core/assistant/registry.go` — add `case "your_type":` in the switch inside `initCommunicationTools`
+3. `internal/core/tools/notifiers/` — add a self-registering `init()` calling `tools.RegisterConnectorFactory("your_type", factory)`. See `telegram.go` for a reference implementation. Do NOT edit `initCommunicationTools` or `registry.go` — the registry handles it dynamically.
 4. Frontend `CommunicationSettings.vue` — add `<option value="your_type">` dropdown entry
 
 When adding a prompt:

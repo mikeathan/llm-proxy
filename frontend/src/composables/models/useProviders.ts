@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import { PROVIDER_ICONS, PROVIDER_LABELS, PROVIDER_STYLES } from '../../constants/providers'
 import type { ProviderType, SettingsTab } from '../../types/admin'
 

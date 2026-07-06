@@ -1,5 +1,5 @@
 // Barrel export for all services
-export { AdminApiService } from './adminService'
-export { McpApiService } from './mcpService'
-export { MetricsApiService } from './metricsService'
-export { MemoryService } from './memoryService'
+export { AdminApiService } from './admin/adminService'
+export { McpApiService } from './mcp/mcpService'
+export { MetricsApiService } from './monitoring/metricsService'
+export { MemoryService } from './memory/memoryService'

@@ -1,6 +1,6 @@
 # PLAN: Communication Connector Inbound Webhook — Phase 2
 
-**Status:** Complete  
+**Status:** Stable — updated for async agent execution and live visibility  
 **SPEC:** `docs/SPECS/communication.md`  
 **Depends on:** Phase 1 (connector-system.md — Complete)
 
@@ -320,6 +320,24 @@ Challenges:
 - Need to cancel any in-flight agent execution for this workspace (use the `running` sync.Map pattern from `assistant_handlers.go`)
 - The agent's response events need to be published to the EventBus for the frontend to receive
 - The agent's response also needs to be sent back through the connector (e.g. Telegram reply via `notify_user` or direct API call)
+
+### Async Agent Execution
+
+Since this plan was written, the webhook handler was changed to run the agent asynchronously:
+
+**Double-append fix:** `handleAgentMessage` previously appended the user message to `session.History`, then `handleAssistant` appended it again. The webhook handler now delegates message appending entirely to `handleAssistant`, which is the single append point for both HTTP chat and webhook flows.
+
+- `handleAgentMessage` persists the user message and returns immediately (200 OK to Telegram)
+- The agent runs in a background goroutine via `RunWithCancel` (shared helper from `assistant_handlers.go`)
+- `RunWithCancel` registers the workspace in the `running` map, making the agent cancellable via the cancel endpoint
+- When the agent finishes, `replyToChat` sends the reply via the connector's `Send()` method (the canonical reply path)
+- The frontend connects SSE on `initWorkspace`, so lifecycle events (`session_started`, `session_progress`, `session_completed`) arrive immediately
+
+**Tool exclusion for webhook context:** The webhook handler sets `ExcludeTools: []string{models.ToolNotifyUser}` in the `AssistantMessage` payload. The agent builder wraps the `ToolProvider` with a `filteredToolProvider` (see `internal/core/assistant/filtered_provider.go`) that removes `notify_user` from `ListTools()`. The model never sees the `notify_user` tool in webhook context — replies are handled exclusively by `replyToChat` via the connector's `Send()` method.
+
+This follows the OpenClaw pattern of a single output path (ReplyDispatcher): the agent produces output, and the handler routes it to the source connector. No ambiguity, no double-send possible. `notify_user` remains available for HTTP chat, automation, and cron where explicit broadcast is needed.
+
+See `docs/skills/lifecycle-events.md` for the full webhook flow.
 
 ### Phase 2.6 — Automatic Reply via Connector
 

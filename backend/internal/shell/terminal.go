@@ -293,7 +293,9 @@ func (hm *HostShellManager) Shutdown() {
 	defer hm.mu.Unlock()
 
 	for _, s := range hm.sessions {
-		_ = s.sb.Cleanup(context.Background())
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = s.sb.Cleanup(cleanupCtx)
+		cancel()
 	}
 }
 

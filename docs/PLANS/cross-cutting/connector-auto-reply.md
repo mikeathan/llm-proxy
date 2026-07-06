@@ -34,7 +34,7 @@ POST /api/v1/webhooks/{connector_name}
   │
   ├── AGENT PATH:
   │     ├── findOrCreateSession(workspaceID, connectorName, sourceChatID)
-  │     │     └── session key = "wb_{connectorName}_{sourceChatID}"
+  │     │     └── session key = "wb_{platformType}_{chatID}_{timestamp}"
   │     ├── append message + persist
   │     ├── call h.Assistant.handleAssistant(ctx, payload)
   │     │     └── agent executes, history updated, reply returned
@@ -120,7 +120,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 ```
 
 **`handleAgentMessage`:**
-- Per-source session key: `fmt.Sprintf("wb_%s_%d", connectorName, sourceChatID)`
+- Per-source session key: `webhookSessionKey(platformType, chatID)` → `"wb_{platformType}_{chatID}_{timestamp}"` (fresh session per message)
 - Append message → persist → call `h.Assistant.handleAssistant()` with payload
 - Extract `reply` from result map → `h.CommTools.NotifyAll(ctx, reply, connectorType)`
 
@@ -173,9 +173,10 @@ Show a platform icon next to each session based on its ID prefix:
 
 ```vue
 <span class="session-source-icon">
-  {{ session.id.startsWith('wb_telegram') ? '📞' : session.id.startsWith('wb_') ? '📡' : '💬' }}
+  <Icon v-if="sourceIcon(session.source ?? sessionSource(session.id))" :name="sourceIcon(session.source ?? sessionSource(session.id))!" />
 </span>
 ```
+> Source comes from the backend (`SessionBrief.source` / SSE `source`); the frontend only maps it via `utils/assistant/source.ts`. It no longer parses the session ID prefix.
 
 ### `AssistantChat.vue`
 

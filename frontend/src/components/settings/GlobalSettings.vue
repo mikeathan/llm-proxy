@@ -23,6 +23,13 @@ const emit = defineEmits<{
   (e: "restartBackend"): void;
 }>();
 
+// Writable local copy of editConfig — emits on every change so parent
+// stores the canonical value and this component stays reactive.
+const cfg = computed({
+  get: () => props.editConfig,
+  set: (val) => emit("update:editConfig", val),
+})
+
 const localProvider = computed({
   get: () => {
     if (!props.editConfig.providers?.local) {
@@ -37,10 +44,10 @@ const localProvider = computed({
     return props.editConfig.providers.local;
   },
   set: (val) => {
-    const clone = JSON.parse(JSON.stringify(props.editConfig));
+    const clone = JSON.parse(JSON.stringify(cfg.value));
     if (!clone.providers) clone.providers = {};
     clone.providers.local = val;
-    emit("update:editConfig", clone);
+    cfg.value = clone;
   }
 });
 
@@ -103,7 +110,7 @@ function handleRestart() {
           The default model to use for the proxy and general requests if not specified.
         </div>
         <select
-          v-model="editConfig.primary_model"
+          v-model="cfg.primary_model"
           class="form-input"
         >
           <option value="">(Auto: First available)</option>
@@ -119,7 +126,7 @@ function handleRestart() {
           The fallback model to use if the primary model goes offline or throws an error.
         </div>
         <select
-          v-model="editConfig.fallback_model"
+          v-model="cfg.fallback_model"
           class="form-input"
         >
           <option value="">(None: No fallback)</option>
@@ -149,7 +156,7 @@ function handleRestart() {
           &lt;repo&gt;/workspaces
         </div>
         <input
-          v-model="editConfig.workspaces_dir"
+          v-model="cfg.workspaces_dir"
           type="text"
           class="form-input"
         />
@@ -172,7 +179,7 @@ function handleRestart() {
           IP address the underlying server binds to (default: 127.0.0.1)
         </div>
         <input
-          v-model="editConfig.model_host"
+          v-model="cfg.model_host"
           type="text"
           class="form-input"
         />
@@ -215,7 +222,7 @@ function handleRestart() {
           <div class="form-group">
             <label class="form-label">GPU Provider</label>
             <div class="form-helper">Method used to poll metrics</div>
-            <select v-model="editConfig.gpu_provider" class="form-input">
+            <select v-model="cfg.gpu_provider" class="form-input">
               <option value="">(None: Not setup)</option>
               <option value="auto">Auto-detect (Recommended)</option>
               <option value="nvidia">NVIDIA (nvidia-smi)</option>
@@ -242,7 +249,7 @@ function handleRestart() {
           <label class="form-label">Custom Tool Binary</label>
           <div class="form-helper">Override path to tool binary (Optional)</div>
           <input
-            v-model="editConfig.gpu_binary"
+            v-model="cfg.gpu_binary"
             type="text"
             class="form-input"
             placeholder="e.g. /opt/rocm/bin/rocm-smi"
@@ -253,7 +260,7 @@ function handleRestart() {
           <label class="form-label">Sysfs Device Path</label>
           <div class="form-helper">Path to the GPU device in /sys (Optional)</div>
           <input
-            v-model="editConfig.gpu_sysfs_path"
+            v-model="cfg.gpu_sysfs_path"
             type="text"
             class="form-input"
             placeholder="/sys/class/drm/card0/device"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import type { RecordingMeta, RecordingStatus, Automation } from '../../../types/dispatcher'
-import { DispatcherService } from '../../../services/dispatcherService'
+import { DispatcherService } from '../../../services/automation/dispatcherService'
 import { formatBytes, formatTS } from '../../../utils/format/formatters'
 
 const props = defineProps<{

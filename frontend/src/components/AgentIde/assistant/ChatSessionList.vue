@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { SessionBrief } from '../../../types/assistant'
 import { formatTime } from '../../../utils/format/time'
+import { groupSessionsBySource, sourceIcon, sourceLabel } from '../../../utils/assistant/source'
 import Icon from '../../icons/Icon.vue'
 
 const props = defineProps<{
@@ -17,11 +18,26 @@ const emit = defineEmits<{
   (e: 'cancel', sessionId: string): void
   (e: 'new-chat'): void
   (e: 'clear-all'): void
+  (e: 'delete-group', ids: string[]): void
   (e: 'close'): void
 }>()
 
 const renaming = ref<string | null>(null)
 const renameInput = ref('')
+
+const groupedSessions = computed(() => groupSessionsBySource(props.sessions))
+
+const collapsedGroups = ref(new Set<string>())
+
+function toggleGroup(source: string) {
+  const next = new Set(collapsedGroups.value)
+  if (next.has(source)) next.delete(source)
+  else next.add(source)
+  collapsedGroups.value = next
+}
+
+// Manual first (root), then webhook folder
+const orderedGroups = computed(() => groupedSessions.value.slice().reverse())
 
 function startRename(sessionId: string, current: string) {
   renaming.value = sessionId
@@ -37,12 +53,6 @@ function confirmRename() {
 
 function cancelRename() {
   renaming.value = null
-}
-
-const sourceIcon = (sessionId: string): string => {
-  if (sessionId.startsWith('wb_telegram')) return '📞'
-  if (sessionId.startsWith('wb_')) return '📡'
-  return ''
 }
 </script>
 
@@ -78,9 +88,26 @@ const sourceIcon = (sessionId: string): string => {
     </div>
 
     <div class="session-list">
+      <template v-for="group in orderedGroups" :key="group.source">
       <div
-        v-for="session in sessions"
+        v-if="group.grouped"
+        class="session-group-header"
+        @click="toggleGroup(group.source)"
+      >
+        <Icon :name="collapsedGroups.has(group.source) ? 'chevron-right' : 'chevron-down'" size="xs" class="fold-icon" />
+        <span class="fold-label">{{ sourceLabel(group.source) }}</span>
+        <button
+          class="btn-group-delete"
+          title="Delete all webhook conversations"
+          @click.stop="emit('delete-group', group.sessions.map(s => s.id))"
+        >
+          <Icon name="trash" size="xs" />
+        </button>
+      </div>
+      <div
+        v-for="session in group.sessions"
         :key="session.id"
+        v-show="!group.grouped || !collapsedGroups.has(group.source)"
         class="session-row"
         :class="{ 'session-row--active': currentSessionId === session.id }"
       >
@@ -90,7 +117,7 @@ const sourceIcon = (sessionId: string): string => {
           class="session-item"
         >
           <div class="session-item-row">
-            <span class="session-source">{{ sourceIcon(session.id) }}</span>
+            <Icon v-if="sourceIcon(session.source)" :name="sourceIcon(session.source)!" size="xs" class="session-source" />
             <span v-if="session.running" class="session-dot" title="Running">●</span>
             <span class="session-snippet">{{ session.snippet || 'Empty conversation' }}</span>
           </div>
@@ -133,6 +160,7 @@ const sourceIcon = (sessionId: string): string => {
           </button>
         </div>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -173,6 +201,25 @@ const sourceIcon = (sessionId: string): string => {
 
 .session-list {
   @apply flex-1 overflow-y-auto;
+}
+
+.session-group-header {
+  @apply flex items-center gap-1 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 cursor-pointer select-none;
+}
+.session-group-header:hover {
+  @apply text-gray-400;
+}
+
+.fold-icon {
+  @apply shrink-0;
+}
+
+.fold-label {
+  @apply flex-1;
+}
+
+.btn-group-delete {
+  @apply p-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/15 transition-colors;
 }
 
 .session-row {

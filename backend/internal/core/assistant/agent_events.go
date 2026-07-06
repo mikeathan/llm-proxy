@@ -21,6 +21,7 @@ const (
 	EventGuardrailBlocked     AgentEventType = "guardrail_blocked"
 	EventGuardrailInvalidated AgentEventType = "guardrail_invalidated"
 	EventError                AgentEventType = "error"
+	EventReasoning            AgentEventType = "reasoning"
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
 	EventMemoryRecall         AgentEventType = "memory_recall"
@@ -74,8 +75,8 @@ type GuardrailDecisionCallback func(ctx context.Context, payload GuardrailBlocke
 type Observer func(AgentEvent)
 
 func (a *Agent) notify(t AgentEventType, payload any) {
-	if a.observer != nil {
-		a.observer(AgentEvent{
+	if a.deps.Observer != nil {
+		a.deps.Observer(AgentEvent{
 			ID:        uuid.NewString(),
 			Type:      t,
 			Payload:   payload,

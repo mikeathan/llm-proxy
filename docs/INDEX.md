@@ -58,6 +58,8 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/assistant-ui/simple-three-bubble.md` | Simple Three Bubble | — | — | SPEC-003 |
 | `docs/PLANS/cross-cutting/connector-inbound-webhook.md` | Communication Connector Inbound Webhook | complete | 2026-06-28 | SPEC-009 |
 | `docs/PLANS/cross-cutting/connector-auto-reply.md` | Communication Connector Auto-Reply & Automation Trigger | active | 2026-06-28 | SPEC-009 |
+| `docs/PLANS/cross-cutting/webhook-fresh-sessions.md` | Fresh Webhook Sessions + Source Grouping | complete | 2026-07-09 | SPEC-009 |
+| `docs/PLANS/cross-cutting/session-source-backend-driven.md` | Session `source` derived from backend (single source of truth) | complete | 2026-07-09 | SPEC-009 |
 | `docs/PLANS/cross-cutting/interactive-user-input.md` | Interactive User Input (ask_user Tool) | proposed | 2026-06-08 | SPEC-001, SPEC-007 |
 | `docs/PLANS/cross-cutting/per-run-output-directories.md` | Per-Run Output Directories | draft | 2026-06-05 | — |
 | `docs/PLANS/cross-cutting/terminal-ui.md` | Terminal UI (Bubble Tea TUI client) | proposed | 2026-06-27 | SPEC-001, SPEC-003, SPEC-004, SPEC-006, SPEC-007, SPEC-008 |
@@ -76,6 +78,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `docs/audits/ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete | 2026-06-08 |
 | `docs/audits/memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference | 2026-06-03 |
 | `docs/audits/remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete | 2026-06-03 |
+| `docs/PLANS/codebase-audit-report.md` | Codebase Audit Report (88 findings) | active | 2026-07-03 |
 
 ## Agent Rules (AI Assistant Guidance)
 
@@ -99,6 +102,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 |------|-------|-------|
 | `docs/services/llm-proxy.service` | systemd service unit | Operational |
 | `docs/service_setup` | Service installation instructions | Setup |
+| `docs/SPEC-change-management.md` | SPEC Lifecycle & Change Management | Reference |
 | `docs/SPECS/README.md` | Subdirectory catalog for all SPEC files | Index |
 | `docs/audits/README.md` | Subdirectory catalog for audit files | Index |
 | `docs/PLANS/ARCHIVE/` | Completed/superseded/not-implemented plans | Archive |

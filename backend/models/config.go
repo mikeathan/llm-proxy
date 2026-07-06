@@ -304,10 +304,11 @@ type CommunicationConfig struct {
 // Settings is a type-specific key-value map (e.g. {"chat_id": "12345"}).
 // SecretRef points to the secrets store key holding the auth token/credential.
 type ConnectorConfig struct {
-	Type      string            `json:"type"`
-	Enabled   bool              `json:"enabled"`
-	Settings  map[string]string `json:"settings"`
-	SecretRef string            `json:"secret_ref,omitempty"`
+	Type       string            `json:"type"`
+	Enabled    bool              `json:"enabled"`
+	Settings   map[string]string `json:"settings"`
+	SecretRef  string            `json:"secret_ref,omitempty"`
+	WebhookURL string            `json:"webhook_url,omitempty"`
 }
 
 type SearchConfig struct {

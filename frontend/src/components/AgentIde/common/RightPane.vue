@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { AutomationRun, DispatcherMetrics } from "../../../types/dispatcher"
 import type { ActiveModel } from "../../../types/model"
+import type { SessionBrief } from "../../../types/assistant"
 import MetricsPulse from "../../common/display/MetricsPulse.vue"
 import BaseButton from "../../common/buttons/BaseButton.vue"
 import WorkspaceActivity from "../workspace/WorkspaceActivity.vue"
 import SystemMetricsPanel from "../system/SystemMetricsPanel.vue"
+import AssistantActivity from "../assistant/AssistantActivity.vue"
 
 defineProps<{
   systemMetrics: any
@@ -13,6 +15,7 @@ defineProps<{
   anyRunningInSelectedWorkspace: boolean
   triggering: boolean
   workspaceHistory: AutomationRun[]
+  assistantSessions: SessionBrief[]
   loading: boolean
   metrics: DispatcherMetrics | null
 }>()
@@ -21,6 +24,7 @@ const emit = defineEmits<{
   (e: "trigger"): void
   (e: "stop"): void
   (e: "select-run", run: AutomationRun): void
+  (e: "select-assistant-session", sessionId: string): void
 }>()
 </script>
 
@@ -55,6 +59,13 @@ const emit = defineEmits<{
       <p v-if="!selectedAutomation" class="action-helper">
         Select an automation to enable execution
       </p>
+    </div>
+
+    <div class="activity-container">
+      <AssistantActivity
+        :sessions="assistantSessions"
+        @select-session="(id: string) => emit('select-assistant-session', id)"
+      />
     </div>
 
     <div class="activity-container">

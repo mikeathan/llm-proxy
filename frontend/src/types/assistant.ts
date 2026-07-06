@@ -30,6 +30,8 @@ export interface SessionBrief {
   snippet: string
   updated_at: string
   running?: boolean
+  // source is supplied by the backend ("webhook-<platform>" or "manual").
+  source?: string
 }
 
 export interface AssistantSession {
@@ -63,4 +65,12 @@ export interface ChatResponsePayload {
 export interface CancelAgentResponse {
   conversation_id: string
   canceled: boolean
+}
+
+// ActiveRunsResponse is the authoritative per-workspace "currently executing"
+// state returned by GET /workspaces/{id}/active-runs. It is the single source
+// the UI polls to drive "running" notifications instead of sticky local flags.
+export interface ActiveRunsResponse {
+  assistant_running: boolean
+  automation_running: boolean
 }

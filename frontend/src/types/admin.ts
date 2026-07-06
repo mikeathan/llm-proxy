@@ -84,10 +84,30 @@ export interface ConnectorConfig {
   enabled: boolean
   settings: Record<string, string>
   secret_ref?: string
+  webhook_url?: string
 }
 
 export interface CommunicationConfig {
   connectors: Record<string, ConnectorConfig>
+}
+
+export interface WebhookInfo {
+  url: string
+  pending_updates: number
+  last_error?: string
+}
+
+export type VerifyState = 'idle' | 'checking' | 'registered' | 'unregistered' | 'error'
+
+export interface WebhookUIState {
+  host: string
+  info: WebhookInfo | null
+  creating: boolean
+  verifying: boolean
+  deleting: boolean
+  verifyState: VerifyState
+  verifyMsg: string
+  statusMsg: string
 }
 
 export interface AgentDefaults {

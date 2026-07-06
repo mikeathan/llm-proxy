@@ -1,5 +1,5 @@
 import { ref } from "vue"
-import { DispatcherService } from "../../services/dispatcherService"
+import { DispatcherService } from "../../services/automation/dispatcherService"
 
 export function useFileEditor(toast: { error: (msg: string) => void }) {
   const selectedFile = ref<{ workspace: string; filename: string } | null>(null)
@@ -12,7 +12,8 @@ export function useFileEditor(toast: { error: (msg: string) => void }) {
     loadingFile.value = true
     fileContent.value = ""
     try {
-      fileContent.value = await DispatcherService.readWorkspaceFile(workspace, filename)
+      const result = await DispatcherService.readWorkspaceFile(workspace, filename)
+      fileContent.value = result
     } catch (err) {
       console.error("Error loading file", err)
       fileContent.value = "Error loading file content."

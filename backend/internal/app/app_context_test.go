@@ -19,7 +19,7 @@ import (
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/internal/testing/mocks"
-	api "llm-proxy/internal/transport/http"
+	handlers "llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
 )
 
@@ -142,7 +142,7 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 
 func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
 	srv := createTestServer(t, mocks.NewMockManager(), nil)
-	handlers := api.NewProxyHandlers(srv.Runtime())
+	handlers := handlers.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
@@ -165,7 +165,7 @@ func TestEnsureModelProxyHandler_ModelStarting(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	handlers := api.NewProxyHandlers(srv.Runtime())
+	handlers := handlers.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -196,7 +196,7 @@ func TestEnsureModelProxyHandler_ModelError(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	handlers := api.NewProxyHandlers(srv.Runtime())
+	handlers := handlers.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -217,7 +217,7 @@ func TestEnsureModelProxyHandler_ProxyCalled(t *testing.T) {
 	// mock reverse proxy
 	mp := &mockProxy{}
 
-	restore := api.SetReverseProxyFactory(func(target string) http.Handler {
+	restore := handlers.SetReverseProxyFactory(func(target string) http.Handler {
 		return mp
 	})
 	defer restore()
@@ -230,7 +230,7 @@ func TestEnsureModelProxyHandler_ProxyCalled(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	handlers := api.NewProxyHandlers(srv.Runtime())
+	handlers := handlers.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("X-Model-Name", "test")
@@ -250,7 +250,7 @@ func TestEnsureModelProxyHandler_ProxyCalled(t *testing.T) {
 
 func TestEnsureModelProxyHandler_JSONBodyModel(t *testing.T) {
 	mp := &mockProxy{}
-	restore := api.SetReverseProxyFactory(func(target string) http.Handler {
+	restore := handlers.SetReverseProxyFactory(func(target string) http.Handler {
 		return mp
 	})
 	defer restore()
@@ -265,7 +265,7 @@ func TestEnsureModelProxyHandler_JSONBodyModel(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	handlers := api.NewProxyHandlers(srv.Runtime())
+	handlers := handlers.NewProxyHandlers(srv.Runtime())
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"model":"json-model-test","messages":[]}`))
 	w := httptest.NewRecorder()
@@ -303,7 +303,7 @@ func TestAdminStateHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
+	admin := handlers.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
 	req := httptest.NewRequest("GET", "/admin/api/state", nil)
 	w := httptest.NewRecorder()
 
@@ -358,12 +358,12 @@ func TestAdminStartHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
+	procHandlers := handlers.NewProcessHandlers(srv.Runtime(), srv, &mocks.MockLogger{})
 	req := httptest.NewRequest("POST", "/admin/api/start", strings.NewReader(`{"name":"gamma"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	admin.AdminStartHandler(w, req)
+	procHandlers.AdminStartHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -384,11 +384,11 @@ func TestAdminStopHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
+	procHandlers := handlers.NewProcessHandlers(srv.Runtime(), srv, &mocks.MockLogger{})
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
-	admin.AdminStopHandler(w, req)
+	procHandlers.AdminStopHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -408,11 +408,11 @@ func TestAdminStopHandler_Error(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, nil)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
+	procHandlers := handlers.NewProcessHandlers(srv.Runtime(), srv, &mocks.MockLogger{})
 	req := httptest.NewRequest("POST", "/admin/api/stop", nil)
 	w := httptest.NewRecorder()
 
-	admin.AdminStopHandler(w, req)
+	procHandlers.AdminStopHandler(w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
@@ -446,13 +446,13 @@ func TestAdminAddModelHandler(t *testing.T) {
 	}
 
 	srv := createTestServer(t, mgr, cfg)
-	admin := api.NewAdminHandlers(srv.Runtime(), srv, &mocks.MockLogger{}, &buildinfo.Info{}, nil)
+	modelHandlers := handlers.NewModelHandlers(srv.Runtime(), srv)
 	body := strings.NewReader(fmt.Sprintf(`{"name":"theta","filename":"%s","port":9999,"args":["--ctx-size","2048"]}`, filepath.Base(tmpFile.Name())))
 	req := httptest.NewRequest("POST", "/admin/api/models", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	admin.AdminAddModelHandler(w, req)
+	modelHandlers.AdminAddModelHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
@@ -729,6 +729,64 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	loadedCfg, ok := loadedReg.Communication.Connectors["my-telegram"]
 	if !ok || !loadedCfg.Enabled || loadedCfg.Settings["chat_id"] != "12345" {
 		t.Errorf("persistence failed for registry tool config, got %+v", loadedReg.Communication)
+	}
+}
+
+func TestAppContextConnectorWebhookURL_Persists(t *testing.T) {
+	dir := t.TempDir()
+	dataMgr, _ := storage.NewDataManager(dir)
+	_ = dataMgr.LoadAll()
+
+	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
+
+	// Save connector with webhook URL
+	req := models.SystemUpdatePayload{
+		Communication: &models.CommunicationConfig{
+			Connectors: map[string]models.ConnectorConfig{
+				"my-telegram": {
+					Type:       "telegram",
+					Enabled:    true,
+					Settings:   map[string]string{"chat_id": "12345"},
+					SecretRef:  "my-telegram",
+					WebhookURL: "https://example.com/api/v1/webhooks/my-telegram",
+				},
+			},
+		},
+	}
+	if err := ctx.ApplySystemUpdate(context.Background(), req); err != nil {
+		t.Fatalf("ApplySystemUpdate failed: %v", err)
+	}
+
+	// Verify in-memory
+	reg := ctx.GetRegistry()
+	cfg, ok := reg.Communication.Connectors["my-telegram"]
+	if !ok || cfg.WebhookURL != "https://example.com/api/v1/webhooks/my-telegram" {
+		t.Errorf("expected webhook URL in registry, got %+v", cfg)
+	}
+
+	// Verify persisted to disk
+	loadedMgr, _ := storage.NewDataManager(dir)
+	_ = loadedMgr.LoadAll()
+	loadedCfg, ok := loadedMgr.Registry().Get().Communication.Connectors["my-telegram"]
+	if !ok || loadedCfg.WebhookURL != "https://example.com/api/v1/webhooks/my-telegram" {
+		t.Errorf("webhook URL not persisted, got %+v", loadedCfg)
+	}
+
+	// Clear webhook URL
+	if err := ctx.UpdateRegistry(func(reg *models.RegistryData) {
+		if c, ok := reg.Communication.Connectors["my-telegram"]; ok {
+			c.WebhookURL = ""
+			reg.Communication.Connectors["my-telegram"] = c
+		}
+	}); err != nil {
+		t.Fatalf("UpdateRegistry failed: %v", err)
+	}
+
+	// Verify cleared
+	reg = ctx.GetRegistry()
+	cfg, _ = reg.Communication.Connectors["my-telegram"]
+	if cfg.WebhookURL != "" {
+		t.Errorf("expected webhook URL cleared, got %q", cfg.WebhookURL)
 	}
 }
 

@@ -71,7 +71,7 @@ function toolStepCount(segments: Segment[]): number {
           :key="`seg-${idx}-${sIdx}`"
           :data-seg-key="segKey(idx, sIdx)"
         >
-          <MarkdownViewer v-if="seg.kind === 'reasoning'" :content="seg.text" class="bubble-reasoning" />
+          <MarkdownViewer v-if="seg.kind === 'reasoning' && seg.text" :content="seg.text" class="bubble-reasoning" />
           <ToolCallSegment
             v-if="seg.kind === 'tool_call'"
             :segment="seg"
@@ -126,10 +126,10 @@ function toolStepCount(segments: Segment[]): number {
 .bubble-header-summary { @apply text-[10px] text-gray-500 font-normal flex-1 truncate; }
 .bubble-header-chevron { @apply text-gray-500 w-3 h-3 flex items-center justify-center; }
 
-.bubble-work-section { @apply flex flex-col gap-1 pt-1; min-height: 20px; }
-.bubble-reasoning { @apply text-xs leading-relaxed text-gray-300 px-1 pb-1; }
+.bubble-work-section { @apply flex flex-col gap-0.5 pt-0.5; min-height: 20px; }
+.bubble-reasoning { @apply text-xs leading-snug text-gray-300 px-0.5 pb-0.5; }
 
-.thinking-gap { display: flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px; color: rgb(107, 114, 128); }
+.thinking-gap { display: flex; align-items: center; gap: 3px; padding: 2px 6px; font-size: 11px; color: rgb(107, 114, 128); }
 .thinking-gap-hidden { visibility: hidden; }
 .thinking-gap-dot { width: 5px; height: 5px; border-radius: 50%; background: rgb(107, 114, 128); animation: thinking-pulse 1.2s ease-in-out infinite; }
 .thinking-gap-dot:nth-child(2) { animation-delay: 0.2s; }

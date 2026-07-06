@@ -265,8 +265,26 @@ func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlo
 		return "", fmt.Errorf("resulting file would exceed quota (max %d KB)", cfg.MaxFileSizeKB)
 	}
 
-	if err := os.WriteFile(absPath, []byte(newContent), secureFileMode); err != nil {
-		return "", err
+	dirPath := filepath.Dir(absPath)
+	tmpFile, err := os.CreateTemp(dirPath, filepath.Base(absPath)+"-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.WriteString(newContent); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("failed to write temp file: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("failed to sync temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	if err := os.Rename(tmpPath, absPath); err != nil {
+		return "", fmt.Errorf("failed to rename temp file: %w", err)
 	}
 	return fmt.Sprintf("Replaced 1 block (%d bytes).", len(oldBlock)), nil
 }

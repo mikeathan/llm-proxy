@@ -83,7 +83,7 @@ func (m *mockSvc) GuardrailEngine() *guardrails.GuardrailEngine              { r
 func (m *mockSvc) GuardrailDecisionStore() *assistant.GuardrailDecisionStore { return nil }
 func (m *mockSvc) ProcessLogger(workspaceID string) logging.Logger           { return nil }
 func (m *mockSvc) Persistence() *persistence.WorkspaceManager                { return nil }
-func (m *mockSvc) Events() *EventBus                                         { return nil }
+func (m *mockSvc) Events() assistant.EventPublisher                          { return nil }
 func (m *mockSvc) Orchestrator() *orchestrator.Orchestrator                  { return nil }
 func (m *mockSvc) MemoryStore() *memory.Store                                { return m.memoryStore }
 func (m *mockSvc) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {

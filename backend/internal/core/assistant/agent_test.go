@@ -107,8 +107,8 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	if reply != "# Summary\nHello world" {
 		t.Errorf("Expected '# Summary\nHello world', got '%s'", reply)
 	}
-	if len(history) != 4 { // user + assistant(submit) + tool result + reply
-		t.Errorf("Expected history length 4, got %d", len(history))
+	if len(history) != 3 { // user + assistant(submit) + tool result
+		t.Errorf("Expected history length 3, got %d", len(history))
 	}
 	if client.Calls != 1 {
 		t.Errorf("Expected 1 client call, got %d", client.Calls)
@@ -209,8 +209,8 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	if client.Calls != 2 {
 		t.Errorf("Expected 2 client calls, got %d", client.Calls)
 	}
-	if len(history) != 6 { // user + assistant(tc) + tool result + assistant(submit) + tool result + reply
-		t.Errorf("Expected history length 6, got %d", len(history))
+	if len(history) != 5 { // user + assistant(tc) + tool result + assistant(submit) + tool result
+		t.Errorf("Expected history length 5, got %d", len(history))
 	}
 }
 
@@ -536,7 +536,7 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
 	if chatCalled {
 		t.Error("no non-streaming fallback should be called for native-only models")
 	}
-	if !agent.useNativeTools {
+	if !agent.config.UseNativeTools {
 		t.Error("agent should restore native tools after empty-stream fallback")
 	}
 }
@@ -1079,7 +1079,7 @@ func TestAgent_ParseErrorStreakNotification(t *testing.T) {
 
 	// Track notifications by capturing the observer
 	var events []AgentEvent
-	agent.observer = func(ev AgentEvent) {
+	agent.deps.Observer = func(ev AgentEvent) {
 		events = append(events, ev)
 	}
 
@@ -1187,7 +1187,7 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 func TestNotifyPrefillDisabled(t *testing.T) {
 	agent := &Agent{}
 	var events []AgentEvent
-	agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 
 	agent.notifyPrefillDisabled()
 
@@ -1219,7 +1219,7 @@ func TestNotifyModelCompatWarning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			agent := &Agent{}
 			var events []AgentEvent
-			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 
 			agent.notifyModelCompatWarning(tt.useNativeTools)
 
@@ -1395,10 +1395,28 @@ func TestAgent_ValidateToolArgs(t *testing.T) {
 }
 
 func TestAgent_Execute_BatchedSubmissionRejection(t *testing.T) {
-	client := &MockClient{
-		Response: proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{
+	// When submit_final_answer is batched with another tool, processToolCalls
+	// rejects the entire batch. The agent must NOT exit immediately — it should
+	// continue so the model can retry with a solo submit on the next turn.
+	// This test simulates: turn 1 = batched (rejected), turn 2 = solo (success).
+	client := &MockClient{}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer, Description: "Submit final answer"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file", Description: "Read file"}},
+		},
+	}
+	engine := &MockEngine{}
+	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
+
+	callCount := 0
+	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		callCount++
+		if callCount == 1 {
+			// Turn 1: batched submit with another tool — will be rejected
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
 					Message: proxy.Message{
 						Role: "assistant",
 						ToolCalls: []proxy.ToolCall{
@@ -1406,11 +1424,11 @@ func TestAgent_Execute_BatchedSubmissionRejection(t *testing.T) {
 								ID: "call_submit",
 								Function: proxy.FunctionCall{
 									Name:      models.ToolSubmitFinalAnswer,
-									Arguments: `{"summary": "Task complete"}`,
+									Arguments: `{"summary": "Done"}`,
 								},
 							},
 							{
-								ID: "call_other",
+								ID: "call_read",
 								Function: proxy.FunctionCall{
 									Name:      "read_file",
 									Arguments: `{"path": "test.txt"}`,
@@ -1418,29 +1436,38 @@ func TestAgent_Execute_BatchedSubmissionRejection(t *testing.T) {
 							},
 						},
 					},
+				}},
+			}, nil
+		}
+		// Turn 2: solo submit — should be accepted
+		return &proxy.ChatResponse{
+			Choices: []proxy.Choice{{
+				Message: proxy.Message{
+					Role: "assistant",
+					ToolCalls: []proxy.ToolCall{
+						{
+							ID: "call_submit2",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "Task complete"}`,
+							},
+						},
+					},
 				},
-			},
-		},
+			}},
+		}, nil
 	}
 
-	provider := &MockProvider{
-		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
-		},
-	}
-	engine := &MockEngine{}
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
-
-	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-		return &client.Response, nil
-	}
-
-	_, finalHistory, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Run task"}})
+	reply, finalHistory, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Run task"}})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
+	if reply != "Task complete" {
+		t.Errorf("expected reply 'Task complete', got %q", reply)
+	}
+
+	// Should have exactly 2 rejection error results (one per tool call in the batch)
 	foundRejectionError := 0
 	for _, msg := range finalHistory {
 		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, prompts.AutomationRejectedSubmissionPrompt) {
@@ -1448,7 +1475,7 @@ func TestAgent_Execute_BatchedSubmissionRejection(t *testing.T) {
 		}
 	}
 	if foundRejectionError != 2 {
-		t.Errorf("expected 2 rejection error results in final history, got %d", foundRejectionError)
+		t.Errorf("expected 2 rejection error results (one per tool call), got %d", foundRejectionError)
 	}
 }
 
@@ -2227,7 +2254,7 @@ func TestInjectToolInstructions_NoSystemMessage(t *testing.T) {
 		{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool", Description: "A test tool"}},
 	}
 
-	agent := &Agent{logger: logging.NewNopLogger()}
+	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	result := agent.injectToolInstructions(history, tools)
 
 	if len(result) != len(history)+1 {
@@ -2246,7 +2273,7 @@ func TestInjectToolInstructions_EmptyTools(t *testing.T) {
 		{Role: proxy.SystemRole, Content: "system"},
 		{Role: proxy.UserRole, Content: "hello"},
 	}
-	agent := &Agent{logger: logging.NewNopLogger()}
+	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	result := agent.injectToolInstructions(history, nil)
 
 	if len(result) != len(history) {
@@ -2262,7 +2289,9 @@ func TestInjectToolInstructions_EmptyTools(t *testing.T) {
 func TestNotifyPrematureTerminationNag(t *testing.T) {
 	var events []AgentEvent
 	agent := &Agent{
-		observer: func(ev AgentEvent) { events = append(events, ev) },
+		deps: AgentRuntimeDeps{
+			Observer: func(ev AgentEvent) { events = append(events, ev) },
+		},
 	}
 	history := []proxy.Message{
 		{Role: proxy.UserRole, Content: "do something"},
@@ -2437,7 +2466,7 @@ func TestAgent_StuckThresholdConstant(t *testing.T) {
 				MaxResponseTokens: tc.maxRespTok,
 				ReasoningBudget:   tc.maxRespTok * 2,
 			})
-			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
 				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 			})
@@ -2538,7 +2567,7 @@ func TestAgent_StuckThresholdDerived(t *testing.T) {
 				MaxResponseTokens: tc.maxRespTok,
 				ReasoningBudget:   tc.maxRespTok * 2,
 			})
-			agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
 				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 			})
@@ -2610,7 +2639,7 @@ func TestAgent_LifecycleEventsOnStuck(t *testing.T) {
 	engine := &MockEngine{Result: "ok"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
-	agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
@@ -2694,7 +2723,7 @@ I should use the submit_final_answer tool to complete this.
 		MaxSteps:          25,
 		MaxResponseTokens: 2730,
 	})
-	agent.observer = func(ev AgentEvent) { events = append(events, ev) }
+	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 	})
@@ -2716,9 +2745,11 @@ I should use the submit_final_answer tool to complete this.
 
 func TestCheckStreamStuck_NonReasoningModel(t *testing.T) {
 	agent := &Agent{
-		maxTokens:       2730,
-		reasoningBudget: 0, // non-reasoning model
-		skipStuckCheck:  false,
+		config: AgentConfig{
+			MaxTokens:       2730,
+			ReasoningBudget: 0, // non-reasoning model
+			SkipStuckCheck:  false,
+		},
 	}
 
 	t.Run("under threshold not stuck", func(t *testing.T) {
@@ -2752,9 +2783,11 @@ func TestCheckStreamStuck_NonReasoningModel(t *testing.T) {
 
 func TestCheckStreamStuck_ReasoningModel(t *testing.T) {
 	agent := &Agent{
-		maxTokens:       2730,
-		reasoningBudget: 2730, // reasoning model
-		skipStuckCheck:  false,
+		config: AgentConfig{
+			MaxTokens:       2730,
+			ReasoningBudget: 2730, // reasoning model
+			SkipStuckCheck:  false,
+		},
 	}
 
 	t.Run("above early threshold not stuck", func(t *testing.T) {
@@ -2870,7 +2903,7 @@ func TestAgent_SieveCompressionRange(t *testing.T) {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: fmt.Sprintf("tail %d: short", i)})
 	}
 
-	agent := &Agent{contextBudget: 36000, logger: logging.NewNopLogger()}
+	agent := &Agent{config: AgentConfig{ContextBudget: 36000}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	got := agent.applyPhysicalSieve(history)
 
 	// Total before compression: ~40K chars → exceeds 36K budget.
@@ -2915,7 +2948,7 @@ func TestAgent_SieveCompressionAvoidsDrop(t *testing.T) {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "short"})
 	}
 
-	agent := &Agent{contextBudget: 33000, logger: logging.NewNopLogger()}
+	agent := &Agent{config: AgentConfig{ContextBudget: 33000}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	got := agent.applyPhysicalSieve(history)
 
 	for _, m := range got {
@@ -2938,7 +2971,7 @@ func TestAgent_SieveDropAfterCompressionExhausted(t *testing.T) {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: strings.Repeat("x", 10000)})
 	}
 
-	agent := &Agent{contextBudget: 500, logger: logging.NewNopLogger()}
+	agent := &Agent{config: AgentConfig{ContextBudget: 500}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	got := agent.applyPhysicalSieve(history)
 
 	foundWarning := false
@@ -2976,7 +3009,7 @@ func TestAgent_SieveSafeEmptyRange(t *testing.T) {
 			for i := range history {
 				history[i] = proxy.Message{Role: proxy.UserRole, Content: strings.Repeat("x", 10000)}
 			}
-			agent := &Agent{contextBudget: 100, logger: logging.NewNopLogger()}
+			agent := &Agent{config: AgentConfig{ContextBudget: 100}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 			got := agent.applyPhysicalSieve(history)
 			if got == nil {
 				t.Fatal("sieve should never return nil")
@@ -2993,7 +3026,7 @@ func TestAgent_ReactiveSieveCount(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "msg"})
 	}
-	agent := &Agent{logger: logging.NewNopLogger()}
+	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	got := agent.applyReactiveSieve(history)
 
 	// sieveLockedHead + sieve note + sieveReactiveTail
@@ -3011,7 +3044,7 @@ func TestAgent_AggressiveSieveCount(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "msg"})
 	}
-	agent := &Agent{logger: logging.NewNopLogger()}
+	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	got := agent.applyAggressiveSieve(history)
 
 	// sieveLockedHead + sieve note + sieveAggressiveTail
@@ -3033,7 +3066,7 @@ func TestAgent_SieveKeepsTaskAtLockedHead_AfterPlanStateInjection(t *testing.T) 
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: strings.Repeat("x", 10000)})
 	}
 
-	agent := &Agent{contextBudget: 500, logger: logging.NewNopLogger()}
+	agent := &Agent{config: AgentConfig{ContextBudget: 500}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	got := agent.applyPhysicalSieve(history)
 
 	// Locked head contents must survive: system prompt, PlanState, and user task.
@@ -3341,8 +3374,8 @@ func TestPrepareChatRequest_ZeroReasoningBudget(t *testing.T) {
 
 	req := agent.buildChatRequest(prepared, nil)
 
-	if agent.reasoningBudget != 0 {
-		t.Errorf("expected agent.reasoningBudget = 0 for non-reasoning model, got %d", agent.reasoningBudget)
+	if agent.config.ReasoningBudget != 0 {
+		t.Errorf("expected agent.config.ReasoningBudget = 0 for non-reasoning model, got %d", agent.config.ReasoningBudget)
 	}
 	if req.ReasoningBudget != 0 {
 		t.Errorf("expected req.ReasoningBudget = 0 for non-reasoning model, got %d", req.ReasoningBudget)
@@ -3377,8 +3410,8 @@ func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
 
 	req := agent.buildChatRequest(prepared, nil)
 
-	if agent.reasoningBudget != explicitBudget {
-		t.Errorf("expected agent.reasoningBudget = %d, got %d", explicitBudget, agent.reasoningBudget)
+	if agent.config.ReasoningBudget != explicitBudget {
+		t.Errorf("expected agent.config.ReasoningBudget = %d, got %d", explicitBudget, agent.config.ReasoningBudget)
 	}
 	if req.ReasoningBudget != explicitBudget {
 		t.Errorf("expected req.ReasoningBudget = %d, got %d", explicitBudget, req.ReasoningBudget)
@@ -3412,8 +3445,8 @@ func TestPrepareChatRequest_ZeroBudgetHasNoEffect(t *testing.T) {
 
 	req := agent.buildChatRequest(prepared, nil)
 
-	if agent.reasoningBudget != 0 {
-		t.Errorf("expected agent.reasoningBudget = 0, got %d", agent.reasoningBudget)
+	if agent.config.ReasoningBudget != 0 {
+		t.Errorf("expected agent.config.ReasoningBudget = 0, got %d", agent.config.ReasoningBudget)
 	}
 	if req.ReasoningBudget != 0 {
 		t.Errorf("expected req.ReasoningBudget = 0, got %d", req.ReasoningBudget)
@@ -3598,7 +3631,7 @@ func TestAgent_Execute_NativeToolsNoToolCalls_Starvation(t *testing.T) {
 // boolPtr is defined earlier in this file (line ~2545)
 
 func TestExceedsContentCharCap(t *testing.T) {
-	agent := &Agent{maxTokens: 2730}
+	agent := &Agent{config: AgentConfig{MaxTokens: 2730}}
 
 	t.Run("under cap", func(t *testing.T) {
 		msg := &proxy.Message{Content: strings.Repeat("x", 10000)}
@@ -3622,7 +3655,7 @@ func TestExceedsContentCharCap(t *testing.T) {
 	})
 
 	t.Run("zero maxTokens disables", func(t *testing.T) {
-		zero := &Agent{maxTokens: 0}
+		zero := &Agent{config: AgentConfig{MaxTokens: 0}}
 		msg := &proxy.Message{Content: strings.Repeat("x", 99999)}
 		if zero.exceedsContentCharCap(msg) {
 			t.Error("zero maxTokens should disable cap")
@@ -3687,4 +3720,303 @@ func TestAgent_CancelDuringStreamXMLRetry_NoFallbackToNonStreaming(t *testing.T)
 	if streamCallCount == 0 {
 		t.Error("expected at least one stream call")
 	}
+}
+
+func TestCheckSubmitFinalAnswer_ContentOverwrite(t *testing.T) {
+	agent := NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		return nil, context.Canceled
+	}}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	session := newRunSession(agent, context.Background(), nil)
+
+	tests := []struct {
+		name    string
+		content string
+		summary string
+		want    string
+	}{
+		{
+			name:    "content non-empty, summary meaningful → overwrite with summary",
+			content: "Here's a joke for you!",
+			summary: "# Complete File Listing Report\n...",
+			want:    "# Complete File Listing Report\n...",
+		},
+		{
+			name:    "content empty, summary meaningful → fill from summary",
+			content: "",
+			summary: "# Complete File Listing Report\n...",
+			want:    "# Complete File Listing Report\n...",
+		},
+		{
+			name:    "content non-empty, summary Task complete. → keep content",
+			content: "Here's a joke for you!",
+			summary: "Task complete.",
+			want:    "Here's a joke for you!",
+		},
+		{
+			name:    "content non-empty, summary empty → keep content",
+			content: "Here's a joke for you!",
+			summary: "",
+			want:    "Here's a joke for you!",
+		},
+		{
+			name:    "content empty, summary Task complete. → returns Task complete.",
+			content: "",
+			summary: "Task complete.",
+			want:    "Task complete.",
+		},
+		{
+			name:    "content empty, summary empty → returns Task complete.",
+			content: "",
+			summary: "",
+			want:    "Task complete.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := fmt.Sprintf(`{"summary":%q}`, tt.summary)
+			msg := proxy.Message{
+				Content: tt.content,
+				ToolCalls: []models.ToolCall{
+					{Function: models.FunctionCall{Name: models.ToolSubmitFinalAnswer, Arguments: args}},
+				},
+			}
+			got, done := session.checkSubmitFinalAnswer(&msg)
+			if !done {
+				t.Error("expected done=true")
+			}
+			if got != tt.want {
+				t.Errorf("expected content=%q, got %q", tt.want, got)
+			}
+			if msg.Content != tt.want {
+				t.Errorf("expected msg.Content=%q after call, got %q", tt.want, msg.Content)
+			}
+		})
+	}
+}
+
+func TestAgent_SubmitFinalAnswer_NoDuplicateInHistory(t *testing.T) {
+	var events []AgentEvent
+
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, fmt.Errorf("streaming not supported")
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []proxy.ToolCall{{
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "Workspace report generated with 6 files"}`,
+							},
+						}},
+					}},
+				},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 30 * time.Second,
+	})
+	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
+
+	reply, history, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "list all files"}})
+
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if !strings.Contains(reply, "Workspace report generated") {
+		t.Errorf("expected reply to contain 'Workspace report generated', got '%s'", reply)
+	}
+
+	lastMsg := history[len(history)-1]
+	// The tool execution result (role: tool) is the last message. The turnMsg
+	// (assistant with tool calls) is the second-to-last.
+	var turnMsg proxy.Message
+	if lastMsg.Role == "tool" && len(history) >= 2 {
+		turnMsg = history[len(history)-2]
+	} else {
+		turnMsg = lastMsg
+	}
+
+	if turnMsg.Role != proxy.AssistantRole {
+		t.Errorf("expected turnMsg role to be assistant, got %s", turnMsg.Role)
+	}
+
+	// Verify the turnMsg has ToolCalls (submit_final_answer), not a content-only
+	// duplicate. Full content goes via reply to frontend, not LLM history.
+	if len(turnMsg.ToolCalls) == 0 {
+		t.Errorf("expected turnMsg to have ToolCalls, not content-only duplicate")
+	}
+
+	var foundSubmit bool
+	for _, tc := range turnMsg.ToolCalls {
+		if tc.Function.Name == models.ToolSubmitFinalAnswer {
+			foundSubmit = true
+			break
+		}
+	}
+	if !foundSubmit {
+		t.Error("expected turnMsg ToolCalls to include submit_final_answer")
+	}
+
+	// Verify the extracted summary is persisted in turnMsg.Content so
+	// reloading the conversation from history shows the final report.
+	if turnMsg.Content != "Workspace report generated with 6 files" {
+		t.Errorf("expected turnMsg.Content to contain extracted summary, got %q", turnMsg.Content)
+	}
+
+	// Verify the EventMessage SSE event carries the extracted report in its
+	// content field (not empty).  The notify fires after checkSubmitFinalAnswer
+	// so the UI live view gets the report text, not reasoningCommitted.
+	var msgEventContent string
+	for _, ev := range events {
+		if ev.Type == EventMessage {
+			if msg, ok := ev.Payload.(proxy.Message); ok && msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+				msgEventContent = msg.Content
+				break
+			}
+		}
+	}
+	if msgEventContent != "Workspace report generated with 6 files" {
+		t.Errorf("expected EventMessage content to contain extracted summary, got %q", msgEventContent)
+	}
+}
+
+// TestAgent_ReasoningAndContentSeparateStreams verifies that reasoning content
+// and response content are streamed via separate event types:
+//   - EventReasoning for reasoning_content chunks (the model's thinking)
+//   - EventToolStream for content chunks (the visible response)
+//
+// This prevents the UI from showing reasoning and response as duplicated blocks
+// while still giving users visibility into the agent's planning.
+func TestAgent_ReasoningAndContentSeparateStreams(t *testing.T) {
+	const reasoningText = "The user wants me to perform a network scan. " +
+		"I will start with Phase 1 rapid host discovery. "
+	const contentText = "I'll begin by scanning the local network for active hosts. " +
+		"Let me call scan_local_network with mode fast. "
+
+	var events []AgentEvent
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 100)
+			go func() {
+				defer close(ch)
+				// Phase 1: reasoning chunks only (no content yet).
+				for _, c := range splitIntoChunks(reasoningText, 12) {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+						Delta: proxy.Message{ReasoningContent: c},
+					}}}
+				}
+				// Phase 2: content chunks only.
+				for _, c := range splitIntoChunks(contentText, 12) {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+						Delta: proxy.Message{Content: c},
+					}}}
+				}
+				// Final: a tool call to end the turn.
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+					Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
+						ID:   "call_1",
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      models.ToolSubmitFinalAnswer,
+							Arguments: `{"summary": "done"}`,
+						},
+					}}},
+				}}}
+			}()
+			return ch, nil
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_1",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolSubmitFinalAnswer,
+								Arguments: `{"summary": "done"}`,
+							},
+						}},
+					},
+				}},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:          25,
+		MaxResponseTokens: 2730,
+		ReasoningBudget:   2730,
+	})
+	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	var reasoningCount, toolStreamCount int
+	var lastReasoningPayload string
+	for _, ev := range events {
+		switch ev.Type {
+		case EventReasoning:
+			reasoningCount++
+			lastReasoningPayload, _ = ev.Payload.(string)
+		case EventToolStream:
+			toolStreamCount++
+			s, _ := ev.Payload.(string)
+			if strings.Contains(s, "network scan") || strings.Contains(s, "Phase 1") {
+				t.Errorf("reasoning text leaked into EventToolStream: %q", s)
+			}
+		}
+	}
+
+	if reasoningCount == 0 {
+		t.Error("expected at least one EventReasoning event for model thinking")
+	}
+	if toolStreamCount == 0 {
+		t.Error("expected at least one EventToolStream event for response content")
+	}
+	if lastReasoningPayload != reasoningText {
+		t.Errorf("last EventReasoning payload = %q, want %q", lastReasoningPayload, reasoningText)
+	}
+}
+
+// splitIntoChunks splits s into chunks of at most size runes for streaming tests.
+func splitIntoChunks(s string, size int) []string {
+	var out []string
+	runes := []rune(s)
+	for i := 0; i < len(runes); i += size {
+		end := i + size
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out = append(out, string(runes[i:end]))
+	}
+	return out
 }

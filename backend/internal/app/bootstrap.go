@@ -28,6 +28,7 @@ import (
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	api "llm-proxy/internal/transport/http"
+	handlers "llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
 	"llm-proxy/utils"
 )
@@ -52,7 +53,7 @@ type Container struct {
 }
 
 // Building automation task executor
-func (c *Container) BuildTaskExecutor(svc api.AssistantService) automation.TaskExecutor {
+func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.TaskExecutor {
 	return automation.NewLLMTaskExecutor(svc)
 }
 
@@ -241,7 +242,7 @@ func (s AppServices) RootDir() string {
 	return s.AppCtx.RootDir()
 }
 
-func (s *AppServices) Events() *automation.EventBus {
+func (s *AppServices) Events() assistantPkg.EventPublisher {
 	if s.dispatcher == nil {
 		return nil
 	}
@@ -355,7 +356,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
-func (c *Container) BuildDispatcher(svc api.AssistantService) (*automation.Dispatcher, error) {
+func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.Dispatcher, error) {
 	persistenceMgr := svc.Persistence()
 
 	exec := automation.NewLLMTaskExecutor(svc)
@@ -415,22 +416,51 @@ func translateMCPServers(reg []models.MCPServerRegistryEntry) []models.MCPServer
 	return out
 }
 
-func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
-	assistant := api.NewAssistantMessageHandler(s)
+// HandlerSet bundles all constructed HTTP handler types.
+type HandlerSet struct {
+	Admin               *handlers.AdminHandlers
+	System              *handlers.SystemHandlers
+	Secrets             *handlers.SecretsHandlers
+	Process             *handlers.ProcessHandlers
+	MCP                 *handlers.MCPHandlers
+	Model               *handlers.ModelHandlers
+	Proxy               *handlers.ProxyHandlers
+	Assistant           *handlers.AssistantMessageHandler
+	ActiveRuns          *handlers.ActiveRunsHandler
+	Dispatcher          *handlers.DispatcherHandlers
+	Recordings          *handlers.RecordingHandlers
+	Memory              *handlers.MemoryHandlers
+	Webhook             *handlers.WebhookHandler
+}
 
-	adminHandlers := api.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
-	proxyHandlers := api.NewProxyHandlers(s.Runtime)
-
-	var dispatcherHandlers *api.DispatcherHandlers
+// wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
+func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
+	hs := &HandlerSet{}
+	hs.Assistant = handlers.NewAssistantMessageHandler(s)
+	// Authoritative per-workspace "running" source, aggregating the assistant
+	// and automation subsystems so the frontend has one endpoint to poll.
+	hs.ActiveRuns = handlers.NewActiveRunsHandler(
+		hs.Assistant.RunningExists,
+		disp.IsAutomationRunning,
+	)
+	hs.Admin = handlers.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
+	hs.System = handlers.NewSystemHandlers(s.AppCtx, s.Logger(), buildInfo)
+	hs.Secrets = handlers.NewSecretsHandlers(s.AppCtx)
+	hs.Process = handlers.NewProcessHandlers(s.Runtime, s.AppCtx, s.Logger())
+	hs.MCP = handlers.NewMCPHandlers(s.AppCtx)
+	hs.Model = handlers.NewModelHandlers(s.Runtime, s.AppCtx)
+	hs.Proxy = handlers.NewProxyHandlers(s.Runtime)
 	if disp != nil {
-		dispatcherHandlers = api.NewDispatcherHandlers(disp, s.logger)
+		wsSvc := handlers.NewWorkspaceService(s.Persistence())
+		hs.Dispatcher = handlers.NewDispatcherHandlers(disp, wsSvc, s.logger)
 	}
 
-	recordingHandlers := api.NewRecordingHandlers(s.RecordingStore)
+	// Register recording routes unconditionally. The handler safely returns
+	// enabled:false when no --record-dir is configured.
+	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore)
 
-	var memoryHandlers *api.MemoryHandlers
 	if store := s.AppCtx.MemoryStore(); store != nil {
-		memoryHandlers = api.NewMemoryHandlers(store)
+		hs.Memory = handlers.NewMemoryHandlers(store)
 	}
 
 	// Extract CommunicationTools from the tool provider chain
@@ -444,146 +474,153 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 		}
 	}
 
-	webhookHandler := &api.WebhookHandler{
+	hs.Webhook = &handlers.WebhookHandler{
 		Registry:    s.AppCtx.GetRegistry,
 		Persistence: s.Persistence(),
-		Secrets:     s.AppCtx.Secrets(),
 		Events:      s.Events(),
 		CommTools:   commTools,
 		Dispatcher:  disp,
-		Assistant:   assistant,
+		Assistant:   hs.Assistant,
 		Logger:      s.Logger(),
 	}
 
-	return buildRouter(adminHandlers, proxyHandlers, assistant, dispatcherHandlers, recordingHandlers, memoryHandlers, webhookHandler)
+	return hs
 }
 
-func buildRouter(
-	admin *api.AdminHandlers,
-	proxyHandlers *api.ProxyHandlers,
-	assistant *api.AssistantMessageHandler,
-	dispatcherHandlers *api.DispatcherHandlers,
-	recordings *api.RecordingHandlers,
-	memoryHandlers *api.MemoryHandlers,
-	webhooks *api.WebhookHandler,
-) http.Handler {
+func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) http.Handler {
+	hs := wireHandlers(s, disp, buildInfo)
+	return buildRouter(hs)
+}
+
+func buildRouter(hs *HandlerSet) http.Handler {
 
 	router := api.NewRouter()
 
 	jsonMethodNotAllowed := api.WithMethodNotAllowed(http.HandlerFunc(api.MethodNotAllowedJSON))
 	textMethodNotAllowed := api.WithMethodNotAllowed(http.HandlerFunc(api.MethodNotAllowedText))
 
-	// Admin
-	router.Get("/admin/api/version", admin.AdminVersionHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/state", admin.AdminStateHandler, textMethodNotAllowed)
-	router.Post("/admin/api/start", admin.AdminStartHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/stop", admin.AdminStopHandler, textMethodNotAllowed)
-	router.Post("/admin/api/models", admin.AdminAddModelHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/models", admin.AdminUpdateModelHandler, jsonMethodNotAllowed)
-	router.Delete("/admin/api/models", admin.AdminDeleteModelHandler, jsonMethodNotAllowed)
-	router.Delete("/admin/api/models/all", admin.AdminDeleteAllModelsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/config", admin.AdminConfigHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/config", admin.AdminConfigUpdateHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/system/restart", admin.AdminRestartHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/host", admin.AdminHostSettingsHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/host", admin.AdminHostSettingsPutHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/host/terminal/reset", admin.AdminTerminalResetHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/host/terminal/sessions", admin.AdminTerminalSessionsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/logs", admin.AdminLogsHandler, jsonMethodNotAllowed)
-	router.Delete("/admin/api/logs", admin.AdminLogsClearHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/log-level", admin.AdminLogLevelHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/log-level", admin.AdminLogLevelUpdateHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/app-logs", admin.AdminAppLogsHandler, textMethodNotAllowed)
-	router.Delete("/admin/api/app-logs", admin.AdminAppLogsClearHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/app-logs/tail", admin.AdminAppLogsTailHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/metrics", admin.AdminMetricsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/runtime/processes", admin.AdminProcessesHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/runtime/processes/{pid}/stop", admin.AdminProcessKillHandler, jsonMethodNotAllowed)
+	// Admin — state, page, balance, webhook
+	router.Get("/admin/api/state", hs.Admin.AdminStateHandler, textMethodNotAllowed)
+	router.Get("/admin/api/orchestrator/balance", hs.Admin.AdminICUBalanceHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/connectors/{name}/webhook", hs.Admin.AdminConnectorWebhookHandler, jsonMethodNotAllowed)
+	router.Get("/admin/", hs.Admin.AdminPageHandler, textMethodNotAllowed)
+
+	// System — version, config, host, terminal, restart
+	router.Get("/admin/api/version", hs.System.AdminVersionHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/config", hs.System.AdminConfigHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/config", hs.System.AdminConfigUpdateHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/system", hs.System.AdminSystemHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/system", hs.System.AdminSystemPutHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/system/restart", hs.System.AdminRestartHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host", hs.System.AdminHostSettingsHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/host", hs.System.AdminHostSettingsPutHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/host/terminal/reset", hs.System.AdminTerminalResetHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/host/terminal/sessions", hs.System.AdminTerminalSessionsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/logs", hs.Process.AdminLogsHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/logs", hs.Process.AdminLogsClearHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/log-level", hs.Process.AdminLogLevelHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/log-level", hs.Process.AdminLogLevelUpdateHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/app-logs", hs.Process.AdminAppLogsHandler, textMethodNotAllowed)
+	router.Delete("/admin/api/app-logs", hs.Process.AdminAppLogsClearHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/app-logs/tail", hs.Process.AdminAppLogsTailHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/metrics", hs.Process.AdminMetricsHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/start", hs.Process.AdminStartHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/stop", hs.Process.AdminStopHandler, textMethodNotAllowed)
+	router.Get("/admin/api/runtime/processes", hs.Process.AdminProcessesHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/runtime/processes/{pid}/stop", hs.Process.AdminProcessKillHandler, jsonMethodNotAllowed)
 
 	// MCP
-	router.Get("/admin/api/mcp", admin.AdminMCPListHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/mcp", admin.AdminMCPAddHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/mcp", admin.AdminMCPUpdateHandler, jsonMethodNotAllowed)
-	router.Delete("/admin/api/mcp", admin.AdminMCPRemoveHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/providers/models", admin.AdminListProviderModelsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/providers/manifests", admin.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/providers/test", admin.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/orchestrator/balance", admin.AdminICUBalanceHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/mcp", hs.MCP.AdminMCPListHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/mcp", hs.MCP.AdminMCPAddHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/mcp", hs.MCP.AdminMCPUpdateHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/mcp", hs.MCP.AdminMCPRemoveHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/providers/models", hs.Model.AdminListProviderModelsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/providers/manifests", hs.Model.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/providers/test", hs.Model.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
+
+	// Model registry — CRUD + registry view
+	router.Post("/admin/api/models", hs.Model.AdminAddModelHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/models", hs.Model.AdminUpdateModelHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/models", hs.Model.AdminDeleteModelHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/models/all", hs.Model.AdminDeleteAllModelsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/registry", hs.Model.AdminRegistryHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/registry", hs.Model.AdminRegistryPutHandler, jsonMethodNotAllowed)
 
 	// Templates
-	router.Get("/admin/api/templates", admin.ListTemplatesHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/templates/", admin.GetTemplateHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/templates", hs.Admin.ListTemplatesHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/templates/", hs.Admin.GetTemplateHandler, jsonMethodNotAllowed)
 
 	// Secrets — provider API keys
-	router.Get("/admin/api/secrets/keys", admin.AdminProviderKeysHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/secrets/keys", admin.AdminProviderKeysPutHandler, jsonMethodNotAllowed)
-	router.Delete("/admin/api/secrets/keys", admin.AdminProviderKeyDeleteHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/secrets/keys", hs.Secrets.AdminProviderKeysHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/secrets/keys", hs.Secrets.AdminProviderKeysPutHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/secrets/keys", hs.Secrets.AdminProviderKeyDeleteHandler, jsonMethodNotAllowed)
 
 	// Secrets — tool secrets (search, communication, etc.)
-	router.Get("/admin/api/secrets/tools", admin.AdminToolSecretHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/secrets/tools", admin.AdminToolSecretPutHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/secrets/tools", hs.Secrets.AdminToolSecretHandler, jsonMethodNotAllowed)
+	router.Put("/admin/api/secrets/tools", hs.Secrets.AdminToolSecretPutHandler, jsonMethodNotAllowed)
 
 	// Recordings
-	if recordings != nil {
-		router.Get("/admin/api/recordings", recordings.List, jsonMethodNotAllowed)
-		router.Get("/admin/api/recordings/status", recordings.Status, jsonMethodNotAllowed)
-		router.Get("/admin/api/recordings/{id}", recordings.Get, jsonMethodNotAllowed)
-		router.Delete("/admin/api/recordings/{id}", recordings.Delete, jsonMethodNotAllowed)
+	if hs.Recordings != nil {
+		router.Get("/admin/api/recordings", hs.Recordings.List, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/status", hs.Recordings.Status, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/{id}", hs.Recordings.Get, jsonMethodNotAllowed)
+		router.Delete("/admin/api/recordings/{id}", hs.Recordings.Delete, jsonMethodNotAllowed)
 	}
 
 	// Dispatcher
-	if dispatcherHandlers != nil {
-		router.Get("/admin/api/dispatcher/automations", dispatcherHandlers.ListAutomations, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/trigger/{"+models.WorkspaceIDParam+"}/{automation}", dispatcherHandlers.TriggerAutomation, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/stop/{"+models.WorkspaceIDParam+"}", dispatcherHandlers.StopAutomation, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/metrics", dispatcherHandlers.GetDispatcherMetrics, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/activity", dispatcherHandlers.GetGlobalActivity, jsonMethodNotAllowed)
+	if hs.Dispatcher != nil {
+		router.Get("/admin/api/dispatcher/automations", hs.Dispatcher.ListAutomations, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/trigger/{"+models.WorkspaceIDParam+"}/{automation}", hs.Dispatcher.TriggerAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/stop/{"+models.WorkspaceIDParam+"}", hs.Dispatcher.StopAutomation, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/metrics", hs.Dispatcher.GetDispatcherMetrics, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/activity", hs.Dispatcher.GetGlobalActivity, jsonMethodNotAllowed)
 
-		router.Get("/admin/api/dispatcher/workspaces", dispatcherHandlers.ListWorkspaces, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/workspaces", dispatcherHandlers.CreateWorkspace, jsonMethodNotAllowed)
-		router.Post("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations", dispatcherHandlers.CreateAutomation, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", dispatcherHandlers.UpdateAutomation, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", dispatcherHandlers.DeleteAutomation, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files", dispatcherHandlers.ListWorkspaceFiles, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.ReadWorkspaceFile, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.WriteWorkspaceFile, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", dispatcherHandlers.DeleteWorkspaceFile, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/state", dispatcherHandlers.GetWorkspaceState, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", dispatcherHandlers.GetWorkspaceConfig, jsonMethodNotAllowed)
-		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", dispatcherHandlers.UpdateWorkspaceConfig, jsonMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/live", dispatcherHandlers.StreamWorkspaceEvents, textMethodNotAllowed)
-		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/processlogs", admin.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
-		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}", dispatcherHandlers.DeleteWorkspace, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces", hs.Dispatcher.ListWorkspaces, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/workspaces", hs.Dispatcher.CreateWorkspace, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations", hs.Dispatcher.CreateAutomation, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", hs.Dispatcher.UpdateAutomation, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", hs.Dispatcher.DeleteAutomation, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files", hs.Dispatcher.ListWorkspaceFiles, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", hs.Dispatcher.ReadWorkspaceFile, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", hs.Dispatcher.WriteWorkspaceFile, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file}", hs.Dispatcher.DeleteWorkspaceFile, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/state", hs.Dispatcher.GetWorkspaceState, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", hs.Dispatcher.GetWorkspaceConfig, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", hs.Dispatcher.UpdateWorkspaceConfig, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/live", hs.Dispatcher.StreamWorkspaceEvents, textMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/processlogs", hs.Process.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}", hs.Dispatcher.DeleteWorkspace, jsonMethodNotAllowed)
 	}
 
-	router.Get("/admin/", admin.AdminPageHandler, textMethodNotAllowed)
+	router.Get("/admin/", hs.Admin.AdminPageHandler, textMethodNotAllowed)
 
 	// Proxy
-	router.Any("/v1/chat/completions", http.HandlerFunc(proxyHandlers.EnsureModelProxyHandler))
+	router.Any("/v1/chat/completions", http.HandlerFunc(hs.Proxy.EnsureModelProxyHandler))
 
 	// Conversation API
-	router.Any("/admin/api/conversation/message", assistant)
-	router.Post("/admin/api/conversation/cancel", assistant.CancelAssistantHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/conversation/guardrail-decision", assistant.GuardrailDecisionHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.ListSessions, jsonMethodNotAllowed)
-	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.GetSession, jsonMethodNotAllowed)
-	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.DeleteSession, jsonMethodNotAllowed)
-	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", assistant.DeleteAllSessions, jsonMethodNotAllowed)
-	router.Patch("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", assistant.RenameSession, jsonMethodNotAllowed)
+	router.Any("/admin/api/conversation/message", hs.Assistant)
+	router.Post("/admin/api/conversation/cancel", hs.Assistant.CancelAssistantHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/conversation/guardrail-decision", hs.Assistant.GuardrailDecisionHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", hs.Assistant.ListSessions, jsonMethodNotAllowed)
+	router.Get("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", hs.Assistant.GetSession, jsonMethodNotAllowed)
+	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", hs.Assistant.DeleteSession, jsonMethodNotAllowed)
+	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", hs.Assistant.DeleteAllSessions, jsonMethodNotAllowed)
+	router.Patch("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", hs.Assistant.RenameSession, jsonMethodNotAllowed)
+	router.Get("/admin/api/workspaces/{"+models.WorkspaceIDParam+"}/active-runs", hs.ActiveRuns.ServeHTTP, jsonMethodNotAllowed)
 
 	// Memory API
-	if memoryHandlers != nil {
-		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}", memoryHandlers.ListMemories, jsonMethodNotAllowed)
-		router.Post("/admin/api/memory/{"+models.WorkspaceIDParam+"}/search", memoryHandlers.SearchMemories, jsonMethodNotAllowed)
-		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.GetMemory, jsonMethodNotAllowed)
-		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.UpdateMemory, jsonMethodNotAllowed)
-		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", memoryHandlers.DeleteMemory, jsonMethodNotAllowed)
-		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}", memoryHandlers.ClearWorkspace, jsonMethodNotAllowed)
+	if hs.Memory != nil {
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}", hs.Memory.ListMemories, jsonMethodNotAllowed)
+		router.Post("/admin/api/memory/{"+models.WorkspaceIDParam+"}/search", hs.Memory.SearchMemories, jsonMethodNotAllowed)
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.GetMemory, jsonMethodNotAllowed)
+		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.UpdateMemory, jsonMethodNotAllowed)
+		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.DeleteMemory, jsonMethodNotAllowed)
+		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}", hs.Memory.ClearWorkspace, jsonMethodNotAllowed)
 	}
 
 	// Public webhooks — external platforms POST here (no admin auth)
-	if webhooks != nil {
-		router.Post("/api/v1/webhooks/{connector_name}", webhooks.ServeHTTP, jsonMethodNotAllowed)
+	if hs.Webhook != nil {
+		router.Post("/api/v1/webhooks/{connector_name}", hs.Webhook.ServeHTTP, jsonMethodNotAllowed)
 	}
 
 	return router

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
@@ -124,5 +125,34 @@ func TestApp_ServerTimeouts(t *testing.T) {
 	}
 	if a.server.ReadHeaderTimeout == 0 {
 		t.Error("expected ReadHeaderTimeout to be set")
+	}
+}
+
+func TestApp_ShutdownCancelsBaseContext(t *testing.T) {
+	utils.SetRequiredEnv(t)
+
+	dataMgr := minimalDataManager(t)
+	appCtx := NewServer(nil, dataMgr)
+	settings := appCtx.HostSettings()
+	settings.Sandboxing.Enabled = true
+	_ = appCtx.UpdateHostSettings(settings)
+
+	a := New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
+
+	// BaseContext must be set
+	baseCtx := a.server.BaseContext(nil)
+	if baseCtx == nil {
+		t.Fatal("BaseContext returned nil")
+	}
+	if baseCtx.Err() != nil {
+		t.Error("BaseContext should not be cancelled before Shutdown")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	a.Shutdown(shutdownCtx)
+
+	if baseCtx.Err() == nil {
+		t.Error("BaseContext should be cancelled after Shutdown")
 	}
 }

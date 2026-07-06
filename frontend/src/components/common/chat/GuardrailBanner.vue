@@ -10,14 +10,14 @@ const emit = defineEmits<{
   deny: [];
 }>();
 
-import { ApiService } from "../../../services/api";
+import { post } from "../../../services/httpClient";
 
 const submitting = ref(false);
 
 const handleAllow = async (persist: boolean) => {
   submitting.value = true;
   try {
-    await ApiService.submitGuardrailDecision(props.decision.decision_id, true, persist);
+    await post('/admin/api/conversation/guardrail-decision', { decision_id: props.decision.decision_id, allow: true, persist });
     emit("allow", persist);
   } catch (err) {
     console.error("Failed to submit guardrail decision", err);
@@ -29,7 +29,7 @@ const handleAllow = async (persist: boolean) => {
 const handleDeny = async () => {
   submitting.value = true;
   try {
-    await ApiService.submitGuardrailDecision(props.decision.decision_id, false, false);
+    await post('/admin/api/conversation/guardrail-decision', { decision_id: props.decision.decision_id, allow: false, persist: false });
     emit("deny");
   } catch (err) {
     console.error("Failed to submit guardrail decision", err);

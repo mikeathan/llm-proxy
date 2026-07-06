@@ -13,7 +13,7 @@ import { useConfig } from "../../composables/models/useConfig";
 import { useMcpServers } from "../../composables/system/useMcpServers";
 import { useMetrics } from "../../composables/system/useMetrics";
 import { useModels } from "../../composables/models/useModels";
-import { AdminApiService } from "../../services/adminService";
+import { AdminApiService } from "../../services/admin/adminService";
 import { useProviders } from "../../composables/models/useProviders";
 import { useToast } from "../../composables/useToast";
 import type { NewMcpServerForm } from "../../types/mcp";

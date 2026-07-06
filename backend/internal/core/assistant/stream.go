@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"llm-proxy/internal/core/assistant/prompts"
@@ -44,7 +45,8 @@ var (
 
 	// providerConstraints maps provider types to output constraint implementations.
 	// Only local providers use GBNF grammar for tool call argument enforcement.
-	// Cloud providers (openai, gemini, etc.) already validate via native tool API.
+	// OpenAI-compatible endpoints (including local llama.cpp) cannot combine
+	// grammar with tools in the same request — llama.cpp returns 400.
 	providerConstraints = map[string]proxy.RequestConstraint{
 		"local": &proxy.GBNFConstraint{},
 	}
@@ -57,24 +59,33 @@ func (a *Agent) buildChatRequest(
 	req := proxy.ChatRequest{
 		Messages:  prepared,
 		Tools:     llmTools,
-		MaxTokens: a.maxTokens,
+		MaxTokens: a.config.MaxTokens,
 	}
-	if a.useNativeTools && len(llmTools) > 0 {
+	if a.config.UseNativeTools && len(llmTools) > 0 {
 		req.ToolChoice = proxy.ToolChoiceRequired
 	}
-	if a.temperature > 0 {
-		req.Temperature = a.temperature
+	if a.config.Temperature > 0 {
+		req.Temperature = a.config.Temperature
 	}
-	if a.reasoningBudget > 0 {
-		req.SetReasoningBudget(a.reasoningBudget)
+	if a.config.ReasoningBudget > 0 {
+		req.SetReasoningBudget(a.config.ReasoningBudget)
 	}
 	// Apply provider-specific output constraint when native tools are active.
 	// Local providers get GBNF grammar to prevent invalid JSON in tool call
 	// arguments at the token generation level.  Cloud providers are skipped —
 	// their native tool API already returns structured, valid JSON.
-	if a.useNativeTools && len(llmTools) > 0 {
-		if constraint, ok := providerConstraints[a.providerType]; ok {
-			constraint.Apply(&req, llmTools)
+	if a.config.UseNativeTools && len(llmTools) > 0 {
+		if constraint, ok := providerConstraints[a.config.ProviderType]; ok {
+			if constraint.Apply(&req, llmTools) {
+				a.deps.Logger.Debug("GBNF grammar applied for tool call constraint",
+					"provider", a.config.ProviderType,
+					"tools", len(llmTools))
+			} else {
+				a.deps.Logger.Warn("GBNF grammar could not be built (empty grammar)")
+			}
+		} else {
+			a.deps.Logger.Debug("no output constraint for provider type",
+				"provider", a.config.ProviderType)
 		}
 	}
 	return req
@@ -94,7 +105,7 @@ func (a *Agent) prepareMessagesForTurn(
 
 	// Hot memory (<memory> block) is injected right before the last user
 	// message for KV cache stability.  See docs/audits/memory-injection-investigation.md.
-	if a.enableHotMemory {
+	if a.config.EnableHotMemory {
 		prepared = a.injectActiveMemory(prepared, history)
 	}
 
@@ -115,7 +126,7 @@ func (a *Agent) prepareMessagesForTurn(
 // FTS5 search + separate user_profile fetch.  See docs/audits/memory-injection-investigation.md
 // for the rationale and alternatives tried.
 func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
-	if a.memoryStore == nil {
+	if a.deps.MemoryStore == nil {
 		return prepared
 	}
 
@@ -125,7 +136,7 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 	a.memoryInjected = true
 
 	ctx := context.Background()
-	entries, err := a.memoryStore.SearchHot(ctx, a.workspaceID)
+	entries, err := a.deps.MemoryStore.SearchHot(ctx, a.config.WorkspaceID)
 	if err != nil || len(entries) == 0 {
 		return prepared
 	}
@@ -171,21 +182,21 @@ func (a *Agent) doPreflightCheck(
 	history []proxy.Message,
 	req *proxy.ChatRequest,
 ) (txnID string, err error) {
-	if a.orch == nil || a.orch.Budget == nil {
+	if a.deps.Orchestrator == nil || a.deps.Orchestrator.Budget == nil {
 		return "", nil
 	}
 	totalChars := 0
 	for _, m := range history {
 		totalChars += len(m.Content)
 	}
-	preflight, pfErr := a.orch.Budget.PreFlightCheck(ctx, a.workspaceID,
+	preflight, pfErr := a.deps.Orchestrator.Budget.PreFlightCheck(ctx, a.config.WorkspaceID,
 		orchestrator.PreFlightRequest{
-			ModelName:       a.modelName,
-			ProviderType:    a.providerType,
+			ModelName:       a.config.ModelName,
+			ProviderType:    a.config.ProviderType,
 			ContextChars:    totalChars,
-			MaxTokens:       a.maxTokens,
-			ReasoningBudget: a.reasoningBudget,
-			ICUWeight:       a.icuWeight,
+			MaxTokens:       a.config.MaxTokens,
+			ReasoningBudget: a.config.ReasoningBudget,
+			ICUWeight:       a.config.ICUWeight,
 		})
 	if pfErr != nil {
 		return "", fmt.Errorf("budget error: %w", pfErr)
@@ -194,9 +205,9 @@ func (a *Agent) doPreflightCheck(
 		return "", fmt.Errorf("budget exceeded: %s", preflight.Reason)
 	}
 	if preflight.SqueezeFactor < 1.0 {
-		a.maxTokens = preflight.AdjustedMaxTokens
-		a.reasoningBudget = preflight.AdjustedReasoning
-		req.MaxTokens = a.maxTokens
+		a.config.MaxTokens = preflight.AdjustedMaxTokens
+		a.config.ReasoningBudget = preflight.AdjustedReasoning
+		req.MaxTokens = a.config.MaxTokens
 	}
 	return preflight.TransactionID, nil
 }
@@ -213,12 +224,12 @@ func (a *Agent) handlePrefillRejection(
 	req := proxy.ChatRequest{
 		Messages:  prepared,
 		Tools:     nil,
-		MaxTokens: a.maxTokens,
+		MaxTokens: a.config.MaxTokens,
 	}
-	if a.temperature > 0 {
-		req.Temperature = a.temperature
+	if a.config.Temperature > 0 {
+		req.Temperature = a.config.Temperature
 	}
-	return a.client.Stream(ctx, req)
+	return a.deps.Client.Stream(ctx, req)
 }
 
 func (a *Agent) handleEmptyStream(
@@ -232,22 +243,22 @@ func (a *Agent) handleEmptyStream(
 		// so skip it and go straight to non-streaming + nag prompt.
 		// For models with prefill (usePrefill=true, i.e. local XML-text models)
 		// the XML retry may still produce <tool_call> blocks.
-		if !a.usePrefill {
-			a.logger.Info("empty response with native tools, returning stuck signal for nag recovery")
+		if !a.config.UsePrefill {
+			a.deps.Logger.Info("empty response with native tools, returning stuck signal for nag recovery")
 			return proxy.Message{
 				Role:             proxy.AssistantRole,
 				ReasoningContent: "[stuck]",
 			}, nil
 		}
 
-		a.logger.Info("empty response with native tools, retrying in XML mode")
+		a.deps.Logger.Info("empty response with native tools, retrying in XML mode")
 		a.notifyLifecycle("fallback_started", map[string]any{
 			"reason": "empty stream with native tools", "mode": "xml",
 		})
-		savedNative := a.useNativeTools
-		a.useNativeTools = false
+		savedNative := a.config.UseNativeTools
+		a.config.UseNativeTools = false
 		msg, err := a.computeNextResponseStreamXML(ctx, history, tools)
-		a.useNativeTools = savedNative
+		a.config.UseNativeTools = savedNative
 		return msg, err
 	}
 	return a.computeNextResponseNonStreaming(ctx, history, tools)
@@ -266,7 +277,7 @@ func isUserCanceled(err error) bool {
 // closure and subsequent retries is intentional (shadow-free single var).
 func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
 	llmTools := tools
-	if !a.useNativeTools {
+	if !a.config.UseNativeTools {
 		llmTools = nil
 	}
 
@@ -278,18 +289,18 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		return proxy.Message{}, pfErr
 	}
 
-	ch, streamErr := a.client.Stream(ctx, req)
-	a.logger.Info("stream request sent", "model", a.modelName,
-		"max_tokens", a.maxTokens, "tool_choice", req.ToolChoice,
+	ch, streamErr := a.deps.Client.Stream(ctx, req)
+	a.deps.Logger.Info("stream request sent", "model", a.config.ModelName,
+		"max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice,
 		"temperature", req.Temperature)
 
-	if a.orch != nil && a.orch.Budget != nil && txnID != "" {
+	if a.deps.Orchestrator != nil && a.deps.Orchestrator.Budget != nil && txnID != "" {
 		defer func() {
 			if streamErr != nil {
-				if refErr := a.orch.Budget.Refund(ctx, txnID); refErr != nil {
-					a.logger.Warn("ICU refund failed", "txn", txnID, "error", refErr)
+				if refErr := a.deps.Orchestrator.Budget.Refund(ctx, txnID); refErr != nil {
+					a.deps.Logger.Warn("ICU refund failed", "txn", txnID, "error", refErr)
 				} else {
-					a.logger.Warn("ICU refunded due to stream failure", "txn", txnID)
+					a.deps.Logger.Warn("ICU refunded due to stream failure", "txn", txnID)
 				}
 			}
 		}()
@@ -304,7 +315,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 			return proxy.Message{}, streamErr
 		}
 		if prefill != "" && isPrefillThinkingError(streamErr) {
-			a.logger.Info("prefill rejected by server, retrying without prefill")
+			a.deps.Logger.Info("prefill rejected by server, retrying without prefill")
 			ch, streamErr = a.handlePrefillRejection(ctx, history, tools)
 			prefill = ""
 			if isUserCanceled(streamErr) {
@@ -312,7 +323,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 			}
 		}
 		if streamErr != nil {
-			a.logger.Warn("streaming not supported, falling back to non-streaming")
+			a.deps.Logger.Warn("streaming not supported, falling back to non-streaming")
 			a.memoryInjected = false  // retry injection on the non-streaming path
 			return a.computeNextResponseNonStreaming(ctx, history, tools)
 		}
@@ -329,13 +340,13 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	reasons := len(fullMsg.ReasoningContent)
-	if ReasoningBudgetExceeded(reasons, a.reasoningBudget) {
-		a.logger.Warn("reasoning budget far exceeded — server may not be enforcing",
-			"reasoning_budget", a.reasoningBudget,
+	if ReasoningBudgetExceeded(reasons, a.config.ReasoningBudget) {
+		a.deps.Logger.Warn("reasoning budget far exceeded — server may not be enforcing",
+			"reasoning_budget", a.config.ReasoningBudget,
 			"reasoning_len", reasons,
-			"model", a.modelName)
+			"model", a.config.ModelName)
 	}
-	a.logger.Info("stream completed",
+	a.deps.Logger.Info("stream completed",
 		"content_len", len(fullMsg.Content),
 		"reasoning_len", reasons,
 		"tool_calls", len(fullMsg.ToolCalls))
@@ -367,7 +378,7 @@ func injectRetryContext(history []proxy.Message) []proxy.Message {
 // server-side are caught mid-stream; falls back to maxTokens * 2 when the
 // reasoning budget is 0 (non-automation turns).
 func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
-	if a.skipStuckCheck || len(fullMsg.Content) > 0 || len(fullMsg.ToolCalls) > 0 {
+	if a.config.SkipStuckCheck || len(fullMsg.Content) > 0 || len(fullMsg.ToolCalls) > 0 {
 		return false
 	}
 
@@ -376,7 +387,7 @@ func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	// rather than waiting for the full threshold.  Divisor=1 (maxTokens) avoids
 	// false positives on models like Gemma 4 that output legitimate <think> blocks
 	// before producing content/tool calls (~1371 chars observed).
-	if a.reasoningBudget == 0 && len(fullMsg.ReasoningContent) > a.maxTokens/stuckNonReasoningDivisor {
+	if a.config.ReasoningBudget == 0 && len(fullMsg.ReasoningContent) > a.config.MaxTokens/stuckNonReasoningDivisor {
 		return true
 	}
 
@@ -405,13 +416,12 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 	var tokUsed, reasonUsed int
 	var budgetWarned bool
 
-	// [DIAG] Temporary diagnostic logging for intermittent no-tool-call issue.
-	// Remove after root cause is understood.
 	streamStartTime := time.Now()
-	var lastNoToolLog time.Time
 
 	streamDone := make(chan struct{})
 	defer close(streamDone)
+
+	var streamContentLen, streamReasoningLen, streamToolCalls atomic.Int64
 
 	go func() {
 		ticker := time.NewTicker(streamHeartbeatInterval)
@@ -419,20 +429,9 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 		for {
 			select {
 			case <-ticker.C:
-				a.logger.Info("stream still generating", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent))
-				// [DIAG] Periodic check for no-tool-call state.
-				if a.useNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > 0 {
-					preview := fullMsg.Content
-					if len(preview) > 200 {
-						preview = preview[:200]
-					}
-					a.logger.Warn("[DIAG] no tool call detected at heartbeat",
-						"content_chars", len(fullMsg.Content),
-						"reasoning_chars", len(fullMsg.ReasoningContent),
-						"tool_calls", len(fullMsg.ToolCalls),
-						"content_preview", preview,
-						"elapsed", time.Since(streamStartTime).Seconds())
-				}
+				contentLen := int(streamContentLen.Load())
+				reasoningLen := int(streamReasoningLen.Load())
+				a.deps.Logger.Info("stream still generating", "content_len", contentLen, "reasoning_len", reasoningLen)
 			case <-ctx.Done():
 				return
 			case <-streamDone:
@@ -441,9 +440,8 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 		}
 	}()
 
-	// [DIAG] Helper to log stream end reason. Remove with other DIAG logs.
 	logStreamEnd := func(reason string) {
-		a.logger.Warn("[DIAG] stream ended",
+		a.deps.Logger.Warn("stream ended",
 			"end_reason", reason,
 			"content_chars", len(fullMsg.Content),
 			"reasoning_chars", len(fullMsg.ReasoningContent),
@@ -458,9 +456,6 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 			return ctx.Err()
 		case resp, ok := <-ch:
 			if !ok {
-				if !budgetWarned && a.useNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > 0 {
-					logStreamEnd("eos_no_tool_call")
-				}
 				return nil
 			}
 			if len(resp.Choices) > 0 {
@@ -474,100 +469,93 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					reasoningChunk = choice.Message.ReasoningContent
 				}
 
-				if a.orch != nil && a.orch.Interceptor != nil {
-					result := a.orch.Interceptor.InterceptChunk(orchestrator.StreamChunk{
+				if a.deps.Orchestrator != nil && a.deps.Orchestrator.Interceptor != nil {
+					result := a.deps.Orchestrator.Interceptor.InterceptChunk(orchestrator.StreamChunk{
 						Content:          chunkContent,
 						ReasoningContent: reasoningChunk,
-						ProviderType:     a.providerType,
+						ProviderType:     a.config.ProviderType,
 					})
 					tokUsed += result.TokensUsed
 					reasonUsed += result.ReasoningUsed
 
-				term := a.orch.Interceptor.InterceptChunkWithBudget(ctx,
+				term := a.deps.Orchestrator.Interceptor.InterceptChunkWithBudget(ctx,
 					orchestrator.StreamChunk{},
-					tokUsed, reasonUsed, a.maxTokens, a.reasoningBudget,
+					tokUsed, reasonUsed, a.config.MaxTokens, a.config.ReasoningBudget,
 				)
 				if term.ShouldTerminate {
 					// Upstream servers don't always enforce max_tokens, so
 					// the client must end the stream when the interceptor
 					// signals budget exceeded. Returning nil hands the
 					// partial turn to the agent loop for evaluation.
-					if !budgetWarned {
-						budgetWarned = true
-						a.logger.Warn("token budget exceeded, terminating stream",
-							"tokens_used", tokUsed, "reasoning_used", reasonUsed,
-							"token_budget", a.maxTokens, "reasoning_budget", a.reasoningBudget)
-					}
-					logStreamEnd("budget_exceeded")
-					return nil
+				if !budgetWarned {
+					budgetWarned = true
+					a.deps.Logger.Warn("token budget exceeded, terminating stream",
+						"tokens_used", tokUsed, "reasoning_used", reasonUsed,
+						"token_budget", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget)
 				}
-				}
+				logStreamEnd("budget_exceeded")
+				return nil
+			}
+			}
 
 			if a.tryExtractToolCallFromReasoning(fullMsg) {
 				logStreamEnd("extracted_tool_from_reasoning")
 				return nil
 			}
 
-				if a.checkStreamStuck(fullMsg) {
-					a.logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback", "reasoning_chars", len(fullMsg.ReasoningContent), "stuck_threshold", a.stuckThreshold())
-					a.notifyLifecycle("stuck_detected", map[string]any{
-						"reasoning_chars": len(fullMsg.ReasoningContent),
-					})
-					logStreamEnd("stuck_detected")
-					return nil
-				}
-
-				if chunkContent != "" {
-					fullMsg.Content += chunkContent
-				}
-				if reasoningChunk != "" {
-					fullMsg.ReasoningContent += reasoningChunk
-				}
-			// [DIAG] Periodic no-tool-call check. Every 5 seconds while
-			// native-tools mode is active, content exists, and no tool
-			// calls detected. Remove with other DIAG logs.
-			if a.useNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > 0 && time.Since(lastNoToolLog) > 5*time.Second {
-				lastNoToolLog = time.Now()
-				preview := fullMsg.Content
-				if len(preview) > 200 {
-					preview = preview[:200]
-				}
-				a.logger.Warn("[DIAG] no tool call detected yet",
-					"content_chars", len(fullMsg.Content),
-					"reasoning_chars", len(fullMsg.ReasoningContent),
-					"tool_calls", len(fullMsg.ToolCalls),
-					"content_preview", preview,
-					"elapsed", time.Since(streamStartTime).Seconds())
-			}
-
-			if a.exceedsContentCharCap(fullMsg) {
-				// Safety net: ShouldTerminate above should have fired,
-				// but if the token counter underestimates output this
-				// prevents indefinite generation.
-				logStreamEnd("char_cap")
-				a.logger.Warn("content char cap reached, terminating stream",
-					"content_chars", len(fullMsg.Content),
-					"cap", a.maxTokens*streamCharCapMultiplier)
+			if a.checkStreamStuck(fullMsg) {
+				a.deps.Logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback", "reasoning_chars", len(fullMsg.ReasoningContent), "stuck_threshold", a.stuckThreshold())
+				a.notifyLifecycle("stuck_detected", map[string]any{
+					"reasoning_chars": len(fullMsg.ReasoningContent),
+				})
+				logStreamEnd("stuck_detected")
 				return nil
 			}
-				if chunkContent != "" || reasoningChunk != "" {
-				displayText := fullMsg.Content
-				if displayText == "" {
-					displayText = fullMsg.ReasoningContent
-				}
-				displayContent, _ := FilterStreamingMarkup(displayText)
-				a.notify(EventToolStream, displayContent)
-				}
-				if len(choice.Delta.ToolCalls) > 0 {
-					for _, tc := range choice.Delta.ToolCalls {
-						if tc.ID != "" {
-							fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
-						} else if len(fullMsg.ToolCalls) > 0 {
-							last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
-							last.Function.Arguments += tc.Function.Arguments
-						}
+
+			if chunkContent != "" {
+				fullMsg.Content += chunkContent
+			}
+			if reasoningChunk != "" {
+				fullMsg.ReasoningContent += reasoningChunk
+			}
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tc := range choice.Delta.ToolCalls {
+					if tc.ID != "" {
+						fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
+					} else if len(fullMsg.ToolCalls) > 0 {
+						last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
+						last.Function.Arguments += tc.Function.Arguments
 					}
 				}
+			}
+			streamContentLen.Store(int64(len(fullMsg.Content)))
+			streamReasoningLen.Store(int64(len(fullMsg.ReasoningContent)))
+			streamToolCalls.Store(int64(len(fullMsg.ToolCalls)))
+
+			if a.exceedsContentCharCap(fullMsg) {
+				logStreamEnd("char_cap")
+				a.deps.Logger.Warn("content char cap reached, terminating stream",
+					"content_chars", len(fullMsg.Content),
+					"cap", a.config.MaxTokens*streamCharCapMultiplier)
+				return nil
+			}
+
+			if a.config.UseNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > a.config.MaxTokens {
+				a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, terminating stream",
+					"content_chars", len(fullMsg.Content),
+					"cap", a.config.MaxTokens)
+				return nil
+			}
+
+			if reasoningChunk != "" {
+				a.notify(EventReasoning, fullMsg.ReasoningContent)
+			}
+			if chunkContent != "" {
+				displayContent, _ := FilterStreamingMarkup(fullMsg.Content)
+				if displayContent != "" {
+					a.notify(EventToolStream, displayContent)
+				}
+			}
 			}
 		}
 	}
@@ -576,7 +564,7 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 func (a *Agent) retryWithoutTools(ctx context.Context, history []proxy.Message) (*proxy.ChatResponse, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, AgentRetryTimeout)
 	defer cancel()
-	return a.client.Chat(chatCtx, proxy.ChatRequest{Messages: history, MaxTokens: a.maxTokens})
+	return a.deps.Client.Chat(chatCtx, proxy.ChatRequest{Messages: history, MaxTokens: a.config.MaxTokens})
 }
 
 func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
@@ -584,7 +572,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	defer cancel()
 
 	llmTools := tools
-	if !a.useNativeTools {
+	if !a.config.UseNativeTools {
 		llmTools = nil
 	}
 
@@ -593,10 +581,10 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	req := a.buildChatRequest(preparedHistory, llmTools)
 
 	if rawReq, err := json.Marshal(req); err == nil {
-		a.logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
+		a.deps.Logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
 	}
 
-	a.logger.Info("non-stream request sent", "model", a.modelName, "max_tokens", a.maxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
+	a.deps.Logger.Info("non-stream request sent", "model", a.config.ModelName, "max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
 
 	heartbeatDone := make(chan struct{})
 	defer close(heartbeatDone)
@@ -619,9 +607,9 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		}
 	}()
 
-	resp, err := a.client.Chat(chatCtx, req)
+	resp, err := a.deps.Client.Chat(chatCtx, req)
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
-		a.logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
+		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
 		a.prefillDisabled = true
 		a.notifyPrefillDisabled()
 		prefill = ""
@@ -632,12 +620,12 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		req = proxy.ChatRequest{
 			Messages:  preparedHistory,
 			Tools:     nil,
-			MaxTokens: a.maxTokens,
+			MaxTokens: a.config.MaxTokens,
 		}
-		resp, err = a.client.Chat(chatCtx, req)
+		resp, err = a.deps.Client.Chat(chatCtx, req)
 	}
 	if err != nil && isToolSupportError(err) {
-		a.logger.Warn("model does not support tools, retrying without them", "error", err)
+		a.deps.Logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
 		resp, err = a.retryWithoutTools(ctx, history)
 	}
@@ -673,18 +661,18 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	req := proxy.ChatRequest{
 		Messages:  prepared,
 		Tools:     nil,
-		MaxTokens: a.maxTokens,
+		MaxTokens: a.config.MaxTokens,
 	}
-	if a.temperature > 0 {
-		req.Temperature = a.temperature
+	if a.config.Temperature > 0 {
+		req.Temperature = a.config.Temperature
 	}
 
-	a.logger.Info("xml stream retry sent", "model", a.modelName, "max_tokens", a.maxTokens, "prefill", prefill != "")
+	a.deps.Logger.Info("xml stream retry sent", "model", a.config.ModelName, "max_tokens", a.config.MaxTokens, "prefill", prefill != "")
 
-	ch, err := a.client.Stream(ctx, req)
+	ch, err := a.deps.Client.Stream(ctx, req)
 
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
-		a.logger.Info("prefill rejected by server (thinking mode), retrying stream without prefill")
+		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying stream without prefill")
 		a.prefillDisabled = true
 		a.notifyPrefillDisabled()
 		prefill = ""
@@ -692,27 +680,27 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 		req = proxy.ChatRequest{
 			Messages:  prepared,
 			Tools:     nil,
-			MaxTokens: a.maxTokens,
+			MaxTokens: a.config.MaxTokens,
 		}
-		if a.temperature > 0 {
-			req.Temperature = a.temperature
+		if a.config.Temperature > 0 {
+			req.Temperature = a.config.Temperature
 		}
-		ch, err = a.client.Stream(ctx, req)
+		ch, err = a.deps.Client.Stream(ctx, req)
 	}
 
 	if err != nil {
 		if isUserCanceled(err) {
 			return proxy.Message{}, err
 		}
-		a.logger.Warn("xml stream retry failed, falling back to non-streaming", "error", err)
+		a.deps.Logger.Warn("xml stream retry failed, falling back to non-streaming", "error", err)
 		return a.computeNextResponseNonStreaming(ctx, history, tools)
 	}
 
-	a.skipStuckCheck = true
+	a.config.SkipStuckCheck = true
 	var fullMsg proxy.Message
 	fullMsg.Role = proxy.AssistantRole
 	streamErr := a.processStream(ctx, ch, &fullMsg)
-	a.skipStuckCheck = false
+	a.config.SkipStuckCheck = false
 
 	if streamErr != nil {
 		return proxy.Message{}, streamErr
@@ -730,16 +718,16 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 		fullMsg.Content = prefill + fullMsg.Content
 	}
 
-	a.logger.Info("xml stream retry completed", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent), "tool_calls", len(fullMsg.ToolCalls))
+	a.deps.Logger.Info("xml stream retry completed", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent), "tool_calls", len(fullMsg.ToolCalls))
 	return fullMsg, nil
 }
 
 func (a *Agent) shouldPrefill() bool {
-	return a.usePrefill && !a.prefillDisabled && !a.useNativeTools
+	return a.config.UsePrefill && !a.prefillDisabled && !a.config.UseNativeTools
 }
 
 func (a *Agent) stuckThreshold() int {
-	threshold := a.maxTokens * stuckThresholdMultiplier
+	threshold := a.config.MaxTokens * stuckThresholdMultiplier
 	if threshold < MinReasoningStuckThreshold {
 		return MinReasoningStuckThreshold
 	}
@@ -753,7 +741,7 @@ func (a *Agent) stuckThreshold() int {
 // the token-budget termination should have; if it fires, the token
 // counter has a bug we want to surface in logs.
 func (a *Agent) exceedsContentCharCap(fullMsg *proxy.Message) bool {
-	return a.maxTokens > 0 && len(fullMsg.Content) > a.maxTokens*streamCharCapMultiplier
+	return a.config.MaxTokens > 0 && len(fullMsg.Content) > a.config.MaxTokens*streamCharCapMultiplier
 }
 
 func cleanReasoningContent(s string) string {

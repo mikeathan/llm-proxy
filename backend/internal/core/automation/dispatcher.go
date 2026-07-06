@@ -47,6 +47,8 @@ type Dispatcher struct {
 
 	runMu      sync.RWMutex
 	activeRuns map[string]context.CancelFunc // workspaceID -> cancelFunc
+
+	stopOnce sync.Once
 }
 
 func NewDispatcher(
@@ -168,15 +170,17 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 }
 
 func (d *Dispatcher) Stop() {
-	d.logger.Info("Stopping dispatcher")
-	close(d.stopCh)
-	cronCtx := d.cron.Stop()
-	select {
-	case <-cronCtx.Done():
-		d.logger.Info("All cron jobs finished")
-	case <-time.After(30 * time.Second):
-		d.logger.Warn("Cron jobs did not finish within timeout")
-	}
+	d.stopOnce.Do(func() {
+		d.logger.Info("Stopping dispatcher")
+		close(d.stopCh)
+		cronCtx := d.cron.Stop()
+		select {
+		case <-cronCtx.Done():
+			d.logger.Info("All cron jobs finished")
+		case <-time.After(30 * time.Second):
+			d.logger.Warn("Cron jobs did not finish within timeout")
+		}
+	})
 }
 
 func (d *Dispatcher) Register(workspaceID string, auto *models.Automation) error {
@@ -688,6 +692,16 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 	}()
 
 	return nil
+}
+
+// IsAutomationRunning reports whether an automation is currently executing
+// in the given workspace. It is a read-only check safe for use in HTTP
+// handlers and observability — it never cancels or mutates the run.
+func (d *Dispatcher) IsAutomationRunning(workspaceID string) bool {
+	d.runMu.Lock()
+	defer d.runMu.Unlock()
+	_, ok := d.activeRuns[workspaceID]
+	return ok
 }
 
 // Persistence returns the underlying WorkspaceManager.

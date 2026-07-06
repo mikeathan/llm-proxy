@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"time"
 
@@ -14,9 +15,10 @@ import (
 )
 
 type App struct {
-	server     *http.Server
-	services   *AppServices
-	dispatcher *automation.Dispatcher
+	server       *http.Server
+	services     *AppServices
+	dispatcher   *automation.Dispatcher
+	serverCancel context.CancelFunc
 }
 
 func (a *App) Handler() http.Handler {
@@ -29,6 +31,13 @@ func (a *App) ListenAndServe() error {
 
 func (a *App) Shutdown(ctx context.Context) error {
 	logging.Info("Shutting down application...")
+
+	// Cancel server base context first to immediately signal all active
+	// handlers (including SSE connections) so server.Shutdown can close
+	// connections without waiting for the 15s timeout.
+	if a.serverCancel != nil {
+		a.serverCancel()
+	}
 
 	// 1. Shutdown HTTP server
 	if err := a.server.Shutdown(ctx); err != nil {
@@ -91,16 +100,20 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 	router := buildHTTP(svc, container.Dispatcher, buildInfo)
 	bindAddr := ResolveBindAddr(dataMgr)
 
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+
 	return &App{
 		server: &http.Server{
 			Addr:              bindAddr,
 			Handler:           router,
+			BaseContext:       func(_ net.Listener) context.Context { return serverCtx },
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       30 * time.Second,
-			WriteTimeout:      120 * time.Second,
+			WriteTimeout:      30 * time.Minute,
 			IdleTimeout:       120 * time.Second,
 		},
-		services:   svc,
-		dispatcher: container.Dispatcher,
+		services:     svc,
+		dispatcher:   container.Dispatcher,
+		serverCancel: serverCancel,
 	}
 }

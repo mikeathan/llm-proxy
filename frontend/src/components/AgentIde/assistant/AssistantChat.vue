@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted } from "vue";
 import { useAssistant } from "../../../composables/assistant/useAssistant";
-import { AssistantService } from "../../../services/assistantService";
+import { AssistantService } from "../../../services/assistant/assistantService";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useResponsiveLayout } from "../../../composables/ui/useResponsiveLayout";
 import GuardrailBanner from "../../../components/common/chat/GuardrailBanner.vue";
@@ -24,7 +24,7 @@ const {
   loading, error, messages, sessions, currentSessionId, pendingDecision,
   thinking, liveReasoning, paused,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
-  cancelSession, activeWorkspaceId, cancel,
+  deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
   liveEvents,
 } = useAssistant();
 
@@ -33,6 +33,11 @@ const dismissError = () => { error.value = null }
 const inputMessage = ref("");
 const sidebarOpen = ref(false);
 const inboundCount = ref(0);
+const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
+
+function forceScrollToBottom() {
+  chatMessagesRef.value?.scrollToBottom("smooth");
+}
 
 const currentSessionRunning = computed(() =>
   currentSessionId.value != null && sessions.value.some(s => s.id === currentSessionId.value && s.running)
@@ -94,6 +99,7 @@ const initWorkspace = async () => {
   activeWorkspaceId.value = props.workspaceId;
   newSession();
   await fetchSessions(props.workspaceId);
+  connectSSE();
 };
 
 const handleNewChat = async () => {
@@ -109,12 +115,12 @@ const handleSend = async () => {
   collapseAllWork();
   await sendMessage(props.workspaceId, text);
   await nextTick();
-  scrollToBottom();
+  forceScrollToBottom();
 };
 
 const handleRetry = (text: string) => {
   sendMessage(props.workspaceId, text);
-  scrollToBottom();
+  forceScrollToBottom();
 };
 
 const handleLoadSession = async (sessionId: string) => {
@@ -122,7 +128,7 @@ const handleLoadSession = async (sessionId: string) => {
   await loadSession(props.workspaceId, sessionId);
   await nextTick();
   collapseAllWork();
-  scrollToBottom();
+  forceScrollToBottom();
   if (isMobile.value) {
     sidebarOpen.value = false;
   }
@@ -157,11 +163,10 @@ const handleClearAll = async () => {
   }
 };
 
-function scrollToBottom() {
-  const el = document.querySelector(".message-container");
-  if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 80) return;
-  if (el) el.scrollTop = el.scrollHeight;
-}
+const handleDeleteGroup = async (ids: string[]) => {
+  if (!confirm("Delete all conversations in this group? This cannot be undone.")) return;
+  await deleteSessionsByIds(props.workspaceId, ids);
+};
 
 watch(loading, async (newVal, oldVal) => {
   if (!oldVal && newVal) {
@@ -197,6 +202,7 @@ watch(loading, async (newVal, oldVal) => {
         @cancel="handleCancelSession"
         @new-chat="handleNewChat"
         @clear-all="handleClearAll"
+        @delete-group="handleDeleteGroup"
         @close="toggleSidebar"
       />
     </aside>
@@ -214,6 +220,7 @@ watch(loading, async (newVal, oldVal) => {
           @cancel="handleCancelSession"
           @new-chat="handleNewChat"
           @clear-all="handleClearAll"
+          @delete-group="handleDeleteGroup"
           @close="toggleSidebar"
         />
       </div>
@@ -257,6 +264,7 @@ watch(loading, async (newVal, oldVal) => {
       </div>
 
       <ChatMessages
+        ref="chatMessagesRef"
         :messages="messages"
         :turns="turns"
         :loading="loading"

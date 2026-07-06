@@ -1,5 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import type { ProcessInfo } from '../../types/admin'
 
 const processes = ref<ProcessInfo[]>([])

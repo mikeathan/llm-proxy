@@ -61,14 +61,9 @@ Every Go function must have McCabe cyclomatic complexity ≤ 12. Enforced by `ba
 
 ## Coding Rules (TypeScript/Vue — Frontend)
 
-- `frontend/` is a Vue 3 + Vite + TypeScript SPA
-- Composables are singletons — state is module-level, shared across components
-- Use `ref()` for reactive state, not `reactive()`
-- Type imports from `types/` directory (barrel exports)
-- Services are stateless — API calls only, no local state caching
-- Polling uses `mountCount` pattern: ref counts subscribers, stops when zero
-- Dev server at `localhost:5173` proxies `/admin/api` to `:4001` — start backend first
-- Build output goes to `../backend/internal/transport/http/frontend_dist/` (Go embed)
-- `npm run build` runs `vue-tsc -b` (type-check) then `vite build` — TS errors fail the build
-- Model form defaults and derived names live in `src/utils/modelUtils.ts` — reusable across components
-- **Service response types**: every API method that calls `fetch()` must define its response type in `types/` and explicitly deserialise via `const data: T = await res.json(); return data`. Never return bare `res.json()` — the explicit variable type catches field mismatches at compile time if the backend shape changes.
+Follow the full rules in `.agents/rules/frontend-vue-engineer.md`. Key invariants:
+
+- Composables are singletons — module-level state shared across components
+- `ref()` over `reactive()`, type imports from `types/`, services are stateless
+- Behavior belongs on the type — no switch/if-else chains in consumers; each variant is its own module
+- **Service response types**: every `fetch()` method must define its response type in `types/` and explicitly deserialize via `const data: T = await res.json(); return data`

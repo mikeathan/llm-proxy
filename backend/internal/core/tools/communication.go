@@ -3,10 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
+
+	"llm-proxy/models"
 )
 
 // Connector defines the interface for sending messages to external platforms.
@@ -15,6 +14,40 @@ import (
 type Connector interface {
 	Send(ctx context.Context, message string) error
 	Name() string
+}
+
+// WebhookAware is optionally implemented by connectors that support inbound
+// webhook registration.  Connectors satisfying this interface are
+// automatically re-registered on startup when a WebhookURL is stored.
+type WebhookAware interface {
+	RegisterWebhook(ctx context.Context, webhookURL, webhookSecret string) error
+}
+
+// ConnectorFactory builds a connector instance for a config entry. It returns
+// ok=false when the connector type is unregistered or its required credentials
+// are missing, in which case the caller skips the connector.
+type ConnectorFactory func(
+	name string,
+	cfg models.ConnectorConfig,
+	secrets models.SecretsStore,
+	network *NetworkTools,
+) (Connector, bool)
+
+// connectorFactories maps a connector type string (e.g. "telegram") to its
+// factory. Connector packages register themselves via RegisterConnectorFactory,
+// so adding a new platform requires no changes to the wiring layer.
+var connectorFactories = map[string]ConnectorFactory{}
+
+// RegisterConnectorFactory registers a connector implementation under its type
+// string. Intended to be called from a connector package's init().
+func RegisterConnectorFactory(connectorType string, factory ConnectorFactory) {
+	connectorFactories[connectorType] = factory
+}
+
+// GetConnectorFactory returns the factory registered for a connector type.
+func GetConnectorFactory(connectorType string) (ConnectorFactory, bool) {
+	f, ok := connectorFactories[connectorType]
+	return f, ok
 }
 
 // namedConnector pairs a Connector with its config type string so NotifyAll
@@ -42,6 +75,12 @@ func NewCommunicationTools() *CommunicationTools {
 // connType is the connector type from ConnectorConfig.Type (e.g. "telegram").
 func (c *CommunicationTools) AddConnector(name, connType string, conn Connector) {
 	c.connectors[name] = namedConnector{connector: conn, connType: connType}
+}
+
+// GetByName returns the connector registered under the given name.
+func (c *CommunicationTools) GetByName(name string) (Connector, bool) {
+	nc, ok := c.connectors[name]
+	return nc.connector, ok
 }
 
 // NotifyAll sends a message to registered connectors.
@@ -81,49 +120,4 @@ func (c *CommunicationTools) listTypes() string {
 		}
 	}
 	return strings.Join(types, ", ")
-}
-
-// TelegramNotifier implements the Connector interface for Telegram.
-// Uses an injected *http.Client so that all network I/O routes through NetworkTools.
-type TelegramNotifier struct {
-	Token  string
-	ChatID string
-	client *http.Client
-}
-
-func NewTelegramNotifier(token, chatID string, client *http.Client) *TelegramNotifier {
-	return &TelegramNotifier{Token: token, ChatID: chatID, client: client}
-}
-
-func (t *TelegramNotifier) Name() string { return "Telegram" }
-
-func (t *TelegramNotifier) Send(ctx context.Context, message string) error {
-	if t.Token == "" || t.ChatID == "" || t.client == nil {
-		return fmt.Errorf("telegram connector not fully configured")
-	}
-
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.Token)
-	formData := url.Values{}
-	formData.Set("chat_id", t.ChatID)
-	formData.Set("text", message)
-	formData.Set("parse_mode", "Markdown")
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(formData.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("telegram API error: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
 }

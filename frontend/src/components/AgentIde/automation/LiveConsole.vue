@@ -17,7 +17,6 @@ const props = defineProps<{
 }>();
 
 const { container: scrollContainer, scrollToBottom, toggleScroll, scrollDirection, capturePosition, scrollIfNearBottom, updateWasNearBottom } = useAutoScroll();
-void scrollContainer;
 
 const {
   liveEvents,
@@ -106,16 +105,17 @@ const fullTerminalText = computed(() =>
       </div>
     </div>
 
+    <div ref="scrollContainer" class="terminal-scroll" @scroll="updateWasNearBottom()">
     <TerminalOutput
       :events="displayEvents"
       :workspaceId="props.workspaceId"
       :pendingDecision="pendingDecision"
       :scrollDirection="scrollDirection"
-      @scroll-toggle="toggleScroll(scrollContainer)"
+      @scroll-toggle="toggleScroll()"
       @allow-decision="(persist: boolean) => submitDecision(true, persist)"
       @deny-decision="() => submitDecision(false, false)"
-      @scroll-update="updateWasNearBottom()"
     />
+    </div>
   </div>
 </template>
 
@@ -158,6 +158,10 @@ const fullTerminalText = computed(() =>
 
 .scroll-btn:active {
   @apply bg-gray-600/50;
+}
+
+.terminal-scroll {
+  @apply flex-1 overflow-y-auto bg-[#0d1117];
 }
 
 
