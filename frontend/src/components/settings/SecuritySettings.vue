@@ -2,7 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import BaseToggle from '../common/buttons/BaseToggle.vue'
 import TerminalMonitor from './TerminalMonitor.vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import { useToast } from '../../composables/useToast'
 
 const toast = useToast()

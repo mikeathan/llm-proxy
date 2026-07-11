@@ -1,9 +1,11 @@
-import { ref, watch } from 'vue'
-import { AssistantService } from '../../services/assistantService'
+import { ref, computed, watch } from 'vue'
+import { AssistantService } from '../../services/assistant/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../../utils/message/messageBuilder'
 import { buildSegmentsFromHistory } from '../../utils/message/turnGrouper'
+import type { SessionLifecyclePayload } from './useAssistantSSE'
 import type { AssistantMessage, SessionBrief } from '../../types/assistant'
+import { clearRunningFlags } from '../../utils/assistant/running'
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -11,7 +13,19 @@ const currentSessionId = ref<string | null>(null)
 const messages = ref<AssistantMessage[]>([])
 const sessions = ref<SessionBrief[]>([])
 const activeWorkspaceId = ref<string | null>(null)
-const abortController = ref<AbortController | null>(null)
+  const abortController = ref<AbortController | null>(null)
+
+const runningSessions = computed(() => sessions.value.filter((s) => s.running))
+
+// reconcileRunning heals sticky `running` flags. When the authoritative
+// backend reports nothing is executing for the workspace, any locally-flagged
+// running session is cleared so the "running" indicator cannot get stuck on
+// after a missed completion event.
+function reconcileRunning(assistantRunning: boolean) {
+  if (!assistantRunning && sessions.value.some((s) => s.running)) {
+    sessions.value = clearRunningFlags(sessions.value)
+  }
+}
 
 export function useAssistant() {
   const builder = useMessageBuilder(messages)
@@ -19,6 +33,7 @@ export function useAssistant() {
   const sse = useAssistantSSE(
     () => activeWorkspaceId.value || '',
     (ev) => builder.handleEvent(ev),
+    applySessionUpdate,
   )
 
   const streamingContent = sse.streamingContent
@@ -26,6 +41,7 @@ export function useAssistant() {
   const pendingDecision = sse.pendingDecision
   const sseConnected = sse.isConnected
   const clearLiveEvents = sse.reset
+  const connectSSE = () => sse.connect()
   const streaming = builder.streaming
   const thinking = builder.thinking
   const liveReasoning = builder.liveReasoning
@@ -67,8 +83,16 @@ export function useAssistant() {
     loading.value = true
     error.value = null
     try {
+      // Preserve in-memory running state — the disk doesn't store it and
+      // SSE lifecycle events update it faster than ListSessions re-reads.
+      // Capture after the API call so SSE events that arrived during the
+      // request are reflected (avoids a race between connectSSE and fetch).
       const result = await AssistantService.listSessions(workspaceId)
-      sessions.value = result || []
+      const runningIds = new Set(sessions.value.filter(s => s.running).map(s => s.id))
+      sessions.value = (result || []).map(s => ({
+        ...s,
+        running: s.running ?? runningIds.has(s.id)
+      }))
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch sessions'
       console.error(err)
@@ -78,8 +102,26 @@ export function useAssistant() {
   }
 
   const loadSession = async (workspaceId: string, sessionId: string) => {
+    builder.reset()
+    // Running session: read user input from disk for instant display,
+    // then let the existing SSE connection stream live events into the
+    // chat.  Don't reconnect — the workspace-level SSE is already
+    // connected and dropping it would lose events published in the gap.
+    if (sessions.value.find(s => s.id === sessionId)?.running) {
+      loading.value = true
+      currentSessionId.value = sessionId
+      const session = await AssistantService.getSession(workspaceId, sessionId)
+      if (session) {
+        messages.value = buildSegmentsFromHistory(session.history || [])
+        builder.reset()
+      }
+      sse.reset()
+      return
+    }
+
     loading.value = true
     error.value = null
+    sse.reset()
     try {
       const session = await AssistantService.getSession(workspaceId, sessionId)
       if (!session) {
@@ -246,22 +288,90 @@ export function useAssistant() {
   }
 
   const deleteAllSessions = async (workspaceId: string) => {
-    const ids = [...sessions.value]
+    await deleteSessionsByIds(workspaceId, sessions.value.map((s) => s.id))
+  }
+
+  // deleteSessionsByIds removes a specific set of sessions and resyncs the
+  // list once, rather than mutating per call.
+  const deleteSessionsByIds = async (workspaceId: string, ids: string[]) => {
     if (ids.length === 0) return
     loading.value = true
     error.value = null
     try {
-      for (const s of ids) {
-        await AssistantService.deleteSession(workspaceId, s.id)
+      for (const id of ids) {
+        await AssistantService.deleteSession(workspaceId, id)
       }
-      sessions.value = []
-      newSession()
+      const removed = new Set(ids)
+      sessions.value = sessions.value.filter((s) => !removed.has(s.id))
+      if (currentSessionId.value && removed.has(currentSessionId.value)) {
+        newSession()
+      }
       await fetchSessions(workspaceId)
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to delete all sessions'
+      error.value = err instanceof Error ? err.message : 'Failed to delete sessions'
       console.error(err)
     } finally {
       loading.value = false
+    }
+  }
+
+  function applySessionUpdate(p: SessionLifecyclePayload) {
+    if (p.workspace_id && p.workspace_id !== activeWorkspaceId.value) return
+    const cid = p.conversation_id
+    if (!cid) return
+    const idx = sessions.value.findIndex(s => s.id === cid)
+    if (p.phase === "session_started") {
+      if (currentSessionId.value === null) {
+        currentSessionId.value = cid
+      }
+      // Webhook-triggered sessions bypass sendMessage(), so the user
+      // message never enters messages.value.  Push it here so groupTurns()
+      // can create the turn.  The loading guard prevents this during
+      // manual sends where sendMessage() already pushed it.
+      if (p.snippet && !loading.value) {
+        currentSessionId.value = cid
+        builder.reset()
+        builder.resetPauseTimer()
+        loading.value = true
+        messages.value = []
+        messages.value.push({ role: 'user', content: p.snippet })
+      }
+		if (idx === -1) {
+			sessions.value.unshift({
+				id: cid,
+				snippet: p.snippet ?? "",
+				updated_at: new Date().toISOString(),
+				running: true,
+				source: p.source,
+			})
+		} else {
+			const existing = sessions.value[idx]
+			if (existing) sessions.value[idx] = { ...existing, running: true, snippet: p.snippet ?? existing.snippet, source: p.source ?? existing.source }
+		}
+		} else if (p.phase === "session_progress") {
+			if (idx !== -1) {
+				const existing = sessions.value[idx]
+				// Keep the stable title set on session_started. Progress events
+				// carry transient step text ("Step N: ..."), not the title.
+				if (existing) sessions.value[idx] = { ...existing, snippet: existing.snippet }
+			}
+		}
+		else if (p.phase === "session_completed") {
+			if (idx !== -1) {
+				const existing = sessions.value[idx]
+				if (existing) sessions.value[idx] = { ...existing, running: false }
+			}
+			if (cid === currentSessionId.value) {
+				loading.value = false
+			}
+    }
+  }
+
+  const cancelSession = async (workspaceId: string, sessionId: string) => {
+    try {
+      await AssistantService.cancelAgent(workspaceId, sessionId)
+    } catch (err) {
+      console.warn('cancel session failed', err)
     }
   }
 
@@ -276,6 +386,7 @@ export function useAssistant() {
     pendingDecision,
     sseConnected,
     clearLiveEvents,
+    connectSSE,
     streaming,
     thinking,
     liveReasoning,
@@ -288,6 +399,10 @@ export function useAssistant() {
     sendMessage,
     deleteSession,
     deleteAllSessions,
+    deleteSessionsByIds,
+    cancelSession,
     activeWorkspaceId,
+    runningSessions,
+    reconcileRunning,
   }
 }

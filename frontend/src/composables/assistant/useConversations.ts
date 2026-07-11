@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { AssistantService } from '../../services/assistantService'
+import { AssistantService } from '../../services/assistant/assistantService'
 import type { SessionBrief } from '../../types/assistant'
 
 const sessions = ref<SessionBrief[]>([])

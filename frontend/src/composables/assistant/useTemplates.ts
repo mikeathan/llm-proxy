@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import type { Ref } from "vue";
 import type { Template } from "../../types/templates";
-import { DispatcherService } from "../../services/dispatcherService";
+import { DispatcherService } from "../../services/automation/dispatcherService";
 import { useToast } from "../useToast";
 
 export function useTemplates(

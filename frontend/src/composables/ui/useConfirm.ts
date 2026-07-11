@@ -20,28 +20,38 @@ const options = ref<ConfirmOptions>({
 })
 
 let resolvePromise: (value: boolean) => void
+let pendingQueue: { opts: ConfirmOptions; resolve: (value: boolean) => void }[] = []
 
 export function useConfirm() {
   const confirm = (opts: ConfirmOptions): Promise<boolean> => {
+    return new Promise((resolve) => {
+      pendingQueue.push({ opts, resolve })
+      if (!isOpen.value) showNext()
+    })
+  }
+
+  const showNext = () => {
+    const next = pendingQueue.shift()
+    if (!next) return
     options.value = {
       type: 'warning',
       confirmText: 'Confirm',
       cancelText: 'Cancel',
-      ...opts
+      ...next.opts,
     }
     isOpen.value = true
-    return new Promise((resolve) => {
-      resolvePromise = resolve
-    })
+    resolvePromise = (val: boolean) => {
+      next.resolve(val)
+      isOpen.value = false
+      showNext()
+    }
   }
 
   const handleConfirm = () => {
-    isOpen.value = false
     if (resolvePromise) resolvePromise(true)
   }
 
   const handleCancel = () => {
-    isOpen.value = false
     if (resolvePromise) resolvePromise(false)
   }
 
@@ -50,6 +60,6 @@ export function useConfirm() {
     options,
     confirm,
     handleConfirm,
-    handleCancel
+    handleCancel,
   }
 }

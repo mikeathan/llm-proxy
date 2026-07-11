@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Icon from "../../icons/Icon.vue"
+
 defineProps<{
   modelValue: "explorer" | "automations" | "recordings" | "memory" | "activity"
   recordingsEnabled: boolean

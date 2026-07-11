@@ -139,7 +139,7 @@ func (m *MockAssistantService) GuardrailDecisionStore() *assistant.GuardrailDeci
 	return nil
 }
 
-func (m *MockAssistantService) Events() *automation.EventBus {
+func (m *MockAssistantService) Events() assistant.EventPublisher {
 	if m.EventBusRef != nil {
 		return m.EventBusRef
 	}

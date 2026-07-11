@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { MemoryService } from '../../services/memoryService'
+import { MemoryService } from '../../services/memory/memoryService'
 import type { MemoryEntry } from '../../types/memory'
 
 const memories = ref<MemoryEntry[]>([])

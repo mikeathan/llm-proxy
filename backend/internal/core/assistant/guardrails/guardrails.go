@@ -27,6 +27,12 @@ type GuardrailEngine struct {
 	resolver       storage.Resolver
 	persistence    *persistence.WorkspaceManager
 	regexCache     sync.Map
+
+	// overrideCache stores in-memory guardrail approvals per (workspaceID, category)
+	// so that "Allow & Remember" decisions are effective immediately without waiting
+	// for the workspace config file write to propagate.  Key format: "workspaceID/category".
+	// Cleared on server restart (config file is the durable source).
+	overrideCache sync.Map
 }
 
 // NewGuardrailEngine creates a new validation engine
@@ -36,11 +42,18 @@ func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver s
 		resolver:       resolver,
 		persistence:    persistence,
 		regexCache:     sync.Map{},
+		overrideCache:  sync.Map{},
 	}
 }
 
 // ValidateToolCall checks a tool call against global and category-specific safety rules.
 func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolCall, workspaceID string) error {
+	// Fast path: check in-memory override cache first — avoids the file I/O race
+	// between PersistOverride writing and this function reading the updated config.
+	if workspaceID != "" && e.hasOverride(workspaceID, call.Function.Name) {
+		return nil
+	}
+
 	cfg := e.configProvider()
 
 	// Load and merge workspace-specific overrides
@@ -206,6 +219,8 @@ func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.Networ
 
 // PersistOverride saves a guardrail override to the workspace config so
 // future tool calls matching this category and pattern are not blocked.
+// Also marks the override in the in-memory cache so subsequent checks in the
+// same agent loop iteration see it immediately (avoids a file I/O race).
 func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args string) error {
 	if e.persistence == nil || workspaceID == "" {
 		return fmt.Errorf("persistence not available")
@@ -276,6 +291,26 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		cfg.Guardrails.Communication.RequireReview = false
 	}
 
+	e.MarkOverride(workspaceID, toolName)
+
 	return e.persistence.WriteConfig(workspaceID, cfg)
+}
+
+// hasOverride checks the in-memory override cache for a (workspaceID, toolName) pair.
+// Uses toolName (e.g. "notify_user") as the key suffix so ValidateToolCall can check
+// without needing to derive the category.
+func (e *GuardrailEngine) hasOverride(workspaceID, toolName string) bool {
+	key := workspaceID + "/" + toolName
+	_, ok := e.overrideCache.Load(key)
+	return ok
+}
+
+// MarkOverride stores an in-memory guardrail approval for the given
+// (workspaceID, toolName) so subsequent tool calls in the same session
+// skip the guardrail check without waiting for the config file write.
+// Uses toolName (not category) to match the key format in hasOverride.
+func (e *GuardrailEngine) MarkOverride(workspaceID, toolName string) {
+	key := workspaceID + "/" + toolName
+	e.overrideCache.Store(key, true)
 }
 

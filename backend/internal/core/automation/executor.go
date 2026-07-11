@@ -53,7 +53,7 @@ type LLMServiceProvider interface {
 	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
-	Events() *EventBus
+	Events() assistant.EventPublisher
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)

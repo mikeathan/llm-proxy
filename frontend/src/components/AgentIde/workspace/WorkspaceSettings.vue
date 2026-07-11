@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from "vue";
-import { DispatcherService } from "../../../services/dispatcherService";
+import { DispatcherService } from "../../../services/automation/dispatcherService";
 import GuardrailForm from "../system/GuardrailForm.vue";
 import { useToast } from "../../../composables/useToast";
 import type { AgentGuardrailsConfig } from "../../../types/admin";

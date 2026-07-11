@@ -2,11 +2,20 @@ import type { AssistantMessage, Segment } from '../../types/assistant'
 
 export interface Turn {
   userMessage: string
-  agentOutput: string
   finalAnswer: string
   segments: Segment[]
   messages: AssistantMessage[]
   canceled?: boolean
+}
+
+// Matches agent-internal nag messages injected by the backend (format errors,
+// retry prompts, incomplete-response warnings).  These use role:"user" so the
+// model sees them as corrective feedback, but they must not create turn
+// boundaries in the UI.
+const nagRe = /^(You returned an incomplete|⚠️\s+WARNING:|The tool call format|Your tool call|FORMAT ERROR:|You exceeded|You must not)/
+
+function isInternalMessage(m: AssistantMessage): boolean {
+  return m.role === 'user' && nagRe.test(m.content)
 }
 
 export function groupTurns(messages: AssistantMessage[]): Turn[] {
@@ -15,11 +24,10 @@ export function groupTurns(messages: AssistantMessage[]): Turn[] {
 
   while (i < messages.length) {
     const m = messages[i]
-    if (!m || m.role === 'system' || m.role !== 'user') { i++; continue }
+    if (!m || m.role === 'system' || isInternalMessage(m) || m.role !== 'user') { i++; continue }
 
     const turn: Turn = {
       userMessage: m.content,
-      agentOutput: '',
       finalAnswer: '',
       segments: [],
       messages: [],
@@ -29,7 +37,7 @@ export function groupTurns(messages: AssistantMessage[]): Turn[] {
     const assistantMsgs: AssistantMessage[] = []
     while (i < messages.length) {
       const msg = messages[i]
-      if (!msg || msg.role === 'user') break
+      if (!msg || (msg.role === 'user' && !isInternalMessage(msg))) break
       if (msg.role === 'assistant') {
         assistantMsgs.push(msg)
         turn.messages.push(msg)
@@ -42,8 +50,8 @@ export function groupTurns(messages: AssistantMessage[]): Turn[] {
     if (assistantMsgs.length === 1) {
       const only = assistantMsgs[0]
       if (only) {
-        turn.agentOutput = only.content
         if (only.segments) turn.segments = only.segments
+        turn.finalAnswer = only.content
       }
     } else if (assistantMsgs.length > 1) {
       const last = assistantMsgs[assistantMsgs.length - 1]
@@ -54,11 +62,6 @@ export function groupTurns(messages: AssistantMessage[]): Turn[] {
       // (no reasoning, no tool calls); intermediate messages carry them.
       turn.segments = assistantMsgs
         .flatMap(m => m.segments ?? [])
-
-      turn.agentOutput = assistantMsgs.slice(0, -1)
-        .map(m => m.content)
-        .filter(Boolean)
-        .join('\n')
     }
 
     turns.push(turn)
@@ -80,6 +83,16 @@ export function buildSegmentsFromHistory(messages: AssistantMessage[]): Assistan
 
     if (msg.reasoning_content) {
       segments.push({ kind: 'reasoning', text: msg.reasoning_content })
+    }
+
+    // Content on assistant messages with tool calls is the model's planning
+    // text, not output.  Move it to a reasoning segment so it doesn't show
+    // as raw text.  Skip submit_final_answer — its content is the report.
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0 && msg.content) {
+      const isSubmit = msg.tool_calls.some(tc => tc.function.name === 'submit_final_answer')
+      if (!isSubmit && !msg.reasoning_content) {
+        segments.push({ kind: 'reasoning', text: msg.content })
+      }
     }
 
     if (msg.tool_calls) {

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
@@ -25,4 +26,26 @@ type SessionBrief struct {
 	ID        string    `json:"id"`
 	Snippet   string    `json:"snippet"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Source identifies how the session originated.  Webhook sessions carry
+	// their connector platform in the value ("webhook-telegram",
+	// "webhook-slack", ...) so the UI can label them; manual sessions are
+	// "manual".  Derived from the session ID by SessionSource — the only place
+	// that knows the ID format.
+	Source string `json:"source"`
+}
+
+// SessionSource derives the origin from a session ID.  It is the single source
+// of truth: webhook IDs embed the connector platform type (wb_{type}_...), so
+// the value is extracted from the connector rather than hardcoded per platform.
+// The frontend only maps the resulting string to icons/labels and never parses
+// the ID itself.
+func SessionSource(id string) string {
+	if !strings.HasPrefix(id, "wb_") {
+		return "manual"
+	}
+	platform := strings.SplitN(strings.TrimPrefix(id, "wb_"), "_", 2)[0]
+	if platform == "" {
+		return "manual"
+	}
+	return "webhook-" + platform
 }

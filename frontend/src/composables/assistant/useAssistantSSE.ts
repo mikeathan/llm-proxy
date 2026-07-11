@@ -1,17 +1,25 @@
 import { ref } from "vue";
+import { useSSEConnection } from "../network/useSSEConnection";
 import type { AgentEvent, GuardrailBlockedPayload } from "../../types";
 import { generateId } from "../../utils/crypto";
+
+export interface SessionLifecyclePayload {
+  phase: string
+  conversation_id?: string
+  workspace_id?: string
+  snippet?: string
+  source?: string
+}
 
 export function useAssistantSSE(
   workspaceId: () => string,
   onEvent?: (ev: AgentEvent) => void,
+  onSessionUpdate?: (payload: SessionLifecyclePayload) => void,
 ) {
   const streamingContent = ref("");
   const liveEvents = ref<AgentEvent[]>([]);
-  const isConnected = ref(false);
   const pendingDecision = ref<GuardrailBlockedPayload | null>(null);
   const handledDecisionIds = new Set<string>();
-  let eventSource: EventSource | null = null;
   let receivedEventIds = new Set<string>();
 
   const handleAgentEvent = (ev: AgentEvent) => {
@@ -19,7 +27,17 @@ export function useAssistantSSE(
     if (ev.id) receivedEventIds.add(ev.id);
     if (!ev.id) (ev as any).id = generateId();
 
-    // Call external handler first (for messageBuilder, guardrails, etc.)
+    if (ev.type === "lifecycle" && onSessionUpdate) {
+      const p = ev.payload as any
+      onSessionUpdate({
+        phase: p?.phase ?? "",
+        conversation_id: p?.conversation_id,
+        workspace_id: p?.workspace_id,
+        snippet: p?.snippet,
+        source: p?.source,
+      })
+    }
+
     onEvent?.(ev);
 
     if (ev.type === "guardrail_blocked") {
@@ -41,63 +59,18 @@ export function useAssistantSSE(
       return;
     }
 
-    if (ev.type === "tool_stream") {
-      streamingContent.value = ev.payload as string;
-      liveEvents.value.push(ev);
-      return;
-    }
-
-    if (ev.type === "lifecycle") {
-      liveEvents.value.push(ev);
-      return;
-    }
-
-    if (ev.type === "tool_call" || ev.type === "tool_result" || ev.type === "step_start") {
-      liveEvents.value.push(ev);
-      return;
-    }
-
-    if (ev.type === "message") {
-      liveEvents.value.push(ev);
-      return;
-    }
-
     liveEvents.value.push(ev);
   };
 
-  const connect = () => {
-    if (eventSource) eventSource.close();
-
-    isConnected.value = false;
-
-    const url = `/admin/api/dispatcher/workspaces/${workspaceId()}/live`;
-    eventSource = new EventSource(url);
-
-    eventSource.addEventListener("ping", () => {
-      isConnected.value = true;
-    });
-
-    eventSource.addEventListener("agent_update", (e) => {
-      try {
-        const ev = JSON.parse(e.data) as AgentEvent;
-        handleAgentEvent(ev);
-      } catch (err) {
-        console.error("Failed to parse agent event", err);
-      }
-    });
-
-    eventSource.onerror = () => {
-      isConnected.value = false;
-    };
-  };
+  const sse = useSSEConnection({
+    url: () => `/admin/api/dispatcher/workspaces/${encodeURIComponent(workspaceId())}/live`,
+    onMessage: handleAgentEvent,
+  });
 
   const disconnect = () => {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-    isConnected.value = false;
+    sse.disconnect();
     pendingDecision.value = null;
+    handledDecisionIds.clear();
   };
 
   const reset = () => {
@@ -105,14 +78,15 @@ export function useAssistantSSE(
     liveEvents.value = [];
     pendingDecision.value = null;
     receivedEventIds = new Set<string>();
+    handledDecisionIds.clear();
   };
 
   return {
     streamingContent,
     liveEvents,
-    isConnected,
+    isConnected: sse.isConnected,
     pendingDecision,
-    connect,
+    connect: sse.connect,
     disconnect,
     reset,
   };

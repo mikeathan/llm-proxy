@@ -41,7 +41,7 @@ func NewRunDir(parent, workspaceID, task, model string) (*RunDir, error) {
 	sessionID := generateSessionID()
 	timestamp := time.Now().UTC().Format("20060102T150405Z")
 	dirName := fmt.Sprintf("%s_%s", timestamp, sessionID)
-	root := filepath.Join(parent, workspaceID, task, model, dirName)
+	root := filepath.Join(parent, workspaceID, model, task, dirName)
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return nil, fmt.Errorf("create run dir %s: %w", root, err)
 	}

@@ -7,7 +7,10 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -22,16 +25,75 @@ import (
 	"llm-proxy/models"
 )
 
+// readConfigFunc loads a workspace config, potentially from a cache.
+type readConfigFunc func(workspaceID string) (*models.WorkspaceConfig, error)
+
+// workspaceConfigCache memoizes ReadConfig results per workspace, invalidated by
+// file mtime. Matches the modelDiscoveryCache pattern from admin_handlers.go.
+type workspaceConfigCache struct {
+	mu       sync.RWMutex
+	entries  map[string]*workspaceConfigEntry
+	resolver storage.Resolver
+}
+
+type workspaceConfigEntry struct {
+	config  *models.WorkspaceConfig
+	modTime time.Time
+}
+
+func newWorkspaceConfigCache(resolver storage.Resolver) *workspaceConfigCache {
+	return &workspaceConfigCache{
+		entries:  make(map[string]*workspaceConfigEntry),
+		resolver: resolver,
+	}
+}
+
+func (c *workspaceConfigCache) getOrLoad(wsID string, persistence *persistence.WorkspaceManager) (*models.WorkspaceConfig, error) {
+	c.mu.RLock()
+	entry, ok := c.entries[wsID]
+	c.mu.RUnlock()
+
+	if ok {
+		configPath := c.resolver.Config(wsID)
+		if info, err := os.Stat(configPath); err == nil && info.ModTime().Equal(entry.modTime) {
+			return entry.config, nil
+		}
+	}
+
+	cfg, err := persistence.ReadConfig(wsID)
+	if err != nil {
+		return cfg, err
+	}
+
+	configPath := c.resolver.Config(wsID)
+	info, err := os.Stat(configPath)
+	if err == nil {
+		c.mu.Lock()
+		c.entries[wsID] = &workspaceConfigEntry{config: cfg, modTime: info.ModTime()}
+		c.mu.Unlock()
+	}
+	return cfg, nil
+}
+
+// newCachedConfigReader builds a readConfigFunc that caches per-workspace
+// config reads with mtime-based invalidation.
+func newCachedConfigReader(persistence *persistence.WorkspaceManager, resolver storage.Resolver) readConfigFunc {
+	cache := newWorkspaceConfigCache(resolver)
+	return func(wsID string) (*models.WorkspaceConfig, error) {
+		return cache.getOrLoad(wsID, persistence)
+	}
+}
+
 // getEffectiveConfig retrieves the active configuration for a tool, prioritizing workspace-level overrides merged with defaults.
 func getEffectiveConfig[T any](
 	ctx context.Context,
-	persistence *persistence.WorkspaceManager,
+	readConfig readConfigFunc,
 	defaults models.AgentGuardrailsConfig,
 	getSpecific func(*models.AgentGuardrailsConfig) T,
 ) T {
 	wsID := models.GetWorkspaceID(ctx)
-	if wsID != "" && persistence != nil {
-		if wsCfg, err := persistence.ReadConfig(wsID); err == nil && wsCfg.Guardrails != nil {
+	if wsID != "" {
+		if wsCfg, err := readConfig(wsID); err == nil && wsCfg.Guardrails != nil {
 			// Merge workspace overrides into a copy of system defaults
 			merged := defaults
 			merged.MergeWith(wsCfg.Guardrails)
@@ -92,12 +154,13 @@ type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 func initTerminalTools(
 	resolver storage.Resolver,
 	persistence *persistence.WorkspaceManager,
+	readConfig readConfigFunc,
 	defaultGuardrails models.AgentGuardrailsConfig,
 	shellManager shell.ShellProvider,
 	observer tools.StreamObserver,
 ) *tools.TerminalTools {
 	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
+		return getEffectiveConfig(ctx, readConfig, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
 			return c.Terminal
 		})
 	}, func(workspaceID string) string {
@@ -115,26 +178,63 @@ func initTerminalTools(
 func initCommunicationTools(appCtx interface {
 	GetRegistry() models.RegistryData
 	Secrets() models.SecretsStore
-}) *tools.CommunicationTools {
+}, network *tools.NetworkTools) *tools.CommunicationTools {
 	reg := appCtx.GetRegistry()
 	comm := tools.NewCommunicationTools()
-	telegramToken := appCtx.Secrets().GetSecret("communication", "telegram")
-	if reg.Communication.Telegram.Enabled && telegramToken != "" {
-		comm.AddNotifier(&tools.TelegramNotifier{
-			Token:  telegramToken,
-			ChatID: reg.Communication.Telegram.ChatID,
-		})
+	for name, cfg := range reg.Communication.Connectors {
+		if !cfg.Enabled {
+			continue
+		}
+		conn, ok := buildConnector(name, cfg, appCtx.Secrets(), network)
+		if !ok {
+			continue
+		}
+		comm.AddConnector(name, cfg.Type, conn)
+		scheduleWebhookReregistration(name, cfg, conn)
 	}
 	return comm
 }
 
+// buildConnector resolves and instantiates the registered factory for a
+// connector config entry. ok=false means the type is unknown or its required
+// credentials are missing, and the connector is skipped.
+func buildConnector(name string, cfg models.ConnectorConfig, secrets models.SecretsStore, network *tools.NetworkTools) (tools.Connector, bool) {
+	factory, ok := tools.GetConnectorFactory(cfg.Type)
+	if !ok {
+		logging.Warn("unknown communication connector type", "name", name, "type", cfg.Type)
+		return nil, false
+	}
+	return factory(name, cfg, secrets, network)
+}
+
+// scheduleWebhookReregistration best-effort re-applies a connector's stored
+// webhook URL on startup. Connectors that don't implement tools.WebhookAware are
+// skipped. Failures are logged but never block startup.
+func scheduleWebhookReregistration(name string, cfg models.ConnectorConfig, conn tools.Connector) {
+	if cfg.WebhookURL == "" {
+		return
+	}
+	wa, ok := conn.(tools.WebhookAware)
+	if !ok {
+		return
+	}
+	go func() {
+		if err := wa.RegisterWebhook(context.Background(), cfg.WebhookURL, cfg.Settings["webhook_token"]); err != nil {
+			logging.Warn("failed to re-register webhook on startup", "connector", name, "error", err)
+		} else {
+			logging.Info("re-registered webhook on startup", "connector", name, "url", cfg.WebhookURL)
+		}
+	}()
+}
+
 func initNetworkTools(
 	persistence *persistence.WorkspaceManager,
+	readConfig readConfigFunc,
 	defaultGuardrails models.AgentGuardrailsConfig,
 	logger logging.Logger,
 ) *tools.NetworkTools {
 	return tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
-		return getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
+		return getEffectiveConfig(ctx, readConfig, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
 			return c.Network
 		})
 	}, logger)
@@ -163,10 +263,11 @@ func initMemoryTools(store *memory.Store) *tools.MemoryToolProvider {
 func initFileSystemTools(
 	resolver storage.Resolver,
 	persistence *persistence.WorkspaceManager,
+	readConfig readConfigFunc,
 	defaultGuardrails models.AgentGuardrailsConfig,
 ) *tools.FileSystemTools {
 	return tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
-		cfg := getEffectiveConfig(ctx, persistence, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
+		cfg := getEffectiveConfig(ctx, readConfig, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
 			return c.FileSystem
 		})
 		allowed := make([]string, 0, len(cfg.AllowedPaths)+1)
@@ -198,14 +299,15 @@ func InitializeAgentStack(
 	resolver := appCtx.Resolver()
 	defaultGuardrails := appCtx.GetGuardrails()
 
-	terminal := initTerminalTools(resolver, persistence, defaultGuardrails, shellManager, observer)
+	readConfig := newCachedConfigReader(persistence, resolver)
+	terminal := initTerminalTools(resolver, persistence, readConfig, defaultGuardrails, shellManager, observer)
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, resolver, persistence)
-	comm := initCommunicationTools(appCtx)
-	network := initNetworkTools(persistence, defaultGuardrails, logger)
+	network := initNetworkTools(persistence, readConfig, defaultGuardrails, logger)
+	comm := initCommunicationTools(appCtx, network)
 	search := initSearchTools(appCtx, network)
-	fsTools := initFileSystemTools(resolver, persistence, defaultGuardrails)
+	fsTools := initFileSystemTools(resolver, persistence, readConfig, defaultGuardrails)
 	memTools := initMemoryTools(appCtx.MemoryStore())
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network, memTools)
@@ -315,12 +417,16 @@ func (r *LocalToolRegistry) registerTerminalTools() {
 
 func (r *LocalToolRegistry) registerCommunicationTools() {
 	registerTool(r, "communication", models.ToolNotifyUser, func(ctx context.Context, args struct {
-		Message string `json:"message"`
+		Message   string `json:"message"`
+		Connector string `json:"connector"` // optional — empty sends to all connectors
 	}) (any, error) {
 		if r.Communication == nil {
 			return nil, fmt.Errorf("communication tools not configured")
 		}
-		return "Notification sent successfully", r.Communication.NotifyAll(ctx, args.Message)
+		if err := r.Communication.NotifyAll(ctx, args.Message, args.Connector); err != nil {
+			return nil, err
+		}
+		return "Notification sent successfully", nil
 	})
 }
 

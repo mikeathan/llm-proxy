@@ -5,7 +5,7 @@ LLM_URL="http://192.168.50.60:4001/api/conversation/message"
 AUTH_URL="http://nodeherder.local:4110/api/auth/token"
 
 CLIENT_ID="llm-proxy"
-CLIENT_SECRET="7o1rhWiwWLEOOs8C+RYoCGNW3I01ZE+NyWDjjex+S5M="
+CLIENT_SECRET="${NODEHERDER_CLIENT_SECRET}"
 
 CONVERSATION_ID="local-dev-1"
 CONTEXT_VERSION="v1"

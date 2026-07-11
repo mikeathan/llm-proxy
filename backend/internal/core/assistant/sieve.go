@@ -137,16 +137,16 @@ func truncateLongContent(s string, limit int) string {
 }
 
 func (a *Agent) applyPhysicalSieve(history []proxy.Message) []proxy.Message {
-	s := &physicalSieve{logger: a.logger, contextBudget: a.contextBudget}
+	s := &physicalSieve{logger: a.deps.Logger, contextBudget: a.config.ContextBudget}
 	return s.Sieve(history)
 }
 
 func (a *Agent) applyReactiveSieve(history []proxy.Message) []proxy.Message {
-	s := &reactiveSieve{logger: a.logger}
+	s := &reactiveSieve{logger: a.deps.Logger}
 	return s.Sieve(history)
 }
 
 func (a *Agent) applyAggressiveSieve(history []proxy.Message) []proxy.Message {
-	s := &aggressiveSieve{logger: a.logger}
+	s := &aggressiveSieve{logger: a.deps.Logger}
 	return s.Sieve(history)
 }

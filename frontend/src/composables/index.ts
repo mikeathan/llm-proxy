@@ -1,6 +1,7 @@
 export { useGuardrailEditor } from './useGuardrailEditor'
 export { useToast } from './useToast'
 export { useElapsedTimer } from './useElapsedTimer'
+export { useWebhook } from './useWebhook'
 export * from './automation'
 export * from './assistant'
 export * from './models'

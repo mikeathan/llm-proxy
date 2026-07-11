@@ -22,6 +22,7 @@ const (
 	sessionTruncationFeedbackLen  = 400  // chars above which truncated content gets a guidance message
 	sessionParseErrorEscalation   = 2    // same-error-kind streak before escalating feedback
 	sessionMinMonologueLen        = 10   // chars below which repetition check is skipped
+	maxBatchedSubmitRetries       = 3    // consecutive batched submit_final_answer rejections before killing session
 )
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
@@ -35,6 +36,11 @@ type runSession struct {
 	sieveStreak     int
 	starvationCount int
 	warnedAdvisory  bool
+
+	// batchedSubmitRetries counts consecutive turns where submit_final_answer
+	// was batched with other tools. After maxBatchedSubmitRetries the session
+	// is killed to prevent an infinite rejection loop.
+	batchedSubmitRetries int
 
 	parseErrorStreak    int
 	lastParseErrorKind  string
@@ -82,17 +88,17 @@ func (s *runSession) handleContextSizeError() error {
 func (s *runSession) handleToolCallParseError(err error) {
 	switch {
 	case isJSONSyntaxError(err):
-		s.agent.logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint", "error", err)
+		s.agent.deps.Logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint", "error", err)
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
 			Content: prompts.AutomationJSONSyntaxPrompt,
 		})
 	default:
-		s.agent.logger.Warn("server-side tool call JSON parse error, sending length feedback to model", "error", err)
+		s.agent.deps.Logger.Warn("server-side tool call JSON parse error, sending length feedback to model", "error", err)
 		s.totalErrorStreak++
 		if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
 			s.modelCompatNotified = true
-			s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
+			s.agent.notifyModelCompatWarning(s.agent.config.UseNativeTools)
 		}
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
@@ -128,7 +134,7 @@ func (s *runSession) trimLargeWriteContent(turnMsg *proxy.Message) {
 	}
 }
 
-func (s *runSession) checkSubmitFinalAnswer(turnMsg proxy.Message) (string, bool) {
+func (s *runSession) checkSubmitFinalAnswer(turnMsg *proxy.Message) (string, bool) {
 	for _, tc := range turnMsg.ToolCalls {
 		if tc.Function.Name == models.ToolSubmitFinalAnswer {
 			summary := extractTaskSummary(tc.Function.Arguments)
@@ -148,9 +154,9 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			return "", s.history, fmt.Errorf("agent execution halted: %w", err)
 		}
 
-		if s.steps >= s.agent.maxSteps && !s.warnedAdvisory {
+		if s.steps >= s.agent.config.MaxSteps && !s.warnedAdvisory {
 			s.warnedAdvisory = true
-			s.agent.logger.Warn("agent exceeded advisory step limit, continuing", "steps", s.steps)
+			s.agent.deps.Logger.Warn("agent exceeded advisory step limit, continuing", "steps", s.steps)
 		}
 
 		s.maybeFlushMemoryBeforeTurn()
@@ -173,6 +179,7 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			}
 
 			if isToolCallParseError(err) {
+				s.starvationCount++
 				s.handleToolCallParseError(err)
 				continue
 			}
@@ -185,7 +192,7 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 		if len(turnMsg.ToolCalls) > 0 {
 			s.resetParseErrorState()
 
-			isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.logger, turnMsg.ToolCalls)
+			isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.deps.Logger, turnMsg.ToolCalls)
 			if dupErr != nil {
 				return "", s.history, dupErr
 			}
@@ -209,20 +216,46 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 			if err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history); err != nil {
 				return "", s.history, err
 			}
-			// notify after tool execution so the frontend receives
-			// tool_call (with running spinner) before EventMessage
-			s.agent.notify(EventMessage, turnMsg)
 
-			if content, done := s.checkSubmitFinalAnswer(turnMsg); done {
-				s.agent.notifyLifecycle("completed", map[string]any{
-					"content": content,
-				})
-				s.history = append(s.history, proxy.Message{
-					Role:    proxy.AssistantRole,
-					Content: content,
-				})
-				return content, s.history, nil
+			// Only exit on solo submit_final_answer. When submit is batched
+			// with other tools, processToolCalls already rejected the entire
+			// batch and appended error results. The model sees the rejection
+			// on the next turn and resubmits properly. Bailing out here would
+			// leave the session with error tool results and no final answer.
+			submitSolo := len(turnMsg.ToolCalls) == 1
+			if submitSolo {
+				if content, done := s.checkSubmitFinalAnswer(&turnMsg); done {
+					// Sync the extracted summary into the history entry stored
+					// earlier by append (value copy).  processToolCalls appended
+					// tool results after it, so search backward for the assistant message.
+					for i := len(s.history) - 1; i >= 0; i-- {
+						if s.history[i].Role == proxy.AssistantRole {
+							s.history[i].Content = content
+							break
+						}
+					}
+					// Notify AFTER checkSubmitFinalAnswer so the SSE event
+					// carries the extracted report content (not empty string).
+					// Without this, the live webhook view never gets the
+					// final answer text and shows reasoning instead.
+					s.agent.notify(EventMessage, turnMsg)
+					s.agent.notifyLifecycle("completed", map[string]any{
+						"content": content,
+					})
+					return content, s.history, nil
+				}
+			} else {
+				// submit_final_answer was in a batch — rejected.
+				s.batchedSubmitRetries++
+				if s.batchedSubmitRetries >= maxBatchedSubmitRetries {
+					return "", s.history, fmt.Errorf("agent stalled: submit_final_answer batched with other tools %d times in a row", s.batchedSubmitRetries)
+				}
 			}
+			// Fallthrough notify for non-submit turns: processToolCalls has run,
+			// frontend needs tool_call/tool_result events followed by EventMessage.
+			// For submit turns this fires inside the done branch above (after
+			// checkSubmitFinalAnswer populates turnMsg.Content with the report).
+			s.agent.notify(EventMessage, turnMsg)
 		} else {
 			s.starvationCount++
 			if s.starvationCount >= DefaultStarvationLimit {
@@ -250,7 +283,7 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	turnCtx, turnCancel := context.WithTimeout(ctx, AgentTurnTimeout)
 	defer turnCancel()
 
-	toolsList, err := a.provider.ListTools(turnCtx)
+	toolsList, err := a.deps.Provider.ListTools(turnCtx)
 	if err != nil {
 		return proxy.Message{}, nil, nil, fmt.Errorf("failed to list tools: %w", err)
 	}
@@ -262,7 +295,7 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 		return proxy.Message{}, nil, nil, err
 	}
 
-	a.logger.Debug("raw model response",
+	a.deps.Logger.Debug("raw model response",
 		"content_len", len(msg.Content),
 		"content", msg.Content,
 		"native_tool_calls", len(msg.ToolCalls),
@@ -279,7 +312,7 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 				contentPreview = contentPreview[:sessionPreviewMaxLen]
 			}
 		}
-		a.logger.Warn("tool call parse error",
+		a.deps.Logger.Warn("tool call parse error",
 			"xml_found", parseErr.XMLFound,
 			"json_error", parseErr.JSONError,
 			"tool_name", parseErr.ToolName,
@@ -332,7 +365,7 @@ func (s *runSession) handleNoToolCalls(
 	}
 
 	if s.agent.isPrematureTermination(turnMsg, s.history) {
-		s.agent.logger.Warn("premature termination detected", "step", s.steps)
+		s.agent.deps.Logger.Warn("premature termination detected", "step", s.steps)
 		return turnMsg.Content, true, nil
 	}
 
@@ -342,7 +375,7 @@ func (s *runSession) handleNoToolCalls(
 		// this is a protocol violation — nag to retry instead.
 		// Otherwise exit with the text as a conversational reply.
 		if !parseErr.XMLFound && strings.TrimSpace(turnMsg.Content) != "" {
-			if !s.agent.useNativeTools || len(toolsList) == 0 {
+			if !s.agent.config.UseNativeTools || len(toolsList) == 0 {
 				return turnMsg.Content, true, nil
 			}
 			parseErr = nil
@@ -354,11 +387,11 @@ func (s *runSession) handleNoToolCalls(
 			s.totalErrorStreak++
 			if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
 				s.modelCompatNotified = true
-				s.agent.notifyModelCompatWarning(s.agent.useNativeTools)
+				s.agent.notifyModelCompatWarning(s.agent.config.UseNativeTools)
 			}
 			availableNames := proxy.AvailableToolNames(toolsList)
 			feedback := parseErr.Feedback(availableNames)
-			s.agent.logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
+			s.agent.deps.Logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
 			s.history = append(s.history, proxy.Message{
 				Role:    proxy.UserRole,
 				Content: feedback,
@@ -371,7 +404,7 @@ func (s *runSession) handleNoToolCalls(
 		return turnMsg.Content, true, nil
 	}
 
-	s.agent.logger.Warn("no tool calls - nagging model", "step", s.steps)
+	s.agent.deps.Logger.Warn("no tool calls - nagging model", "step", s.steps)
 	s.history = append(s.history, proxy.Message{
 		Role:    proxy.UserRole,
 		Content: prompts.AutomationNagPrompt,
@@ -390,16 +423,16 @@ func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
 	msg.Content = cleaned
 	if parseErr == nil && len(calls) > 0 {
 		msg.ToolCalls = append(msg.ToolCalls, calls...)
-		a.logger.Debug("xml tool calls parsed from content", "count", len(calls))
+		a.deps.Logger.Debug("xml tool calls parsed from content", "count", len(calls))
 		return nil
 	}
 
-	if a.useNativeTools {
+	if a.config.UseNativeTools {
 		nativeCleaned, nativeCalls, nativeErr := proxy.ParseNativeToolCalls(msg.Content)
 		if nativeErr == nil && len(nativeCalls) > 0 {
 			msg.Content = nativeCleaned
 			msg.ToolCalls = append(msg.ToolCalls, nativeCalls...)
-			a.logger.Debug("native format tool calls parsed from content", "count", len(nativeCalls))
+			a.deps.Logger.Debug("native format tool calls parsed from content", "count", len(nativeCalls))
 			return nil
 		}
 	}
@@ -461,7 +494,7 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 }
 
 func (s *runSession) maybeFlushMemoryBeforeTurn() {
-	if s.agent.memoryStore == nil || s.memoryFlushSent || !s.agent.enableHotMemory {
+	if s.agent.deps.MemoryStore == nil || s.memoryFlushSent || !s.agent.config.EnableHotMemory {
 		return
 	}
 
@@ -469,11 +502,11 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	for _, m := range s.history {
 		totalChars += len(m.Content)
 	}
-	if totalChars == 0 || s.agent.contextBudget == 0 {
+	if totalChars == 0 || s.agent.config.ContextBudget == 0 {
 		return
 	}
 
-	ratio := float64(totalChars) / float64(s.agent.contextBudget)
+	ratio := float64(totalChars) / float64(s.agent.config.ContextBudget)
 	if ratio < 0.7 {
 		return
 	}

@@ -26,6 +26,7 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
   let reasoningCommitted = ''
   let isFinalTurn = false
   let currentToolArgs = ''
+  let inReasoningPhase = false
 
   const streaming = ref(false)
   const thinking = ref(false)
@@ -38,9 +39,23 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
     pauseTimer = setTimeout(() => { paused.value = true }, 200)
   }
 
+  // Find the index where a new assistant message should be inserted.
+  // Normal (fresh session): messages are [system, user], so the slot
+  // is right after the last user message = end of array.
+  //
+  // Loaded history: session loaded mid-run already has completed
+  // assistant + tool turns after the user message.  Inserting at
+  // the user boundary would place new live events before existing
+  // turns, scrambling the order.  Instead, append at the end.
   function findAssistantSlot(): number {
     for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i]?.role === 'user') return i + 1
+      if (messages.value[i]?.role === 'user') {
+        const candidate = i + 1
+        if (candidate < messages.value.length) {
+          return messages.value.length
+        }
+        return candidate
+      }
     }
     return messages.value.length
   }
@@ -83,10 +98,11 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
   }
 
   function render() {
-    const m = assistantMessage()
-    if (!m) return
-    const sep = reasoningCommitted && reasoningBuffer ? '\n\n' : ''
-    m.content = reasoningCommitted + sep + reasoningBuffer
+    // Content is set only at turn completion by handleMessage (submit)
+    // and finalize (reply push).  During streaming, liveReasoning carries
+    // the visible text in the work section; m.content stays empty so
+    // finalAnswer stays empty and the thinking‑gap renders.
+    assistantMessage()
   }
 
   function forceUpdate() {
@@ -99,6 +115,15 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
   function handleEvent(ev: AgentEvent) {
     switch (ev.type) {
       case 'tool_stream':
+        inReasoningPhase = false
+        paused.value = false
+        streaming.value = true
+        thinking.value = true
+        handleToolStream(ev.payload as string)
+        resetPauseTimer()
+        return
+      case 'reasoning':
+        inReasoningPhase = true
         paused.value = false
         streaming.value = true
         thinking.value = true
@@ -116,7 +141,7 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
         thinking.value = false
         return
       case 'message':
-        handleMessage(ev.payload as any)
+        handleMessage(ev.payload as AssistantMessage)
         streaming.value = false
         thinking.value = false
         return
@@ -134,6 +159,11 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
       reasoningBuffer = clean
       liveReasoning.value = clean
       render()
+    } else if (inReasoningPhase) {
+      reasoningBuffer = clean
+      liveReasoning.value = clean
+      render()
+      inReasoningPhase = false
     } else {
       commitReasoning()
       reasoningBuffer = clean
@@ -142,6 +172,7 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
       render()
     }
     lastClean = clean
+    forceUpdate()
   }
 
   function handleToolCall(tc: { function: { name: string; arguments: string } }) {
@@ -178,18 +209,19 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
     }
   }
 
-  function handleMessage(payload: any) {
+  function handleMessage(payload: AssistantMessage) {
     if (payload.role !== 'assistant') return
 
     const hasFinal = payload.tool_calls?.some(
-      (tc: any) => tc.function?.name === 'submit_final_answer',
+      (tc) => tc.function?.name === 'submit_final_answer',
     )
 
     if (hasFinal) {
       isFinalTurn = true
+      commitReasoning()
       const m = assistantMessage()
       if (m) {
-        m.content = reasoningCommitted
+        m.content = payload.content || reasoningCommitted
       }
       reasoningBuffer = ''
       lastClean = ''
@@ -220,6 +252,7 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
     reasoningCommitted = ''
     liveReasoning.value = ''
     isFinalTurn = false
+    inReasoningPhase = false
     currentToolArgs = ''
     streaming.value = false
     thinking.value = false

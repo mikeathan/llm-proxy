@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { SessionBrief } from '../../../types/assistant'
 import { formatTime } from '../../../utils/format/time'
+import { groupSessionsBySource, sourceIcon, sourceLabel } from '../../../utils/assistant/source'
 import Icon from '../../icons/Icon.vue'
 
 const props = defineProps<{
@@ -14,13 +15,29 @@ const emit = defineEmits<{
   (e: 'load', sessionId: string): void
   (e: 'delete', sessionId: string): void
   (e: 'rename', sessionId: string, title: string): void
+  (e: 'cancel', sessionId: string): void
   (e: 'new-chat'): void
   (e: 'clear-all'): void
+  (e: 'delete-group', ids: string[]): void
   (e: 'close'): void
 }>()
 
 const renaming = ref<string | null>(null)
 const renameInput = ref('')
+
+const groupedSessions = computed(() => groupSessionsBySource(props.sessions))
+
+const collapsedGroups = ref(new Set<string>())
+
+function toggleGroup(source: string) {
+  const next = new Set(collapsedGroups.value)
+  if (next.has(source)) next.delete(source)
+  else next.add(source)
+  collapsedGroups.value = next
+}
+
+// Manual first (root), then webhook folder
+const orderedGroups = computed(() => groupedSessions.value.slice().reverse())
 
 function startRename(sessionId: string, current: string) {
   renaming.value = sessionId
@@ -71,9 +88,26 @@ function cancelRename() {
     </div>
 
     <div class="session-list">
+      <template v-for="group in orderedGroups" :key="group.source">
       <div
-        v-for="session in sessions"
+        v-if="group.grouped"
+        class="session-group-header"
+        @click="toggleGroup(group.source)"
+      >
+        <Icon :name="collapsedGroups.has(group.source) ? 'chevron-right' : 'chevron-down'" size="xs" class="fold-icon" />
+        <span class="fold-label">{{ sourceLabel(group.source) }}</span>
+        <button
+          class="btn-group-delete"
+          title="Delete all webhook conversations"
+          @click.stop="emit('delete-group', group.sessions.map(s => s.id))"
+        >
+          <Icon name="trash" size="xs" />
+        </button>
+      </div>
+      <div
+        v-for="session in group.sessions"
         :key="session.id"
+        v-show="!group.grouped || !collapsedGroups.has(group.source)"
         class="session-row"
         :class="{ 'session-row--active': currentSessionId === session.id }"
       >
@@ -82,7 +116,11 @@ function cancelRename() {
           @click="emit('load', session.id)"
           class="session-item"
         >
-          <span class="session-snippet">{{ session.snippet || 'Empty conversation' }}</span>
+          <div class="session-item-row">
+            <Icon v-if="sourceIcon(session.source)" :name="sourceIcon(session.source)!" size="xs" class="session-source" />
+            <span v-if="session.running" class="session-dot" title="Running">●</span>
+            <span class="session-snippet">{{ session.snippet || 'Empty conversation' }}</span>
+          </div>
           <span class="session-time">{{ formatTime(session.updated_at || '') }}</span>
         </button>
 
@@ -99,6 +137,14 @@ function cancelRename() {
 
         <div v-if="renaming !== session.id" class="session-actions">
           <button
+            v-if="session.running"
+            @click.stop="emit('cancel', session.id)"
+            class="btn-action-icon btn-cancel"
+            title="Cancel run"
+          >
+            <Icon name="close" size="xs" />
+          </button>
+          <button
             @click.stop="startRename(session.id, session.snippet)"
             class="btn-action-icon"
             title="Rename"
@@ -114,6 +160,7 @@ function cancelRename() {
           </button>
         </div>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -156,6 +203,25 @@ function cancelRename() {
   @apply flex-1 overflow-y-auto;
 }
 
+.session-group-header {
+  @apply flex items-center gap-1 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 cursor-pointer select-none;
+}
+.session-group-header:hover {
+  @apply text-gray-400;
+}
+
+.fold-icon {
+  @apply shrink-0;
+}
+
+.fold-label {
+  @apply flex-1;
+}
+
+.btn-group-delete {
+  @apply p-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/15 transition-colors;
+}
+
 .session-row {
   @apply relative flex items-center px-3 py-2.5 cursor-pointer transition-all duration-150;
   border-left: 3px solid transparent;
@@ -174,8 +240,20 @@ function cancelRename() {
   @apply flex flex-col gap-0.5 text-left min-w-0 flex-1 bg-transparent border-none cursor-pointer self-stretch justify-center;
 }
 
+.session-item-row {
+  @apply flex items-center gap-1.5 min-w-0;
+}
+
+.session-source {
+  @apply text-[11px] shrink-0;
+}
+
+.session-dot {
+  @apply text-blue-500 text-[10px] shrink-0 animate-pulse;
+}
+
 .session-snippet {
-  @apply text-sm text-gray-200 truncate font-medium block w-full;
+  @apply text-sm text-gray-200 truncate font-medium min-w-0;
 }
 
 .session-time {
@@ -199,6 +277,13 @@ function cancelRename() {
 
 .btn-action-icon {
   @apply p-1 rounded hover:bg-gray-700/50 text-gray-500 hover:text-gray-300 transition-colors;
+}
+
+.btn-cancel {
+  @apply text-orange-400;
+}
+.btn-cancel:hover {
+  @apply bg-orange-500/15 text-orange-300;
 }
 
 .btn-delete:hover {

@@ -561,24 +561,13 @@ func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBri
 			continue
 		}
 
-		snippet := ""
-		if len(session.History) > 0 {
-			// Find the last user message or assistant reply for the snippet
-			for i := len(session.History) - 1; i >= 0; i-- {
-				if session.History[i].Content != "" {
-					snippet = session.History[i].Content
-					if len(snippet) > 80 {
-						snippet = snippet[:77] + "..."
-					}
-					break
-				}
-			}
-		}
+		snippet := firstUserSnippet(session.History)
 
 		briefs = append(briefs, models.SessionBrief{
 			ID:        session.ID,
 			Snippet:   snippet,
 			UpdatedAt: session.UpdatedAt,
+			Source:    models.SessionSource(session.ID),
 		})
 	}
 
@@ -595,3 +584,29 @@ func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBri
 
 	return briefs, nil
 }
+
+// firstUserSnippet returns a short preview of the session's first user message
+// for use as a stable conversation title. It falls back to the first non-empty
+// content when no user message exists (e.g. system-only sessions).
+func firstUserSnippet(history []models.Message) string {
+	for _, m := range history {
+		if m.Role == models.UserRole && m.Content != "" {
+			s := m.Content
+			if len(s) > 80 {
+				s = s[:77] + "..."
+			}
+			return s
+		}
+	}
+	for _, m := range history {
+		if m.Content != "" {
+			s := m.Content
+			if len(s) > 80 {
+				s = s[:77] + "..."
+			}
+			return s
+		}
+	}
+	return ""
+}
+

@@ -9,23 +9,34 @@ const props = defineProps<{
   error?: string;
 }>();
 
-const resultText = computed(() =>
-  typeof props.result === "string"
-    ? props.result
-    : JSON.stringify(props.result, null, 2),
+const hasError = computed(() => !!props.error);
+
+const displayError = computed(() =>
+  props.error || (typeof props.result === "object" && props.result !== null && "error" in props.result
+    ? (props.result as any).error
+    : ""),
 );
+
+const resultText = computed(() => {
+  if (displayError.value) return displayError.value;
+  return typeof props.result === "string"
+    ? props.result
+    : JSON.stringify(props.result, null, 2);
+});
 </script>
 
 <template>
-  <div class="tool-result-block">
+  <div class="tool-result-block" :class="{ 'tool-result-block--error': hasError }">
     <details class="res-details">
       <summary class="res-summary">
         <span class="res-icon">{{ TEXT_EVENT_TOOL_RESULT }}</span>
-        <span class="res-name">{{ name }} finished</span>
-        <span class="res-hint ml-1">(click to view)</span>
+        <span class="res-name" :class="{ 'res-name--error': hasError }">
+          {{ name }} {{ hasError ? "failed" : "finished" }}
+        </span>
+        <span v-if="!hasError" class="res-hint ml-1">(click to view)</span>
       </summary>
       <CopyButton :text="resultText" class="btn-copy-mini summary-copy-btn" />
-      <pre class="res-body">{{ resultText }}</pre>
+      <pre class="res-body" :class="{ 'res-body--error': hasError }">{{ resultText }}</pre>
     </details>
   </div>
 </template>
@@ -62,6 +73,10 @@ const resultText = computed(() =>
   @apply text-green-400 font-semibold;
 }
 
+.res-name--error {
+  @apply text-red-400;
+}
+
 .res-hint {
   @apply text-gray-600 text-[10px] italic;
 }
@@ -72,5 +87,13 @@ const resultText = computed(() =>
 
 .res-body {
   @apply bg-[#161b22] border border-gray-800 rounded p-3 mt-2 text-[11px] text-green-500/80 overflow-y-auto max-h-80 whitespace-pre-wrap;
+}
+
+.res-body--error {
+  @apply text-red-300/80 border-red-800/50;
+}
+
+.tool-result-block--error {
+  @apply border-l-2 border-red-500/40 pl-2;
 }
 </style>

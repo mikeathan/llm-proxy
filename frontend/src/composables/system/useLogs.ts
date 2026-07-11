@@ -1,5 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue'
-import { MetricsApiService } from '../../services/metricsService'
+import { MetricsApiService } from '../../services/monitoring/metricsService'
 import { POLL_INTERVAL_MS } from '../../constants/api'
 
 const processLogLines = ref<string>('')
