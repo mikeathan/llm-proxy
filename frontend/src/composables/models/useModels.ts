@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import { useToast } from '../useToast'
 import type { AdminState, AgentDefaults } from '../../types/admin'
 

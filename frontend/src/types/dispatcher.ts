@@ -69,7 +69,7 @@ export interface TriggerResponse {
   automation: string
 }
 
-export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream' | 'lifecycle'
+export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream' | 'reasoning' | 'lifecycle'
 
 export interface AgentStepStartPayload {
   step: number

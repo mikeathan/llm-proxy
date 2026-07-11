@@ -30,6 +30,7 @@ Apply these standards to all Go-related tasks:
 - **Dependency Injection**: Use constructor functions (`NewService`) to inject all dependencies. No global variables or `init()` magic.
 - **Logical Modularization**: Avoid single-file bloat (e.g., >500 lines). Extract lifecycle management, registration, and provider-specific logic into scoped files (e.g., `lifecycle.go`, `registry.go`, `providers.go`) while maintaining package-level visibility.
 - **Structural Decoupling**: Avoid polluting core managers with complex `if type == "x"` conditionals or infrastructure discovery logic (e.g., binary paths, secret resolution). Extract these into dedicated `Registrars`, `Registries`, or `Factories`. The core manager should orchestrate lifecycles, while the registrar handles the "how" of configuration and instantiation.
+- **Interface Dispatch Anti-Pattern — No Duplicate Behavior**: When a type implements an interface with a method (e.g. `Connector.Send()`), callers MUST dispatch through that interface method. Never switch on the type field to call a separate function that reimplements the same logic. If `TelegramNotifier.Send()` already handles Telegram API calls, a `replyTelegram()` function in a handler is a bug waiting to diverge. One source of truth, one code path. The caller depends on the abstraction; the abstraction owns the behavior. This is Dependency Inversion + Open/Closed: adding a new type means a new implementation + registration, never modifying the caller's switch.
 
 
 ## 4. Performance & Resource Safety

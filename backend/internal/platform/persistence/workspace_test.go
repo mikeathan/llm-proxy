@@ -121,3 +121,46 @@ func TestWorkspaceManager_Paths(t *testing.T) {
 		t.Error("expected non-empty relative path")
 	}
 }
+
+func TestFirstUserSnippet(t *testing.T) {
+	long := "this is a very long user prompt that should be truncated because it exceeds the eighty character limit for the session list preview"
+	cases := []struct {
+		name string
+		hist []models.Message
+		want string
+	}{
+		{
+			name: "first user message wins",
+			hist: []models.Message{
+				{Role: models.AssistantRole, Content: "previous reply"},
+				{Role: models.UserRole, Content: "actual question"},
+				{Role: models.AssistantRole, Content: "answer"},
+			},
+			want: "actual question",
+		},
+		{
+			name: "falls back to first non-empty when no user role",
+			hist: []models.Message{
+				{Role: models.AssistantRole, Content: "only reply"},
+			},
+			want: "only reply",
+		},
+		{
+			name: "truncates long content",
+			hist: []models.Message{{Role: models.UserRole, Content: long}},
+			want: long[:77] + "...",
+		},
+		{
+			name: "empty history",
+			hist: []models.Message{},
+			want: "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := firstUserSnippet(c.hist); got != c.want {
+				t.Errorf("firstUserSnippet() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

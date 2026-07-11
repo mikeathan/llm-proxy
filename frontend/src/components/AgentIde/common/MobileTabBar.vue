@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import NotificationDot from '../../common/NotificationDot.vue'
+
 defineProps<{
   modelValue: "explorer" | "workspace" | "monitor"
   workspaceMiddleTab: "pulse" | "chat"
   canOpenAssistant: boolean
+  chatRunning?: boolean
+  runningAssistantCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -38,10 +42,11 @@ function setPanel(v: "explorer" | "workspace" | "monitor") {
     <button
       @click="emit('toggle-chat')"
       :disabled="!canOpenAssistant"
-      :class="['mobile-tab', workspaceMiddleTab === 'chat' && modelValue === 'workspace' ? 'mobile-tab--active' : '']"
+      :class="['mobile-tab', workspaceMiddleTab === 'chat' && modelValue === 'workspace' ? 'mobile-tab--active' : '', { 'animate-alert-glow': chatRunning }]"
       title="Open Workspace Assistant"
     >
       Chat
+      <NotificationDot v-if="chatRunning" :count="runningAssistantCount" />
     </button>
   </div>
 </template>
@@ -52,7 +57,7 @@ function setPanel(v: "explorer" | "workspace" | "monitor") {
 }
 
 .mobile-tab {
-  @apply flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-colors text-gray-400;
+  @apply relative flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-colors text-gray-400;
 }
 
 .mobile-tab--active {

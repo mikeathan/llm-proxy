@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted } from "vue";
 import { useAssistant } from "../../../composables/assistant/useAssistant";
-import { AssistantService } from "../../../services/assistantService";
+import { AssistantService } from "../../../services/assistant/assistantService";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useResponsiveLayout } from "../../../composables/ui/useResponsiveLayout";
 import GuardrailBanner from "../../../components/common/chat/GuardrailBanner.vue";
@@ -24,16 +24,39 @@ const {
   loading, error, messages, sessions, currentSessionId, pendingDecision,
   thinking, liveReasoning, paused,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
-  activeWorkspaceId, cancel,
+  deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
+  liveEvents,
 } = useAssistant();
 
 const dismissError = () => { error.value = null }
 
 const inputMessage = ref("");
 const sidebarOpen = ref(false);
+const inboundCount = ref(0);
+const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
+
+function forceScrollToBottom() {
+  chatMessagesRef.value?.scrollToBottom("smooth");
+}
+
+const currentSessionRunning = computed(() =>
+  currentSessionId.value != null && sessions.value.some(s => s.id === currentSessionId.value && s.running)
+)
+
+watch(sidebarOpen, (open) => {
+  if (open) inboundCount.value = 0
+})
+
+watch(liveEvents, (events) => {
+  const last = events[events.length - 1]
+  if (last && (last.payload as any)?.inbound) {
+    inboundCount.value++
+  }
+}, { deep: true })
 
 function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value;
+  inboundCount.value = 0
 }
 
 const workCollapsed = ref<Record<number, boolean>>({});
@@ -76,6 +99,7 @@ const initWorkspace = async () => {
   activeWorkspaceId.value = props.workspaceId;
   newSession();
   await fetchSessions(props.workspaceId);
+  connectSSE();
 };
 
 const handleNewChat = async () => {
@@ -91,12 +115,12 @@ const handleSend = async () => {
   collapseAllWork();
   await sendMessage(props.workspaceId, text);
   await nextTick();
-  scrollToBottom();
+  forceScrollToBottom();
 };
 
 const handleRetry = (text: string) => {
   sendMessage(props.workspaceId, text);
-  scrollToBottom();
+  forceScrollToBottom();
 };
 
 const handleLoadSession = async (sessionId: string) => {
@@ -104,7 +128,7 @@ const handleLoadSession = async (sessionId: string) => {
   await loadSession(props.workspaceId, sessionId);
   await nextTick();
   collapseAllWork();
-  scrollToBottom();
+  forceScrollToBottom();
   if (isMobile.value) {
     sidebarOpen.value = false;
   }
@@ -115,6 +139,10 @@ const handleDeleteSession = async (sessionId: string) => {
     await deleteSession(props.workspaceId, sessionId);
   }
 };
+
+const handleCancelSession = async (sessionId: string) => {
+  await cancelSession(props.workspaceId, sessionId)
+}
 
 const handleRenameSession = async (sessionId: string, title: string) => {
   try {
@@ -135,11 +163,10 @@ const handleClearAll = async () => {
   }
 };
 
-function scrollToBottom() {
-  const el = document.querySelector(".message-container");
-  if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 80) return;
-  if (el) el.scrollTop = el.scrollHeight;
-}
+const handleDeleteGroup = async (ids: string[]) => {
+  if (!confirm("Delete all conversations in this group? This cannot be undone.")) return;
+  await deleteSessionsByIds(props.workspaceId, ids);
+};
 
 watch(loading, async (newVal, oldVal) => {
   if (!oldVal && newVal) {
@@ -172,8 +199,10 @@ watch(loading, async (newVal, oldVal) => {
         @load="handleLoadSession"
         @delete="handleDeleteSession"
         @rename="handleRenameSession"
+        @cancel="handleCancelSession"
         @new-chat="handleNewChat"
         @clear-all="handleClearAll"
+        @delete-group="handleDeleteGroup"
         @close="toggleSidebar"
       />
     </aside>
@@ -188,8 +217,10 @@ watch(loading, async (newVal, oldVal) => {
           @load="handleLoadSession"
           @delete="handleDeleteSession"
           @rename="handleRenameSession"
+          @cancel="handleCancelSession"
           @new-chat="handleNewChat"
           @clear-all="handleClearAll"
+          @delete-group="handleDeleteGroup"
           @close="toggleSidebar"
         />
       </div>
@@ -207,8 +238,9 @@ watch(loading, async (newVal, oldVal) => {
     <div class="chat-area">
       <header class="chat-header">
         <div class="flex items-center gap-2">
-          <button @click="toggleSidebar" class="btn-header-action" :title="sidebarOpen ? 'Hide conversations' : 'Show conversations'">
+          <button @click="toggleSidebar" class="btn-header-action relative" :title="sidebarOpen ? 'Hide conversations' : 'Show conversations'">
             <Icon :name="sidebarOpen ? 'chevron-left' : 'chevron-right'" size="sm" />
+            <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" />
           </button>
           <button @click="handleNewChat" class="btn-header-action" title="New Chat">
             <Icon name="plus" size="sm" />
@@ -227,7 +259,12 @@ watch(loading, async (newVal, oldVal) => {
         <GuardrailBanner :decision="pendingDecision" @allow="(..._args: any[]) => {}" @deny="() => {}" />
       </div>
 
+      <div v-if="messages.length === 0 && currentSessionRunning && !loading" class="chat-processing-banner">
+        Agent is processing…
+      </div>
+
       <ChatMessages
+        ref="chatMessagesRef"
         :messages="messages"
         :turns="turns"
         :loading="loading"
@@ -338,6 +375,10 @@ watch(loading, async (newVal, oldVal) => {
   @apply scale-95;
 }
 
+.badge-dot {
+  @apply absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full;
+}
+
 .btn-chat-close {
   @apply p-1.5 rounded-md hover:bg-red-600/30 text-gray-500 hover:text-red-400 transition-all duration-150;
 }
@@ -347,5 +388,9 @@ watch(loading, async (newVal, oldVal) => {
 
 .guardrail-banner-wrapper {
   @apply px-4 py-2;
+}
+
+.chat-processing-banner {
+  @apply px-6 py-3 text-xs text-gray-500 italic;
 }
 </style>

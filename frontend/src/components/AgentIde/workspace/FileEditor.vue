@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps<{
   file: { workspace: string, filename: string }
@@ -13,9 +13,12 @@ const emit = defineEmits<{
   (e: 'save'): void
 }>()
 
-const localContent = computed({
-  get: () => props.content,
-  set: (val) => emit('update:content', val)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+
+watch(() => props.content, (val) => {
+  if (textareaRef.value && textareaRef.value.value !== val) {
+    textareaRef.value.value = val
+  }
 })
 </script>
 
@@ -40,7 +43,9 @@ const localContent = computed({
         <div class="spinner"></div>
       </div>
       <textarea 
-        v-model="localContent" 
+        ref="textareaRef"
+        :value="props.content"
+        @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
         class="editor-textarea"
         spellcheck="false"
       ></textarea>
@@ -50,7 +55,7 @@ const localContent = computed({
 
 <style scoped lang="postcss">
 .editor-shell {
-  @apply h-full flex flex-col;
+  @apply flex-1 flex flex-col;
 }
 
 .editor-toolbar {

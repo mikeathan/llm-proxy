@@ -14,6 +14,7 @@ Go 1.26.2. No golangci-lint, no Makefile, no pre-commit hooks — verification i
 cd backend
 go build ./...          # build all packages
 go test ./...           # run all tests
+go run ./tools/check-complexity/   # cyclomatic complexity check (threshold 12)
 go test ./internal/core/assistant/... -v   # agent-loop tests
 go test ./internal/core/proxy/... -v       # parser + history tests
 go run main.go          # start the server (default :4001)
@@ -34,68 +35,35 @@ For deep directory mappings, file change checklists, and architectural invariant
 ## Before You Write Any Code
 
 1. Read `CONSTITUTION.md` — it defines 6 architectural sections covering validation boundaries, system prompt format, model architecture, terminal/network safety, no telemetry, and abstraction/invariants. Your change must comply with all of them.
-2. Read the relevant SPEC file(s) for the subsystem you are modifying. See [`docs/INDEX.md`](docs/INDEX.md) for the mapping of subsystems to SPEC IDs (SPEC-001 through SPEC-008).
+2. Read the relevant SPEC file(s) for the subsystem you are modifying. See [`docs/INDEX.md`](docs/INDEX.md) for the mapping of subsystems to SPEC IDs (SPEC-001 through SPEC-009).
 3. `.agents/rules/` has deeper Go and Vue guidance — check there if a task needs architecture-level patterns.
 4. See [`docs/INDEX.md`](docs/INDEX.md) for the full documentation catalog.
 5. Run `go build ./... && go test ./...` to establish a clean baseline.
 
-**Documentation stewardship**: After any change (new feature, refactor, behavior fix, or revert), update all affected docs:
-- **SPEC files** (`docs/SPECS/`) — update behavioral contracts if the change alters system behaviour
-- **Plan files** (`docs/PLANS/`) — add a new entry documenting what changed and why, organized by subsystem
-- **Skill files** (`docs/skills/`) — add new gotchas, patterns, or architecture decisions discovered during the work
-- **INDEX** (`docs/INDEX.md`) — add entries for any new files created; update statuses for changed plans
-- **Audits** (`docs/audits/`) — create a new audit for any regression or post-mortem analysis
-- **`docs/architecture.md`** — update Common Pitfalls if a new pattern emerges that future agents should know
+## Checklist: Adding a Frontend Settings Tab
 
-## Coding Rules (Go)
+When adding a new settings tab (e.g. "Communication", "Notifications"):
 
-### Comments
+1. Add tab name to `SettingsTab` type in `frontend/src/types/admin.ts`
+2. Add icon + label in `frontend/src/constants/providers.ts`
+3. If the tab is NOT a cloud provider, add exclusion to `isProviderTab()` in `frontend/src/domain/settings.ts`
+4. Register in the appropriate settings group in `getSettingsGroups()` in `frontend/src/domain/settings.ts`
+5. Create the settings component in `frontend/src/components/settings/`
+6. Import the component in `frontend/src/components/settings/Settings.vue`
+7. Add `v-show="activeTab === 'your-tab'"` div in the Settings.vue template
+8. Run `npm run build` — TS errors will catch any missing icon/label entries
 
-- **No comments unless the WHY is non-obvious.** Well-named identifiers document the WHAT.
-- **Single-line only.** No multi-line docstrings or comment blocks.
-- **Never remove existing comments unless they are stale** (referencing removed code, outdated behavior, or incorrect logic). If a comment is still accurate, keep it.
-- If removing the comment wouldn't confuse a reader, remove it.
+## Documentation stewardship: After any change, load `docs/skills/documentation-stewardship.md` and follow its post-completion checklist.
 
-### Error Handling
+## Cyclomatic Complexity (Go — Backend)
 
-- Validate at system boundaries (user input, external APIs) — trust internal code.
-- Use `fmt.Errorf` with `%w` to wrap errors and maintain the chain.
-- Use sentinel errors from `models/llm.go` for known conditions (`ErrUnknownModel`, `ErrModelExists`, `ErrModelStarting`).
-
-### Abstraction
-
-- Don't DRY until the pattern repeats 3+ times. Three similar lines > premature abstraction.
-- Don't add features, refactor, or introduce abstractions beyond what the task requires.
-- No feature flags, backward-compat shims, or `// TODO` stubs.
-
-### Prompts
-
-- ALL prompt strings go in `internal/core/assistant/prompts/templates.go`. Nowhere else.
-- This includes system messages, nag prompts, parse-error feedback, JSON translations.
-
-### Network & Terminal
-
-- All network I/O via `NetworkTools` (never raw `http.Client` or `net.Dial`).
-- All terminal execution via `ShellProvider` (never raw `os/exec`).
-- All file paths validated with `IsSecurePath` for workspace jailing.
-
-### Cyclomatic Complexity & Readability
-
-- Keep functions short and focused: limit any function to a maximum of 80 lines. If a function grows larger, extract sub-logic into small, well-named helper functions.
-- Keep cyclomatic complexity under 10 per function. Avoid nested conditionals deeper than 3 levels; instead, structure flow with early returns and guard clauses ("happy path to the left").
-- Encapsulate transient loop or session state in temporary structs (e.g. `agentRunner`) instead of passing multiple pointers to simple type counters (like `*int`, `*bool`) between functions.
-- Decouple orchestration logic from data parsing/formatting. Put parsing and validation logic in dedicated helper types/functions.
+Every Go function must have McCabe cyclomatic complexity ≤ 12. Enforced by `backend/tools/check-complexity/` (stdlib only — no external deps). Run `go run ./tools/check-complexity/` before committing. If it fails, extract helpers or restructure to reduce branches.
 
 ## Coding Rules (TypeScript/Vue — Frontend)
 
-- `frontend/` is a Vue 3 + Vite + TypeScript SPA
-- Composables are singletons — state is module-level, shared across components
-- Use `ref()` for reactive state, not `reactive()`
-- Type imports from `types/` directory (barrel exports)
-- Services are stateless — API calls only, no local state caching
-- Polling uses `mountCount` pattern: ref counts subscribers, stops when zero
-- Dev server at `localhost:5173` proxies `/admin/api` to `:4001` — start backend first
-- Build output goes to `../backend/internal/transport/http/frontend_dist/` (Go embed)
-- `npm run build` runs `vue-tsc -b` (type-check) then `vite build` — TS errors fail the build
-- Model form defaults and derived names live in `src/utils/modelUtils.ts` — reusable across components
-- **Service response types**: every API method that calls `fetch()` must define its response type in `types/` and explicitly deserialise via `const data: T = await res.json(); return data`. Never return bare `res.json()` — the explicit variable type catches field mismatches at compile time if the backend shape changes.
+Follow the full rules in `.agents/rules/frontend-vue-engineer.md`. Key invariants:
+
+- Composables are singletons — module-level state shared across components
+- `ref()` over `reactive()`, type imports from `types/`, services are stateless
+- Behavior belongs on the type — no switch/if-else chains in consumers; each variant is its own module
+- **Service response types**: every `fetch()` method must define its response type in `types/` and explicitly deserialize via `const data: T = await res.json(); return data`

@@ -1,6 +1,6 @@
 # Assistant UI Chat Architecture
 
-**Source files:** `frontend/src/components/AgentIde/assistant/AssistantChat.vue`, `frontend/src/utils/messageBuilder.ts`, `frontend/src/utils/turnGrouper.ts`
+**Source files:** `frontend/src/components/AgentIde/assistant/AssistantChat.vue`, `frontend/src/utils/message/messageBuilder.ts`, `frontend/src/utils/message/turnGrouper.ts`
 
 **Related docs:** `docs/skills/event-streaming-patterns.md` (event flow, SSE composables, dedup)
 
@@ -56,6 +56,7 @@ Central state machine for processing SSE events into renderable messages and seg
 | `paused` | `Ref<boolean>` | True when no tool_stream events for 200ms (inactivity detection) |
 | `isFinalTurn` | boolean | Set by message event with submit_final_answer |
 | `lastClean` | string | Last tool_stream text for detecting contiguous streaming |
+| `inReasoningPhase` | boolean | True during `reasoning` events, false during `tool_stream` events. Used by `handleToolStream` to detect reasoning→content transitions without a fragile length heuristic. |
 
 ### Flow per event
 
@@ -100,7 +101,7 @@ case 'tool_call':
 
 During streaming, the model's text is accumulated in `reasoningBuffer`. The template shows it via `liveReasoning` — a separate `Ref<string>` set to the current buffer. When `commitReasoning()` runs (on tool_call), it pushes a reasoning segment AND clears `liveReasoning.value = ''`. This prevents duplicate text display (the committed segment shows the same text).
 
-The `turn.agentOutput` should NOT be used for live display — it contains BOTH committed and uncommitted text, causing duplication.
+The `turn.agentOutput` field was removed — it was never consumed by any Vue template.
 
 ### Force update pattern
 
@@ -238,6 +239,41 @@ All use `ease-in-out` timing with 1.6-2s cycles (dots: 1.2s). No event-based tog
 - **There is NO `watch(messages)` that calls `scrollToBottom()`**. This was removed because it fires on EVERY stream chunk (every 10-50ms), constantly recalculating scroll position and causing visible flickering at the bottom edge of the bubble.
 - User has scrolled up: `scrollSegmentIntoView` still scrolls new segments into view (the user sees the new tool call/reasoning segment even if scrolled up).
 
+## Turn Grouper (`turnGrouper.ts`)
+
+The `groupTurns()` function converts the flat `messages[]` array into structured `Turn[]` objects for rendering. Each turn is anchored by a user-role message followed by zero or more assistant-role messages.
+
+### Single-message turn edge case
+
+When `assistantMsgs.length === 1` (e.g., for webhook-triggered runs or direct text responses), `turn.finalAnswer` must be set explicitly from the single message's content. The `> 1` branch sets `finalAnswer = last.content` automatically, but the `=== 1` branch historically left it empty — causing the "Result" section to be hidden.
+
+**Rule:** When exactly one assistant message exists, set `turn.finalAnswer = only.content` in the same block where `agentOutput` and `segments` are set. The `finalAnswer` content is still filtered by `buildSegmentsFromHistory()` (Change B moves non-submit tool-call content to reasoning segments, so only actual report text ends up in `finalAnswer`).
+
+### `buildSegmentsFromHistory()` content-routing logic
+
+When reconstructing segments from persisted history, assistant messages with tool calls (but NOT `submit_final_answer`) have their `content` moved to a reasoning segment. This prevents intermediate planning text from appearing as raw output:
+
+1. Messages with `reasoning_content` → reasoning segment
+2. Non-submit messages with `tool_calls + content` → content moved to reasoning segment, message content cleared
+3. `submit_final_answer` messages → content preserved (it IS the report)
+
+## Webhook Sessions
+
+Webhook-triggered agent runs (Telegram, etc.) bypass the frontend's `sendMessage()` flow. Events arrive via SSE as normal, but there's a critical difference:
+
+- **`sendMessage()`** pushes `{ role: 'user', content: text }` to `messages.value` at line 168. The builder finds this user message when processing subsequent events.
+- **Webhook sessions** have NO user message in `messages.value` because `sendMessage()` was never called.
+
+Without a user-role message, `groupTurns()` at line 28 (`m.role !== 'user'`) skips all messages, producing zero turns. The assistant bubble never renders.
+
+**Fix:** In `applySessionUpdate()`, when receiving a `session_started` lifecycle event:
+1. Check `!loading.value` — avoid pushing during active manual `sendMessage()`
+2. Check `p.snippet` is present (contains the user message text)
+3. Check for duplicates — don't push if `messages.value` already has the same text
+4. Push `{ role: 'user', content: p.snippet }` to `messages.value`
+
+This makes the user message available for `groupTurns()` to anchor the turn, and subsequent SSE events flow through the normal builder pipeline.
+
 ## Common Pitfalls
 
 - **Tool_call events must arrive BEFORE the message event** — backend must send `processToolCalls` before `notify(EventMessage)`.
@@ -250,3 +286,5 @@ All use `ease-in-out` timing with 1.6-2s cycles (dots: 1.2s). No event-based tog
 - **SSE must be connected before HTTP POST** — wait for "ping" event before sending the agent request.
 - **Do NOT use `watch(messages, scrollToBottom)`** — it causes flickering. Only scroll on new segments.
 - **submit_final_answer is just a completion marker** — it does NOT generate the report. The report content is streamed as reasoning text before the tool call. The tool execution is instant (~21ms).
+- **`finalAnswer` must be set for single-message turns** — `groupTurns()` in `turnGrouper.ts` only sets `turn.finalAnswer` when `assistantMsgs.length > 1`. For webhook runs or direct responses (`=== 1`), set `turn.finalAnswer = only.content` explicitly to avoid an empty Result section.
+- **Webhook sessions need a synthetic user message** — `sendMessage()` is bypassed, so no user-role message reaches `messages.value`. In `applySessionUpdate()`, push the `session_started.snippet` as `{ role: 'user', content: snippet }` so `groupTurns()` can create a turn.

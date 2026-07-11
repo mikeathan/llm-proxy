@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import type { RecordingMeta, RecordingStatus } from '../../types/dispatcher'
-import { DispatcherService } from '../../services/dispatcherService'
+import { DispatcherService } from '../../services/automation/dispatcherService'
 
 const recordings = ref<RecordingMeta[]>([])
 const status = ref<RecordingStatus>({ enabled: false, dir: '' })

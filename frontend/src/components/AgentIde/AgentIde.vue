@@ -9,7 +9,7 @@ import { useWorkspaceHistory } from "../../composables/automation/useWorkspaceHi
 import { useResponsiveLayout } from "../../composables/ui/useResponsiveLayout";
 import type { Automation } from "../../types/dispatcher";
 import type { MemoryEntry } from "../../types/memory";
-import { DispatcherService } from "../../services/dispatcherService";
+import { DispatcherService } from "../../services/automation/dispatcherService";
 
 import WorkspaceExplorer from "./workspace/WorkspaceExplorer.vue";
 import AutomationForm from "./automation/AutomationForm.vue";
@@ -21,10 +21,13 @@ import RecordingsPanel from "./recordings/RecordingsPanel.vue";
 import MemoryPanel from "./memory/MemoryPanel.vue";
 import MemoryDetail from "./memory/MemoryDetail.vue";
 import AssistantChat from "./assistant/AssistantChat.vue";
-import WorkspaceSettings from "./workspace/WorkspaceSettings.vue";
+import WorkspaceSettings from "./workspace/WorkspaceSettings.vue"
+import FileEditor from "./workspace/FileEditor.vue";
 import TemplateLibrary from "./system/TemplateLibrary.vue";
 import { useToast } from "../../composables/useToast";
 import { useTemplates } from "../../composables/assistant/useTemplates";
+import { useAssistant } from "../../composables/assistant/useAssistant";
+import { useRunningActivity } from "../../composables/assistant/useRunningActivity";
 import { useMetrics } from "../../composables/system/useMetrics";
 import MobileTabBar from "./common/MobileTabBar.vue";
 import SidebarNavTabs from "./common/SidebarNavTabs.vue";
@@ -60,6 +63,13 @@ const { state: adminState, refresh: refreshModels } = useModels();
 const { metrics: systemMetrics } = useMetrics();
 const toast = useToast();
 
+const {
+  runningSessions,
+  reconcileRunning,
+  loadSession,
+  currentSessionId,
+} = useAssistant()
+
 const selectedWorkspace = ref<string | null>(null);
 const selectedMemory = ref<MemoryEntry | null>(null);
 const sidebarRef = ref<HTMLElement | null>(null);
@@ -67,6 +77,11 @@ const editAutomation = ref<Automation | null>(null);
 const settingsWorkspaceId = ref<string | null>(null);
 const workspaceExternalAccess = ref<Record<string, boolean>>({});
 const recordingsEnabled = ref(false);
+
+// Authoritative per-workspace "running" source. Drives the chat-menu glow and
+// heals sticky local running flags when the backend reports nothing running.
+const { assistantRunning } = useRunningActivity(selectedWorkspace)
+watch(assistantRunning, (running) => reconcileRunning(running))
 
 const { isMobile } = useResponsiveLayout();
 const { workspaceHistory, refreshHistory } = useWorkspaceHistory();
@@ -123,6 +138,13 @@ const {
   selectedAutomation,
   isMobile,
 });
+
+async function openAssistantSession(sessionId: string) {
+  if (!selectedWorkspace.value) return
+  currentSessionId.value = sessionId
+  await loadSession(selectedWorkspace.value, sessionId)
+  workspaceMiddleTab.value = 'chat'
+}
 
 const models = computed(() => adminState.value?.models || []);
 const providers = computed(() => adminState.value?.config.providers || {});
@@ -299,6 +321,8 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       :modelValue="mobilePanel"
       :workspaceMiddleTab="workspaceMiddleTab"
       :canOpenAssistant="canOpenAssistant"
+      :chat-running="assistantRunning"
+      :running-assistant-count="runningSessions.length"
       @update:modelValue="mobilePanel = $event"
       @toggle-chat="toggleAssistant"
     />
@@ -328,6 +352,8 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           :loading="loading"
           :workspaceExternalAccess="workspaceExternalAccess"
           :chat-active="workspaceMiddleTab === 'chat'"
+          :chat-running="assistantRunning"
+          :running-assistant-count="runningSessions.length"
           :memory-active="memoryActive"
           @select-workspace="handleSelectWorkspace"
           @create-workspace="handleCreateWorkspace"
@@ -479,11 +505,13 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       :anyRunningInSelectedWorkspace="anyRunningInSelectedWorkspace"
       :triggering="triggering"
       :workspaceHistory="workspaceHistory"
+      :assistantSessions="runningSessions"
       :loading="loading"
       :metrics="metrics"
       @trigger="handleTrigger"
       @stop="handleStop"
       @select-run="handleSelectRun"
+      @select-assistant-session="openAssistantSession"
     />
 
     <!-- Modals & Overlays -->
@@ -520,7 +548,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 }
 
 .editor-shell {
-  @apply flex-1 flex flex-col h-full animate-in fade-in zoom-in-95 duration-300;
+  @apply flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-300;
 }
 
 .editor-header {

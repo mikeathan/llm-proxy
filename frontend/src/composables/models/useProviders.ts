@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import { PROVIDER_ICONS, PROVIDER_LABELS, PROVIDER_STYLES } from '../../constants/providers'
 import type { ProviderType, SettingsTab } from '../../types/admin'
 
@@ -41,7 +41,7 @@ export function useProviders() {
   const settingsTabs = computed<SettingsTab[]>(() => {
     // We want to preserve the order from SETTINGS_TABS while ensuring 
     // any dynamically discovered cloud providers are also included.
-    const base = ['local', 'local-models', 'guardrails', ...cloudProviders.value, 'mcp', 'processes']
+    const base = ['local', 'local-models', 'guardrails', ...cloudProviders.value, 'mcp', 'communication', 'processes']
     return Array.from(new Set(base)) as SettingsTab[]
   })
 

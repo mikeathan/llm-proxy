@@ -21,10 +21,19 @@ const (
 	EventGuardrailBlocked     AgentEventType = "guardrail_blocked"
 	EventGuardrailInvalidated AgentEventType = "guardrail_invalidated"
 	EventError                AgentEventType = "error"
+	EventReasoning            AgentEventType = "reasoning"
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
 	EventMemoryRecall         AgentEventType = "memory_recall"
 	EventMemoryFlush          AgentEventType = "memory_flush"
+)
+
+// Lifecycle phase constants for the AgentEvent lifecycle payload.
+// Used to communicate session state changes to the frontend via SSE.
+const (
+	PhaseSessionStarted   = "session_started"
+	PhaseSessionProgress  = "session_progress"
+	PhaseSessionCompleted = "session_completed"
 )
 
 type AgentEvent struct {
@@ -66,8 +75,8 @@ type GuardrailDecisionCallback func(ctx context.Context, payload GuardrailBlocke
 type Observer func(AgentEvent)
 
 func (a *Agent) notify(t AgentEventType, payload any) {
-	if a.observer != nil {
-		a.observer(AgentEvent{
+	if a.deps.Observer != nil {
+		a.deps.Observer(AgentEvent{
 			ID:        uuid.NewString(),
 			Type:      t,
 			Payload:   payload,

@@ -74,35 +74,48 @@ func ProviderTiers() map[string]ProviderTuningDefaults {
 	}
 }
 
-type Agent struct {
-	client          proxy.Client
-	provider        ToolProvider
-	engine          Engine
-	guardrails      *guardrails.GuardrailEngine
-	logger          logging.Logger
-	maxSteps        int
-	contextBudget   int
-	maxTokens       int
-	reasoningBudget int
-	temperature     float64
-	icuWeight       float64
-	globalTimeout   time.Duration
-	useNativeTools  bool
-	observer        Observer
-	workspaceID     string
-	onGuardrail     GuardrailDecisionCallback  // blocks on channel (max 60s) for human approval
-	prefillDisabled   bool  // set true after first prefill rejection by server
-	usePrefill        bool  // enable <tool_call> stub prefill for XML-text models
-	memoryInjected    bool  // one-time injection at session start; no per-turn re-inject
-	skipStuckCheck          bool               // XML fallback: disable stuck detection
-	
-	orch            *orchestrator.Orchestrator
-	modelName       string
-	providerType    string
-	planStrategy    *ExecutionPlanStrategy      // short-circuits Execute with pre-generated plan
+// AgentConfig holds immutable per-agent data from user/model config.
+type AgentConfig struct {
+	MaxSteps        int
+	ContextBudget   int
+	MaxTokens       int
+	ReasoningBudget int
+	Temperature     float64
+	ICUWeight       float64
+	GlobalTimeout   time.Duration
+	UseNativeTools  bool
+	UsePrefill      bool
+	WorkspaceID     string
+	ModelName       string
+	ProviderType    string
+	SkipStuckCheck  bool
+	EnableHotMemory bool
+}
 
-	memoryStore     *memory.Store // nil when memory is disabled
-	enableHotMemory bool          // inject hot memory at session start
+// AgentRuntimeDeps holds shared services injected into every Agent.
+type AgentRuntimeDeps struct {
+	Client       proxy.Client
+	Provider     ToolProvider
+	Engine       Engine
+	Guardrails   *guardrails.GuardrailEngine
+	Logger       logging.Logger
+	Observer     Observer
+	Orchestrator *orchestrator.Orchestrator
+	PlanStrategy *ExecutionPlanStrategy
+	MemoryStore  *memory.Store
+
+	OnGuardrail GuardrailDecisionCallback
+}
+
+// Agent drives the assistant loop: prompt, execute, repeat.
+type Agent struct {
+	config AgentConfig
+	deps   AgentRuntimeDeps
+
+	// Per-execution state. These are mutated during Execute and MUST NOT
+	// persist across calls. TODO(A8): move into runSession.
+	prefillDisabled bool
+	memoryInjected  bool
 }
 
 type AgentOptions struct {
@@ -294,31 +307,35 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	}
 
 	a := &Agent{
-		client:          client,
-		provider:        provider,
-		engine:          engine,
-		guardrails:      gr,
-		logger:          opts.Logger,
-		maxSteps:        opts.MaxSteps,
-		contextBudget:   opts.ContextBudget,
-		maxTokens:       opts.MaxResponseTokens,
-		reasoningBudget: opts.ReasoningBudget,
-		temperature:     opts.Temperature,
-		icuWeight:       opts.ICUWeight,
-		globalTimeout:   opts.GlobalTimeout,
-		useNativeTools:  useNative,
-		usePrefill:      usePrefill,
-		observer:        opts.Observer,
-		workspaceID:     opts.WorkspaceID,
-		onGuardrail:     opts.GuardrailDecisionHandler,
-		orch:            opts.Orchestrator,
-		modelName:       opts.ModelName,
-		providerType:    opts.ProviderType,
-		planStrategy:    opts.PlanStrategy,
-		memoryStore:   opts.MemoryStore,
-		enableHotMemory: opts.EnableHotMemory,
+		deps: AgentRuntimeDeps{
+			Client:       client,
+			Provider:     provider,
+			Engine:       engine,
+			Guardrails:   gr,
+			Logger:       opts.Logger,
+			Observer:     opts.Observer,
+			Orchestrator: opts.Orchestrator,
+			PlanStrategy: opts.PlanStrategy,
+			MemoryStore:  opts.MemoryStore,
+			OnGuardrail:  opts.GuardrailDecisionHandler,
+		},
+		config: AgentConfig{
+			MaxSteps:        opts.MaxSteps,
+			ContextBudget:   opts.ContextBudget,
+			MaxTokens:       opts.MaxResponseTokens,
+			ReasoningBudget: opts.ReasoningBudget,
+			Temperature:     opts.Temperature,
+			ICUWeight:       opts.ICUWeight,
+			GlobalTimeout:   opts.GlobalTimeout,
+			UseNativeTools:  useNative,
+			UsePrefill:      usePrefill,
+			WorkspaceID:     opts.WorkspaceID,
+			ModelName:       opts.ModelName,
+			ProviderType:    opts.ProviderType,
+			EnableHotMemory: opts.EnableHotMemory,
+		},
 	}
-	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.maxTokens, "reasoning_budget", a.reasoningBudget, "max_steps", a.maxSteps)
+	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget, "max_steps", a.config.MaxSteps)
 	return a
 }
 
@@ -375,14 +392,14 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 }
 
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
-	execCtx, cancel := context.WithTimeout(ctx, a.globalTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, a.config.GlobalTimeout)
 	defer cancel()
 
 	execCtx = WithUsageTracker(execCtx)
 
 	// Plan strategy short-circuits: if enabled, generate a plan for the last user
 	// message and execute it step-by-step. Falls back to the agent loop on failure.
-	if a.planStrategy != nil {
+	if a.deps.PlanStrategy != nil {
 		lastUserMsg := ""
 		for i := len(history) - 1; i >= 0; i-- {
 			if history[i].Role == proxy.UserRole {
@@ -391,13 +408,13 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 			}
 		}
 		if lastUserMsg != "" {
-			tools, err := a.provider.ListTools(execCtx)
+			tools, err := a.deps.Provider.ListTools(execCtx)
 			if err == nil && len(tools) > 0 {
-				plan, planErr := a.planStrategy.Generate(execCtx, lastUserMsg)
+				plan, planErr := a.deps.PlanStrategy.Generate(execCtx, lastUserMsg)
 				if planErr == nil {
 					return a.executePlan(execCtx, history, plan)
 				}
-				a.logger.Warn("plan generation failed, falling back to normal loop", "error", planErr)
+				a.deps.Logger.Warn("plan generation failed, falling back to normal loop", "error", planErr)
 			}
 		}
 	}
@@ -407,7 +424,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 }
 
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
-	return proxy.NormalizeHistory(history, a.useNativeTools)
+	return proxy.NormalizeHistory(history, a.config.UseNativeTools)
 }
 
 // injectToolInstructions embeds XML tool definitions into the system prompt.
@@ -425,7 +442,7 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 		}
 	}
 	instructions := prompts.BuildToolManual(info)
-	a.logger.Debug("injecting XML tool manual into system prompt",
+	a.deps.Logger.Debug("injecting XML tool manual into system prompt",
 		"tool_count", len(info),
 		"manual_chars", len(instructions),
 		"has_manual", len(instructions) > 0,
@@ -439,7 +456,7 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 			newMsg.Content = prompts.InjectToolManual(newMsg.Content, instructions)
 			newHistory = append(newHistory, newMsg)
 			foundSystem = true
-			a.logger.Debug("tool manual injection result",
+			a.deps.Logger.Debug("tool manual injection result",
 				"had_manual_before", hadManualBefore,
 				"sys_prompt_chars", len(newMsg.Content),
 			)

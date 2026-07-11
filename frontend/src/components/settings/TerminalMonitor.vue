@@ -1,20 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import { useToast } from '../../composables/useToast'
 
 const toast = useToast()
 const sessions = ref<any[]>([])
 const isLoading = ref(true)
 let interval: any = null
+let sessionsReqId = 0
 
 const fetchSessions = async () => {
+  const mine = ++sessionsReqId
   try {
-    sessions.value = await AdminApiService.fetchTerminalSessions()
+    const data = await AdminApiService.fetchTerminalSessions()
+    if (mine !== sessionsReqId) return
+    sessions.value = data
   } catch (e: any) {
+    if (mine !== sessionsReqId) return
     console.error('Failed to fetch terminal sessions:', e)
   } finally {
-    isLoading.value = false
+    if (mine === sessionsReqId) isLoading.value = false
   }
 }
 

@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { McpApiService } from '../../services/mcpService'
+import { McpApiService } from '../../services/mcp/mcpService'
 import { useToast } from '../useToast'
 import { useConfirm } from '../ui/useConfirm'
 import type { McpServer } from '../../types/mcp'

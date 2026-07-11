@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import type { GlobalConfig } from '../../types/admin'
 
 const DEFAULT_CONFIG: GlobalConfig = {
@@ -44,10 +44,7 @@ const DEFAULT_CONFIG: GlobalConfig = {
     },
   },
   communication: {
-    telegram: {
-      enabled: false,
-      chat_id: '',
-    },
+    connectors: {},
   },
   agent_defaults: {
     max_steps: 25,

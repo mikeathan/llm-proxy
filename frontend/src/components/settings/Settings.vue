@@ -7,12 +7,13 @@ import ApiKeySettings from "./ApiKeySettings.vue";
 import GuardrailSettings from "./GuardrailSettings.vue";
 import ProviderModelsCard from "./ProviderModelsCard.vue";
 import InfrastructurePanel from "../infrastructure/InfrastructurePanel.vue";
+import CommunicationSettings from "./CommunicationSettings.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
 import { useConfig } from "../../composables/models/useConfig";
 import { useMcpServers } from "../../composables/system/useMcpServers";
 import { useMetrics } from "../../composables/system/useMetrics";
 import { useModels } from "../../composables/models/useModels";
-import { AdminApiService } from "../../services/adminService";
+import { AdminApiService } from "../../services/admin/adminService";
 import { useProviders } from "../../composables/models/useProviders";
 import { useToast } from "../../composables/useToast";
 import type { NewMcpServerForm } from "../../types/mcp";
@@ -245,6 +246,15 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
           <div class="config-card">
             <InfrastructurePanel />
           </div>
+        </div>
+
+        <!-- Communication -->
+        <div v-show="activeTab === 'communication'">
+          <CommunicationSettings
+            :editConfig="config"
+            @update:editConfig="(val: any) => config = val"
+            @updateConfig="handleSaveConfig"
+          />
         </div>
 
         <!-- Provider Configs -->

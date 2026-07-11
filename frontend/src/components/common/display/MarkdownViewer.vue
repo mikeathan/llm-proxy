@@ -39,7 +39,7 @@ const htmlContent = computed(() => {
 
 /* Tighter spacing for ide layout */
 .markdown-body :deep(p) {
-  @apply mb-2 mt-0;
+  @apply mb-1 mt-0;
 }
 
 .markdown-body :deep(h1), 

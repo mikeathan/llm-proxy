@@ -22,3 +22,15 @@ export const formatDate = (ts: string): string => {
 export const formatDuration = (ms: number): string => {
   return `${ms} ms`;
 };
+
+/**
+ * Formats elapsed time since an ISO timestamp as a compact string
+ * (e.g. "45s", "3m 12s"). Pass the current time (nowMs) so callers can
+ * keep the display reactive with a ticking clock.
+ */
+export const formatElapsedSince = (iso: string, nowMs: number = Date.now()): string => {
+  const secs = Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  return `${mins}m ${secs % 60}s`;
+};

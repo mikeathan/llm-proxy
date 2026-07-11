@@ -2,6 +2,7 @@
 import { ref, nextTick } from 'vue'
 import InlineConfirm from '../../ui/InlineConfirm.vue'
 import Icon from '../../icons/Icon.vue'
+import NotificationDot from '../../common/NotificationDot.vue'
 
 const props = defineProps<{
   workspaces: { id: string }[]
@@ -12,6 +13,8 @@ const props = defineProps<{
   workspaceExternalAccess?: Record<string, boolean>
   chatActive?: boolean
   memoryActive?: boolean
+  chatRunning?: boolean
+  runningAssistantCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -82,9 +85,10 @@ const handleCreateFile = (workspace: string) => {
           <Icon name="document" size="sm" />
           <span>Playbooks</span>
         </button>
-        <button @click="emit('open-chat')" :disabled="!selectedWorkspace" class="action-pill" :class="{ 'action-pill--active': chatActive }" title="Chat">
+        <button @click="emit('open-chat')" :disabled="!selectedWorkspace" class="action-pill" :class="{ 'action-pill--active': chatActive, 'animate-alert-glow': chatRunning }" title="Chat">
           <Icon name="lightning" size="sm" />
           <span>Chat</span>
+          <NotificationDot v-if="chatRunning" :count="runningAssistantCount" />
         </button>
         <div class="action-sep"></div>
         <button @click="toggleNewWorkspace" class="action-pill action-pill--add" :class="{ 'action-pill--active': newWorkspaceOpen }" title="New workspace">
@@ -377,7 +381,7 @@ const handleCreateFile = (workspace: string) => {
 }
 
 .action-pill {
-  @apply flex flex-col items-center gap-0.5 py-1 px-1.5 rounded min-w-0
+  @apply relative flex flex-col items-center gap-0.5 py-1 px-1.5 rounded min-w-0
          text-gray-500 hover:text-gray-200 hover:bg-white/5 transition-all
          text-[8px] font-medium leading-tight
          disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-500;

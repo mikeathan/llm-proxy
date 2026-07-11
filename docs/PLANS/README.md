@@ -18,4 +18,7 @@ Organized by subsystem:
 - `discovery/` — SPEC-003: model catalog, UI panels
 - `cross-cutting/` — Multi-SPEC or standalone: grammar, user input, lifecycle, testing
 
+- `cross-cutting/` — Multi-SPEC or standalone: grammar, user input, lifecycle, testing
+- `codebase-audit-report.md` — Comprehensive audit: bugs, performance, architecture, docs gaps, testing gaps (July 2026)
+
 See [`docs/INDEX.md`](../INDEX.md) for the full catalog with IDs and cross-references.

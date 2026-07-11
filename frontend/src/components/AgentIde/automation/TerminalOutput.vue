@@ -30,7 +30,6 @@ const emit = defineEmits<{
   (e: "scroll-toggle"): void
   (e: "allow-decision", persist: boolean): void
   (e: "deny-decision"): void
-  (e: "scroll-update"): void
 }>()
 
 const formatTime = (ts?: string) => {
@@ -53,7 +52,7 @@ const formatTime = (ts?: string) => {
     @deny="() => emit('deny-decision')"
   />
 
-  <div class="terminal-body" id="terminal-scroll-area" @scroll="emit('scroll-update')">
+  <div class="terminal-body">
     <div v-if="events.length === 0" class="term-empty">
       Waiting for activity in {{ workspaceId }}...
     </div>
@@ -135,7 +134,7 @@ const formatTime = (ts?: string) => {
 
 <style scoped lang="postcss">
 .terminal-body {
-  @apply flex-1 overflow-y-auto p-4 bg-[#0d1117] leading-relaxed;
+  @apply p-4 leading-relaxed;
 }
 
 .term-empty {

@@ -18,13 +18,23 @@ This document contains architectural reference material extracted from the agent
 
 ### Core Systems
 
-- `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
+- `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers, ConversationService
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
-- `internal/core/automation/` — Scheduled task dispatch and execution
-- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory)
+- `internal/core/automation/` — Scheduled task dispatch and execution, EventBus (SSE broadcasting to frontend)
+- `internal/core/automation/broadcast.go` — `EventBus.Subscribe` / `Publish` / `Unsubscribe` per workspace, fans out agent events to SSE-connected clients
+- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory, communication)
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
+- `internal/core/orchestrator/` — Token budget management, context length resolution, slot scheduling, stream interleaving, reasoning budget normalization. See SPEC-005.
+  - `slot_manager.go` — Manages concurrent inference slots (per-model capacity, queueing, timeout).
+  - `budget_manager.go` — Token budget tracking per time window (`Spend`/`Refund`), throttling.
+  - `budget_squeezer.go` — Compression fallback when budgets are tight (reduces context).
+  - `stream_interceptor.go` — SSE stream parsing, interleaving parallel tool call outputs.
+  - `reasoning_normalizer.go` — Normalizes reasoning token formats across providers.
+- `internal/core/nodeherder/` — MCP tool provider adapter. Wraps the MCP orchestrator into a `ToolProvider` interface that the agent calls via `ListTools`/`ExecuteTool`. Manages MCP tool registration, mirroring, and credential injection.
+  - `provider.go` — `ListTools` (polls MCP server), `ExecuteTool` (forwards to MCP server via `CallTool`), subscription to system prompt updates.
+  - `token_manager.go` — Capability token resolution for MCP tool authentication.
 - `internal/testing/llmprofiles/` — `FixtureClient` + `RunAgainstFixtures` (replay test framework)
 
 ### Infrastructure
@@ -32,7 +42,8 @@ This document contains architectural reference material extracted from the agent
 - `internal/platform/storage/` — Generic atomic JSON/YAML stores with change callbacks
 - `internal/platform/logging/` — Structured logging (global + per-workspace process logs)
 - `internal/app/` — Bootstrap, AppContext (central state manager), service wiring
-- `internal/transport/http/` — All HTTP handlers + embedded frontend
+- `internal/transport/http/` — Router, middleware, frontend embed
+- `internal/transport/http/handlers/` — HTTP handler types (Admin, System, Process, MCP, Model, Secrets, Dispatcher, Assistant, Proxy, Recordings, Memory, Webhook)
 
 ## Critical Contracts (Do Not Break)
 
@@ -169,17 +180,47 @@ When adding a new model-level field, update these files:
 6. `internal/testing/mocks/manager.go` — if interface changed
 7. Frontend component (if UI field)
 
-When adding a tool:
+When adding a new tool category (e.g. a new category like "communication"):
+
+1. `models/tools.go` — add category constant (e.g. `CategoryCommunication`)
+2. `internal/core/tools/manifests/{category}.json` — tool manifest (embedded)
+3. `internal/core/tools/{category}.go` — implementation file with category struct + methods
+4. `internal/core/assistant/registry.go` — registration wiring:
+   - Add field to `LocalToolRegistry` struct
+   - Add `init{Category}Tools()` helper function
+   - Add `register{Category}Tools()` method on `LocalToolRegistry`
+   - Call both from `InitializeAgentStack` and `registerAll()`
+5. Frontend: add any category-specific UI (settings, status indicators)
+
+When adding a single tool:
 
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
 4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
 
+When adding a communication connector:
+
+1. `models/config.go` — `ConnectorConfig.Type` is the switch key (no struct change needed — generic map)
+2. `internal/core/tools/communication.go` — implement `Connector` interface (Send + Name), use injected `*http.Client` from `NetworkTools.HTTPClient()`
+3. `internal/core/tools/notifiers/` — add a self-registering `init()` calling `tools.RegisterConnectorFactory("your_type", factory)`. See `telegram.go` for a reference implementation. Do NOT edit `initCommunicationTools` or `registry.go` — the registry handles it dynamically.
+4. Frontend `CommunicationSettings.vue` — add `<option value="your_type">` dropdown entry
+
 When adding a prompt:
 
 1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
 2. Logic file (agent.go, tool_call_parser.go) — uses the template, never inlines strings
+
+## Adding a Frontend Settings Tab Checklist
+
+1. Add tab name to `SettingsTab` type in `frontend/src/types/admin.ts`
+2. Add icon + label in `frontend/src/constants/providers.ts`
+3. If the tab is NOT a cloud provider, add exclusion to `isProviderTab()` in `frontend/src/domain/settings.ts`
+4. Register in the appropriate settings group in `getSettingsGroups()` in `frontend/src/domain/settings.ts`
+5. Create the settings component in `frontend/src/components/settings/`
+6. Import the component in `frontend/src/components/settings/Settings.vue`
+7. Add `v-show="activeTab === 'your-tab'"` div in the Settings.vue template
+8. Run `npm run build` — TS errors will catch any missing icon/label entries
 
 ## New Backend Endpoint Checklist
 
@@ -220,31 +261,7 @@ When adding a prompt:
 
    Even when `reasoning_budget` is 0 in the model config, the agent dynamically computes `max_tokens / streamReasoningBudgetDivisor` (3) via `DefaultReasoningBudget()` and syncs it to `a.reasoningBudget`. See `agent.go` `DefaultReasoningBudget()`.
 
-9. **Reasoning-stuck detection in `processStream`** — When a model generates reasoning content without any text output or native tool call deltas exceeding the derived threshold, the stream is aborted early. The threshold is `maxTokens * 2` chars, floored at `MinReasoningStuckThreshold` (2000 chars). This makes the stuck check a **safety net** for servers that don't enforce reasoning budgets — models with enforced budgets (via `reasoning_budget = maxTokens/3`) will exhaust their allocated thinking tokens before the stuck threshold fires. For models with `reasoningBudget == 0` (no server-side enforcement), an additional earlier check fires at `maxTokens / stuckNonReasoningDivisor` chars. Current divisor=1 gives threshold at `maxTokens` — catches stuck 2x faster than the baseline while avoiding false positives on models (e.g. Gemma 4) that produce legitimate reasoning content without an explicit budget. See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`, and `docs/audits/write-file-truncation-cycles.md` for the tuning history. A `lifecycle` event with phase `stuck_detected` is emitted to the UI. See `stream.go` `stuckThreshold()`.
-
-    **Do NOT change `streamReasoningBudgetDivisor` from 3.** Divisor 4 was tried in production and caused recompilation loops at turn 18+: 682 tokens was too few for the model to plan its next step in a 40+ message history. Divisor 3 (910 tokens) was the minimum that eliminated the loops. Higher divisors waste the output budget; lower divisors cause mid-reasoning cutoff. The smoke test covers this — run it before and after any change. See `docs/audits/memory-injection-investigation.md`.
-
-   Some models (e.g. Qwen 3.5) emit `<tool_call>` blocks inside `<think>` reasoning content. Before declaring stuck, `processStream` scans the accumulated reasoning content for embedded `<tool_call>` blocks. If found, `<think>` tags are stripped and the cleaned content is promoted to `fullMsg.Content` so the XML tool call parser can process it downstream. This prevents a false stuck detection when the tool call is invisible to the native-tool parser. See `agent.go` `toolCallInContent` regex and `cleanReasoningContent()`.
-
-10. **Client-side budget enforcement in `processStream`** — When the orchestrator's `StreamInterceptor` signals `ShouldTerminate` (token or reasoning budget exceeded), `processStream` returns nil to end the stream. Upstream servers do not always enforce `max_tokens`; without client-side termination the model can generate indefinitely (observed on local Qwen3.5-9B with a "joke loop"). A char cap of `maxTokens * 4` (via `exceedsContentCharCap`) is a fallback safety net for when the token counter underestimates output. The agent loop evaluates the partial turn (e.g. `isPrematureTermination`, `handleEmptyStream`, or normal turn processing) so the response is not silently dropped. No budget values were changed — only the behavior of the existing `ShouldTerminate` signal (previously log-only) and a new char cap safety net. See `stream.go` `processStream`, `exceedsContentCharCap`, `streamCharCapMultiplier`, and `docs/PLANS/cross-cutting/assistant-cancel-endpoint.md` § "Fix: honor ShouldTerminate + add char cap safety net".
-
-11. **Progressive sieve recovery on consecutive stuck events** — On the 1st reasoning-stuck event, the reactive sieve (first 2 + last 6 messages) is applied and a nag prompt ("Stop analyzing, call a tool") is added to the history. On the 2nd consecutive stuck event, an aggressive sieve (first 2 + last 3 messages) is applied with a stronger nag prompt. On the 3rd consecutive stuck event, the agent fails with a clear error ("model stuck in reasoning loop"). This prevents infinite spinning while giving verbose models (Gemma 4) multiple chances to recover. Note: the stuck detection triggers a retry, not a fail — progressive sieve catches repeated failures.
-
-12. **Context compression in `applyPhysicalSieve`** — Before dropping old messages when context budget is exceeded, the sieve first compresses long `Content` (>4000 chars) and `ReasoningContent` (>2000 chars) in older messages by truncating to head+tail with a `...[Truncated]...` marker. Only if compression isn't enough are messages dropped. This preserves message structure while reducing token consumption. See `agent.go` `truncateLongContent()`.
-
-13. **Native tools empty-stream fallback depends on model format** — When streaming with native tools returns empty (no content, no tool calls, only reasoning), the fallback depends on `usePrefill`:
-
-14. **Lifecycle events for UI progress** — The agent emits `lifecycle` events with a `phase` field for structured progress reporting: `stuck_detected` (with `reasoning_chars`), `fallback_started` (with `reason` and `mode`), `fallback_waiting` (with `elapsed` time), and `fallback_completed`. These are appended as system messages in the frontend, never overwriting assistant streaming content. The non-streaming heartbeat (`computeNextResponseNonStreaming`) uses `fallback_waiting` with elapsed time instead of the old `tool_stream` overwrite. See `agent_events.go` `notifyLifecycle()` and `docs/skills/event-streaming-patterns.md` for SSE flow, observer chaining, and deduplication.
-
-15. **Goroutine leak fix in `processStream` heartbeat** — The 30-second heartbeat goroutine now selects on a `streamDone` channel (closed via `defer`) in addition to `ctx.Done()`. This ensures the goroutine exits when `processStream` returns for ANY reason (stuck detection, stream EOF, errors), not just context cancellation. Prevents misleading "stream still generating" log lines after the stream has ended. See `agent.go` `processStream()` and `docs/skills/agent-loop.md`.
-
-16. **Context resolution order in `resolveContextLength`** — The priority is `Metadata.Nctx` (serving context from llama.cpp `/slots`) → `Metadata.ContextLength` (training context from GGUF) → `knownCtx` (model name fragment) → `providerCtxDefaults` (per-provider). Forgetting to check `Nctx` first causes the proxy to ignore the detected server context size and fall through to the provider default (128K), resulting in `max_tokens` and `reasoning_budget` that exceed the actual server capacity. See `internal/core/orchestrator/budget_squeezer.go`.
-
-17. **`ApplyMetadataDefaults` sets `ToolCallFormat` to `"native"` when empty** — See `docs/skills/agent-loop.md` (hook system) and `internal/core/orchestrator/budget_squeezer.go`.
-
-18. **Settings override `tool_call_format: ""` blocks the default** — When the UI saves "Default" for an existing model, the save handler writes `tool_call_format: ""` to settings.yml. This empty string override takes highest priority and blocks `ApplyMetadataDefaults` from filling in `"native"`. The model silently switches to XML text mode. If you see a model unexpectedly failing with XML parse errors, check settings.yml for `tool_call_format: ""` and either remove it or set it to `"native"`.
-
-19. **Memory system — see `docs/skills/memory-system.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
+9. **Memory system — see `docs/skills/memory-system.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
 
 20. **Agent loop mechanics — see `docs/skills/agent-loop.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
 

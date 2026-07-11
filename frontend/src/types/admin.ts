@@ -1,6 +1,6 @@
 // Global configuration types
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes'
+export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication'
 
 export interface APIKeyItem {
   id: string
@@ -79,6 +79,37 @@ export interface ProviderItem {
 }
 
 // Global configuration types
+export interface ConnectorConfig {
+  type: string
+  enabled: boolean
+  settings: Record<string, string>
+  secret_ref?: string
+  webhook_url?: string
+}
+
+export interface CommunicationConfig {
+  connectors: Record<string, ConnectorConfig>
+}
+
+export interface WebhookInfo {
+  url: string
+  pending_updates: number
+  last_error?: string
+}
+
+export type VerifyState = 'idle' | 'checking' | 'registered' | 'unregistered' | 'error'
+
+export interface WebhookUIState {
+  host: string
+  info: WebhookInfo | null
+  creating: boolean
+  verifying: boolean
+  deleting: boolean
+  verifyState: VerifyState
+  verifyMsg: string
+  statusMsg: string
+}
+
 export interface AgentDefaults {
   max_steps: number
   context_budget: number
@@ -104,12 +135,7 @@ export interface GlobalConfig {
   fallback_model?: string
   default_args?: string[]
   guardrails: AgentGuardrailsConfig
-  communication: {
-    telegram: {
-      enabled: boolean
-      chat_id: string
-    }
-  }
+  communication: CommunicationConfig
   agent_defaults: AgentDefaults
   provider_defaults?: Record<string, AgentDefaults>
   run_logging?: { enabled: boolean }

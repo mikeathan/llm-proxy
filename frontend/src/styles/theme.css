@@ -18,6 +18,10 @@
   --color-running: #f59e0b;
   --color-info: #3b82f6;
 
+  /* Live / running assistant alert (glow ring + indicator dot).
+     Override this single token to retheme all "assistant running" UI. */
+  --color-live: #22c55e;
+
   /* Text */
   --color-text: #e2e8f0;
   --color-text-muted: #94a3b8;

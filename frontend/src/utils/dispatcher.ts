@@ -65,11 +65,13 @@ export const formatEventsToText = (events: AgentEvent[]): string => {
       }
       if (ev.type === "tool_result") {
         const tr = getToolResPayload(ev);
-        const resStr =
-          typeof tr.result === "string"
+        const hasError = !!tr.error || (typeof tr.result === "object" && tr.result !== null && "error" in tr.result);
+        const resStr = hasError
+          ? (tr.error || (tr.result as any).error)
+          : typeof tr.result === "string"
             ? tr.result
             : JSON.stringify(tr.result, null, 2);
-        return `${getEventIcon("tool_result")} ${tr.name} finished\n${resStr}`;
+        return `${getEventIcon("tool_result")} ${tr.name} ${hasError ? "failed" : "finished"}\n${resStr}`;
       }
       if (ev.type === "guardrail_violation") {
         const vp = getViolationPayload(ev);

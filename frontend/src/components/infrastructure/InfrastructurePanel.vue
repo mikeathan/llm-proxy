@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useProcesses } from '../../composables/automation/useProcesses'
-import { AdminApiService } from '../../services/adminService'
+import { AdminApiService } from '../../services/admin/adminService'
 import { useModels } from '../../composables/models/useModels'
 import { useConfirm } from '../../composables/ui/useConfirm'
 import { useToast } from '../../composables/useToast'

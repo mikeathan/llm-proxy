@@ -1,5 +1,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { ApiService } from '../../services/api'
+import { AdminApiService } from '../../services/admin/adminService'
+import { MetricsApiService } from '../../services/monitoring/metricsService'
+import { McpApiService } from '../../services/mcp/mcpService'
 import { useConfirm } from '../ui/useConfirm'
 import type { AdminState, McpServer, ProcessLogs, SystemMetrics } from '../../types'
 
@@ -18,7 +20,7 @@ export function useAdminState() {
 
   const fetchState = async () => {
     try {
-      state.value = await ApiService.fetchState()
+      state.value = await AdminApiService.fetchState()
     } catch (e: any) {
       console.error('Failed to fetch state:', e.message)
     }
@@ -26,8 +28,8 @@ export function useAdminState() {
 
   const fetchMetricsAndLogs = async () => {
     try {
-      metrics.value = await ApiService.fetchMetrics()
-      logs.value = await ApiService.fetchLogs()
+      metrics.value = await MetricsApiService.fetchMetrics()
+      logs.value = await MetricsApiService.fetchLogs()
     } catch (e: any) {
       console.error('Failed to fetch runtime metrics/logs:', e.message)
     }
@@ -35,7 +37,7 @@ export function useAdminState() {
 
   const fetchMcpServers = async () => {
     try {
-      mcpServers.value = await ApiService.fetchMCPServers()
+      mcpServers.value = await McpApiService.fetchAll()
     } catch (e: any) {
       console.error('Failed to fetch MCP servers:', e.message)
     }
@@ -46,7 +48,7 @@ export function useAdminState() {
     await fetchMetricsAndLogs()
     await fetchMcpServers()
     try {
-      logLevel.value = await ApiService.fetchLogLevel()
+      logLevel.value = await MetricsApiService.fetchLogLevel()
     } catch (e: any) {
       console.error('Failed to fetch log level:', e.message)
     }
@@ -72,7 +74,7 @@ export function useAdminState() {
 
   const startModel = async (name: string) => {
     try {
-      await ApiService.startModel(name)
+      await AdminApiService.startModel(name)
       await fetchState()
     } catch (e: any) {
       console.error(e)
@@ -82,7 +84,7 @@ export function useAdminState() {
 
   const stopModel = async () => {
     try {
-      await ApiService.stopModel()
+      await AdminApiService.stopModel()
       await fetchState()
     } catch (e: any) {
       console.error(e)
@@ -92,7 +94,7 @@ export function useAdminState() {
 
   const addModel = async (payload: any) => {
     try {
-      await ApiService.addModel(payload)
+      await AdminApiService.addModel(payload)
       await fetchState()
     } catch (e: any) {
       console.error(e)
@@ -102,7 +104,7 @@ export function useAdminState() {
 
   const updateModel = async (payload: any) => {
     try {
-      await ApiService.updateModel(payload)
+      await AdminApiService.updateModel(payload)
       await fetchState()
     } catch (e: any) {
       console.error(e)
@@ -120,7 +122,7 @@ export function useAdminState() {
     })
     if (!confirmed) return
     try {
-      await ApiService.removeModel(name)
+      await AdminApiService.removeModel(name)
       await fetchState()
     } catch (e: any) {
       console.error(e)
@@ -130,7 +132,7 @@ export function useAdminState() {
 
   const updateConfig = async (payload: any) => {
     try {
-      await ApiService.updateConfig(payload)
+      await AdminApiService.updateConfig(payload)
       await fetchState()
       alert('Configuration saved')
     } catch (e: any) {
@@ -141,7 +143,7 @@ export function useAdminState() {
 
   const updateLogLevel = async (level: string) => {
     try {
-      await ApiService.updateLogLevel(level)
+      await MetricsApiService.updateLogLevel(level as any)
       logLevel.value = level
     } catch (e: any) {
       console.error(e)
@@ -151,7 +153,7 @@ export function useAdminState() {
 
   const addMCPServer = async (payload: any) => {
     try {
-      await ApiService.addMCPServer(payload)
+      await McpApiService.add(payload)
       await fetchMcpServers()
     } catch (e: any) {
       console.error(e)
@@ -169,7 +171,7 @@ export function useAdminState() {
     })
     if (!confirmed) return
     try {
-      await ApiService.removeMCPServer(name)
+      await McpApiService.remove(name)
       await fetchMcpServers()
     } catch (e: any) {
       console.error(e)
@@ -179,7 +181,7 @@ export function useAdminState() {
 
   const toggleMCPServer = async (server: any) => {
     try {
-      await ApiService.toggleMCPServer(server)
+      await McpApiService.toggle(server)
       await fetchMcpServers()
     } catch (e: any) {
       console.error(e)
