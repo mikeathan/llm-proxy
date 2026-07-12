@@ -1,3 +1,8 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
 # Unify Assistant and Automation Agent Paths
 
 ## Status

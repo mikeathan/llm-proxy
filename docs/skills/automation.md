@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Automation System — Dispatcher, Executor & Task Lifecycle
 
 **Source docs:** SPEC-007, `docs/PLANS/automation/automation-dispatcher-blueprint.md`

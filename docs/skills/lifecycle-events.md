@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Session Lifecycle Events
 
 **Source:** `backend/internal/core/assistant/agent_events.go` (phase constants), `backend/internal/transport/http/assistant_handlers.go` (publishing)

@@ -55,7 +55,7 @@ Each run produces:
 - `run-meta.json` — machine-readable metadata (model, status, steps, duration).
 - `run.log` — human-readable chronological log (tool calls, results, reasoning budget).
 - `events.jsonl` — structured event stream (lifecycle events with timestamps).
-- `recording.jsonl` — LLM request/response recordings (when `--record-dir` is active).
+- `recording.jsonl` — LLM request/response recordings (when `--record` is active).
 
 ## III. Error Handling
 

@@ -1,3 +1,9 @@
+---
+id: LAW
+status: law
+last_reviewed: 2026-07-11
+---
+
 # Constitution (The Law)
 
 This document defines the immutable architectural and security laws of the project. All code must adhere to these rules without exception.

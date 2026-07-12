@@ -1,3 +1,8 @@
+---
+status: complete
+last_reviewed: 2026-07-11
+---
+
 # PLAN: Communication Connector Inbound Webhook — Phase 2
 
 **Status:** Stable — updated for async agent execution and live visibility  

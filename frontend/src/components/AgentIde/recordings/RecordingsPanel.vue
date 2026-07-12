@@ -95,7 +95,7 @@ function handleReplayClick(auto: Automation, rec: RecordingMeta) {
         </svg>
       </div>
       <div class="empty-text">No recordings found</div>
-      <div class="empty-hint">Start server with <code>--record-dir</code> and run automations to create recordings</div>
+      <div class="empty-hint">Start server with <code>--record</code> and run automations to create recordings</div>
     </div>
 
     <!-- Recordings List -->

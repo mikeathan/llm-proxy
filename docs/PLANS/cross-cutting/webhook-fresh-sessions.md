@@ -1,3 +1,8 @@
+---
+status: complete
+last_reviewed: 2026-07-11
+---
+
 # Fresh Webhook Sessions + Source Grouping
 
 **Status:** ✅ Completed

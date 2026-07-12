@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # write_file Truncation Cycles & Block Editing
 
 ## Root Cause

@@ -1,3 +1,8 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
 # PLAN: Generic Outbound Communication Connector System — Phase 1
 
 **Status:** Complete  

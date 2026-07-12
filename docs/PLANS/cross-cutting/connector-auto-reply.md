@@ -1,3 +1,8 @@
+---
+status: active
+last_reviewed: 2026-07-11
+---
+
 # PLAN: Communication Connector Auto-Reply & Automation Trigger — Phase 3
 
 **Status:** Active  

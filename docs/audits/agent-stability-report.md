@@ -1,3 +1,8 @@
+---
+status: complete
+last_reviewed: 2026-07-11
+---
+
 
 # Agent Stability Analysis Report
 

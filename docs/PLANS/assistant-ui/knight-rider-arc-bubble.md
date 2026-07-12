@@ -1,3 +1,8 @@
+---
+status: active
+last_reviewed: 2026-07-11
+---
+
 # Knight rider arc on assistant bubble
 
 **Date**: 2026-06-26

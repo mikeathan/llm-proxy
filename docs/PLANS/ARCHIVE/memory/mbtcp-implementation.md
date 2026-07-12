@@ -1,8 +1,11 @@
 ---
-status: proposed
+status: superseded
 date: 2026-06-03
 related_specs: [SPEC-004]
 ---
+
+> **Archived:** Superseded by `memory/memory-improvements-implementation-plan.md`.
+
 # MBTCP: Memory-Backed Tool Call Pre-emption
 
 **Status:** Proposed

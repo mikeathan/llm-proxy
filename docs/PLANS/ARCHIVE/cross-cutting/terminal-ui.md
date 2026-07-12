@@ -1,3 +1,10 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
+> **Archived:** Proposed, no activity — archived.
+
 # Plan: Terminal UI (TUI) for LLM-Proxy
 
 **Status:** proposed

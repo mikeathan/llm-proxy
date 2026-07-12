@@ -1,3 +1,10 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
+> **Archived:** Proposed, no activity — archived.
+
 # Plan: Interactive User Input (ask_user Tool)
 
 **Status:** proposed

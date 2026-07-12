@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Testing — Patterns, Tools & Strategies
 
 **Source docs:** `docs/PLANS/cross-cutting/record-replay-test-framework.md`, `backend/data/templates/`, `AGENTS.md` Test Patterns
@@ -144,17 +149,47 @@ client.Chat()
 
 ## Record-Replay Testing
 
-Record live interactions:
+### Recording
+
+Every LLM call (Chat or Stream) is written to `data/runs/<model>/<task>/<timestamp>_<session>.jsonl`:
+
 ```bash
-go run main.go --data ./data --record-dir=testdata/recordings
+go run main.go --record
 ```
 
-Replay offline (no LLM model needed):
+Hit different LLMs with different prompts through the proxy or agent API — each model gets its own subdirectory.
+
+### JSONL Fixture Format
+
+One JSON object per line, with these event types:
+
+| Type | When | Fields |
+|------|------|--------|
+| `request` | Before LLM call | `model`, `messages[]`, `tools[]` |
+| `response` | Non-streaming response | `choices[{message}]` |
+| `chunk` | Stream delta | `choices[{delta: {content, tool_calls, reasoning}}]` |
+| `error` | HTTP/connection error | Error details |
+| `done` | Stream completion | `total_chunks` |
+
+```json
+{"type":"request","model":"gemma4","messages":[...],"tools":[...]}
+{"type":"response","choices":[{"message":{"role":"assistant","content":"answer"}}]}
+{"type":"done","total_chunks":1}
+```
+
+For streaming sessions, lines alternate `chunk`/`response`/`done` following the initial `request` line.
+
+### Replay
+
+Replay tests are opt-in via the `recordreplay` build tag. The test runner (`llmprofiles.RunAgainstFixtures`) loads all `.jsonl` files, wraps each in a `FixtureClient` that implements `proxy.Client`, and runs the agent against it — identical to a live run:
+
 ```bash
 go test -tags recordreplay ./internal/core/assistant/ -run TestAgent_Execute_AgainstRecordings -v
 ```
 
 Fixture `.jsonl` files go in `internal/core/assistant/testdata/recordings/`.
+
+See `docs/PLANS/ARCHIVE/cross-cutting/record-replay-test-framework.md` for the full design.
 
 ## Common Pitfalls
 
@@ -162,4 +197,4 @@ Fixture `.jsonl` files go in `internal/core/assistant/testdata/recordings/`.
 - **Temperature too low** — 0.1 is default. For Gemma 4, raise to 0.3-0.4 if looping. Set via model settings.yml override.
 - **llama.cpp args** — Must include `--repeat-penalty 1.12 --repeat-last-n 256 --frequency-penalty 0.5 --presence-penalty 0.5` to prevent token-level repetition.
 - **Cache cold starts** — First request after server start is slow (~6-7s prompt eval). Subsequent requests use prompt cache (~0.3-0.6s).
-- **Recording files accumulate** — `--record-dir` writes every interaction. Clean old recordings periodically.
+- **Recording files accumulate** — `--record` writes every interaction. Clean old recordings periodically.

@@ -1,6 +1,13 @@
+---
+status: active
+last_reviewed: 2026-07-11
+---
+
 # Codebase Audit Report — 2026-07-03
 
 Unified findings from 4 parallel audits (backend Go, frontend Vue/TS, agent files/docs, architecture/duplication).
+
+> Prior backend-only audit: [`docs/audits/backend-audit-report.md`](../../audits/backend-audit-report.md).
 
 ---
 

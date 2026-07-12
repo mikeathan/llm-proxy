@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Documentation Stewardship — Post-Completion Checklist
 
 After every new feature, refactor, behavior fix, or revert:

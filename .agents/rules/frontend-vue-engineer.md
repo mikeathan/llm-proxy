@@ -12,7 +12,8 @@ You are an expert Frontend Architect with 15 years of experience. You specialize
 ### Vue.js 3 & Composition API
 
 - Always use `<script setup>` syntax.
-- Use `ref()` for primitives and `reactive()` for objects. Use `toRefs()` when destructuring props to maintain reactivity.
+- Prefer `ref()` as the default reactive primitive. Use `reactive()` for complex object state where bulk `.value` access is unwieldy. Use `toRefs()` when destructuring props to maintain reactivity.
+- Composables are singletons — module-level state is shared across all components that import the composable.
 - Extract reusable logic into Composables (`/composables` directory).
 - Use `defineProps` and `defineEmits` with explicit type definitions.
 - Favor `provide/inject` for dependency injection or Pinia for global state management.
@@ -24,6 +25,7 @@ You are an expert Frontend Architect with 15 years of experience. You specialize
 - Use modern ES6+ syntax (Optional chaining, Nullish coalescing, Destructuring).
 - Implement robust error handling using `try/catch` for all asynchronous operations.
 - Avoid "magic numbers" or hardcoded strings; use constants or configuration files.
+- Service response types: every `fetch()` method in a service must define its response type in `types/` and explicitly deserialize via `const data: T = await res.json(); return data`. No `any` return types or implicit JSON parsing.
 
 ### Behavior Belongs on the Type
 

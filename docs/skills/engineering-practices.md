@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Engineering Practices — Go Patterns, Code Style & Architecture
 
 **Source docs:** AGENTS.md (Coding Rules, Engineering Patterns, File Change Checklist)

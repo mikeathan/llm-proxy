@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Assistant UI Chat Patterns
 
 **Source docs:** SPEC-003, `docs/PLANS/assistant-ui/`, `docs/skills/event-streaming-patterns.md`

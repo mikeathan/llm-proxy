@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Tool-Failure Investigation
 
 When a tool call fails repeatedly and the model enters a loop or death spiral:

@@ -1,7 +1,10 @@
 ---
-status: partial
+status: superseded
 related_specs: [SPEC-001]
 ---
+
+> **Archived:** Superseded by `agent-loop/agent-improvements.md`.
+
 # Plan - Enhanced Agent Flow & Model Compatibility
 
 **Status: PARTIAL**
