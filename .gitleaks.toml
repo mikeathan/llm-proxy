@@ -1,0 +1,27 @@
+# gitleaks configuration
+# Extends the built-in ruleset and allowlists known non-secret test fixtures
+# and the secret-detection regexes that live in the agent-sandbox source.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known test fixtures and placeholders (not real secrets)"
+regexTarget = "match"
+regexes = [
+  '''sk-or-v1-reallylongsecretkey''',
+  '''AIzasecretdevkey''',
+  '''AKIA1234567890123456''',
+  '''AIza\.\.\.''',
+  '''sk-12345678901234567890123456789012''',
+  '''sk-abc123abc123abc123abc123abc123abc123''',
+]
+
+[[allowlists]]
+description = "Secret-detection regex patterns defined in agent-sandbox source (meta, not secrets)"
+regexTarget = "line"
+regexes = [
+  '''AKIA\[a-zA-Z0-9\]\{16\}''',
+  '''AIza\[a-zA-Z0-9_-\]\{35\}''',
+  '''-----BEGIN\\\\s\+''',
+]

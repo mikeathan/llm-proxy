@@ -15,6 +15,9 @@ go run main.go                          # :4001
 cd frontend
 npm install && npm run dev             # dev (proxies to :4001)
 npm run build                          # production
+
+# One-time: install deps + enable secret-scanning git hook
+./setup.sh                             # installs gitleaks, registers .githooks
 ```
 
 ## Before You Write Code
@@ -40,6 +43,28 @@ Full Go/Vue rules: `.agents/rules/`. Architecture + directory map: `docs/archite
 - PRs only; no direct pushes to main.
 - Conventional Commits format.
 - AI agents: see `AGENTS.md` for git policy.
+
+## Git Hooks (secret scanning)
+
+A pre-commit hook blocks commits that contain secrets (API keys, tokens, private keys).
+
+**Dependency:** [gitleaks](https://github.com/gitleaks/gitleaks) — `brew install gitleaks`.
+
+**One-time enable:** from the repo root run `./setup.sh`. It installs the gitleaks
+dependency and registers the hook automatically:
+
+```bash
+./setup.sh        # brew install gitleaks && git config core.hooksPath .githooks
+```
+
+Hooks are version-controlled under `.githooks/`, but Git does not auto-enable them —
+that is what the script's `git config core.hooksPath .githooks` step does (do it once
+per clone).
+
+- Hook script: `.githooks/pre-commit` (runs `gitleaks git --staged`).
+- Allowlist / rules: `.gitleaks.toml` — add false-positive fixtures here.
+- If gitleaks is not installed the hook warns and skips (does not block commits).
+- Ignored secret files (`secrets.json`, `config.json`, `.env*`) are enforced via `.gitignore`.
 
 ## Documentation
 After any change: follow `docs/skills/documentation-stewardship.md`.
