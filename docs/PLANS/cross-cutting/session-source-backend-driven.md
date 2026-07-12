@@ -1,3 +1,8 @@
+---
+status: complete
+last_reviewed: 2026-07-11
+---
+
 # Session `source` derived from backend (single source of truth)
 
 **Status:** ✅ Completed

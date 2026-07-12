@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-03
+---
+
 # Backend Audit Report
 _Scope: bugs, memory leaks, bottlenecks, and optimisations_
 _Files reviewed: agent.go · session.go · stream.go · tool_exec.go · registry.go · agent_events.go · sieve.go · client.go · history.go · assistant_handlers.go · dispatcher_handlers.go · terminal.go_

@@ -1,3 +1,8 @@
+---
+status: active
+last_reviewed: 2026-07-11
+---
+
 # Fix: stale turn bleed on cancel + new message
 
 **Date**: 2026-06-26

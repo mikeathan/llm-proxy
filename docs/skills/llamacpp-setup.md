@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # llama.cpp Server — Setup, Args & Tuning
 
 **Source docs:** `docs/llama_cpp_setup`, `docs/services/llm-proxy.service`, `docs/audits/memory-injection-investigation.md`

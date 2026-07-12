@@ -1,3 +1,8 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
 # Plan: Memory Tags System
 
 **Status:** complete

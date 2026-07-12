@@ -1,3 +1,8 @@
+---
+status: active
+last_reviewed: 2026-07-11
+---
+
 # Assistant UI Overhaul — Chat, History & Layout
 
 **Status:** active  

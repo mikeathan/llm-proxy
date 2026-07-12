@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Audit: Assistant Debug Cycle — Tool Calling, History Leak & Emoji Loop
 
 **Date**: 2026-07-06

@@ -598,7 +598,7 @@ cd backend && go build ./... && go vet ./... && go test ./... -v
 Then smoke test:
 
 ```bash
-cd backend && go run main.go --data ./data --record-dir=testdata/recordings
+cd backend && go run main.go --record
 ```
 
 Verify recording JSONL contains:

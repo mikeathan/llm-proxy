@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Audit: submit_final_answer content overwrite
 
 **Date**: 2026-07-05

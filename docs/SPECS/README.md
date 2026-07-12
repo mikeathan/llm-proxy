@@ -15,3 +15,4 @@ modifying or extending the subsystem it describes.
 | SPEC-006 | `guardrails.md` | Guardrail Engine | stable |
 | SPEC-007 | `automation-dispatcher.md` | Automation Dispatcher | stable |
 | SPEC-008 | `mcp-integration.md` | MCP Integration | stable |
+| SPEC-009 | `communication.md` | Communication Connector System | stable |

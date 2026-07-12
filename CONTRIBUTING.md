@@ -2,92 +2,44 @@
 
 ## Quick Start
 
+_(Canonical command reference — AGENTS.md links here.)_
+
 ```bash
 # Backend
 cd backend
-go build ./...
-go test ./...
-go run ./tools/check-complexity/   # cyclomatic complexity ≤ 12
-go run main.go                     # start server on :4001
+go build ./... && go test ./...         # build + test
+go run ./tools/check-complexity/        # complexity ≤12
+go run main.go                          # :4001
 
 # Frontend
 cd frontend
-npm install
-npm run dev       # dev server (proxies API to :4001)
-npm run build     # → ../backend/internal/transport/http/frontend_dist/
+npm install && npm run dev             # dev (proxies to :4001)
+npm run build                          # production
 ```
 
 ## Before You Write Code
 
-1. Read `AGENTS.md` (AI agents) or this file (human contributors).
-2. Read `CONSTITUTION.md` — architectural invariants covering validation boundaries, system prompt format, model architecture, terminal/network safety, no telemetry, and abstraction boundaries.
-3. Read the relevant SPEC file for the subsystem. See [`docs/INDEX.md`](docs/INDEX.md) for the mapping (SPEC-001 through SPEC-009).
-4. Run `go build ./... && go test ./...` to establish a clean baseline.
+1. Read `CONSTITUTION.md` — architectural invariants (6 sections).
+2. Read the relevant SPEC (`docs/INDEX.md` → SPEC-001..009).
+3. Run `cd backend && go build ./... && go test ./...` for clean baseline.
 
 ## Code Standards
 
-### Go (Backend)
+### Go
+- Cyclomatic complexity ≤12 (`go run ./tools/check-complexity/`).
+- Imports: stdlib → internal → external.
+- Validate at boundaries; no secrets in logs.
 
-- Every function must have McCabe cyclomatic complexity ≤ 12. Enforced by `backend/tools/check-complexity/`.
-- Run `go build ./...` before committing — no linters, no pre-commit hooks.
-- Keep imports grouped: stdlib → internal → external.
-- Handler types go in `internal/transport/http/handlers/` (package `handlers`).
-- Service interfaces go in `internal/core/` or `internal/platform/`.
-- Defensive: validate workspace IDs via `validateID()`, gate filenames for path traversal.
+### Vue / TypeScript
+- Composables are singletons; `ref()` over `reactive()`.
+- Services are stateless; types from `types/`.
 
-### TypeScript / Vue (Frontend)
+Full Go/Vue rules: `.agents/rules/`. Architecture + directory map: `docs/architecture.md`.
 
-- Composables are singletons — module-level state shared across components.
-- `ref()` over `reactive()`. Type imports from `types/`. Services are stateless.
-- Behavior belongs on the type — no switch/if-else chains in consumers; each variant is its own module.
-- Service response types: every `fetch()` method must define its response type in `types/` and explicitly deserialize via `const data: T = await res.json(); return data`.
-
-### Git
-
-- No direct pushes to main. PRs only.
+## Git
+- PRs only; no direct pushes to main.
 - Conventional Commits format.
-- The user manages all git operations — AI agents must ask before any git command.
+- AI agents: see `AGENTS.md` for git policy.
 
-## Documentation Stewardship
-
-After any change, load `docs/skills/documentation-stewardship.md` and follow its post-completion checklist.
-
-## Directory Map
-
-```
-backend/                          # Go module root
-  internal/
-    app/                          # Composition root (bootstrap.go)
-    core/                         # Domain logic
-      assistant/                  # Agent loop, guardrails, tools, sessions
-      automation/                 # Dispatcher, automation executor, event bus
-      llm/                        # LLM client, model registry, runtimes
-      mcp/                        # MCP orchestrator, resource mirror
-      proxy/                      # Message protocol, history, normalisation
-      tools/                      # Tool implementations (terminal, filesystem, network)
-    platform/                     # Infrastructure
-      persistence/                # Workspace config, file I/O
-      logging/                    # Structured logging
-      storage/                    # File resolver, data manager
-    transport/
-      http/                       # Router, middleware, frontend embed
-        handlers/                 # HTTP handler types (package handlers)
-    testing/                      # Test mocks and helpers
-  models/                         # Shared domain types
-  tools/                          # Build tools (complexity check)
-
-frontend/                         # Vue 3 + Vite
-  src/
-    components/                   # Vue SFC components
-    composables/                  # Shared state + logic
-    services/                     # Typed HTTP clients
-      admin/                      # Admin API
-      monitoring/                 # Metrics, logs
-      mcp/                        # MCP CRUD
-      automation/                 # Dispatcher, workspaces
-      assistant/                  # Conversation API
-      memory/                     # Memory store
-      template/                   # Templates
-    types/                        # TypeScript type definitions
-    constants/                    # API endpoints, provider definitions
-```
+## Documentation
+After any change: follow `docs/skills/documentation-stewardship.md`.

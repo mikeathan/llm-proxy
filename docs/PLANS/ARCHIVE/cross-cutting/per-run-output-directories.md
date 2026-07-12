@@ -1,3 +1,10 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
+> **Archived:** Large draft, no activity — archived until scoped.
+
 # Plan: Per-Run Output Directories
 
 **Status:** Draft  

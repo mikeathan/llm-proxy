@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
 
 **Source docs:** `SPEC-006`, `internal/core/assistant/agent_events.go`, `frontend/src/composables/useAssistantSSE.ts`, `frontend/src/composables/automation/useLiveConsole.ts`

@@ -274,7 +274,7 @@ func (s AppServices) RunLoggingEnabled() bool {
 
 func (s AppServices) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
 	if s.RecordingStore == nil {
-		return nil, fmt.Errorf("recording store not available (start server with --record-dir)")
+		return nil, fmt.Errorf("recording store not available (start server with --record)")
 	}
 	meta, ok := s.RecordingStore.Get(ref)
 	if !ok {
@@ -456,7 +456,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 
 	// Register recording routes unconditionally. The handler safely returns
-	// enabled:false when no --record-dir is configured.
+	// enabled:false when no --record is configured.
 	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore)
 
 	if store := s.AppCtx.MemoryStore(); store != nil {

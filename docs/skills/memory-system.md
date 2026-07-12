@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Memory System — Architecture, Decisions & Patterns
 
 **Source docs:** SPEC-004, `docs/PLANS/memory/memory-three-tier-redesign.md`, `docs/PLANS/memory/memory-tags-system.md`, `docs/audits/memory-injection-investigation.md`

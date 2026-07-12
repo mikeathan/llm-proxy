@@ -1,3 +1,10 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
+> **Archived:** Superseded by `assistant-ui/knight-rider-arc-bubble.md`.
+
 # Simple Three-Bubble UI
 
 **Status:** complete  

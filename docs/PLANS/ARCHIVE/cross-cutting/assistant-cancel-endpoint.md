@@ -1,3 +1,8 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
 # Add explicit /assistant/cancel endpoint + in-process agent registry
 
 **Date**: 2026-06-26

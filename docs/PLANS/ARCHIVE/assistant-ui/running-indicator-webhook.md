@@ -1,3 +1,10 @@
+---
+status: superseded
+last_reviewed: 2026-07-11
+---
+
+> **Archived:** No status, no date — archived.
+
 # Running-indicator for webhook-triggered assistant sessions
 
 > **Status: ✅ Completed** — implemented and frontend build (`eslint` + `vue-tsc` + `vite build`) passes clean.

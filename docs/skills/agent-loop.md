@@ -1,3 +1,8 @@
+---
+status: reference
+last_reviewed: 2026-07-11
+---
+
 # Agent Loop — Execution, Sieve, Stuck Detection & Fallback
 
 **Source docs:** SPEC-001, `docs/PLANS/agent-loop/refactor-assistant-clean-code.md`, `docs/audits/agent-stability-report.md`
