@@ -24,8 +24,16 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# env files (ignore all variants; keep documented examples)
 .env
+.env.*
+!.env.example
+!.env.*.example
+
+# Secrets / local config that may hold API keys (never commit)
+**/secrets.json
+backend/config/secrets.json
+backend/config/config.json
 
 # Editor/IDE
 # .idea/

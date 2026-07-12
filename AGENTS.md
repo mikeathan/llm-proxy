@@ -8,7 +8,7 @@ Read before making changes.
 
 ## Commands
 
-Full command reference: [CONTRIBUTING.md → Quick Start](CONTRIBUTING.md#quick-start). Go 1.26.2 · no Makefile/lint/pre-commit.
+Full command reference: [CONTRIBUTING.md → Quick Start](CONTRIBUTING.md#quick-start). Go 1.26.2 · no Makefile/lint · gitleaks pre-commit hook (enable once with `./setup.sh`, see [CONTRIBUTING.md → Git Hooks](CONTRIBUTING.md#git-hooks-secret-scanning)).
 
 ```bash
 cd backend && go build ./... && go test ./...   # build + test

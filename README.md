@@ -22,6 +22,7 @@ all from a single Go binary.
 ## Quick Start
 
 ```bash
+./setup.sh          # one-time: installs gitleaks + registers the secret-scanning git hook
 cd backend
 go build ./...
 go run main.go
