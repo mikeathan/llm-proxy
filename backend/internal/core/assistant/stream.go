@@ -34,6 +34,12 @@ const (
 	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
 	streamCharCapMultiplier       = 4           // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
 	maxHotInjectionChars          = 2000        // character cap for hot memory injection
+	// emptyToolCallSpiralLimit: closed empty <tool_call></tool_call> blocks in pure-reasoning
+	// streams trigger stuck early. Qwen 3.5 observed looping 100+ empty tags (~19s) before the
+	// char threshold; abort at 3 closed empties so recovery (nag) starts in ~1s. Does not kill
+	// the run — same stuck_detected → handleEmptyStream → nag path as char-threshold stuck.
+	// Dangling open tags (still forming a real call) are not counted.
+	emptyToolCallSpiralLimit = 3
 )
 
 var (
@@ -60,9 +66,6 @@ func (a *Agent) buildChatRequest(
 		Messages:  prepared,
 		Tools:     llmTools,
 		MaxTokens: a.config.MaxTokens,
-	}
-	if a.config.UseNativeTools && len(llmTools) > 0 {
-		req.ToolChoice = proxy.ToolChoiceRequired
 	}
 	if a.config.Temperature > 0 {
 		req.Temperature = a.config.Temperature
@@ -331,7 +334,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	var fullMsg proxy.Message
 	fullMsg.Role = proxy.AssistantRole
-	if streamErr = a.processStream(ctx, ch, &fullMsg); streamErr != nil {
+	if streamErr = a.processStream(ctx, ch, &fullMsg, hasToolResult(history), len(tools) > 0); streamErr != nil {
 		return proxy.Message{}, streamErr
 	}
 
@@ -377,9 +380,18 @@ func injectRetryContext(history []proxy.Message) []proxy.Message {
 // reasoningBudget * 2 (in chars) so models that don't enforce the budget
 // server-side are caught mid-stream; falls back to maxTokens * 2 when the
 // reasoning budget is 0 (non-automation turns).
+//
+// Also aborts on empty-tool_call spiral: N closed empty <tool_call></tool_call>
+// blocks in reasoning with no content/native tools (see emptyToolCallSpiralLimit).
 func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	if a.config.SkipStuckCheck || len(fullMsg.Content) > 0 || len(fullMsg.ToolCalls) > 0 {
 		return false
+	}
+
+	// Empty closed tool_call tags looping in pure reasoning (Qwen 3.5 etc).
+	// Catch before char threshold so recovery starts in ~1s instead of ~19s.
+	if countEmptyClosedToolCalls(fullMsg.ReasoningContent) >= emptyToolCallSpiralLimit {
+		return true
 	}
 
 	// Models with reasoningBudget == 0 get no server-side thinking enforcement.
@@ -394,11 +406,72 @@ func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	return len(fullMsg.ReasoningContent) > a.stuckThreshold()
 }
 
+// countEmptyClosedToolCalls counts closed <tool_call>...</tool_call> blocks whose
+// body is empty/whitespace. Dangling open tags (still forming) are not counted.
+// Case-insensitive to match containsSubstantiveToolCall.
+func countEmptyClosedToolCalls(s string) int {
+	count := 0
+	lower := strings.ToLower(s)
+	for {
+		idx := strings.Index(lower, "<tool_call>")
+		if idx == -1 {
+			return count
+		}
+		closeIdx := strings.Index(lower[idx:], "</tool_call>")
+		if closeIdx == -1 {
+			return count // dangling open — still forming, do not count
+		}
+		body := strings.TrimSpace(s[idx+len("<tool_call>") : idx+closeIdx])
+		if body == "" {
+			count++
+		}
+		lower = lower[idx+closeIdx+len("</tool_call>"):]
+		s = s[idx+closeIdx+len("</tool_call>"):]
+	}
+}
+
+// containsSubstantiveToolCall checks whether s contains at least one <tool_call>
+// block with a non-empty body (after trimming whitespace).  An empty block
+// (<tool_call></tool_call> or <tool_call>  \n  </tool_call>) means the model
+// hasn't finished forming the call — the stream should keep going so it can
+// fill it in.  Tag matching is case-insensitive to align with the (?si) regex.
+func containsSubstantiveToolCall(s string) bool {
+	lower := strings.ToLower(s)
+	for {
+		idx := strings.Index(lower, "<tool_call>")
+		if idx == -1 {
+			return false
+		}
+		closeIdx := strings.Index(lower[idx:], "</tool_call>")
+		if closeIdx == -1 {
+			return false // dangling open tag — still forming
+		}
+		body := strings.TrimSpace(s[idx+len("<tool_call>") : idx+closeIdx])
+		if body != "" {
+			return true // found a substantive call
+		}
+		// Empty block — skip past it and check for more
+		lower = lower[idx+closeIdx+len("</tool_call>"):]
+		s = s[idx+closeIdx+len("</tool_call>"):]
+	}
+}
+
 // tryExtractToolCallFromReasoning handles models (e.g. Qwen 3.5) that emit
-// <tool_call> blocks inside <think> reasoning content, where they're invisible
-// to the native-tool parser but still valid XML.  Extracts and promotes.
+// <tool_call> blocks inside reasoning content, where they're invisible
+// to the native-tool parser but still valid XML.  Extracts tool calls
+// directly into fullMsg.ToolCalls without copying reasoning text into
+// Content — reasoning text belongs to thinking, not visible output.
+// The llama.cpp server already separates reasoning_content from content
+// at the wire level; this function bridges the gap when the model writes
+// tool calls as text inside reasoning instead of using native deltas.
 func (a *Agent) tryExtractToolCallFromReasoning(fullMsg *proxy.Message) bool {
 	if len(fullMsg.ReasoningContent) == 0 {
+		return false
+	}
+	// If the model already wrote visible content, the tool call (if any)
+	// came through the native path or is already in Content.  Do not
+	// inject reasoning text on top of real user-facing output.
+	if len(fullMsg.Content) > 0 {
 		return false
 	}
 	if !toolCallInContent.MatchString(fullMsg.ReasoningContent) {
@@ -408,13 +481,33 @@ func (a *Agent) tryExtractToolCallFromReasoning(fullMsg *proxy.Message) bool {
 	if cleaned == "" {
 		return false
 	}
-	fullMsg.Content = cleaned
+	// Only extract if the tool call block contains a non-empty body.
+	// An empty <tool_call></tool_call> means the model hasn't finished
+	// forming the call — keep streaming so it can fill it in.
+	if !containsSubstantiveToolCall(fullMsg.ReasoningContent) {
+		return false
+	}
+	_, calls, parseErr := proxy.ParseContentToolCalls(cleaned)
+	if parseErr != nil || len(calls) == 0 {
+		return false
+	}
+	fullMsg.ToolCalls = append(fullMsg.ToolCalls, calls...)
 	return true
 }
 
-func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message) error {
+// processStream consumes an LLM stream, accumulating content/reasoning/tool
+// calls into fullMsg and terminating the stream when a budget or safety cap is
+// reached. The relaxation flags let the caller suppress the no-tool content cap
+// for turns that are plausibly a legitimate final answer:
+//   - priorToolResult: history already contains a ToolRole (real work was done)
+//   - toolsAvailable:  at least one tool is configured for this turn
+//
+// When both are false, a long tool-free answer is most likely the runaway
+// joke-loop, so the cap stays armed. See §2.1 of the automation renderer plan.
+func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse, fullMsg *proxy.Message, priorToolResult, toolsAvailable bool) error {
 	var tokUsed, reasonUsed int
 	var budgetWarned bool
+	var relaxedCapWarned bool
 
 	streamStartTime := time.Now()
 
@@ -504,9 +597,14 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 			}
 
 			if a.checkStreamStuck(fullMsg) {
-				a.deps.Logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback", "reasoning_chars", len(fullMsg.ReasoningContent), "stuck_threshold", a.stuckThreshold())
+				emptyCalls := countEmptyClosedToolCalls(fullMsg.ReasoningContent)
+				a.deps.Logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback",
+					"reasoning_chars", len(fullMsg.ReasoningContent),
+					"stuck_threshold", a.stuckThreshold(),
+					"empty_tool_calls", emptyCalls)
 				a.notifyLifecycle("stuck_detected", map[string]any{
-					"reasoning_chars": len(fullMsg.ReasoningContent),
+					"reasoning_chars":   len(fullMsg.ReasoningContent),
+					"empty_tool_calls":  emptyCalls,
 				})
 				logStreamEnd("stuck_detected")
 				return nil
@@ -540,12 +638,31 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				return nil
 			}
 
-			if a.config.UseNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > a.config.MaxTokens {
+		if a.config.UseNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > a.config.MaxTokens {
+			// Relax the cap for turns that are plausibly a genuine final
+			// answer: real work already happened (prior tool result) or no
+			// tools are configured so a pure-text answer is expected. Let the
+			// stream run to its natural stop so checkTaskCompletion receives
+			// the full answer intact. Keep the cap armed otherwise — a
+			// tool-free turn with no prior work is the runaway joke-loop.
+		if !priorToolResult && toolsAvailable {
+			if !relaxedCapWarned {
+				relaxedCapWarned = true
 				a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, terminating stream",
 					"content_chars", len(fullMsg.Content),
 					"cap", a.config.MaxTokens)
-				return nil
 			}
+			return nil
+		}
+		if !relaxedCapWarned {
+			relaxedCapWarned = true
+			a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, allowing stream to continue (legitimate final answer candidate)",
+				"content_chars", len(fullMsg.Content),
+				"cap", a.config.MaxTokens,
+				"prior_tool_result", priorToolResult,
+				"tools_available", toolsAvailable)
+		}
+		}
 
 			if reasoningChunk != "" {
 				a.notify(EventReasoning, fullMsg.ReasoningContent)
@@ -699,7 +816,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	a.config.SkipStuckCheck = true
 	var fullMsg proxy.Message
 	fullMsg.Role = proxy.AssistantRole
-	streamErr := a.processStream(ctx, ch, &fullMsg)
+	streamErr := a.processStream(ctx, ch, &fullMsg, hasToolResult(history), len(tools) > 0)
 	a.config.SkipStuckCheck = false
 
 	if streamErr != nil {

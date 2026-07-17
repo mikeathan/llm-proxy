@@ -22,7 +22,7 @@ const { isMobile } = useResponsiveLayout(640);
 
 const {
   loading, error, messages, sessions, currentSessionId, pendingDecision,
-  thinking, liveReasoning, paused,
+  thinking, liveReasoning, paused, phase,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
   liveEvents,
@@ -59,7 +59,7 @@ function toggleSidebar() {
   inboundCount.value = 0
 }
 
-const workCollapsed = ref<Record<number, boolean>>({});
+const insetCollapsed = ref<Record<number, boolean>>({});
 const expandedSegments = ref<Record<string, boolean>>({});
 
 const turns = computed(() => groupTurns(messages.value));
@@ -68,17 +68,17 @@ const lastMessageIsUser = computed(() => {
   return messages.value[messages.value.length - 1]?.role === "user";
 });
 
-function isWorkCollapsed(turnIdx: number): boolean {
-  return !!workCollapsed.value[turnIdx];
+function isInsetCollapsed(turnIdx: number): boolean {
+  return !!insetCollapsed.value[turnIdx];
 }
 
 function isSegExpanded(turnIdx: number, segIdx: number): boolean {
   return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
 }
 
-function toggleWork(turnIdx: number) {
-  const current = !!workCollapsed.value[turnIdx];
-  workCollapsed.value = { ...workCollapsed.value, [turnIdx]: !current };
+function toggleInset(turnIdx: number) {
+  const current = !!insetCollapsed.value[turnIdx];
+  insetCollapsed.value = { ...insetCollapsed.value, [turnIdx]: !current };
 }
 
 function toggleSegment(turnIdx: number, segIdx: number) {
@@ -86,10 +86,10 @@ function toggleSegment(turnIdx: number, segIdx: number) {
   expandedSegments.value = { ...expandedSegments.value, [key]: !expandedSegments.value[key] };
 }
 
-function collapseAllWork() {
+function collapseAllInsets() {
   const collapsed: Record<number, boolean> = {};
   turns.value.forEach((_, idx) => { collapsed[idx] = true; });
-  workCollapsed.value = collapsed;
+  insetCollapsed.value = collapsed;
 }
 
 onMounted(() => { if (props.workspaceId) initWorkspace(); });
@@ -102,37 +102,37 @@ const initWorkspace = async () => {
   connectSSE();
 };
 
-const handleNewChat = async () => {
-  newSession();
-  workCollapsed.value = {};
-  await fetchSessions(props.workspaceId);
-};
+  const handleNewChat = async () => {
+    newSession();
+    insetCollapsed.value = {};
+    await fetchSessions(props.workspaceId);
+  };
 
-const handleSend = async () => {
-  const text = inputMessage.value.trim();
-  if (!text || loading.value) return;
-  inputMessage.value = "";
-  collapseAllWork();
-  await sendMessage(props.workspaceId, text);
-  await nextTick();
-  forceScrollToBottom();
-};
+  const handleSend = async () => {
+    const text = inputMessage.value.trim();
+    if (!text || loading.value) return;
+    inputMessage.value = "";
+    collapseAllInsets();
+    await sendMessage(props.workspaceId, text);
+    await nextTick();
+    forceScrollToBottom();
+  };
 
 const handleRetry = (text: string) => {
   sendMessage(props.workspaceId, text);
   forceScrollToBottom();
 };
 
-const handleLoadSession = async (sessionId: string) => {
-  workCollapsed.value = {};
-  await loadSession(props.workspaceId, sessionId);
-  await nextTick();
-  collapseAllWork();
-  forceScrollToBottom();
-  if (isMobile.value) {
-    sidebarOpen.value = false;
-  }
-};
+  const handleLoadSession = async (sessionId: string) => {
+    insetCollapsed.value = {};
+    await loadSession(props.workspaceId, sessionId);
+    await nextTick();
+    collapseAllInsets();
+    forceScrollToBottom();
+    if (isMobile.value) {
+      sidebarOpen.value = false;
+    }
+  };
 
 const handleDeleteSession = async (sessionId: string) => {
   if (confirm("Are you sure you want to delete this conversation?")) {
@@ -173,12 +173,23 @@ watch(loading, async (newVal, oldVal) => {
     await nextTick();
     const lastIdx = turns.value.length - 1;
     if (lastIdx >= 0) {
-      workCollapsed.value = { ...workCollapsed.value, [lastIdx]: false };
+      insetCollapsed.value = { ...insetCollapsed.value, [lastIdx]: false };
     }
   }
   if (oldVal && !newVal) {
     await nextTick();
-    collapseAllWork();
+    collapseAllInsets();
+  }
+});
+
+// Auto-collapse a turn's inset once it reaches the done phase so the work
+// detail hides behind the chevron and only the final answer stays visible.
+watch(phase, (p) => {
+  if (p === 'done') {
+    const lastIdx = turns.value.length - 1;
+    if (lastIdx >= 0) {
+      insetCollapsed.value = { ...insetCollapsed.value, [lastIdx]: true };
+    }
   }
 });
 </script>
@@ -273,13 +284,14 @@ watch(loading, async (newVal, oldVal) => {
         :paused="paused"
         :last-message-is-user="lastMessageIsUser"
         :workspace-id="workspaceId"
-        :turns-collapsed="workCollapsed"
+        :turns-collapsed="insetCollapsed"
         :expanded-segments="expandedSegments"
-        :is-work-collapsed="isWorkCollapsed"
+        :is-inset-collapsed="isInsetCollapsed"
         :is-seg-expanded="isSegExpanded"
+        :phase="phase"
         :error="error"
         @retry="handleRetry"
-        @toggle-work="toggleWork"
+        @toggle-inset="toggleInset"
         @toggle-segment="toggleSegment"
         @dismiss-error="dismissError"
       />

@@ -127,12 +127,12 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	agentOpts := e.buildAgentOptions(execCtx, client, req, procLog, &capturedEvents, eventSink)
 	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
 
-	customRules, _ := e.svc.Persistence().ReadTaskFile(req.WorkspaceID, "rules.md")
+	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
 	useNativeTools := false
 	if cfg, ok := e.svc.ModelConfig(req.Model); ok {
 		useNativeTools = cfg.ToolCallFormat == "native"
 	}
-	systemPrompt := prompts.AssembleSystemPrompt(customRules, useNativeTools)
+	systemPrompt := prompts.AssembleSystemPrompt(agentsFileContent, useNativeTools)
 
 	history := []proxy.Message{
 		{Role: "system", Content: systemPrompt},
@@ -238,6 +238,7 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 		MaxSteps:     assistant.DefaultMaxSteps,
 		Guardrails:   e.svc.GuardrailEngine(),
 		WorkspaceID:  req.WorkspaceID,
+		Channel:      assistant.ChannelAutomation,
 		Orchestrator: e.svc.Orchestrator(),
 		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
@@ -339,7 +340,8 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 
 	// Push a concluding message to the UI stream to clear "thinking..."
 	e.svc.Events().Publish(req.WorkspaceID, assistant.AgentEvent{
-		Type: assistant.EventMessage,
+		Type:    assistant.EventMessage,
+		Channel: assistant.ChannelAutomation,
 		Payload: proxy.Message{
 			Role:    "system",
 			Content: "✔ Execution complete.",

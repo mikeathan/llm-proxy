@@ -87,37 +87,3 @@ export const formatEventsToText = (events: AgentEvent[]): string => {
     .join("\n\n");
 };
 
-import type { AssistantMessage } from "../types/assistant";
-
-/**
- * Converts a tool_call AgentEvent into an AssistantMessage for the chat history.
- */
-export const toolCallEventToMessage = (ev: AgentEvent): AssistantMessage => {
-  const tc = getToolCallPayload(ev)
-  return {
-    role: 'assistant',
-    content: '',
-    tool_calls: [{
-      id: '',
-      type: 'function',
-      function: {
-        name: tc.function.name,
-        arguments: tc.function.arguments,
-      },
-    }],
-  }
-}
-
-/**
- * Converts a tool_result AgentEvent into an AssistantMessage for the chat history.
- * The full result object is preserved in toolResult for structured rendering.
- */
-export const toolResultEventToMessage = (ev: AgentEvent): AssistantMessage => {
-  const tr = getToolResPayload(ev)
-  return {
-    role: 'tool',
-    content: '',
-    tool_call_id: '',
-    toolResult: tr,
-  }
-}

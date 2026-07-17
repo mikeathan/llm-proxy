@@ -14,7 +14,7 @@ import (
 // Created before agent execution, produces:
 //   {root}/events.jsonl      — live AgentEvent stream
 //   {root}/recording.jsonl   — LLM request/response (when RecordingClient is configured)
-//   {root}/final-report.md   — submit_final_answer output
+//   {root}/final-report.md   — agent final completion output
 //   {root}/run-meta.json     — summary (duration, model, recordings path, error)
 type RunDir struct {
 	Root  string // Absolute path to the run folder

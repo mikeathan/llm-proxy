@@ -110,10 +110,10 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 	h.replyToChat(connectorName, immediateReply)
 
 	resultCh := make(chan string, 1)
-	sub, _ := h.Dispatcher.Events().Subscribe(workspaceID)
+	sub, _ := h.Dispatcher.Events().Subscribe(workspaceID, assistant.ChannelAutomation)
 
 	go func() {
-		defer h.Dispatcher.Events().Unsubscribe(workspaceID, sub)
+		defer h.Dispatcher.Events().Unsubscribe(workspaceID, assistant.ChannelAutomation, sub)
 		for {
 			select {
 			case ev := <-sub:

@@ -6,25 +6,39 @@ import (
 	"fmt"
 	"time"
 
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
 
+var agentsFileCache core.ContentCache
+
+const agentsCacheKey = "agents:"
+
 const MaxHistoryChars = 12 * 1024
+
+// LoadAgentsFile returns the workspace agent instructions from AGENTS.md,
+// falling back to the built-in DefaultAgentsMD when the file does not exist.
+func LoadAgentsFile(pm *persistence.WorkspaceManager, workspaceID string) string {
+	if workspaceID == "" || pm == nil {
+		return prompts.DefaultAgentsMD
+	}
+	content, err := agentsFileCache.Get(agentsCacheKey+workspaceID, func() (string, error) {
+		return pm.ReadTaskFile(workspaceID, models.RulesFilename)
+	})
+	if err != nil || content == "" {
+		return prompts.DefaultAgentsMD
+	}
+	return content
+}
 
 // buildInitialHistory constructs the initial session messages including system prompt and rules.
 func BuildInitialHistory(persistence *persistence.WorkspaceManager, workspaceID, conversationID, message, contextVersion, timezone string, useNativeTools bool) ([]proxy.Message, error) {
-	customRules := ""
-	if workspaceID != "" && persistence != nil {
-		rules, err := persistence.ReadTaskFile(workspaceID, "rules.md")
-		if err == nil && rules != "" {
-			customRules = rules
-		}
-	}
+	agentsFileContent := LoadAgentsFile(persistence, workspaceID)
 
-	systemPrompt := prompts.AssembleSystemPrompt(customRules, useNativeTools)
+	systemPrompt := prompts.AssembleSystemPrompt(agentsFileContent, useNativeTools)
 
 	return []proxy.Message{
 		{
@@ -162,8 +176,10 @@ func PublishSessionLifecycle(events EventPublisher, workspaceID, conversationID,
 		return
 	}
 	events.Publish(workspaceID, AgentEvent{
-		ID:        fmt.Sprintf("sse_%d", time.Now().UnixNano()),
-		Type:      EventLifecycle,
+		ID:             fmt.Sprintf("sse_%d", time.Now().UnixNano()),
+		Type:           EventLifecycle,
+		Channel:        ChannelAssistant,
+		ConversationID: conversationID,
 		Payload: map[string]any{
 			"phase":           phase,
 			"conversation_id": conversationID,

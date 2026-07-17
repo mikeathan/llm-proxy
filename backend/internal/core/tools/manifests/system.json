@@ -1,21 +1,8 @@
 {
   "tool_name": "system",
-  "description": "System-level tools for task finalization and error reporting.",
+  "description": "System-level tools for error reporting.",
   "version": "1.0",
   "runtime": {
-    "submit_final_answer": {
-      "description": "Finalize the task. The 'summary' argument IS the final report the user sees — include all findings, tables, and analysis directly here.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "summary": {
-            "type": "string",
-            "description": "The final report itself. Include the complete output with all findings, tables, and analysis. This is what the user sees — not a description of what was done."
-          }
-        },
-        "required": ["summary"]
-      }
-    },
     "system_error": {
       "description": "Internal tool used by the system to report malformed tool calls back to the agent.",
       "parameters": {

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import type { Automation, AutomationRun } from "../../../types/dispatcher";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
-import LiveConsole from "./LiveConsole.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import Icon from "../../icons/Icon.vue";
+import ChatMessages from "../assistant/ChatMessages.vue";
+import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
+import { groupTurns } from "../../../utils/message/turnGrouper";
+import GuardrailBanner from "../../common/chat/GuardrailBanner.vue";
 
 const props = defineProps<{
   automation: Automation;
@@ -37,6 +40,66 @@ const toggleHistoryRun = (runId: string) => {
 
 // Final consolidated running state
 const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_running));
+
+// Unified renderer: reuse the assistant ChatMessages view for automation runs.
+// useLiveConsole streams the SSE channel and feeds AgentEvents through the
+// shared useMessageBuilder (same single consumer as chat), so reasoning/tool-
+// calls render as proper segments instead of being overwritten into a single
+// assistant message.
+const {
+  displayMessages,
+  thinking,
+  liveReasoning,
+  paused,
+  phase,
+  isConnected,
+  pendingDecision,
+  connect,
+  disconnect,
+  clearEvents,
+  submitDecision,
+} = useLiveConsole(
+  () => props.automation.workspace,
+  () => showLiveUI.value,
+  () => activeRun.value?.events,
+  props.automation.name,
+);
+
+const automationTurns = computed(() => groupTurns(displayMessages.value));
+
+const insetCollapsed = ref<Record<number, boolean>>({});
+const expandedSegments = ref<Record<string, boolean>>({});
+
+function isInsetCollapsed(turnIdx: number): boolean {
+  return !!insetCollapsed.value[turnIdx];
+}
+function isSegExpanded(turnIdx: number, segIdx: number): boolean {
+  return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
+}
+function toggleInset(turnIdx: number) {
+  const current = !!insetCollapsed.value[turnIdx];
+  insetCollapsed.value = { ...insetCollapsed.value, [turnIdx]: !current };
+}
+function toggleSegment(turnIdx: number, segIdx: number) {
+  const key = `${turnIdx}-${segIdx}`;
+  expandedSegments.value = { ...expandedSegments.value, [key]: !expandedSegments.value[key] };
+}
+
+onMounted(() => {
+  connect();
+});
+
+onUnmounted(() => {
+  disconnect();
+});
+
+watch(
+  () => props.automation.workspace,
+  () => {
+    clearEvents();
+    connect();
+  },
+);
 </script>
 
 <template>
@@ -191,18 +254,49 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
         </div>
       </div>
 
-      <!-- HYBRID CONSOLE SECTION (Always visible) -->
+      <!-- UNIFIED RENDERER (Always visible) -->
       <div class="console-section" :class="{ 'mt-12': !showLiveUI }">
-        <h4 class="section-title section-title--accent">
-          Operational Terminal
-        </h4>
+        <div class="run-header">
+          <h4 class="section-title section-title--accent">
+            Operational Run
+          </h4>
+          <span class="status-indicator">
+            <span class="dot" :class="{ 'dot--active': isConnected }"></span>
+            <span class="status-text">
+              <template v-if="displayMessages.length > 0">Live Stream</template>
+              <template v-else-if="activeRun?.events?.length">Audit Log</template>
+              <template v-else>Idle</template>
+            </span>
+          </span>
+        </div>
 
-        <LiveConsole
-          :workspaceId="automation.workspace"
-          :isActive="true"
-          :isExecuting="showLiveUI"
-          :historyEvents="activeRun?.events"
+        <GuardrailBanner
+          v-if="pendingDecision"
+          :decision="pendingDecision"
+          @allow="(persist: boolean) => submitDecision(true, persist)"
+          @deny="() => submitDecision(false, false)"
         />
+
+        <div class="automation-run-shell">
+          <ChatMessages
+            mode="automation"
+            :messages="displayMessages"
+            :turns="automationTurns"
+            :loading="showLiveUI"
+            :thinking="thinking"
+            :live-reasoning="liveReasoning"
+            :paused="paused"
+            :last-message-is-user="false"
+            :workspace-id="automation.workspace"
+            :turns-collapsed="insetCollapsed"
+            :expanded-segments="expandedSegments"
+            :is-inset-collapsed="isInsetCollapsed"
+            :is-seg-expanded="isSegExpanded"
+            :phase="phase"
+            @toggle-inset="toggleInset"
+            @toggle-segment="toggleSegment"
+          />
+        </div>
       </div>
 
       <div
@@ -410,5 +504,30 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
 
 .empty-state-text {
   @apply text-xs mt-1;
+}
+
+/* Unified automation run renderer — reuses the assistant chat layout */
+.automation-run-shell {
+  @apply bg-gray-900/40 border border-gray-800 rounded-lg overflow-hidden h-[520px] shadow-2xl;
+}
+
+.run-header {
+  @apply flex items-center justify-between mb-3;
+}
+
+.status-indicator {
+  @apply flex items-center gap-2;
+}
+
+.dot {
+  @apply w-1.5 h-1.5 rounded-full bg-gray-600;
+}
+
+.dot--active {
+  @apply bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse;
+}
+
+.status-text {
+  @apply text-[10px] font-bold uppercase tracking-widest text-gray-500;
 }
 </style>

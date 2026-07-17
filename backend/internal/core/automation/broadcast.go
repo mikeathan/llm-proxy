@@ -7,42 +7,62 @@ import (
 	"sync"
 )
 
-// EventBus handles per-workspace event broadcasting.
+// EventBus handles per-workspace, per-channel event broadcasting. Events are
+// partitioned by (workspaceID, channel) so assistant chat and automation runs
+// never share a subscriber set — an automation's final report cannot leak into
+// the assistant SSE stream. Channel is derived from AgentEvent.Channel.
 type EventBus struct {
 	mu          sync.RWMutex
-	subscribers map[string][]chan assistant.AgentEvent // workspaceID -> channels
-	recent      map[string][]assistant.AgentEvent      // workspaceID -> events in current run
+	subscribers map[string]map[assistant.EventChannel][]chan assistant.AgentEvent // ws -> channel -> channels
+	recent      map[string]map[assistant.EventChannel][]assistant.AgentEvent      // ws -> channel -> recent
 }
 
 func NewEventBus() *EventBus {
 	return &EventBus{
-		subscribers: make(map[string][]chan assistant.AgentEvent),
-		recent:      make(map[string][]assistant.AgentEvent),
+		subscribers: make(map[string]map[assistant.EventChannel][]chan assistant.AgentEvent),
+		recent:      make(map[string]map[assistant.EventChannel][]assistant.AgentEvent),
 	}
 }
 
-func (b *EventBus) Subscribe(workspaceID string) (chan assistant.AgentEvent, []assistant.AgentEvent) {
+// channelOf resolves the routing channel for an event, defaulting unknown
+// values to the automation channel for backward compatibility with events
+// constructed outside the agent's notify path.
+func channelOf(event assistant.AgentEvent) assistant.EventChannel {
+	if event.Channel == assistant.ChannelAssistant || event.Channel == assistant.ChannelAutomation {
+		return event.Channel
+	}
+	return assistant.ChannelAutomation
+}
+
+func (b *EventBus) Subscribe(workspaceID string, channel assistant.EventChannel) (chan assistant.AgentEvent, []assistant.AgentEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if b.subscribers[workspaceID] == nil {
+		b.subscribers[workspaceID] = make(map[assistant.EventChannel][]chan assistant.AgentEvent)
+	}
+	if b.recent[workspaceID] == nil {
+		b.recent[workspaceID] = make(map[assistant.EventChannel][]assistant.AgentEvent)
+	}
+
 	ch := make(chan assistant.AgentEvent, 200)
-	b.subscribers[workspaceID] = append(b.subscribers[workspaceID], ch)
-	
+	b.subscribers[workspaceID][channel] = append(b.subscribers[workspaceID][channel], ch)
+
 	// Copy the recent events to avoid mutation issues
-	recent := make([]assistant.AgentEvent, len(b.recent[workspaceID]))
-	copy(recent, b.recent[workspaceID])
-	
+	recent := make([]assistant.AgentEvent, len(b.recent[workspaceID][channel]))
+	copy(recent, b.recent[workspaceID][channel])
+
 	return ch, recent
 }
 
-func (b *EventBus) Unsubscribe(workspaceID string, ch chan assistant.AgentEvent) {
+func (b *EventBus) Unsubscribe(workspaceID string, channel assistant.EventChannel, ch chan assistant.AgentEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	subs := b.subscribers[workspaceID]
+	subs := b.subscribers[workspaceID][channel]
 	for i, s := range subs {
 		if s == ch {
-			b.subscribers[workspaceID] = append(subs[:i], subs[i+1:]...)
+			b.subscribers[workspaceID][channel] = append(subs[:i], subs[i+1:]...)
 			close(ch)
 			break
 		}
@@ -58,18 +78,28 @@ func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 		event.ID = uuid.NewString()
 	}
 
+	channel := channelOf(event)
+
 	b.mu.Lock()
+	// Lazily initialise the per-channel maps so Publish works even when no
+	// subscriber has connected yet for this workspace/channel.
+	if b.subscribers[workspaceID] == nil {
+		b.subscribers[workspaceID] = make(map[assistant.EventChannel][]chan assistant.AgentEvent)
+	}
+	if b.recent[workspaceID] == nil {
+		b.recent[workspaceID] = make(map[assistant.EventChannel][]assistant.AgentEvent)
+	}
 	// When a guardrail decision is invalidated (resolved or cancelled), remove
 	// the corresponding blocked event from recent so reconnecting clients don't
 	// see a stale approval prompt.
 	if event.Type == assistant.EventGuardrailInvalidated {
 		if payload, ok := event.Payload.(assistant.GuardrailInvalidatedPayload); ok {
-			recent := b.recent[workspaceID]
+			recent := b.recent[workspaceID][channel]
 			for i, ev := range recent {
 				if ev.Type == assistant.EventGuardrailBlocked {
 					if bp, ok := ev.Payload.(assistant.GuardrailBlockedPayload); ok {
 						if bp.DecisionID == payload.DecisionID {
-							b.recent[workspaceID] = append(recent[:i], recent[i+1:]...)
+							b.recent[workspaceID][channel] = append(recent[:i], recent[i+1:]...)
 							break
 						}
 					}
@@ -77,28 +107,30 @@ func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 			}
 		}
 	}
-	b.recent[workspaceID] = append(b.recent[workspaceID], event)
-	// Cap the buffer per workspace to prevent memory leaks if something misbehaves
-	if len(b.recent[workspaceID]) > 1000 {
-		b.recent[workspaceID] = b.recent[workspaceID][len(b.recent[workspaceID])-1000:]
+	b.recent[workspaceID][channel] = append(b.recent[workspaceID][channel], event)
+	// Cap the buffer per workspace/channel to prevent memory leaks.
+	if len(b.recent[workspaceID][channel]) > 1000 {
+		b.recent[workspaceID][channel] = b.recent[workspaceID][channel][len(b.recent[workspaceID][channel])-1000:]
 	}
 	b.mu.Unlock()
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for _, ch := range b.subscribers[workspaceID] {
+	for _, ch := range b.subscribers[workspaceID][channel] {
 		select {
 		case ch <- event:
 		default:
 			logging.Warn("event bus subscriber too slow, dropping event",
-				"workspace", workspaceID, "type", event.Type)
+				"workspace", workspaceID, "channel", channel, "type", event.Type)
 		}
 	}
 }
 
-func (b *EventBus) Clear(workspaceID string) {
+func (b *EventBus) Clear(workspaceID string, channel assistant.EventChannel) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	delete(b.recent, workspaceID)
+	if b.recent[workspaceID] != nil {
+		delete(b.recent[workspaceID], channel)
+	}
 }

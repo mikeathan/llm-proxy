@@ -125,7 +125,7 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 //	max_tokens       = context / 3                  (leave 2/3 for prompt + history)
 //	context_budget   = (context - maxTokens) * 2    (chars at ~2 chars/token, reserve response space)
 //	reasoning_budget = context / 8                   only when name suggests reasoning
-//	tool_call_format = "native"                      when empty (default to API-level tool calling)
+//	tool_call_format = "native" when empty for cloud; local/GGUF workloads stay "" (XML)
 func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 	ctxLen := resolveContextLength(cfg)
 	if ctxLen <= 0 {
@@ -150,9 +150,28 @@ func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 			cfg.ReasoningBudget = ctxLen / 8
 		}
 	}
-	if cfg.ToolCallFormat == "" {
+	// Empty format: cloud APIs default to native tool calling. Local/GGUF workloads
+	// (including openai-compat llama.cpp with a .gguf file) stay empty → XML text
+	// mode so fat tool-arg JSON is not parsed server-side. Explicit overrides win.
+	if cfg.ToolCallFormat == "" && !isLocalWorkload(cfg) {
 		cfg.ToolCallFormat = "native"
 	}
+}
+
+// isLocalWorkload reports whether cfg is a local/GGUF model even when the
+// catalogue provider string is "openai" (openai-compat llama.cpp).
+func isLocalWorkload(cfg *models.ModelConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	if strings.EqualFold(cfg.Provider, "local") {
+		return true
+	}
+	return hasGGUFArtifact(cfg.Filename) || hasGGUFArtifact(cfg.Path) || hasGGUFArtifact(cfg.Name)
+}
+
+func hasGGUFArtifact(s string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(s)), ".gguf")
 }
 
 var providerCtxDefaults = map[string]int{

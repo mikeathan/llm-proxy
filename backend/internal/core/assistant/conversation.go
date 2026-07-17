@@ -11,7 +11,7 @@ import (
 // This avoids a cyclic dependency with the automation package.
 type EventPublisher interface {
 	Publish(workspaceID string, event AgentEvent)
-	Clear(workspaceID string)
+	Clear(workspaceID string, channel EventChannel)
 }
 
 // EventRecorder writes agent events to persistent storage (recording files).

@@ -28,7 +28,10 @@ function reconcileRunning(assistantRunning: boolean) {
 }
 
 export function useAssistant() {
-  const builder = useMessageBuilder(messages)
+  // finalizeOn:'lifecycle' mirrors automation: the builder finalizes from the
+  // SSE lifecycle{completed} event (which carries the full answer), so chat and
+  // automation share one completion path and the answer is never lost.
+  const builder = useMessageBuilder(messages, { finalizeOn: 'lifecycle' })
 
   const sse = useAssistantSSE(
     () => activeWorkspaceId.value || '',
@@ -46,6 +49,7 @@ export function useAssistant() {
   const thinking = builder.thinking
   const liveReasoning = builder.liveReasoning
   const paused = builder.paused
+  const phase = builder.phase
 
   const cancel = async () => {
     const ws = activeWorkspaceId.value
@@ -131,6 +135,12 @@ export function useAssistant() {
       }
       currentSessionId.value = session.id
       messages.value = buildSegmentsFromHistory(session.history || [])
+      // Drive the (now historical) turn's bubble into its done state so the
+      // result and the expandable reasoning/tool-call inset render — the same
+      // as a finished live run. builder.reset() above left phase='idle', which
+      // would hide the already-loaded answer. The running-session branch
+      // returns before here, so live SSE still owns phase for in-flight runs.
+      phase.value = 'done'
       // Apply every cancelled turn's marker so all of them are shown as
       // "Response interrupted" in the UI.  Older sessions may still have
       // the legacy metadata keys; honour them as a fallback.
@@ -246,8 +256,16 @@ export function useAssistant() {
         }
       }
 
+      // The builder finalizes from the SSE lifecycle{completed} event
+      // (finalizeOn:'lifecycle', Hermes-aligned) — the same path automation
+      // uses, so the answer can never be lost if the HTTP body is empty.
+      // This explicit call is a redundant, idempotent backup (finalize() is
+      // guarded by `finalized`) in case the lifecycle event was missed.
       builder.finalize(response.reply)
-      builder.reset()
+
+      // NOTE: do NOT call builder.reset() here — it would clobber the
+      // phase='done' state that finalize() just set and hide the answer.
+      // The next sendMessage() already resets the builder (builder.reset()).
 
       sse.reset()
 
@@ -391,6 +409,7 @@ export function useAssistant() {
     thinking,
     liveReasoning,
     paused,
+    phase,
     cancel,
     abortController,
     fetchSessions,

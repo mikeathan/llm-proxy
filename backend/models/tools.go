@@ -31,8 +31,7 @@ const (
 	ToolMemoryUpdate = "memory_update"
 
 	// System
-	ToolSubmitFinalAnswer = "submit_final_answer"
-	ToolSystemError       = "system_error"
+	ToolSystemError = "system_error"
 )
 
 // Tool Categories
@@ -45,4 +44,10 @@ const (
 	CategoryGlobal        = "security"
 	CategoryMemory        = "memory"
 	CategorySystem        = "system"
+)
+
+// Tool error message format strings (use with ToolFileWrite / ToolFileAppend via fmt.Sprintf).
+const (
+	ToolMissingForAppendMsg = "file does not exist: use %s first, then %s to add more content"
+	ToolMissingForEditMsg   = "file does not exist: use %s to create it, or verify the path"
 )

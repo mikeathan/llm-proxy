@@ -24,8 +24,8 @@ export function useViewManager(deps: {
     if (deps.selectedRun.value) return "history"
     if (deps.selectedMemory.value && deps.selectedWorkspace.value) return "memory-detail"
     if (deps.selectedFile.value) return "editor"
-    if (deps.selectedAutomation.value) return "automation"
     if (deps.selectedWorkspace.value && workspaceMiddleTab.value === "chat") return "assistant"
+    if (deps.selectedAutomation.value) return "automation"
     return "dashboard"
   })
 

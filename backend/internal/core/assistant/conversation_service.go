@@ -89,8 +89,8 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	execCtx = WithUsageTracker(execCtx)
 
 	// Clear stale events from previous runs so new SSE connection doesn't replay old events
-	events.Clear(workspaceID)
-	defer events.Clear(workspaceID)
+	events.Clear(workspaceID, ChannelAssistant)
+	defer events.Clear(workspaceID, ChannelAssistant)
 
 	// 5. Build agent options
 	// Snapshot the session after the user message is appended — used as the
@@ -130,6 +130,8 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 		WithGuardrails().
 		WithWorkspaceID(workspaceID).
 		WithModelName(modelName).
+		WithChannel(ChannelAssistant).
+		WithConversationID(session.ID).
 		WithHotMemory(true).
 		WithObserver(publishObs).
 		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), publishObs)).

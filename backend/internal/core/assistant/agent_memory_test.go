@@ -183,47 +183,24 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			callCount++
 			if callCount <= 1 {
-				return &proxy.ChatResponse{
-					Choices: []proxy.Choice{
-						{
-							Message: proxy.Message{
-								Role: "assistant",
-								ToolCalls: []proxy.ToolCall{
-									{
-										ID: "call_mem",
-										Function: proxy.FunctionCall{
-											Name:      models.ToolMemoryUpdate,
-											Arguments: `{"content":"run go build ./...","scope":"workspace","mode":"on_demand","keep":"permanent"}`,
-										},
-									},
-								},
-							},
-						},
-					},
-				}, nil
+				tc := proxy.ToolCall{ID: "call_mem", Function: proxy.FunctionCall{Name: models.ToolMemoryUpdate, Arguments: `{"content":"run go build ./...","scope":"workspace","mode":"on_demand","keep":"permanent"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "done"}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+			if callCount <= 2 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "done"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemoryUpdate}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -283,7 +260,7 @@ func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
 							{
 								Type: "function",
 								Function: proxy.FunctionCall{
-									Name:      models.ToolSubmitFinalAnswer,
+									Name:      "read_file",
 									Arguments: `{"summary": "test report"}`,
 								},
 							},

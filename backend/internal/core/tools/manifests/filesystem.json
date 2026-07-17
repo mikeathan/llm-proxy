@@ -1,7 +1,7 @@
 {
   "tool_name": "filesystem_tools",
   "version": "1.1",
-  "description": "Securely read from and write to authorized workspace directories.",
+  "description": "Securely read from and save to authorized workspace directories.",
   "runtime": {
     "list_directory": {
       "description": "List the contents of a directory in the workspace.",
@@ -30,17 +30,17 @@
       }
     },
     "write_file": {
-      "description": "Write content to a file in the workspace.",
+      "description": "Save content to a persistent file in the workspace.",
       "parameters": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
-            "description": "Single path to write. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
+            "description": "Single path to save. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
           },
           "content": {
             "type": "string",
-            "description": "The exact string content to write. For JSON files, this MUST be a JSON-formatted string, NOT a JSON object."
+            "description": "The exact string content to save. For JSON files, this MUST be a JSON-formatted string, NOT a JSON object."
           }
         },
         "required": ["path", "content"]

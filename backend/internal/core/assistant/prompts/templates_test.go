@@ -25,6 +25,21 @@ func TestAssembleSystemPrompt_ToolCallFormat(t *testing.T) {
 	}
 }
 
+func TestAssembleSystemPrompt_WorkspaceRules(t *testing.T) {
+	withContent := AssembleSystemPrompt("CUSTOM WORKSPACE GUIDANCE", false)
+	if !strings.Contains(withContent, "WORKSPACE-SPECIFIC RULES:") {
+		t.Error("expected workspace-specific header when agents content is provided")
+	}
+	if !strings.Contains(withContent, "CUSTOM WORKSPACE GUIDANCE") {
+		t.Error("expected agents file content to be appended to the prompt")
+	}
+
+	empty := AssembleSystemPrompt("", false)
+	if strings.Contains(empty, "WORKSPACE-SPECIFIC RULES:") {
+		t.Error("expected no workspace-specific header when agents content is empty")
+	}
+}
+
 func TestAssembleSystemPrompt_InstructionBoundary(t *testing.T) {
 	xmlPrompt := AssembleSystemPrompt("", false)
 	nativePrompt := AssembleSystemPrompt("", true)

@@ -8,6 +8,17 @@ import (
 	"strings"
 )
 
+// ParseError message constants — defined as named strings for consistency
+// across parsers and the agent loop.  Always reference these instead of
+// inline literals when assigning to ParseError.JSONError.
+const (
+	ErrMsgNoValidXMLBlock       = "no valid tool call JSON found in any block"
+	ErrMsgNativeMissingFuncName = "native format tool call is missing a function name"
+	ErrMsgNoValidNativeBlock    = "no valid tool call found in native format blocks"
+	ErrMsgJSONMissingTool       = `missing required field "tool"`
+	ErrMsgIncompleteToolCall    = "incomplete tool call — content has tool-call markers but no parseable call"
+)
+
 type ParseError struct {
 	XMLFound      bool     // true if XML tags were present
 	JSONAttempted string   // the raw string we tried to parse as JSON (may be truncated)
@@ -61,7 +72,7 @@ func ParseContentToolCalls(content string) (cleanedContent string, calls []ToolC
 		cleanedContent = strings.Replace(cleanedContent, fullMatch, "", 1)
 	}
 	if len(calls) == 0 && parseErr == nil {
-		parseErr = &ParseError{XMLFound: true, JSONError: "no valid tool call JSON found in any block"}
+		parseErr = &ParseError{XMLFound: true, JSONError: ErrMsgNoValidXMLBlock}
 	}
 	if len(calls) > 0 { parseErr = nil }
 	return strings.TrimSpace(cleanedContent), calls, parseErr
@@ -79,7 +90,12 @@ func ParseNativeToolCalls(content string) (cleanedContent string, calls []ToolCa
 		toolName := ""
 		if len(m) > 2 { toolName = m[2] }
 		if toolName == "" && len(m) > 3 { toolName = m[3] }
-		if toolName == "" { continue }
+		if toolName == "" {
+			if parseErr == nil {
+				parseErr = &ParseError{XMLFound: true, JSONError: ErrMsgNativeMissingFuncName}
+			}
+			continue
+		}
 		inner := m[4]
 		args := extractNativeParams(inner)
 		if args == nil { args = map[string]string{} }
@@ -93,7 +109,10 @@ func ParseNativeToolCalls(content string) (cleanedContent string, calls []ToolCa
 		cleaned = strings.Replace(cleaned, fullMatch, "", 1)
 	}
 	if !foundAny {
-		return content, nil, &ParseError{XMLFound: false}
+		if parseErr == nil {
+			return content, nil, &ParseError{XMLFound: true, JSONError: ErrMsgNoValidNativeBlock}
+		}
+		return content, nil, parseErr
 	}
 	return strings.TrimSpace(cleaned), calls, nil
 }
@@ -160,7 +179,7 @@ func parseSingleToolCall(jsonStr string, index int) (ToolCall, *ParseError) {
 		return ToolCall{}, &ParseError{JSONAttempted: truncateForDiagnostic(jsonStr), JSONError: err.Error()}
 	}
 	if call.Tool == "" {
-		return ToolCall{}, &ParseError{JSONAttempted: truncateForDiagnostic(jsonStr), JSONError: `missing required field "tool"`}
+		return ToolCall{}, &ParseError{JSONAttempted: truncateForDiagnostic(jsonStr), JSONError: ErrMsgJSONMissingTool}
 	}
 	args := string(call.Args)
 	if args == "" || args == "null" { args = "{}" }

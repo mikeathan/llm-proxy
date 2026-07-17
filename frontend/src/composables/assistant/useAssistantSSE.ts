@@ -23,6 +23,10 @@ export function useAssistantSSE(
   let receivedEventIds = new Set<string>();
 
   const handleAgentEvent = (ev: AgentEvent) => {
+    // Server-side channel isolation already prevents automation events from
+    // reaching this socket, but drop any non-assistant event defensively so a
+    // misconfigured or legacy endpoint can't bleed automation output into chat.
+    if (ev.channel && ev.channel !== "assistant") return;
     if (ev.id && receivedEventIds.has(ev.id)) return;
     if (ev.id) receivedEventIds.add(ev.id);
     if (!ev.id) (ev as any).id = generateId();
@@ -63,7 +67,8 @@ export function useAssistantSSE(
   };
 
   const sse = useSSEConnection({
-    url: () => `/admin/api/dispatcher/workspaces/${encodeURIComponent(workspaceId())}/live`,
+    url: () =>
+      `/admin/api/dispatcher/workspaces/${encodeURIComponent(workspaceId())}/live?channel=assistant`,
     onMessage: handleAgentEvent,
   });
 

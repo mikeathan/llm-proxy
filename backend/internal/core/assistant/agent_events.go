@@ -28,19 +28,37 @@ const (
 	EventMemoryFlush          AgentEventType = "memory_flush"
 )
 
+// EventChannel isolates event streams by producer so a frontend subscriber
+// only receives events for the mode it is viewing. Assistant chat and
+// automation runs share one per-workspace SSE topic; the channel discriminator
+// lets the EventBus route each event to the correct subscriber set and lets the
+// SSE handler serve a single channel per connection.
+type EventChannel string
+
+const (
+	// ChannelAssistant is the assistant chat event stream.
+	ChannelAssistant EventChannel = "assistant"
+	// ChannelAutomation is the automation run event stream.
+	ChannelAutomation EventChannel = "automation"
+)
+
 // Lifecycle phase constants for the AgentEvent lifecycle payload.
 // Used to communicate session state changes to the frontend via SSE.
 const (
 	PhaseSessionStarted   = "session_started"
 	PhaseSessionProgress  = "session_progress"
+	// PhaseSessionCompleted fires when a task completes — the model responds to
+	// a tool result with a final assistant message and stops calling tools.
 	PhaseSessionCompleted = "session_completed"
 )
 
 type AgentEvent struct {
-	ID        string         `json:"id"`
-	Type      AgentEventType `json:"type"`
-	Payload   any            `json:"payload"`
-	Timestamp time.Time      `json:"timestamp"`
+	ID             string         `json:"id"`
+	Type           AgentEventType `json:"type"`
+	Channel        EventChannel   `json:"channel"`         // producer stream: assistant | automation
+	ConversationID string         `json:"conversation_id"` // assistant session id (empty for automation)
+	Payload        any            `json:"payload"`
+	Timestamp      time.Time      `json:"timestamp"`
 }
 
 // GuardrailBlockedPayload is sent with EventGuardrailBlocked when the agent
@@ -77,10 +95,12 @@ type Observer func(AgentEvent)
 func (a *Agent) notify(t AgentEventType, payload any) {
 	if a.deps.Observer != nil {
 		a.deps.Observer(AgentEvent{
-			ID:        uuid.NewString(),
-			Type:      t,
-			Payload:   payload,
-			Timestamp: time.Now(),
+			ID:             uuid.NewString(),
+			Type:           t,
+			Channel:        a.config.Channel,
+			ConversationID: a.config.ConversationID,
+			Payload:        payload,
+			Timestamp:      time.Now(),
 		})
 	}
 }

@@ -3,8 +3,50 @@ package assistant
 import (
 	"testing"
 
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 )
+
+func TestLoadAgentsFile(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	const wsID = "ws1"
+
+	t.Run("returns default when no file exists", func(t *testing.T) {
+		agentsFileCache.Clear()
+		if got := LoadAgentsFile(mgr, wsID); got != prompts.DefaultAgentsMD {
+			t.Errorf("expected DefaultAgentsMD fallback, got %q", got)
+		}
+	})
+
+	t.Run("returns AGENTS.md content when present", func(t *testing.T) {
+		agentsFileCache.Clear()
+		custom := "# Custom\nAlways respond in French."
+		if err := mgr.WriteTaskFile(wsID, models.RulesFilename, custom); err != nil {
+			t.Fatalf("write task file: %v", err)
+		}
+		if got := LoadAgentsFile(mgr, wsID); got != custom {
+			t.Errorf("expected custom AGENTS.md content, got %q", got)
+		}
+	})
+
+	t.Run("returns default when workspaceID empty", func(t *testing.T) {
+		agentsFileCache.Clear()
+		if got := LoadAgentsFile(mgr, ""); got != prompts.DefaultAgentsMD {
+			t.Errorf("expected default for empty workspaceID, got %q", got)
+		}
+	})
+
+	t.Run("returns default when manager nil", func(t *testing.T) {
+		agentsFileCache.Clear()
+		if got := LoadAgentsFile(nil, wsID); got != prompts.DefaultAgentsMD {
+			t.Errorf("expected default for nil manager, got %q", got)
+		}
+	})
+}
 
 func TestBuildPartialHistory(t *testing.T) {
 	base := []proxy.Message{

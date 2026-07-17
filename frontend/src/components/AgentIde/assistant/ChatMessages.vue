@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import type { Turn } from '../../../utils/message/turnGrouper'
 import type { AssistantMessage } from '../../../types/assistant'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
 import ChatBubble from './ChatBubble.vue'
 import UserMessage from './UserMessage.vue'
 import Icon from '../../icons/Icon.vue'
+import type { InsetPhase } from '../../../utils/message/messageBuilder.ts'
 
 const props = defineProps<{
   messages: AssistantMessage[]
@@ -18,14 +19,20 @@ const props = defineProps<{
   workspaceId: string
   turnsCollapsed: Record<number, boolean>
   expandedSegments: Record<string, boolean>
-  isWorkCollapsed: (idx: number) => boolean
+  isInsetCollapsed: (idx: number) => boolean
   isSegExpanded: (turnIdx: number, segIdx: number) => boolean
+  phase: InsetPhase
   error?: string | null
+  mode?: 'chat' | 'automation'
 }>()
+
+// In automation mode there is no chat prompt, so the welcome/retry affordances
+// are hidden; the synthetic run header + reasoning inset still render.
+const isAutomation = computed(() => props.mode === 'automation')
 
 const emit = defineEmits<{
   retry: [text: string]
-  toggleWork: [idx: number]
+  toggleInset: [idx: number]
   toggleSegment: [turnIdx: number, segIdx: number]
   dismissError: []
   "scroll-update": [atBottom: boolean]
@@ -33,13 +40,13 @@ const emit = defineEmits<{
 
 const {
   container,
-  capturePosition,
   scrollIfNearBottom,
   scrollToBottom,
   scrollDirection,
   toggleScroll,
   isNearBottom,
   updateWasNearBottom,
+  notifyContent,
 } = useAutoScroll()
 
 const atBottom = ref(true)
@@ -55,12 +62,17 @@ function formatStamp(): string {
 }
 
 // Auto-scroll on new content (streaming tokens, new turns) but only while the
-// user is parked at the bottom — pause when they scroll up to read, resume when
-// they scroll back down. Mirrors the automation LiveConsole behaviour.
+// user is parked at the bottom — pause when they scroll up to read, then
+// resume (snap to bottom) after a short idle if fresh output arrived. Mirrors
+// the automation live-run behaviour.
+// Watch liveReasoning/thinking too: during a long reasoning stream the content
+// grows via the liveReasoning prop while `turns` is still stable (reasoning only
+// commits to a segment at a tool_call/message boundary), so without this the
+// pane would overflow without ever scrolling.
 watch(
-  () => props.turns,
+  () => [props.turns, props.liveReasoning, props.thinking],
   () => {
-    capturePosition(container.value)
+    notifyContent()
     nextTick(() => {
       scrollIfNearBottom(container.value, "instant")
       atBottom.value = isNearBottom(container.value)
@@ -75,8 +87,10 @@ defineExpose({
 </script>
 
 <template>
-  <div class="message-container" ref="container" @scroll="onContainerScroll">
-    <div v-if="messages.length === 0 && !loading" class="chat-empty-card">
+   <div class="message-container" ref="container" @scroll="onContainerScroll">
+    <slot name="run-header" :phase="phase" :is-automation="isAutomation" />
+
+    <div v-if="messages.length === 0 && !loading && !isAutomation" class="chat-empty-card">
       <div class="chat-empty">
         <div class="welcome-icon"><Icon name="message" /></div>
         <h3>Workspace Assistant</h3>
@@ -94,6 +108,7 @@ defineExpose({
 
     <template v-for="(turn, idx) in turns" :key="'turn-' + idx">
       <UserMessage
+        v-if="!isAutomation"
         :content="turn.userMessage"
         :timestamp="formatStamp()"
         @retry="emit('retry', turn.userMessage)"
@@ -108,9 +123,10 @@ defineExpose({
         :live-reasoning="liveReasoning"
         :paused="paused"
         :is-last-turn="idx === turns.length - 1"
-        :is-work-collapsed="isWorkCollapsed(idx)"
+        :phase="phase"
+        :is-inset-collapsed="isInsetCollapsed(idx)"
         :is-seg-expanded="isSegExpanded"
-        @toggle-work="emit('toggleWork', idx)"
+        @toggle-inset="emit('toggleInset', idx)"
         @toggle-segment="(turnIdx, segIdx) => emit('toggleSegment', turnIdx, segIdx)"
       />
     </template>

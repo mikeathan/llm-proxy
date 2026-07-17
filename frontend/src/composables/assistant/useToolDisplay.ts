@@ -14,6 +14,6 @@ export function toolLabel(name: string, args: string): string {
 
 export function toolIconClass(status: string): string {
   if (status === "running") return "tool-icon--running"
-  if (status === "error") return "tool-icon--error"
-  return "tool-icon--success"
+  if (status === "error") return "segment-item--error"
+  return ""
 }

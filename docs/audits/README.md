@@ -12,3 +12,4 @@ They identify gaps, regressions, and bugs found during testing or production use
 | `memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference |
 | `remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete |
 | `write-file-truncation-cycles.md` | write_file Truncation Cycles, Block Editing & Early Reasoning Stuck Detection | reference |
+| `hermes-write-file-guardrail.md` | Hermes Agent does not structurally block report file writes | reference |
