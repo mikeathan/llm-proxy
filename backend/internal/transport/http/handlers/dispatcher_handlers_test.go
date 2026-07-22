@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -77,6 +78,40 @@ func TestCreateWorkspace_Isolation(t *testing.T) {
 		if name == models.ConfigFilename || name == models.StateFilename {
 			t.Errorf("Forbidden internal file %s found in workspace root", name)
 		}
+	}
+}
+
+func TestCreateWorkspace_SeedsAgentsFile(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	handlers := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	workspaceID := "seed-check"
+	req := httptest.NewRequest("POST", "/admin/api/dispatcher/workspaces", strings.NewReader(`{"id": "`+workspaceID+`"}`))
+	rr := httptest.NewRecorder()
+	handlers.CreateWorkspace(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %v", rr.Body.String())
+	}
+
+	// AGENTS.md must be seeded with the default content.
+	got, err := mgr.ReadTaskFile(workspaceID, models.RulesFilename)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if got != prompts.DefaultAgentsMD {
+		t.Errorf("AGENTS.md not seeded with DefaultAgentsMD content")
+	}
+
+	// Legacy agent.md must NOT be seeded anymore.
+	if _, err := os.Stat(filepath.Join(tmp, workspaceID, "agent.md")); err == nil {
+		t.Error("legacy agent.md should no longer be seeded")
+	}
+
+	// Heartbeat file is still seeded.
+	if _, err := os.Stat(filepath.Join(tmp, workspaceID, models.HeartbeatFilename)); err != nil {
+		t.Errorf("heartbeat file should be seeded: %v", err)
 	}
 }
 

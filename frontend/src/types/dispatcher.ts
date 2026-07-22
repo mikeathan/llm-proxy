@@ -114,6 +114,11 @@ export interface GuardrailDecision {
 export interface AgentEvent {
   id?: string
   type: AgentEventType
+  // channel isolates the event stream producer: 'assistant' (chat) vs
+  // 'automation' (scheduled runs). The SSE endpoint serves a single channel
+  // per connection so an automation run can never leak into the chat pane.
+  channel?: 'assistant' | 'automation'
+  conversation_id?: string
   payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | GuardrailBlockedPayload | string
   timestamp?: string
 }

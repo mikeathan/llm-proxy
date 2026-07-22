@@ -38,7 +38,7 @@ const isActive = (tab: LogTab) => activeTab.value === tab;
 // Watch for content or tab changes to trigger scroll
 watch([appLogLines, processLogLines, activeTab], async () => {
   const el = isActive("app") ? appLogEl.value : processLogEl.value;
-  scroller.capturePosition(el);
+  scroller.notifyContent();
   await nextTick();
   scroller.scrollIfNearBottom(el, "auto");
 });

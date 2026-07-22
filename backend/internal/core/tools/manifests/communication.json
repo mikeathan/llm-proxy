@@ -1,7 +1,7 @@
 {
   "tool_name": "notify_user",
   "version": "1.0",
-  "description": "Send notifications to the user. If 'connector' is specified, sends only to that platform type (e.g. 'telegram', 'slack'). If omitted, sends to ALL configured connectors. IMPORTANT: If this tool returns an error, the message was NOT delivered — report the failure to the user, do not say it succeeded.",
+  "description": "Send a notification to the user via configured external platforms (Telegram, Slack, etc.). Do NOT use this to deliver task results — those belong in your assistant response, not in a notification. If 'connector' is specified, sends only to that platform (e.g. 'telegram', 'slack'). If omitted, sends to ALL configured connectors. IMPORTANT: If this tool returns an error, the message was NOT delivered — report the failure to the user, do not say it succeeded.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -11,7 +11,7 @@
       },
       "message": {
         "type": "string",
-        "description": "The notification message or report content to send."
+        "description": "The notification content to send via the external platform. This is NOT for submitting task results — write those directly in your assistant response."
       }
     },
     "required": [

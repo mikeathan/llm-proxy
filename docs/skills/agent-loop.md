@@ -45,12 +45,59 @@ executor.go Execute()
 
 **Early stuck for models without reasoning budget:** When `reasoningBudget == 0` (no server-side thinking enforcement), stuck fires at `maxTokens / stuckNonReasoningDivisor` chars instead — currently divisor=1 gives threshold at `maxTokens` (e.g. 2048 chars for a local model). Divisor=2 was tried but caused false positives on Gemma 4 (~1371 chars of legitimate `<think>` blocks before output). See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`.
 
+**Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
+
 **Progressive sieve recovery:**
 - 1st stuck → reactive sieve (first 2 + last 6 messages) + nag prompt
 - 2nd consecutive stuck → aggressive sieve (first 2 + last 3 messages) + stronger nag
 - 3rd consecutive stuck → agent fails with clear error
 
 **Stuck detection is skipped on XML fallback retries** (the `skipStuckCheck` flag).
+
+## Natural Completion vs Control Plane
+
+Completion (Hermes-aligned, Phase 2b): a content-only assistant message with
+at least one tool result anywhere in the run's history → done. The model signals
+completion by writing plain text without further tool calls. Reasoning-only
+interleaves (empty content, large `ReasoningContent`) do not block completion.
+
+**Invisible reasoning in content:** Local models (Qwen3, Ollama) may emit
+`<think>`/`<reasoning>` blocks inline in `content`. `stripThinkBlocks` removes
+these blocks before evaluating completion. If nothing substantive remains after
+stripping, the turn is NOT a final answer.
+
+**Embedded tool calls in reasoning:** Some models (Qwen3) write `<tool_call>`
+blocks inside `reasoning_content` instead of using native tool call deltas.
+`tryExtractToolCallFromReasoning()` (stream.go) extracts these tool calls
+directly into `fullMsg.ToolCalls` without copying reasoning text into `Content`.
+The llama.cpp server already separates `reasoning_content` from `content` at
+the wire level — reasoning text stays in `ReasoningContent` and is never
+promoted to visible output. This prevents a feedback loop where the model
+sees its own thinking text in conversation history and reuses it on subsequent
+turns, wasting tokens and producing duplicated output.
+
+Recovery messages (nags, sieve notes, parse feedback, stuck placeholders) are
+**control plane** — `isAgentControlMessage` identifies them so they are never
+confused with real conversation. See `checkTaskCompletion` in `session.go`.
+
+**Content-with-tools fallback:** When the model writes visible text AND calls
+tools in the same turn, the text is saved (`lastContentWithTools`). If the next
+turn is empty, the saved text is used as the final answer. This handles the
+common pattern where a model delivers its report while calling `write_file`.
+
+**One-shot nag:** Empty turns after tool results trigger a single
+`AutomationNagPrompt` injection. If the next turn is still empty, a fallback
+(fallback content or best-available assistant text) finishes the run — the
+agent does not nag perpetually.
+
+## Truncated write_file salvage
+
+When `write_file` / `append_file` args JSON is truncated mid-stream, the agent:
+1. Recovers `content` (≥100 chars) from partial args
+2. Best-effort extracts `path` and persists via Engine (guardrails + FS)
+3. Completes with the recovered report even if path is missing or persist fails
+
+No path is invented. See `salvageTruncatedWrite` in `tool_exec.go`.
 
 ## Reasoning Budget
 
@@ -61,7 +108,7 @@ executor.go Execute()
 
 ## Output Constraint (GBNF Grammar)
 
-When native tools are active in automation (`useNativeTools = true`, `tool_choice: "required"`),
+When native tools are active in automation (`useNativeTools = true`),
 the agent applies a **GBNF grammar constraint** to prevent malformed JSON in tool call arguments:
 
 - **Local providers** (llama.cpp): `GBNFConstraint` generates a disjunctive GBNF grammar from
@@ -96,6 +143,7 @@ When native tools stream returns empty:
 | `AgentGlobalTimeout` | 30 min | `agent.go` | Total wall-clock per Execute |
 | `AgentTurnTimeout` | 10 min | `agent.go` | Per-LLM-call timeout |
 | `streamReasoningBudgetDivisor` | 3 | `stream.go` | Divisor for reasoning_budget |
+| `emptyToolCallSpiralLimit` | 3 | `stream.go` | Closed empty `<tool_call>` blocks → early stuck |
 
 ## Repetition/Spiral Detector
 

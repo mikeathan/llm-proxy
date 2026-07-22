@@ -428,3 +428,147 @@ func TestApplyMetadataDefaults_NoOverwriteExisting(t *testing.T) {
 		t.Fatalf("existing context_budget should not be overwritten, got %d", cfg.ContextBudget)
 	}
 }
+
+func TestIsLocalWorkload(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *models.ModelConfig
+		want bool
+	}{
+		{"nil", nil, false},
+		{"provider local", &models.ModelConfig{Provider: "local"}, true},
+		{"provider LOCAL", &models.ModelConfig{Provider: "LOCAL"}, true},
+		{"openai cloud no gguf", &models.ModelConfig{Provider: "openai", Name: "gpt-4o"}, false},
+		{"openai + gguf filename", &models.ModelConfig{Provider: "openai", Filename: "Qwen3.5-9B-UD-Q4_K_XL.gguf"}, true},
+		{"openai + GGUF path", &models.ModelConfig{Provider: "openai", Path: "/models/Qwen.GGUF"}, true},
+		{"openai + gguf name", &models.ModelConfig{Provider: "openai", Name: "qwen3.5-9b.gguf"}, true},
+		{"openrouter cloud", &models.ModelConfig{Provider: "openrouter", Name: "anthropic/claude"}, false},
+		{"filename not suffix", &models.ModelConfig{Provider: "openai", Filename: "gguf-notes.txt"}, false},
+		{"spaces around path", &models.ModelConfig{Provider: "openai", Path: "  model.gguf  "}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isLocalWorkload(tt.cfg); got != tt.want {
+				t.Fatalf("isLocalWorkload()=%v want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyMetadataDefaults_ToolCallFormatMatrix(t *testing.T) {
+	meta := func(n int) *models.ModelMetadata { return &models.ModelMetadata{ContextLength: n} }
+	tests := []struct {
+		name   string
+		cfg    *models.ModelConfig
+		want   string
+	}{
+		{
+			name: "local empty stays empty",
+			cfg:  &models.ModelConfig{Name: "qwen", Provider: "local", Metadata: meta(8192)},
+			want: "",
+		},
+		{
+			name: "openai gguf filename stays empty",
+			cfg: &models.ModelConfig{
+				Name: "Qwen3.5-9B", Provider: "openai",
+				Filename: "Qwen3.5-9B-UD-Q4_K_XL.gguf", Metadata: meta(8192),
+			},
+			want: "",
+		},
+		{
+			name: "openai gguf path stays empty",
+			cfg: &models.ModelConfig{
+				Name: "local-qwen", Provider: "openai",
+				Path: "/data/models/qwen.gguf", Metadata: meta(8192),
+			},
+			want: "",
+		},
+		{
+			name: "openai cloud empty defaults native",
+			cfg:  &models.ModelConfig{Name: "gpt-4o", Provider: "openai", Metadata: meta(128_000)},
+			want: "native",
+		},
+		{
+			name: "openrouter empty defaults native",
+			cfg:  &models.ModelConfig{Name: "claude", Provider: "openrouter", Metadata: meta(128_000)},
+			want: "native",
+		},
+		{
+			name: "gemini empty defaults native",
+			cfg:  &models.ModelConfig{Name: "gemini-2", Provider: "gemini", Metadata: meta(1_048_576)},
+			want: "native",
+		},
+		{
+			name: "nvidia empty defaults native",
+			cfg:  &models.ModelConfig{Name: "nvidia-model", Provider: "nvidia", Metadata: meta(128_000)},
+			want: "native",
+		},
+		{
+			name: "vertex empty defaults native",
+			cfg:  &models.ModelConfig{Name: "vertex-model", Provider: "vertex", Metadata: meta(1_048_576)},
+			want: "native",
+		},
+		{
+			name: "mulerouter empty defaults native",
+			cfg:  &models.ModelConfig{Name: "mule", Provider: "mulerouter", Metadata: meta(128_000)},
+			want: "native",
+		},
+		{
+			name: "local explicit native preserved",
+			cfg: &models.ModelConfig{
+				Name: "qwen", Provider: "local", ToolCallFormat: "native", Metadata: meta(8192),
+			},
+			want: "native",
+		},
+		{
+			name: "openai gguf explicit native preserved",
+			cfg: &models.ModelConfig{
+				Name: "qwen", Provider: "openai", Filename: "qwen.gguf",
+				ToolCallFormat: "native", Metadata: meta(8192),
+			},
+			want: "native",
+		},
+		{
+			name: "openai gguf explicit xml preserved",
+			cfg: &models.ModelConfig{
+				Name: "qwen", Provider: "openai", Filename: "qwen.gguf",
+				ToolCallFormat: "xml", Metadata: meta(8192),
+			},
+			want: "xml",
+		},
+		{
+			name: "cloud explicit xml preserved",
+			cfg: &models.ModelConfig{
+				Name: "gpt", Provider: "openai", ToolCallFormat: "xml", Metadata: meta(128_000),
+			},
+			want: "xml",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ApplyMetadataDefaults(tt.cfg)
+			if tt.cfg.ToolCallFormat != tt.want {
+				t.Fatalf("ToolCallFormat=%q want %q", tt.cfg.ToolCallFormat, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyMetadataDefaults_OpenAIGguFStillGetsBudgets(t *testing.T) {
+	cfg := &models.ModelConfig{
+		Name:     "Qwen3.5-9B",
+		Provider: "openai",
+		Filename: "Qwen3.5-9B-UD-Q4_K_XL.gguf",
+		Metadata: &models.ModelMetadata{ContextLength: 8192},
+	}
+	ApplyMetadataDefaults(cfg)
+	if cfg.ToolCallFormat != "" {
+		t.Fatalf("gguf under openai must stay empty format, got %q", cfg.ToolCallFormat)
+	}
+	if cfg.MaxTokens != 8192/3 {
+		t.Fatalf("max_tokens still derived from context, got %d", cfg.MaxTokens)
+	}
+	if cfg.ContextBudget <= 0 {
+		t.Fatalf("context_budget must be set, got %d", cfg.ContextBudget)
+	}
+}

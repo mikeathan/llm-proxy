@@ -90,6 +90,12 @@ type AgentConfig struct {
 	ProviderType    string
 	SkipStuckCheck  bool
 	EnableHotMemory bool
+	// Channel is the event stream this agent publishes to (assistant vs
+	// automation). It is stamped onto every AgentEvent so the EventBus can
+	// route and the SSE handler can serve a single channel per connection.
+	Channel EventChannel
+	// ConversationID scopes assistant events to a specific chat session.
+	ConversationID string
 }
 
 // AgentRuntimeDeps holds shared services injected into every Agent.
@@ -140,6 +146,11 @@ type AgentOptions struct {
 	MemoryStore              *memory.Store      // nil when memory is disabled
 
 	EnableHotMemory bool // inject hot memory at session start
+	// Channel is the event stream this agent publishes to. Defaults to
+	// ChannelAssistant; automation sets ChannelAutomation.
+	Channel EventChannel
+	// ConversationID scopes this agent's events to a specific chat session.
+	ConversationID string
 }
 
 type GuardrailDecisionStore struct {
@@ -246,6 +257,9 @@ func (o *AgentOptions) applyDefaults() {
 	if o.GlobalTimeout <= 0 {
 		o.GlobalTimeout = AgentGlobalTimeout
 	}
+	if o.Channel == "" {
+		o.Channel = ChannelAssistant
+	}
 }
 
 // ApplyModelConfig copies model-level overrides from cfg into the options.
@@ -333,6 +347,8 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			ModelName:       opts.ModelName,
 			ProviderType:    opts.ProviderType,
 			EnableHotMemory: opts.EnableHotMemory,
+			Channel:         opts.Channel,
+			ConversationID:  opts.ConversationID,
 		},
 	}
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget, "max_steps", a.config.MaxSteps)
@@ -352,15 +368,15 @@ type repetitionDetector struct {
 }
 
 func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
-	for _, tc := range toolCalls {
-		key := toolKey{tc.Function.Name, tc.Function.Arguments}
-		// submit_final_answer and system_error are expected to repeat in automation loops
-		if tc.Function.Name != models.ToolSubmitFinalAnswer && tc.Function.Name != models.ToolSystemError {
-			if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
-				rd.duplicateStreak++
-				logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
-				if rd.duplicateStreak >= 3 {
-					rd.duplicateStreak = 0
+		for _, tc := range toolCalls {
+			key := toolKey{tc.Function.Name, tc.Function.Arguments}
+			// system_error is a no-op bookkeeping tool and is expected to repeat.
+			if tc.Function.Name != models.ToolSystemError {
+				if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
+					rd.duplicateStreak++
+					logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
+					if rd.duplicateStreak >= 3 {
+						rd.duplicateStreak = 0
 					rd.recentCalls = nil
 					return true, "", fmt.Errorf("infinite loop detected: %s called 3+ times with identical args", key.name)
 				}

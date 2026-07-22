@@ -64,11 +64,15 @@ func (m *MockProvider) UseNativeTools() bool {
 
 // MockEngine implements Engine
 type MockEngine struct {
-	Result any
-	Err    error
+	Result   any
+	Err      error
+	Calls    int
+	LastCall proxy.ToolCall
 }
 
 func (m *MockEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (any, error) {
+	m.Calls++
+	m.LastCall = call
 	return m.Result, m.Err
 }
 
@@ -77,23 +81,14 @@ func TestAgent_Execute_Simple(t *testing.T) {
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
 				{Message: proxy.Message{
-					Role: "assistant",
-					ToolCalls: []proxy.ToolCall{{
-						ID:   "call_submit",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "# Summary\nHello world"}`,
-						},
-					}},
+					Role:    "assistant",
+					Content: "# Summary\nHello world",
 				}},
 			},
 		},
 	}
 	provider := &MockProvider{
-		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
-		},
+		Tools: []proxy.Tool{},
 	}
 	engine := &MockEngine{Result: "ok"}
 
@@ -107,8 +102,8 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	if reply != "# Summary\nHello world" {
 		t.Errorf("Expected '# Summary\nHello world', got '%s'", reply)
 	}
-	if len(history) != 3 { // user + assistant(submit) + tool result
-		t.Errorf("Expected history length 3, got %d", len(history))
+	if len(history) != 2 { // user + assistant(content)
+		t.Errorf("Expected history length 2, got %d", len(history))
 	}
 	if client.Calls != 1 {
 		t.Errorf("Expected 1 client call, got %d", client.Calls)
@@ -142,7 +137,7 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "get_weather"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "Sunny"}
@@ -184,15 +179,8 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 		return &proxy.ChatResponse{
 			Choices: []proxy.Choice{
 				{Message: proxy.Message{
-					Role: "assistant",
-					ToolCalls: []proxy.ToolCall{{
-						ID:   "call_submit",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "# Summary\nIt is sunny in London."}`,
-						},
-					}},
+					Role:    "assistant",
+					Content: "# Summary\nIt is sunny in London.",
 				}},
 			},
 		}, nil
@@ -209,8 +197,8 @@ func TestAgent_Execute_ToolCall(t *testing.T) {
 	if client.Calls != 2 {
 		t.Errorf("Expected 2 client calls, got %d", client.Calls)
 	}
-	if len(history) != 5 { // user + assistant(tc) + tool result + assistant(submit) + tool result
-		t.Errorf("Expected history length 5, got %d", len(history))
+	if len(history) != 4 { // user + assistant(tc) + tool result + assistant(content)
+		t.Errorf("Expected history length 4, got %d", len(history))
 	}
 }
 
@@ -384,18 +372,29 @@ func TestAgent_Execute_StreamEmptyFallback(t *testing.T) {
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			callCount++
+			// First call: tool call. Second call: content-only (natural completion).
+			if callCount == 1 {
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{{
+						Message: proxy.Message{
+							Role: "assistant",
+							ToolCalls: []proxy.ToolCall{{
+								ID:   "call_read",
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      "read_file",
+									Arguments: `{"path": "test.txt"}`,
+								},
+							}},
+						},
+					}},
+				}, nil
+			}
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{
 					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Fallback response"}`,
-							},
-						}},
+						Role:    "assistant",
+						Content: "Fallback response completed successfully",
 					},
 				}},
 			}, nil
@@ -404,10 +403,10 @@ func TestAgent_Execute_StreamEmptyFallback(t *testing.T) {
 
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
-	engine := &MockEngine{Result: "ok"}
+	engine := &MockEngine{Result: "file content"}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:      5,
@@ -418,8 +417,8 @@ func TestAgent_Execute_StreamEmptyFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "Fallback response" {
-		t.Errorf("expected 'Fallback response', got '%s'", reply)
+	if reply != "Fallback response completed successfully" {
+		t.Errorf("expected 'Fallback response completed successfully', got '%s'", reply)
 	}
 	if callCount < 1 {
 		t.Error("expected non-streaming fallback to be called")
@@ -430,6 +429,7 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 	// Stream returns only reasoning content (no text, no tool calls above threshold)
 	// — should trigger the reactive sieve and retry.
 	streamCount := 0
+	var chatCallCount int
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			streamCount++
@@ -445,28 +445,22 @@ func TestAgent_Execute_ReasoningStuckFallback(t *testing.T) {
 			return ch, nil
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			// After the sieve retries, eventually produce a tool call
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Task complete"}`,
-							},
-						}},
-					},
-				}},
-			}, nil
+			chatCallCount++
+			if chatCallCount == 1 {
+				// After the sieve retries, produce a tool call
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "Task complete"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			// Second call: content-only signals completion
+			msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -493,20 +487,28 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
 	streamCalls := 0
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			streamCalls++
+			if streamCalls == 1 {
+				// First call: empty stream
+				ch := make(chan *proxy.ChatResponse)
+				close(ch)
+				return ch, nil
+			}
+			// Second+ calls (after nag and/or tool execution)
 			ch := make(chan *proxy.ChatResponse, 3)
 			go func() {
 				defer close(ch)
-				streamCalls++
-				// First call: empty stream → stuck → handleEmptyStream → nag prompt
-				if streamCalls == 1 {
-					return // empty stream
-				}
-				// Second call (after nag): return valid tool call
-				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
-					Content: `<tool_call>
-{"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
+				if streamCalls == 2 {
+					// Return XML tool call (this is the XML retry from handleEmptyStream)
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+						Content: `<tool_call>
+{"tool": "read_file", "args": {"summary": "Task complete"}}
 </tool_call>`,
-				}}}}
+					}}}}
+					return
+				}
+				// Third+ calls: content-only signals completion
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Task completed successfully"}}}}
 			}()
 			return ch, nil
 		},
@@ -518,7 +520,7 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
 
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -526,7 +528,9 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:      5,
 		GlobalTimeout: 5 * time.Second,
+		ProviderType:  "openai", // Prefill=false for this tier, prevents handleEmptyStream XML retry
 	})
+
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 	})
@@ -634,6 +638,34 @@ func TestAgent_PrecededByToolResult(t *testing.T) {
 			},
 			false,
 		},
+		{
+			"assistant after tool with recovery nag between",
+			[]proxy.Message{
+				{Role: proxy.ToolRole, Content: `"result data"`},
+				{Role: proxy.UserRole, Content: prompts.AutomationNagPrompt},
+				{Role: proxy.AssistantRole, Content: "Got the result, here's what I found."},
+			},
+			true,
+		},
+		{
+			"assistant after tool with stuck placeholder and nag",
+			[]proxy.Message{
+				{Role: proxy.ToolRole, Content: `"result data"`},
+				{Role: proxy.AssistantRole, Content: "", ReasoningContent: "[stuck]"},
+				{Role: proxy.UserRole, Content: prompts.AutomationNagPrompt},
+				{Role: proxy.AssistantRole, Content: "Final answer after recovery path."},
+			},
+			true,
+		},
+		{
+			"real user after tool is not skipped",
+			[]proxy.Message{
+				{Role: proxy.ToolRole, Content: `"result data"`},
+				{Role: proxy.UserRole, Content: "Please also check the second file."},
+				{Role: proxy.AssistantRole, Content: "I will check that next after this note."},
+			},
+			false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -710,27 +742,19 @@ func TestAgent_ToolCallParseErrorRetry(t *testing.T) {
 			if callCount == 1 {
 				return nil, fmt.Errorf(`llm completion failed: LLM chat error 500: {"error":{"code":500,"message":"Failed to parse tool call arguments as JSON: [json.exception.parse_error.101] parse error at line 1, column 730: syntax error while parsing value - invalid string: missing closing quote"}}`)
 			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role:    "assistant",
-						Content: "Here is the final result.",
-						ToolCalls: []proxy.ToolCall{{
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Report written successfully"}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+			if callCount == 2 {
+				tc := proxy.ToolCall{Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "Report written successfully"}`}}
+				msg := proxy.Message{Role: "assistant", Content: "Here is the final result.", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Report written successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "Task submitted successfully."}
@@ -744,8 +768,8 @@ func TestAgent_ToolCallParseErrorRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute should have recovered from tool call parse error, got: %v", err)
 	}
-	if callCount != 2 {
-		t.Errorf("expected 2 LLM calls (1 error + 1 retry), got %d", callCount)
+	if callCount != 3 {
+		t.Errorf("expected 3 LLM calls (1 error + 1 retry + 1 completion), got %d", callCount)
 	}
 	if !strings.Contains(reply, "Report written successfully") {
 		t.Errorf("expected final answer summary, got '%s'", reply)
@@ -776,6 +800,184 @@ func TestAgent_ToolCallParseErrorExhaustRetries(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stalled") {
 		t.Errorf("expected stalled agent error, got: %v", err)
+	}
+}
+
+// TestAgent_ToolCallParseError_EmptyXMLBlock_Recovers verifies that when the
+// agent receives a model response with an empty <tool_call></tool_call> block
+// (the model planned to act but the call was malformed), the agent does NOT
+// treat the accompanying plan text as a natural completion.  It recovers by
+// feeding back corrective guidance, then continues with valid tool calls and
+// eventually the correct final answer.
+func TestAgent_ToolCallParseError_EmptyXMLBlock_Recovers(t *testing.T) {
+	callCount := 0
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, fmt.Errorf("streaming not supported")
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			callCount++
+			if callCount == 1 {
+				// Turn 1: model produces plan text with an EMPTY <tool_call> block.
+				// This mimics the exact failure from gen/workspace-test/Qwen3.5 runs.
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role:    "assistant",
+						Content: "TypeScript is available. Now I'll compile.\n\n<tool_call>\n\n</tool_call>",
+					},
+				}}}, nil
+			}
+			if callCount == 2 {
+				// Turn 2: model recovers with a valid native tool call.
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID:   "call_1",
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      "read_file",
+									Arguments: `{"path": "test.ts"}`,
+								},
+							},
+						},
+					},
+				}}}, nil
+			}
+			// Turn 3: final answer — plain text, no tool calls.
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{
+				Message: proxy.Message{
+					Role:    "assistant",
+					Content: "## Build successful\n\nAll tests pass.",
+				},
+			}}}, nil
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+		},
+	}
+	engine := &MockEngine{Result: "file read successful"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+	})
+
+	// Seed history with a tool result so that precededByToolResult would be
+	// satisfied — mirroring the real-world scenario where the model just
+	// received a tool result and is about to take the next action.
+	initialHistory := []proxy.Message{
+		{Role: "user", Content: "Write and compile a TypeScript app"},
+		{Role: "assistant", ToolCalls: []proxy.ToolCall{
+			{ID: "init", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{}`},
+			}}},
+		{Role: "tool", Content: `{"stdout": "ok"}`},
+	}
+
+	reply, _, err := agent.Execute(context.Background(), initialHistory)
+
+	if err != nil {
+		t.Fatalf("Execute should have recovered from tool call parse error, got: %v", err)
+	}
+	if callCount != 3 {
+		t.Errorf("expected 3 LLM calls (1 parse error + 1 retry + 1 completion), got %d", callCount)
+	}
+	if !strings.Contains(reply, "Build successful") {
+		t.Errorf("final answer should contain 'Build successful', got '%s'", reply)
+	}
+	if strings.Contains(reply, "TypeScript is available") {
+		t.Errorf("final answer must NOT contain plan text from the broken tool-call turn, got '%s'", reply)
+	}
+}
+
+// TestAgent_ToolCallParseError_TruncatedXMLBlock verifies that when the model
+// produces a truncated/incomplete tool call (missing closing tag) after a tool
+// result, the agent does NOT treat the preceding plan text as a natural
+// completion.  Neither regex parser matches the incomplete tag, so the
+// hasToolCallMarker fallback in handleContentToolCalls must detect the intent
+// and route to parse-error recovery instead.
+func TestAgent_ToolCallParseError_TruncatedXMLBlock(t *testing.T) {
+	callCount := 0
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, fmt.Errorf("streaming not supported")
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			callCount++
+			if callCount == 1 {
+				// Turn 1: model produces plan text with a TRUNCATED tool call
+				// (no closing </tool_call>).  Neither regex matches, so
+				// XMLFound=false — hasToolCallMarker catches the intent.
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role:    "assistant",
+						Content: "The temperature is 22°C. Let me check more.\n<tool_call>{\"tool\":\"get_more\"",
+					},
+				}}}, nil
+			}
+			if callCount == 2 {
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: "assistant",
+						ToolCalls: []proxy.ToolCall{
+							{
+								ID:   "call_1",
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      "read_file",
+									Arguments: `{"path": "data.ts"}`,
+								},
+							},
+						},
+					},
+				}}}, nil
+			}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{
+				Message: proxy.Message{
+					Role:    "assistant",
+					Content: "## Results\n\nAll data checked.",
+				},
+			}}}, nil
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+	})
+
+	initialHistory := []proxy.Message{
+		{Role: "user", Content: "Check all data files"},
+		{Role: "assistant", ToolCalls: []proxy.ToolCall{
+			{ID: "init", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{}`},
+			}}},
+		{Role: "tool", Content: `{"stdout": "ok"}`},
+	}
+
+	reply, _, err := agent.Execute(context.Background(), initialHistory)
+
+	if err != nil {
+		t.Fatalf("Execute should have recovered from truncated tool call, got: %v", err)
+	}
+	if callCount != 3 {
+		t.Errorf("expected 3 LLM calls (1 truncated + 1 retry + 1 completion), got %d", callCount)
+	}
+	if !strings.Contains(reply, "Results") {
+		t.Errorf("final answer should contain 'Results', got '%s'", reply)
+	}
+	if strings.Contains(reply, "Let me check more") {
+		t.Errorf("final answer must NOT contain plan text from truncated tool-call turn, got '%s'", reply)
 	}
 }
 
@@ -914,7 +1116,7 @@ func TestCountConsecutiveChat(t *testing.T) {
 		}, 0},
 		{"tool then assistant", []proxy.Message{
 			{Role: proxy.ToolRole, Content: "result"},
-			{Role: proxy.AssistantRole, Content: "done"},
+			{Role: proxy.AssistantRole, Content: "Task completed successfully"},
 		}, 1},
 	}
 	for _, tt := range tests {
@@ -938,26 +1140,18 @@ func TestAgent_ContextSizeErrorRecovery(t *testing.T) {
 			if callCount == 1 {
 				return nil, fmt.Errorf("llm completion failed: request exceeds the available context size")
 			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Recovered after sieve."}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+			if callCount == 2 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "Recovered after sieve."}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Recovered after sieve."}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -981,8 +1175,8 @@ func TestAgent_ContextSizeErrorRecovery(t *testing.T) {
 	if !strings.Contains(reply, "Recovered after sieve") {
 		t.Errorf("expected recovered response, got '%s'", reply)
 	}
-	if callCount != 2 {
-		t.Errorf("expected 2 LLM calls (1 error + 1 retry), got %d", callCount)
+	if callCount != 3 {
+		t.Errorf("expected 3 LLM calls (1 error + 1 retry + 1 completion), got %d", callCount)
 	}
 }
 
@@ -997,26 +1191,18 @@ func TestAgent_ToolSupportFallback(t *testing.T) {
 			if callCount == 1 {
 				return nil, fmt.Errorf("llm completion failed: parameter `tools` is not currently supported")
 			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Fallback without tools."}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+			if callCount == 2 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "Fallback without tools."}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Fallback without tools."}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -1030,8 +1216,8 @@ func TestAgent_ToolSupportFallback(t *testing.T) {
 	if reply != "Fallback without tools." {
 		t.Errorf("expected fallback response, got '%s'", reply)
 	}
-	if callCount != 2 {
-		t.Errorf("expected 2 LLM calls (1 error + 1 retry), got %d", callCount)
+	if callCount != 3 {
+		t.Errorf("expected 3 LLM calls (1 error + 1 retry + 1 completion), got %d", callCount)
 	}
 }
 
@@ -1044,33 +1230,21 @@ func TestAgent_ParseErrorStreakNotification(t *testing.T) {
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			callCount++
 			if callCount == 1 {
-				return &proxy.ChatResponse{
-					Choices: []proxy.Choice{
-						{Message: proxy.Message{Role: "assistant", Content: "I do not know about tools."}},
-					},
-				}, nil
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", Content: "I do not know about tools."}}}}, nil
 			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "done"}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+			if callCount == 2 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "done"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -1145,27 +1319,20 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 					},
 				}, nil
 			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "It is sunny."}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+		return &proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{
+					Role:    "assistant",
+					Content: "The weather in London is sunny and warm today.",
+				}},
+			},
+		}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "get_weather"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: `"Sunny"`}
@@ -1176,7 +1343,7 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "It is sunny." {
+	if reply != "The weather in London is sunny and warm today." {
 		t.Errorf("expected final response, got '%s'", reply)
 	}
 	if callCount != 2 {
@@ -1242,23 +1409,14 @@ func TestAgent_PhysicalContextSieve(t *testing.T) {
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
 				{Message: proxy.Message{
-					Role: "assistant",
-					ToolCalls: []proxy.ToolCall{{
-						ID:   "call_submit",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "# Summary\nDone"}`,
-						},
-					}},
+					Role:    "assistant",
+					Content: "# Summary\nDone",
 				}},
 			},
 		},
 	}
 	provider := &MockProvider{
-		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
-		},
+		Tools: []proxy.Tool{},
 	}
 	engine := &MockEngine{Result: "ok"}
 
@@ -1394,88 +1552,223 @@ func TestAgent_ValidateToolArgs(t *testing.T) {
 	}
 }
 
-func TestAgent_Execute_BatchedSubmissionRejection(t *testing.T) {
-	// When submit_final_answer is batched with another tool, processToolCalls
-	// rejects the entire batch. The agent must NOT exit immediately — it should
-	// continue so the model can retry with a solo submit on the next turn.
-	// This test simulates: turn 1 = batched (rejected), turn 2 = solo (success).
-	client := &MockClient{}
+func TestCheckTaskCompletion(t *testing.T) {
+	// Natural completion (Hermes-aligned): the model emits a content-only
+	// assistant message with no tool calls.  Completion requires substantive
+	// visible text (≥20 chars after think-block stripping) and at least one
+	// tool result anywhere in history — not strict adjacency to the prior message.
+	agent := NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		return nil, context.Canceled
+	}}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	_ = newRunSession(agent, context.Background(), nil)
 
-	provider := &MockProvider{
-		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer, Description: "Submit final answer"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file", Description: "Read file"}},
+	toolResult := proxy.Message{Role: proxy.ToolRole, Content: "file contents"}
+	assistantText := proxy.Message{Role: proxy.AssistantRole, Content: "planning next step"}
+
+	tests := []struct {
+		name        string
+		msg         proxy.Message
+		history     []proxy.Message
+		wantDone    bool
+		wantContent string
+	}{
+		{
+			name:        "content + no toolcalls + tool result in history => done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Report\nTask completed successfully.", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    true,
+			wantContent: "# Report\nTask completed successfully.",
+		},
+		{
+			name:        "content + toolcalls => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Report\nTask completed successfully.", ToolCalls: []proxy.ToolCall{{Function: proxy.FunctionCall{Name: "read_file"}}}},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "empty content => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "   ", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "think-only content => not done (stripped to empty)",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "<think>reasoning here</think>", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "think-block + visible content => done (stripped to visible)",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "<think>reasoning</think># Final Report\nWork completed.", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    true,
+			wantContent: "# Final Report\nWork completed.",
+		},
+		{
+			name:        "no tool result in history => not done (premature guard)",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Report\nWork completed successfully.", ToolCalls: nil},
+			history:     []proxy.Message{assistantText},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "reasoning-only interleave does not block completion",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Final Report\n\nAll tasks completed successfully.", ToolCalls: nil},
+			history:     []proxy.Message{toolResult, {Role: proxy.AssistantRole, Content: "", ReasoningContent: "reasoning..."}},
+			wantDone:    true,
+			wantContent: "# Final Report\n\nAll tasks completed successfully.",
+		},
+		{
+			name:        "unparsed tool_call marker in content => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "<tool_call>{\"tool\":\"read_file\"}</tool_call> maybe also some text here so it's long enough", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "short chatter <20 chars => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "Let me check.", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
 		},
 	}
-	engine := &MockEngine{}
-	agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5})
 
-	callCount := 0
-	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-		callCount++
-		if callCount == 1 {
-			// Turn 1: batched submit with another tool — will be rejected
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{
-							{
-								ID: "call_submit",
-								Function: proxy.FunctionCall{
-									Name:      models.ToolSubmitFinalAnswer,
-									Arguments: `{"summary": "Done"}`,
-								},
-							},
-							{
-								ID: "call_read",
-								Function: proxy.FunctionCall{
-									Name:      "read_file",
-									Arguments: `{"path": "test.txt"}`,
-								},
-							},
-						},
-					},
-				}},
-			}, nil
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, done := checkTaskCompletion(tt.msg, tt.history)
+			if done != tt.wantDone {
+				t.Errorf("expected done=%v, got %v", tt.wantDone, done)
+			}
+			if got != tt.wantContent {
+				t.Errorf("expected content=%q, got %q", tt.wantContent, got)
+			}
+		})
+	}
+}
+
+func TestIsAgentControlMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  proxy.Message
+		want bool
+	}{
+		{"automation nag", proxy.Message{Role: proxy.UserRole, Content: prompts.AutomationNagPrompt}, true},
+		{"sieve warning", proxy.Message{Role: proxy.UserRole, Content: prompts.ContextSieveWarning}, true},
+		{"sieve note", proxy.Message{Role: proxy.UserRole, Content: prompts.SieveSystemNote}, true},
+		{"stuck nag", proxy.Message{Role: proxy.UserRole, Content: prompts.ReasoningStuckNag}, true},
+		{"retry prefix", proxy.Message{Role: proxy.UserRole, Content: prompts.RetrySignal + "\n\noriginal user"}, true},
+		{"parse feedback STOP", proxy.Message{Role: proxy.UserRole, Content: "STOP writing text. Produce a tool call NOW."}, true},
+		{"parse feedback FORMAT", proxy.Message{Role: proxy.UserRole, Content: "FORMAT ERROR: bad json"}, true},
+		{"stuck placeholder", proxy.Message{Role: proxy.AssistantRole, Content: "", ReasoningContent: "[stuck]"}, true},
+		{"real user", proxy.Message{Role: proxy.UserRole, Content: "Please scan the network and report."}, false},
+		{"user mentioning SYSTEM ERROR casually", proxy.Message{Role: proxy.UserRole, Content: "SYSTEM ERROR: foo happened in my app"}, false},
+		{"assistant content", proxy.Message{Role: proxy.AssistantRole, Content: "Here is the final report body."}, false},
+		{"tool result", proxy.Message{Role: proxy.ToolRole, Content: "scan complete"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAgentControlMessage(tt.msg); got != tt.want {
+				t.Errorf("isAgentControlMessage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPreviousConversationMessage(t *testing.T) {
+	tool := proxy.Message{Role: proxy.ToolRole, Content: "result"}
+	userTask := proxy.Message{Role: proxy.UserRole, Content: "do the work"}
+	nag := proxy.Message{Role: proxy.UserRole, Content: prompts.AutomationNagPrompt}
+	stuck := proxy.Message{Role: proxy.AssistantRole, Content: "", ReasoningContent: "[stuck]"}
+	sieve := proxy.Message{Role: proxy.UserRole, Content: prompts.ContextSieveWarning}
+	assistant := proxy.Message{Role: proxy.AssistantRole, Content: "planning next step"}
+
+	t.Run("skips nag to tool", func(t *testing.T) {
+		prev := previousConversationMessage([]proxy.Message{tool, nag})
+		if prev == nil || prev.Role != proxy.ToolRole {
+			t.Fatalf("expected tool, got %#v", prev)
 		}
-		// Turn 2: solo submit — should be accepted
-		return &proxy.ChatResponse{
-			Choices: []proxy.Choice{{
+	})
+	t.Run("skips stuck and nag and sieve to tool", func(t *testing.T) {
+		prev := previousConversationMessage([]proxy.Message{tool, stuck, nag, sieve})
+		if prev == nil || prev.Role != proxy.ToolRole {
+			t.Fatalf("expected tool, got %#v", prev)
+		}
+	})
+	t.Run("returns user task under nag", func(t *testing.T) {
+		prev := previousConversationMessage([]proxy.Message{userTask, nag})
+		if prev == nil || prev.Content != userTask.Content {
+			t.Fatalf("expected user task, got %#v", prev)
+		}
+	})
+	t.Run("does not skip real assistant", func(t *testing.T) {
+		prev := previousConversationMessage([]proxy.Message{tool, assistant})
+		if prev == nil || prev.Role != proxy.AssistantRole {
+			t.Fatalf("expected assistant, got %#v", prev)
+		}
+	})
+	t.Run("only control returns nil", func(t *testing.T) {
+		prev := previousConversationMessage([]proxy.Message{nag, sieve, stuck})
+		if prev != nil {
+			t.Fatalf("expected nil, got %#v", prev)
+		}
+	})
+	t.Run("semantic prev enables completion after recovery", func(t *testing.T) {
+		history := []proxy.Message{tool, stuck, nag}
+		msg := proxy.Message{Role: proxy.AssistantRole, Content: "# Report\nTask completed successfully."}
+		// checkTaskCompletion now takes the history directly (Phase 2b: Hermes-aligned).
+		// The tool result in history[0] satisfies the any-tool-result gate.
+		got, done := checkTaskCompletion(msg, history)
+		if !done || got != msg.Content {
+			t.Fatalf("expected completion, done=%v content=%q", done, got)
+		}
+	})
+}
+
+func TestAgent_Execute_CompletesThroughRecoveryPollution(t *testing.T) {
+	// Reproduces: tool result → stuck placeholder → nag → final text must complete
+	// (not re-nag and re-emit the answer forever).
+	var callCount int
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			callCount++
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{
 				Message: proxy.Message{
-					Role: "assistant",
-					ToolCalls: []proxy.ToolCall{
-						{
-							ID: "call_submit2",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Task complete"}`,
-							},
-						},
-					},
+					Role:    "assistant",
+					Content: "The network reconnaissance task has been completed successfully.",
 				},
-			}},
-		}, nil
+			}}}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+		},
+	}
+	agent := NewAgent(client, provider, &MockEngine{}, AgentOptions{MaxSteps: 5})
+
+	history := []proxy.Message{
+		{Role: proxy.UserRole, Content: "Run recon and deliver the report."},
+		{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{
+			{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path":"task.md"}`}},
+		}},
+		{Role: proxy.ToolRole, Content: "scan data ready"},
+		{Role: proxy.AssistantRole, Content: "", ReasoningContent: "[stuck]"},
+		{Role: proxy.UserRole, Content: prompts.AutomationNagPrompt},
 	}
 
-	reply, finalHistory, err := agent.Execute(context.Background(), []proxy.Message{{Role: "user", Content: "Run task"}})
+	reply, _, err := agent.Execute(context.Background(), history)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-
-	if reply != "Task complete" {
-		t.Errorf("expected reply 'Task complete', got %q", reply)
+	if callCount != 1 {
+		t.Errorf("expected single LLM call after recovery pollution, got %d", callCount)
 	}
-
-	// Should have exactly 2 rejection error results (one per tool call in the batch)
-	foundRejectionError := 0
-	for _, msg := range finalHistory {
-		if msg.Role == proxy.ToolRole && strings.Contains(msg.Content, prompts.AutomationRejectedSubmissionPrompt) {
-			foundRejectionError++
-		}
-	}
-	if foundRejectionError != 2 {
-		t.Errorf("expected 2 rejection error results (one per tool call), got %d", foundRejectionError)
+	if !strings.Contains(reply, "completed successfully") {
+		t.Errorf("expected final answer reply, got %q", reply)
 	}
 }
 
@@ -1504,7 +1797,7 @@ func TestAgent_Execute_GuardrailDecisionApproval(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "success"}
@@ -1538,16 +1831,8 @@ func TestAgent_Execute_GuardrailDecisionApproval(t *testing.T) {
 			Choices: []proxy.Choice{
 				{
 					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{
-							{
-								ID: "call_submit",
-								Function: proxy.FunctionCall{
-									Name:      models.ToolSubmitFinalAnswer,
-									Arguments: `{"summary": "Succeeded"}`,
-								},
-							},
-						},
+						Role:    "assistant",
+						Content: "Succeeded",
 					},
 				},
 			},
@@ -1592,7 +1877,7 @@ func TestAgent_Execute_GuardrailDecisionDenial(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "success"}
@@ -1626,16 +1911,8 @@ func TestAgent_Execute_GuardrailDecisionDenial(t *testing.T) {
 			Choices: []proxy.Choice{
 				{
 					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{
-							{
-								ID: "call_submit",
-								Function: proxy.FunctionCall{
-									Name:      models.ToolSubmitFinalAnswer,
-									Arguments: `{"summary": "Denied"}`,
-								},
-							},
-						},
+						Role:    "assistant",
+						Content: "Denied",
 					},
 				},
 			},
@@ -1693,10 +1970,7 @@ func TestAgent_NativeToolsNoXMLManualInAutomation(t *testing.T) {
 {"tool": "read_file", "args": {"path": "test.txt"}}
 </tool_call>`}}}}
 				} else {
-					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "File read.\n"}}}}
-					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
-{"tool": "submit_final_answer", "args": {"summary": "Task complete"}}
-</tool_call>`}}}}
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "File read.\nTask complete"}}}}
 				}
 			}()
 			return ch, nil
@@ -1709,7 +1983,7 @@ func TestAgent_NativeToolsNoXMLManualInAutomation(t *testing.T) {
 						ToolCalls: []proxy.ToolCall{{
 							ID: "call_submit",
 							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
+								Name:      "read_file",
 								Arguments: `{"summary": "Task complete"}`,
 							},
 						}},
@@ -1722,7 +1996,7 @@ func TestAgent_NativeToolsNoXMLManualInAutomation(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: `"file contents"`}
@@ -1744,22 +2018,28 @@ func TestAgent_NativeToolsNoXMLManualInAutomation(t *testing.T) {
 
 func TestAgent_Execute_NativeToolsSetsToolChoice(t *testing.T) {
 	var capturedReq proxy.ChatRequest
+	streamCount := 0
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			capturedReq = req
+			streamCount++
 			ch := make(chan *proxy.ChatResponse, 2)
 			go func() {
 				defer close(ch)
-				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
-{"tool": "submit_final_answer", "args": {"summary": "Done"}}
+				if streamCount == 1 {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
+{"tool": "read_file", "args": {"path": "test.txt"}}
 </tool_call>`}}}}
+				} else {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Done"}}}}
+				}
 			}()
 			return ch, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -1771,8 +2051,8 @@ func TestAgent_Execute_NativeToolsSetsToolChoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if capturedReq.ToolChoice != proxy.ToolChoiceRequired {
-		t.Errorf("expected ToolChoice=%q, got %q", proxy.ToolChoiceRequired, capturedReq.ToolChoice)
+	if capturedReq.ToolChoice != "" {
+		t.Errorf("expected empty ToolChoice (tool_choice:required removed — natural completion), got %q", capturedReq.ToolChoice)
 	}
 	if capturedReq.Temperature != 0 {
 		t.Errorf("expected Temperature=0 (not configured), got %f", capturedReq.Temperature)
@@ -1784,22 +2064,28 @@ func TestAgent_Execute_NativeToolsSetsToolChoice(t *testing.T) {
 
 func TestAgent_Execute_NativeToolsTemperatureSet(t *testing.T) {
 	var capturedReq proxy.ChatRequest
+	streamCount := 0
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			capturedReq = req
+			streamCount++
 			ch := make(chan *proxy.ChatResponse, 2)
 			go func() {
 				defer close(ch)
-				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
-{"tool": "submit_final_answer", "args": {"summary": "Done"}}
+				if streamCount == 1 {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
+{"tool": "read_file", "args": {"path": "test.txt"}}
 </tool_call>`}}}}
+				} else {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Done"}}}}
+				}
 			}()
 			return ch, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -1818,24 +2104,30 @@ func TestAgent_Execute_NativeToolsTemperatureSet(t *testing.T) {
 
 func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	var capturedReq proxy.ChatRequest
+	streamCount := 0
 	falseVal := false
 	client := &MockClient{
 		// Fall back to non-streaming so prefill doesn't corrupt the capture
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			capturedReq = req
+			streamCount++
 			ch := make(chan *proxy.ChatResponse, 2)
 			go func() {
 				defer close(ch)
-				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
-{"tool": "submit_final_answer", "args": {"summary": "Done"}}
+				if streamCount == 1 {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: `<tool_call>
+{"tool": "read_file", "args": {"path": "test.txt"}}
 </tool_call>`}}}}
+				} else {
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Done"}}}}
+				}
 			}()
 			return ch, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -2111,16 +2403,16 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		}
 	})
 
-	// Scenario 5: submit_final_answer excluded from tracking
-	t.Run("submit excluded", func(t *testing.T) {
+	// Scenario 5: system_error excluded from tracking (no-op bookkeeping tool)
+	t.Run("system_error excluded", func(t *testing.T) {
 		rd := repetitionDetector{}
 		for range 6 {
 			_, _, err := rd.check(logger, []proxy.ToolCall{{
-				ID: "submit", Type: "function",
-				Function: proxy.FunctionCall{Name: models.ToolSubmitFinalAnswer, Arguments: `{}`},
+				ID: "sys", Type: "function",
+				Function: proxy.FunctionCall{Name: models.ToolSystemError, Arguments: `{}`},
 			}})
 			if err != nil {
-				t.Fatalf("submit_final_answer should never trigger loop: %v", err)
+				t.Fatalf("system_error should never trigger loop: %v", err)
 			}
 		}
 	})
@@ -2163,15 +2455,8 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{
 					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "completed with failure handled"}`,
-							},
-						}},
+						Role:    "assistant",
+						Content: "completed with failure handled",
 					},
 				}},
 			}, nil
@@ -2181,7 +2466,7 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 
@@ -2230,7 +2515,7 @@ func TestToolCategory_AllCases(t *testing.T) {
 		{models.ToolInternetSearch, "search"},
 		{models.ToolNotifyUser, "communication"},
 		{models.ToolApplyGuardrails, "general"},
-		{models.ToolSubmitFinalAnswer, "general"},
+		{"read_file", "filesystem"},
 		{models.ToolSystemError, "general"},
 		{"unknown_tool", "general"},
 		{"", "general"},
@@ -2438,34 +2723,26 @@ func TestAgent_StuckThresholdConstant(t *testing.T) {
 				},
 				ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 					chatCalls++
-					return &proxy.ChatResponse{
-						Choices: []proxy.Choice{{
-							Message: proxy.Message{
-								Role: "assistant",
-								ToolCalls: []proxy.ToolCall{{
-									ID:   "call_submit",
-									Type: "function",
-									Function: proxy.FunctionCall{
-										Name:      models.ToolSubmitFinalAnswer,
-										Arguments: `{"summary": "done"}`,
-									},
-								}},
-							},
-						}},
-					}, nil
+					if chatCalls == 1 {
+						tc := proxy.ToolCall{ID: "call_read", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path": "test.txt"}`}}
+						msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+						return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+					}
+					msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+					return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 				},
 			}
 			provider := &MockProvider{
 				Tools: []proxy.Tool{
-					{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+					{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 				},
 			}
 			engine := &MockEngine{Result: "ok"}
-			agent := NewAgent(client, provider, engine, AgentOptions{
-				MaxSteps:          25,
-				MaxResponseTokens: tc.maxRespTok,
-				ReasoningBudget:   tc.maxRespTok * 2,
-			})
+				agent := NewAgent(client, provider, engine, AgentOptions{
+					MaxSteps:          25,
+					MaxResponseTokens: tc.maxRespTok,
+					ReasoningBudget:   tc.maxRespTok * 2,
+				})
 			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
 				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
@@ -2539,34 +2816,26 @@ func TestAgent_StuckThresholdDerived(t *testing.T) {
 				},
 				ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 					chatCalls++
-					return &proxy.ChatResponse{
-						Choices: []proxy.Choice{{
-							Message: proxy.Message{
-								Role: "assistant",
-								ToolCalls: []proxy.ToolCall{{
-									ID:   "call_submit",
-									Type: "function",
-									Function: proxy.FunctionCall{
-										Name:      models.ToolSubmitFinalAnswer,
-										Arguments: `{"summary": "done"}`,
-									},
-								}},
-							},
-						}},
-					}, nil
+					if chatCalls == 1 {
+						tc := proxy.ToolCall{ID: "call_read", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path": "test.txt"}`}}
+						msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+						return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+					}
+					msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+					return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 				},
 			}
 			provider := &MockProvider{
 				Tools: []proxy.Tool{
-					{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+					{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 				},
 			}
 			engine := &MockEngine{Result: "ok"}
-			agent := NewAgent(client, provider, engine, AgentOptions{
-				MaxSteps:          25,
-				MaxResponseTokens: tc.maxRespTok,
-				ReasoningBudget:   tc.maxRespTok * 2,
-			})
+				agent := NewAgent(client, provider, engine, AgentOptions{
+					MaxSteps:          25,
+					MaxResponseTokens: tc.maxRespTok,
+					ReasoningBudget:   tc.maxRespTok * 2,
+				})
 			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
 				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
@@ -2600,6 +2869,7 @@ func TestAgent_LifecycleEventsOnStuck(t *testing.T) {
 	// When the reasoning stuck detector fires, a lifecycle event with
 	// phase "stuck_detected" should be emitted.
 	var events []AgentEvent
+	var chatCallCount int
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			ch := make(chan *proxy.ChatResponse, 100)
@@ -2614,26 +2884,19 @@ func TestAgent_LifecycleEventsOnStuck(t *testing.T) {
 			return ch, nil
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "done"}`,
-							},
-						}},
-					},
-				}},
-			}, nil
+			chatCallCount++
+			if chatCallCount == 1 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "done"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -2680,23 +2943,31 @@ func TestAgent_StuckDetectionExtractsToolCallFromReasoning(t *testing.T) {
 	// detector should extract it into Content so the XML parser can
 	// process it, rather than declaring the model stuck.
 	var events []AgentEvent
+	var streamCallCount int
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			streamCallCount++
 			ch := make(chan *proxy.ChatResponse, 100)
 			go func() {
 				defer close(ch)
-				// Reasoning content that far exceeds the threshold, but
-				// contains an embedded <tool_call> block inside <think>.
-				reasoning := `<think>The user wants to submit the final answer.
+				if streamCallCount == 1 {
+					// Reasoning content that far exceeds the threshold, but
+					// contains an embedded <tool_call> block inside <think>.
+					reasoning := `<think>The user wants to submit the final answer.
 I should use the submit_final_answer tool to complete this.
-<tool_call>{"tool": "` + models.ToolSubmitFinalAnswer + `", "args": {"summary": "done"}}</tool_call>
+<tool_call>{"tool": "` + "read_file" + `", "args": {"summary": "done"}}</tool_call>
 </think>
 `
-				for i := 0; i < 150; i++ {
-					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
-						Delta: proxy.Message{ReasoningContent: reasoning},
-					}}}
+					for i := 0; i < 150; i++ {
+						ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+							Delta: proxy.Message{ReasoningContent: reasoning},
+						}}}
+					}
+					return
 				}
+				// Second stream call (after tool extraction + execution):
+				// content-only signals completion
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Task completed successfully"}}}}
 			}()
 			return ch, nil
 		},
@@ -2715,7 +2986,7 @@ I should use the submit_final_answer tool to complete this.
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -2724,7 +2995,7 @@ I should use the submit_final_answer tool to complete this.
 		MaxResponseTokens: 2730,
 	})
 	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
-	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+	_, finalHistory, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 	})
 	if err != nil {
@@ -2739,6 +3010,15 @@ I should use the submit_final_answer tool to complete this.
 			if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == "fallback_started" {
 				t.Error("unexpected fallback_started event — extracted tool call should have been processed without fallback")
 			}
+		}
+	}
+
+	// Verify reasoning text was NOT promoted to visible Content in history.
+	// The llama.cpp server already separates reasoning_content from content;
+	// reasoning text belongs to thinking, not visible assistant output.
+	for i, msg := range finalHistory {
+		if msg.Role == proxy.AssistantRole && strings.Contains(msg.Content, "submit") {
+			t.Errorf("history[%d] contains extracted reasoning text: %q", i, msg.Content)
 		}
 	}
 }
@@ -2809,6 +3089,7 @@ func TestAgent_FallbackXMLModeNoToolChoice(t *testing.T) {
 	// When the empty-stream-native-tools fallback fires, the non-streaming
 	// retry should use XML mode: no tool_choice:required, no native tools.
 	var capturedReq proxy.ChatRequest
+	var chatCallCount int
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			ch := make(chan *proxy.ChatResponse, 1)
@@ -2818,27 +3099,20 @@ func TestAgent_FallbackXMLModeNoToolChoice(t *testing.T) {
 			return ch, nil
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			chatCallCount++
 			capturedReq = req
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Task complete"}`,
-							},
-						}},
-					},
-				}},
-			}, nil
+			if chatCallCount == 1 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "Task complete"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -3354,7 +3628,7 @@ func TestPrepareChatRequest_ZeroReasoningBudget(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "done"}},
+				{Message: proxy.Message{Role: "assistant", Content: "Task completed successfully"}},
 			},
 		},
 	}
@@ -3389,7 +3663,7 @@ func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "done"}},
+				{Message: proxy.Message{Role: "assistant", Content: "Task completed successfully"}},
 			},
 		},
 	}
@@ -3425,7 +3699,7 @@ func TestPrepareChatRequest_ZeroBudgetHasNoEffect(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
 			Choices: []proxy.Choice{
-				{Message: proxy.Message{Role: "assistant", Content: "done"}},
+				{Message: proxy.Message{Role: "assistant", Content: "Task completed successfully"}},
 			},
 		},
 	}
@@ -3459,33 +3733,39 @@ func TestPrepareChatRequest_ZeroBudgetHasNoEffect(t *testing.T) {
 func TestAgent_Execute_EventOrder_ToolCallBeforeEventMessage(t *testing.T) {
 	var mu sync.Mutex
 	var events []AgentEvent
+	var chatCallCount int
 
 	client := &MockClient{
-		Response: proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{Message: proxy.Message{
-					Role: "assistant",
-					ToolCalls: []proxy.ToolCall{{
-						ID:   "call_submit",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "done"}`,
-						},
-					}},
-				}},
-			},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			chatCallCount++
+			if chatCallCount == 1 {
+				tc := proxy.ToolCall{ID: "call_submit", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path": ".", "summary": "done"}`}}
+				msg := proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{tc}}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}
+			msg := proxy.Message{Role: "assistant", Content: "Task completed successfully"}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
 
+	gr := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{
+			FileSystem: models.FileSystemGuardrailsConfig{
+				Enabled:      true,
+				AllowedPaths: []string{"."},
+			},
+		}
+	}, storage.NewPathResolver("", "", ""), nil)
+
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps: 5,
+		MaxSteps:   5,
+		Guardrails: gr,
 		Observer: func(ev AgentEvent) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -3526,40 +3806,21 @@ func TestAgent_Execute_EventOrder_ToolCallBeforeEventMessage(t *testing.T) {
 }
 
 func TestAgent_Execute_NativeToolsNoToolCalls_NagThenSuccess(t *testing.T) {
+	// Phase 2b (Hermes-aligned): native-tools freeform text is accepted as
+	// completion.  The agent no longer nags when the model writes text without
+	// tool calls in native mode — text without tools IS the completion signal.
 	var callCount int
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			callCount++
-			if callCount == 1 {
-				return &proxy.ChatResponse{
-					Choices: []proxy.Choice{
-						{Message: proxy.Message{
-							Role:    "assistant",
-							Content: "Here's some text without a tool call.",
-						}},
-					},
-				}, nil
-			}
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{
-					{Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_submit",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Task completed successfully."}`,
-							},
-						}},
-					}},
-				},
-			}, nil
+			// First call: text without tool calls in native-tools mode.
+			// Hermes-aligned: accepted as completion immediately (no nag).
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", Content: "Task completed successfully."}}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -3568,38 +3829,45 @@ func TestAgent_Execute_NativeToolsNoToolCalls_NagThenSuccess(t *testing.T) {
 		MaxSteps: 5,
 	})
 
+	// History includes a tool result so the any-tool-result gate passes.
 	history := []proxy.Message{
 		{Role: proxy.UserRole, Content: "tell me a joke"},
+		{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{
+			{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path":"joke.txt"}`}},
+		}},
+		{Role: proxy.ToolRole, Content: "Why did the chicken cross the road?"},
 	}
 
-	reply, finalHistory, err := agent.Execute(context.Background(), history)
+	reply, _, err := agent.Execute(context.Background(), history)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "Task completed successfully." {
-		t.Errorf("expected reply 'Task completed successfully.', got %q", reply)
+	if !strings.Contains(reply, "Task completed successfully") {
+		t.Errorf("expected reply containing 'Task completed successfully.', got %q", reply)
 	}
-
-	nagFound := false
-	for _, msg := range finalHistory {
-		if msg.Role == proxy.UserRole && strings.Contains(msg.Content, "SYSTEM ERROR") {
-			nagFound = true
-			break
-		}
-	}
-	if !nagFound {
-		t.Error("expected AutomationNagPrompt in history — agent should nag instead of exiting on freeform text")
+	if callCount != 1 {
+		t.Errorf("expected 1 LLM call, got %d (native-tools completion should not nag)", callCount)
 	}
 }
 
 func TestAgent_Execute_NativeToolsNoToolCalls_Starvation(t *testing.T) {
+	// Phase 2b (Hermes-aligned): text without tool calls is accepted as
+	// completion.  Starvation (repeated empty/text turns) still triggers
+	// after DefaultStarvationLimit empty turns, but a single substantive
+	// text answer completes immediately rather than escalating to starvation.
+	var callCount int
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			callCount++
+			// Return empty content with reasoning — avoids premature
+			// termination (reasoning-only is not premature) and reaches
+			// one-shot nag, then forced completion.
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{
-						Role:    "assistant",
-						Content: "Text without tool calls, repeatedly.",
+						Role:             "assistant",
+						Content:          "",
+						ReasoningContent: "still thinking...",
 					}},
 				},
 			}, nil
@@ -3607,7 +3875,7 @@ func TestAgent_Execute_NativeToolsNoToolCalls_Starvation(t *testing.T) {
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -3617,14 +3885,24 @@ func TestAgent_Execute_NativeToolsNoToolCalls_Starvation(t *testing.T) {
 		ContextBudget: 100000,
 	})
 
+	// History includes a tool result so we test post-work empty response.
+	// Empty content with ReasoningContent avoids premature termination
+	// (reasoning-only is NOT premature) and triggers the one-shot nag.
 	_, _, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.UserRole, Content: "do something"},
+		{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{
+			{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path":"task.md"}`}},
+		}},
+		{Role: proxy.ToolRole, Content: "data"},
 	})
-	if err == nil {
-		t.Fatal("expected starvation error, got nil")
+	// Phase 2b: empty content after tools triggers one-shot nag, then
+	// premature termination (isPrematureTermination).  This exits
+	// cleanly — no starvation error, just empty completion.
+	if err != nil {
+		t.Fatalf("unexpected error: %v (empty after tools should complete, not starve)", err)
 	}
-	if !strings.Contains(err.Error(), "stalled") {
-		t.Errorf("expected error containing 'stalled', got: %v", err)
+	if callCount <= 1 {
+		t.Errorf("expected at least 2 calls (empty + one-shot nag), got %d", callCount)
 	}
 }
 
@@ -3722,79 +4000,6 @@ func TestAgent_CancelDuringStreamXMLRetry_NoFallbackToNonStreaming(t *testing.T)
 	}
 }
 
-func TestCheckSubmitFinalAnswer_ContentOverwrite(t *testing.T) {
-	agent := NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-		return nil, context.Canceled
-	}}, &MockProvider{}, &MockEngine{}, AgentOptions{})
-	session := newRunSession(agent, context.Background(), nil)
-
-	tests := []struct {
-		name    string
-		content string
-		summary string
-		want    string
-	}{
-		{
-			name:    "content non-empty, summary meaningful → overwrite with summary",
-			content: "Here's a joke for you!",
-			summary: "# Complete File Listing Report\n...",
-			want:    "# Complete File Listing Report\n...",
-		},
-		{
-			name:    "content empty, summary meaningful → fill from summary",
-			content: "",
-			summary: "# Complete File Listing Report\n...",
-			want:    "# Complete File Listing Report\n...",
-		},
-		{
-			name:    "content non-empty, summary Task complete. → keep content",
-			content: "Here's a joke for you!",
-			summary: "Task complete.",
-			want:    "Here's a joke for you!",
-		},
-		{
-			name:    "content non-empty, summary empty → keep content",
-			content: "Here's a joke for you!",
-			summary: "",
-			want:    "Here's a joke for you!",
-		},
-		{
-			name:    "content empty, summary Task complete. → returns Task complete.",
-			content: "",
-			summary: "Task complete.",
-			want:    "Task complete.",
-		},
-		{
-			name:    "content empty, summary empty → returns Task complete.",
-			content: "",
-			summary: "",
-			want:    "Task complete.",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := fmt.Sprintf(`{"summary":%q}`, tt.summary)
-			msg := proxy.Message{
-				Content: tt.content,
-				ToolCalls: []models.ToolCall{
-					{Function: models.FunctionCall{Name: models.ToolSubmitFinalAnswer, Arguments: args}},
-				},
-			}
-			got, done := session.checkSubmitFinalAnswer(&msg)
-			if !done {
-				t.Error("expected done=true")
-			}
-			if got != tt.want {
-				t.Errorf("expected content=%q, got %q", tt.want, got)
-			}
-			if msg.Content != tt.want {
-				t.Errorf("expected msg.Content=%q after call, got %q", tt.want, msg.Content)
-			}
-		})
-	}
-}
-
 func TestAgent_SubmitFinalAnswer_NoDuplicateInHistory(t *testing.T) {
 	var events []AgentEvent
 
@@ -3802,27 +4007,39 @@ func TestAgent_SubmitFinalAnswer_NoDuplicateInHistory(t *testing.T) {
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, fmt.Errorf("streaming not supported")
 		},
-		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+	}
+	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		if client.Calls == 1 {
+				// Turn 1: a real tool call, producing a tool result.
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{
+						{Message: proxy.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []proxy.ToolCall{{
+								Type: "function",
+								Function: proxy.FunctionCall{
+									Name:      "read_file",
+									Arguments: `{"path": "report.txt"}`,
+								},
+							}},
+						}},
+					},
+				}, nil
+			}
+			// Turn 2: content-only final answer after the tool result.
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{
 						Role:    "assistant",
-						Content: "",
-						ToolCalls: []proxy.ToolCall{{
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "Workspace report generated with 6 files"}`,
-							},
-						}},
+						Content: "Workspace report generated with 6 files",
 					}},
 				},
 			}, nil
-		},
-	}
+		}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -3844,56 +4061,37 @@ func TestAgent_SubmitFinalAnswer_NoDuplicateInHistory(t *testing.T) {
 	}
 
 	lastMsg := history[len(history)-1]
-	// The tool execution result (role: tool) is the last message. The turnMsg
-	// (assistant with tool calls) is the second-to-last.
-	var turnMsg proxy.Message
-	if lastMsg.Role == "tool" && len(history) >= 2 {
-		turnMsg = history[len(history)-2]
-	} else {
-		turnMsg = lastMsg
+	if lastMsg.Role != proxy.AssistantRole {
+		t.Errorf("expected last message role to be assistant, got %s", lastMsg.Role)
+	}
+	if lastMsg.Content != "Workspace report generated with 6 files" {
+		t.Errorf("expected last assistant message to contain the report, got %q", lastMsg.Content)
 	}
 
-	if turnMsg.Role != proxy.AssistantRole {
-		t.Errorf("expected turnMsg role to be assistant, got %s", turnMsg.Role)
-	}
-
-	// Verify the turnMsg has ToolCalls (submit_final_answer), not a content-only
-	// duplicate. Full content goes via reply to frontend, not LLM history.
-	if len(turnMsg.ToolCalls) == 0 {
-		t.Errorf("expected turnMsg to have ToolCalls, not content-only duplicate")
-	}
-
-	var foundSubmit bool
-	for _, tc := range turnMsg.ToolCalls {
-		if tc.Function.Name == models.ToolSubmitFinalAnswer {
-			foundSubmit = true
-			break
+	// There must be exactly one assistant message carrying the report content
+	// (the final answer). No spurious duplicate from a synthetic submit tool.
+	assistantReportCount := 0
+	for _, m := range history {
+		if m.Role == proxy.AssistantRole && m.Content == "Workspace report generated with 6 files" {
+			assistantReportCount++
 		}
 	}
-	if !foundSubmit {
-		t.Error("expected turnMsg ToolCalls to include submit_final_answer")
+	if assistantReportCount != 1 {
+		t.Errorf("expected exactly 1 assistant message with the report, got %d", assistantReportCount)
 	}
 
-	// Verify the extracted summary is persisted in turnMsg.Content so
-	// reloading the conversation from history shows the final report.
-	if turnMsg.Content != "Workspace report generated with 6 files" {
-		t.Errorf("expected turnMsg.Content to contain extracted summary, got %q", turnMsg.Content)
-	}
-
-	// Verify the EventMessage SSE event carries the extracted report in its
-	// content field (not empty).  The notify fires after checkSubmitFinalAnswer
-	// so the UI live view gets the report text, not reasoningCommitted.
+	// Verify the EventMessage SSE event carries the report in its content field.
 	var msgEventContent string
 	for _, ev := range events {
 		if ev.Type == EventMessage {
-			if msg, ok := ev.Payload.(proxy.Message); ok && msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			if msg, ok := ev.Payload.(proxy.Message); ok && msg.Role == proxy.AssistantRole && strings.Contains(msg.Content, "Workspace report generated") {
 				msgEventContent = msg.Content
 				break
 			}
 		}
 	}
-	if msgEventContent != "Workspace report generated with 6 files" {
-		t.Errorf("expected EventMessage content to contain extracted summary, got %q", msgEventContent)
+	if msgEventContent == "" {
+		t.Error("expected an EventMessage carrying the final report content")
 	}
 }
 
@@ -3911,58 +4109,51 @@ func TestAgent_ReasoningAndContentSeparateStreams(t *testing.T) {
 		"Let me call scan_local_network with mode fast. "
 
 	var events []AgentEvent
+	var streamCallCount int
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			streamCallCount++
 			ch := make(chan *proxy.ChatResponse, 100)
 			go func() {
 				defer close(ch)
-				// Phase 1: reasoning chunks only (no content yet).
-				for _, c := range splitIntoChunks(reasoningText, 12) {
+				if streamCallCount == 1 {
+					// Phase 1: reasoning chunks only (no content yet).
+					for _, c := range splitIntoChunks(reasoningText, 12) {
+						ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+							Delta: proxy.Message{ReasoningContent: c},
+						}}}
+					}
+					// Phase 2: content chunks only.
+					for _, c := range splitIntoChunks(contentText, 12) {
+						ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+							Delta: proxy.Message{Content: c},
+						}}}
+					}
+					// Final: a tool call to end the turn.
 					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
-						Delta: proxy.Message{ReasoningContent: c},
+						Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
+							ID:   "call_1",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      "read_file",
+								Arguments: `{"summary": "done"}`,
+							},
+						}}},
 					}}}
+					return
 				}
-				// Phase 2: content chunks only.
-				for _, c := range splitIntoChunks(contentText, 12) {
-					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
-						Delta: proxy.Message{Content: c},
-					}}}
-				}
-				// Final: a tool call to end the turn.
-				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
-					Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
-						ID:   "call_1",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "done"}`,
-						},
-					}}},
-				}}}
+				// Second stream call (after tool execution): content-only signals completion
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Task completed successfully"}}}}
 			}()
 			return ch, nil
 		},
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			return &proxy.ChatResponse{
-				Choices: []proxy.Choice{{
-					Message: proxy.Message{
-						Role: "assistant",
-						ToolCalls: []proxy.ToolCall{{
-							ID:   "call_1",
-							Type: "function",
-							Function: proxy.FunctionCall{
-								Name:      models.ToolSubmitFinalAnswer,
-								Arguments: `{"summary": "done"}`,
-							},
-						}},
-					},
-				}},
-			}, nil
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", ToolCalls: []proxy.ToolCall{{ID: "call_1", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"summary": "done"}`}}}}}}}, nil
 		},
 	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
-			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
 	engine := &MockEngine{Result: "ok"}
@@ -4020,3 +4211,71 @@ func splitIntoChunks(s string, size int) []string {
 	}
 	return out
 }
+
+// TestAgent_Execute_TruncatedWriteFile_Salvages ensures native tool_calls with
+// truncated write_file JSON complete via the unified salvage path (Path A).
+// Content-only args (no path) complete without calling Engine.
+func TestAgent_Execute_TruncatedWriteFile_Salvages(t *testing.T) {
+	reportBody := strings.Repeat("n", salvageMinContentLen) + "\n# Network Report\nfindings tail"
+	// Unterminated content string — same class as production native failure.
+	truncArgs := `{"content":"` + reportBody
+
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{
+					Message: proxy.Message{
+						Role: proxy.AssistantRole,
+						Content: "Compiling the Markdown report.",
+						ToolCalls: []proxy.ToolCall{{
+							ID:   "call_write",
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      models.ToolFileWrite,
+								Arguments: truncArgs,
+							},
+						}},
+					},
+				}},
+			}, nil
+		},
+	}
+	native := true
+	provider := &MockProvider{
+		UseNative: &native,
+		Tools: []proxy.Tool{{
+			Type: "function",
+			Function: proxy.FunctionSchema{
+				Name: models.ToolFileWrite,
+				Parameters: map[string]any{
+					"type":     "object",
+					"required": []any{"path", "content"},
+					"properties": map[string]any{
+						"path":    map[string]any{"type": "string"},
+						"content": map[string]any{"type": "string"},
+					},
+				},
+			},
+		}},
+	}
+	engine := &MockEngine{Result: "should not execute"}
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:       5,
+		UseNativeTools: &native,
+	})
+
+	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: "Run network scan and produce a Markdown report."},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !strings.Contains(reply, "Network Report") || !strings.Contains(reply, "findings tail") {
+		t.Fatalf("expected salvaged report in reply, got %q", reply[:min(120, len(reply))])
+	}
+	if engine.Calls != 0 {
+		t.Fatalf("engine must not run without recoverable path, calls=%d", engine.Calls)
+	}
+}
+
+

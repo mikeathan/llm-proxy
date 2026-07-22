@@ -3,6 +3,25 @@ import type { AssistantMessage, Segment } from '../../types/assistant'
 import type { AgentEvent } from '../../types/dispatcher'
 import { getToolCallPayload, getToolResPayload } from '../dispatcher'
 
+// InsetPhase drives the ChatBubble inset visibility during an agent turn.
+//   idle       — no activity yet
+//   thinking   — reasoning/tool_stream arriving, no tool call dispatched
+//   working    — at least one tool_call dispatched
+//   generating — assistant message with content + no tool calls arrived
+//   done       — turn finalized (finalize called)
+export type InsetPhase = 'idle' | 'thinking' | 'working' | 'generating' | 'done'
+
+export interface MessageBuilderOptions {
+  source?: 'chat' | 'automation'
+  // automation seeds a synthetic leading user message so groupTurns forms a
+  // single clean turn (automation runs have no chat prompt of their own).
+  headerMessage?: AssistantMessage
+  // 'explicit'  → caller invokes finalize(reply) (chat: HTTP response).
+  // 'lifecycle' → builder finalizes on lifecycle{phase:'completed'}
+  //               (automation: Hermes-aligned, loop-announced completion).
+  finalizeOn?: 'explicit' | 'lifecycle'
+}
+
 function stripToolCallXml(text: string): string {
   return text
     .replace(/<tool_call>\s*<\/tool_call>/gi, '')
@@ -19,12 +38,18 @@ function safeParseArgs(raw: string): string {
   }
 }
 
-export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
+export function useMessageBuilder(
+  messages: Ref<AssistantMessage[]>,
+  options: MessageBuilderOptions = {},
+) {
+  const opts = { source: 'chat' as const, finalizeOn: 'explicit' as const, ...options }
+  let finalized = false
+  let lastReply = ''
+
   let assistantIdx: number | null = null
   let lastClean = ''
   let reasoningBuffer = ''
   let reasoningCommitted = ''
-  let isFinalTurn = false
   let currentToolArgs = ''
   let inReasoningPhase = false
 
@@ -32,7 +57,16 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
   const thinking = ref(false)
   const liveReasoning = ref('')
   const paused = ref(false)
+  const phase = ref<InsetPhase>('idle')
   let pauseTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Transition helper — idempotent: re-setting the same phase is a no-op, and
+  // transitions never move backward (done is terminal until reset()).
+  function setPhase(next: InsetPhase) {
+    if (phase.value === 'done') return
+    if (phase.value === next) return
+    phase.value = next
+  }
 
   function resetPauseTimer() {
     if (pauseTimer) clearTimeout(pauseTimer)
@@ -98,10 +132,9 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
   }
 
   function render() {
-    // Content is set only at turn completion by handleMessage (submit)
-    // and finalize (reply push).  During streaming, liveReasoning carries
-    // the visible text in the work section; m.content stays empty so
-    // finalAnswer stays empty and the thinking‑gap renders.
+    // Content is set at turn completion by finalize (reply push).
+    // During streaming, liveReasoning carries the visible text; m.content
+    // stays empty so finalAnswer stays empty and the thinking‑gap renders.
     assistantMessage()
   }
 
@@ -119,6 +152,7 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
         paused.value = false
         streaming.value = true
         thinking.value = true
+        if (phase.value === 'idle') setPhase('thinking')
         handleToolStream(ev.payload as string)
         resetPauseTimer()
         return
@@ -127,10 +161,12 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
         paused.value = false
         streaming.value = true
         thinking.value = true
+        if (phase.value === 'idle') setPhase('thinking')
         handleToolStream(ev.payload as string)
         resetPauseTimer()
         return
       case 'tool_call':
+        if (phase.value === 'thinking' || phase.value === 'idle') setPhase('working')
         handleToolCall(getToolCallPayload(ev))
         streaming.value = false
         thinking.value = false
@@ -141,17 +177,36 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
         thinking.value = false
         return
       case 'message':
-        handleMessage(ev.payload as AssistantMessage)
+        // A message with content and no tool calls signals the final answer
+        // (Hermes: "no tool calls + substantive content = done"). Finalize from
+        // the answer itself so completion never depends on a follow-up
+        // lifecycle/HTTP signal that may not arrive for some models.
+        const msg = ev.payload as AssistantMessage
+        if (msg.role === 'assistant' && msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) {
+          if (!finalized && (phase.value === 'thinking' || phase.value === 'working' || phase.value === 'idle')) {
+            setPhase('generating')
+          }
+          lastReply = msg.content
+          finalize(msg.content)
+        }
+        handleMessage(msg)
         streaming.value = false
         thinking.value = false
         return
+      case 'lifecycle': {
+        const p = ev.payload as Record<string, any>
+        if (opts.finalizeOn === 'lifecycle' && p?.phase === 'completed' && !finalized) {
+          finalized = true
+          finalize(typeof p.content === 'string' && p.content ? p.content : lastReply)
+        }
+        return
+      }
     }
   }
 
   function handleToolStream(text: string) {
     const clean = stripToolCallXml(text)
     if (!clean) return
-    if (isFinalTurn) return
 
     ensureAssistant()
 
@@ -212,36 +267,35 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
   function handleMessage(payload: AssistantMessage) {
     if (payload.role !== 'assistant') return
 
-    const hasFinal = payload.tool_calls?.some(
-      (tc) => tc.function?.name === 'submit_final_answer',
-    )
-
-    if (hasFinal) {
-      isFinalTurn = true
-      commitReasoning()
-      const m = assistantMessage()
-      if (m) {
-        m.content = payload.content || reasoningCommitted
-      }
-      reasoningBuffer = ''
-      lastClean = ''
-      return
-    }
-
     commitReasoning()
     lastClean = ''
     render()
   }
 
   function finalize(reply: string) {
-    if (!reply) return
+    if (finalized) return
+    finalized = true
+    // The final answer may arrive via the lifecycle `content`, the HTTP reply,
+    // the SSE message event (lastReply), or the reasoning stream
+    // (liveReasoning / reasoningCommitted). Use whichever carried it so the
+    // answer is never lost (Hermes: the substantive final answer must survive)
+    // and is rendered exactly once in the result area.
+    const answer = reply || lastReply || liveReasoning.value || reasoningCommitted
+   
+    // Clear transient streaming flags but PRESERVE phase='done' so the final
+    // answer renders in the result area. Callers must not reset() right after
+    // finalize — that would clobber the done state and hide the answer.
     streaming.value = false
+    thinking.value = false
+    paused.value = false
+    liveReasoning.value = ''
     const m = assistantMessage()
     if (m) {
       m.content = reasoningCommitted
     }
     assistantIdx = null
-    messages.value.push({ role: 'assistant', content: reply })
+    messages.value.push({ role: 'assistant', content: answer })
+    phase.value = 'done'
   }
 
   function reset() {
@@ -251,13 +305,15 @@ export function useMessageBuilder(messages: Ref<AssistantMessage[]>) {
     reasoningBuffer = ''
     reasoningCommitted = ''
     liveReasoning.value = ''
-    isFinalTurn = false
     inReasoningPhase = false
     currentToolArgs = ''
     streaming.value = false
     thinking.value = false
     paused.value = false
+    phase.value = 'idle'
+    finalized = false
+    lastReply = ''
   }
 
-  return { handleEvent, finalize, reset, streaming, thinking, liveReasoning, paused, resetPauseTimer }
+  return { handleEvent, finalize, reset, streaming, thinking, liveReasoning, paused, phase, resetPauseTimer }
 }

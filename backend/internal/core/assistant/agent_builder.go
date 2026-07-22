@@ -52,6 +52,19 @@ func (b *AgentBuilder) WithModelName(name string) *AgentBuilder {
 	return b
 }
 
+// WithChannel sets the event stream this agent publishes to. Defaults to
+// ChannelAssistant; automation passes ChannelAutomation.
+func (b *AgentBuilder) WithChannel(ch EventChannel) *AgentBuilder {
+	b.opts.Channel = ch
+	return b
+}
+
+// WithConversationID scopes this agent's events to a specific chat session.
+func (b *AgentBuilder) WithConversationID(id string) *AgentBuilder {
+	b.opts.ConversationID = id
+	return b
+}
+
 func (b *AgentBuilder) WithObserver(obs Observer) *AgentBuilder {
 	b.opts.Observer = obs
 	return b

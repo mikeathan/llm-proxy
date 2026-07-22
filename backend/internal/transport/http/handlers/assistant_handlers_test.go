@@ -52,12 +52,6 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 				Name: "query_device",
 			},
 		},
-		{
-			Type: "function",
-			Function: proxy.FunctionSchema{
-				Name: models.ToolSubmitFinalAnswer,
-			},
-		},
 	})
 
 	// Setup Engine
@@ -104,15 +98,8 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 		{
 			Choices: []proxy.Choice{{
 				Message: proxy.Message{
-					Role: proxy.AssistantRole,
-					ToolCalls: []proxy.ToolCall{{
-						ID:   "call_submit",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "The lamp is on. It's working perfectly."}`,
-						},
-					}},
+					Role:    proxy.AssistantRole,
+					Content: "The lamp is on. It's working perfectly.",
 				},
 			}},
 		},
@@ -791,10 +778,6 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 			Type: "function",
 			Function: proxy.FunctionSchema{Name: "query_device"},
 		},
-		{
-			Type: "function",
-			Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer},
-		},
 	})
 	engine := assistant.NewEngine(mockMCP, logger)
 
@@ -830,22 +813,15 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 		{
 			Choices: []proxy.Choice{{
 				Message: proxy.Message{
-					Role: proxy.AssistantRole,
-					ToolCalls: []proxy.ToolCall{{
-						ID:   "call_submit",
-						Type: "function",
-						Function: proxy.FunctionCall{
-							Name:      models.ToolSubmitFinalAnswer,
-							Arguments: `{"summary": "The lamp is on."}`,
-						},
-					}},
+					Role:    proxy.AssistantRole,
+					Content: "The lamp is currently turned on and working well.",
 				},
 			}},
 		},
 	}
 	mockMCP.SetCallToolResult(map[string]any{"state": "on"}, nil)
 
-	eventCh, _ := eventBus.Subscribe("test-ws")
+	eventCh, _ := eventBus.Subscribe("test-ws", assistant.ChannelAssistant)
 
 	reqBody := `{"conversation_id": "lifecycle-test", "workspace_id": "test-ws", "message": "check lamp"}`
 	req := httptest.NewRequest("POST", "/api/conversation/message", strings.NewReader(reqBody))
@@ -903,7 +879,7 @@ func TestPublishSessionLifecycle_SkipsEmptyIDs(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.EventBusRef = eventBus
 
-	ch, _ := eventBus.Subscribe("any-ws")
+	ch, _ := eventBus.Subscribe("any-ws", assistant.ChannelAssistant)
 
 	// Empty workspace should skip publishing
 	assistant.PublishSessionLifecycle(eventBus, "", "conv1", "hello", assistant.PhaseSessionStarted)
@@ -923,7 +899,7 @@ func TestPublishSessionLifecycle_PublishesWithCorrectPayload(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.EventBusRef = eventBus
 
-	ch, _ := eventBus.Subscribe("ws1")
+	ch, _ := eventBus.Subscribe("ws1", assistant.ChannelAssistant)
 
 	assistant.PublishSessionLifecycle(eventBus, "ws1", "conv1", "hello world", assistant.PhaseSessionProgress)
 
@@ -956,9 +932,7 @@ func TestAssistant_RunWithCancel_RegistersInMap(t *testing.T) {
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetSystemPrompt("System Prompt")
-	mockMCP.SetToolsResult([]proxy.Tool{
-		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
-	})
+	mockMCP.SetToolsResult(nil)
 	engine := assistant.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 
@@ -972,11 +946,8 @@ func TestAssistant_RunWithCancel_RegistersInMap(t *testing.T) {
 		{
 			Choices: []proxy.Choice{{
 				Message: proxy.Message{
-					Role: proxy.AssistantRole,
-					ToolCalls: []proxy.ToolCall{{
-						ID: "call_submit", Type: "function",
-						Function: proxy.FunctionCall{Name: models.ToolSubmitFinalAnswer, Arguments: `{"summary":"ok"}`},
-					}},
+					Role:    proxy.AssistantRole,
+					Content: "ok",
 				},
 			}},
 		},
@@ -1008,9 +979,7 @@ func TestAssistant_RunWithCancel_CanBeCancelled(t *testing.T) {
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetSystemPrompt("System Prompt")
-	mockMCP.SetToolsResult([]proxy.Tool{
-		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolSubmitFinalAnswer}},
-	})
+	mockMCP.SetToolsResult(nil)
 	engine := assistant.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 
@@ -1024,11 +993,8 @@ func TestAssistant_RunWithCancel_CanBeCancelled(t *testing.T) {
 		{
 			Choices: []proxy.Choice{{
 				Message: proxy.Message{
-					Role: proxy.AssistantRole,
-					ToolCalls: []proxy.ToolCall{{
-						ID: "call_submit", Type: "function",
-						Function: proxy.FunctionCall{Name: models.ToolSubmitFinalAnswer, Arguments: `{"summary":"done"}`},
-					}},
+					Role:    proxy.AssistantRole,
+					Content: "done",
 				},
 			}},
 		},

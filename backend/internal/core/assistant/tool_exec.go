@@ -1,13 +1,14 @@
 // tool_exec.go — Tool call validation, guardrail resolution, execution via
 // Engine, and result appending.  Also holds ExecutionPlan, ExecutionPlanStrategy
 // (moved from strategy_plan.go), formatGuardrailError, toolCategory,
-// extractTaskSummary, validateToolArgs.
+// validateToolArgs.
 package assistant
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -100,37 +101,21 @@ func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*Exe
 }
 
 // processToolCalls validates tool args, resolves guardrails, and executes
-// via Engine.  Batched submit_final_answer is rejected (only single submission
-// allowed).  A guardrail denial stops the entire batch.
-func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) error {
+// via Engine.  A guardrail denial stops the entire batch.
+// Returns (salvagedReport, err). salvagedReport is non-empty when a truncated
+// write_file/append_file content field was recovered as the task deliverable.
+func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) (string, error) {
 	var mu sync.Mutex
-	hasSubmit := false
-	for _, tc := range msg.ToolCalls {
-		if tc.Function.Name == models.ToolSubmitFinalAnswer {
-			hasSubmit = true
-			break
-		}
-	}
-	if hasSubmit && len(msg.ToolCalls) > 1 {
-		a.deps.Logger.Warn("rejected batched submission", "count", len(msg.ToolCalls))
-		mu.Lock()
-		errorMsg := prompts.AutomationRejectedSubmissionPrompt
-		for _, tc := range msg.ToolCalls {
-			a.appendToolResult(history, tc, map[string]string{"error": errorMsg})
-		}
-		mu.Unlock()
-		return nil
-	}
 
 	toolsList, listErr := a.deps.Provider.ListTools(ctx)
 	if listErr != nil {
 		a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
-		return fmt.Errorf("list tools: %w", listErr)
+		return "", fmt.Errorf("list tools: %w", listErr)
 	}
 
 	for _, tc := range msg.ToolCalls {
 		if err := ctx.Err(); err != nil {
-			return err
+			return "", err
 		}
 		if tc.Type != "" && tc.Type != "function" {
 			continue
@@ -141,6 +126,9 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 
 		if err := validateToolArgs(tc, toolsList); err != nil {
 			a.deps.Logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
+			if report, handled := a.salvageTruncatedWrite(ctx, tc, history, &mu); handled {
+				return report, nil
+			}
 			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
 			if isTruncationError(err.Error()) {
 				errMsg = prompts.AutomationContentTooLongPrompt
@@ -148,12 +136,12 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			mu.Lock()
 			a.appendToolResult(history, tc, map[string]string{"error": errMsg})
 			mu.Unlock()
-			return nil
+			return "", nil
 		}
 
 		approved, stopBatch := a.resolveGuardrail(ctx, tc, history, &mu)
 		if stopBatch {
-			return nil
+			return "", nil
 		}
 
 		a.notifyToolCall(tc)
@@ -185,14 +173,10 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 
 		if err != nil {
 			a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
-			return nil
+			return "", nil
 		}
-		if tc.Function.Name == models.ToolSubmitFinalAnswer {
-			return nil
-		}
-
 	}
-	return nil
+	return "", nil
 }
 
 func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex) (approved, stopBatch bool) {
@@ -344,79 +328,235 @@ func toolCategory(toolName string) string {
 	}
 }
 
-// extractTaskSummary walks submit_final_answer args looking for a human-readable
-// summary.  Priority is: summary > message > report > findings > content > result,
-// then falls back to "Task complete." if nothing meaningful is found.
-func extractTaskSummary(rawArgs string) string {
-	var args map[string]any
-	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
-		for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
-			if s := extractTruncatedJSONField(rawArgs, key); s != "" {
-				return s
-			}
-		}
-		return "Task complete."
+const salvageMinContentLen = 100 // min chars of recovered content to treat as final report
+
+// salvageTruncatedWrite recovers write/append content from invalid (often truncated)
+// tool args, optionally best-effort persists to the intended path when recoverable,
+// and always returns the report for natural completion. Persist failure never aborts.
+// handled=false means this call is not a salvageable write/append.
+func (a *Agent) salvageTruncatedWrite(
+	ctx context.Context,
+	tc proxy.ToolCall,
+	history *[]proxy.Message,
+	mu *sync.Mutex,
+) (report string, handled bool) {
+	report = trySalvageWriteContent(tc)
+	if report == "" {
+		return "", false
 	}
-	for _, key := range []string{"summary", "message", "report", "findings", "content", "result"} {
-		if val, ok := args[key].(string); ok && val != "" {
-			return val
+
+	path := strings.TrimSpace(extractToolArgField(tc.Function.Arguments, "path"))
+	resultMeta := map[string]string{
+		"warning":  "arguments truncated; report recovered from partial content",
+		"chars":    fmt.Sprintf("%d", len(report)),
+		"salvaged": "true",
+	}
+
+	a.deps.Logger.Info("salvaged truncated write content as final report",
+		"name", tc.Function.Name, "chars", len(report), "path", path)
+
+	if path == "" {
+		a.deps.Logger.Warn("salvaged without path; workspace file not updated",
+			"name", tc.Function.Name)
+		resultMeta["persisted"] = "false"
+		resultMeta["reason"] = "path not recoverable from truncated args"
+	} else {
+		resultMeta["path"] = path
+		if err := a.persistSalvagedWrite(ctx, tc, path, report); err != nil {
+			a.deps.Logger.Warn("salvaged write persist failed; completing with recovered report",
+				"name", tc.Function.Name, "path", path, "error", err)
+			resultMeta["persisted"] = "false"
+			resultMeta["persist_error"] = err.Error()
+		} else {
+			a.deps.Logger.Info("salvaged write persisted to workspace",
+				"name", tc.Function.Name, "path", path, "chars", len(report))
+			resultMeta["persisted"] = "true"
 		}
 	}
-	for _, val := range args {
-		if s, ok := val.(string); ok && s != "" {
-			return s
-		}
-	}
-	return "Task complete."
+
+	mu.Lock()
+	a.appendToolResult(history, tc, resultMeta)
+	mu.Unlock()
+	a.notifyToolCall(tc)
+	a.notifyToolResult(tc.ID, tc.Function.Name, resultMeta)
+	return report, true
 }
 
-// extractTruncatedJSONField extracts a string field value from truncated JSON
-// where the closing quote or brace may be missing.  Decodes JSON escape
-// sequences (\n, \t, \", \\, etc.) in the extracted content.
-func extractTruncatedJSONField(raw, field string) string {
-	prefix := `"` + field + `": "`
-	idx := strings.Index(raw, prefix)
-	if idx == -1 {
-		prefix = `"` + field + `" : "`
-		idx = strings.Index(raw, prefix)
-		if idx == -1 {
-			return ""
+// persistSalvagedWrite rebuilds valid write/append args and executes via Engine.
+// Guardrail denial or FS errors are returned to the caller; completion still proceeds.
+func (a *Agent) persistSalvagedWrite(ctx context.Context, tc proxy.ToolCall, path, content string) error {
+	argsJSON, err := json.Marshal(map[string]string{
+		"path":    path,
+		"content": content,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal salvaged args: %w", err)
+	}
+	fixed := proxy.ToolCall{
+		ID:   tc.ID,
+		Type: tc.Type,
+		Function: proxy.FunctionCall{
+			Name:      tc.Function.Name,
+			Arguments: string(argsJSON),
+		},
+	}
+	if fixed.Type == "" {
+		fixed.Type = "function"
+	}
+
+	if a.deps.Guardrails != nil {
+		if grErr := a.deps.Guardrails.ValidateToolCall(ctx, fixed, a.config.WorkspaceID); grErr != nil {
+			return fmt.Errorf("guardrail: %w", grErr)
 		}
 	}
-	start := idx + len(prefix)
-	if start >= len(raw) {
+	if a.deps.Engine == nil {
+		return fmt.Errorf("engine not configured")
+	}
+
+	toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
+	_, execErr := a.deps.Engine.ExecuteTool(toolCtx, fixed)
+	if execErr != nil {
+		return execErr
+	}
+	if t := GetUsageTracker(ctx); t != nil {
+		t.AddToolCall(tc.Function.Name)
+	}
+	return nil
+}
+
+// trySalvageWriteContent recovers a truncated write_file/append_file content
+// field so long Markdown reports still complete when native tool-arg JSON is cut.
+func trySalvageWriteContent(tc proxy.ToolCall) string {
+	switch tc.Function.Name {
+	case models.ToolFileWrite, models.ToolFileAppend:
+	default:
 		return ""
 	}
-	content := raw[start:]
-	var out strings.Builder
-	for i := 0; i < len(content); i++ {
-		b := content[i]
-		if b == '\\' && i+1 < len(content) {
-			next := content[i+1]
-			switch next {
-			case 'n':
-				out.WriteByte('\n')
-			case 't':
-				out.WriteByte('\t')
-			case 'r':
-				out.WriteByte('\r')
-			case '\\':
-				out.WriteByte('\\')
-			case '"':
-				out.WriteByte('"')
-			default:
-				out.WriteByte('\\')
-				out.WriteByte(next)
-			}
-			i++
+	content := extractToolArgField(tc.Function.Arguments, "content")
+	if len(strings.TrimSpace(content)) < salvageMinContentLen {
+		return ""
+	}
+	return content
+}
+
+// salvageReportFromToolCalls returns the first recoverable write/append report
+// from a tool-call batch. Shared by processToolCalls and history fallback.
+func salvageReportFromToolCalls(calls []proxy.ToolCall) string {
+	for _, tc := range calls {
+		if report := trySalvageWriteContent(tc); report != "" {
+			return report
+		}
+	}
+	return ""
+}
+
+// salvageReportFromHistory walks history newest-first and salvages truncated
+// write_file/append_file args from assistant tool calls.
+func salvageReportFromHistory(history []proxy.Message) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role != proxy.AssistantRole {
 			continue
 		}
-		if b == '"' {
-			break
+		if report := salvageReportFromToolCalls(history[i].ToolCalls); report != "" {
+			return report
 		}
-		out.WriteByte(b)
 	}
-	return out.String()
+	return ""
+}
+
+// extractToolArgField returns a string field from tool-call args JSON.
+// Uses normal unmarshal first, then truncated-JSON walk for incomplete args.
+func extractToolArgField(raw, field string) string {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(raw), &args); err == nil {
+		if val, ok := args[field].(string); ok {
+			return val
+		}
+		return ""
+	}
+	return extractTruncatedJSONField(raw, field)
+}
+
+// extractTruncatedJSONField extracts a string field from JSON that may be cut
+// mid-value (missing closing quote/brace). Decodes escapes via strconv.Unquote.
+func extractTruncatedJSONField(raw, field string) string {
+	start := indexJSONStringValueStart(raw, field)
+	if start < 0 || start >= len(raw) {
+		return ""
+	}
+	body := scanJSONStringBody(raw[start:])
+	if body == "" {
+		return ""
+	}
+	decoded, err := strconv.Unquote(`"` + body + `"`)
+	if err == nil {
+		return decoded
+	}
+	// Truncation mid-escape (e.g. trailing \): drop incomplete tail and retry.
+	if trimmed := trimIncompleteJSONEscape(body); trimmed != body {
+		if decoded, err = strconv.Unquote(`"` + trimmed + `"`); err == nil {
+			return decoded
+		}
+		body = trimmed
+	}
+	// Last resort: return body with common complete escapes applied.
+	return fallbackDecodeJSONString(body)
+}
+
+// indexJSONStringValueStart finds the byte offset of a JSON string value for field.
+// Accepts "field":", "field": ", and "field" : " forms used by models/servers.
+func indexJSONStringValueStart(raw, field string) int {
+	prefixes := []string{
+		`"` + field + `":"`,
+		`"` + field + `": "`,
+		`"` + field + `" : "`,
+	}
+	for _, p := range prefixes {
+		if i := strings.Index(raw, p); i != -1 {
+			return i + len(p)
+		}
+	}
+	return -1
+}
+
+// scanJSONStringBody returns the raw JSON string contents (still escaped) up to
+// an unescaped closing quote, or the remainder if the value was truncated.
+func scanJSONStringBody(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' {
+			i++ // skip escaped byte; may be past end if truncated
+			continue
+		}
+		if s[i] == '"' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+func trimIncompleteJSONEscape(s string) string {
+	if strings.HasSuffix(s, `\`) && !strings.HasSuffix(s, `\\`) {
+		return strings.TrimSuffix(s, `\`)
+	}
+	// Incomplete \uXXXX
+	if i := strings.LastIndex(s, `\u`); i >= 0 && len(s)-i < 6 {
+		// Ensure the \u is not itself escaped (odd number of backslashes before u is rare; simple check)
+		if i == 0 || s[i-1] != '\\' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+func fallbackDecodeJSONString(s string) string {
+	replacer := strings.NewReplacer(
+		`\n`, "\n",
+		`\t`, "\t",
+		`\r`, "\r",
+		`\"`, `"`,
+		`\\`, `\`,
+	)
+	return replacer.Replace(s)
 }
 
 // validateToolArgs checks required parameters from the tool's JSON schema

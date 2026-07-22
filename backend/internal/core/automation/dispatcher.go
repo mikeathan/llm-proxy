@@ -479,9 +479,10 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	}
 
 	// Immediately notify UI that execution has actively started
-	d.events.Clear(entry.Workspace)
+	d.events.Clear(entry.Workspace, assistant.ChannelAutomation)
 	d.events.Publish(entry.Workspace, assistant.AgentEvent{
 		Type:      assistant.EventMessage,
+		Channel:   assistant.ChannelAutomation,
 		Timestamp: time.Now(),
 		Payload: proxy.Message{
 			Role:    "system",
@@ -522,7 +523,8 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		
 		// Un-hang the UI by publishing the error over the EventBus
 		d.events.Publish(entry.Workspace, assistant.AgentEvent{
-			Type: assistant.EventError,
+			Type:    assistant.EventError,
+			Channel: assistant.ChannelAutomation,
 			Payload: proxy.Message{
 				Role:    "system",
 				Content: fmt.Sprintf("Execution Error: %v", err),

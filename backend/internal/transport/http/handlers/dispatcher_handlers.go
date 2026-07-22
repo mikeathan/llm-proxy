@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/logging"
@@ -273,9 +274,15 @@ func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Subscribe to events
-	ch, recent := h.dispatcher.Events().Subscribe(workspaceID)
-	defer h.dispatcher.Events().Unsubscribe(workspaceID, ch)
+	// Subscribe to events for the requested channel. Assistant chat requests
+	// ?channel=assistant so automation runs cannot leak into its stream; the
+	// default channel is automation (legacy console behaviour).
+	channel := assistant.ChannelAutomation
+	if c := r.URL.Query().Get("channel"); c != "" {
+		channel = assistant.EventChannel(c)
+	}
+	ch, recent := h.dispatcher.Events().Subscribe(workspaceID, channel)
+	defer h.dispatcher.Events().Unsubscribe(workspaceID, channel, ch)
 
 	// Context for cancellation
 	ctx := r.Context()
@@ -360,9 +367,8 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 
 	// Create default task files in workspace root
 	defaultTaskFiles := map[string]string{
-		models.HeartbeatFilename:   prompts.DefaultHeartbeat,
-		models.AgentPromptFilename: prompts.DefaultAgentPrompt,
-		models.RulesFilename:       prompts.DefaultRules,
+		models.HeartbeatFilename: prompts.DefaultHeartbeat,
+		models.RulesFilename:     prompts.DefaultAgentsMD,
 	}
 
 	if err := h.workspace.CreateWorkspace(req.ID, &models.WorkspaceConfig{

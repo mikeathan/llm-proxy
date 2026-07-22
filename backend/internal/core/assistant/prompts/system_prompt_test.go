@@ -10,11 +10,14 @@ func TestBuildSystemMessage_NativeMode(t *testing.T) {
 	if strings.Contains(system, "clear natural language or Markdown answer") {
 		t.Error("native mode should NOT contain 'clear natural language' instruction")
 	}
-	if !strings.Contains(system, "submit_final_answer") {
-		t.Error("native mode should contain submit_final_answer instruction")
+	if !strings.Contains(system, "write your final answer as a regular assistant message") {
+		t.Error("native mode should contain natural completion instruction")
 	}
-	if !strings.Contains(system, "summary") {
-		t.Error("native mode should reference the summary argument")
+	if !strings.Contains(system, "stop calling tools") {
+		t.Error("native mode should mention stopping tool calls")
+	}
+	if strings.Contains(system, "submit_final_answer") {
+		t.Error("native mode should NOT reference the removed submit_final_answer tool")
 	}
 }
 

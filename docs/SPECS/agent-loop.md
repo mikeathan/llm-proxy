@@ -42,19 +42,22 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 5. Exit Heuristics
 
-**Automation mode:**
-- Canonical path: `submit_final_answer` tool call (extracts summary from args).
+**Natural completion (automation + chat tool loops):**
+- Content-only assistant message (≥20 chars after stripping inline reasoning blocks such as `<think>`/`<reasoning>` tags, no tool calls) with at least one tool result anywhere in the run's history → complete.
+- Reasoning-only interleaves (empty content, large `ReasoningContent`) between tool results and the final answer do not block completion; the completion gate searches the entire history for a tool result, not just the immediately-preceding message.
 - Premature termination guard: empty output or 3 consecutive identical assistant messages without tool calls.
+- Content-with-tools fallback: when the model writes visible text AND calls tools in the same turn, the text is saved. If the next turn is empty, the saved text is used as the final answer.
 
-**Chat mode:**
+**Chat mode (additional):**
 - Step 1: single-turn response with no tool calls → exit.
 - 2 consecutive assistant messages with no tool calls → exit.
-- Assistant reply immediately follows a tool result (`precededByToolResult`) → exit.
+- Assistant reply with substantive content and no tool calls, at least one tool result in history → exit.
 - Premature termination → exit.
 
 ### 6. Error Recovery
 - Parse errors: inject `ParseError.Feedback(availableTools)` — specific format guidance with valid tool names.
-- No parse error but no tool calls: inject `AutomationNagPrompt`.
+- Empty response after tool calls: inject ONE `AutomationNagPrompt` (one-shot nag). If the next turn is still empty, use the saved content-with-tools fallback or best-available assistant text — the agent does not nag perpetually.
+- Plain text without tool calls in native-tools mode: accepted as completion (Hermes-aligned). No nag, no rejection — text without tools IS the completion signal.
 - Tool validation failure: treat as parse error, clear invalid tool calls, inject feedback.
 - Content too long (write exceeds server JSON parse limit): inject `AutomationContentTooLongPrompt` — instructs the model to use `write_file` for the first chunk, then `append_file` for subsequent chunks.
 - Write file content size is NOT enforced by the Go handler. The manifest `maxLength` was removed entirely — server-side grammar constraints were causing silent truncation at exactly `maxLength` chars. The model's own `max_tokens` is the only output cap. If content exceeds server JSON parse limits, the natural JSON parse error triggers recovery.
@@ -69,16 +72,16 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Scaled threshold: `stuckThreshold()` returns `max(maxTokens * 2, MinReasoningStuckThreshold)`. Safety net for servers not enforcing reasoning budgets.
 - Early detection for models without reasoning budget (`reasoningBudget == 0`): fires at `maxTokens / stuckNonReasoningDivisor` chars (currently divisor=1 → threshold = `maxTokens`). NOTE: `reasoningBudget == 0` does NOT mean the model can't reason — local GGUF models (Gemma 4, GPT-OSS-20B) produce legitimate `<think>` blocks without an explicit budget. Divisor=1 avoids false positives on these models while catching stuck states 2x faster than the `maxTokens * 2` baseline. Reasoning models with an explicit budget (`reasoningBudget > 0`) skip this check entirely.
 - Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
-- Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, strip `<think>` tags and promote to `Content` so the XML parser can process it. See `cleanReasoningContent()`.
-- On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars`.
+- Empty tool_call spiral: ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks in pure reasoning also triggers stuck (before char threshold). Dangling open tags not counted. Same recovery path as char-threshold stuck — does not fail the run. Lifecycle payload includes `empty_tool_calls` count. See `countEmptyClosedToolCalls()`.
+- Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, extract the tool calls directly into `fullMsg.ToolCalls` — reasoning text stays in `ReasoningContent` and is never promoted to `Content`. The llama.cpp server already separates `reasoning_content` from `content` at the wire level; this function bridges the gap when the model writes tool calls as text inside reasoning instead of using native deltas. See `tryExtractToolCallFromReasoning()`.
+- On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars` (and `empty_tool_calls` when spiral).
 - **Token budget enforcement at the stream layer**: when the orchestrator's `StreamInterceptor` signals `ShouldTerminate` (token or reasoning budget exceeded), `processStream` returns nil, ending the stream client-side. Upstream servers do not always enforce `max_tokens`; without this client-side termination the model can generate indefinitely. A char cap of `maxTokens * 4` (via `exceedsContentCharCap`) is a fallback safety net for the case where the token counter underestimates output. The agent loop evaluates the partial turn (e.g. `isPrematureTermination`, `handleEmptyStream`, or normal turn processing) so the response is not silently dropped.
-- Fallback chain:
+- Fallback chain (after a stuck stream):
   a. **Native tools + empty stream** → depends on `usePrefill`:
-     i. **Native-only** (`usePrefill=false`): skip XML retry, go directly to non-streaming + nag prompt. The XML retry would waste ~60s for models that can't produce `<tool_call>` blocks.
+     i. **Native-only** (`usePrefill=false`): `[stuck]` placeholder injected as assistant message. On the next turn, `handleNoToolCalls` fires the one-shot nag — the model gets one recovery attempt with `AutomationNagPrompt`. If still empty, the saved content-with-tools fallback or best-available answer is used. No perpetual nagging.
      ii. **XML-text** (`usePrefill=true`, e.g. local models): retry via XML streaming — temporarily disable `useNativeTools`, suppress `tool_choice`, suppress `reasoningBudget`, skip stuck check (user sees tokens in real-time), emit `lifecycle` event (`fallback_started`).
   b. **XML stream also empty** → fall back to `computeNextResponseNonStreaming` as last resort.
-  c. **Non-streaming also fails** → starvation count increments, sieve nudges model.
-- Progressive sieve recovery handles repeated stuck events (1st: reactive sieve + nag, 2nd: aggressive sieve + stronger nag, 3rd: fail with clear error).
+  c. **Non-streaming also fails** → starvation count increments. After `DefaultStarvationLimit` consecutive no-tool-call turns, the run fails with a stall error.
 
 ### 9. Lifecycle Events for UI Progress
 - `lifecycle` event type with `phase` field:

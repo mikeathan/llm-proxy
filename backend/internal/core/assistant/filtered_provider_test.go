@@ -22,7 +22,7 @@ func TestFilteredToolProvider_ExcludesTools(t *testing.T) {
 	inner := &stubProvider{
 		tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "notify_user"}},
-			{Type: "function", Function: proxy.FunctionSchema{Name: "submit_final_answer"}},
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}

@@ -16,13 +16,19 @@ AssistantChat.vue
   ├── useResponsiveLayout(breakpoint)    → isMobile
   ├── useAssistant (singleton composable) → messages, sessions, currentSessionId
   ├── ChatSessionList.vue                 → sidebar / drawer (3 states)
-  ├── ChatMessages.vue                    → rendered messages + tool blocks
+  ├── ChatMessages.vue                    → rendered messages + tool blocks (mode: 'chat' | 'automation')
   └── ChatInput.vue                      → text input + send/cancel
 
-SSE: useAssistantSSE → EventSource → /admin/api/dispatcher/workspaces/{ws}/live
+AutomationDetails.vue
+  └── useLiveConsole → automationEventsToMessages → ChatMessages (mode="automation")
+
+SSE: useAssistantSSE → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=assistant
+SSE: useLiveConsole  → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=automation
 ```
 
 **Critical invariant:** `useAssistant` is a **module-level singleton**. State is shared across all components that import it. Never create a local instance.
+
+**Renderer unification:** assistant chat and automation runs share ONE renderer — `ChatMessages.vue`. Automation feeds it via `automationEventsToMessages` (`utils/message/automationToMessages.ts`), which maps `AgentEvent[]` → `AssistantMessage[]`, reusing `buildSegmentsFromHistory`. The old `LiveConsole`/`TerminalOutput` terminal stack was deleted; do NOT reintroduce a bespoke terminal renderer. In `automation` mode `ChatMessages` hides the welcome card and `UserMessage` bubble and passes a static `phase`. New automation event types belong in `automationEventsToMessages`, not in a terminal overlay.
 
 ---
 
@@ -91,6 +97,15 @@ Agent publishes event via publishObs
 - Calling `POST /message` without first connecting SSE — the agent runs to completion but no events stream
 - Modifying `messages` directly instead of through `useAssistant` — breaks reactivity (singleton ref)
 - Disconnecting SSE early — component unmount must not happen before agent completes
+
+**Chat + automation share ONE event→message consumer.** Both `useAssistant`
+(chat) and `useLiveConsole` (automation) feed `useMessageBuilder` — the single
+`AgentEvent[] → AssistantMessage[]` consumer. The bespoke `automationEventsToMessages`
+bridge was deleted (it concatenated cumulative re-emits, causing the repeated
+"The user wants me to…" cascade). Automation passes `finalizeOn: 'lifecycle'`
+and a synthetic run-header message; chat keeps the default `finalizeOn:
+'explicit'`. Customize automation chrome via the `ChatMessages` `mode` prop +
+`#run-header` slot, never a forked mapping.
 
 ---
 

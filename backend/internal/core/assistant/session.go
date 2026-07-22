@@ -22,7 +22,10 @@ const (
 	sessionTruncationFeedbackLen  = 400  // chars above which truncated content gets a guidance message
 	sessionParseErrorEscalation   = 2    // same-error-kind streak before escalating feedback
 	sessionMinMonologueLen        = 10   // chars below which repetition check is skipped
-	maxBatchedSubmitRetries       = 3    // consecutive batched submit_final_answer rejections before killing session
+	sessionMaxSyntaxParseRetries  = 3    // consecutive server-side JSON syntax errors before giving up
+	// Max control-plane messages to skip when resolving conversation adjacency.
+	// Normal recovery inserts 1–3; this is a safety cap only.
+	sessionControlWalkCap = 8
 )
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
@@ -37,18 +40,16 @@ type runSession struct {
 	starvationCount int
 	warnedAdvisory  bool
 
-	// batchedSubmitRetries counts consecutive turns where submit_final_answer
-	// was batched with other tools. After maxBatchedSubmitRetries the session
-	// is killed to prevent an infinite rejection loop.
-	batchedSubmitRetries int
-
-	parseErrorStreak    int
-	lastParseErrorKind  string
-	totalErrorStreak    int
-	modelCompatNotified bool
+	parseErrorStreak       int
+	lastParseErrorKind     string
+	totalErrorStreak       int
+	modelCompatNotified    bool
+	forcedCompletionSent   bool
+	syntaxParseStreak      int // consecutive server-side tool-arg JSON syntax failures
 
 	rd              repetitionDetector
-	memoryFlushSent bool // prevents repeated pre-sieve nudges across turns
+	memoryFlushSent     bool   // prevents repeated pre-sieve nudges across turns
+	lastContentWithTools string // content saved from a turn that had both text and tool calls
 }
 
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
@@ -85,10 +86,18 @@ func (s *runSession) handleContextSizeError() error {
 	return nil
 }
 
-func (s *runSession) handleToolCallParseError(err error) {
+// handleToolCallParseError injects recovery feedback for server-side tool-arg
+// JSON failures. Returns true when the session should stop retrying (capped
+// syntax streak) — caller exits with best available answer or stall error.
+func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 	switch {
 	case isJSONSyntaxError(err):
-		s.agent.deps.Logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint", "error", err)
+		s.syntaxParseStreak++
+		s.agent.deps.Logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint",
+			"error", err, "streak", s.syntaxParseStreak)
+		if s.syntaxParseStreak >= sessionMaxSyntaxParseRetries {
+			return true
+		}
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
 			Content: prompts.AutomationJSONSyntaxPrompt,
@@ -105,6 +114,51 @@ func (s *runSession) handleToolCallParseError(err error) {
 			Content: prompts.AutomationContentTooLongPrompt,
 		})
 	}
+	return false
+}
+
+// bestAvailableAnswer returns the most recent assistant content with len ≥ 20.
+func (s *runSession) bestAvailableAnswer() string {
+	for i := len(s.history) - 1; i >= 0; i-- {
+		if s.history[i].Role == proxy.AssistantRole {
+			if c := strings.TrimSpace(s.history[i].Content); len(c) >= 20 {
+				return s.history[i].Content
+			}
+		}
+	}
+	return ""
+}
+
+// lastNonEmptyAssistantContent returns the newest assistant message with any
+// non-empty body (used as last-resort forced completion).
+func (s *runSession) lastNonEmptyAssistantContent() string {
+	for i := len(s.history) - 1; i >= 0; i-- {
+		if s.history[i].Role == proxy.AssistantRole {
+			if c := strings.TrimSpace(s.history[i].Content); c != "" {
+				return s.history[i].Content
+			}
+		}
+	}
+	return ""
+}
+
+// resolveFallbackAnswer picks a deliverable when the loop cannot continue.
+// Priority: salvaged write report → meaningful assistant text → any assistant text.
+func (s *runSession) resolveFallbackAnswer() string {
+	if report := salvageReportFromHistory(s.history); report != "" {
+		return report
+	}
+	if content := s.bestAvailableAnswer(); content != "" {
+		return content
+	}
+	return s.lastNonEmptyAssistantContent()
+}
+
+// completeWith emits lifecycle completed and returns the final answer.
+// Callers that need EventMessage must notify before calling this.
+func (s *runSession) completeWith(content string) (string, []proxy.Message, error) {
+	s.agent.notifyLifecycle("completed", map[string]any{"content": content})
+	return content, s.history, nil
 }
 
 func (s *runSession) resetParseErrorState() {
@@ -113,10 +167,15 @@ func (s *runSession) resetParseErrorState() {
 	s.lastParseErrorKind = ""
 	s.totalErrorStreak = 0
 	s.modelCompatNotified = false
+	s.syntaxParseStreak = 0
+	// Hermes-aligned: successful tool execution means the model
+	// recovered from a prior empty-turn nag.  Clear the one-shot
+	// nag flag so a future empty turn can trigger a new nag cycle.
+	s.forcedCompletionSent = false
 }
 
-// trimLargeWriteContent replaces write_file response content with a stub
-// when the model includes a long prose preamble alongside a write_file call.
+// trimLargeWriteContent replaces write_file/append_file response content with a stub
+// when the model includes a long prose preamble alongside the file write call.
 // The tool result feedback is what matters — the preamble wastes context.
 func (s *runSession) trimLargeWriteContent(turnMsg *proxy.Message) {
 	if len(turnMsg.Content) <= sessionWriteTrimThreshold {
@@ -130,21 +189,190 @@ func (s *runSession) trimLargeWriteContent(turnMsg *proxy.Message) {
 		}
 	}
 	if hasWrite {
-		turnMsg.Content = "[Response trimmed — write_file content too long. See tool result feedback.]"
+		turnMsg.Content = fmt.Sprintf(prompts.AutomationTrimmedContentMessage, models.ToolFileWrite)
 	}
 }
 
-func (s *runSession) checkSubmitFinalAnswer(turnMsg *proxy.Message) (string, bool) {
-	for _, tc := range turnMsg.ToolCalls {
-		if tc.Function.Name == models.ToolSubmitFinalAnswer {
-			summary := extractTaskSummary(tc.Function.Arguments)
-			if turnMsg.Content == "" || (summary != "Task complete." && summary != "") {
-				turnMsg.Content = summary
+// stripThinkBlocks removes Qwen3/Ollama <think>, <reasoning>, and
+// <REASONING_SCRATCHPAD> blocks (tags + content) from a string.
+// Local models that do not use structured reasoning_content may emit
+// reasoning inline within <think> tags. Stripping yields the visible
+// answer text. Multiple blocks are handled iteratively.
+func stripThinkBlocks(content string) string {
+	// Open/close pairs in matching order. Only balanced pairs are
+	// removed — unclosed opening tags are left in place (they are
+	// truncated output, not reasoning blocks).
+	pairs := [][2]string{
+		{"<think", "</think>"},
+		{"<reasoning", "</reasoning>"},
+		{"<reasoning_scratchpad", "</reasoning_scratchpad>"},
+	}
+	result := content
+	for {
+		changed := false
+		lower := strings.ToLower(result)
+		for _, p := range pairs {
+			start := strings.Index(lower, p[0])
+			if start == -1 {
+				continue
 			}
-			return turnMsg.Content, true
+			end := strings.Index(lower[start:], p[1])
+			if end == -1 {
+				continue
+			}
+			result = result[:start] + result[start+end+len(p[1]):]
+			changed = true
+			break // restart with new lower string
+		}
+		if !changed {
+			break
 		}
 	}
+	return strings.TrimSpace(result)
+}
+
+// hasOnlyHousekeepingTools returns true when every tool in the batch is
+// a post-response side-effect (memory_update, etc.), not a work-horse
+// tool.  Caller uses this to decide whether turn content is a final
+// answer or mid-task narration.
+func (s *runSession) hasOnlyHousekeepingTools(calls []proxy.ToolCall) bool {
+	if len(calls) == 0 {
+		return false
+	}
+	for _, tc := range calls {
+		switch tc.Function.Name {
+		// Add housekeeping tools below when they're introduced:
+		// case "memory_update", "todo":
+		//     continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// checkTaskCompletion determines if an assistant message signals task completion.
+//
+// A turn is complete when the assistant:
+//   - Has no tool calls (not planning to act further)
+//   - Produces non-empty visible content (≥20 chars after stripping reasoning tags)
+//   - The content is not an unparsed tool-call attempt
+//   - The run has produced at least one tool result in history (the model
+//     actually did work, not just first-turn text)
+//
+// Unlike the Phase 2 design, completion does NOT require the immediately-
+// preceding message to be a tool result. Reasoning-only turns (empty content,
+// large ReasoningContent) between tool results and the final answer do not
+// block completion — the gate is "any tool result in history," not adjacency.
+//
+// This matches Hermes Agent's proven completion model (conversation_loop.py):
+// no tool calls + substantive content = done.
+func checkTaskCompletion(msg proxy.Message, history []proxy.Message) (string, bool) {
+	if len(msg.ToolCalls) > 0 {
+		return "", false
+	}
+
+	// Strip reasoning tags — Qwen3/Ollama put <think> in content.
+	// If nothing substantive remains, this is NOT a final answer.
+	stripped := stripThinkBlocks(msg.Content)
+	if len(stripped) < 20 {
+		return "", false
+	}
+
+	// Guard: text must not contain unparsed tool-call markers.
+	if hasToolCallMarker(stripped) {
+		return "", false
+	}
+
+	// The run must have produced at least one tool result anywhere
+	// in history (after the system prompt).  This prevents premature
+	// first-turn text from being treated as completion.
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == proxy.ToolRole {
+			return stripped, true
+		}
+	}
+
 	return "", false
+}
+
+// hasToolResult reports whether history contains a ToolRole message. Used to
+// distinguish a legitimate long final answer (real work happened) from the
+// runaway tool-free joke-loop, so the no-tool content cap can be relaxed.
+func hasToolResult(history []proxy.Message) bool {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == proxy.ToolRole {
+			return true
+		}
+	}
+	return false
+}
+
+// isAgentControlMessage reports messages the agent injects for recovery, sieve,
+// or format correction. Closed allowlist only — never match real user/task text
+// by open-ended keyword heuristics. When adding a new inject site, register it here.
+func isAgentControlMessage(m proxy.Message) bool {
+	if isStuckPlaceholder(m) {
+		return true
+	}
+	if m.Role != proxy.UserRole {
+		return false
+	}
+	content := m.Content
+	switch content {
+	case prompts.AutomationNagPrompt,
+		prompts.AutomationReadFileNagPrompt,
+		prompts.AutomationDuplicateNagPrompt,
+		prompts.ToolErrorNagPrompt,
+		prompts.ReasoningStuckNag,
+		prompts.ReasoningStuckEscalatedNag,
+		prompts.ContextSieveWarning,
+		prompts.SieveSystemNote,
+		prompts.PreSieveMemoryNudge,
+		prompts.AutomationContentTooLongPrompt,
+		prompts.AutomationJSONSyntaxPrompt,
+		prompts.AutomationJSONPlanPrompt,
+		prompts.AutomationXMLModeGuide:
+		return true
+	}
+	if strings.HasPrefix(content, prompts.RetrySignal) {
+		return true
+	}
+	// ParseError.Feedback / escalation — owned prefixes with dynamic tool lists.
+	if strings.HasPrefix(content, "STOP writing text") ||
+		strings.HasPrefix(content, "FORMAT ERROR:") ||
+		strings.HasPrefix(content, "TOOL ERROR:") ||
+		strings.HasPrefix(content, "THIRD ATTEMPT") {
+		return true
+	}
+	return false
+}
+
+// isStuckPlaceholder is the empty/stuck assistant artifact returned by
+// handleEmptyStream for native-only models (ReasoningContent "[stuck]").
+func isStuckPlaceholder(m proxy.Message) bool {
+	if m.Role != proxy.AssistantRole || len(m.ToolCalls) > 0 {
+		return false
+	}
+	if strings.TrimSpace(m.Content) != "" {
+		return false
+	}
+	return strings.TrimSpace(m.ReasoningContent) == "[stuck]"
+}
+
+// previousConversationMessage returns the nearest prior non-control message.
+// Used so natural completion sees tool adjacency through recovery pollution.
+// Walk is capped; if only control messages are found, returns nil (do not complete).
+func previousConversationMessage(history []proxy.Message) *proxy.Message {
+	limit := sessionControlWalkCap
+	for i := len(history) - 1; i >= 0 && limit > 0; i-- {
+		if isAgentControlMessage(history[i]) {
+			limit--
+			continue
+		}
+		return &history[i]
+	}
+	return nil
 }
 
 func (s *runSession) run() (string, []proxy.Message, error) {
@@ -152,6 +380,10 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 		s.steps++
 		if err := s.ctx.Err(); err != nil {
 			return "", s.history, fmt.Errorf("agent execution halted: %w", err)
+		}
+
+		if done, reply, err := s.checkForcedCompletion(); done {
+			return reply, s.history, err
 		}
 
 		if s.steps >= s.agent.config.MaxSteps && !s.warnedAdvisory {
@@ -166,114 +398,165 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 
 		turnMsg, parseErr, toolsList, err := s.agent.executeTurn(s.ctx, &s.history)
 		if err != nil {
-			s.starvationCount++
-			if s.starvationCount >= DefaultStarvationLimit {
-				return "", s.history, fmt.Errorf("agent stalled: %w", err)
+			done, reply, turnErr := s.handleTurnError(err)
+			if done {
+				return reply, s.history, turnErr
 			}
-			if isContextSizeError(err) {
-				err := s.handleContextSizeError()
-				if err != nil {
-					return "", s.history, err
-				}
-				continue
+			if turnErr != nil {
+				return "", s.history, turnErr
 			}
-
-			if isToolCallParseError(err) {
-				s.starvationCount++
-				s.handleToolCallParseError(err)
-				continue
-			}
-
-			return "", s.history, err
+			continue
 		}
 
 		s.sieveStreak = 0
 
 		if len(turnMsg.ToolCalls) > 0 {
-			s.resetParseErrorState()
+			done, reply, turnErr := s.handleToolTurn(turnMsg)
+			if done {
+				return reply, s.history, turnErr
+			}
+			if turnErr != nil {
+				return "", s.history, turnErr
+			}
+			continue
+		}
 
-			isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.deps.Logger, turnMsg.ToolCalls)
-			if dupErr != nil {
-				return "", s.history, dupErr
-			}
-			if isDuplicate {
-				nag := nagPrompt
-				if len(turnMsg.ToolCalls) > 0 && turnMsg.ToolCalls[0].Function.Name == models.ToolFileRead {
-					nag = prompts.AutomationReadFileNagPrompt
-				}
-				s.history = append(s.history, turnMsg)
-				s.agent.notify(EventMessage, turnMsg)
-				s.history = append(s.history, proxy.Message{
-					Role:    proxy.UserRole,
-					Content: nag,
-				})
-				continue
-			}
-
-			s.trimLargeWriteContent(&turnMsg)
-
-			s.history = append(s.history, turnMsg)
-			if err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history); err != nil {
-				return "", s.history, err
-			}
-
-			// Only exit on solo submit_final_answer. When submit is batched
-			// with other tools, processToolCalls already rejected the entire
-			// batch and appended error results. The model sees the rejection
-			// on the next turn and resubmits properly. Bailing out here would
-			// leave the session with error tool results and no final answer.
-			submitSolo := len(turnMsg.ToolCalls) == 1
-			if submitSolo {
-				if content, done := s.checkSubmitFinalAnswer(&turnMsg); done {
-					// Sync the extracted summary into the history entry stored
-					// earlier by append (value copy).  processToolCalls appended
-					// tool results after it, so search backward for the assistant message.
-					for i := len(s.history) - 1; i >= 0; i-- {
-						if s.history[i].Role == proxy.AssistantRole {
-							s.history[i].Content = content
-							break
-						}
-					}
-					// Notify AFTER checkSubmitFinalAnswer so the SSE event
-					// carries the extracted report content (not empty string).
-					// Without this, the live webhook view never gets the
-					// final answer text and shows reasoning instead.
-					s.agent.notify(EventMessage, turnMsg)
-					s.agent.notifyLifecycle("completed", map[string]any{
-						"content": content,
-					})
-					return content, s.history, nil
-				}
-			} else {
-				// submit_final_answer was in a batch — rejected.
-				s.batchedSubmitRetries++
-				if s.batchedSubmitRetries >= maxBatchedSubmitRetries {
-					return "", s.history, fmt.Errorf("agent stalled: submit_final_answer batched with other tools %d times in a row", s.batchedSubmitRetries)
-				}
-			}
-			// Fallthrough notify for non-submit turns: processToolCalls has run,
-			// frontend needs tool_call/tool_result events followed by EventMessage.
-			// For submit turns this fires inside the done branch above (after
-			// checkSubmitFinalAnswer populates turnMsg.Content with the report).
-			s.agent.notify(EventMessage, turnMsg)
-		} else {
-			s.starvationCount++
-			if s.starvationCount >= DefaultStarvationLimit {
-				return "", s.history, fmt.Errorf("agent stalled: no tool calls in %d consecutive turns", s.starvationCount)
-			}
-			reply, shouldExit, err := s.handleNoToolCalls(
-				turnMsg,
-				parseErr,
-				toolsList,
-			)
-			if err != nil {
-				return "", s.history, err
-			}
-			if shouldExit {
-				return reply, s.history, nil
-			}
+		done, reply, turnErr := s.handleTextTurn(turnMsg, parseErr, toolsList)
+		if done {
+			return reply, s.history, turnErr
+		}
+		if turnErr != nil {
+			return "", s.history, turnErr
 		}
 	}
+}
+
+// checkForcedCompletion ends the run after MaxSteps*2 using the fallback chain.
+// Returns (true, reply, err) when the loop must stop.
+func (s *runSession) checkForcedCompletion() (bool, string, error) {
+	if s.steps < s.agent.config.MaxSteps*2 || s.forcedCompletionSent {
+		return false, "", nil
+	}
+	s.forcedCompletionSent = true
+	s.agent.deps.Logger.Warn("forced completion after excessive steps",
+		"maxSteps", s.agent.config.MaxSteps, "steps", s.steps)
+	if content := s.resolveFallbackAnswer(); content != "" {
+		reply, _, err := s.completeWith(content)
+		return true, reply, err
+	}
+	return true, "", fmt.Errorf("agent exceeded max steps (%d) without producing a final answer", s.agent.config.MaxSteps)
+}
+
+// handleTurnError processes executeTurn failures. cont=false means return to caller.
+// cont=true with nil err means continue the agent loop.
+func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr error) {
+	s.starvationCount++
+	if s.starvationCount >= DefaultStarvationLimit {
+		return true, "", fmt.Errorf("agent stalled: %w", err)
+	}
+	if isContextSizeError(err) {
+		if sieveErr := s.handleContextSizeError(); sieveErr != nil {
+			return true, "", sieveErr
+		}
+		return false, "", nil // continue loop
+	}
+	if isToolCallParseError(err) {
+		if !s.handleToolCallParseError(err) {
+			return false, "", nil // continue loop with recovery prompt
+		}
+		if content := s.resolveFallbackAnswer(); content != "" {
+			s.agent.deps.Logger.Warn("giving up after repeated server-side tool JSON parse errors; using fallback answer",
+				"streak", s.syntaxParseStreak, "chars", len(content))
+			reply, _, completeErr := s.completeWith(content)
+			return true, reply, completeErr
+		}
+		return true, "", fmt.Errorf("agent stalled: server-side tool call JSON parse failed %d times: %w",
+			s.syntaxParseStreak, err)
+	}
+	return true, "", err
+}
+
+// handleToolTurn runs duplicate detection, tool execution, and salvage completion.
+// done=true means return from run(); done=false means continue the loop.
+func (s *runSession) handleToolTurn(turnMsg proxy.Message) (done bool, reply string, err error) {
+	s.resetParseErrorState()
+
+	isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.deps.Logger, turnMsg.ToolCalls)
+	if dupErr != nil {
+		return true, "", dupErr
+	}
+	if isDuplicate {
+		nag := nagPrompt
+		if len(turnMsg.ToolCalls) > 0 && turnMsg.ToolCalls[0].Function.Name == models.ToolFileRead {
+			nag = prompts.AutomationReadFileNagPrompt
+		}
+		s.history = append(s.history, turnMsg)
+		s.agent.notify(EventMessage, turnMsg)
+		s.history = append(s.history, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: nag,
+		})
+		return false, "", nil
+	}
+
+	s.trimLargeWriteContent(&turnMsg)
+
+	// Content-with-tools fallback: only save when every tool in this turn
+	// is housekeeping (memory, todo, etc.).  When substantive tools are
+	// present (read_file, write_file, terminal, ...), the assistant text
+	// is mid-task narration ("I'll scan the directory now"), not a final
+	// answer.  Hermes-aligned: _last_content_with_tools only for housekeeping.
+	if s.hasOnlyHousekeepingTools(turnMsg.ToolCalls) {
+		if stripped := stripThinkBlocks(turnMsg.Content); len(stripped) >= 20 {
+			s.lastContentWithTools = stripped
+		}
+	}
+
+	s.history = append(s.history, turnMsg)
+
+	salvaged, err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history)
+	if err != nil {
+		return true, "", err
+	}
+	if salvaged != "" {
+		if turnMsg.Content == "" || len(salvaged) > len(turnMsg.Content) {
+			turnMsg.Content = salvaged
+		}
+		s.agent.notify(EventMessage, turnMsg)
+		reply, _, completeErr := s.completeWith(salvaged)
+		return true, reply, completeErr
+	}
+
+	// Tool results emitted; completion is detected on the next text turn.
+	s.agent.notify(EventMessage, turnMsg)
+	return false, "", nil
+}
+
+// handleTextTurn handles natural completion or no-tool recovery feedback.
+func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.ParseError, toolsList []proxy.Tool) (done bool, reply string, err error) {
+	// When parseErr has XMLFound, the model attempted a tool call but failed —
+	// do not treat accompanying plan text as a final answer.
+	if parseErr == nil || !parseErr.XMLFound {
+		if content, ok := checkTaskCompletion(turnMsg, s.history); ok {
+			s.history = append(s.history, turnMsg)
+			s.agent.notify(EventMessage, turnMsg)
+			reply, _, completeErr := s.completeWith(content)
+			return true, reply, completeErr
+		}
+	}
+
+	s.starvationCount++
+	if s.starvationCount >= DefaultStarvationLimit {
+		return true, "", fmt.Errorf("agent stalled: no tool calls in %d consecutive turns", s.starvationCount)
+	}
+	reply, shouldExit, err := s.handleNoToolCalls(turnMsg, parseErr, toolsList)
+	if err != nil {
+		return true, "", err
+	}
+	if shouldExit {
+		return true, reply, nil
+	}
+	return false, "", nil
 }
 
 // executeTurn runs one LLM call, parses tool calls from content, validates
@@ -371,14 +654,13 @@ func (s *runSession) handleNoToolCalls(
 
 	if parseErr != nil {
 		// If XMLFound is false, the model produced plain text without any
-		// tool call attempt. In native-tools mode with tool_choice:required
-		// this is a protocol violation — nag to retry instead.
-		// Otherwise exit with the text as a conversational reply.
+		// tool call attempt. Treat it as a faithful completion — no tool
+		// calls with substantive text is the canonical final-answer signal
+		// (Hermes-aligned: trust the model). Native-tools mode no longer
+		// rejects plain-text completion.  The checkTaskCompletion gate
+		// (think-strip + any-tool-result) runs before we reach this handler.
 		if !parseErr.XMLFound && strings.TrimSpace(turnMsg.Content) != "" {
-			if !s.agent.config.UseNativeTools || len(toolsList) == 0 {
-				return turnMsg.Content, true, nil
-			}
-			parseErr = nil
+			return turnMsg.Content, true, nil
 		}
 		if parseErr != nil {
 			if len(toolsList) == 0 {
@@ -404,12 +686,59 @@ func (s *runSession) handleNoToolCalls(
 		return turnMsg.Content, true, nil
 	}
 
-	s.agent.deps.Logger.Warn("no tool calls - nagging model", "step", s.steps)
+	// Genuinely no content: empty turn, possibly after tool results.
+	// Check content-with-tools fallback first — the model may have
+	// written its answer alongside the previous tool calls.
+	if s.lastContentWithTools != "" {
+		content := s.lastContentWithTools
+		s.lastContentWithTools = ""
+		s.agent.deps.Logger.Info("using content-with-tools fallback as final answer",
+			"chars", len(content))
+		return content, true, nil
+	}
+
+	// One-shot nag: inject the nag prompt ONCE.  Previously this loop
+	// nagged perpetually — a model that returns empty after tools gets
+	// one retry, then the fallback or forced-completion path (via
+	// checkForcedCompletion at MaxSteps*2) finishes the run.  This
+	// matches Hermes Agent's post-tool empty-response nudge behavior.
+	if s.forcedCompletionSent {
+		// Already nagged once.  Use the full fallback chain which
+		// includes salvageReportFromHistory (recovers write_file
+		// content from tool-call args) and bestAvailableAnswer.
+		if content := s.resolveFallbackAnswer(); content != "" {
+			return content, true, nil
+		}
+		return "", true, nil
+	}
+	s.forcedCompletionSent = true
+	s.agent.deps.Logger.Warn("no tool calls - nagging model (one-shot)", "step", s.steps)
 	s.history = append(s.history, proxy.Message{
 		Role:    proxy.UserRole,
 		Content: prompts.AutomationNagPrompt,
 	})
 	return "", false, nil
+}
+
+// hasToolCallMarker checks whether content contains XML-like markers that
+// indicate the model was attempting a tool call, even when neither parser
+// found a complete, parseable call (e.g., stream truncation before the
+// closing tag left an incomplete <tool_call or <function block).
+// Markers are matched case-insensitively, mirroring the regex parsers'
+// (?is) flags.
+func hasToolCallMarker(content string) bool {
+	lower := strings.ToLower(content)
+	markers := []string{
+		"<tool_call", "</tool_call",
+		"<function", "</function",
+		"<tool ", "<tool>",
+	}
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleContentToolCalls tries XML parsing first (broader coverage), then
@@ -435,6 +764,20 @@ func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
 			a.deps.Logger.Debug("native format tool calls parsed from content", "count", len(nativeCalls))
 			return nil
 		}
+		// Prefer the native parser's error when it found tags (XMLFound=true)
+		// but the XML parser didn't — it means the model used native format
+		// tags (<function name=...>) rather than XML format (<tool_call>).
+		if nativeErr != nil && nativeErr.XMLFound && !parseErr.XMLFound {
+			return nativeErr
+		}
+	}
+
+	// Both parsers failed and reported XMLFound=false, but the content has
+	// visible tool-call markers (e.g. truncated <tool_call or <function).
+	// The model was attempting a call — don't let the preceding text be
+	// treated as a natural completion.
+	if parseErr != nil && !parseErr.XMLFound && hasToolCallMarker(msg.Content) {
+		return &proxy.ParseError{XMLFound: true, JSONError: proxy.ErrMsgIncompleteToolCall}
 	}
 
 	return parseErr
@@ -445,11 +788,13 @@ func (a *Agent) precededByToolResult(history []proxy.Message) bool {
 		return false
 	}
 	last := history[len(history)-1]
-	prev := history[len(history)-2]
-	return last.Role == proxy.AssistantRole &&
-		len(last.ToolCalls) == 0 &&
-		strings.TrimSpace(last.Content) != "" &&
-		prev.Role == proxy.ToolRole
+	if last.Role != proxy.AssistantRole ||
+		len(last.ToolCalls) > 0 ||
+		strings.TrimSpace(last.Content) == "" {
+		return false
+	}
+	prev := previousConversationMessage(history[:len(history)-1])
+	return prev != nil && prev.Role == proxy.ToolRole
 }
 
 func (a *Agent) countConsecutiveChat(history []proxy.Message) int {

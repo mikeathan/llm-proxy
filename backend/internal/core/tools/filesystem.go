@@ -210,7 +210,7 @@ func (f *FileSystemTools) AppendFile(ctx context.Context, path string, content s
 
 	fi, err := os.Stat(absPath)
 	if err != nil {
-		return fmt.Errorf("file does not exist: use write_file first, then append_file to add more content")
+		return fmt.Errorf(models.ToolMissingForAppendMsg, models.ToolFileWrite, models.ToolFileAppend)
 	}
 
 	totalSize := fi.Size() + int64(len(content))
@@ -239,7 +239,7 @@ func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlo
 
 	raw, err := os.ReadFile(absPath)
 	if err != nil {
-		return "", fmt.Errorf("file does not exist: use write_file to create it, or verify the path")
+		return "", fmt.Errorf(models.ToolMissingForEditMsg, models.ToolFileWrite)
 	}
 
 	fileContent := string(raw)

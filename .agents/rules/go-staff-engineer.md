@@ -46,3 +46,8 @@ Apply these standards to all Go-related tasks:
 
 ## 6. Build & Verification
 - **Continuous Compilation**: Always run `go build ./...` across the backend after attempting refactoring, interface changes, or file structure updates to proactively identify broken package imports or undefined type dependencies.
+
+## 7. Error Constants Convention
+- **Named constants for all error strings**: Every error message passed across function or package boundaries must be defined as a named `const` string, not as an inline literal. This ensures consistency between producers and consumers, keeps the message set auditable in one place, and prevents silent drift from stale inline copies.
+- **Where to define them**: Error constants that are used in only one package live at the top of the file that defines the error type. Cross-package error constants live in the package that defines the error type (the producer), not the consumer.
+- **Adding or changing**: When adding or changing an error message, update the constant definition — never write a new inline string. This applies to all Go code in the backend.
