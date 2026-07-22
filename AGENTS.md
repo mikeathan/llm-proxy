@@ -21,6 +21,7 @@ cd backend && go run main.go                    # :4001 (--data <dir> overrides)
 - **Backend changes:** run `go build ./...` from `backend/` after each meaningful edit.
 - **Frontend changes:** run `npm run build` from `frontend/` after each meaningful edit.
 - **Before finishing:** run `go test ./...` + `go run ./tools/check-complexity/` from `backend/` — must pass.
+- **TDD required** for features/fixes. Red→Green→Refactor. Details: `docs/skills/tdd-guide.md`.
 
 ## Boundaries
 - **Git:** never run git (commit, push, add, stash, etc.) without explicit user approval.
