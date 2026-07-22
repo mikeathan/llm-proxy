@@ -4278,4 +4278,65 @@ func TestAgent_Execute_TruncatedWriteFile_Salvages(t *testing.T) {
 	}
 }
 
+func TestToolCache_RebuildAndReuse(t *testing.T) {
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: models.FunctionSchema{Name: "read_file", Description: "Read a file", Parameters: map[string]any{"path": "string"}}},
+		},
+	}
+	agent := NewAgent(&MockClient{}, provider, &MockEngine{}, AgentOptions{MaxSteps: 5})
+
+	agent.rebuildToolCache(context.Background())
+
+	if agent.cachedToolManual == "" {
+		t.Fatal("expected cachedToolManual to be populated after rebuild")
+	}
+	if agent.cachedToolReference == "" {
+		t.Fatal("expected cachedToolReference to be populated after rebuild")
+	}
+	if agent.toolsHash == 0 {
+		t.Fatal("expected toolsHash to be non-zero after rebuild")
+	}
+	firstHash := agent.toolsHash
+	firstManual := agent.cachedToolManual
+	firstReference := agent.cachedToolReference
+
+	agent.rebuildToolCache(context.Background())
+
+	if agent.toolsHash != firstHash {
+		t.Errorf("toolsHash changed after same tools: %d -> %d", firstHash, agent.toolsHash)
+	}
+	if agent.cachedToolManual != firstManual {
+		t.Error("cachedToolManual was rebuilt when tools did not change")
+	}
+	if agent.cachedToolReference != firstReference {
+		t.Error("cachedToolReference was rebuilt when tools did not change")
+	}
+}
+
+func TestToolCache_InvalidatesOnDifferentTools(t *testing.T) {
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: models.FunctionSchema{Name: "read_file", Description: "Read a file", Parameters: map[string]any{"path": "string"}}},
+		},
+	}
+	agent := NewAgent(&MockClient{}, provider, &MockEngine{}, AgentOptions{MaxSteps: 5})
+
+	agent.rebuildToolCache(context.Background())
+	firstHash := agent.toolsHash
+	firstManual := agent.cachedToolManual
+
+	provider.Tools = append(provider.Tools, proxy.Tool{
+		Type: "function", Function: models.FunctionSchema{Name: "grep", Description: "Search files", Parameters: map[string]any{"pattern": "string"}},
+	})
+	agent.rebuildToolCache(context.Background())
+
+	if agent.toolsHash == firstHash {
+		t.Error("toolsHash should have changed after tools changed")
+	}
+	if agent.cachedToolManual == firstManual {
+		t.Error("cachedToolManual should have been rebuilt")
+	}
+}
+
 

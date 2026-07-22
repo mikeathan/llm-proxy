@@ -133,10 +133,10 @@ func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Mes
 		return prepared
 	}
 
-	if a.memoryInjected {
+	if a.memoryInjected() {
 		return prepared
 	}
-	a.memoryInjected = true
+	a.setMemoryInjected(true)
 
 	ctx := context.Background()
 	entries, err := a.deps.MemoryStore.SearchHot(ctx, a.config.WorkspaceID)
@@ -218,7 +218,7 @@ func (a *Agent) doPreflightCheck(
 func (a *Agent) handlePrefillRejection(
 	ctx context.Context, history []proxy.Message, tools []proxy.Tool,
 ) (<-chan *proxy.ChatResponse, error) {
-	a.prefillDisabled = true
+	a.setPrefillDisabled(true)
 	a.notifyPrefillDisabled()
 	prepared := a.prepareMessages(history)
 	if len(tools) > 0 {
@@ -327,7 +327,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		}
 		if streamErr != nil {
 			a.deps.Logger.Warn("streaming not supported, falling back to non-streaming")
-			a.memoryInjected = false  // retry injection on the non-streaming path
+			a.setMemoryInjected(false)  // retry injection on the non-streaming path
 			return a.computeNextResponseNonStreaming(ctx, history, tools)
 		}
 	}
@@ -727,7 +727,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	resp, err := a.deps.Client.Chat(chatCtx, req)
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
-		a.prefillDisabled = true
+		a.setPrefillDisabled(true)
 		a.notifyPrefillDisabled()
 		prefill = ""
 		preparedHistory = a.prepareMessages(history)
@@ -790,7 +790,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying stream without prefill")
-		a.prefillDisabled = true
+		a.setPrefillDisabled(true)
 		a.notifyPrefillDisabled()
 		prefill = ""
 		prepared, _ = a.prepareMessagesForTurn(history, tools, nil)
@@ -824,10 +824,10 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	}
 
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
-		saved := a.prefillDisabled
-		a.prefillDisabled = true
+		saved := a.prefillDisabled()
+		a.setPrefillDisabled(true)
 		msg, err := a.computeNextResponseNonStreaming(ctx, history, tools)
-		a.prefillDisabled = saved
+		a.setPrefillDisabled(saved)
 		return msg, err
 	}
 
@@ -840,7 +840,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 }
 
 func (a *Agent) shouldPrefill() bool {
-	return a.config.UsePrefill && !a.prefillDisabled && !a.config.UseNativeTools
+	return a.config.UsePrefill && !a.prefillDisabled() && !a.config.UseNativeTools
 }
 
 func (a *Agent) stuckThreshold() int {

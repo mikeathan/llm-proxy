@@ -100,17 +100,68 @@ func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*Exe
 	return &plan, nil
 }
 
+// executeSingleToolStep resolves guardrails, executes one tool, appends
+// the result to history, and fires notifications.
+// Returns stopBatch (guardrail denied) and execErr (execution failed).
+func (a *Agent) executeSingleToolStep(
+	ctx context.Context,
+	tc proxy.ToolCall,
+	history *[]proxy.Message,
+	mu *sync.Mutex,
+) (stopBatch bool, execErr error) {
+	approved, stopBatch := a.resolveGuardrail(ctx, tc, history, mu)
+	if stopBatch {
+		return true, nil
+	}
+
+	a.notifyToolCall(tc)
+	toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
+	if approved {
+		toolCtx = models.WithGuardrailApproved(toolCtx)
+	}
+
+	result, err := a.deps.Engine.ExecuteTool(toolCtx, tc)
+
+	mu.Lock()
+	var finalResult any
+	if err != nil {
+		if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
+			finalResult = str
+		} else {
+			finalResult = map[string]string{"error": err.Error()}
+		}
+	} else {
+		finalResult = result
+	}
+	a.appendToolResult(history, tc, finalResult)
+	resultBytes, _ := json.Marshal(finalResult)
+	a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultBytes))
+	a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
+	if t := GetUsageTracker(ctx); t != nil {
+		t.AddToolCall(tc.Function.Name)
+	}
+	mu.Unlock()
+
+	if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 // processToolCalls validates tool args, resolves guardrails, and executes
 // via Engine.  A guardrail denial stops the entire batch.
 // Returns (salvagedReport, err). salvagedReport is non-empty when a truncated
 // write_file/append_file content field was recovered as the task deliverable.
-func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) (string, error) {
+func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message, toolsList []proxy.Tool) (string, error) {
 	var mu sync.Mutex
 
-	toolsList, listErr := a.deps.Provider.ListTools(ctx)
-	if listErr != nil {
-		a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
-		return "", fmt.Errorf("list tools: %w", listErr)
+	if len(toolsList) == 0 {
+		var listErr error
+		toolsList, listErr = a.deps.Provider.ListTools(ctx)
+		if listErr != nil {
+			a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
+			return "", fmt.Errorf("list tools: %w", listErr)
+		}
 	}
 
 	for _, tc := range msg.ToolCalls {
@@ -139,40 +190,12 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			return "", nil
 		}
 
-		approved, stopBatch := a.resolveGuardrail(ctx, tc, history, &mu)
-		if stopBatch {
-			return "", nil
-		}
-
-		a.notifyToolCall(tc)
-		toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
-		if approved {
-			toolCtx = models.WithGuardrailApproved(toolCtx)
-		}
-		result, err := a.deps.Engine.ExecuteTool(toolCtx, tc)
-		mu.Lock()
-		var finalResult any
-		if err != nil {
-			if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
-				finalResult = str
-			} else {
-				finalResult = map[string]string{"error": err.Error()}
+		stopBatch, execErr := a.executeSingleToolStep(ctx, tc, history, &mu)
+		a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", execErr)
+		if stopBatch || execErr != nil {
+			if execErr != nil {
+				a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
 			}
-		} else {
-			finalResult = result
-		}
-		a.appendToolResult(history, tc, finalResult)
-		resultStr, _ := json.Marshal(finalResult)
-		a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
-		a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
-		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-		if t := GetUsageTracker(ctx); t != nil {
-			t.AddToolCall(tc.Function.Name)
-		}
-		mu.Unlock()
-
-		if err != nil {
-			a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
 			return "", nil
 		}
 	}
@@ -275,32 +298,11 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 		}
 		currentHistory = append(currentHistory, turnMsg)
 
-		approved, stopBatch := a.resolveGuardrail(ctx, tc, &currentHistory, &mu)
+		stopBatch, execErr := a.executeSingleToolStep(ctx, tc, &currentHistory, &mu)
 		if stopBatch {
 			a.deps.Logger.Warn("plan step guardrail denied", "step", i, "tool", step.ToolName)
 			return "", currentHistory, fmt.Errorf("plan step %d: guardrail denied %s", i, step.ToolName)
 		}
-
-		a.notifyToolCall(tc)
-
-		toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
-		if approved {
-			toolCtx = models.WithGuardrailApproved(toolCtx)
-		}
-
-		result, execErr := a.deps.Engine.ExecuteTool(toolCtx, tc)
-		var finalResult any
-		if execErr != nil {
-			finalResult = map[string]string{"error": execErr.Error()}
-		} else {
-			finalResult = result
-		}
-		a.appendToolResult(&currentHistory, tc, finalResult)
-		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-		if t := GetUsageTracker(ctx); t != nil {
-			t.AddToolCall(step.ToolName)
-		}
-
 		if execErr != nil {
 			a.deps.Logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
 			return "", currentHistory, fmt.Errorf("plan step %d failed: %w", i, execErr)

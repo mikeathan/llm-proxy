@@ -32,7 +32,7 @@ cd backend && go run main.go                    # :4001 (--data <dir> overrides)
 ## Before coding
 1. Read `CONSTITUTION.md` (6 sections — the law).
 2. Read the relevant SPEC (`docs/INDEX.md` → SPEC-001..009).
-3. For Go/Vue patterns: `.agents/rules/`.
+3. Load `.agents/rules/go-staff-engineer.md` for backend, `.agents/rules/frontend-vue-engineer.md` for frontend. Mandatory.
 4. Baseline: `cd backend && go build ./... && go test ./...`.
 
 ## Reference (load on demand)

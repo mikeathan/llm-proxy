@@ -1,6 +1,6 @@
 # Unattended Run Safety Hardening Plan
 
-**Status:** approved
+**Status:** approved — Step 0 complete (2026-07-22)
 **Date:** 2026-07-22
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-006 (Guardrails)
 
@@ -55,7 +55,7 @@ No code revert required for runtime adjustments.
 
 ---
 
-## Step 0: Refactoring Foundation (No Behavior Change)
+## Step 0: Refactoring Foundation (No Behavior Change) — COMPLETE
 
 **Purpose:** Create clean foundation. All safety changes in later steps are single-point. Zero behavior change — all existing tests must pass identically.
 

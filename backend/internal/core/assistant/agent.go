@@ -7,6 +7,7 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/orchestrator"
@@ -29,6 +30,9 @@ const (
 	AgentGlobalTimeout          = 30 * time.Minute  // total wall-clock for one Execute call
 	AgentTurnTimeout            = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
 	AgentRetryTimeout           = 5 * time.Minute   // tool-support-fallback retry timeout
+
+	DuplicateStreakThreshold = 3  // identical-args calls in a row before infinite-loop abort
+	SpiralStreakThreshold    = 12 // same-tool-any-args calls in a row before spiral abort
 )
 
 // DefaultReasoningBudget returns the auto-computed reasoning budget for a given
@@ -118,10 +122,41 @@ type Agent struct {
 	config AgentConfig
 	deps   AgentRuntimeDeps
 
-	// Per-execution state. These are mutated during Execute and MUST NOT
-	// persist across calls. TODO(A8): move into runSession.
-	prefillDisabled bool
-	memoryInjected  bool
+	runS *runSession // current execution session; nil outside Execute
+
+	cachedToolManual    string // cached BuildToolManual output
+	cachedToolReference string // cached BuildNativeToolReference output
+	toolsHash           uint64 // fingerprint of tool set used to build cache
+}
+
+// prefillDisabled returns whether prefill has been disabled at runtime.
+func (a *Agent) prefillDisabled() bool {
+	if a.runS == nil {
+		return false
+	}
+	return a.runS.prefillDisabled
+}
+
+// setPrefillDisabled sets the runtime prefill-disabled flag.
+func (a *Agent) setPrefillDisabled(v bool) {
+	if a.runS != nil {
+		a.runS.prefillDisabled = v
+	}
+}
+
+// memoryInjected returns whether hot memory has been injected this session.
+func (a *Agent) memoryInjected() bool {
+	if a.runS == nil {
+		return false
+	}
+	return a.runS.memoryInjected
+}
+
+// setMemoryInjected sets the memory-injected flag.
+func (a *Agent) setMemoryInjected(v bool) {
+	if a.runS != nil {
+		a.runS.memoryInjected = v
+	}
 }
 
 type AgentOptions struct {
@@ -375,10 +410,10 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 				if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
 					rd.duplicateStreak++
 					logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
-					if rd.duplicateStreak >= 3 {
+					if rd.duplicateStreak >= DuplicateStreakThreshold {
 						rd.duplicateStreak = 0
 					rd.recentCalls = nil
-					return true, "", fmt.Errorf("infinite loop detected: %s called 3+ times with identical args", key.name)
+					return true, "", fmt.Errorf("infinite loop detected: %s called %d+ times with identical args", key.name, DuplicateStreakThreshold)
 				}
 				return true, prompts.AutomationDuplicateNagPrompt, nil
 			}
@@ -387,18 +422,18 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 			// Catch same-tool-any-args spirals (e.g. memory_search with varying queries).
 			if tc.Function.Name == rd.lastTool {
 				rd.consecutiveToolStreak++
-			if rd.consecutiveToolStreak >= 12 {
+			if rd.consecutiveToolStreak >= SpiralStreakThreshold {
 				rd.consecutiveToolStreak = 0
 				rd.lastTool = ""
 				rd.recentCalls = nil
-				return true, "", fmt.Errorf("spiral detected: %s called %d+ consecutive times", key.name, 12)
+				return true, "", fmt.Errorf("spiral detected: %s called %d+ consecutive times", key.name, SpiralStreakThreshold)
 				}
 			} else {
 				rd.consecutiveToolStreak = 0
 				rd.lastTool = tc.Function.Name
 			}
 
-			if len(rd.recentCalls) >= 3 {
+			if len(rd.recentCalls) >= DuplicateStreakThreshold {
 				rd.recentCalls = rd.recentCalls[1:]
 			}
 			rd.recentCalls = append(rd.recentCalls, key)
@@ -435,6 +470,8 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 		}
 	}
 
+	a.rebuildToolCache(execCtx)
+
 	s := newRunSession(a, execCtx, history)
 	return s.run()
 }
@@ -443,12 +480,29 @@ func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
 	return proxy.NormalizeHistory(history, a.config.UseNativeTools)
 }
 
-// injectToolInstructions embeds XML tool definitions into the system prompt.
-// Used when native API-level tools are disabled (local models, XML fallback).
-func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
-	if len(tools) == 0 {
-		return history
+func toolsFingerprint(tools []proxy.Tool) uint64 {
+	h := fnv.New64a()
+	for _, t := range tools {
+		h.Write([]byte(t.Function.Name))
+		h.Write([]byte{0})
+		h.Write([]byte(t.Function.Description))
+		h.Write([]byte{0})
+		fmt.Fprintf(h, "%v", t.Function.Parameters)
+		h.Write([]byte{0})
 	}
+	return h.Sum64()
+}
+
+func (a *Agent) rebuildToolCache(ctx context.Context) {
+	tools, err := a.deps.Provider.ListTools(ctx)
+	if err != nil {
+		return
+	}
+	fp := toolsFingerprint(tools)
+	if fp == a.toolsHash {
+		return
+	}
+
 	info := make([]prompts.ToolInfo, len(tools))
 	for i, t := range tools {
 		info[i] = prompts.ToolInfo{
@@ -457,9 +511,33 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 			Parameters:  t.Function.Parameters,
 		}
 	}
-	instructions := prompts.BuildToolManual(info)
+	a.cachedToolManual = prompts.BuildToolManual(info)
+	a.cachedToolReference = prompts.BuildNativeToolReference(info)
+	a.toolsHash = fp
+}
+
+// injectToolInstructions embeds XML tool definitions into the system prompt.
+// Used when native API-level tools are disabled (local models, XML fallback).
+func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
+	if len(tools) == 0 {
+		return history
+	}
+
+	instructions := a.cachedToolManual
+	if instructions == "" {
+		info := make([]prompts.ToolInfo, len(tools))
+		for i, t := range tools {
+			info[i] = prompts.ToolInfo{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
+			}
+		}
+		instructions = prompts.BuildToolManual(info)
+	}
+
 	a.deps.Logger.Debug("injecting XML tool manual into system prompt",
-		"tool_count", len(info),
+		"tool_count", len(tools),
 		"manual_chars", len(instructions),
 		"has_manual", len(instructions) > 0,
 	)
@@ -496,15 +574,19 @@ func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy
 	if len(tools) == 0 {
 		return history
 	}
-	info := make([]prompts.ToolInfo, len(tools))
-	for i, t := range tools {
-		info[i] = prompts.ToolInfo{
-			Name:        t.Function.Name,
-			Description: t.Function.Description,
-			Parameters:  t.Function.Parameters,
+
+	reference := a.cachedToolReference
+	if reference == "" {
+		info := make([]prompts.ToolInfo, len(tools))
+		for i, t := range tools {
+			info[i] = prompts.ToolInfo{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
+			}
 		}
+		reference = prompts.BuildNativeToolReference(info)
 	}
-	reference := prompts.BuildNativeToolReference(info)
 	newHistory := make([]proxy.Message, 0, len(history)+1)
 	foundSystem := false
 	for _, msg := range history {

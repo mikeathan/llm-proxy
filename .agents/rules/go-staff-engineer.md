@@ -1,53 +1,138 @@
 ---
-trigger: always_on
-description: Comprehensive Staff-level Go expertise (10+ years). Covers Clean Architecture, Robust Concurrency, Self-Healing systems, and High-Performance Go idioms.
+description: Staff-level Go backend and agentic workflow engineering guide optimized for AI coding assistants.
 ---
 
-# Target: \*_/_.go
+# Staff Go Backend & Agentic Engineering Constitution
 
-# Staff Go Backend Engineer Skill
+## Core Principles
 
-Apply these standards to all Go-related tasks:
+-   Correctness before cleverness.
+-   Keep business rules in the domain, infrastructure at the edges.
+-   Prefer composition over inheritance.
+-   Small interfaces; concrete constructors.
+-   Fail fast on invalid configuration.
+-   Measure before optimizing.
 
-## 1. Concurrency & Thread Safety
+## Architecture
 
-- **State Protection**: Always use `sync.RWMutex` for shared struct fields. Favor "sharing by communicating" (channels) for data flow, but use Mutexes for state protection.
-- **Atomic Operations**: Use `sync/atomic` for simple counters or status flags.
-- **Goroutine Discipline**: Never start a goroutine without a clear termination strategy (via `context.Context` or `close(chan)`).
+-   Use Clean Architecture with explicit boundaries.
+-   Separate Domain, Application, Infrastructure and Transport.
+-   Dependencies point inward.
+-   Domain contains no framework, HTTP, SQL or LLM code.
+-   Prefer events over tight orchestration.
 
-## 2. Resilience & Self-Healing (Quiet-Pulse)
+## Context
 
-- **Exponential Backoff**: Implement retries with `minDelay=5s`, `maxDelay=5m`, and a doubling multiplier.
-- **Log Management**: Mute failure logs after 3 attempts to prevent log-spam. Transition to "Background Heartbeat" mode once the max delay is reached.
-- **Atomic Initialization**: Handshake with external dependencies (like MCP or DBs) fully _before_ setting `initialized = true`.
-- **Failover-First Design**: When implementing model hierarchies (Primary/Fallback), strictly distinguish between "Transitional States" (e.g., loading weights) and "Terminal Errors" (e.g., OOM, 401, 503). Never fallback during a normal startup.
+-   `context.Context` is the first parameter.
+-   Never store context in structs.
+-   Constructors never accept context.
+-   Every blocking operation must observe `ctx.Done()`.
 
+## Concurrency
 
-## 3. Clean Architecture & Patterns
+-   Channels for ownership transfer.
+-   Mutexes for shared mutable state.
+-   Check channel closure (`v, ok := <-ch`).
+-   Every goroutine has a termination path.
+-   Bound concurrency with worker pools.
 
-- **Interfaces**: Define interfaces at the point of use (consumer-side), not producer-side.
-- **Error Handling**: Use early returns ("Happy Path" to the left). Wrap errors with context: `fmt.Errorf("action failed: %w", err)`.
-- **Dependency Injection**: Use constructor functions (`NewService`) to inject all dependencies. No global variables or `init()` magic.
-- **Logical Modularization**: Avoid single-file bloat (e.g., >500 lines). Extract lifecycle management, registration, and provider-specific logic into scoped files (e.g., `lifecycle.go`, `registry.go`, `providers.go`) while maintaining package-level visibility.
-- **Structural Decoupling**: Avoid polluting core managers with complex `if type == "x"` conditionals or infrastructure discovery logic (e.g., binary paths, secret resolution). Extract these into dedicated `Registrars`, `Registries`, or `Factories`. The core manager should orchestrate lifecycles, while the registrar handles the "how" of configuration and instantiation.
-- **Interface Dispatch Anti-Pattern — No Duplicate Behavior**: When a type implements an interface with a method (e.g. `Connector.Send()`), callers MUST dispatch through that interface method. Never switch on the type field to call a separate function that reimplements the same logic. If `TelegramNotifier.Send()` already handles Telegram API calls, a `replyTelegram()` function in a handler is a bug waiting to diverge. One source of truth, one code path. The caller depends on the abstraction; the abstraction owns the behavior. This is Dependency Inversion + Open/Closed: adding a new type means a new implementation + registration, never modifying the caller's switch.
+## Lifecycle
 
+-   Constructors allocate only.
+-   `Start()` performs I/O.
+-   `Stop()` drains work with timeout.
+-   Components expose Start, Stop, Health and Ready where appropriate.
 
-## 4. Performance & Resource Safety
+## Agent Architecture
 
-- **Memory**: Pre-allocate slices/maps (`make([]T, 0, cap)`) when size is known. Use pointers for large structs (>64 bytes) but values for small, immutable data.
-- **Context Propagation**: Always pass `ctx` as the first argument to I/O or long-running functions. Use `context.WithTimeout` for all external network calls.
+-   LLM plans; tools execute.
+-   Business rules never live in prompts.
+-   Keep planner, memory, tools and executor separate.
+-   Bound every agent loop by time, iterations and token budget.
 
-## 5. Testing
+## Tool Design
 
-- **Table-Driven Tests**: Use the sub-test pattern (`t.Run`) and anonymous structs for test cases.
-- **Mocks**: Generate or manually implement interfaces to isolate unit tests from external I/O.
-- **Validation**: Include tests for failover scenarios, ensuring the system recovers gracefully from provider outages.
+-   Stateless where possible.
+-   Idempotent.
+-   Deterministic.
+-   JSON schema versioned.
+-   Validate all inputs and outputs.
 
-## 6. Build & Verification
-- **Continuous Compilation**: Always run `go build ./...` across the backend after attempting refactoring, interface changes, or file structure updates to proactively identify broken package imports or undefined type dependencies.
+## State Machines
 
-## 7. Error Constants Convention
-- **Named constants for all error strings**: Every error message passed across function or package boundaries must be defined as a named `const` string, not as an inline literal. This ensures consistency between producers and consumers, keeps the message set auditable in one place, and prevents silent drift from stale inline copies.
-- **Where to define them**: Error constants that are used in only one package live at the top of the file that defines the error type. Cross-package error constants live in the package that defines the error type (the producer), not the consumer.
-- **Adding or changing**: When adding or changing an error message, update the constant definition — never write a new inline string. This applies to all Go code in the backend.
+-   Explicit states and transitions.
+-   No boolean state flags.
+-   Invalid transitions return typed errors.
+-   Emit domain events on transitions.
+
+## DDD
+
+-   Aggregate roots enforce invariants.
+-   Value objects are immutable.
+-   Repositories persist aggregates.
+-   Domain events model completed business actions.
+
+## Errors & Resilience
+
+-   Use typed errors.
+-   Retry only transient failures.
+-   Exponential backoff with jitter.
+-   Never parse error strings when structured data exists.
+-   Respect context cancellation.
+
+## Observability
+
+-   Structured logs.
+-   Correlation, request and trace IDs.
+-   Metrics for latency, failures, retries, queue depth and inflight
+    work.
+-   Distributed tracing.
+-   Never log secrets or prompts by default.
+
+## Performance
+
+-   Benchmark before optimization.
+-   Avoid unnecessary allocations.
+-   Reuse buffers and slices.
+-   Avoid reflection in hot paths.
+-   Keep queues bounded.
+
+## APIs
+
+-   Version breaking contracts.
+-   Validate requests.
+-   Prefer idempotent commands.
+-   Keep DTOs separate from domain models.
+
+## Testing
+
+-   Table-driven tests.
+-   Race detector.
+-   Contract tests.
+-   Chaos and timeout tests.
+-   Benchmarks for hot paths.
+
+## Security
+
+-   Least privilege.
+-   Validate all external input.
+-   Escape output.
+-   Rotate secrets.
+-   Never trust LLM output.
+
+## Before Coding
+
+1.  Read project constitution and architecture docs.
+2.  Understand bounded contexts.
+3.  Build and test baseline.
+4.  Identify invariants and state transitions.
+5.  Design API contracts before implementation.
+6.  Add telemetry before adding complexity.
+
+## Go Idioms
+
+-   Return concrete types from constructors.
+-   Consumers depend on interfaces.
+-   Wrap errors with `%w`.
+-   Use `errors.Is` and `errors.As`.
+-   Prefer standard library first.

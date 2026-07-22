@@ -26,6 +26,9 @@ const (
 	// Max control-plane messages to skip when resolving conversation adjacency.
 	// Normal recovery inserts 1–3; this is a safety cap only.
 	sessionControlWalkCap = 8
+
+	MinAnswerContentLength = 20   // chars threshold for meaningful assistant content
+	MemoryFlushRatio       = 0.7  // context budget fraction that triggers memory flush
 )
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
@@ -50,6 +53,9 @@ type runSession struct {
 	rd              repetitionDetector
 	memoryFlushSent     bool   // prevents repeated pre-sieve nudges across turns
 	lastContentWithTools string // content saved from a turn that had both text and tool calls
+
+	prefillDisabled bool // runtime override to skip prefill on retry
+	memoryInjected  bool // gates hot-memory injection to first turn only
 }
 
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
@@ -117,11 +123,11 @@ func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 	return false
 }
 
-// bestAvailableAnswer returns the most recent assistant content with len ≥ 20.
+// bestAvailableAnswer returns the most recent assistant content with len ≥ MinAnswerContentLength.
 func (s *runSession) bestAvailableAnswer() string {
 	for i := len(s.history) - 1; i >= 0; i-- {
 		if s.history[i].Role == proxy.AssistantRole {
-			if c := strings.TrimSpace(s.history[i].Content); len(c) >= 20 {
+			if c := strings.TrimSpace(s.history[i].Content); len(c) >= MinAnswerContentLength {
 				return s.history[i].Content
 			}
 		}
@@ -255,7 +261,7 @@ func (s *runSession) hasOnlyHousekeepingTools(calls []proxy.ToolCall) bool {
 //
 // A turn is complete when the assistant:
 //   - Has no tool calls (not planning to act further)
-//   - Produces non-empty visible content (≥20 chars after stripping reasoning tags)
+//   - Produces non-empty visible content (≥MinAnswerContentLength chars after stripping reasoning tags)
 //   - The content is not an unparsed tool-call attempt
 //   - The run has produced at least one tool result in history (the model
 //     actually did work, not just first-turn text)
@@ -275,7 +281,7 @@ func checkTaskCompletion(msg proxy.Message, history []proxy.Message) (string, bo
 	// Strip reasoning tags — Qwen3/Ollama put <think> in content.
 	// If nothing substantive remains, this is NOT a final answer.
 	stripped := stripThinkBlocks(msg.Content)
-	if len(stripped) < 20 {
+	if len(stripped) < MinAnswerContentLength {
 		return "", false
 	}
 
@@ -376,6 +382,10 @@ func previousConversationMessage(history []proxy.Message) *proxy.Message {
 }
 
 func (s *runSession) run() (string, []proxy.Message, error) {
+	s.agent.runS = s
+	// Only clear the back-pointer when run() exits (not panics).
+	defer func() { s.agent.runS = nil }()
+
 	for {
 		s.steps++
 		if err := s.ctx.Err(); err != nil {
@@ -411,7 +421,7 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 		s.sieveStreak = 0
 
 		if len(turnMsg.ToolCalls) > 0 {
-			done, reply, turnErr := s.handleToolTurn(turnMsg)
+			done, reply, turnErr := s.handleToolTurn(turnMsg, toolsList)
 			if done {
 				return reply, s.history, turnErr
 			}
@@ -478,7 +488,7 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 
 // handleToolTurn runs duplicate detection, tool execution, and salvage completion.
 // done=true means return from run(); done=false means continue the loop.
-func (s *runSession) handleToolTurn(turnMsg proxy.Message) (done bool, reply string, err error) {
+func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Tool) (done bool, reply string, err error) {
 	s.resetParseErrorState()
 
 	isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.deps.Logger, turnMsg.ToolCalls)
@@ -507,14 +517,14 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message) (done bool, reply str
 	// is mid-task narration ("I'll scan the directory now"), not a final
 	// answer.  Hermes-aligned: _last_content_with_tools only for housekeeping.
 	if s.hasOnlyHousekeepingTools(turnMsg.ToolCalls) {
-		if stripped := stripThinkBlocks(turnMsg.Content); len(stripped) >= 20 {
+		if stripped := stripThinkBlocks(turnMsg.Content); len(stripped) >= MinAnswerContentLength {
 			s.lastContentWithTools = stripped
 		}
 	}
 
 	s.history = append(s.history, turnMsg)
 
-	salvaged, err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history)
+	salvaged, err := s.agent.processToolCalls(s.ctx, turnMsg, &s.history, toolsList)
 	if err != nil {
 		return true, "", err
 	}
@@ -653,32 +663,9 @@ func (s *runSession) handleNoToolCalls(
 	}
 
 	if parseErr != nil {
-		// If XMLFound is false, the model produced plain text without any
-		// tool call attempt. Treat it as a faithful completion — no tool
-		// calls with substantive text is the canonical final-answer signal
-		// (Hermes-aligned: trust the model). Native-tools mode no longer
-		// rejects plain-text completion.  The checkTaskCompletion gate
-		// (think-strip + any-tool-result) runs before we reach this handler.
-		if !parseErr.XMLFound && strings.TrimSpace(turnMsg.Content) != "" {
-			return turnMsg.Content, true, nil
-		}
-		if parseErr != nil {
-			if len(toolsList) == 0 {
-				return "", true, nil
-			}
-			s.totalErrorStreak++
-			if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
-				s.modelCompatNotified = true
-				s.agent.notifyModelCompatWarning(s.agent.config.UseNativeTools)
-			}
-			availableNames := proxy.AvailableToolNames(toolsList)
-			feedback := parseErr.Feedback(availableNames)
-			s.agent.deps.Logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
-			s.history = append(s.history, proxy.Message{
-				Role:    proxy.UserRole,
-				Content: feedback,
-			})
-			return "", false, nil
+		reply, done := s.handleParseErrorFeedback(parseErr, toolsList, turnMsg.Content)
+		if done {
+			return reply, true, nil
 		}
 	}
 
@@ -718,6 +705,31 @@ func (s *runSession) handleNoToolCalls(
 		Content: prompts.AutomationNagPrompt,
 	})
 	return "", false, nil
+}
+
+// handleParseErrorFeedback handles the parse-error branch of handleNoToolCalls.
+// When XMLFound is false and the message has substantive content, it trusts the
+// model's completion. Otherwise, it injects parse-error guidance feedback.
+func (s *runSession) handleParseErrorFeedback(parseErr *proxy.ParseError, toolsList []proxy.Tool, content string) (string, bool) {
+	if !parseErr.XMLFound && strings.TrimSpace(content) != "" {
+		return content, true
+	}
+	if len(toolsList) == 0 {
+		return "", true
+	}
+	s.totalErrorStreak++
+	if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
+		s.modelCompatNotified = true
+		s.agent.notifyModelCompatWarning(s.agent.config.UseNativeTools)
+	}
+	availableNames := proxy.AvailableToolNames(toolsList)
+	feedback := parseErr.Feedback(availableNames)
+	s.agent.deps.Logger.Debug("injecting parse-error feedback", "error", parseErr.Error(), "feedback", feedback)
+	s.history = append(s.history, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: feedback,
+	})
+	return "", false
 }
 
 // hasToolCallMarker checks whether content contains XML-like markers that
@@ -852,7 +864,7 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	}
 
 	ratio := float64(totalChars) / float64(s.agent.config.ContextBudget)
-	if ratio < 0.7 {
+	if ratio < MemoryFlushRatio {
 		return
 	}
 

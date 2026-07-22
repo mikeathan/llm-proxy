@@ -219,7 +219,9 @@ func scheduleWebhookReregistration(name string, cfg models.ConnectorConfig, conn
 		return
 	}
 	go func() {
-		if err := wa.RegisterWebhook(context.Background(), cfg.WebhookURL, cfg.Settings["webhook_token"]); err != nil {
+		regCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := wa.RegisterWebhook(regCtx, cfg.WebhookURL, cfg.Settings["webhook_token"]); err != nil {
 			logging.Warn("failed to re-register webhook on startup", "connector", name, "error", err)
 		} else {
 			logging.Info("re-registered webhook on startup", "connector", name, "url", cfg.WebhookURL)
