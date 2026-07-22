@@ -47,8 +47,9 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 				return nil, fmt.Errorf("invalid address format: %w", err)
 			}
 
-			// Use net.DefaultResolver with context for DNS lookups
-			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	// Use pure-Go resolver (PreferGo) scoped to network tool; respects
+		// context cancellation where the default cgo resolver does not.
+		ips, err := (&net.Resolver{PreferGo: true}).LookupIP(ctx, "ip", host)
 			if err != nil {
 				return nil, fmt.Errorf("DNS lookup failed: %w", err)
 			}
@@ -214,8 +215,8 @@ func (n *NetworkTools) validateAddress(ctx context.Context, address string, cfg 
 		return err
 	}
 
-	// SEC-H2: Use net.DefaultResolver with context
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	// SEC-H2: DNS pre-check with pure-Go resolver for context-aware cancellation.
+	ips, err := (&net.Resolver{PreferGo: true}).LookupIP(ctx, "ip", host)
 	if err != nil {
 		// If DNS fails, we might be dealing with a raw IP or a blocked segment
 		return nil // We'll let the dialer handle the error

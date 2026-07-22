@@ -119,6 +119,12 @@ export interface AgentDefaults {
   timeout_minutes: number
   tool_call_format: string
   prefill: boolean
+  tool_timeout_seconds: number
+  filesystem_tool_timeout_seconds: number
+  max_plan_duration_minutes: number
+  max_plan_steps: number
+  guardrail_timeout_seconds: number
+  guardrail_timeout_behavior: string
 }
 
 export interface GlobalConfig {

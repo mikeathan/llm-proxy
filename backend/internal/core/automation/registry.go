@@ -17,6 +17,7 @@ type AutomationEntry struct {
 	TaskFile     string
 	Strategy     ExecutionStrategy
 	Model        string
+	AllowedTools []string
 	RecordingRef string
 }
 
@@ -54,6 +55,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		TaskFile:     auto.TaskFile,
 		Strategy:     strategy,
 		Model:        auto.Model,
+		AllowedTools: auto.AllowedTools,
 		RecordingRef: auto.RecordingRef,
 	}
 

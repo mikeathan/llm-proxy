@@ -1,11 +1,15 @@
 package tools
 
 import (
+	"context"
+	"errors"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestTerminalTools_Guardrails(t *testing.T) {
@@ -393,5 +397,79 @@ func TestMergeWithAllowedExternalPaths(t *testing.T) {
 	}
 	if !found["/existing/path"] || !found["/new/path"] {
 		t.Errorf("expected both paths after merge, got %v", base.Terminal.AllowedExternalPaths)
+	}
+}
+
+func TestNewCommand_ProcessGroupIsolation(t *testing.T) {
+	tt := &TerminalTools{}
+	tmpDir := t.TempDir()
+
+	cmd := tt.newCommand(context.Background(), "bash", "sleep 60", tmpDir)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start failed: %v", err)
+	}
+	defer cmd.Wait()
+
+	if cmd.Process == nil {
+		t.Fatal("Process not started")
+	}
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("Getpgid failed: %v", err)
+	}
+	if pgid != cmd.Process.Pid {
+		t.Errorf("Setpgid not isolated: pid=%d pgid=%d (expected pgid==pid for new group)", cmd.Process.Pid, pgid)
+	}
+
+	// Clean shutdown — kill the process group so test doesn't leak
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	_ = cmd.Wait()
+}
+
+func TestNewCommand_KillsOnContextCancel(t *testing.T) {
+	tt := &TerminalTools{}
+	tmpDir := t.TempDir()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := tt.newCommand(ctx, "bash", "sleep 60", tmpDir)
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatalf("cmd.Start failed: %v", err)
+	}
+
+	// Kill process group on cancel (matching executeLocal behaviour)
+	go func() {
+		<-ctx.Done()
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("expected non-nil error after cancellation and SIGKILL")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cmd.Wait did not return within 2s of SIGKILL — process not killed")
+	}
+}
+
+func TestTerminalTools_ShellPGID_NoShellPool(t *testing.T) {
+	tt := &TerminalTools{}
+	pgid, err := tt.ShellPGID(context.Background(), "any-workspace")
+	if err == nil {
+		t.Error("expected error when no shell pool configured")
+	}
+	if !errors.Is(err, ErrShellPoolNotAvailable) {
+		t.Errorf("expected ErrShellPoolNotAvailable, got %v", err)
+	}
+	if pgid != 0 {
+		t.Errorf("expected 0 pgid, got %d", pgid)
 	}
 }

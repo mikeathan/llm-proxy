@@ -40,6 +40,12 @@ export interface Model {
   slot_timeout?: number
   timeout_minutes?: number
   tool_call_format?: string
+  tool_timeout_seconds?: number
+  filesystem_tool_timeout_seconds?: number
+  max_plan_duration_minutes?: number
+  max_plan_steps?: number
+  guardrail_timeout_seconds?: number
+  guardrail_timeout_behavior?: string
 }
 
 export interface ModelMetadata {
@@ -100,4 +106,10 @@ export interface NewModelForm {
   slot_timeout?: number
   timeout_minutes?: number
   tool_call_format?: string
+  tool_timeout_seconds?: number
+  filesystem_tool_timeout_seconds?: number
+  max_plan_duration_minutes?: number
+  max_plan_steps?: number
+  guardrail_timeout_seconds?: number
+  guardrail_timeout_behavior?: string
 }

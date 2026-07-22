@@ -135,4 +135,5 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
 -   Consumers depend on interfaces.
 -   Wrap errors with `%w`.
 -   Use `errors.Is` and `errors.As`.
+-   No hardcoded values: strings, ints, floats in logic → named `const` at file top. Errors included.
 -   Prefer standard library first.

@@ -39,7 +39,15 @@ last_reviewed: 2026-07-11
 - Manages schedules (cron, interval, manual)
 - Emits SSE events for live UI updates
 - Handles run lifecycle (start, cancel, complete)
-- 5-minute timeout for full automation runs
+- 10-minute timeout (`automationTimeout`) for full automation runs across all trigger paths (cron, webhook, manual)
+
+### StopAutomation Behavior
+- `StopAutomation()` cancels the execution context immediately (best-effort).
+- A 30-second diagnostic goroutine monitors whether the run actually terminated.
+- If still running after 30 seconds and a shell PGID is available, force-kills the process group via `syscall.Kill(-pgid, SIGKILL)` and removes the run from `activeRuns`.
+- If no shell PGID (network-only run), logs a warning (graceful degradation).
+- Subsequent `StopAutomation` calls cancel the previous diagnostic goroutine via a cancellable context (prevents accumulation).
+- Shell PGID is polled lazily after agent creation — the persistent shell session is created on first `terminal_execute` call.
 
 ### LLMTaskExecutor (`internal/core/automation/executor.go`)
 - Gets LLM client

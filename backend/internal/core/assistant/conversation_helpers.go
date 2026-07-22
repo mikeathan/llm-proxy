@@ -13,9 +13,17 @@ import (
 	"llm-proxy/models"
 )
 
-var agentsFileCache core.ContentCache
+const (
+	agentsCacheKey               = "agents:"
+	agentsFileCacheMaxEntries    = 100             // per-workspace cache bound (PL-6)
+	agentsFileCacheTTL           = 30 * time.Minute // stale entries evicted lazily on Get
+)
 
-const agentsCacheKey = "agents:"
+// agentsFileCache memoizes AGENTS.md reads per workspace, bounded at
+// agentsFileCacheMaxEntries to prevent unbounded growth for long-lived servers.
+// Entries expire after agentsFileCacheTTL (lazy eviction on Get) so edits to
+// AGENTS.md are picked up without a restart.
+var agentsFileCache = core.NewTTLCache[string, string](agentsFileCacheMaxEntries, agentsFileCacheTTL, nil)
 
 const MaxHistoryChars = 12 * 1024
 
@@ -203,11 +211,11 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 	copy(history, base)
 
 	var (
-		streamingContent   string          // visible text from EventToolStream
-		streamingReasoning string          // thinking text from EventReasoning
+		streamingContent   string // visible text from EventToolStream
+		streamingReasoning string // thinking text from EventReasoning
 		pending            []proxy.ToolCall
-		turnContent        string          // snapshot of streamingContent at first call
-		turnReasoning      string          // snapshot of streamingReasoning at first call
+		turnContent        string // snapshot of streamingContent at first call
+		turnReasoning      string // snapshot of streamingReasoning at first call
 	)
 
 	flushPendingGroup := func() {

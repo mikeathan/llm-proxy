@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/nodeherder"
@@ -28,59 +28,48 @@ import (
 // readConfigFunc loads a workspace config, potentially from a cache.
 type readConfigFunc func(workspaceID string) (*models.WorkspaceConfig, error)
 
-// workspaceConfigCache memoizes ReadConfig results per workspace, invalidated by
-// file mtime. Matches the modelDiscoveryCache pattern from admin_handlers.go.
-type workspaceConfigCache struct {
-	mu       sync.RWMutex
-	entries  map[string]*workspaceConfigEntry
-	resolver storage.Resolver
-}
+// workspaceConfigCache bounds ReadConfig results per workspace, invalidated by
+// file mtime and bounded by size + TTL to prevent unbounded growth (PL-3).
+const (
+	workspaceConfigCacheMaxEntries = 100
+	workspaceConfigCacheTTL        = 5 * time.Minute
+)
 
+// workspaceConfigEntry is the cached value: the config plus the mtime it was
+// read at, so the validity predicate can detect out-of-band file edits.
 type workspaceConfigEntry struct {
 	config  *models.WorkspaceConfig
 	modTime time.Time
 }
 
-func newWorkspaceConfigCache(resolver storage.Resolver) *workspaceConfigCache {
-	return &workspaceConfigCache{
-		entries:  make(map[string]*workspaceConfigEntry),
-		resolver: resolver,
-	}
-}
-
-func (c *workspaceConfigCache) getOrLoad(wsID string, persistence *persistence.WorkspaceManager) (*models.WorkspaceConfig, error) {
-	c.mu.RLock()
-	entry, ok := c.entries[wsID]
-	c.mu.RUnlock()
-
-	if ok {
-		configPath := c.resolver.Config(wsID)
-		if info, err := os.Stat(configPath); err == nil && info.ModTime().Equal(entry.modTime) {
-			return entry.config, nil
-		}
-	}
-
-	cfg, err := persistence.ReadConfig(wsID)
-	if err != nil {
-		return cfg, err
-	}
-
-	configPath := c.resolver.Config(wsID)
-	info, err := os.Stat(configPath)
-	if err == nil {
-		c.mu.Lock()
-		c.entries[wsID] = &workspaceConfigEntry{config: cfg, modTime: info.ModTime()}
-		c.mu.Unlock()
-	}
-	return cfg, nil
-}
-
 // newCachedConfigReader builds a readConfigFunc that caches per-workspace
-// config reads with mtime-based invalidation.
+// config reads, invalidated by mtime and bounded by TTL + size (PL-3).
 func newCachedConfigReader(persistence *persistence.WorkspaceManager, resolver storage.Resolver) readConfigFunc {
-	cache := newWorkspaceConfigCache(resolver)
+	mtimeValid := func(wsID string, e *workspaceConfigEntry) bool {
+		info, err := os.Stat(resolver.Config(wsID))
+		return err == nil && info.ModTime().Equal(e.modTime)
+	}
+	cache := core.NewTTLCache[string, *workspaceConfigEntry](workspaceConfigCacheMaxEntries, workspaceConfigCacheTTL, mtimeValid)
 	return func(wsID string) (*models.WorkspaceConfig, error) {
-		return cache.getOrLoad(wsID, persistence)
+		e, err := cache.Get(wsID, func() (*workspaceConfigEntry, error) {
+			cfg, err := persistence.ReadConfig(wsID)
+			if err != nil {
+				return nil, err
+			}
+			// ReadConfig and this Stat resolve to the same path, so a stat
+			// failure here is anomalous. Serve the freshly read config but
+			// decline caching (ErrNoCache) so a broken stat can never occupy
+			// a bounded cache slot with an entry that can never be a hit.
+			info, serr := os.Stat(resolver.Config(wsID))
+			if serr != nil {
+				return &workspaceConfigEntry{config: cfg}, core.ErrNoCache
+			}
+			return &workspaceConfigEntry{config: cfg, modTime: info.ModTime()}, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return e.config, nil
 	}
 }
 
@@ -305,7 +294,7 @@ func InitializeAgentStack(
 	terminal := initTerminalTools(resolver, persistence, readConfig, defaultGuardrails, shellManager, observer)
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
-	}, resolver, persistence)
+	}, resolver, persistence, func(workspaceID string) (*models.WorkspaceConfig, error) { return readConfig(workspaceID) })
 	network := initNetworkTools(persistence, readConfig, defaultGuardrails, logger)
 	comm := initCommunicationTools(appCtx, network)
 	search := initSearchTools(appCtx, network)

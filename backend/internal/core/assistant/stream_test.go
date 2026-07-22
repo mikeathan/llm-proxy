@@ -344,3 +344,27 @@ func TestNoToolCap_Relaxation(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanReasoningContent_Precompiled(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"<think>planning</think>hello", "planninghello"},
+		{"</think>hello<think>", "hello"},
+		{"hello", "hello"},
+		{"<think>nested<think>tags</think></think>", "nestedtags"},
+		{"  \t <think>x</think> world  ", "x world"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := cleanReasoningContent(tt.input)
+		if got != tt.expected {
+			t.Errorf("cleanReasoningContent(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+
+	if thinkTagsRe == nil {
+		t.Error("thinkTagsRe must be precompiled, not nil")
+	}
+}

@@ -149,6 +149,13 @@ type adminTuningDefaults struct {
 	TimeoutMinutes  int     `json:"timeout_minutes"`
 	ToolCallFormat  string  `json:"tool_call_format"`
 	Prefill         bool    `json:"prefill"`
+
+	ToolTimeoutSeconds           int    `json:"tool_timeout_seconds"`
+	FilesystemToolTimeoutSeconds int    `json:"filesystem_tool_timeout_seconds"`
+	MaxPlanDurationMinutes       int    `json:"max_plan_duration_minutes"`
+	MaxPlanSteps                 int    `json:"max_plan_steps"`
+	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds"`
+	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior"`
 }
 
 type adminConfigView struct {
@@ -301,14 +308,20 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Communication:       reg.Communication,
 			Search:              reg.Search,
 			AgentDefaults: adminTuningDefaults{
-				MaxSteps:        assistant.DefaultMaxSteps,
-				ContextBudget:   assistant.DefaultContextBudget,
-				MaxTokens:       assistant.DefaultMaxTokens,
-				Temperature:     assistant.DefaultAutomationTemperature,
-				ReasoningBudget: 0,
-				TimeoutMinutes:  int(assistant.AgentGlobalTimeout.Minutes()),
-				ToolCallFormat:  "",
-				Prefill:         false,
+				MaxSteps:                     assistant.DefaultMaxSteps,
+				ContextBudget:                assistant.DefaultContextBudget,
+				MaxTokens:                    assistant.DefaultMaxTokens,
+				Temperature:                  assistant.DefaultAutomationTemperature,
+				ReasoningBudget:              0,
+				TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
+				ToolCallFormat:               "",
+				Prefill:                      false,
+				ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
+				FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
+				MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
+				MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
+				GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
+				GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
 			},
 			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
 			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
@@ -365,14 +378,20 @@ func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[st
 	out := make(map[string]adminTuningDefaults, len(in))
 	for k, v := range in {
 		out[k] = adminTuningDefaults{
-			MaxSteps:        v.MaxSteps,
-			ContextBudget:   v.ContextBudget,
-			MaxTokens:       v.MaxTokens,
-			Temperature:     assistant.DefaultAutomationTemperature,
-			ReasoningBudget: v.ReasoningBudget,
-			TimeoutMinutes:  int(assistant.AgentGlobalTimeout.Minutes()),
-			ToolCallFormat:  v.ToolCallFormat,
-			Prefill:         v.Prefill,
+			MaxSteps:                     v.MaxSteps,
+			ContextBudget:                v.ContextBudget,
+			MaxTokens:                    v.MaxTokens,
+			Temperature:                  assistant.DefaultAutomationTemperature,
+			ReasoningBudget:              v.ReasoningBudget,
+			TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
+			ToolCallFormat:               v.ToolCallFormat,
+			Prefill:                      v.Prefill,
+			ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
+			FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
+			MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
+			MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
+			GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
+			GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
 		}
 	}
 	return out

@@ -55,6 +55,10 @@ func (m *mockShellProvider) Shutdown() {
 	m.shutdownCalled = true
 }
 
+func (m *mockShellProvider) PGID(workspaceID string) (int, bool) {
+	return 0, false
+}
+
 // Helper to create valid server with optional config overrides
 func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.Config) *app.AppContext {
 	dir := t.TempDir()

@@ -42,6 +42,7 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 -   Prefer inference over redundant annotations.
 -   Keep types in `/types`.
 -   Annotate API response types; never consume untyped responses.
+-   No hardcoded values: strings, numbers in logic → named `const` at file top. Errors, labels, keys included.
 
 ## Components
 

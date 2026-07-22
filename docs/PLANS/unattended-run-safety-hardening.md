@@ -1,6 +1,6 @@
 # Unattended Run Safety Hardening Plan
 
-**Status:** approved — Step 0 complete (2026-07-22)
+**Status:** approved — Steps 0–5 complete (2026-07-22)
 **Date:** 2026-07-22
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-006 (Guardrails)
 
@@ -10,7 +10,7 @@
 
 Agentic runs have multiple redundant guard layers (30-min global timeout, 50-step hard cap, repetition/spiral/starvation detection, stuck-stream checks, sieve retry caps). However, gaps create unbounded windows between guard firings or allow guard bypasses — especially for unattended automations.
 
-This plan closes 13 safety gaps, fixes 7 memory leaks, and addresses 7 performance optimizations. The refactoring work (Step 0) ships first to create a clean foundation, then safety fixes build on that foundation.
+This plan closes 13 safety gaps, fixes 7 memory leaks, and addresses 5 performance optimizations (O1, O3, O5, O6, O7). The refactoring work (Step 0) ships first to create a clean foundation, then safety fixes build on that foundation.
 
 **Scope:** All changes flow through the existing config pipeline so users can tune every timeout. No hard-coded-only values.
 
@@ -186,7 +186,7 @@ All existing tests pass. No behavior change. Coverage unchanged or improved.
 
 ---
 
-## Step 1: Config & UI Plumbing (No Behavior Change)
+## Step 1: Config & UI Plumbing (No Behavior Change) — COMPLETE
 
 **Purpose:** Add all new `AgentOptions` fields. Wire through config pipeline. Frontend shows controls but values not consumed yet.
 
@@ -229,7 +229,7 @@ All existing tests pass. No behavior change. Coverage unchanged or improved.
 
 ---
 
-## Step 2: Per-Tool Timeouts + executePlan Timeouts + executeLocal Setpgid
+## Step 2: Per-Tool Timeouts + executePlan Timeouts + executeLocal Setpgid — COMPLETE
 
 **Problem:** Tools can hang indefinitely. Filesystem ops on slow mounts are unbounded until GlobalTimeout (30 min). `executePlan` has no step limit or per-step timeout. `executeLocal` has no process group isolation — child processes survive context cancellation.
 
@@ -277,7 +277,7 @@ TestExecuteLocal_DoesNotKillOtherProcesses      // other processes untouched
 
 ---
 
-## Step 3: StopAutomation Force-Kill
+## Step 3: StopAutomation Force-Kill — COMPLETE
 
 **Problem:** `StopAutomation()` calls `cancel()` on the context and spawns a goroutine that checks after 30s if the run is still active. If it is, **it only logs a warning** — the hung run continues indefinitely. No SIGKILL, no process group termination, no force stop. The diagnostic goroutine has no context and can accumulate on rapid `StopAutomation` calls.
 
@@ -322,9 +322,15 @@ TestStopAutomation_DiagnosticGoroutineLeak     // goroutine exits on context can
 
 ---
 
-## Step 4: Uniform automationTimeout + executePlan Step Limit
+## Step 4: Uniform automationTimeout + executePlan Step Limit — COMPLETE
 
-**Problem:** `Trigger()` does NOT wrap with `automationTimeout`. Only the agent's own 30-min GlobalTimeout applies. Webhook-triggered and manual UI-triggered automations run up to 30 minutes (3× the cron timeout). `executePlan` has no step limit — if the LLM generates 100 steps, all 100 execute.
+**Already done in Step 2:**
+- `executePlan` pre-check: `if len(plan.Steps) > a.config.MaxPlanSteps → fail fast` (line 332 via `MaxPlanSteps` field)
+- `executePlan` plan-level timeout: `context.WithTimeout(ctx, a.config.MaxPlanDuration)` (line 334)
+
+**Remaining:**
+1. ~~**`dispatcher.go`** — `Trigger()`: wrap with `context.WithTimeout(ctx, automationTimeout)` before passing to `executeAutomation`~~ ✓
+2. ~~**`tool_exec.go`** — `executePlan`: add in-loop check `if i >= a.config.MaxPlanSteps → abort with error`~~ ✓
 
 **Closes:** GAP-3 (executePlan bypasses all loop guards), GAP-4 (automationTimeout only in cron path)
 
@@ -332,13 +338,13 @@ TestStopAutomation_DiagnosticGoroutineLeak     // goroutine exits on context can
 
 1. **`dispatcher.go`** — `Trigger()`: wrap with `context.WithTimeout(ctx, automationTimeout)` before passing to `executeAutomation`
 
-2. **`tool_exec.go`** — `executePlan`: add pre-check `if len(plan.Steps) > a.config.MaxPlanSteps → fail fast`; in-loop check `if i >= a.config.MaxPlanSteps → abort with error`
+2. **`tool_exec.go`** — `executePlan`: ~~add pre-check `if len(plan.Steps) > a.config.MaxPlanSteps → fail fast`~~ ✓ (done in Step 2); in-loop check `if i >= a.config.MaxPlanSteps → abort with error`
 
 ### Acceptance Criteria
 
 - Webhook-triggered run: context deadline matches `automationTimeout` (10 min)
-- Plan with 60 steps: aborts at step 50 (MaxPlanSteps default)
-- Plan with 100 steps: fails fast before any step executes
+- ~~Plan with 60 steps: aborts at step 50 (MaxPlanSteps default)~~ ✓ (pre-check catches this)
+- ~~Plan with 100 steps: fails fast before any step executes~~ ✓ (pre-check catches this)
 - `go test ./internal/core/automation/... ./internal/core/assistant/... -count=1` — 100% pass
 
 ### Tests
@@ -347,7 +353,7 @@ TestStopAutomation_DiagnosticGoroutineLeak     // goroutine exits on context can
 TestTrigger_HasAutomationTimeout           // Trigger path context has deadline
 TestTrigger_ContextDeadlineMatchesConst    // deadline = automationTimeout from dispatcher.go:28
 TestExecutePlan_MaxStepsExceeded           // 51 steps → abort at 50
-TestExecutePlan_PreCheckMaxSteps           // 100 steps → fail before any execution
+TestExecutePlan_PreCheckMaxSteps           // 100 steps → fail before any execution  ✓
 TestExecutePlan_UnderMaxSteps              // 25 steps → completes normally
 ```
 
@@ -355,9 +361,13 @@ TestExecutePlan_UnderMaxSteps              // 25 steps → completes normally
 
 ---
 
-## Step 5: Guardrail Timeout & Defense-in-Depth
+## Step 5: Guardrail Timeout & Defense-in-Depth — COMPLETE
+
+**Status:** All sub-items complete (2026-07-22): Fix-11 guardrail timeout, Fix-5 global watchdog, Fix-6 flag split (`nagSent`/`hardCapTriggered`), PL-3 config-cache bound, PL-4 EventBus orphan reaper, PL-5 guardrail override-cache TTL, PL-6 `agentsFileCache` TTL, O5 single-marshal.
 
 **Problem:** `resolveGuardrail()` calls `ValidateToolCall()` synchronously in the hot path. If a guardrail implementation calls an external policy service (HTTP), hits a DB, or does expensive computation, it blocks the agent loop. No timeout wraps this call. The `forcedCompletionSent` flag is shared between nag and hard cap, disabling the hard cap after a nag. No watchdog monitors the global timeout.
+
+**Implementation note (Fix-11):** The guardrail timeout is applied at the `ValidateToolCall` level inside `resolveGuardrail` (via `guardrailCtxWithTimeout`), not by wrapping the whole `resolveGuardrail` call in `executeSingleToolStep`. This is deliberate: a context deadline must be detected *before* the generic error path runs, otherwise a timeout would be misread as a policy violation and could wrongly trigger the allow/deny approval dialog. On `context.DeadlineExceeded` the configured `GuardrailTimeoutBehavior` (`fail-open` | `fail-closed`) is applied directly. `GuardrailTimeout == 0` leaves evaluation unbounded (legacy behavior).
 
 **Closes:** GAP-5 (no kill-switch after GlobalTimeout), GAP-6 (forcedCompletionSent flag shared), GAP-11 (guardrail evaluation can block loop)
 

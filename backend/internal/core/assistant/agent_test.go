@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -873,8 +874,7 @@ func TestAgent_ToolCallParseError_EmptyXMLBlock_Recovers(t *testing.T) {
 	initialHistory := []proxy.Message{
 		{Role: "user", Content: "Write and compile a TypeScript app"},
 		{Role: "assistant", ToolCalls: []proxy.ToolCall{
-			{ID: "init", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{}`},
-			}}},
+			{ID: "init", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{}`}}}},
 		{Role: "tool", Content: `{"stdout": "ok"}`},
 	}
 
@@ -960,8 +960,7 @@ func TestAgent_ToolCallParseError_TruncatedXMLBlock(t *testing.T) {
 	initialHistory := []proxy.Message{
 		{Role: "user", Content: "Check all data files"},
 		{Role: "assistant", ToolCalls: []proxy.ToolCall{
-			{ID: "init", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{}`},
-			}}},
+			{ID: "init", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{}`}}}},
 		{Role: "tool", Content: `{"stdout": "ok"}`},
 	}
 
@@ -1319,14 +1318,14 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 					},
 				}, nil
 			}
-		return &proxy.ChatResponse{
-			Choices: []proxy.Choice{
-				{Message: proxy.Message{
-					Role:    "assistant",
-					Content: "The weather in London is sunny and warm today.",
-				}},
-			},
-		}, nil
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{
+						Role:    "assistant",
+						Content: "The weather in London is sunny and warm today.",
+					}},
+				},
+			}, nil
 		},
 	}
 	provider := &MockProvider{
@@ -1808,7 +1807,7 @@ func TestAgent_Execute_GuardrailDecisionApproval(t *testing.T) {
 				BlockSecrets: true,
 			},
 		}
-	}, storage.NewPathResolver("", "", ""), nil)
+	}, storage.NewPathResolver("", "", ""), nil, nil)
 
 	var callbackPayload GuardrailBlockedPayload
 	var callbackCalled bool
@@ -1888,7 +1887,7 @@ func TestAgent_Execute_GuardrailDecisionDenial(t *testing.T) {
 				BlockSecrets: true,
 			},
 		}
-	}, storage.NewPathResolver("", "", ""), nil)
+	}, storage.NewPathResolver("", "", ""), nil, nil)
 
 	var callbackCalled bool
 
@@ -2142,8 +2141,8 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	if err != nil && !strings.Contains(err.Error(), "max steps") && !strings.Contains(err.Error(), "stalled") {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if capturedReq.ToolChoice != "" {
-		t.Errorf("expected empty ToolChoice for XML mode, got %q", capturedReq.ToolChoice)
+	if capturedReq.ToolChoice == "required" {
+		t.Errorf("XML mode must not force ToolChoice=required, got %q", capturedReq.ToolChoice)
 	}
 	if capturedReq.Temperature != 0 {
 		t.Errorf("expected Temperature=0 (not configured), got %f", capturedReq.Temperature)
@@ -2672,7 +2671,7 @@ func TestComputeNextResponseStreamXML_PrefillThinkingError(t *testing.T) {
 		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
 		{Role: proxy.AssistantRole, Content: "previous tool call"},
 		{Role: proxy.ToolRole, Content: "result"},
-	}, provider.Tools)
+	}, provider.Tools, "")
 	if err != nil {
 		t.Fatalf("computeNextResponseStreamXML failed: %v", err)
 	}
@@ -2738,11 +2737,11 @@ func TestAgent_StuckThresholdConstant(t *testing.T) {
 				},
 			}
 			engine := &MockEngine{Result: "ok"}
-				agent := NewAgent(client, provider, engine, AgentOptions{
-					MaxSteps:          25,
-					MaxResponseTokens: tc.maxRespTok,
-					ReasoningBudget:   tc.maxRespTok * 2,
-				})
+			agent := NewAgent(client, provider, engine, AgentOptions{
+				MaxSteps:          25,
+				MaxResponseTokens: tc.maxRespTok,
+				ReasoningBudget:   tc.maxRespTok * 2,
+			})
 			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
 				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
@@ -2831,11 +2830,11 @@ func TestAgent_StuckThresholdDerived(t *testing.T) {
 				},
 			}
 			engine := &MockEngine{Result: "ok"}
-				agent := NewAgent(client, provider, engine, AgentOptions{
-					MaxSteps:          25,
-					MaxResponseTokens: tc.maxRespTok,
-					ReasoningBudget:   tc.maxRespTok * 2,
-				})
+			agent := NewAgent(client, provider, engine, AgentOptions{
+				MaxSteps:          25,
+				MaxResponseTokens: tc.maxRespTok,
+				ReasoningBudget:   tc.maxRespTok * 2,
+			})
 			agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 			_, _, err := agent.Execute(context.Background(), []proxy.Message{
 				{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
@@ -3761,7 +3760,7 @@ func TestAgent_Execute_EventOrder_ToolCallBeforeEventMessage(t *testing.T) {
 				AllowedPaths: []string{"."},
 			},
 		}
-	}, storage.NewPathResolver("", "", ""), nil)
+	}, storage.NewPathResolver("", "", ""), nil, nil)
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:   5,
@@ -3906,6 +3905,84 @@ func TestAgent_Execute_NativeToolsNoToolCalls_Starvation(t *testing.T) {
 	}
 }
 
+// TestAgent_Execute_ReasoningOnlyWriteThenEmpty_Terminates is a regression test
+// for the unattended-run safety-hardening regression where a reasoning-only
+// model (content_len 0 every turn) wrote its deliverable via write_file and
+// then returned empty reasoning-only turns. The bounded recovery ladder must
+// terminate the run without re-scanning: postToolNudgeCount re-arms on every
+// successful tool turn, the nudge fires up to postToolNudgeMax times, then a
+// single tools-disabled finalization turn is forced, and finally the run ends.
+//
+// Because the write is a COMPLETED (valid-JSON) call, its content is NOT dumped
+// as the final report (that would misreport a source/artifact file); the final
+// reply is empty since the model never emitted a chat report.
+func TestAgent_Execute_ReasoningOnlyWriteThenEmpty_Terminates(t *testing.T) {
+	var callCount int
+	client := &MockClient{
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			callCount++
+			if callCount == 1 {
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{
+						{Message: proxy.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []proxy.ToolCall{
+								{ID: "c1", Type: "function", Function: proxy.FunctionCall{
+									Name:      models.ToolFileWrite,
+									Arguments: `{"path":"report.md","content":"# Network Recon Report\nThe local network was scanned in two phases. Five active hosts were discovered. SSH was exposed on three hosts and HTTP on two. One host also exposed SMB and RDP services that should be firewalled. This report documents the open ports, the detected service versions, and the recommended hardening steps to reduce the attack surface."}`,
+								}},
+							},
+						}},
+					},
+				}, nil
+			}
+			// Turn 2+: empty reasoning-only. Must end the run, not re-scan.
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{
+					{Message: proxy.Message{Role: "assistant", Content: "", ReasoningContent: "thinking"}},
+				},
+			}, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolFileWrite}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		UseNativeTools: boolPtr(true),
+		MaxSteps:       25,
+		ContextBudget:  100000,
+	})
+
+	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: "scan the network and write a report"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The model completed its work via a write_file tool call and then returned
+	// empty reasoning-only turns. The new bounded ladder re-arms the nudge up to
+	// postToolNudgeMax times, forces ONE tools-disabled finalization turn, then
+	// terminates — it must NOT re-scan or loop forever. Because the model never
+	// emitted a chat report (only a tool call), the final reply is empty.
+	if callCount < 2 {
+		t.Errorf("expected at least the write turn + a recovery turn, got %d", callCount)
+	}
+	if callCount > 8 {
+		t.Errorf("run did not terminate (re-armed nudge loop?), got %d calls", callCount)
+	}
+	if reply != "" {
+		// If a reply is produced it must be a genuine report, never a tool marker.
+		if hasToolCallMarker(reply) {
+			t.Errorf("reply must not contain tool-call markers, got %q", reply)
+		}
+	}
+}
+
 // boolPtr is defined earlier in this file (line ~2545)
 
 func TestExceedsContentCharCap(t *testing.T) {
@@ -4010,33 +4087,33 @@ func TestAgent_SubmitFinalAnswer_NoDuplicateInHistory(t *testing.T) {
 	}
 	client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
 		if client.Calls == 1 {
-				// Turn 1: a real tool call, producing a tool result.
-				return &proxy.ChatResponse{
-					Choices: []proxy.Choice{
-						{Message: proxy.Message{
-							Role:    "assistant",
-							Content: "",
-							ToolCalls: []proxy.ToolCall{{
-								Type: "function",
-								Function: proxy.FunctionCall{
-									Name:      "read_file",
-									Arguments: `{"path": "report.txt"}`,
-								},
-							}},
-						}},
-					},
-				}, nil
-			}
-			// Turn 2: content-only final answer after the tool result.
+			// Turn 1: a real tool call, producing a tool result.
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{
 						Role:    "assistant",
-						Content: "Workspace report generated with 6 files",
+						Content: "",
+						ToolCalls: []proxy.ToolCall{{
+							Type: "function",
+							Function: proxy.FunctionCall{
+								Name:      "read_file",
+								Arguments: `{"path": "report.txt"}`,
+							},
+						}},
 					}},
 				},
 			}, nil
 		}
+		// Turn 2: content-only final answer after the tool result.
+		return &proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{
+					Role:    "assistant",
+					Content: "Workspace report generated with 6 files",
+				}},
+			},
+		}, nil
+	}
 	provider := &MockProvider{
 		Tools: []proxy.Tool{
 			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
@@ -4225,7 +4302,7 @@ func TestAgent_Execute_TruncatedWriteFile_Salvages(t *testing.T) {
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{
 					Message: proxy.Message{
-						Role: proxy.AssistantRole,
+						Role:    proxy.AssistantRole,
 						Content: "Compiling the Markdown report.",
 						ToolCalls: []proxy.ToolCall{{
 							ID:   "call_write",
@@ -4339,4 +4416,206 @@ func TestToolCache_InvalidatesOnDifferentTools(t *testing.T) {
 	}
 }
 
+func TestToolCtxWithTimeout_FilesystemUsesFilesystemTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
 
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolFileRead)
+	defer cancel()
+
+	deadline, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("expected filesystem ctx to have deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 29*time.Second || remaining > 30*time.Second+50*time.Millisecond {
+		t.Errorf("filesystem timeout ~30s, got remaining=%v", remaining)
+	}
+}
+
+func TestToolCtxWithTimeout_TerminalUsesDefaultTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolTerminalExecute)
+	defer cancel()
+
+	deadline, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("expected terminal ctx to have deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 1*time.Minute+55*time.Second || remaining > 2*time.Minute+50*time.Millisecond {
+		t.Errorf("terminal timeout ~2m, got remaining=%v", remaining)
+	}
+}
+
+func TestToolCtxWithTimeout_NetworkUsesDefaultTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolNetworkFetch)
+	defer cancel()
+
+	_, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("expected network ctx to have deadline")
+	}
+}
+
+func TestToolCtxWithTimeout_SearchUsesDefaultTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolInternetSearch)
+	defer cancel()
+
+	_, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("expected search ctx to have deadline")
+	}
+}
+
+func TestToolCtxWithTimeout_UnknownToolUsesDefaultTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, "unknown_tool")
+	defer cancel()
+
+	_, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("expected unknown tool ctx to have deadline")
+	}
+}
+
+func TestToolCtxWithTimeout_ZeroTimeoutReturnsOriginalContext(t *testing.T) {
+	agent := &Agent{
+		config: AgentConfig{
+			ToolTimeout:           0,
+			FilesystemToolTimeout: 0,
+		},
+	}
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolFileWrite)
+	defer cancel()
+
+	_, ok := toolCtx.Deadline()
+	if ok {
+		t.Errorf("zero timeout should not set deadline, but got one")
+	}
+
+	if toolCtx != ctx {
+		t.Error("zero timeout should return original context")
+	}
+}
+
+func TestToolCtxWithTimeout_OnlyFilesystemTimeoutZeroFallsBackToDefault(t *testing.T) {
+	agent := &Agent{
+		config: AgentConfig{
+			ToolTimeout:           2 * time.Minute,
+			FilesystemToolTimeout: 0,
+		},
+	}
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolFileRead)
+	defer cancel()
+
+	deadline, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("filesystem should use ToolTimeout when FilesystemToolTimeout is 0")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 1*time.Minute+55*time.Second || remaining > 2*time.Minute+50*time.Millisecond {
+		t.Errorf("filesystem fallback timeout ~2m, got remaining=%v", remaining)
+	}
+}
+
+func TestToolCtxWithTimeout_ContextCancelFuncIsNoopForZeroTimeout(t *testing.T) {
+	agent := &Agent{
+		config: AgentConfig{
+			ToolTimeout: 0,
+		},
+	}
+
+	ctx := context.Background()
+	_, cancel := agent.toolCtxWithTimeout(ctx, "some_tool")
+	cancel()
+}
+
+func TestToolCtxWithTimeout_FilesystemTimeoutNonZeroOverridesDefault(t *testing.T) {
+	agent := &Agent{
+		config: AgentConfig{
+			ToolTimeout:           2 * time.Minute,
+			FilesystemToolTimeout: 10 * time.Second,
+		},
+	}
+
+	ctx := context.Background()
+	toolCtx, cancel := agent.toolCtxWithTimeout(ctx, models.ToolFileAppend)
+	defer cancel()
+
+	deadline, ok := toolCtx.Deadline()
+	if !ok {
+		t.Fatal("expected deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 9*time.Second || remaining > 10*time.Second+50*time.Millisecond {
+		t.Errorf("filesystem timeout ~10s, got remaining=%v", remaining)
+	}
+}
+
+func TestEventStream_UsesCounterID(t *testing.T) {
+	var ids []string
+	agent := &Agent{
+		deps: AgentRuntimeDeps{
+			Logger: logging.NewNopLogger(),
+			Observer: func(e AgentEvent) {
+				ids = append(ids, e.ID)
+			},
+		},
+	}
+
+	for i := 0; i < 5; i++ {
+		agent.notifyStepStart(i + 1)
+	}
+
+	if len(ids) != 5 {
+		t.Fatalf("expected 5 events, got %d", len(ids))
+	}
+	// IDs come from a process-global monotonic counter, so assert they are
+	// strictly increasing by 1 and all unique (not a fixed starting value).
+	seen := make(map[string]bool)
+	var prev uint64
+	for i, id := range ids {
+		n, err := strconv.ParseUint(id, 10, 64)
+		if err != nil {
+			t.Fatalf("event %d: ID %q is not a numeric counter value", i, id)
+		}
+		if seen[id] {
+			t.Errorf("event %d: ID %q is not unique across the stream", i, id)
+		}
+		seen[id] = true
+		if i > 0 && n != prev+1 {
+			t.Errorf("event %d: ID %q not exactly 1 greater than previous %d", i, id, prev)
+		}
+		prev = n
+	}
+}

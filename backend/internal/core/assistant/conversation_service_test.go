@@ -53,6 +53,7 @@ func newMockConvDeps() *mockConvDeps {
 		func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} },
 		storage.NewPathResolver("", "", ""),
 		nil,
+		nil,
 	)
 	return &mockConvDeps{
 		modelName: "test-model",

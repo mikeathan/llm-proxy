@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"llm-proxy/internal/core/assistant"
@@ -27,6 +28,16 @@ const MaxHistorySize = 100
 // error recovery time. The per-turn timeout (AgentTurnTimeout) is 10 min.
 const automationTimeout = 10 * time.Minute
 
+// shellPGIDPollInterval is the polling frequency for discovering the shell
+// process group ID after an automation starts. The shell session is created
+// lazily on first use, so we poll until it's available or the context expires.
+const shellPGIDPollInterval = 2 * time.Second
+
+// stopDiagnosticDelay is the time StopAutomation waits before checking
+// whether a run has actually terminated. Exported as a package-level var so
+// tests can set it to zero to exercise the force-kill path synchronously.
+var stopDiagnosticDelay = 30 * time.Second
+
 // Dispatcher manages automation execution via a cron scheduler.
 type Dispatcher struct {
 	registry    *AutomationRegistry
@@ -46,9 +57,17 @@ type Dispatcher struct {
 	events        *EventBus
 
 	runMu      sync.RWMutex
-	activeRuns map[string]context.CancelFunc // workspaceID -> cancelFunc
+	activeRuns map[string]*activeRun // workspaceID -> run metadata
 
 	stopOnce sync.Once
+}
+
+// activeRun tracks a running automation session including its cancellation
+// function and optional shell process group ID for force-termination.
+type activeRun struct {
+	cancel     context.CancelFunc
+	pgid       int                  // negated PGID for syscall.Kill; 0 when no active shell
+	diagCancel context.CancelFunc   // cancels the StopAutomation diagnostic goroutine
 }
 
 func NewDispatcher(
@@ -70,7 +89,7 @@ func NewDispatcher(
 		stopCh:      make(chan struct{}),
 		metrics:     &DispatcherMetrics{},
 		events:      NewEventBus(),
-		activeRuns:  make(map[string]context.CancelFunc),
+		activeRuns:  make(map[string]*activeRun),
 	}
 
 	for _, opt := range opts {
@@ -173,6 +192,9 @@ func (d *Dispatcher) Stop() {
 	d.stopOnce.Do(func() {
 		d.logger.Info("Stopping dispatcher")
 		close(d.stopCh)
+		if d.events != nil {
+			d.events.Stop()
+		}
 		cronCtx := d.cron.Stop()
 		select {
 		case <-cronCtx.Done():
@@ -237,7 +259,10 @@ func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName, r
 		return fmt.Errorf("automation not found: %s/%s", workspaceID, automationName)
 	}
 
-	return d.executeAutomation(ctx, entry, recordingRef)
+	triggerCtx, cancel := context.WithTimeout(ctx, automationTimeout)
+	defer cancel()
+
+	return d.executeAutomation(triggerCtx, entry, recordingRef)
 }
 
 func (d *Dispatcher) Events() *EventBus {
@@ -448,8 +473,11 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	defer d.persistence.ReleaseLock(f)
 
 	d.runMu.Lock()
-	d.activeRuns[entry.Workspace] = cancel
+	d.activeRuns[entry.Workspace] = &activeRun{cancel: cancel}
 	d.runMu.Unlock()
+	// Poll for the shell PGID after the agent starts; the persistent shell
+	// session is created lazily on first terminal_execute call.
+	go d.pollShellPGID(execCtx, entry.Workspace)
 	defer func() {
 		d.runMu.Lock()
 		delete(d.activeRuns, entry.Workspace)
@@ -510,6 +538,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		Strategy:       entry.Strategy,
 		State:          state,
 		Model:          entry.Model,
+		AllowedTools:   entry.AllowedTools,
 		RecordingRef:   recordingRef,
 	}
 
@@ -667,33 +696,86 @@ func splitID(id string) []string {
 
 func (d *Dispatcher) StopAutomation(workspaceID string) error {
 	d.runMu.Lock()
-	cancel, ok := d.activeRuns[workspaceID]
+	r, ok := d.activeRuns[workspaceID]
 	d.runMu.Unlock()
 
 	if !ok {
 		return fmt.Errorf("no active automation found for workspace %s", workspaceID)
 	}
 
-	cancel()
+	r.cancel()
 	d.logger.Info("Automation stopped by user request", "workspace", workspaceID)
 
-	// Monitor the run: if it hasn't left activeRuns within 30s,
-	// the cancellation didn't propagate (likely a tool/hanging shell
-	// command ignoring the context).  Log a diagnostic warning so we
-	// can identify what's blocking.
+	// Cancel any previous diagnostic goroutine for this workspace to
+	// prevent accumulation on repeated StopAutomation calls.
+	if r.diagCancel != nil {
+		r.diagCancel()
+	}
+	diagCtx, diagCancel := context.WithCancel(context.Background())
+	r.diagCancel = diagCancel
+
 	go func() {
-		time.Sleep(30 * time.Second)
-		d.runMu.Lock()
-		_, stillRunning := d.activeRuns[workspaceID]
-		d.runMu.Unlock()
-		if stillRunning {
-			d.logger.Warn("automation stop: cancellation did not terminate the run within 30s",
-				"workspace", workspaceID,
-			)
+		select {
+		case <-time.After(stopDiagnosticDelay):
+			d.runMu.Lock()
+			currentRun, stillRunning := d.activeRuns[workspaceID]
+			isSameRun := stillRunning && currentRun == r
+			pgid := 0
+			if isSameRun && r.pgid != 0 {
+				pgid = r.pgid
+			}
+			d.runMu.Unlock()
+
+			if pgid != 0 {
+				d.logger.Error("automation stop: force-killing shell process group",
+					"workspace", workspaceID, "pgid", pgid)
+				_ = syscall.Kill(pgid, syscall.SIGKILL)
+				d.runMu.Lock()
+				if d.activeRuns[workspaceID] == r {
+					delete(d.activeRuns, workspaceID)
+				}
+				d.runMu.Unlock()
+			} else if isSameRun {
+				d.logger.Warn("automation stop: cancellation did not terminate the run within 30s (no shell PGID available)",
+					"workspace", workspaceID)
+			}
+			// else: old run already finished and replaced by a new run —
+			// silent no-op, no stale PGID used.
+		case <-diagCtx.Done():
+			// Previous diagnostic goroutine was cancelled by a subsequent
+			// StopAutomation call — exit cleanly.
 		}
 	}()
 
 	return nil
+}
+
+// pollShellPGID periodically queries the task executor for the shell PGID
+// and stores it on the activeRun. It exits when the context is cancelled
+// (the automation finishes) or when a valid PGID is found.
+func (d *Dispatcher) pollShellPGID(ctx context.Context, workspaceID string) {
+	ticker := time.NewTicker(shellPGIDPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pgid, err := d.executor.ShellPGID(context.Background(), workspaceID)
+			if err != nil || pgid == 0 {
+				continue
+			}
+			d.runMu.Lock()
+			if r, ok := d.activeRuns[workspaceID]; ok {
+				r.pgid = pgid
+				d.runMu.Unlock()
+				return
+			}
+			d.runMu.Unlock()
+			return
+		}
+	}
 }
 
 // IsAutomationRunning reports whether an automation is currently executing

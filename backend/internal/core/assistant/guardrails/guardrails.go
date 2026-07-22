@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/persistence"
@@ -13,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 var secretRegexes = []*regexp.Regexp{
@@ -26,24 +28,44 @@ type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
 	resolver       storage.Resolver
 	persistence    *persistence.WorkspaceManager
+	readConfig     func(workspaceID string) (*models.WorkspaceConfig, error) // cached reader (O3)
 	regexCache     sync.Map
 
-	// overrideCache stores in-memory guardrail approvals per (workspaceID, category)
+	// overrideCache stores in-memory guardrail approvals per (workspaceID, toolName)
 	// so that "Allow & Remember" decisions are effective immediately without waiting
-	// for the workspace config file write to propagate.  Key format: "workspaceID/category".
+	// for the workspace config file write to propagate.  Key format: "workspaceID/toolName".
+	// Entries are reaped after overrideTTL (PL-5) by the cache's background reaper.
 	// Cleared on server restart (config file is the durable source).
-	overrideCache sync.Map
+	overrideCache *core.TTLCache[string, struct{}]
 }
 
+// defaultOverrideTTL and defaultReaperInterval bound override-cache growth.
+const (
+	defaultOverrideTTL    = 30 * time.Minute
+	defaultReaperInterval = time.Minute
+)
+
 // NewGuardrailEngine creates a new validation engine
-func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver storage.Resolver, persistence *persistence.WorkspaceManager) *GuardrailEngine {
-	return &GuardrailEngine{
+func NewGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver storage.Resolver, persistence *persistence.WorkspaceManager, readConfig func(workspaceID string) (*models.WorkspaceConfig, error)) *GuardrailEngine {
+	return newGuardrailEngine(provider, resolver, persistence, readConfig, defaultOverrideTTL, defaultReaperInterval)
+}
+
+func newGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver storage.Resolver, persistence *persistence.WorkspaceManager, readConfig func(workspaceID string) (*models.WorkspaceConfig, error), overrideTTL, reaperInterval time.Duration) *GuardrailEngine {
+	e := &GuardrailEngine{
 		configProvider: provider,
 		resolver:       resolver,
 		persistence:    persistence,
+		readConfig:     readConfig,
 		regexCache:     sync.Map{},
-		overrideCache:  sync.Map{},
+		overrideCache:  core.NewTTLCache[string, struct{}](0, overrideTTL, nil),
 	}
+	e.overrideCache.Start(reaperInterval)
+	return e
+}
+
+// Stop terminates the override reaper goroutine. Safe to call multiple times.
+func (e *GuardrailEngine) Stop() {
+	e.overrideCache.Stop()
 }
 
 // ValidateToolCall checks a tool call against global and category-specific safety rules.
@@ -56,9 +78,10 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 
 	cfg := e.configProvider()
 
-	// Load and merge workspace-specific overrides
-	if workspaceID != "" && e.persistence != nil {
-		if wsCfg, err := e.persistence.ReadConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
+	// Load and merge workspace-specific overrides.
+	// Uses the cached reader (O3) to avoid file I/O on every tool call.
+	if workspaceID != "" && e.readConfig != nil {
+		if wsCfg, err := e.readConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
 			cfg.MergeWith(wsCfg.Guardrails)
 		}
 	}
@@ -226,7 +249,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		return fmt.Errorf("persistence not available")
 	}
 
-	cfg, err := e.persistence.ReadConfig(workspaceID)
+	cfg, err := e.readConfig(workspaceID)
 	if err != nil {
 		return fmt.Errorf("read workspace config: %w", err)
 	}
@@ -241,8 +264,8 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		}
 		if json.Unmarshal([]byte(args), &a) == nil && a.Command != "" {
 			for _, base := range tools.ExtractBaseCommands(a.Command) {
-					cfg.Guardrails.Terminal.AllowedCommands = append(cfg.Guardrails.Terminal.AllowedCommands, base)
-				}
+				cfg.Guardrails.Terminal.AllowedCommands = append(cfg.Guardrails.Terminal.AllowedCommands, base)
+			}
 		}
 
 	case "filesystem":
@@ -300,9 +323,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 // Uses toolName (e.g. "notify_user") as the key suffix so ValidateToolCall can check
 // without needing to derive the category.
 func (e *GuardrailEngine) hasOverride(workspaceID, toolName string) bool {
-	key := workspaceID + "/" + toolName
-	_, ok := e.overrideCache.Load(key)
-	return ok
+	return e.overrideCache.Contains(workspaceID + "/" + toolName)
 }
 
 // MarkOverride stores an in-memory guardrail approval for the given
@@ -310,7 +331,5 @@ func (e *GuardrailEngine) hasOverride(workspaceID, toolName string) bool {
 // skip the guardrail check without waiting for the config file write.
 // Uses toolName (not category) to match the key format in hasOverride.
 func (e *GuardrailEngine) MarkOverride(workspaceID, toolName string) {
-	key := workspaceID + "/" + toolName
-	e.overrideCache.Store(key, true)
+	e.overrideCache.Put(workspaceID+"/"+toolName, struct{}{})
 }
-

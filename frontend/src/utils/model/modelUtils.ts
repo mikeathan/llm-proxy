@@ -17,6 +17,12 @@ export interface ModelForm {
   slot_timeout: number;
   tool_call_format: string;
   prefill: boolean;
+  tool_timeout_seconds: number;
+  filesystem_tool_timeout_seconds: number;
+  max_plan_duration_minutes: number;
+  max_plan_steps: number;
+  guardrail_timeout_seconds: number;
+  guardrail_timeout_behavior: string;
 }
 
 /**
@@ -37,7 +43,7 @@ function providerTuningHints(provider: ProviderType): { tool_call_format: string
 export function getDefaultModelSettings(
   provider: ProviderType,
   defaults: AgentDefaults,
-): { max_steps: number; context_budget: number; max_tokens: number; temperature: number; reasoning_budget: number; timeout_minutes: number; tool_call_format: string; prefill: boolean } {
+): { max_steps: number; context_budget: number; max_tokens: number; temperature: number; reasoning_budget: number; timeout_minutes: number; tool_call_format: string; prefill: boolean; tool_timeout_seconds: number; filesystem_tool_timeout_seconds: number; max_plan_duration_minutes: number; max_plan_steps: number; guardrail_timeout_seconds: number; guardrail_timeout_behavior: string } {
   const hints = providerTuningHints(provider);
   return {
     max_steps: defaults.max_steps,
@@ -48,6 +54,12 @@ export function getDefaultModelSettings(
     timeout_minutes: defaults.timeout_minutes,
     tool_call_format: hints.tool_call_format,
     prefill: hints.prefill,
+    tool_timeout_seconds: defaults.tool_timeout_seconds,
+    filesystem_tool_timeout_seconds: defaults.filesystem_tool_timeout_seconds,
+    max_plan_duration_minutes: defaults.max_plan_duration_minutes,
+    max_plan_steps: defaults.max_plan_steps,
+    guardrail_timeout_seconds: defaults.guardrail_timeout_seconds,
+    guardrail_timeout_behavior: defaults.guardrail_timeout_behavior,
   };
 }
 

@@ -25,7 +25,15 @@ executor.go Execute()
   │     │     │     │     ├── processStream() — accumulates chunks, detects stuck
   │     │     │     │     └── handleEmptyStream() — XML fallback on empty
   │     │     │     ├── rd.check() — repetition/spiral detector
+  │     │     │     ├── rd.checkAlternating() — tool oscillation detector
   │     │     │     └── execute tools → append to history → loop
+  │     │     │           ├── executeSingleToolStep() — guardrail check + single tool exec
+  │     │     │           │     └── timeout: ToolTimeout / FilesystemToolTimeout / GuardrailTimeout
+  │     │     │           └── executePlan() — multi-step plan bypass path
+  │     │     │                 ├── pre-check: steps > MaxPlanSteps → fail fast
+  │     │     │                 ├── plan-level timeout: context.WithTimeout(MaxPlanDuration)
+  │     │     │                 ├── per-step: executeSingleToolStep() with inline check i >= MaxPlanSteps
+  │     │     │                 └── guardrail checks: per step, per tool
   │     │     └── max_steps reached or done
   │     └── Return result
 ```
@@ -142,6 +150,8 @@ When native tools stream returns empty:
 | `MinReasoningStuckThreshold` | 2000 | `agent.go` | Floor for stuck detection |
 | `AgentGlobalTimeout` | 30 min | `agent.go` | Total wall-clock per Execute |
 | `AgentTurnTimeout` | 10 min | `agent.go` | Per-LLM-call timeout |
+| `AgentRetryTimeout` | 5 min | `agent.go` | Timeout for non-streaming fallback |
+| `DefaultStarvationLimit` | 15 | `session.go` | Consecutive no-tool-call turns before stall error |
 | `streamReasoningBudgetDivisor` | 3 | `stream.go` | Divisor for reasoning_budget |
 | `emptyToolCallSpiralLimit` | 3 | `stream.go` | Closed empty `<tool_call>` blocks → early stuck |
 
@@ -209,6 +219,16 @@ passing pre-serialized strings to `appendToolResult`: `string(json.Marshal(resul
 raw, _ := json.Marshal(result)
 a.appendToolResult(history, tc, string(raw))
 ```
+
+## executePlan Execution (Plan Bypass Path)
+
+When the model emits a multi-step plan (legacy `execute_plan` tool), it bypasses the standard turn loop:
+
+- **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), plan fails before any step executes.
+- **Plan-level timeout:** whole plan wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 min).
+- **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout`/`FilesystemToolTimeout` as regular tool calls.
+- **Inline check:** after each step, `if i >= MaxPlanSteps → abort`.
+- **Guardrail checks:** each step/tool goes through `resolveGuardrail` with `GuardrailTimeout`.
 
 ## Important Gotchas
 

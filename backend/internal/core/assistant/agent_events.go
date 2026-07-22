@@ -4,11 +4,18 @@ package assistant
 
 import (
 	"context"
+	"strconv"
+	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"llm-proxy/internal/core/proxy"
 )
+
+// eventIDCounter is a process-global monotonic counter for AgentEvent IDs.
+// Using a single shared counter (instead of a per-Agent field) guarantees IDs
+// stay unique across concurrently running agents; a per-Agent counter would let
+// two runs produce colliding IDs while still avoiding per-event UUID allocation.
+var eventIDCounter atomic.Uint64
 
 type AgentEventType string
 
@@ -95,7 +102,7 @@ type Observer func(AgentEvent)
 func (a *Agent) notify(t AgentEventType, payload any) {
 	if a.deps.Observer != nil {
 		a.deps.Observer(AgentEvent{
-			ID:             uuid.NewString(),
+			ID:             strconv.FormatUint(eventIDCounter.Add(1), 10),
 			Type:           t,
 			Channel:        a.config.Channel,
 			ConversationID: a.config.ConversationID,

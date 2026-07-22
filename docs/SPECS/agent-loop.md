@@ -115,6 +115,15 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - At the LLM request level: `buildChatRequest()` uses `a.temperature` if set (>0), else falls back to `DefaultAutomationTemperature`. Llama.cpp server-level `--repeat-penalty`, `--frequency-penalty`, and `--presence-penalty` are set server-side (not in ChatRequest).
 - Frontend exposes these as number inputs in the Agent Tuning grid with `title`-attribute tooltips and input constraints (min/max/step).
 
+### 14. executePlan Step Limit and Timeout
+- The `executePlan` tool bypasses the standard single-tool-per-turn loop and executes a multi-step plan atomically.
+- **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), the plan is rejected before any step executes.
+- **Plan-level timeout:** the entire plan is wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 minutes, overridable per-model via `ModelConfig.MaxPlanDurationMinutes`).
+- **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout` / `FilesystemToolTimeout` as regular tool calls. If any step times out, the plan aborts.
+- **Inline step cap:** after each step, `if i >= MaxPlanSteps → abort` catches any discrepancy between pre-check count and actual iterations.
+- **Guardrail checks:** each step runs through `resolveGuardrail` with the configured `GuardrailTimeout` and `GuardrailTimeoutBehavior` (fail-open or fail-closed).
+- **Config flow:** `MaxPlanSteps` and `MaxPlanDuration` flow through `AgentOptions ← ModelConfig ← adminTuningDefaults` so users can tune every limit per-model.
+
 ## III. Technical Architecture
 
 ### Component Map
@@ -185,11 +194,14 @@ When the user clicks "Stop Automation" or the agent's context is cancelled:
 1. `StopAutomation` calls `cancel()` on the execution context
 2. The agent loop checks `execCtx.Err()` on the next iteration and exits
 3. If the agent is blocked inside a running shell command:
-   - A kill goroutine (started per-`Execute` call) receives `ctx.Done()` and calls `killAll()` → `syscall.Kill(-pgid, SIGTERM)`
-   - The SIGTERM terminates bash and any running child processes
+   - **Tool-level kill (per-Execute):** A kill goroutine started per `shell.Execute` call receives `ctx.Done()` and calls `killAll()` → `syscall.Kill(-pgid, SIGTERM)`. This is the immediate tool-specific kill, not the dispatcher's general force-kill.
+   - SIGTERM terminates bash and any running child processes
    - The blocked `stdout.ReadString` returns with an error (pipe closed)
    - `Execute` returns the partial output and a context-cancelled error
    - The agent exits
+4. If the shell tool-level kill does not terminate the run:
+   - **Dispatcher force-kill (after 30s):** `StopAutomation`'s diagnostic goroutine checks if the run is still active after 30 seconds. If still running and a shell PGID exists, it sends `syscall.Kill(-pgid, SIGKILL)` and removes the run from `activeRuns`. If no shell PGID (network-only run), it logs a warning.
+   - This is a secondary safety net, distinct from the per-Execute tool kill.
 
 The background `HostShellManager` reaper also uses `killAll` to cleanly terminate sessions on shutdown or recycle, ensuring no orphaned processes remain.
 

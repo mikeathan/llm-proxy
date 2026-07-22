@@ -27,8 +27,13 @@ const (
 	// Normal recovery inserts 1–3; this is a safety cap only.
 	sessionControlWalkCap = 8
 
-	MinAnswerContentLength = 20   // chars threshold for meaningful assistant content
-	MemoryFlushRatio       = 0.7  // context budget fraction that triggers memory flush
+	MinAnswerContentLength = 20  // chars threshold for meaningful assistant content
+	MemoryFlushRatio       = 0.7 // context budget fraction that triggers memory flush
+
+	// postToolNudgeMax is the number of times handleNoToolCalls will re-nag the
+	// model immediately after a tool result before forcing a tools-disabled
+	// finalization turn. Re-armed on every successful tool turn.
+	postToolNudgeMax = 2
 )
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
@@ -43,15 +48,22 @@ type runSession struct {
 	starvationCount int
 	warnedAdvisory  bool
 
-	parseErrorStreak       int
-	lastParseErrorKind     string
-	totalErrorStreak       int
-	modelCompatNotified    bool
-	forcedCompletionSent   bool
-	syntaxParseStreak      int // consecutive server-side tool-arg JSON syntax failures
+	parseErrorStreak    int
+	lastParseErrorKind  string
+	totalErrorStreak    int
+	modelCompatNotified bool
+	// postToolNudgeCount re-arms on every successful tool turn (reset in
+	// resetParseErrorState), so a model that emits empty responses after running
+	// tools is nudged repeatedly until it produces a report. hardCapTriggered
+	// (independent) gates the forced completion at MaxSteps*2.
+	postToolNudgeCount int
+	hardCapTriggered   bool
+	finalizeAttempts   int  // how many deterministic tools-disabled finalization turns fired
+	textOnlyNextTurn   bool // next executeTurn runs with tools disabled (ToolChoiceNone)
+	syntaxParseStreak  int  // consecutive server-side tool-arg JSON syntax failures
 
-	rd              repetitionDetector
-	memoryFlushSent     bool   // prevents repeated pre-sieve nudges across turns
+	rd                   repetitionDetector
+	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
 	lastContentWithTools string // content saved from a turn that had both text and tool calls
 
 	prefillDisabled bool // runtime override to skip prefill on retry
@@ -123,13 +135,21 @@ func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 	return false
 }
 
-// bestAvailableAnswer returns the most recent assistant content with len ≥ MinAnswerContentLength.
+// bestAvailableAnswer returns the most recent substantive assistant message
+// that is NOT a tool call and NOT a stuck placeholder. Content is stripped of
+// reasoning blocks before length/placeholder checks. Skips control messages so
+// injected nags/recoveries never count as the answer.
 func (s *runSession) bestAvailableAnswer() string {
 	for i := len(s.history) - 1; i >= 0; i-- {
-		if s.history[i].Role == proxy.AssistantRole {
-			if c := strings.TrimSpace(s.history[i].Content); len(c) >= MinAnswerContentLength {
-				return s.history[i].Content
-			}
+		m := s.history[i]
+		if m.Role != proxy.AssistantRole || len(m.ToolCalls) > 0 {
+			continue
+		}
+		if isStuckPlaceholder(m) {
+			continue
+		}
+		if stripped := stripThinkBlocks(m.Content); len(strings.TrimSpace(stripped)) >= MinAnswerContentLength {
+			return stripped
 		}
 	}
 	return ""
@@ -148,16 +168,12 @@ func (s *runSession) lastNonEmptyAssistantContent() string {
 	return ""
 }
 
-// resolveFallbackAnswer picks a deliverable when the loop cannot continue.
-// Priority: salvaged write report → meaningful assistant text → any assistant text.
+// resolveFallbackAnswer picks a deliverable when the loop cannot continue
+// (hard-cap backstop only). Returns the last substantive assistant text — a
+// genuine final message the model already wrote. No synthesis, no salvage: the
+// real report is surfaced only when the model actually emitted it.
 func (s *runSession) resolveFallbackAnswer() string {
-	if report := salvageReportFromHistory(s.history); report != "" {
-		return report
-	}
-	if content := s.bestAvailableAnswer(); content != "" {
-		return content
-	}
-	return s.lastNonEmptyAssistantContent()
+	return s.bestAvailableAnswer()
 }
 
 // completeWith emits lifecycle completed and returns the final answer.
@@ -174,10 +190,11 @@ func (s *runSession) resetParseErrorState() {
 	s.totalErrorStreak = 0
 	s.modelCompatNotified = false
 	s.syntaxParseStreak = 0
-	// Hermes-aligned: successful tool execution means the model
-	// recovered from a prior empty-turn nag.  Clear the one-shot
-	// nag flag so a future empty turn can trigger a new nag cycle.
-	s.forcedCompletionSent = false
+	// Re-arm the post-tool nudge: a successful tool turn means the model
+	// recovered from a prior empty turn.  Clearing the counter lets a future
+	// empty turn trigger a fresh nudge cycle (pre-branch behavior).
+	s.postToolNudgeCount = 0
+	// hardCapTriggered is left untouched — the hard cap is irreversible.
 }
 
 // trimLargeWriteContent replaces write_file/append_file response content with a stub
@@ -327,6 +344,7 @@ func isAgentControlMessage(m proxy.Message) bool {
 	content := m.Content
 	switch content {
 	case prompts.AutomationNagPrompt,
+		prompts.AutomationFinalizePrompt,
 		prompts.AutomationReadFileNagPrompt,
 		prompts.AutomationDuplicateNagPrompt,
 		prompts.ToolErrorNagPrompt,
@@ -444,10 +462,10 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 // checkForcedCompletion ends the run after MaxSteps*2 using the fallback chain.
 // Returns (true, reply, err) when the loop must stop.
 func (s *runSession) checkForcedCompletion() (bool, string, error) {
-	if s.steps < s.agent.config.MaxSteps*2 || s.forcedCompletionSent {
+	if s.steps < s.agent.config.MaxSteps*2 || s.hardCapTriggered {
 		return false, "", nil
 	}
-	s.forcedCompletionSent = true
+	s.hardCapTriggered = true
 	s.agent.deps.Logger.Warn("forced completion after excessive steps",
 		"maxSteps", s.agent.config.MaxSteps, "steps", s.steps)
 	if content := s.resolveFallbackAnswer(); content != "" {
@@ -507,6 +525,16 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 			Content: nag,
 		})
 		return false, "", nil
+	}
+
+	if isAlternating, altErr := s.rd.checkAlternating(); isAlternating {
+		return true, "", altErr
+	}
+	if isCycle, cycleErr := s.rd.checkSequenceRepeat(); isCycle {
+		return true, "", cycleErr
+	}
+	if isSameTarget, tgtErr := s.rd.checkSameTarget(turnMsg.ToolCalls); isSameTarget {
+		return true, "", tgtErr
 	}
 
 	s.trimLargeWriteContent(&turnMsg)
@@ -583,7 +611,16 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 
 	*history = a.applyPhysicalSieve(*history)
 
-	msg, err := a.computeNextResponse(turnCtx, *history, toolsList)
+	// Finalization turn: run ONE turn with tools disabled so the model is
+	// forced to deliver a text report. Reset immediately so it fires once.
+	toolChoice := proxy.ToolChoice("")
+	if a.runS != nil && a.runS.textOnlyNextTurn {
+		toolsList = nil
+		toolChoice = proxy.ToolChoiceNone
+		a.runS.textOnlyNextTurn = false
+	}
+
+	msg, err := a.computeNextResponse(turnCtx, *history, toolsList, toolChoice)
 	if err != nil {
 		return proxy.Message{}, nil, nil, err
 	}
@@ -684,27 +721,43 @@ func (s *runSession) handleNoToolCalls(
 		return content, true, nil
 	}
 
-	// One-shot nag: inject the nag prompt ONCE.  Previously this loop
-	// nagged perpetually — a model that returns empty after tools gets
-	// one retry, then the fallback or forced-completion path (via
-	// checkForcedCompletion at MaxSteps*2) finishes the run.  This
-	// matches Hermes Agent's post-tool empty-response nudge behavior.
-	if s.forcedCompletionSent {
-		// Already nagged once.  Use the full fallback chain which
-		// includes salvageReportFromHistory (recovers write_file
-		// content from tool-call args) and bestAvailableAnswer.
-		if content := s.resolveFallbackAnswer(); content != "" {
-			return content, true, nil
-		}
-		return "", true, nil
+	// Empty-turn recovery ladder (model-agnostic, bounded, re-arming).
+	// A model that returns an empty turn after doing work is nudged, then
+	// forced into one tools-disabled finalization turn, then terminated with
+	// the best answer available. The nudge counter is cleared on every
+	// successful tool turn (resetParseErrorState), so this re-arms.
+
+	// (1) Re-armed nudge: inject the nag prompt up to postToolNudgeMax times.
+	if s.postToolNudgeCount < postToolNudgeMax {
+		s.postToolNudgeCount++
+		s.history = append(s.history, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: prompts.AutomationNagPrompt,
+		})
+		s.agent.deps.Logger.Warn("no tool calls - re-arming nudge",
+			"step", s.steps, "nudge", s.postToolNudgeCount)
+		return "", false, nil
 	}
-	s.forcedCompletionSent = true
-	s.agent.deps.Logger.Warn("no tool calls - nagging model (one-shot)", "step", s.steps)
-	s.history = append(s.history, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.AutomationNagPrompt,
-	})
-	return "", false, nil
+
+	// (2) Deterministic finalization: force ONE text-only turn (tools disabled).
+	// finalizeAttempts is exhausted → step (3) terminal. Exactly one
+	// finalization turn — no loop.
+	if s.finalizeAttempts < 1 {
+		s.finalizeAttempts++
+		s.textOnlyNextTurn = true
+		s.history = append(s.history, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: prompts.AutomationFinalizePrompt,
+		})
+		s.agent.deps.Logger.Warn("forcing text-only finalization turn", "step", s.steps)
+		return "", false, nil
+	}
+
+	// (3) Terminal: best real answer we have, or an honest empty note.
+	if content := s.bestAvailableAnswer(); content != "" {
+		return content, true, nil
+	}
+	return "", true, nil
 }
 
 // handleParseErrorFeedback handles the parse-error branch of handleNoToolCalls.

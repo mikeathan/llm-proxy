@@ -80,7 +80,7 @@ func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig
 func (m *MockAssistantService) GuardrailEngine() *guardrails.GuardrailEngine {
 	return guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
-	}, m.Resolver(), m.PersistenceMgr)
+	}, m.Resolver(), m.PersistenceMgr, nil)
 }
 
 func (m *MockAssistantService) Config() *models.Config {

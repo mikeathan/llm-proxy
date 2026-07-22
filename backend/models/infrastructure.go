@@ -41,6 +41,13 @@ type ModelOverride struct {
 	SlotTimeout     int     `yaml:"slot_timeout,omitempty" json:"slot_timeout,omitempty"`
 	ICUWeight       float64 `yaml:"icu_weight,omitempty" json:"icu_weight,omitempty"`
 	TimeoutMinutes  int     `yaml:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"`
+
+	ToolTimeoutSeconds           int    `yaml:"tool_timeout_seconds,omitempty" json:"tool_timeout_seconds,omitempty"`
+	FilesystemToolTimeoutSeconds int    `yaml:"filesystem_tool_timeout_seconds,omitempty" json:"filesystem_tool_timeout_seconds,omitempty"`
+	MaxPlanDurationMinutes       int    `yaml:"max_plan_duration_minutes,omitempty" json:"max_plan_duration_minutes,omitempty"`
+	MaxPlanSteps                 int    `yaml:"max_plan_steps,omitempty" json:"max_plan_steps,omitempty"`
+	GuardrailTimeoutSeconds      int    `yaml:"guardrail_timeout_seconds,omitempty" json:"guardrail_timeout_seconds,omitempty"`
+	GuardrailTimeoutBehavior     string `yaml:"guardrail_timeout_behavior,omitempty" json:"guardrail_timeout_behavior,omitempty"`
 }
 
 // UserSettings represents the user-level settings (Tier 2: settings.yml)

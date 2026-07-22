@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/automation"
 )
 
 func TestRouter_MethodMatch(t *testing.T) {
@@ -124,6 +127,79 @@ func TestDecodeJSON_BodyLimit(t *testing.T) {
 	// http.MaxBytesReader returns a specific error type that json.Decoder wraps
 	if !strings.Contains(err.Error(), "too large") {
 		t.Errorf("expected 'too large' error, got: %v", err)
+	}
+}
+
+func TestRouter_PanicRecoveredReturns500(t *testing.T) {
+	router := NewRouter()
+	router.Get("/boom", func(w http.ResponseWriter, r *http.Request) {
+		panic("kaboom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/boom", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 after panic, got %d", w.Code)
+	}
+}
+
+func TestRouter_PanicRecoveredKeepsServing(t *testing.T) {
+	router := NewRouter()
+	router.Get("/boom", func(w http.ResponseWriter, r *http.Request) {
+		panic("kaboom")
+	})
+	router.Get("/ok", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// A panic on one route must not take down the server.
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/boom", nil))
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ok", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected server to keep serving after a panic, got %d", w.Code)
+	}
+}
+
+func TestRouter_PanicRecoveredCleansEventBus(t *testing.T) {
+	bus := automation.NewEventBus()
+	defer bus.Stop()
+
+	router := NewRouter()
+	router.Get("/stream", func(w http.ResponseWriter, r *http.Request) {
+		ch, _ := bus.Subscribe("ws", assistant.ChannelAutomation)
+		defer bus.Unsubscribe("ws", assistant.ChannelAutomation, ch)
+		// Simulate an unexpected failure mid-stream.
+		panic("stream broke")
+	})
+
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/stream", nil))
+
+	if n := bus.SubscriberCount("ws", assistant.ChannelAutomation); n != 0 {
+		t.Fatalf("expected EventBus subscribers cleaned after recovered panic, got %d", n)
+	}
+}
+
+func TestRouter_PanicAfterWriteDoesNotOverrideStatus(t *testing.T) {
+	router := NewRouter()
+	router.Get("/partial", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("partial"))
+		panic("late boom")
+	})
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/partial", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected preserved 200 status, got %d", w.Code)
+	}
+	if w.Body.String() != "partial" {
+		t.Fatalf("unexpected body: %s", w.Body.String())
 	}
 }
 

@@ -61,7 +61,7 @@ Each run produces:
 
 - Model not found: run fails with `ErrUnknownModel`.
 - Model context maxed: agent sieves and retries.
-- Agent times out: 30-minute global timeout, 10-minute per-turn timeout.
+- Agent times out: Per-turn timeout is 10 minutes. The full automation run is bounded by `automationTimeout` (10 minutes, defined in `dispatcher.go:29`) which applies to **all** trigger paths: cron, webhook (via `Trigger()`), and manual. The dispatcher wraps the execution context with `context.WithTimeout(ctx, automationTimeout)` in `Trigger()` and the cron job function.
 - Dispatch to stopped workspace: 404.
 
 ## IV. Configuration

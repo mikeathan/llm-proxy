@@ -27,13 +27,13 @@ const (
 	// divisor=3 gives 910 tokens — enough headroom.  Going higher than 3 wastes
 	// generation budget, going lower than 3 causes the planning-cutoff loop.
 	// See docs/audits/memory-injection-investigation.md for the investigation.
-	streamReasoningBudgetDivisor  = 3           // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
-	stuckNonReasoningDivisor      = 1           // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
-	streamHeartbeatInterval       = 30 * time.Second  // progress log during long streams
-	nonStreamHeartbeatInterval    = 15 * time.Second  // fallback_waiting lifecycle event
-	stuckThresholdMultiplier      = 2           // stuck threshold = max_tokens * 2
-	streamCharCapMultiplier       = 4           // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
-	maxHotInjectionChars          = 2000        // character cap for hot memory injection
+	streamReasoningBudgetDivisor = 3                // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
+	stuckNonReasoningDivisor     = 1                // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
+	streamHeartbeatInterval      = 30 * time.Second // progress log during long streams
+	nonStreamHeartbeatInterval   = 15 * time.Second // fallback_waiting lifecycle event
+	stuckThresholdMultiplier     = 2                // stuck threshold = max_tokens * 2
+	streamCharCapMultiplier      = 4                // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
+	maxHotInjectionChars         = 2000             // character cap for hot memory injection
 	// emptyToolCallSpiralLimit: closed empty <tool_call></tool_call> blocks in pure-reasoning
 	// streams trigger stuck early. Qwen 3.5 observed looping 100+ empty tags (~19s) before the
 	// char threshold; abort at 3 closed empties so recovery (nag) starts in ~1s. Does not kill
@@ -237,7 +237,7 @@ func (a *Agent) handlePrefillRejection(
 
 func (a *Agent) handleEmptyStream(
 	ctx context.Context, history []proxy.Message,
-	tools []proxy.Tool, llmTools []proxy.Tool,
+	tools []proxy.Tool, llmTools []proxy.Tool, toolChoice proxy.ToolChoice,
 ) (proxy.Message, error) {
 	history = injectRetryContext(history)
 	if llmTools != nil {
@@ -260,11 +260,11 @@ func (a *Agent) handleEmptyStream(
 		})
 		savedNative := a.config.UseNativeTools
 		a.config.UseNativeTools = false
-		msg, err := a.computeNextResponseStreamXML(ctx, history, tools)
+		msg, err := a.computeNextResponseStreamXML(ctx, history, tools, toolChoice)
 		a.config.UseNativeTools = savedNative
 		return msg, err
 	}
-	return a.computeNextResponseNonStreaming(ctx, history, tools)
+	return a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 }
 
 // isUserCanceled returns true when err signals that the user explicitly
@@ -278,7 +278,7 @@ func isUserCanceled(err error) bool {
 // computeNextResponse tries streaming first, with fallback to non-streaming
 // or XML-mode streaming on failure.  streamErr reuse across the deferred refund
 // closure and subsequent retries is intentional (shadow-free single var).
-func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
+func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message, tools []proxy.Tool, toolChoice proxy.ToolChoice) (proxy.Message, error) {
 	llmTools := tools
 	if !a.config.UseNativeTools {
 		llmTools = nil
@@ -286,6 +286,9 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 
 	prepared, prefill := a.prepareMessagesForTurn(history, tools, llmTools)
 	req := a.buildChatRequest(prepared, llmTools)
+	if toolChoice != "" {
+		req.ToolChoice = toolChoice
+	}
 
 	txnID, pfErr := a.doPreflightCheck(ctx, history, &req)
 	if pfErr != nil {
@@ -327,8 +330,8 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		}
 		if streamErr != nil {
 			a.deps.Logger.Warn("streaming not supported, falling back to non-streaming")
-			a.setMemoryInjected(false)  // retry injection on the non-streaming path
-			return a.computeNextResponseNonStreaming(ctx, history, tools)
+			a.setMemoryInjected(false) // retry injection on the non-streaming path
+			return a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 		}
 	}
 
@@ -359,7 +362,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
-		return a.handleEmptyStream(ctx, history, tools, llmTools)
+		return a.handleEmptyStream(ctx, history, tools, llmTools, toolChoice)
 	}
 
 	return fullMsg, nil
@@ -571,108 +574,108 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					tokUsed += result.TokensUsed
 					reasonUsed += result.ReasoningUsed
 
-				term := a.deps.Orchestrator.Interceptor.InterceptChunkWithBudget(ctx,
-					orchestrator.StreamChunk{},
-					tokUsed, reasonUsed, a.config.MaxTokens, a.config.ReasoningBudget,
-				)
-				if term.ShouldTerminate {
-					// Upstream servers don't always enforce max_tokens, so
-					// the client must end the stream when the interceptor
-					// signals budget exceeded. Returning nil hands the
-					// partial turn to the agent loop for evaluation.
-				if !budgetWarned {
-					budgetWarned = true
-					a.deps.Logger.Warn("token budget exceeded, terminating stream",
-						"tokens_used", tokUsed, "reasoning_used", reasonUsed,
-						"token_budget", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget)
-				}
-				logStreamEnd("budget_exceeded")
-				return nil
-			}
-			}
-
-			if a.tryExtractToolCallFromReasoning(fullMsg) {
-				logStreamEnd("extracted_tool_from_reasoning")
-				return nil
-			}
-
-			if a.checkStreamStuck(fullMsg) {
-				emptyCalls := countEmptyClosedToolCalls(fullMsg.ReasoningContent)
-				a.deps.Logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback",
-					"reasoning_chars", len(fullMsg.ReasoningContent),
-					"stuck_threshold", a.stuckThreshold(),
-					"empty_tool_calls", emptyCalls)
-				a.notifyLifecycle("stuck_detected", map[string]any{
-					"reasoning_chars":   len(fullMsg.ReasoningContent),
-					"empty_tool_calls":  emptyCalls,
-				})
-				logStreamEnd("stuck_detected")
-				return nil
-			}
-
-			if chunkContent != "" {
-				fullMsg.Content += chunkContent
-			}
-			if reasoningChunk != "" {
-				fullMsg.ReasoningContent += reasoningChunk
-			}
-			if len(choice.Delta.ToolCalls) > 0 {
-				for _, tc := range choice.Delta.ToolCalls {
-					if tc.ID != "" {
-						fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
-					} else if len(fullMsg.ToolCalls) > 0 {
-						last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
-						last.Function.Arguments += tc.Function.Arguments
+					term := a.deps.Orchestrator.Interceptor.InterceptChunkWithBudget(ctx,
+						orchestrator.StreamChunk{},
+						tokUsed, reasonUsed, a.config.MaxTokens, a.config.ReasoningBudget,
+					)
+					if term.ShouldTerminate {
+						// Upstream servers don't always enforce max_tokens, so
+						// the client must end the stream when the interceptor
+						// signals budget exceeded. Returning nil hands the
+						// partial turn to the agent loop for evaluation.
+						if !budgetWarned {
+							budgetWarned = true
+							a.deps.Logger.Warn("token budget exceeded, terminating stream",
+								"tokens_used", tokUsed, "reasoning_used", reasonUsed,
+								"token_budget", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget)
+						}
+						logStreamEnd("budget_exceeded")
+						return nil
 					}
 				}
-			}
-			streamContentLen.Store(int64(len(fullMsg.Content)))
-			streamReasoningLen.Store(int64(len(fullMsg.ReasoningContent)))
-			streamToolCalls.Store(int64(len(fullMsg.ToolCalls)))
 
-			if a.exceedsContentCharCap(fullMsg) {
-				logStreamEnd("char_cap")
-				a.deps.Logger.Warn("content char cap reached, terminating stream",
-					"content_chars", len(fullMsg.Content),
-					"cap", a.config.MaxTokens*streamCharCapMultiplier)
-				return nil
-			}
-
-		if a.config.UseNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > a.config.MaxTokens {
-			// Relax the cap for turns that are plausibly a genuine final
-			// answer: real work already happened (prior tool result) or no
-			// tools are configured so a pure-text answer is expected. Let the
-			// stream run to its natural stop so checkTaskCompletion receives
-			// the full answer intact. Keep the cap armed otherwise — a
-			// tool-free turn with no prior work is the runaway joke-loop.
-		if !priorToolResult && toolsAvailable {
-			if !relaxedCapWarned {
-				relaxedCapWarned = true
-				a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, terminating stream",
-					"content_chars", len(fullMsg.Content),
-					"cap", a.config.MaxTokens)
-			}
-			return nil
-		}
-		if !relaxedCapWarned {
-			relaxedCapWarned = true
-			a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, allowing stream to continue (legitimate final answer candidate)",
-				"content_chars", len(fullMsg.Content),
-				"cap", a.config.MaxTokens,
-				"prior_tool_result", priorToolResult,
-				"tools_available", toolsAvailable)
-		}
-		}
-
-			if reasoningChunk != "" {
-				a.notify(EventReasoning, fullMsg.ReasoningContent)
-			}
-			if chunkContent != "" {
-				displayContent, _ := FilterStreamingMarkup(fullMsg.Content)
-				if displayContent != "" {
-					a.notify(EventToolStream, displayContent)
+				if a.tryExtractToolCallFromReasoning(fullMsg) {
+					logStreamEnd("extracted_tool_from_reasoning")
+					return nil
 				}
-			}
+
+				if a.checkStreamStuck(fullMsg) {
+					emptyCalls := countEmptyClosedToolCalls(fullMsg.ReasoningContent)
+					a.deps.Logger.Warn("reasoning stuck detected, aborting stream early to trigger fallback",
+						"reasoning_chars", len(fullMsg.ReasoningContent),
+						"stuck_threshold", a.stuckThreshold(),
+						"empty_tool_calls", emptyCalls)
+					a.notifyLifecycle("stuck_detected", map[string]any{
+						"reasoning_chars":  len(fullMsg.ReasoningContent),
+						"empty_tool_calls": emptyCalls,
+					})
+					logStreamEnd("stuck_detected")
+					return nil
+				}
+
+				if chunkContent != "" {
+					fullMsg.Content += chunkContent
+				}
+				if reasoningChunk != "" {
+					fullMsg.ReasoningContent += reasoningChunk
+				}
+				if len(choice.Delta.ToolCalls) > 0 {
+					for _, tc := range choice.Delta.ToolCalls {
+						if tc.ID != "" {
+							fullMsg.ToolCalls = append(fullMsg.ToolCalls, tc)
+						} else if len(fullMsg.ToolCalls) > 0 {
+							last := &fullMsg.ToolCalls[len(fullMsg.ToolCalls)-1]
+							last.Function.Arguments += tc.Function.Arguments
+						}
+					}
+				}
+				streamContentLen.Store(int64(len(fullMsg.Content)))
+				streamReasoningLen.Store(int64(len(fullMsg.ReasoningContent)))
+				streamToolCalls.Store(int64(len(fullMsg.ToolCalls)))
+
+				if a.exceedsContentCharCap(fullMsg) {
+					logStreamEnd("char_cap")
+					a.deps.Logger.Warn("content char cap reached, terminating stream",
+						"content_chars", len(fullMsg.Content),
+						"cap", a.config.MaxTokens*streamCharCapMultiplier)
+					return nil
+				}
+
+				if a.config.UseNativeTools && len(fullMsg.ToolCalls) == 0 && len(fullMsg.Content) > a.config.MaxTokens {
+					// Relax the cap for turns that are plausibly a genuine final
+					// answer: real work already happened (prior tool result) or no
+					// tools are configured so a pure-text answer is expected. Let the
+					// stream run to its natural stop so checkTaskCompletion receives
+					// the full answer intact. Keep the cap armed otherwise — a
+					// tool-free turn with no prior work is the runaway joke-loop.
+					if !priorToolResult && toolsAvailable {
+						if !relaxedCapWarned {
+							relaxedCapWarned = true
+							a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, terminating stream",
+								"content_chars", len(fullMsg.Content),
+								"cap", a.config.MaxTokens)
+						}
+						return nil
+					}
+					if !relaxedCapWarned {
+						relaxedCapWarned = true
+						a.deps.Logger.Warn("content exceeded max_tokens chars with no tool calls, allowing stream to continue (legitimate final answer candidate)",
+							"content_chars", len(fullMsg.Content),
+							"cap", a.config.MaxTokens,
+							"prior_tool_result", priorToolResult,
+							"tools_available", toolsAvailable)
+					}
+				}
+
+				if reasoningChunk != "" {
+					a.notify(EventReasoning, fullMsg.ReasoningContent)
+				}
+				if chunkContent != "" {
+					displayContent, _ := FilterStreamingMarkup(fullMsg.Content)
+					if displayContent != "" {
+						a.notify(EventToolStream, displayContent)
+					}
+				}
 			}
 		}
 	}
@@ -684,7 +687,7 @@ func (a *Agent) retryWithoutTools(ctx context.Context, history []proxy.Message) 
 	return a.deps.Client.Chat(chatCtx, proxy.ChatRequest{Messages: history, MaxTokens: a.config.MaxTokens})
 }
 
-func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
+func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool, toolChoice proxy.ToolChoice) (proxy.Message, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, AgentTurnTimeout)
 	defer cancel()
 
@@ -696,6 +699,9 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	preparedHistory, prefill := a.prepareMessagesForTurn(history, tools, llmTools)
 
 	req := a.buildChatRequest(preparedHistory, llmTools)
+	if toolChoice != "" {
+		req.ToolChoice = toolChoice
+	}
 
 	if rawReq, err := json.Marshal(req); err == nil {
 		a.deps.Logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
@@ -735,9 +741,10 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			preparedHistory = a.injectToolInstructions(preparedHistory, tools)
 		}
 		req = proxy.ChatRequest{
-			Messages:  preparedHistory,
-			Tools:     nil,
-			MaxTokens: a.config.MaxTokens,
+			Messages:   preparedHistory,
+			Tools:      nil,
+			ToolChoice: toolChoice,
+			MaxTokens:  a.config.MaxTokens,
 		}
 		resp, err = a.deps.Client.Chat(chatCtx, req)
 	}
@@ -769,7 +776,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	return msg, nil
 }
 
-func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []proxy.Message, tools []proxy.Tool) (proxy.Message, error) {
+func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []proxy.Message, tools []proxy.Tool, toolChoice proxy.ToolChoice) (proxy.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, AgentTurnTimeout)
 	defer cancel()
 
@@ -810,7 +817,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 			return proxy.Message{}, err
 		}
 		a.deps.Logger.Warn("xml stream retry failed, falling back to non-streaming", "error", err)
-		return a.computeNextResponseNonStreaming(ctx, history, tools)
+		return a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 	}
 
 	a.config.SkipStuckCheck = true
@@ -826,7 +833,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
 		saved := a.prefillDisabled()
 		a.setPrefillDisabled(true)
-		msg, err := a.computeNextResponseNonStreaming(ctx, history, tools)
+		msg, err := a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 		a.setPrefillDisabled(saved)
 		return msg, err
 	}
@@ -861,10 +868,10 @@ func (a *Agent) exceedsContentCharCap(fullMsg *proxy.Message) bool {
 	return a.config.MaxTokens > 0 && len(fullMsg.Content) > a.config.MaxTokens*streamCharCapMultiplier
 }
 
+var thinkTagsRe = regexp.MustCompile(`</?think>`)
+
 func cleanReasoningContent(s string) string {
-	cleaned := strings.ReplaceAll(s, "<think>", "")
-	cleaned = strings.ReplaceAll(cleaned, "</think>", "")
-	return strings.TrimSpace(cleaned)
+	return strings.TrimSpace(thinkTagsRe.ReplaceAllString(s, ""))
 }
 
 func FilterStreamingMarkup(content string) (displayContent string, hasToolCall bool) {

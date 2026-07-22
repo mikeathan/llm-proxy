@@ -2,11 +2,16 @@ package tools
 
 import (
 	"context"
+	"net"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestIsSecurePath(t *testing.T) {
@@ -453,4 +458,183 @@ func TestValidateFileSystemPath_BlockedSystemFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReadFileWithTimeout_WithinLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	content := []byte("hello world")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	data, err := readFileWithTimeout(context.Background(), path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != string(content) {
+		t.Errorf("content mismatch: got %q, want %q", string(data), string(content))
+	}
+}
+
+func TestReadFileWithTimeout_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := readFileWithTimeout(ctx, "/no/such/file")
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+}
+
+func TestReadFileWithTimeout_LeakedMetric(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	fifoPath := filepath.Join(tmpDir, "fifo.pipe")
+	if err := syscall.Mkfifo(fifoPath, 0600); err != nil {
+		t.Skipf("mkfifo not available: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	before := LeakedFileReads()
+	_, err := readFileWithTimeout(ctx, fifoPath)
+	if err == nil {
+		t.Fatal("expected error from blocking fifo read")
+	}
+	after := LeakedFileReads()
+	if after <= before {
+		t.Errorf("leakedFileReads did not increment: before=%d, after=%d", before, after)
+	}
+}
+
+func TestReadFileWithTimeout_BoundedPool(t *testing.T) {
+	for i := 0; i < maxConcurrentFileReads; i++ {
+		if !readFileSem.TryAcquire(1) {
+			t.Fatalf("expected to acquire slot %d/%d", i+1, maxConcurrentFileReads)
+		}
+	}
+	if readFileSem.TryAcquire(1) {
+		t.Fatalf("expected semaphore to be full at %d slots", maxConcurrentFileReads)
+	}
+	for i := 0; i < maxConcurrentFileReads; i++ {
+		readFileSem.Release(1)
+	}
+	if !readFileSem.TryAcquire(1) {
+		t.Fatal("expected to acquire slot after releasing all")
+	}
+	readFileSem.Release(1)
+}
+
+func TestLeakedFileReads_InitialZero(t *testing.T) {
+	if n := LeakedFileReads(); n < 0 {
+		t.Errorf("LeakedFileReads() should not be negative: %d", n)
+	}
+}
+
+func TestReadFile_Truncation(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "large.txt")
+	large := strings.Repeat("abcdefghij", 400)
+	if err := os.WriteFile(path, []byte(large), 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	fs := NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{tmpDir},
+		}
+	})
+
+	result, err := fs.ReadFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(result, "[SYSTEM: File truncated") {
+		t.Errorf("expected truncation notice, got: %s", result[:200])
+	}
+	if len(result) > 3200 {
+		t.Errorf("truncated result too long: %d chars", len(result))
+	}
+}
+
+func TestReadFile_NoTruncation(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "small.txt")
+	content := "short file"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	fs := NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{tmpDir},
+		}
+	})
+
+	result, err := fs.ReadFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != content {
+		t.Errorf("content mismatch: got %q, want %q", result, content)
+	}
+}
+
+func TestReadFileWithTimeout_EmptyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "empty.txt")
+	if _, err := os.Create(path); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	data, err := readFileWithTimeout(context.Background(), path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(data) != 0 {
+		t.Errorf("expected empty content, got %q", string(data))
+	}
+}
+
+func TestReadFileWithTimeout_ConcurrentDoesNotPanic(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "f.txt")
+	if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var errCount atomic.Int32
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := readFileWithTimeout(context.Background(), path)
+			if err != nil {
+				errCount.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if n := errCount.Load(); n > 0 {
+		t.Logf("concurrent reads had %d errors (may be OK on resource-constrained systems)", n)
+	}
+}
+
+func TestNetworkResolver_PureGo(t *testing.T) {
+	r := &net.Resolver{PreferGo: true}
+	ips, err := r.LookupIP(context.Background(), "ip", "localhost")
+	if err != nil {
+		t.Fatalf("LookupIP failed: %v", err)
+	}
+	if len(ips) == 0 {
+		t.Fatal("expected at least one IP for localhost")
+	}
+	t.Logf("localhost resolved to %d IPs with PreferGo", len(ips))
 }

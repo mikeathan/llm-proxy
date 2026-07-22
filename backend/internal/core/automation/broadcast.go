@@ -5,6 +5,7 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/platform/logging"
 	"sync"
+	"time"
 )
 
 // EventBus handles per-workspace, per-channel event broadcasting. Events are
@@ -15,12 +16,104 @@ type EventBus struct {
 	mu          sync.RWMutex
 	subscribers map[string]map[assistant.EventChannel][]chan assistant.AgentEvent // ws -> channel -> channels
 	recent      map[string]map[assistant.EventChannel][]assistant.AgentEvent      // ws -> channel -> recent
+
+	// fullSince tracks when a subscriber channel first became full (buffer at
+	// capacity, i.e. its reader stopped draining it) so the reaper can drop the
+	// reference after reaperMaxFull. The reaper only reclaims channels that
+	// fill up; orphaned-but-empty channels (reader gone, no traffic) are
+	// reclaimed by Unsubscribe when the owner exits. The reaper never closes a
+	// channel — Unsubscribe closes it, or the owner exits on ctx.Done().
+	fullSince      map[chan assistant.AgentEvent]time.Time
+	stop           chan struct{}
+	stopOnce       sync.Once
+	reaperInterval time.Duration
+	reaperMaxFull  time.Duration
 }
 
 func NewEventBus() *EventBus {
-	return &EventBus{
-		subscribers: make(map[string]map[assistant.EventChannel][]chan assistant.AgentEvent),
-		recent:      make(map[string]map[assistant.EventChannel][]assistant.AgentEvent),
+	return newEventBus(30*time.Second, 60*time.Second)
+}
+
+func newEventBus(reaperInterval, reaperMaxFull time.Duration) *EventBus {
+	b := &EventBus{
+		subscribers:    make(map[string]map[assistant.EventChannel][]chan assistant.AgentEvent),
+		recent:         make(map[string]map[assistant.EventChannel][]assistant.AgentEvent),
+		fullSince:      make(map[chan assistant.AgentEvent]time.Time),
+		stop:           make(chan struct{}),
+		reaperInterval: reaperInterval,
+		reaperMaxFull:  reaperMaxFull,
+	}
+	go b.reapLoop()
+	return b
+}
+
+// Stop terminates the reaper goroutine. Safe to call multiple times and from
+// multiple goroutines concurrently.
+func (b *EventBus) Stop() {
+	b._stop()
+}
+
+func (b *EventBus) _stop() {
+	b.stopOnce.Do(func() {
+		close(b.stop)
+	})
+}
+
+func (b *EventBus) reapLoop() {
+	ticker := time.NewTicker(b.reaperInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			b.reap()
+		case <-b.stop:
+			return
+		}
+	}
+}
+
+// reap removes subscriber channels that have been full (no reader draining
+// them) longer than reaperMaxFull. It never closes a channel.
+func (b *EventBus) reap() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	for ws, chans := range b.subscribers {
+		for chName, chs := range chans {
+			kept := chs[:0]
+			for _, ch := range chs {
+				if cap(ch) > 0 && len(ch) == cap(ch) {
+					since, ok := b.fullSince[ch]
+					if !ok {
+						b.fullSince[ch] = now
+						kept = append(kept, ch)
+						continue
+					}
+					if now.Sub(since) > b.reaperMaxFull {
+						delete(b.fullSince, ch)
+						// Intentionally NOT closed: owner exits on ctx.Done().
+						continue
+					}
+					kept = append(kept, ch)
+				} else {
+					delete(b.fullSince, ch)
+					kept = append(kept, ch)
+				}
+			}
+			if len(kept) == 0 {
+				delete(chans, chName)
+			} else {
+				chans[chName] = kept
+			}
+		}
+		if len(chans) == 0 {
+			delete(b.subscribers, ws)
+			// Drop the replay buffer for a workspace with no live subscribers
+			// only once it is truly empty, so reconnect replay still works.
+			if b.recent[ws] != nil && len(b.recent[ws]) == 0 {
+				delete(b.recent, ws)
+			}
+		}
 	}
 }
 
@@ -63,9 +156,20 @@ func (b *EventBus) Unsubscribe(workspaceID string, channel assistant.EventChanne
 	for i, s := range subs {
 		if s == ch {
 			b.subscribers[workspaceID][channel] = append(subs[:i], subs[i+1:]...)
+			delete(b.fullSince, ch)
 			close(ch)
 			break
 		}
+	}
+
+	// Prune empty containers so the subscriber maps do not grow without bound
+	// across many connect/disconnect cycles. The replay buffer (recent) is
+	// deliberately retained for reconnect replay.
+	if subs := b.subscribers[workspaceID][channel]; len(subs) == 0 {
+		delete(b.subscribers[workspaceID], channel)
+	}
+	if wsSubs := b.subscribers[workspaceID]; len(wsSubs) == 0 {
+		delete(b.subscribers, workspaceID)
 	}
 }
 
@@ -132,5 +236,16 @@ func (b *EventBus) Clear(workspaceID string, channel assistant.EventChannel) {
 	defer b.mu.Unlock()
 	if b.recent[workspaceID] != nil {
 		delete(b.recent[workspaceID], channel)
+		if len(b.recent[workspaceID]) == 0 {
+			delete(b.recent, workspaceID)
+		}
 	}
+}
+
+// SubscriberCount returns the number of live subscriber channels for a
+// workspace/channel pair. Intended for diagnostics and tests.
+func (b *EventBus) SubscriberCount(workspaceID string, channel assistant.EventChannel) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.subscribers[workspaceID][channel])
 }
