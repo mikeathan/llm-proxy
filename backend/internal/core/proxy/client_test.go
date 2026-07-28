@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +98,214 @@ func TestClientChatHTTPErrorIncludesBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "400") || !strings.Contains(err.Error(), "bad news") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestIsRetryableHTTPStatus(t *testing.T) {
+	retryable := []int{429, 502, 503, 504, 529}
+	for _, code := range retryable {
+		if !IsRetryableHTTPStatus(code) {
+			t.Errorf("status %d should be retryable", code)
+		}
+	}
+	nonRetryable := []int{400, 401, 403, 404, 418, 500, 501}
+	for _, code := range nonRetryable {
+		if IsRetryableHTTPStatus(code) {
+			t.Errorf("status %d should NOT be retryable", code)
+		}
+	}
+}
+
+func TestLLMClient_Chat_RetriesOn503ThenSucceeds(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if calls < httpRetryMaxAttempts {
+				return newTestResponse(http.StatusServiceUnavailable, `{"error":{"message":"ResourceExhausted"}}`), nil
+			}
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	out, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if out.Choices[0].Message.Content != "ok" {
+		t.Fatalf("unexpected content: %#v", out)
+	}
+	if calls != httpRetryMaxAttempts {
+		t.Errorf("expected %d calls (retries until success), got %d", httpRetryMaxAttempts, calls)
+	}
+}
+
+func TestLLMClient_Chat_NoRetryOn400(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return newTestResponse(http.StatusBadRequest, "bad request"), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Errorf("non-retryable status must not retry, got %d calls", calls)
+	}
+	if !strings.Contains(err.Error(), "400") || !strings.Contains(err.Error(), "bad request") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLLMClient_Chat_NoRetryOn500(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return newTestResponse(http.StatusInternalServerError, `{"error":{"message":"Failed to parse tool call"}}`), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Errorf("500 must not be retried (deterministic provider error), got %d calls", calls)
+	}
+}
+
+func TestLLMClient_Chat_RetriesOn529(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if calls < httpRetryMaxAttempts {
+				return newTestResponse(529, `{"message":"Service temporarily overloaded","type":"Overloaded","code":529}`), nil
+			}
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	out, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if out.Choices[0].Message.Content != "ok" {
+		t.Fatalf("unexpected content: %#v", out)
+	}
+	if calls != httpRetryMaxAttempts {
+		t.Errorf("expected %d calls (retries until success), got %d", httpRetryMaxAttempts, calls)
+	}
+}
+
+func TestLLMClient_Chat_RetriesOn500InferenceConnection(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if calls < httpRetryMaxAttempts {
+				// NVIDIA NIM transient inference-connection failure.
+				return newTestResponse(http.StatusInternalServerError, `{"type":"urn:inference-connection:problem-details:internal-server-error","title":"Internal Server Error","status":500,"detail":"Inference connection error while making inference request"}`), nil
+			}
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	out, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if out.Choices[0].Message.Content != "ok" {
+		t.Fatalf("unexpected content: %#v", out)
+	}
+	if calls != httpRetryMaxAttempts {
+		t.Errorf("expected %d calls (retries until success), got %d", httpRetryMaxAttempts, calls)
+	}
+}
+
+func TestLLMClient_Chat_RetryExhaustedReturnsError(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return newTestResponse(http.StatusServiceUnavailable, "busy"), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	var httpErr *LLMHTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != 503 {
+		t.Errorf("expected *LLMHTTPError 503, got %#v", err)
+	}
+	if calls != httpRetryMaxAttempts {
+		t.Errorf("expected %d attempts, got %d", httpRetryMaxAttempts, calls)
+	}
+}
+
+func TestLLMClient_Chat_RetryCancelledByContext(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return newTestResponse(http.StatusServiceUnavailable, "busy"), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	// Timeout (200ms) is well under the first retry backoff (800ms), so the
+	// backoff wait must abort on ctx cancellation after the first attempt.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := client.Chat(ctx, ChatRequest{Model: "test"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly 1 attempt before ctx cancel, got %d", calls)
+	}
+}
+
+func TestLLMClient_Stream_RetriesOn503ThenSucceeds(t *testing.T) {
+	var calls int
+	body := "data: {\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}]}\ndata: [DONE]\n"
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if calls < httpRetryMaxAttempts {
+				return newTestResponse(http.StatusServiceUnavailable, "busy"), nil
+			}
+			return newTestResponse(http.StatusOK, body), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	ch, err := client.Stream(context.Background(), ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	var got *ChatResponse
+	for resp := range ch {
+		got = resp
+	}
+	if got == nil || got.Choices[0].Message.Content != "hi" {
+		t.Fatalf("unexpected stream result: %#v", got)
+	}
+	if calls != httpRetryMaxAttempts {
+		t.Errorf("expected %d calls, got %d", httpRetryMaxAttempts, calls)
 	}
 }
 
@@ -335,6 +545,70 @@ func TestLLMClient_ReasoningField(t *testing.T) {
 	cloud := NewLLMClient("https://api.openai.com", "m", nil, nil)
 	if got := cloud.ReasoningField(); got != ReasoningFieldBudget {
 		t.Errorf("cloud client ReasoningField = %q, want %q", got, ReasoningFieldBudget)
+	}
+}
+
+// TestLLMClient_NoGoroutineLeakOnNormalCompletion verifies that Chat and Stream
+// do not leak the ctx-done force-close goroutine when the response completes
+// normally (the context is never cancelled). Baseline goroutine count is taken
+// before the call and compared after, with a small retry window to let any
+// short-lived goroutines exit.
+func TestLLMClient_NoGoroutineLeakOnNormalCompletion(t *testing.T) {
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+
+	waitFor := func(target func() int, want int) {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if target() <= want {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	// Warm up once so any lazy connection setup settles before the baseline.
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	if _, err := client.Chat(context.Background(), ChatRequest{Model: "test"}); err != nil {
+		t.Fatalf("warmup Chat: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	baseline := runtime.NumGoroutine()
+
+	for i := 0; i < 3; i++ {
+		if _, err := client.Chat(context.Background(), ChatRequest{Model: "test"}); err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+	}
+
+	waitFor(runtime.NumGoroutine, baseline+1)
+	if got := runtime.NumGoroutine(); got > baseline+1 {
+		t.Errorf("goroutines leaked after Chat completions: before=%d after=%d", baseline, got)
+	}
+
+	// Stream: drain to completion, then check no growth.
+	streamHTTP := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\ndata: [DONE]\n"), nil
+		}),
+	}
+	streamClient := NewLLMClient("http://example.test", "test-model", streamHTTP, nil)
+	for i := 0; i < 3; i++ {
+		ch, err := streamClient.Stream(context.Background(), ChatRequest{Model: "test"})
+		if err != nil {
+			t.Fatalf("Stream: %v", err)
+		}
+		for range ch {
+		}
+	}
+
+	waitFor(runtime.NumGoroutine, baseline+1)
+	if got := runtime.NumGoroutine(); got > baseline+1 {
+		t.Errorf("goroutines leaked after Stream completions: before=%d after=%d", baseline, got)
 	}
 }
 

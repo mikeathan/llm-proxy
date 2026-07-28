@@ -17,8 +17,7 @@ import (
 
 // ConversationDeps provides the external dependencies for ConversationService.
 // Implemented by the HTTP handler layer.
-type ConversationDeps interface {
-	SelectModels() (string, string)
+type ConversationDeps interface {	SelectModels() (string, string)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
 	ProcessLogger(workspaceID string) logging.Logger
 	GuardrailEngine() *guardrails.GuardrailEngine
@@ -34,6 +33,11 @@ type conversationService struct {
 	deps        ConversationDeps
 	persistence *persistence.WorkspaceManager
 }
+
+// sessionCheckpointInterval throttles mid-run session checkpoint writes. Full
+// history rebuild + persistence on every tool result / message is expensive on
+// long runs; the final state is always persisted at completion regardless.
+const sessionCheckpointInterval = time.Second
 
 func NewConversationService(deps ConversationDeps, persistence *persistence.WorkspaceManager) ConversationService {
 	return &conversationService{deps: deps, persistence: persistence}
@@ -166,6 +170,7 @@ func (s *conversationService) setupRun(ctx context.Context, sessionID, workspace
 func (s *conversationService) buildObserver(baseHistory []proxy.Message, session *models.AssistantSession, workspaceID string, events EventPublisher, recorder EventRecorder, log logging.Logger) (Observer, func() []AgentEvent) {
 	var collectedEvents []AgentEvent
 	sessionStep := 0
+	var lastCheckpoint time.Time
 
 	obs := func(ev AgentEvent) {
 		collectedEvents = append(collectedEvents, ev)
@@ -176,10 +181,18 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 			}
 		}
 		if ev.Type == EventToolResult || ev.Type == EventMessage {
-			cp := *session
-			cp.History = buildPartialHistory(baseHistory, collectedEvents)
-			if err := s.persistence.WriteSession(workspaceID, &cp); err != nil {
-				log.Warn("checkpoint persist failed", "error", err, "session", session.ID)
+			// Debounce mid-run checkpoint writes: a full session rebuild +
+			// persistence on every tool result / message is expensive over a
+			// long run. The final state is always persisted by
+			// handleSuccessResult / handleCancelResult, so throttling these
+			// only shrinks crash-recovery granularity, not durability.
+			if time.Since(lastCheckpoint) >= sessionCheckpointInterval {
+				lastCheckpoint = time.Now()
+				cp := *session
+				cp.History = buildPartialHistory(baseHistory, collectedEvents)
+				if err := s.persistence.WriteSession(workspaceID, &cp); err != nil {
+					log.Warn("checkpoint persist failed", "error", err, "session", session.ID)
+				}
 			}
 		}
 		if ev.Type == EventToolCall {

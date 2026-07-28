@@ -70,8 +70,16 @@ func (a *Agent) buildChatRequest(
 	if a.config.Temperature > 0 {
 		req.Temperature = a.config.Temperature
 	}
-	if a.config.ReasoningBudget > 0 {
-		proxy.SetReasoningBudget(&req, a.deps.Client.ReasoningField(), a.config.ReasoningBudget)
+	// Single source of truth for reasoning wire params. The resolver is chosen
+	// by provider type + local-host detection; buildChatRequest knows nothing
+	// about per-provider wire details (Dependency Inversion).
+	resolver := NewReasoningResolver(a.config.ProviderType, a.deps.Client, a.config.ReasoningBudget)
+	resolver.Apply(&req, a.config.ReasoningSpec)
+	if a.deps.Logger != nil {
+		a.deps.Logger.Debug("reasoning resolver applied",
+			"provider", a.config.ProviderType,
+			"mode", int(a.config.ReasoningSpec.Mode),
+			"budget", a.config.ReasoningSpec.Budget)
 	}
 	// Apply provider-specific output constraint when native tools are active.
 	// Local providers get GBNF grammar to prevent invalid JSON in tool call
@@ -264,6 +272,19 @@ func (a *Agent) handleEmptyStream(
 		a.config.UseNativeTools = savedNative
 		return msg, err
 	}
+	// Empty text-only turn after the recovery ladder already forced a
+	// finalization attempt: do NOT issue another LLM request. Retrying via
+	// non-stream would burn an upstream call that can surface as a 503 and mask
+	// the ladder's intended graceful termination. Return the stuck signal so
+	// handleNoToolCalls falls through to bestAvailableAnswer().
+	if a.runS != nil && a.runS.finalizeAttempts >= 1 {
+		a.deps.Logger.Info("empty finalization turn — returning stuck signal for terminal recovery",
+			"finalizeAttempts", a.runS.finalizeAttempts)
+		return proxy.Message{
+			Role:             proxy.AssistantRole,
+			ReasoningContent: "[stuck]",
+		}, nil
+	}
 	return a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 }
 
@@ -294,6 +315,10 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	if pfErr != nil {
 		return proxy.Message{}, pfErr
 	}
+
+	// Signal the UI that the agent is now working (reasoning compute / pre-token
+	// wait) before any response content arrives. Neutral status only.
+	a.notifyAgentThinking()
 
 	ch, streamErr := a.deps.Client.Stream(ctx, req)
 	a.deps.Logger.Info("stream request sent", "model", a.config.ModelName,
@@ -564,6 +589,15 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				if reasoningChunk == "" && choice.Message.ReasoningContent != "" {
 					reasoningChunk = choice.Message.ReasoningContent
 				}
+				// Openrouter-style opaque/structured reasoning (ReasoningObject).
+				reasoningStr := choice.Delta.Reasoning
+				if reasoningStr == "" && choice.Message.Reasoning != "" {
+					reasoningStr = choice.Message.Reasoning
+				}
+				reasoningDetails := choice.Delta.ReasoningDetails
+				if len(reasoningDetails) == 0 && len(choice.Message.ReasoningDetails) > 0 {
+					reasoningDetails = choice.Message.ReasoningDetails
+				}
 
 				if a.deps.Orchestrator != nil && a.deps.Orchestrator.Interceptor != nil {
 					result := a.deps.Orchestrator.Interceptor.InterceptChunk(orchestrator.StreamChunk{
@@ -619,6 +653,12 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				if reasoningChunk != "" {
 					fullMsg.ReasoningContent += reasoningChunk
 				}
+				if reasoningStr != "" {
+					fullMsg.Reasoning += reasoningStr
+				}
+				if len(reasoningDetails) > 0 {
+					fullMsg.ReasoningDetails = append(fullMsg.ReasoningDetails, reasoningDetails...)
+				}
 				if len(choice.Delta.ToolCalls) > 0 {
 					for _, tc := range choice.Delta.ToolCalls {
 						if tc.ID != "" {
@@ -667,8 +707,10 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 					}
 				}
 
-				if reasoningChunk != "" {
-					a.notify(EventReasoning, fullMsg.ReasoningContent)
+				if reasoningChunk != "" || reasoningStr != "" || len(reasoningDetails) > 0 {
+					if disp := fullMsg.ExtractReasoning(); disp != "" {
+						a.notify(EventReasoning, disp)
+					}
 				}
 				if chunkContent != "" {
 					displayContent, _ := FilterStreamingMarkup(fullMsg.Content)
@@ -708,6 +750,9 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	}
 
 	a.deps.Logger.Info("non-stream request sent", "model", a.config.ModelName, "max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
+
+	// Neutral "working" status before the (single) response arrives.
+	a.notifyAgentThinking()
 
 	heartbeatDone := make(chan struct{})
 	defer close(heartbeatDone)
@@ -754,8 +799,8 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		resp, err = a.retryWithoutTools(ctx, history)
 	}
 	if err != nil && isUnsupportedParameterError(err) {
-		a.deps.Logger.Warn("provider rejected unsupported parameter, retrying without reasoning budget", "error", err)
-		proxy.SetReasoningBudget(&req, a.deps.Client.ReasoningField(), 0)
+		a.deps.Logger.Warn("provider rejected unsupported parameter, retrying without reasoning params", "error", err)
+		proxy.ClearReasoningParams(&req)
 		resp, err = a.deps.Client.Chat(chatCtx, req)
 	}
 
@@ -797,6 +842,9 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	}
 
 	a.deps.Logger.Info("xml stream retry sent", "model", a.config.ModelName, "max_tokens", a.config.MaxTokens, "prefill", prefill != "")
+
+	// Neutral "working" status before the stream begins.
+	a.notifyAgentThinking()
 
 	ch, err := a.deps.Client.Stream(ctx, req)
 
@@ -885,7 +933,7 @@ func FilterStreamingMarkup(content string) (displayContent string, hasToolCall b
 		"<tools>", "functions.",
 		"<|tool_call", "<tool_call",
 		"[TOOL_CALLS]", "[ARGS]",
-		"```json", "```",
+		"```json",
 		"{\"name\":", "[{\"name\":",
 		"{\"target\":", "{\"mode\":", "{\"command\":",
 		"[{'type':", "{\"type\":",

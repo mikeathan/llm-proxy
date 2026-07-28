@@ -12,6 +12,7 @@ export interface ToolCall {
 export type Segment =
   | { kind: 'reasoning', text: string }
   | { kind: 'tool_call', name: string, args: string, status: 'running' | 'success' | 'error', result?: string, error?: string }
+  | { kind: 'guardrail', tool: string, error: string }
 
 export interface AssistantMessage {
   role: AssistantRole

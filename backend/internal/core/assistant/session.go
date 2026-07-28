@@ -560,6 +560,18 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 		if turnMsg.Content == "" || len(salvaged) > len(turnMsg.Content) {
 			turnMsg.Content = salvaged
 		}
+		// The salvaged text is the agent's final answer, delivered as a
+		// tool-call payload (e.g. a truncated write_file). Drop the tool
+		// calls so the emitted/persisted message is a pure text reply —
+		// otherwise the frontend renders a (failed) tool card and the
+		// history-reconstruction logic skips the EventMessage with
+		// ToolCalls, losing the report on reopen.
+		turnMsg.ToolCalls = nil
+		// turnMsg was appended by value above; update the persisted copy so
+		// the report (and cleared ToolCalls) survive into the saved session.
+		if n := len(s.history); n > 0 {
+			s.history[n-1] = turnMsg
+		}
 		s.agent.notify(EventMessage, turnMsg)
 		reply, _, completeErr := s.completeWith(salvaged)
 		return true, reply, completeErr
@@ -634,7 +646,11 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	parseErr := a.handleContentToolCalls(&msg)
 	turnMsg := msg
 
-	if parseErr != nil && (parseErr.XMLFound || len(turnMsg.ToolCalls) == 0) {
+	// Only warn when the model genuinely attempted a tool call and it was
+	// malformed (XMLFound=true). A plain-text turn with no tool-call markers
+	// and no native tool calls is a normal final answer — not a parse error.
+	// The spurious WARN previously fired on every final report.
+	if parseErr != nil && parseErr.XMLFound {
 		contentPreview := ""
 		if len(msg.Content) > 0 {
 			contentPreview = msg.Content

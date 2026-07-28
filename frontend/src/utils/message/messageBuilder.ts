@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
 import type { AssistantMessage, Segment } from '../../types/assistant'
 import type { AgentEvent } from '../../types/dispatcher'
-import { getToolCallPayload, getToolResPayload } from '../dispatcher'
+import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../dispatcher'
 
 // InsetPhase drives the ChatBubble inset visibility during an agent turn.
 //   idle       — no activity yet
@@ -176,6 +176,11 @@ export function useMessageBuilder(
         streaming.value = false
         thinking.value = false
         return
+      case 'guardrail_violation':
+        handleGuardrailViolation(getViolationPayload(ev))
+        streaming.value = false
+        thinking.value = false
+        return
       case 'message':
         // A message with content and no tool calls signals the final answer
         // (Hermes: "no tool calls + substantive content = done"). Finalize from
@@ -195,6 +200,19 @@ export function useMessageBuilder(
         return
       case 'lifecycle': {
         const p = ev.payload as Record<string, any>
+        if (p?.phase === 'agent_thinking') {
+          // Neutral "working" status at the start of an LLM call, before any
+          // response content arrives. Opaque providers (no readable reasoning
+          // stream) rely on this to show a spinner/"thinking…" instead of a blank
+          // gap. Carries no content, so it can never be mistaken for model output.
+          // Idempotent: only flips from idle/done; a later `reasoning` event
+          // fills the inset with real text.
+          if (phase.value === 'idle' || phase.value === 'done') {
+            thinking.value = true
+            if (phase.value === 'idle') setPhase('thinking')
+          }
+          return
+        }
         if (opts.finalizeOn === 'lifecycle' && p?.phase === 'completed' && !finalized) {
           finalized = true
           finalize(typeof p.content === 'string' && p.content ? p.content : lastReply)
@@ -262,6 +280,17 @@ export function useMessageBuilder(
         break
       }
     }
+  }
+
+  // Synchronous guardrail rejections (e.g. path/workspace boundary) are emitted
+  // as `guardrail_violation` events with NO preceding tool_call/tool_result
+  // events (the backend denies before notifying the tool call). Surface them as
+  // their own segment so the user sees the block in the live chat inset.
+  function handleGuardrailViolation(payload: { tool: string; error: string }) {
+    ensureAssistant()
+    const segments = getSegments()
+    segments.push({ kind: 'guardrail', tool: payload.tool, error: payload.error })
+    forceUpdate()
   }
 
   function handleMessage(payload: AssistantMessage) {

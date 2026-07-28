@@ -768,7 +768,7 @@ func sanitizeToolArgs(raw string, originalErr error) string {
 // callers can reuse it (e.g. for logging) without re-marshaling (O5).
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) string {
 	raw, _ := json.Marshal(result)
-	strContent := proxy.TruncateResult(string(raw))
+	strContent := proxy.TruncateResultDefault(string(raw))
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
 		Content:    strContent,

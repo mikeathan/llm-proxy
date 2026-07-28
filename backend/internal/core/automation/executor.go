@@ -26,6 +26,11 @@ var (
 	ErrNoShellPool           = errors.New("shell pool not available")
 )
 
+// maxCapturedEventsPerRun bounds how many agent events are retained in memory
+// per run for the automation result. The complete stream is written to the
+// run-dir events.jsonl; only the tail is kept in RAM.
+const maxCapturedEventsPerRun = 500
+
 // TaskExecutor executes automations.
 type TaskExecutor interface {
 	Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error)
@@ -283,6 +288,13 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
 			*capturedEvents = append(*capturedEvents, ev)
+			// Bound in-memory retention: the full event stream already lives in
+			// the run-dir events.jsonl, and recordRun drops the slice. Keeping
+			// every chunk of a long report in RAM for the run's duration is
+			// wasted memory under concurrent long runs.
+			if len(*capturedEvents) > maxCapturedEventsPerRun {
+				*capturedEvents = (*capturedEvents)[len(*capturedEvents)-maxCapturedEventsPerRun:]
+			}
 			e.svc.Events().Publish(req.WorkspaceID, ev)
 			if eventSink != nil {
 				eventSink.Write(ev)

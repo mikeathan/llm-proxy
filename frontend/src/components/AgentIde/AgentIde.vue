@@ -146,9 +146,6 @@ async function openAssistantSession(sessionId: string) {
   workspaceMiddleTab.value = 'chat'
 }
 
-const models = computed(() => adminState.value?.models || []);
-const providers = computed(() => adminState.value?.config.providers || {});
-
 const groupedByWorkspace = computed(() => {
   const groups: Record<string, Automation[]> = {};
   for (const auto of automations.value) {
@@ -372,8 +369,6 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
           <AutomationForm
             :workspaces="workspaces"
             :workspaceFiles="workspaceFiles"
-            :models="models"
-            :providers="providers"
             :hasAutomations="automations.length > 0"
             :editAutomation="editAutomation"
             @create-automation="handleCreateAutomation"

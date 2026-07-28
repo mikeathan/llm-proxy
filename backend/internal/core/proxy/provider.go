@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 	"net/http"
 	"sync"
@@ -81,7 +82,7 @@ func (p *RuntimeClientProvider) GetClientForModel(ctx context.Context, modelName
 func (p *RuntimeClientProvider) ensureClient(inst llm.ModelInstance, modelName string) {
 	baseURL := inst.URL
 	if baseURL == "" {
-		baseURL = fmt.Sprintf("http://%s:%d", inst.Host, inst.Port)
+		baseURL = network.FormatURL(inst.Host, inst.Port)
 	}
 
 	// Rebuild if:

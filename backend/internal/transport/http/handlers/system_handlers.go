@@ -134,9 +134,8 @@ func (h *SystemHandlers) AdminHostSettingsPutHandler(w http.ResponseWriter, r *h
 
 // AdminTerminalResetHandler handles POST /admin/api/host/terminal/reset
 func (h *SystemHandlers) AdminTerminalResetHandler(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.URL.Query().Get("workspaceID")
-	if workspaceID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspaceID query parameter is required")
+	workspaceID, ok := requireQueryParam(w, r, "workspaceID")
+	if !ok {
 		return
 	}
 

@@ -43,6 +43,10 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 -   Keep types in `/types`.
 -   Annotate API response types; never consume untyped responses.
 -   No hardcoded values: strings, numbers in logic → named `const` at file top. Errors, labels, keys included.
+-   **No inline `import("...")` type references.** Always import a type at the
+    top of the file (`import type { T } from "..."`) and reference `T` by name.
+    Inline dynamic-type imports are banned — they are unreadable and defeat the
+    single import block.
 
 ## Components
 

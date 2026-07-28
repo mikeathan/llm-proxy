@@ -88,6 +88,32 @@ func (m *MockEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) (any,
 	return m.Result, m.Err
 }
 
+// captureLogger is a logging.Logger that captures all output into an in-memory
+// buffer so tests can assert on log lines (e.g. absence of a spurious WARN).
+type captureLogger struct {
+	buf  *logging.BufferLogger
+	base logging.Logger
+}
+
+func newCaptureLogger(limit int) *captureLogger {
+	return &captureLogger{
+		buf:  logging.NewBufferLogger(limit),
+		base: logging.NewNopLogger(),
+	}
+}
+
+func (c *captureLogger) Debug(msg string, args ...any) { c.buf.Debug(msg, args...); c.base.Debug(msg, args...) }
+func (c *captureLogger) Info(msg string, args ...any)  { c.buf.Info(msg, args...); c.base.Info(msg, args...) }
+func (c *captureLogger) Warn(msg string, args ...any)  { c.buf.Warn(msg, args...); c.base.Warn(msg, args...) }
+func (c *captureLogger) Error(msg string, args ...any) { c.buf.Error(msg, args...); c.base.Error(msg, args...) }
+func (c *captureLogger) With(args ...any) logging.Logger {
+	cl := &captureLogger{buf: c.buf, base: c.base.With(args...)}
+	return cl
+}
+func (c *captureLogger) SetLevel(l logging.Level) { c.base.SetLevel(l) }
+func (c *captureLogger) Level() logging.Level     { return c.base.Level() }
+func (c *captureLogger) String() string           { return c.buf.String() }
+
 func TestAgent_Execute_Simple(t *testing.T) {
 	client := &MockClient{
 		Response: proxy.ChatResponse{
@@ -557,6 +583,61 @@ func TestAgent_Execute_NativeToolsEmptyStreamFallsBackToNag(t *testing.T) {
 	}
 }
 
+// TestAgent_ComputeNextResponse_EmptyFinalizationSkipsNonStream verifies that
+// when the recovery ladder has already forced a text-only finalization turn
+// (finalizeAttempts >= 1) and that turn comes back empty, handleEmptyStream
+// must NOT issue a redundant non-stream request — it returns the stuck signal
+// so handleNoToolCalls terminates via bestAvailableAnswer instead. Without the
+// gate, the wasted non-stream call can hit an upstream 5xx and become the
+// run's terminal error, masking the graceful ladder termination.
+func TestAgent_ComputeNextResponse_EmptyFinalizationSkipsNonStream(t *testing.T) {
+	chatCalled := false
+	streamCalls := 0
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			streamCalls++
+			// Empty stream — no content, no reasoning, no tool calls.
+			ch := make(chan *proxy.ChatResponse)
+			close(ch)
+			return ch, nil
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			chatCalled = true
+			return nil, fmt.Errorf("non-stream fallback must not be called after finalization")
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}}},
+	}
+	agent := NewAgent(client, provider, &MockEngine{Result: "ok"}, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+		ProviderType:  "openai", // Prefill=false for this tier — prefill would populate Content and skip handleEmptyStream.
+	})
+	// Reproduce the state AFTER the ladder armed and fired the text-only
+	// finalization turn: finalizeAttempts already 1, this call IS the
+	// finalization turn (tools disabled).
+	agent.runS = &runSession{finalizeAttempts: 1}
+
+	msg, err := agent.computeNextResponse(context.Background(),
+		[]proxy.Message{{Role: proxy.UserRole, Content: "summarize the files"}},
+		nil, // tools disabled — text-only finalization turn
+		proxy.ToolChoiceNone,
+	)
+	if err != nil {
+		t.Fatalf("expected graceful stuck signal, got error: %v", err)
+	}
+	if streamCalls != 1 {
+		t.Errorf("expected exactly 1 stream attempt, got %d", streamCalls)
+	}
+	if chatCalled {
+		t.Error("non-stream fallback must not be called when finalizeAttempts >= 1")
+	}
+	if msg.ReasoningContent != "[stuck]" {
+		t.Errorf("expected ReasoningContent '[stuck]', got %q", msg.ReasoningContent)
+	}
+}
+
 func TestAgent_Execute_StreamWithInterleavedToolCalls(t *testing.T) {
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
@@ -988,6 +1069,106 @@ func TestAgent_ToolCallParseError_TruncatedXMLBlock(t *testing.T) {
 	}
 	if strings.Contains(reply, "Let me check more") {
 		t.Errorf("final answer must NOT contain plan text from truncated tool-call turn, got '%s'", reply)
+	}
+}
+
+// TestAgent_Execute_PlainTextFinalAnswer_NoParseErrorWARN verifies that a
+// native-tools model answering directly with a plain-text final report does
+// NOT log the spurious "tool call parse error" WARN that previously fired on
+// every final report (seen on laguna and nemotron runs). The parseErr from
+// handleContentToolCalls has XMLFound=false for plain text, which is a normal
+// completion — not a parse error.
+func TestAgent_Execute_PlainTextFinalAnswer_NoParseErrorWARN(t *testing.T) {
+	logBuf := newCaptureLogger(64 * 1024)
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 1)
+			go func() {
+				defer close(ch)
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+					Content: "Here is the full report of all workspace files:\n\n- network-recon-report.md\n- ts-dashboard/app.ts\n- ts-dashboard/report.md",
+				}}}}
+			}()
+			return ch, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+		},
+	}
+	agent := NewAgent(client, provider, &MockEngine{Result: "ok"}, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+		Logger:        logBuf,
+	})
+
+	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: "list all files and report"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !strings.Contains(reply, "full report") {
+		t.Errorf("expected final report in reply, got %q", reply)
+	}
+	if strings.Contains(logBuf.String(), "tool call parse error") {
+		t.Errorf("plain-text final answer must not log 'tool call parse error', got:\n%s", logBuf.String())
+	}
+}
+
+// TestAgent_ToolStreamGrowsPastCodeFence verifies that the live streamed
+// content (EventToolStream) keeps growing past a markdown code fence. A bare
+// ``` fence is legitimate report formatting and must NOT be treated as a
+// tool-call cutoff — previously the visible stream froze at the first fence
+// while the model kept generating, making the UI appear stuck.
+func TestAgent_ToolStreamGrowsPastCodeFence(t *testing.T) {
+	const fence = "Here is the report:\n```\ncode block\n```\nAnd the rest of the content after the fence."
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 3)
+			go func() {
+				defer close(ch)
+				// Stream in two chunks: first half ends mid-fence, second half completes it.
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+					Content: "Here is the report:\n```\ncode b",
+				}}}}
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+					Content: "lock\n```\nAnd the rest of the content after the fence.",
+				}}}}
+			}()
+			return ch, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}}},
+	}
+
+	var streamPayloads []string
+	agent := NewAgent(client, provider, &MockEngine{Result: "ok"}, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+		Observer: func(ev AgentEvent) {
+			if ev.Type == EventToolStream {
+				if s, ok := ev.Payload.(string); ok {
+					streamPayloads = append(streamPayloads, s)
+				}
+			}
+		},
+	})
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: "list all files and report"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(streamPayloads) < 2 {
+		t.Fatalf("expected multiple tool_stream payloads, got %d", len(streamPayloads))
+	}
+	last := streamPayloads[len(streamPayloads)-1]
+	if last != fence {
+		t.Errorf("tool_stream content must grow past the code fence, want %q, got %q", fence, last)
 	}
 }
 
@@ -3790,8 +3971,11 @@ func TestPrepareChatRequest_NvidiaDoesNotSendThinkingBudgetTokens(t *testing.T) 
 
 	req := agent.buildChatRequest(prepared, nil)
 
-	if req.ReasoningBudget != 2048 {
-		t.Errorf("expected req.ReasoningBudget = 2048 for Nvidia, got %d", req.ReasoningBudget)
+	if req.ChatTemplateKwargs == nil || !req.ChatTemplateKwargs.EnableThinking {
+		t.Errorf("expected Nvidia to send ChatTemplateKwargs.EnableThinking=true, got %+v", req.ChatTemplateKwargs)
+	}
+	if req.ReasoningBudget != 0 {
+		t.Errorf("expected req.ReasoningBudget = 0 for Nvidia, got %d", req.ReasoningBudget)
 	}
 	if req.ThinkingBudgetTokens != 0 {
 		t.Errorf("Nvidia should NOT receive thinking_budget_tokens, got %d", req.ThinkingBudgetTokens)
@@ -3822,13 +4006,69 @@ func TestPrepareChatRequest_CloudProviderDoesNotSendThinkingBudgetTokens(t *test
 
 			req := agent.buildChatRequest(prepared, nil)
 
-			if req.ReasoningBudget == 0 {
-				t.Errorf("%s: expected req.ReasoningBudget > 0, got 0", pt)
+			if pt == "openrouter" {
+				if req.Reasoning == nil {
+					t.Errorf("openrouter: expected req.Reasoning object to be set, got nil")
+				}
+			} else {
+				if req.ReasoningEffort == "" {
+					t.Errorf("%s: expected req.ReasoningEffort set, got empty", pt)
+				}
 			}
 			if req.ThinkingBudgetTokens != 0 {
 				t.Errorf("%s: should NOT send thinking_budget_tokens, got %d", pt, req.ThinkingBudgetTokens)
 			}
+			if req.ReasoningBudget != 0 {
+				t.Errorf("%s: should NOT send flat reasoning_budget, got %d", pt, req.ReasoningBudget)
+			}
 		})
+	}
+}
+
+// TestResolveReasoningSpec_LocalAutoBudget verifies the SSOT derivation: a local
+// (ModeThinkTokens) provider with no explicit budget derives it from max_tokens
+// via DefaultReasoningBudget (max_tokens/3), tying it to the server's serving
+// context. No name matching involved.
+func TestResolveReasoningSpec_LocalAutoBudget(t *testing.T) {
+	spec := resolveReasoningSpec("local", 0, 2730)
+	if spec.Mode != ModeThinkTokens {
+		t.Fatalf("local should resolve to ModeThinkTokens, got %v", spec.Mode)
+	}
+	want := DefaultReasoningBudget(2730) // 2730/3 = 910
+	if spec.Budget != want {
+		t.Errorf("expected auto budget %d (max_tokens/3), got %d", want, spec.Budget)
+	}
+}
+
+// TestResolveReasoningSpec_LocalExplicitWins verifies an explicit reasoning
+// budget overrides the context-derived default.
+func TestResolveReasoningSpec_LocalExplicitWins(t *testing.T) {
+	spec := resolveReasoningSpec("local", 2048, 2730)
+	if spec.Budget != 2048 {
+		t.Errorf("explicit budget should win, got %d", spec.Budget)
+	}
+}
+
+// TestResolveReasoningSpec_CloudUnaffected verifies cloud providers keep their
+// tier Mode and are never given a numeric think-token budget.
+func TestResolveReasoningSpec_CloudUnaffected(t *testing.T) {
+	for _, pt := range []string{"openai", "gemini", "vertex", "openrouter", "mulerouter", "nvidia"} {
+		spec := resolveReasoningSpec(pt, 0, 4096)
+		if spec.Mode == ModeThinkTokens {
+			t.Errorf("%s should not resolve to think-tokens mode", pt)
+		}
+		if spec.Budget != 0 {
+			t.Errorf("%s should not carry a numeric budget, got %d", pt, spec.Budget)
+		}
+	}
+}
+
+// TestResolveReasoningSpec_UnknownFallsBackToEffort verifies an unknown provider
+// defaults to the effort mode (no reasoning params sent) rather than crashing.
+func TestResolveReasoningSpec_UnknownFallsBackToEffort(t *testing.T) {
+	spec := resolveReasoningSpec("does-not-exist", 0, 4096)
+	if spec.Mode != ModeEffort {
+		t.Errorf("unknown provider should default to ModeEffort, got %v", spec.Mode)
 	}
 }
 

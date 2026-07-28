@@ -53,6 +53,8 @@ executor.go Execute()
 
 **Early stuck for models without reasoning budget:** When `reasoningBudget == 0` (no server-side thinking enforcement), stuck fires at `maxTokens / stuckNonReasoningDivisor` chars instead — currently divisor=1 gives threshold at `maxTokens` (e.g. 2048 chars for a local model). Divisor=2 was tried but caused false positives on Gemma 4 (~1371 chars of legitimate `<think>` blocks before output). See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`.
 
+Note: local/GGUF models now auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec` → `DefaultReasoningBudget`, `max_tokens/3`), so local reasoning is normally enforced server-side and this early-stuck branch mainly covers cloud/opaque providers that emit no readable reasoning stream. The derivation is from context size, never the model name.
+
 **Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
 
 **Progressive sieve recovery:**

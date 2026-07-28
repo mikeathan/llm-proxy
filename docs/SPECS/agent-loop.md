@@ -70,7 +70,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 8. Reasoning Stuck Detection & Fallback
 - Scaled threshold: `stuckThreshold()` returns `max(maxTokens * 2, MinReasoningStuckThreshold)`. Safety net for servers not enforcing reasoning budgets.
-- Early detection for models without reasoning budget (`reasoningBudget == 0`): fires at `maxTokens / stuckNonReasoningDivisor` chars (currently divisor=1 → threshold = `maxTokens`). NOTE: `reasoningBudget == 0` does NOT mean the model can't reason — local GGUF models (Gemma 4, GPT-OSS-20B) produce legitimate `<think>` blocks without an explicit budget. Divisor=1 avoids false positives on these models while catching stuck states 2x faster than the `maxTokens * 2` baseline. Reasoning models with an explicit budget (`reasoningBudget > 0`) skip this check entirely.
+- Early detection for models without reasoning budget (`reasoningBudget == 0`): fires at `maxTokens / stuckNonReasoningDivisor` chars (currently divisor=1 → threshold = `maxTokens`). NOTE: local/GGUF models now auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec` → `DefaultReasoningBudget`, `max_tokens/3`), so local reasoning is normally enforced server-side and this early-stuck branch mainly covers cloud/opaque providers that emit no readable reasoning stream. The derivation is from context size, never the model name. Divisor=1 avoids false positives while catching stuck states 2x faster than the `maxTokens * 2` baseline. Reasoning models with an explicit budget (`reasoningBudget > 0`) skip this check entirely.
 - Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
 - Empty tool_call spiral: ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks in pure reasoning also triggers stuck (before char threshold). Dangling open tags not counted. Same recovery path as char-threshold stuck — does not fail the run. Lifecycle payload includes `empty_tool_calls` count. See `countEmptyClosedToolCalls()`.
 - Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, extract the tool calls directly into `fullMsg.ToolCalls` — reasoning text stays in `ReasoningContent` and is never promoted to `Content`. The llama.cpp server already separates `reasoning_content` from `content` at the wire level; this function bridges the gap when the model writes tool calls as text inside reasoning instead of using native deltas. See `tryExtractToolCallFromReasoning()`.
@@ -85,10 +85,12 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 9. Lifecycle Events for UI Progress
 - `lifecycle` event type with `phase` field:
+  - `agent_thinking`: emitted at the start of every LLM call (pre-response compute wait) — frontend flips to a neutral "thinking…" status. Carries no content/reasoning fields; never fabricated model output.
   - `stuck_detected`: model stuck in reasoning loop, `reasoning_chars` included.
   - `fallback_started`: fallback mode engaged, `reason` and `mode` included.
   - `fallback_waiting`: non-streaming fallback in progress, `elapsed` time included (15s heartbeat).
   - `fallback_completed`: fallback succeeded.
+  - `guardrail_violation`: synchronous guardrail rejection (path/workspace boundary, no approval flow) — payload `{tool, error}`. Surfaced as its own chat segment.
 - Lifecycle events are appended as system messages in the frontend (never overwrite assistant streaming content).
 - The heartbeat in `computeNextResponseNonStreaming` now uses `lifecycle` (`fallback_waiting`) with elapsed time instead of `tool_stream`.
 

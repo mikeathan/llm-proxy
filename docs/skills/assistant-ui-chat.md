@@ -57,7 +57,7 @@ Central state machine for processing SSE events into renderable messages and seg
 | `reasoningCommitted` | string | Accumulated committed text (persisted to segments) |
 | `liveReasoning` | `Ref<string>` | Reactive ref for live streaming display (uncommitted text) |
 | `streaming` | `Ref<boolean>` | True while tool_stream events are being received |
-| `thinking` | `Ref<boolean>` | True during reasoning phase (tool_stream active) |
+| `thinking` | `Ref<boolean>` | True during reasoning phase — set by `agent_thinking` lifecycle (pre-response compute wait) OR `tool_stream` events |
 | `paused` | `Ref<boolean>` | True when no tool_stream events for 200ms (inactivity detection) |
 | `isFinalTurn` | boolean | Set by message event with submit_final_answer |
 | `lastClean` | string | Last tool_stream text for detecting contiguous streaming |
@@ -70,6 +70,7 @@ Central state machine for processing SSE events into renderable messages and seg
 | `tool_stream` | If `stripToolCallXml(text)` is non-empty: call `ensureAssistant()`, update `reasoningBuffer` + `liveReasoning`, `render()`, restart 200ms pause timer. |
 | `tool_call` | Call `ensureAssistant()` + `commitReasoning()`. Push `tool_call` segment with `status: 'running'`. **Does NOT restart pause timer.** |
 | `tool_result` | Call `ensureAssistant()`. Find matching `tool_call` segment, update to `status: 'success'`. **Does NOT restart pause timer.** |
+| `guardrail_violation` | Call `ensureAssistant()`, push `{kind: 'guardrail', tool, error}` segment, `render()`. Synchronous rejections emit this with NO preceding `tool_call`/`tool_result` pair, so it must create the segment itself. |
 | `message` (no submit_final_answer) | `commitReasoning()`, `render()`. **Does NOT restart pause timer.** |
 | `message` (has submit_final_answer) | Set `isFinalTurn = true`, discard `reasoningBuffer`, set message content to `reasoningCommitted` only. The `submit_final_answer` segment is handled by the normal `handleToolCall → handleToolResult` flow — **no special frontend code**. |
 | `finalize(reply)` | Ensure message content is `reasoningCommitted`, push result message. |
@@ -237,6 +238,10 @@ The dots NEVER appear while text is streaming. The user needs to see the text, n
 | Thinking-gap dots | Animated dots + "Thinking" text during inactivity pauses | Hidden (space always reserved) |
 
 All use `ease-in-out` timing with 1.6-2s cycles (dots: 1.2s). No event-based toggling for the gradient bar — just tied to the `loading` ref.
+
+### Empty inset suppression
+
+The `.bubble-inset` (reasoning/tool panel) is **only rendered when it has content** — at least one reasoning/tool_call/guardrail segment, visible live reasoning, or the `generating` phase. During the initial wait (`thinking` with no streamed text yet) it is hidden, so the bubble shows the animated border + "Thinking" dots without an empty rounded panel. `insetVisible` in `ChatBubble.vue` is gated by `insetHasContent`, not just the phase.
 
 ## Auto-scroll Behavior
 

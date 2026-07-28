@@ -51,6 +51,34 @@ func DefaultReasoningBudget(maxTokens int) int {
 	return maxTokens / 3
 }
 
+// resolveReasoningSpec builds the per-agent ReasoningSpec from the provider
+// tier table, combining the resolved wire Mode with the think-token budget for
+// local (ModeThinkTokens) providers. This is the single source of truth for the
+// resolved spec; the resolver later decides the wire field.
+//
+// Local reasoning budget derivation (SSOT): when no explicit budget is
+// configured, it is derived from the model's max_tokens via
+// DefaultReasoningBudget (max_tokens/3). max_tokens itself is derived from the
+// server's serving context (ctxLen/3 in ApplyMetadataDefaults), so the budget
+// tracks the context size the user launched the server with. Derivation is NEVER
+// based on model name (the old name-heuristic gate was removed — it caused
+// false positives/negatives). Explicit configuration always wins.
+func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) ReasoningSpec {
+	tier, ok := providerTiers[providerType]
+	if !ok {
+		return ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}
+	}
+	spec := tier.Reasoning
+	if spec.Mode == ModeThinkTokens {
+		if configuredBudget > 0 {
+			spec.Budget = configuredBudget
+		} else if maxTokens > 0 {
+			spec.Budget = DefaultReasoningBudget(maxTokens)
+		}
+	}
+	return spec
+}
+
 // ReasoningBudgetExceeded returns true when accumulated reasoning content
 // (in characters) exceeds the token budget by a wide enough margin to indicate
 // the server is not enforcing the limit. The factor of 4 converts tokens to
@@ -63,27 +91,27 @@ func ReasoningBudgetExceeded(reasoningChars int, budgetTokens int) bool {
 }
 
 type ProviderTuningDefaults struct {
-	MaxSteps        int
-	ContextBudget   int
-	MaxTokens       int
-	ToolCallFormat  string
-	Prefill         bool
-	ReasoningBudget int
+	MaxSteps       int
+	ContextBudget  int
+	MaxTokens      int
+	ToolCallFormat string
+	Prefill        bool
+	Reasoning      ReasoningSpec
 }
 
 // providerTiers is the frozen baseline of per-provider agent-tuning defaults.
 // It is allocated once at package init; callers must treat the returned map as
 // read-only (ProviderTiers returns the shared instance, never a copy). The
-// reasoning-budget wire field is intentionally NOT here — that is a property of
-// the upstream API contract and is resolved via proxy.Client.ReasoningField().
+// reasoning wire field is resolved here (ReasoningReasoningSpec) — the single
+// source of truth for per-provider reasoning enable params.
 var providerTiers = map[string]ProviderTuningDefaults{
-	"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, ReasoningBudget: 0},
-	"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-	"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-	"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-	"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
-	"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
-	"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 2048},
+	"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeThinkTokens, Effort: EffortMedium, Budget: 0}},
+	"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeObject, Effort: EffortMedium}},
+	"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEnableThinking, Enabled: true}},
 }
 
 // ProviderTiers returns the shared provider-tuning table. Treat as read-only.
@@ -103,11 +131,12 @@ func TierForProvider(providerType string) ProviderTuningDefaults {
 
 // AgentConfig holds immutable per-agent data from user/model config.
 type AgentConfig struct {
-	MaxSteps        int
-	ContextBudget   int
-	MaxTokens       int
-	ReasoningBudget int
-	Temperature     float64
+	MaxSteps       int
+	ContextBudget  int
+	MaxTokens      int
+	ReasoningSpec  ReasoningSpec
+	ReasoningBudget int // local think-token budget (ModeThinkTokens); 0 for effort/object/enabled modes
+	Temperature    float64
 	ICUWeight       float64
 	GlobalTimeout   time.Duration
 	UseNativeTools  bool
@@ -193,7 +222,7 @@ type AgentOptions struct {
 	MaxSteps                 int
 	ContextBudget            int
 	MaxResponseTokens        int
-	ReasoningBudget          int
+	ReasoningBudget          int // configured think-token budget (local mode); 0 => tier default
 	Temperature              float64
 	ICUWeight                float64
 	Logger                   logging.Logger
@@ -447,6 +476,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			MaxSteps:                 opts.MaxSteps,
 			ContextBudget:            opts.ContextBudget,
 			MaxTokens:                opts.MaxResponseTokens,
+			ReasoningSpec:            resolveReasoningSpec(opts.ProviderType, opts.ReasoningBudget, opts.MaxResponseTokens),
 			ReasoningBudget:          opts.ReasoningBudget,
 			Temperature:              opts.Temperature,
 			ICUWeight:                opts.ICUWeight,
@@ -467,7 +497,17 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			GuardrailTimeoutBehavior: opts.GuardrailTimeoutBehavior,
 		},
 	}
-	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget, "max_steps", a.config.MaxSteps)
+
+	// Keep the numeric ReasoningBudget in sync with the resolved spec for local
+	// (ModeThinkTokens) providers, so downstream consumers (preflight ICU cost,
+	// ReasoningBudgetExceeded stuck-check, interceptor budget) use the derived
+	// value rather than the raw config (which is 0 when auto-derived). The spec
+	// remains the single source of truth; this field is its numeric projection.
+	if a.config.ReasoningSpec.Mode == ModeThinkTokens {
+		a.config.ReasoningBudget = a.config.ReasoningSpec.Budget
+	}
+
+	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_mode", int(a.config.ReasoningSpec.Mode), "max_steps", a.config.MaxSteps)
 	return a
 }
 

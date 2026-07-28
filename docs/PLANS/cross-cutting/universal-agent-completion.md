@@ -8,7 +8,7 @@
 **Skills affected:** agent-loop (updated by Phase 2b), assistant-ui-chat, assistant-ui-patterns, automation, event-streaming-patterns, lifecycle-events  
 **Subsystems:** agent-loop (core changes in Phase 2b), assistant-ui, automation  
 **Branches:** `task/universal_agent_completion` (Phase 1+2+2b uncommitted changes)
-**Related completed plans:** `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md`, `docs/PLANS/assistant-ui/automation-unified-renderer-and-report-truncation.md` — both pre-implemented pieces of Phase 2 frontend + Phase 3 infrastructure (see §9).
+**Related completed plans:** `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md`, `docs/PLANS/ARCHIVE/assistant-ui/automation-unified-renderer-and-report-truncation.md` — both pre-implemented pieces of Phase 2 frontend + Phase 3 infrastructure (see §9).
 
 > **Resolved (2026-07-18): event-stream contamination.** Phase 2b notes that assistant and automation share one SSE topic, which caused automation `finalReply`/nag output to leak into the assistant chat pane (frontend `useAssistantSSE` filtered only by `workspace_id`). Fixed with server-side channel isolation: every `AgentEvent` now carries `Channel` (`assistant`|`automation`) + `ConversationID`; the automation `EventBus` routes by `(workspace, channel)`; the `/live` SSE endpoint serves a single channel per connection (`?channel=assistant` for chat, default `automation` for the console). Frontend `useAssistantSSE` connects with `?channel=assistant` and drops any non-assistant event defensively. See `docs/architecture.md` Pitfall #6.
 

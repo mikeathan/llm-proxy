@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/platform/ledger"
+	"llm-proxy/internal/platform/network"
 )
 
 // SlotManager persists llama.cpp KV-cache slots to skip prompt
@@ -50,7 +51,19 @@ func (m *SlotManager) cacheKey(p SlotParams) string {
 }
 
 func (m *SlotManager) baseURL(host string, port int) string {
-	return fmt.Sprintf("http://%s:%d", host, port)
+	return network.FormatURL(host, port)
+}
+
+func (m *SlotManager) doSlotRequest(ctx context.Context, method, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("slot request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("slot do: %w", err)
+	}
+	return resp, nil
 }
 
 // RestoreIfCached checks the ledger for a matching slot and, if found,
@@ -69,11 +82,7 @@ func (m *SlotManager) RestoreIfCached(ctx context.Context, p SlotParams) (bool, 
 		return false, nil
 	}
 	restoreURL := fmt.Sprintf("%s/slots/%d?action=restore", m.baseURL(p.Host, p.Port), slot.SlotID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, restoreURL, nil)
-	if err != nil {
-		return false, fmt.Errorf("slot restore request: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.doSlotRequest(ctx, http.MethodPost, restoreURL)
 	if err != nil {
 		return false, fmt.Errorf("slot restore: %w", err)
 	}
@@ -93,11 +102,7 @@ func (m *SlotManager) SaveAfterResponse(ctx context.Context, p SlotParams) error
 		return nil
 	}
 	slotsURL := m.baseURL(p.Host, p.Port) + "/slots"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, slotsURL, nil)
-	if err != nil {
-		return fmt.Errorf("slot list request: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.doSlotRequest(ctx, http.MethodGet, slotsURL)
 	if err != nil {
 		return fmt.Errorf("slot list: %w", err)
 	}
@@ -118,11 +123,7 @@ func (m *SlotManager) SaveAfterResponse(ctx context.Context, p SlotParams) error
 	for _, s := range slots {
 		if s.Idle && s.State >= 0 {
 			saveURL := fmt.Sprintf("%s/slots/%d?action=save", m.baseURL(p.Host, p.Port), s.ID)
-			saveReq, err := http.NewRequestWithContext(ctx, http.MethodPost, saveURL, nil)
-			if err != nil {
-				continue
-			}
-			saveResp, err := http.DefaultClient.Do(saveReq)
+			saveResp, err := m.doSlotRequest(ctx, http.MethodPost, saveURL)
 			if err != nil {
 				continue
 			}

@@ -20,12 +20,16 @@ All events share the same structure:
 ```
 type: lifecycle
 payload: {
-  "phase":           "session_started" | "session_progress" | "session_completed",
+  "phase":           "session_started" | "session_progress" | "session_completed" | "agent_thinking",
   "conversation_id": "conv_20260630154205",
   "workspace_id":    "workspace-test",
-  "snippet":         "list all files..."   // first 80 chars of user message or current step
+  "snippet":         "first 80 chars of user message or current step"
 }
 ```
+
+Two lifecycle families exist:
+- **Session lifecycle** (`phase` starts with `session_`) — routes to `onSessionUpdate` in `useAssistantSSE.ts`.
+- **Agent lifecycle** (`phase` = `agent_thinking`, `stuck_detected`, `fallback_*`, `guardrail_violation`) — per-LLM-call status; routes to the live events list / message builder.
 
 ## Phases
 
@@ -52,6 +56,15 @@ Published after the final `WriteSession` on the success path, or after `WriteSes
 - **Payload:** `conversation_id`, `workspace_id`, `snippet` (empty — the disk file has the full history)
 - **Sender:** `handleAssistant` in both success and cancel paths
 - **Purpose:** Frontend sets `running: false` on the session
+
+### `agent_thinking`
+
+Published at the start of every LLM call (all three compute functions: `computeNextResponse`,
+`computeNextResponseNonStreaming`, `computeNextResponseStreamXML`).
+
+- **Payload:** `conversation_id`, `workspace_id`, `step` (current step)
+- **Sender:** `notifyLifecycle` in `stream.go` (constant `PhaseAgentThinking` in `agent_events.go`)
+- **Purpose:** Frontend flips `phase → 'thinking'` + `thinking = true` for the pre-response compute wait. Status-only — no reasoning/content fields, so it can never be mistaken for model output. Real reasoning arrives later via a `reasoning` event and fills the inset. Emitted for ALL providers (opaque OpenAI included). May double-emit on re-entrancy (XML fallback / prefill retry) — harmless, frontend treats it idempotently.
 
 ## Publishing Helper
 

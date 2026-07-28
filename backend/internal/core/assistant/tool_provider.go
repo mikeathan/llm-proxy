@@ -5,7 +5,6 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
@@ -106,10 +105,7 @@ func (e *CompositeEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 }
 
 func decodeArgs(raw string, target any) error {
-	if raw == "" {
-		return nil
-	}
-	return json.Unmarshal([]byte(raw), target)
+	return proxy.DecodeToolArgs(raw, target)
 }
 
 // Engine defines how tool execution is dispatched.
@@ -133,11 +129,10 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 	a.logger.Info("tool call", "name", call.Function.Name, "conversation", call.ID)
 
 	var args map[string]any
-	if call.Function.Arguments != "" {
-		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
-		}
-	} else {
+	if err := decodeArgs(call.Function.Arguments, &args); err != nil {
+		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+	}
+	if args == nil {
 		args = make(map[string]any)
 	}
 

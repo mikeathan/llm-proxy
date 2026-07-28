@@ -18,6 +18,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools/notifiers"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 )
 
@@ -226,11 +227,6 @@ type adminLogLevelResponse struct {
 	Level string `json:"level"`
 }
 
-func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	w.WriteHeader(status)
-	respondJSON(w, map[string]string{"error": msg})
-}
-
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := decodeJSON(w, r, v); err != nil {
 		if errors.Is(err, ErrUnsupportedContentType) {
@@ -269,7 +265,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	activeDetails = &adminActiveModel{
 				Name:      ai.Name,
 				Provider:  ai.Provider,
-				Endpoint:  fmt.Sprintf("http://%s:%d", host, ai.Port),
+				Endpoint:  network.FormatURL(host, ai.Port),
 				Port:      ai.Port,
 				PID:       ai.PID,
 				Ready:     ai.Ready,
@@ -382,7 +378,7 @@ func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[st
 			ContextBudget:                v.ContextBudget,
 			MaxTokens:                    v.MaxTokens,
 			Temperature:                  assistant.DefaultAutomationTemperature,
-			ReasoningBudget:              v.ReasoningBudget,
+			ReasoningBudget:              v.Reasoning.Budget,
 			TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
 			ToolCallFormat:               v.ToolCallFormat,
 			Prefill:                      v.Prefill,

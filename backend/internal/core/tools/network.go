@@ -143,7 +143,7 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 		result += "\n... (content truncated by network guardrails)"
 	}
 
-	return proxy.TruncateResult(result), nil
+	return proxy.TruncateResultDefault(result), nil
 }
 
 // resolveAndQueueTargets handles the expansion and validation of comma-separated targets.

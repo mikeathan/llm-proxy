@@ -323,3 +323,89 @@ The following functions likely exceed cyclomatic complexity threshold of 12 (run
 - `terminal.go:splitCommandSegments` (~14)
 - `terminal.go:checkPathSecurity` (~13)
 - `session.go:run` (~13)
+
+---
+
+## Appendix: Backend Duplication & Dead Code — RESOLVED (2026-07-29)
+
+Follow-up focused audit (was `DUPLICATION_AUDIT.md` at repo root, merged here
+after completion). All items fixed via PR1 + PR2. Grep-verified against live tree;
+five corrections (C1–C5) documented below.
+
+### HIGH — Substantial duplication (all resolved)
+1. **HTTP error helpers — 3 defs of same fn** (`writeJSONError` in `helpers.go:11`
+   + `admin_handlers.go:229`, `respondError` in `dispatcher_handlers.go:327`).
+   → Single exported `api.WriteJSONError`; `helpers.go` version promoted because
+   `admin_handlers.go` had a header-ordering bug (set `Content-Type` after
+   `WriteHeader` → ~80 sites missing the header). Fixed as side effect (C2).
+2. **`decodeJSON`/`ErrUnsupportedContentType`/`maxBodySize` duplicated in
+   `http/helpers.go` and `handlers/http_internal.go`.** → One copy in `api`,
+   bridge aliases in `handlers`.
+3. **Atomic file write (temp→write→sync→rename) — 7 copies** (workspace.go ×5,
+   store.go `saveLocked`, tools/filesystem.go). → `storage.WriteAtomic(dest,
+   pattern, data)`; `saveLocked` gained a `Sync()` it previously skipped (C5 —
+   safer but slower, flagged in PR).
+
+### MEDIUM — Same pattern repeated (all resolved)
+4. **Lock acquisition** (`AcquireLock`/`TryAcquireLock` share setup lines) → `WorkspaceManager.openLockFile(workspaceID)` extracted.
+5. **`os.IsNotExist`→zero-value 8×** → extraction **SKIPPED** by decision (marginal benefit, awkward `nil` callers).
+6. **Workspace param validation 13+× across 6 handlers** → `api.RequirePathParams` (variadic, no map alloc) + `api.RequireQueryParam`; `RequirePathParamsMsg` variant preserves combined 400 text.
+7. **Head+tail truncation — 2 impls** (`proxy.TruncateResult` vs `sieve.truncateLongContent`) → unified `proxy.TruncateResult(content, limit, marker)`; sieve keeps terse `\n...[Truncated]...\n`, tool-results keep verbose `SYSTEM NOTE` (via `TruncateResultDefault`). LLM-behavior-tested.
+8. **URL construction — `network.FormatURL()` exists but ignored 6×** → adopted (slot_manager, provider, admin/process/proxy handlers, admin_view).
+9. **JSON tool-arg parsing — `decodeArgs()` underused 12+×** → `proxy.DecodeToolArgs(raw, target)`; `decodeArgs` moved from `assistant` to `proxy` to avoid import cycle (C3: guardrails imports assistant, not vice-versa). Empty-args semantics audited per site; `validateToolArgs` reverted to inline `json.Unmarshal` to preserve empty-input error.
+
+### LOW / minor (all resolved)
+10. **Slot-manager HTTP blocks ×3** → `SlotManager.doSlotRequest(ctx, method, url)` extracted.
+11. **`fmt.Printf` bypasses logger in `storage/`** (manager/keys/store/secrets_store) → **deferred** to separate PR (Phase 7b; needs constructor logger injection).
+
+### Dead code (removed)
+- `ToJson` (`utils/encoding.go`) — zero callers (C1 confirmed). File deleted.
+- `ExecutionHistory` type alias — dead in BOTH `proxy/message.go:19` and `models/llm_messages.go:19` (C4). Both deleted.
+
+### Key engineering notes
+- Two PRs: PR1 = HIGH (#1–3) + dead code; PR2 = MEDIUM/LOW (#4–10). Logger injection = PR3.
+- Each phase: `go build ./...` + `go test ./...` + `check-complexity/` ≤12; TDD for every new exported helper.
+- Layering respected: `persistence` imports `storage` one-way → new helpers live in `storage`, never reverse.
+- All verification clean: build, vet, test, check-complexity; no per-request map alloc in path-param helpers; no import cycles.
+
+### Post-verification fixes (2026-07-29, second round)
+Second pass confirmed all phases compile/vet/pass tests with `check-complexity` ≤12 and
+surfaced message-text regressions + cheap cleanups. Applied (no API-contract breaking changes):
+- **Message-text restorations:** `RequirePathParamsMsg` added to `api` (combined single 400
+  message when ANY key is empty, bridge alias in `http_internal.go`); `dispatcher.parse`
+  reverted to per-key early-return loop (`<k> is required` / `invalid <k>`); session/memory
+  handlers use `requirePathParamsMsg` with ORIGINAL combined strings (`"workspace and session
+  are required"`, `"workspace and id are required"`); `tool_exec.go:647` `validateToolArgs`
+  reverted to inline `json.Unmarshal` (preserves empty-args error `"failed to parse arguments
+  as JSON: unexpected end of JSON input"`) while keeping the sanitize-retry block.
+- **Missed Phase-4 sites routed** (exact message match): `recordings_handlers.go`
+  Get/Delete (`"id is required"`) and `webhook_handlers.go` ServeHTTP
+  (`"connector_name is required"`) through `requirePathParams`. `mcp_handlers.go:31`
+  (`"name and url are required"`) is a body-payload check, intentionally left inline.
+- **Cleanups:** `proxy/tool_args.go` (`DecodeToolArgs`) merged into `proxy/utils.go` with doc
+  comment; doc comments on `storage.WriteAtomic`, `proxy.MaxReturnChars`,
+  `proxy.DecodeToolArgs`; added `proxy/utils_test.go` (DecodeToolArgs empty/valid/malformed;
+  TruncateResult variants) + extended `helpers_test.go` (Content-Type assertion,
+  `TestRequirePathParamsMsg`).
+
+### Run-log investigation & salvage/truncation fixes (2026-07-30)
+Slow/blank sample run (`workspace-test`, `laguna-xs-2.1`, `run.log` + `events.jsonl` under
+`backend/data/runs/.../20260730T173015Z_...`, persisted session
+`~/.config/llm-proxy/workspace-test/sessions/conv_20260730183015.json`).
+- **BUG A (salvage path → blank UI + lost report).** `session.go` `handleToolTurn` appended
+  `turnMsg` by value before `processToolCalls` salvaged the truncated `write_file` payload into
+  `turnMsg.Content`; the persisted history copy kept `Content=""` with `ToolCalls` set, so the
+  frontend skipped the message during reconstruction → blank conversation + never-saved report.
+  **Fix (in tree):** on salvage set `turnMsg.ToolCalls = nil` and write the updated `turnMsg`
+  back into `s.history[n-1]` so the report persists as pure assistant text. Covered by
+  `tool_exec_salvage_test.go`.
+- **BUG B (missing `role:user` on multi-tool runs).** Reproduced attempt showed the current tree
+  DOES retain the user role (`newRunSession` copies `llmHistory`; `handleSuccessResult` appends
+  only `updatedHistory[len(llmHistory):]`); loss came from a prior code revision — no change needed.
+- **Slowness (~131s).** Model streaming stalls (3× 30–46s "stream still generating"); tool
+  execution sub-second. Not a backend defect.
+- **TruncateHistory regression** (caught by `TestHandleAssistant_HistoryTruncation`): user-anchor
+  logic kept an oversized user message whole, breaking the shrink expectation. **Fix:** when
+  trimming later messages can't reach budget, cap the user message's *content* to the remaining
+  budget (append `\n…[truncated]`) instead of dropping it — preserves both
+  `TestTruncateHistory_PreservesFirstUserMessage` and the shrink behavior.

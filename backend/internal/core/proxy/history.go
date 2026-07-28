@@ -89,10 +89,15 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	}
 
 	// 3. Final safety: Fill empty content with safe placeholders.
+	// Assistant messages with no content are left EMPTY rather than filled with
+	// "Thinking..." — the UI renders a neutral "Agent working…" state from the
+	// absence of content, and a fabricated placeholder would otherwise surface as
+	// reasoning-panel spam. Reasoning is captured via the dedicated
+	// reasoning_content / reasoning fields, not here.
 	for i := range merged {
 		if strings.TrimSpace(merged[i].Content) == "" {
 			if merged[i].Role == AssistantRole {
-				merged[i].Content = "Thinking..."
+				merged[i].Content = ""
 			} else if merged[i].Role == UserRole || merged[i].Role == ToolRole {
 				merged[i].Content = "Tool result: (action completed, no output)"
 			}

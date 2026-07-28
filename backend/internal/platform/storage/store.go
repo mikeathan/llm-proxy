@@ -133,29 +133,8 @@ func (s *Store[T]) saveLocked() error {
 		return fmt.Errorf("failed to marshal store data: %w", err)
 	}
 
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create store directory: %w", err)
-	}
-
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(s.path)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("failed to write store data: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, s.path); err != nil {
-		return fmt.Errorf("failed to rename store file: %w", err)
+	if err := WriteAtomic(s.path, filepath.Base(s.path)+".*.tmp", data); err != nil {
+		return fmt.Errorf("atomic write store file: %w", err)
 	}
 
 	fmt.Printf(" [STORAGE] Atomically updated %s\n", filepath.Base(s.path))

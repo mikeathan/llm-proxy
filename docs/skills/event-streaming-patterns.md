@@ -36,8 +36,13 @@ as JSON payload.
 | `guardrail_blocked` | Tool blocked by guardrail | `{decision_id, tool, args, reason, category}` | `GuardrailBanner.vue` |
 | `guardrail_invalidated` | Decision auto-resolved | `{decision_id, reason}` | Clears pending banner |
 | `guardrail_violation` | Tool blocked (no approval) | `{tool, error}` | Error message |
-| `lifecycle` | Stuck/fallback events | `{phase, ...}` | `LifecycleMessage.vue` |
+| `lifecycle` | Agent/session status events | `{phase, ...}` | `LifecycleMessage.vue` |
 | `error` | Execution error | `string` | Error display |
+
+`lifecycle` phases: `session_*` (session started/progress/completed), `agent_thinking`
+(per-LLM-call pre-response compute wait — frontend flips to neutral "thinking…" status;
+content-free, never fabricated model output), `stuck_detected`, `fallback_*`,
+`guardrail_violation` (sync rejection, no approval flow).
 
 ## Observer Pattern
 

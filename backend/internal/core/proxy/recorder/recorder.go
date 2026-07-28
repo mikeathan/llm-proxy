@@ -29,7 +29,16 @@ type RecordingClient struct {
 	states       map[string]*runState
 	dirs         map[string]string
 	currentDir   string // fallback/legacy
+	syncRunning  bool
+	stop         chan struct{}
+	stopOnce     sync.Once
 }
+
+// recordingSyncInterval is how often open recording files are fsynced. Chunks
+// stream at high frequency; a per-chunk fsync blocks the stream forwarding path
+// on a disk syscall each time. Periodic + on-close sync bounds crash loss to
+// one interval without the hot-path cost.
+const recordingSyncInterval = time.Second
 
 func New(underlying proxy.Client, recordDir string, modelName string) *RecordingClient {
 	return &RecordingClient{
@@ -38,7 +47,63 @@ func New(underlying proxy.Client, recordDir string, modelName string) *Recording
 		modelName:  modelName,
 		states:     make(map[string]*runState),
 		dirs:       make(map[string]string),
+		stop:       make(chan struct{}),
 	}
+}
+
+// startSyncLoopIfNeeded lazily launches the periodic sync goroutine. It is
+// called from ensureFile once a run file exists and self-terminates when no
+// states remain, so rebuilding the client (model switch) never leaks a
+// goroutine.
+func (rc *RecordingClient) startSyncLoopIfNeeded() {
+	rc.mu.Lock()
+	if rc.syncRunning {
+		rc.mu.Unlock()
+		return
+	}
+	rc.syncRunning = true
+	rc.mu.Unlock()
+	go rc.syncLoop()
+}
+
+// syncLoop periodically fsyncs all open recording files and exits once no run
+// states remain.
+func (rc *RecordingClient) syncLoop() {
+	ticker := time.NewTicker(recordingSyncInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rc.mu.Lock()
+			empty := len(rc.states) == 0
+			if !empty {
+				for _, state := range rc.states {
+					if state.writer != nil {
+						_ = state.writer.Flush()
+					}
+					if state.file != nil {
+						_ = state.file.Sync()
+					}
+				}
+			}
+			rc.mu.Unlock()
+			if empty {
+				rc.mu.Lock()
+				rc.syncRunning = false
+				rc.mu.Unlock()
+				return
+			}
+		case <-rc.stop:
+			return
+		}
+	}
+}
+
+// Stop terminates the periodic sync goroutine. Safe to call multiple times.
+func (rc *RecordingClient) Stop() {
+	rc.stopOnce.Do(func() {
+		close(rc.stop)
+	})
 }
 
 func (rc *RecordingClient) SetDir(dir string) {
@@ -58,6 +123,7 @@ func (rc *RecordingClient) CloseRun(runID string) {
 	defer rc.mu.Unlock()
 	if state, ok := rc.states[runID]; ok {
 		_ = state.writer.Flush()
+		_ = state.file.Sync()
 		_ = state.file.Close()
 		delete(rc.states, runID)
 	}
@@ -66,8 +132,18 @@ func (rc *RecordingClient) CloseRun(runID string) {
 
 func (rc *RecordingClient) ensureFile(ctx context.Context) error {
 	rc.mu.Lock()
-	defer rc.mu.Unlock()
+	err := rc.ensureFileLocked(ctx)
+	rc.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	rc.startSyncLoopIfNeeded()
+	return nil
+}
 
+// ensureFileLocked creates the recording file for the run, if one does not yet
+// exist. The caller must hold rc.mu.
+func (rc *RecordingClient) ensureFileLocked(ctx context.Context) error {
 	runID := models.GetRunID(ctx)
 
 	state := rc.states[runID]
@@ -120,6 +196,7 @@ func (rc *RecordingClient) ensureFile(ctx context.Context) error {
 func (rc *RecordingClient) closeFile() {
 	if state, ok := rc.states[""]; ok {
 		_ = state.writer.Flush()
+		_ = state.file.Sync()
 		_ = state.file.Close()
 		delete(rc.states, "")
 	}
@@ -255,9 +332,6 @@ func (rc *RecordingClient) writeLine(ctx context.Context, line recordLine) {
 		_ = state.encoder.Encode(line)
 		if state.writer != nil {
 			_ = state.writer.Flush()
-		}
-		if state.file != nil {
-			_ = state.file.Sync()
 		}
 	}
 }

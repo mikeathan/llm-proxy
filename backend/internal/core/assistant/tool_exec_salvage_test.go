@@ -521,3 +521,71 @@ func clip(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// TestHandleToolTurn_SalvagePersistsReportAsText verifies Fix A: when a tool
+// call's args are truncated so the report is salvaged, the persisted history
+// entry must carry the salvaged Content AND have ToolCalls cleared (otherwise
+// the report is lost on session reopen and the frontend renders a blank
+// tool-call card).
+func TestHandleToolTurn_SalvagePersistsReportAsText(t *testing.T) {
+	long := strings.Repeat("r", salvageMinContentLen) + " final report body"
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	s := newRunSession(agent, context.Background(), nil)
+
+	turnMsg := proxy.Message{
+		Role: proxy.AssistantRole,
+		ToolCalls: []proxy.ToolCall{{
+			ID: "call_salvage",
+			Function: proxy.FunctionCall{
+				Name:      models.ToolFileWrite,
+				Arguments: `{"content":"` + long, // truncated: no closing brace, no path
+			},
+		}},
+	}
+
+	done, reply, err := s.handleToolTurn(turnMsg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !done {
+		t.Fatal("expected done=true after salvage")
+	}
+	if !strings.Contains(reply, "final report body") {
+		t.Fatalf("reply missing report: %q", clip(reply, 80))
+	}
+
+	if len(s.history) == 0 {
+		t.Fatal("history not recorded")
+	}
+	last := s.history[len(s.history)-1]
+	if last.Content != reply {
+		t.Fatalf("persisted content = %q, want reply %q", clip(last.Content, 80), clip(reply, 80))
+	}
+	if len(last.ToolCalls) != 0 {
+		t.Fatalf("persisted ToolCalls must be cleared after salvage, got %d", len(last.ToolCalls))
+	}
+}
+
+// TestTruncateHistory_PreservesFirstUserMessage verifies Fix B: truncation for
+// oversized history must never drop the original user task, or the persisted
+// session renders blank on reopen.
+func TestTruncateHistory_PreservesFirstUserMessage(t *testing.T) {
+	big := strings.Repeat("x", MaxHistoryChars) // exceeds budget alone
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: "list all files and report"},
+		{Role: proxy.AssistantRole, Content: big},
+		{Role: proxy.ToolRole, Content: "result"},
+	}
+	out := TruncateHistory(history)
+
+	foundUser := false
+	for _, m := range out {
+		if m.Role == proxy.UserRole && m.Content == "list all files and report" {
+			foundUser = true
+		}
+	}
+	if !foundUser {
+		t.Fatalf("first user message dropped by truncation; out=%d msgs", len(out))
+	}
+}

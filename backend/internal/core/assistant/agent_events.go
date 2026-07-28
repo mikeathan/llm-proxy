@@ -57,6 +57,11 @@ const (
 	// PhaseSessionCompleted fires when a task completes — the model responds to
 	// a tool result with a final assistant message and stops calling tools.
 	PhaseSessionCompleted = "session_completed"
+	// PhaseAgentThinking is emitted at the start of every LLM call to signal the
+	// UI that the agent is working (reasoning compute or pre-token wait) before
+	// any response content arrives. It carries NO content — the frontend shows a
+	// neutral "thinking…" status, never fabricated reasoning text.
+	PhaseAgentThinking = "agent_thinking"
 )
 
 type AgentEvent struct {
@@ -172,6 +177,15 @@ func (a *Agent) notifyLifecycle(phase string, extra map[string]any) {
 		payload[k] = v
 	}
 	a.notify(EventLifecycle, payload)
+}
+
+// notifyAgentThinking signals the UI that the agent has begun an LLM call and is
+// working (reasoning compute / pre-token wait) before any response content
+// arrives. It carries NO content — the frontend shows a neutral "thinking…"
+// status, never fabricated reasoning text. Emitted once per call so even opaque
+// providers (no readable reasoning stream) get a working indicator.
+func (a *Agent) notifyAgentThinking() {
+	a.notifyLifecycle(PhaseAgentThinking, map[string]any{})
 }
 
 func (a *Agent) notifyMemoryRecall(query string, count int) {

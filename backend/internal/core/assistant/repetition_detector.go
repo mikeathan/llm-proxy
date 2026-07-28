@@ -1,7 +1,6 @@
 package assistant
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -239,7 +238,7 @@ func extractPathFromArgs(args string) string {
 		return ""
 	}
 	var m map[string]any
-	if err := json.Unmarshal([]byte(args), &m); err != nil {
+	if err := proxy.DecodeToolArgs(args, &m); err != nil {
 		return ""
 	}
 	for _, v := range m {

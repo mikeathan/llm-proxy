@@ -43,9 +43,18 @@ const toolSegments = computed(() =>
 const isStreamingPhase = computed(() =>
   props.phase === 'thinking' || props.phase === 'working')
 
+// The inset holds reasoning segments, the live-reasoning box, and the
+// generating indicator.  Only show it once it actually has something to
+// display — during the initial wait (thinking with no streamed text yet) it
+// would otherwise paint as an empty rounded panel.  The header, animated
+// border and "Thinking" dots already convey activity on their own.
+const insetHasContent = computed(() =>
+  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail') ||
+  liveReasoningVisible.value ||
+  props.phase === 'generating')
+
 const insetVisible = computed(() =>
-  !props.isInsetCollapsed &&
-  (isStreamingPhase.value || props.phase === 'generating' || props.phase === 'done'))
+  !props.isInsetCollapsed && insetHasContent.value)
 
 const resultVisible = computed(() =>
   props.phase === 'generating' || props.phase === 'done')
@@ -116,6 +125,17 @@ watch(
               :compact="true"
               @toggle="(turnIdx, segIdx) => emit('toggleSegment', turnIdx, segIdx)"
             />
+
+            <div
+              v-else-if="seg.kind === 'guardrail'"
+              class="inset-guardrail"
+            >
+              <span class="inset-label inset-label--guardrail">Guardrail Blocked</span>
+              <div class="inset-guardrail-body">
+                <span class="inset-guardrail-tool">{{ seg.tool }}</span>
+                <span class="inset-guardrail-error">{{ seg.error }}</span>
+              </div>
+            </div>
           </template>
 
           <!-- Live (streaming) reasoning — the in-flight thought is always the
@@ -205,6 +225,18 @@ watch(
 .inset-reasoning :deep(.bubble-reasoning) { @apply text-[11px] leading-snug text-gray-400 px-0; }
 .inset-reasoning--live { @apply min-h-[1.25rem]; }
 .inset-label { @apply text-[10px] uppercase tracking-wider text-indigo-400/60 mb-0.5 block; }
+.inset-label--guardrail { @apply text-red-400/80; }
+
+.inset-guardrail {
+  @apply mb-2 pl-2 border-l-2 border-red-500/60 bg-red-500/5 rounded-r py-1.5 pr-2;
+}
+.inset-guardrail-body { @apply flex flex-col gap-0.5; }
+.inset-guardrail-tool {
+  @apply text-[11px] font-mono text-red-300/90;
+}
+.inset-guardrail-error {
+  @apply text-[11px] leading-snug text-red-200/80;
+}
 
 .inset-generating {
   @apply flex items-center justify-center gap-1.5 py-2 mt-1;

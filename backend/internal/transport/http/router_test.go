@@ -116,8 +116,8 @@ func TestDecodeJSON_BodyLimit(t *testing.T) {
 		Message string `json:"message"`
 	}
 
-	// 2. Call decodeJSON
-	err := decodeJSON(w, r, &payload)
+	// 2. Call DecodeJSON
+	err := DecodeJSON(w, r, &payload)
 
 	// 3. Verify it failed due to size limit
 	if err == nil {
@@ -212,7 +212,7 @@ func TestDecodeJSON_ValidBody(t *testing.T) {
 		Message string `json:"message"`
 	}
 
-	err := decodeJSON(w, r, &payload)
+	err := DecodeJSON(w, r, &payload)
 	if err != nil {
 		t.Errorf("expected no error for valid 1MB body, got: %v", err)
 	}

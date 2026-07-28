@@ -33,7 +33,7 @@ func WithMethodNotAllowed(handler http.Handler) RouteOption {
 }
 
 func MethodNotAllowedJSON(w http.ResponseWriter, r *http.Request) {
-	writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	WriteJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func MethodNotAllowedText(w http.ResponseWriter, r *http.Request) {

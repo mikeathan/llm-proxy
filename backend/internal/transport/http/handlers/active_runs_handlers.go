@@ -38,11 +38,11 @@ func NewActiveRunsHandler(
 
 // ServeHTTP returns the aggregated running state for the requested workspace.
 func (h *ActiveRunsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue(models.WorkspaceIDParam)
-	if workspaceID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, models.WorkspaceIDParam)
+	if !ok {
 		return
 	}
+	workspaceID := vals[0]
 
 	respondJSON(w, ActiveRunsResponse{
 		AssistantRunning:  h.assistantRunning(workspaceID),

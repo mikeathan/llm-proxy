@@ -2,7 +2,6 @@ package guardrails
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/proxy"
@@ -142,7 +141,7 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 		Command string `json:"command"`
 		Cwd     string `json:"cwd"`
 	}
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+	if err := proxy.DecodeToolArgs(call.Function.Arguments, &args); err != nil {
 		return fmt.Errorf("malformed JSON arguments: %w", err)
 	}
 
@@ -191,10 +190,14 @@ func (e *GuardrailEngine) validateCommunication(call proxy.ToolCall, cfg models.
 }
 
 func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.FileSystemGuardrailsConfig, workspaceID string) error {
+	if strings.TrimSpace(call.Function.Arguments) == "" {
+		return fmt.Errorf("missing tool arguments: 'path' field is required")
+	}
+
 	var args struct {
 		Path string `json:"path"`
 	}
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+	if err := proxy.DecodeToolArgs(call.Function.Arguments, &args); err != nil {
 		return fmt.Errorf("failed to parse path: %w", err)
 	}
 
@@ -228,7 +231,7 @@ func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.Networ
 		var args struct {
 			URL string `json:"url"`
 		}
-		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err == nil {
+		if err := proxy.DecodeToolArgs(call.Function.Arguments, &args); err == nil {
 			// Reuse the same boundary check logic from the tool itself
 			host := tools.ExtractHost(args.URL)
 			if err := tools.ValidateDomainBoundary(host, cfg.BlockedDomains); err != nil {
@@ -262,7 +265,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		var a struct {
 			Command string `json:"command"`
 		}
-		if json.Unmarshal([]byte(args), &a) == nil && a.Command != "" {
+		if proxy.DecodeToolArgs(args, &a) == nil && a.Command != "" {
 			for _, base := range tools.ExtractBaseCommands(a.Command) {
 				cfg.Guardrails.Terminal.AllowedCommands = append(cfg.Guardrails.Terminal.AllowedCommands, base)
 			}
@@ -272,7 +275,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		var a struct {
 			Path string `json:"path"`
 		}
-		if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
+		if proxy.DecodeToolArgs(args, &a) == nil && a.Path != "" {
 			cfg.Guardrails.FileSystem.AllowedPaths = append(cfg.Guardrails.FileSystem.AllowedPaths, a.Path)
 			ext := filepath.Ext(a.Path)
 			if ext != "" {
@@ -293,7 +296,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 		var a struct {
 			URL string `json:"url"`
 		}
-		if json.Unmarshal([]byte(args), &a) == nil && a.URL != "" {
+		if proxy.DecodeToolArgs(args, &a) == nil && a.URL != "" {
 			host := tools.ExtractHost(a.URL)
 			if host != "" {
 				filtered := make([]string, 0, len(cfg.Guardrails.Network.BlockedDomains))

@@ -67,10 +67,10 @@ func TestFilterStreamingMarkup(t *testing.T) {
 			wantToolCall: false,
 		},
 		{
-			name:         "markdown code fence with content after",
+			name:         "markdown code fence is NOT a tool call",
 			input:        "Here is code:\n```\nprint('hello')\n```\nNow continuing...",
-			wantContent:  "Here is code:\n",
-			wantToolCall: true,
+			wantContent:  "Here is code:\n```\nprint('hello')\n```\nNow continuing...",
+			wantToolCall: false,
 		},
 		{
 			name:         "normal text with functions word",
