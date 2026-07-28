@@ -415,7 +415,8 @@ type ProviderConfig struct {
 }
 
 type MetricsConfig struct {
-	GPU GPUConfig `json:"gpu"`
+	GPU                  GPUConfig `json:"gpu"`
+	GPUSampleIntervalSec int       `json:"gpu_sample_interval_seconds,omitempty"`
 }
 
 type GPUConfig struct {

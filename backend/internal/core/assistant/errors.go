@@ -75,6 +75,14 @@ func isToolSupportError(err error) bool {
 		strings.Contains(lowErr, "parameter `tools`")
 }
 
+func isUnsupportedParameterError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lowErr := strings.ToLower(err.Error())
+	return strings.Contains(lowErr, "unsupported parameter")
+}
+
 func isPrefillThinkingError(err error) bool {
 	if err == nil {
 		return false

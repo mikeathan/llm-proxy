@@ -54,10 +54,12 @@ from model metadata, and applies provider-tier tuning defaults.
 ### 4. Reasoning Budget
 
 - `reasoning_budget = max_tokens / 4` (divisor in `streamReasoningBudgetDivisor`).
-- Budget is sent on the ChatRequest for broad provider compatibility:
-  - `reasoning_budget` — OpenAI-compatible field.
-  - `thinking_budget_tokens` — llama.cpp field.
-- Both are sent; providers ignore unknown fields.
+- Budget is sent on the ChatRequest. Field selection is provider-aware:
+  - `reasoning_budget` — OpenAI-compatible field. Sent to cloud providers.
+  - `thinking_budget_tokens` — llama.cpp field. Sent to local providers.
+- `ProviderTuningDefaults.ReasoningField` declares which field each provider uses.
+  Sending unknown fields to cloud providers that reject them (e.g. Nvidia NIM)
+  causes HTTP 400 errors, so the agent selects fields per provider type.
 
 ### 5. ICU (Inter-Call Underwriting)
 

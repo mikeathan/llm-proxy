@@ -10,6 +10,7 @@ const logLevel = ref<LogLevel>(DEFAULT_LOG_LEVEL)
 let pollInterval: ReturnType<typeof setInterval> | null = null
 let mountCount = 0 // track how many components are mounted to manage the poll lifecycle
 let metricsReqId = 0 // request token to prevent stale responses
+let logLevelFetched = false
 
 const refresh = async (): Promise<void> => {
   const mine = ++metricsReqId
@@ -46,7 +47,10 @@ export function useMetrics() {
     mountCount++
     if (mountCount === 1) {
       refresh()
-      fetchLogLevel()
+      if (!logLevelFetched) {
+        logLevelFetched = true
+        fetchLogLevel()
+      }
       pollInterval = setInterval(refresh, POLL_INTERVAL_MS)
     }
   })
@@ -63,6 +67,20 @@ export function useMetrics() {
     metrics,
     logLevel,
     refresh,
+    updateLogLevel,
+  }
+}
+
+export function useLogLevel() {
+  onMounted(async () => {
+    if (!logLevelFetched) {
+      logLevelFetched = true
+      await fetchLogLevel()
+    }
+  })
+
+  return {
+    logLevel,
     updateLogLevel,
   }
 }

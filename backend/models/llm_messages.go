@@ -49,14 +49,6 @@ type ChatRequest struct {
 	GuidedGrammar        *string         `json:"guided_grammar,omitempty"`        // vLLM: GBNF grammar alternative
 }
 
-// SetReasoningBudget sets both reasoning_budget (OpenAI-compatible) and
-// thinking_budget_tokens (llama.cpp-compatible) to the same value, so the
-// budget is enforced regardless of which backend is serving the request.
-func (r *ChatRequest) SetReasoningBudget(budget int) {
-	r.ReasoningBudget = budget
-	r.ThinkingBudgetTokens = budget
-}
-
 type ToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`

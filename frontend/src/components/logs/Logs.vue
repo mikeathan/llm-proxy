@@ -2,7 +2,7 @@
 import { ref, nextTick, watch, onMounted } from "vue";
 import LogLevelPanel from "../settings/LogLevelPanel.vue";
 import { useLogs } from "../../composables/system/useLogs";
-import { useMetrics } from "../../composables/system/useMetrics";
+import { useLogLevel } from "../../composables/system/useMetrics";
 import { useAutoScroll } from "../../composables/ui/useAutoScroll";
 
 type LogTab = "app" | "process";
@@ -20,7 +20,7 @@ const {
   clearAppLogs,
 } = useLogs();
 
-const { logLevel, updateLogLevel } = useMetrics();
+const { logLevel, updateLogLevel } = useLogLevel();
 
 // Auto-scroll refs
 const processLogEl = ref<HTMLElement | null>(null);

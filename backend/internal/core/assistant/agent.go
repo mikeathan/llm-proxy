@@ -71,16 +71,34 @@ type ProviderTuningDefaults struct {
 	ReasoningBudget int
 }
 
+// providerTiers is the frozen baseline of per-provider agent-tuning defaults.
+// It is allocated once at package init; callers must treat the returned map as
+// read-only (ProviderTiers returns the shared instance, never a copy). The
+// reasoning-budget wire field is intentionally NOT here — that is a property of
+// the upstream API contract and is resolved via proxy.Client.ReasoningField().
+var providerTiers = map[string]ProviderTuningDefaults{
+	"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, ReasoningBudget: 0},
+	"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
+	"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
+	"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
+	"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
+	"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
+	"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 2048},
+}
+
+// ProviderTiers returns the shared provider-tuning table. Treat as read-only.
 func ProviderTiers() map[string]ProviderTuningDefaults {
-	return map[string]ProviderTuningDefaults{
-		"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, ReasoningBudget: 0},
-		"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-		"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-		"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-		"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
-		"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
-		"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 2048},
+	return providerTiers
+}
+
+// TierForProvider returns the tuning defaults for a provider type, or a safe
+// OpenAI-compatible default for unknown providers. Agent tuning only — the
+// reasoning-budget wire field is resolved per-request from the client.
+func TierForProvider(providerType string) ProviderTuningDefaults {
+	if t, ok := providerTiers[providerType]; ok {
+		return t
 	}
+	return ProviderTuningDefaults{}
 }
 
 // AgentConfig holds immutable per-agent data from user/model config.

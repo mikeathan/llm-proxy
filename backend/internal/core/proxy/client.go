@@ -17,13 +17,29 @@ import (
 type Client interface {
 	Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 	Stream(ctx context.Context, req ChatRequest) (<-chan *ChatResponse, error)
+	// ReasoningField reports the JSON wire field this upstream expects for the
+	// reasoning budget. It is derived from the actual destination contract
+	// (llama.cpp servers use "thinking_budget_tokens"; OpenAI-compatible
+	// gateways use "reasoning_budget"), NOT the config provider slug — the same
+	// slug can front either backend.
+	ReasoningField() string
 }
+
+// Reasoning field wire names.
+const (
+	ReasoningFieldBudget      = "reasoning_budget"
+	ReasoningFieldThinkTokens = "thinking_budget_tokens"
+)
+
+// DefaultReasoningField is the wire field used for OpenAI-compatible gateways.
+const DefaultReasoningField = ReasoningFieldBudget
 
 type LLMClient struct {
 	httpClient         *http.Client
 	chatCompletionsURL string
 	headers            http.Header
 	model              string
+	reasoningField     string
 }
 
 const (
@@ -52,7 +68,19 @@ var (
 	}
 )
 
+// NewLLMClient builds a client for an upstream that speaks the OpenAI-compatible
+// chat protocol. The reasoning budget is sent as "reasoning_budget" by default.
 func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
+	return newLLMClient(baseURL, model, httpClient, headers, DefaultReasoningField)
+}
+
+// NewLLMClientForLocal builds a client for a local llama.cpp server, which
+// expects the reasoning budget under "thinking_budget_tokens".
+func NewLLMClientForLocal(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
+	return newLLMClient(baseURL, model, httpClient, headers, ReasoningFieldThinkTokens)
+}
+
+func newLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header, reasoningField string) Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Transport: SharedTransport,
@@ -62,7 +90,54 @@ func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers
 	if !strings.HasSuffix(chatURL, "/v1/chat/completions") && !strings.HasSuffix(chatURL, "/chat/completions") {
 		chatURL += "/v1/chat/completions"
 	}
-	return &LLMClient{chatCompletionsURL: chatURL, model: model, httpClient: httpClient, headers: headers}
+	return &LLMClient{chatCompletionsURL: chatURL, model: model, httpClient: httpClient, headers: headers, reasoningField: reasoningField}
+}
+
+// ReasoningField returns the wire field name this upstream expects for the
+// reasoning budget.
+func (c *LLMClient) ReasoningField() string {
+	return c.reasoningField
+}
+
+// IsLocalModelURL reports whether baseURL targets the local llama.cpp inference
+// host. llama.cpp expects the reasoning budget under "thinking_budget_tokens",
+// whereas any OpenAI-compatible gateway expects "reasoning_budget". Comparing
+// against the configured model host (rather than the provider slug) is what lets
+// an "openai"-slugged model whose BaseURL points at local llama.cpp use the
+// correct field.
+func IsLocalModelURL(baseURL, modelHost string) bool {
+	if modelHost == "" {
+		return false
+	}
+	norm := func(u string) string {
+		u = strings.TrimPrefix(u, "http://")
+		u = strings.TrimPrefix(u, "https://")
+		u = strings.TrimSuffix(u, "/")
+		return u
+	}
+	target := norm(baseURL)
+	host := norm(modelHost)
+	if target == host {
+		return true
+	}
+	// baseURL includes the /v1/chat/completions path or a port; compare host:port.
+	if strings.HasPrefix(target, host+":") || strings.HasPrefix(target, host+"/") {
+		return true
+	}
+	return false
+}
+
+// SetReasoningBudget applies budget to req under the field name reported by
+// field, clearing the other field so only one is ever sent on the wire.
+func SetReasoningBudget(req *ChatRequest, field string, budget int) {
+	switch field {
+	case ReasoningFieldThinkTokens:
+		req.ThinkingBudgetTokens = budget
+		req.ReasoningBudget = 0
+	default:
+		req.ReasoningBudget = budget
+		req.ThinkingBudgetTokens = 0
+	}
 }
 
 func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {

@@ -83,7 +83,15 @@ func (c *Container) BuildAppServices() *AppServices {
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
-		client := proxy.NewLLMClient(baseURL, model, nil, headers)
+		var client proxy.Client
+		// Route by the actual upstream destination, not the config provider
+		// slug: a model whose BaseURL points at the local llama.cpp host must
+		// use thinking_budget_tokens even if its slug is "openai".
+		if proxy.IsLocalModelURL(baseURL, c.Core.Runtime.ModelHost()) {
+			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
+		} else {
+			client = proxy.NewLLMClient(baseURL, model, nil, headers)
+		}
 		// Always wrap in RecordingClient so that run-specific recording.jsonl is supported,
 		// but only set recordDir if recording is globally enabled.
 		client = recorder.New(client, c.RecordDir, model)

@@ -71,7 +71,7 @@ func (a *Agent) buildChatRequest(
 		req.Temperature = a.config.Temperature
 	}
 	if a.config.ReasoningBudget > 0 {
-		req.SetReasoningBudget(a.config.ReasoningBudget)
+		proxy.SetReasoningBudget(&req, a.deps.Client.ReasoningField(), a.config.ReasoningBudget)
 	}
 	// Apply provider-specific output constraint when native tools are active.
 	// Local providers get GBNF grammar to prevent invalid JSON in tool call
@@ -752,6 +752,11 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		a.deps.Logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
 		resp, err = a.retryWithoutTools(ctx, history)
+	}
+	if err != nil && isUnsupportedParameterError(err) {
+		a.deps.Logger.Warn("provider rejected unsupported parameter, retrying without reasoning budget", "error", err)
+		proxy.SetReasoningBudget(&req, a.deps.Client.ReasoningField(), 0)
+		resp, err = a.deps.Client.Chat(chatCtx, req)
 	}
 
 	if err != nil {

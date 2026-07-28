@@ -12,6 +12,7 @@
   "metrics": {
     "gpu": {
       "provider": "auto"
-    }
+    },
+    "gpu_sample_interval_seconds": 10
   }
 }

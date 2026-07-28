@@ -19,11 +19,12 @@ import (
 
 // MockClient implements proxy.Client
 type MockClient struct {
-	Response   proxy.ChatResponse
-	Err        error
-	Calls      int
-	ChatFunc   func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error)
-	StreamFunc func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error)
+	Response              proxy.ChatResponse
+	Err                   error
+	Calls                 int
+	ChatFunc              func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error)
+	StreamFunc            func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error)
+	ReasoningFieldOverride string // empty => default (reasoning_budget)
 }
 
 func (m *MockClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
@@ -32,6 +33,16 @@ func (m *MockClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan 
 	}
 	// Fall back to non-streaming by default for existing tests
 	return nil, fmt.Errorf("streaming not implemented in mock")
+}
+
+// ReasoningField reports the wire field this mock upstream expects. Defaults to
+// the OpenAI-compatible "reasoning_budget"; tests for local llama.cpp set
+// ReasoningFieldOverride to proxy.ReasoningFieldThinkTokens.
+func (m *MockClient) ReasoningField() string {
+	if m.ReasoningFieldOverride != "" {
+		return m.ReasoningFieldOverride
+	}
+	return proxy.ReasoningFieldBudget
 }
 
 func (m *MockClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
@@ -1046,6 +1057,29 @@ func TestIsContextSizeError(t *testing.T) {
 			got := isContextSizeError(tt.err)
 			if got != tt.want {
 				t.Errorf("isContextSizeError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsUnsupportedParameterError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"arbitrary", fmt.Errorf("connection refused"), false},
+		{"nvidia real error", fmt.Errorf(`LLM chat error 400: {"error":{"message":"Validation: Unsupported parameter(s): ` + "`thinking_budget_tokens`" + `","type":"Bad Request","code":400}}`), true},
+		{"simple unsupported", fmt.Errorf("Unsupported parameter: thinking_budget_tokens"), true},
+		{"tool support error not matched", fmt.Errorf("tools is not currently supported"), false},
+		{"context size error not matched", fmt.Errorf("context size exceeded"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isUnsupportedParameterError(tt.err)
+			if got != tt.want {
+				t.Errorf("isUnsupportedParameterError() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -3670,10 +3704,12 @@ func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
 	engine := &MockEngine{}
 
 	explicitBudget := 1234
+	client.ReasoningFieldOverride = proxy.ReasoningFieldThinkTokens
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:          5,
 		MaxResponseTokens: 4096,
 		ReasoningBudget:   explicitBudget,
+		ProviderType:      "local",
 	})
 
 	prepared := []proxy.Message{
@@ -3686,11 +3722,11 @@ func TestPrepareChatRequest_UsesExplicitReasoningBudget(t *testing.T) {
 	if agent.config.ReasoningBudget != explicitBudget {
 		t.Errorf("expected agent.config.ReasoningBudget = %d, got %d", explicitBudget, agent.config.ReasoningBudget)
 	}
-	if req.ReasoningBudget != explicitBudget {
-		t.Errorf("expected req.ReasoningBudget = %d, got %d", explicitBudget, req.ReasoningBudget)
+	if req.ReasoningBudget != 0 {
+		t.Errorf("expected req.ReasoningBudget = 0 for local provider (uses thinking_budget_tokens), got %d", req.ReasoningBudget)
 	}
 	if req.ThinkingBudgetTokens != explicitBudget {
-		t.Errorf("expected req.ThinkingBudgetTokens = %d, got %d", explicitBudget, req.ThinkingBudgetTokens)
+		t.Errorf("expected req.ThinkingBudgetTokens = %d for local provider, got %d", explicitBudget, req.ThinkingBudgetTokens)
 	}
 }
 
@@ -3726,6 +3762,120 @@ func TestPrepareChatRequest_ZeroBudgetHasNoEffect(t *testing.T) {
 	}
 	if req.ThinkingBudgetTokens != 0 {
 		t.Errorf("expected req.ThinkingBudgetTokens = 0, got %d", req.ThinkingBudgetTokens)
+	}
+}
+
+func TestPrepareChatRequest_NvidiaDoesNotSendThinkingBudgetTokens(t *testing.T) {
+	client := &MockClient{
+		Response: proxy.ChatResponse{
+			Choices: []proxy.Choice{
+				{Message: proxy.Message{Role: "assistant", Content: "Task completed successfully"}},
+			},
+		},
+	}
+	provider := &MockProvider{}
+	engine := &MockEngine{}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:          5,
+		MaxResponseTokens: 4096,
+		ReasoningBudget:   2048,
+		ProviderType:      "nvidia",
+	})
+
+	prepared := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the task."},
+	}
+
+	req := agent.buildChatRequest(prepared, nil)
+
+	if req.ReasoningBudget != 2048 {
+		t.Errorf("expected req.ReasoningBudget = 2048 for Nvidia, got %d", req.ReasoningBudget)
+	}
+	if req.ThinkingBudgetTokens != 0 {
+		t.Errorf("Nvidia should NOT receive thinking_budget_tokens, got %d", req.ThinkingBudgetTokens)
+	}
+}
+
+func TestPrepareChatRequest_CloudProviderDoesNotSendThinkingBudgetTokens(t *testing.T) {
+	for _, pt := range []string{"openai", "openrouter", "mulerouter", "gemini", "vertex"} {
+		t.Run(pt, func(t *testing.T) {
+			client := &MockClient{
+				Response: proxy.ChatResponse{
+					Choices: []proxy.Choice{
+						{Message: proxy.Message{Role: "assistant", Content: "ok"}},
+					},
+				},
+			}
+
+			agent := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{
+				MaxResponseTokens: 4096,
+				ReasoningBudget:   8192,
+				ProviderType:      pt,
+			})
+
+			prepared := []proxy.Message{
+				{Role: proxy.SystemRole, Content: "system"},
+				{Role: proxy.UserRole, Content: "hello"},
+			}
+
+			req := agent.buildChatRequest(prepared, nil)
+
+			if req.ReasoningBudget == 0 {
+				t.Errorf("%s: expected req.ReasoningBudget > 0, got 0", pt)
+			}
+			if req.ThinkingBudgetTokens != 0 {
+				t.Errorf("%s: should NOT send thinking_budget_tokens, got %d", pt, req.ThinkingBudgetTokens)
+			}
+		})
+	}
+}
+
+func TestProviderTuningDefaults_ReasoningBudgetField(t *testing.T) {
+	// The reasoning-budget wire field is resolved from the upstream client
+	// contract, not the provider slug. This test verifies the resolution
+	// helper applies exactly one field and clears the other.
+	cases := []struct {
+		field   string
+		budget  int
+		wantRB  int
+		wantTBT int
+	}{
+		{proxy.ReasoningFieldThinkTokens, 1234, 0, 1234},
+		{proxy.ReasoningFieldBudget, 2048, 2048, 0},
+		{proxy.ReasoningFieldBudget, 8192, 8192, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.field, func(t *testing.T) {
+			req := proxy.ChatRequest{}
+			proxy.SetReasoningBudget(&req, c.field, c.budget)
+			if req.ReasoningBudget != c.wantRB {
+				t.Errorf("ReasoningBudget = %d, want %d", req.ReasoningBudget, c.wantRB)
+			}
+			if req.ThinkingBudgetTokens != c.wantTBT {
+				t.Errorf("ThinkingBudgetTokens = %d, want %d", req.ThinkingBudgetTokens, c.wantTBT)
+			}
+
+			proxy.SetReasoningBudget(&req, c.field, 0)
+			if req.ReasoningBudget != 0 || req.ThinkingBudgetTokens != 0 {
+				t.Errorf("zeroing left values: rb=%d tbt=%d", req.ReasoningBudget, req.ThinkingBudgetTokens)
+			}
+		})
+	}
+}
+
+// TestClientReasoningField_ViaLocal verifies a local llama.cpp client reports
+// the thinking_budget_tokens wire field, independent of the config slug.
+func TestClientReasoningField_ViaLocal(t *testing.T) {
+	c := proxy.NewLLMClientForLocal("http://127.0.0.1:8080", "m", nil, nil)
+	if got := c.ReasoningField(); got != proxy.ReasoningFieldThinkTokens {
+		t.Fatalf("local client ReasoningField = %q, want %q", got, proxy.ReasoningFieldThinkTokens)
+	}
+
+	cloud := proxy.NewLLMClient("https://api.openai.com", "m", nil, nil)
+	if got := cloud.ReasoningField(); got != proxy.ReasoningFieldBudget {
+		t.Fatalf("cloud client ReasoningField = %q, want %q", got, proxy.ReasoningFieldBudget)
 	}
 }
 

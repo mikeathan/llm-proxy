@@ -12,11 +12,16 @@ import (
 
 func NewMetricsService(cfg *models.Config) *MetricsService {
 	provider, name, initErr := buildGPUProvider(cfg)
+	interval := 0
+	if cfg != nil {
+		interval = cfg.Metrics.GPUSampleIntervalSec
+	}
 	return &MetricsService{
-		gpu:             provider,
-		gpuProviderName: name,
-		gpuInitErr:      initErr,
-		nowFn:           time.Now,
+		gpu:               provider,
+		gpuProviderName:   name,
+		gpuInitErr:        initErr,
+		nowFn:             time.Now,
+		gpuSampleInterval: time.Duration(interval) * time.Second,
 	}
 }
 
@@ -44,10 +49,21 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 		return resp
 	}
 
-	gpu, err := s.gpu.Sample()
+	gpu, err := s.readGPU()
 	if err != nil {
 		resp.GPUError = err.Error()
 		return resp
+	}
+
+	s.gpuMu.RLock()
+	cachedAt := s.gpuCachedAt
+	s.gpuMu.RUnlock()
+	if !cachedAt.IsZero() {
+		age := s.nowFn().Sub(cachedAt).Seconds()
+		resp.GPUCacheAgeSec = age
+		if s.gpuSampleInterval > 0 && age > s.gpuSampleInterval.Seconds()*2 {
+			resp.GPUStale = true
+		}
 	}
 
 	resp.GPU = gpu
@@ -76,6 +92,68 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 		resp.ActiveTerminals = active
 	}
 	return resp
+}
+
+func (s *MetricsService) Start() {
+	if s.gpu == nil || s.gpuSampleInterval <= 0 {
+		return
+	}
+	s.gpuMu.Lock()
+	if s.stopCh != nil {
+		s.gpuMu.Unlock()
+		return
+	}
+	s.stopCh = make(chan struct{})
+	stop := s.stopCh
+	s.gpuMu.Unlock()
+
+	gpu, err := s.gpu.Sample()
+	s.gpuMu.Lock()
+	s.gpuCached = gpu
+	s.gpuCachedErr = err
+	s.gpuCachedAt = s.nowFn()
+	s.gpuMu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(s.gpuSampleInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				gpu, err := s.gpu.Sample()
+				s.gpuMu.Lock()
+				s.gpuCached = gpu
+				s.gpuCachedErr = err
+				s.gpuCachedAt = s.nowFn()
+				s.gpuMu.Unlock()
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+func (s *MetricsService) Stop() {
+	s.gpuMu.Lock()
+	ch := s.stopCh
+	s.stopCh = nil
+	s.gpuMu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+}
+
+func (s *MetricsService) readGPU() (*GPUMetrics, error) {
+	s.gpuMu.RLock()
+	cached := s.gpuCached
+	cachedErr := s.gpuCachedErr
+	hasCache := !s.gpuCachedAt.IsZero()
+	s.gpuMu.RUnlock()
+
+	if hasCache {
+		return cached, cachedErr
+	}
+	return s.gpu.Sample()
 }
 
 func (s *MetricsService) readHostMetrics() HostMetrics {
@@ -115,4 +193,8 @@ func (s *MetricsService) readHostMetrics() HostMetrics {
 
 func (s *MetricsService) GPUProvider() string {
 	return s.gpuProviderName
+}
+
+func (s *MetricsService) TerminalSource() TerminalSource {
+	return s.terminal
 }

@@ -165,8 +165,13 @@ func (rc *RecordingClient) Chat(ctx context.Context, req proxy.ChatRequest) (*pr
 	return resp, nil
 }
 
-func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-	if err := rc.ensureFile(ctx); err != nil {
+// ReasoningField delegates to the underlying client so the agent asks the real
+// upstream (not the recorder wrapper) which reasoning wire field to use.
+func (rc *RecordingClient) ReasoningField() string {
+	return rc.underlying.ReasoningField()
+}
+
+func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {	if err := rc.ensureFile(ctx); err != nil {
 		return nil, err
 	}
 

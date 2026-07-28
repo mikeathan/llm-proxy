@@ -28,7 +28,7 @@ export const API_ENDPOINTS = {
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh
-export const POLL_INTERVAL_MS = 5000
+export const POLL_INTERVAL_MS = 10000
 
 // Default log level
 export const DEFAULT_LOG_LEVEL = 'INFO' as const

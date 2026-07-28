@@ -40,6 +40,8 @@ type MetricsSnapshot struct {
 	GPUMemoryPercent  float64     `json:"gpu_memory_percent"`
 	GPUMemoryUsedMB   float64     `json:"gpu_memory_used_mb"`
 	GPUMemoryTotalMB  float64     `json:"gpu_memory_total_mb"`
+	GPUCacheAgeSec    float64     `json:"gpu_cache_age_seconds,omitempty"`
+	GPUStale          bool        `json:"gpu_stale,omitempty"`
 	LLMTokensPerSec   float64     `json:"llm_tokens_per_sec,omitempty"`
 	LLMTokensPerSecTS time.Time   `json:"llm_tokens_per_sec_ts,omitempty"`
 	IdleTerminals     int         `json:"idle_terminals"`
@@ -66,6 +68,13 @@ type MetricsService struct {
 	throughput      ThroughputSource
 	terminal        TerminalSource
 	nowFn           func() time.Time
+
+	gpuSampleInterval time.Duration
+	gpuMu             sync.RWMutex
+	gpuCached         *GPUMetrics
+	gpuCachedErr      error
+	gpuCachedAt       time.Time
+	stopCh            chan struct{}
 }
 
 type memSnapshot struct {
