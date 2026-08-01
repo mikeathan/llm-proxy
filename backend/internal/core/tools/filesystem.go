@@ -3,15 +3,37 @@ package tools
 import (
 	"context"
 	"fmt"
-	"llm-proxy/internal/platform/logging"
-	"llm-proxy/models"
+	"sync/atomic"
+	"time"
+
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sync/semaphore"
 )
 
 const secureFileMode = 0600
+
+const (
+	maxConcurrentFileReads = 10
+	fileReadTimeout        = 30 * time.Second
+)
+
+var (
+	readFileSem     = semaphore.NewWeighted(maxConcurrentFileReads)
+	leakedFileReads atomic.Int64
+)
+
+// LeakedFileReads returns the count of file reads that were abandoned
+// (goroutine leaked) due to context cancellation or timeout on stuck mounts.
+func LeakedFileReads() int64 {
+	return leakedFileReads.Load()
+}
 
 // FileSystemTools provides secure file operations.
 type FileSystemTools struct {
@@ -155,17 +177,46 @@ func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) (any, 
 	return proxy.TruncateLines(names, 30), nil
 }
 
+// readFileWithTimeout reads a file using os.ReadFile in a goroutine, racing
+// against ctx cancellation. On stuck NFS mounts the underlying syscall ignores
+// context — the goroutine leaks but we return early. Tracked via leakedFileReads.
+// Concurrent reads are bounded by maxConcurrentFileReads semaphore.
+func readFileWithTimeout(ctx context.Context, path string) ([]byte, error) {
+	if err := readFileSem.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+	defer readFileSem.Release(1)
+
+	type result struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		data, err := os.ReadFile(path)
+		ch <- result{data, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		leakedFileReads.Add(1)
+		return nil, ctx.Err()
+	case r := <-ch:
+		return r.data, r.err
+	}
+}
+
 func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, error) {
 	absPath, err := f.ValidatePath(ctx, path, false)
 	if err != nil {
 		return "", err
 	}
 
-	content, err := os.ReadFile(absPath)
+	content, err := readFileWithTimeout(ctx, absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
-	
+
 	//  Phase 3: Structural Truncation for ReadFile (3000 chars)
 	raw := string(content)
 	if len(raw) <= 3000 {
@@ -174,7 +225,7 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 
 	head := raw[:1500]
 	tail := raw[len(raw)-1500:]
-	return fmt.Sprintf("%s\n\n... [SYSTEM: File truncated (%d bytes total). Use 'read_range' or 'grep' to access the middle] ...\n\n%s", 
+	return fmt.Sprintf("%s\n\n... [SYSTEM: File truncated (%d bytes total). Use 'read_range' or 'grep' to access the middle] ...\n\n%s",
 		head, len(raw), tail), nil
 }
 
@@ -237,7 +288,7 @@ func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlo
 		return "", fmt.Errorf("old_block cannot be empty")
 	}
 
-	raw, err := os.ReadFile(absPath)
+	raw, err := readFileWithTimeout(ctx, absPath)
 	if err != nil {
 		return "", fmt.Errorf(models.ToolMissingForEditMsg, models.ToolFileWrite)
 	}
@@ -265,26 +316,8 @@ func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlo
 		return "", fmt.Errorf("resulting file would exceed quota (max %d KB)", cfg.MaxFileSizeKB)
 	}
 
-	dirPath := filepath.Dir(absPath)
-	tmpFile, err := os.CreateTemp(dirPath, filepath.Base(absPath)+"-*.tmp")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.WriteString(newContent); err != nil {
-		tmpFile.Close()
-		return "", fmt.Errorf("failed to write temp file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		return "", fmt.Errorf("failed to sync temp file: %w", err)
-	}
-	tmpFile.Close()
-
-	if err := os.Rename(tmpPath, absPath); err != nil {
-		return "", fmt.Errorf("failed to rename temp file: %w", err)
+	if err := storage.WriteAtomic(absPath, filepath.Base(absPath)+"-*.tmp", []byte(newContent)); err != nil {
+		return "", fmt.Errorf("atomic write: %w", err)
 	}
 	return fmt.Sprintf("Replaced 1 block (%d bytes).", len(oldBlock)), nil
 }

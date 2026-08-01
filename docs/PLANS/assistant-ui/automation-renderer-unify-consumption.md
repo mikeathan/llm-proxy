@@ -5,7 +5,7 @@
 **Subsystems:** assistant-ui (SPEC-003), automation (SPEC-007)
 **Branches:** `task/universal_agent_completion`
 **Supersedes:** the ad-hoc `automationEventsToMessages` bridge from
-`docs/PLANS/assistant-ui/automation-unified-renderer-and-report-truncation.md`.
+`docs/PLANS/ARCHIVE/assistant-ui/automation-unified-renderer-and-report-truncation.md`.
 
 ---
 
@@ -388,7 +388,7 @@ Delete the file.
 
 ## 7. Docs to update (after implementation)
 
-- `docs/PLANS/assistant-ui/automation-unified-renderer-and-report-truncation.md`
+- `docs/PLANS/ARCHIVE/assistant-ui/automation-unified-renderer-and-report-truncation.md`
   §2.2 → note the bridge was replaced by shared `useMessageBuilder` consumption.
 - `docs/architecture.md` pitfall #25 → "automation events are consumed by the
   shared `useMessageBuilder` (same path as chat); do not add a bespoke automation

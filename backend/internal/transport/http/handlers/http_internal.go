@@ -2,11 +2,18 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
+
+	api "llm-proxy/internal/transport/http"
 )
 
-var ErrUnsupportedContentType = errors.New("unsupported content type")
+var writeJSONError = api.WriteJSONError
+var decodeJSON = api.DecodeJSON
+var respondError = api.WriteJSONError
+var ErrUnsupportedContentType = api.ErrUnsupportedContentType
+var requirePathParams = api.RequirePathParams
+var requirePathParamsMsg = api.RequirePathParamsMsg
+var requireQueryParam = api.RequireQueryParam
 
 type handlerError struct {
 	Status  int
@@ -14,19 +21,8 @@ type handlerError struct {
 	Err     error
 }
 
-const maxBodySize = 4 * 1024 * 1024
-
 func (e *handlerError) Error() string {
 	return e.Message
-}
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
-	if r.Header.Get("Content-Type") != "application/json" {
-		return ErrUnsupportedContentType
-	}
-	// Limit request body size to 4MB to prevent RAM exhaustion
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func respondJSON(w http.ResponseWriter, v any) {

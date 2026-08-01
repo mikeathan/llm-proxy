@@ -324,12 +324,6 @@ func (h *DispatcherHandlers) GetGlobalActivity(w http.ResponseWriter, r *http.Re
 	respondJSON(w, history)
 }
 
-func respondError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
 func (h *DispatcherHandlers) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	workspaces, err := h.workspace.ListWorkspaces()
 	if err != nil {

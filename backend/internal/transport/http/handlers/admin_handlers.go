@@ -18,6 +18,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools/notifiers"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 )
 
@@ -149,6 +150,13 @@ type adminTuningDefaults struct {
 	TimeoutMinutes  int     `json:"timeout_minutes"`
 	ToolCallFormat  string  `json:"tool_call_format"`
 	Prefill         bool    `json:"prefill"`
+
+	ToolTimeoutSeconds           int    `json:"tool_timeout_seconds"`
+	FilesystemToolTimeoutSeconds int    `json:"filesystem_tool_timeout_seconds"`
+	MaxPlanDurationMinutes       int    `json:"max_plan_duration_minutes"`
+	MaxPlanSteps                 int    `json:"max_plan_steps"`
+	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds"`
+	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior"`
 }
 
 type adminConfigView struct {
@@ -219,11 +227,6 @@ type adminLogLevelResponse struct {
 	Level string `json:"level"`
 }
 
-func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	w.WriteHeader(status)
-	respondJSON(w, map[string]string{"error": msg})
-}
-
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := decodeJSON(w, r, v); err != nil {
 		if errors.Is(err, ErrUnsupportedContentType) {
@@ -262,7 +265,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	activeDetails = &adminActiveModel{
 				Name:      ai.Name,
 				Provider:  ai.Provider,
-				Endpoint:  fmt.Sprintf("http://%s:%d", host, ai.Port),
+				Endpoint:  network.FormatURL(host, ai.Port),
 				Port:      ai.Port,
 				PID:       ai.PID,
 				Ready:     ai.Ready,
@@ -301,14 +304,20 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Communication:       reg.Communication,
 			Search:              reg.Search,
 			AgentDefaults: adminTuningDefaults{
-				MaxSteps:        assistant.DefaultMaxSteps,
-				ContextBudget:   assistant.DefaultContextBudget,
-				MaxTokens:       assistant.DefaultMaxTokens,
-				Temperature:     assistant.DefaultAutomationTemperature,
-				ReasoningBudget: 0,
-				TimeoutMinutes:  int(assistant.AgentGlobalTimeout.Minutes()),
-				ToolCallFormat:  "",
-				Prefill:         false,
+				MaxSteps:                     assistant.DefaultMaxSteps,
+				ContextBudget:                assistant.DefaultContextBudget,
+				MaxTokens:                    assistant.DefaultMaxTokens,
+				Temperature:                  assistant.DefaultAutomationTemperature,
+				ReasoningBudget:              0,
+				TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
+				ToolCallFormat:               "",
+				Prefill:                      false,
+				ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
+				FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
+				MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
+				MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
+				GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
+				GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
 			},
 			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
 			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
@@ -365,14 +374,20 @@ func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[st
 	out := make(map[string]adminTuningDefaults, len(in))
 	for k, v := range in {
 		out[k] = adminTuningDefaults{
-			MaxSteps:        v.MaxSteps,
-			ContextBudget:   v.ContextBudget,
-			MaxTokens:       v.MaxTokens,
-			Temperature:     assistant.DefaultAutomationTemperature,
-			ReasoningBudget: v.ReasoningBudget,
-			TimeoutMinutes:  int(assistant.AgentGlobalTimeout.Minutes()),
-			ToolCallFormat:  v.ToolCallFormat,
-			Prefill:         v.Prefill,
+			MaxSteps:                     v.MaxSteps,
+			ContextBudget:                v.ContextBudget,
+			MaxTokens:                    v.MaxTokens,
+			Temperature:                  assistant.DefaultAutomationTemperature,
+			ReasoningBudget:              v.Reasoning.Budget,
+			TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
+			ToolCallFormat:               v.ToolCallFormat,
+			Prefill:                      v.Prefill,
+			ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
+			FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
+			MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
+			MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
+			GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
+			GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
 		}
 	}
 	return out

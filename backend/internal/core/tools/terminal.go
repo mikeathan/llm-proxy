@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +12,18 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
+)
+
+// Sentinel errors for shell PGID queries.
+var (
+	ErrShellPoolNotAvailable = errors.New("shell pool not available")
+	ErrNoActiveShellSession  = errors.New("no active shell session")
 )
 
 // TerminalTools provides tools for executing local shell commands.
@@ -46,6 +54,20 @@ func NewTerminalTools(
 func (t *TerminalTools) SetShellProvider(pool shell.ShellProvider, observer StreamObserver) {
 	t.shellPool = pool
 	t.observer = observer
+}
+
+// ShellPGID returns the negated process group ID for the active shell
+// session in the given workspace. Returns an error when no shell pool
+// is configured or no active session exists.
+func (t *TerminalTools) ShellPGID(ctx context.Context, workspaceID string) (int, error) {
+	if t.shellPool == nil {
+		return 0, ErrShellPoolNotAvailable
+	}
+	pgid, ok := t.shellPool.PGID(workspaceID)
+	if !ok {
+		return 0, fmt.Errorf("%w for workspace %s", ErrNoActiveShellSession, workspaceID)
+	}
+	return pgid, nil
 }
 
 func (t *TerminalTools) Config(ctx context.Context) models.TerminalGuardrailsConfig {
@@ -521,11 +543,32 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	return output, nil
 }
 
-func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd string, cfg models.TerminalGuardrailsConfig) (string, error) {
+// newCommand creates an exec.Cmd with process group isolation (Setpgid)
+// already applied. Separated for testability of the isolation behavior.
+func (t *TerminalTools) newCommand(ctx context.Context, shell, command, cwd string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, shell, "-c", command)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
+}
+
+func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd string, cfg models.TerminalGuardrailsConfig) (string, error) {
+	cmd := t.newCommand(ctx, shell, command, cwd)
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		case <-done:
+		}
+	}()
+
 	logging.Debug("executeLocal: running", "shell", shell, "command", command, "cwd", cwd)
 	out, err := cmd.CombinedOutput()
 	result := t.truncateOutput(string(out), cfg.MaxOutputSize)

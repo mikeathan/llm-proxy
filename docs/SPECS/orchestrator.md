@@ -38,26 +38,40 @@ from model metadata, and applies provider-tier tuning defaults.
 
 ### 3. Provider Tuning Defaults
 
-- `ProviderTiers()` in `assistant/tiers.go` defines per-provider baselines:
+- `ProviderTiers()` in `assistant/agent.go` defines per-provider baselines. Reasoning is a
+  typed `ReasoningSpec` (mode + effort/flag/budget), not a raw int:
 
-  | Provider  | MaxSteps | ContextBudget | MaxTokens | ToolCallFormat | Prefill | ReasoningBudget |
-  |-----------|----------|---------------|-----------|----------------|---------|-----------------|
-  | local     | 25       | 8000          | 2048      | (xml)          | false   | 0               |
-  | gemini    | 35       | 50000         | 4096      | native         | false   | 8192            |
-  | vertex    | 35       | 50000         | 4096      | native         | false   | 8192            |
-  | openai    | 35       | 50000         | 4096      | native         | false   | 8192            |
-  | openrouter| 30       | 30000         | 2048      | native         | false   | 4096            |
+  | Provider  | MaxSteps | ContextBudget | MaxTokens | ToolCallFormat | Prefill | Reasoning |
+  |-----------|----------|---------------|-----------|----------------|---------|-----------|
+  | local     | 25       | 8000          | 2048      | (xml)          | false   | ModeThinkTokens (derived) |
+  | gemini    | 35       | 50000         | 4096      | native         | false   | ModeEffort (medium) |
+  | vertex    | 35       | 50000         | 4096      | native         | false   | ModeEffort (medium) |
+  | openai    | 35       | 50000         | 4096      | native         | false   | ModeEffort (medium) |
+  | openrouter| 30       | 30000         | 2048      | native         | false   | ModeObject (medium) |
+  | mulerouter| 30       | 30000         | 2048      | native         | false   | ModeEffort (medium) |
+  | nvidia    | 30       | 20000         | 2048      | native         | false   | ModeEnableThinking |
 
 - Per-model overrides in `settings.yml` under `model_overrides:` take priority.
 - `ApplyMetadataDefaults()` sets `ToolCallFormat` to `"native"` when empty (cloud tiers).
 
 ### 4. Reasoning Budget
 
-- `reasoning_budget = max_tokens / 4` (divisor in `streamReasoningBudgetDivisor`).
-- Budget is sent on the ChatRequest for broad provider compatibility:
-  - `reasoning_budget` — OpenAI-compatible field.
-  - `thinking_budget_tokens` — llama.cpp field.
-- Both are sent; providers ignore unknown fields.
+- Reasoning wire params are resolved per provider by `ReasoningSpec` +
+  `ReasoningParamResolver` (strategy pattern in `assistant/reasoning_param.go`).
+  Only the provider-appropriate field is serialized on the ChatRequest:
+  - `thinking_budget_tokens` — llama.cpp/local (ModeThinkTokens).
+  - `reasoning_effort` — openai/gemini/vertex/mulerouter (ModeEffort).
+  - `reasoning` object (`effort`) — openrouter (ModeObject).
+  - `chat_template_kwargs.enable_thinking` — nvidia (ModeEnableThinking).
+- A local host (via `IsLocalModelURL`) always overrides to `thinking_budget_tokens`,
+  preserving the working local path even for cloud-slugged configs.
+- Local think-token budget is derived at agent-build time in `resolveReasoningSpec`:
+  `DefaultReasoningBudget(maxTokens)` = `max_tokens / 3` when no explicit budget is
+  configured. Because `max_tokens` itself derives from serving context (`ctxLen / 3`),
+  the budget tracks the launched context. Explicit per-model `reasoning_budget` overrides
+  the derived value. No model-name heuristics.
+- The legacy `streamReasoningBudgetDivisor` name-gate and `ProviderTuningDefaults.ReasoningField`
+  were removed; `budget_squeezer.go` operates on `ReasoningSpec.Budget` (ModeThinkTokens only).
 
 ### 5. ICU (Inter-Call Underwriting)
 

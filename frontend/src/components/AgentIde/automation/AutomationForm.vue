@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
-import type { Model } from "../../../types/model";
-import type { ProviderItem } from "../../../types/admin";
+import { ref, computed, toRef } from "vue";
 import type { Automation } from "../../../types/dispatcher";
 import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
 import CronEditor from "./CronEditor.vue";
@@ -10,10 +8,8 @@ import Icon from "../../icons/Icon.vue";
 const props = defineProps<{
   workspaces: { id: string }[];
   workspaceFiles: Record<string, string[]>;
-  models: Model[];
-  providers: Record<string, ProviderItem>;
   hasAutomations: boolean;
-  editAutomation?: Automation | null;
+  editAutomation: Automation | null;
 }>();
 
 const emit = defineEmits<{
@@ -36,10 +32,9 @@ const {
   filteredModels,
   cloudProvidersWithKeys,
   handleSubmit: validateSubmit,
+  resetForm,
 } = useAutomationForm(
-  props.models,
-  props.providers,
-  props.editAutomation ?? null,
+  toRef(props, "editAutomation"),
   (ws) => emit("fetch-files", ws),
 );
 
@@ -62,16 +57,7 @@ const handleSubmit = () => {
     emit("update-automation", selectedWorkspace.value, props.editAutomation.name, payload);
   } else {
     emit("create-automation", selectedWorkspace.value, payload);
-    selectedWorkspace.value = "";
-    form.value = {
-      name: "",
-      triggerType: "cron",
-      triggerValue: "",
-      taskFile: "",
-      strategy: "persistent",
-      model: "",
-    };
-    selectedProviderKey.value = "";
+    resetForm();
   }
 };
 

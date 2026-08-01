@@ -52,6 +52,11 @@ When a tool call is blocked:
 5. If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
 6. Agent continues or fails based on decision.
 
+Synchronous rejections (no approval flow — e.g. path/workspace boundary checks that
+never prompt) publish a `guardrail_violation` lifecycle event with payload `{tool, error}`.
+The frontend surfaces it as its own chat segment so the block is visible without a preceding
+`tool_call`/`tool_result` pair.
+
 ### 4. Tool-Level Guardrail Configuration
 
 Each tool manifest (`manifests/*.json`) defines default guardrails:

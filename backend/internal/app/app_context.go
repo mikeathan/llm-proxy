@@ -168,12 +168,21 @@ func (s *AppContext) MemoryStore() *memory.Store {
 }
 
 func (s *AppContext) refreshMetricsService() {
+	var ts metrics.TerminalSource
+	if s.metrics != nil {
+		ts = s.metrics.TerminalSource()
+		s.metrics.Stop()
+	}
 	s.metrics = metrics.NewMetricsService(&models.Config{
 		Metrics: models.MetricsConfig{
 			GPU: s.gpuConfig,
 		},
 	})
 	s.metrics.SetThroughputSource(s.manager)
+	if ts != nil {
+		s.metrics.SetTerminalSource(ts)
+	}
+	s.metrics.Start()
 }
 
 func (s *AppContext) SetTerminalSource(src metrics.TerminalSource) {
@@ -730,6 +739,9 @@ func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {
 }
 
 func (s *AppContext) Shutdown() {
+	if s.metrics != nil {
+		s.metrics.Stop()
+	}
 	if s.terminal != nil {
 		logging.Info("Shutting down shell provider...")
 		s.terminal.Shutdown()

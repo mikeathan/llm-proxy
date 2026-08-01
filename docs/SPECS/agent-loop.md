@@ -70,7 +70,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 8. Reasoning Stuck Detection & Fallback
 - Scaled threshold: `stuckThreshold()` returns `max(maxTokens * 2, MinReasoningStuckThreshold)`. Safety net for servers not enforcing reasoning budgets.
-- Early detection for models without reasoning budget (`reasoningBudget == 0`): fires at `maxTokens / stuckNonReasoningDivisor` chars (currently divisor=1 → threshold = `maxTokens`). NOTE: `reasoningBudget == 0` does NOT mean the model can't reason — local GGUF models (Gemma 4, GPT-OSS-20B) produce legitimate `<think>` blocks without an explicit budget. Divisor=1 avoids false positives on these models while catching stuck states 2x faster than the `maxTokens * 2` baseline. Reasoning models with an explicit budget (`reasoningBudget > 0`) skip this check entirely.
+- Early detection for models without reasoning budget (`reasoningBudget == 0`): fires at `maxTokens / stuckNonReasoningDivisor` chars (currently divisor=1 → threshold = `maxTokens`). NOTE: local/GGUF models now auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec` → `DefaultReasoningBudget`, `max_tokens/3`), so local reasoning is normally enforced server-side and this early-stuck branch mainly covers cloud/opaque providers that emit no readable reasoning stream. The derivation is from context size, never the model name. Divisor=1 avoids false positives while catching stuck states 2x faster than the `maxTokens * 2` baseline. Reasoning models with an explicit budget (`reasoningBudget > 0`) skip this check entirely.
 - Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
 - Empty tool_call spiral: ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks in pure reasoning also triggers stuck (before char threshold). Dangling open tags not counted. Same recovery path as char-threshold stuck — does not fail the run. Lifecycle payload includes `empty_tool_calls` count. See `countEmptyClosedToolCalls()`.
 - Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, extract the tool calls directly into `fullMsg.ToolCalls` — reasoning text stays in `ReasoningContent` and is never promoted to `Content`. The llama.cpp server already separates `reasoning_content` from `content` at the wire level; this function bridges the gap when the model writes tool calls as text inside reasoning instead of using native deltas. See `tryExtractToolCallFromReasoning()`.
@@ -85,10 +85,12 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 9. Lifecycle Events for UI Progress
 - `lifecycle` event type with `phase` field:
+  - `agent_thinking`: emitted at the start of every LLM call (pre-response compute wait) — frontend flips to a neutral "thinking…" status. Carries no content/reasoning fields; never fabricated model output.
   - `stuck_detected`: model stuck in reasoning loop, `reasoning_chars` included.
   - `fallback_started`: fallback mode engaged, `reason` and `mode` included.
   - `fallback_waiting`: non-streaming fallback in progress, `elapsed` time included (15s heartbeat).
   - `fallback_completed`: fallback succeeded.
+  - `guardrail_violation`: synchronous guardrail rejection (path/workspace boundary, no approval flow) — payload `{tool, error}`. Surfaced as its own chat segment.
 - Lifecycle events are appended as system messages in the frontend (never overwrite assistant streaming content).
 - The heartbeat in `computeNextResponseNonStreaming` now uses `lifecycle` (`fallback_waiting`) with elapsed time instead of `tool_stream`.
 
@@ -114,6 +116,15 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Applied in `executor.go` `buildAgentOptions()`: `cfg.Temperature` → `opts.Temperature`, `cfg.TimeoutMinutes` → `opts.GlobalTimeout`.
 - At the LLM request level: `buildChatRequest()` uses `a.temperature` if set (>0), else falls back to `DefaultAutomationTemperature`. Llama.cpp server-level `--repeat-penalty`, `--frequency-penalty`, and `--presence-penalty` are set server-side (not in ChatRequest).
 - Frontend exposes these as number inputs in the Agent Tuning grid with `title`-attribute tooltips and input constraints (min/max/step).
+
+### 14. executePlan Step Limit and Timeout
+- The `executePlan` tool bypasses the standard single-tool-per-turn loop and executes a multi-step plan atomically.
+- **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), the plan is rejected before any step executes.
+- **Plan-level timeout:** the entire plan is wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 minutes, overridable per-model via `ModelConfig.MaxPlanDurationMinutes`).
+- **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout` / `FilesystemToolTimeout` as regular tool calls. If any step times out, the plan aborts.
+- **Inline step cap:** after each step, `if i >= MaxPlanSteps → abort` catches any discrepancy between pre-check count and actual iterations.
+- **Guardrail checks:** each step runs through `resolveGuardrail` with the configured `GuardrailTimeout` and `GuardrailTimeoutBehavior` (fail-open or fail-closed).
+- **Config flow:** `MaxPlanSteps` and `MaxPlanDuration` flow through `AgentOptions ← ModelConfig ← adminTuningDefaults` so users can tune every limit per-model.
 
 ## III. Technical Architecture
 
@@ -185,11 +196,14 @@ When the user clicks "Stop Automation" or the agent's context is cancelled:
 1. `StopAutomation` calls `cancel()` on the execution context
 2. The agent loop checks `execCtx.Err()` on the next iteration and exits
 3. If the agent is blocked inside a running shell command:
-   - A kill goroutine (started per-`Execute` call) receives `ctx.Done()` and calls `killAll()` → `syscall.Kill(-pgid, SIGTERM)`
-   - The SIGTERM terminates bash and any running child processes
+   - **Tool-level kill (per-Execute):** A kill goroutine started per `shell.Execute` call receives `ctx.Done()` and calls `killAll()` → `syscall.Kill(-pgid, SIGTERM)`. This is the immediate tool-specific kill, not the dispatcher's general force-kill.
+   - SIGTERM terminates bash and any running child processes
    - The blocked `stdout.ReadString` returns with an error (pipe closed)
    - `Execute` returns the partial output and a context-cancelled error
    - The agent exits
+4. If the shell tool-level kill does not terminate the run:
+   - **Dispatcher force-kill (after 30s):** `StopAutomation`'s diagnostic goroutine checks if the run is still active after 30 seconds. If still running and a shell PGID exists, it sends `syscall.Kill(-pgid, SIGKILL)` and removes the run from `activeRuns`. If no shell PGID (network-only run), it logs a warning.
+   - This is a secondary safety net, distinct from the per-Execute tool kill.
 
 The background `HostShellManager` reaper also uses `killAll` to cleanly terminate sessions on shutdown or recycle, ensuring no orphaned processes remain.
 

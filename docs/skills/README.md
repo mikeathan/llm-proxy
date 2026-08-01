@@ -18,5 +18,6 @@ For the full catalog with line counts and cross-references, see [`../INDEX.md`](
 | Session lifecycle phases, SSE contract, frontend handler, testing | [`lifecycle-events.md`](lifecycle-events.md) |
 | Set up local llama.cpp server — args, GPU tuning, systemd | [`llamacpp-setup.md`](llamacpp-setup.md) |
 | Memory injection, three-tier storage, tags, dedup, gotchas | [`memory-system.md`](memory-system.md) |
+| TDD with agents — Red/Green/Refactor flow, test grouping, keeping suite fast | [`tdd-guide.md`](tdd-guide.md) |
 | Smoke tests, record-replay, run analysis, MockClient, testing patterns | [`testing-guide.md`](testing-guide.md) |
 | Tool failure tracing, error scoping, recovery prompt verification | [`tool-failure-investigation.md`](tool-failure-investigation.md) |

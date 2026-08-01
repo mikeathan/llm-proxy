@@ -42,6 +42,12 @@ export function useProviderModels(
       timeout_minutes: 30,
       tool_call_format: '',
       prefill: false,
+      tool_timeout_seconds: 120,
+      filesystem_tool_timeout_seconds: 30,
+      max_plan_duration_minutes: 15,
+      max_plan_steps: 50,
+      guardrail_timeout_seconds: 5,
+      guardrail_timeout_behavior: 'fail-open',
     }
   })
 

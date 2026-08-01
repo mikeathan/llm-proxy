@@ -188,6 +188,12 @@ func synthesizeResponse(chunks []proxy.ChatResponse) *proxy.ChatResponse {
 	return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}
 }
 
+// ReasoningField returns the default OpenAI-compatible wire field. Fixtures
+// replay recorded cloud/OpenAI traffic, which uses "reasoning_budget".
+func (f *FixtureClient) ReasoningField() string {
+	return proxy.ReasoningFieldBudget
+}
+
 func (f *FixtureClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 	f.mu.Lock()
 	if f.index >= len(f.calls) {

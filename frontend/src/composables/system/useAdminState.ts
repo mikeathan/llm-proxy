@@ -3,6 +3,7 @@ import { AdminApiService } from '../../services/admin/adminService'
 import { MetricsApiService } from '../../services/monitoring/metricsService'
 import { McpApiService } from '../../services/mcp/mcpService'
 import { useConfirm } from '../ui/useConfirm'
+import { POLL_INTERVAL_MS } from '../../constants/api'
 import type { AdminState, McpServer, ProcessLogs, SystemMetrics } from '../../types'
 
 export function useAdminState() {
@@ -57,7 +58,7 @@ export function useAdminState() {
       pollInterval = setInterval(() => {
         fetchState()
         fetchMetricsAndLogs()
-      }, 5000)
+      }, POLL_INTERVAL_MS)
     }
   }
 

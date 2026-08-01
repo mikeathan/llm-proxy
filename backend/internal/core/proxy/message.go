@@ -16,8 +16,6 @@ const (
 	ToolChoiceNone     = models.ToolChoiceNone
 )
 
-type ExecutionHistory = models.ExecutionHistory
-
 // Message
 type Message = models.Message
 

@@ -50,11 +50,11 @@ func (h *RecordingHandlers) Get(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "recording store not available")
 		return
 	}
-	id := r.PathValue("id")
-	if id == "" {
-		respondError(w, http.StatusBadRequest, "id is required")
+	vals, ok := requirePathParams(w, r, "id")
+	if !ok {
 		return
 	}
+	id := vals[0]
 	meta, ok := h.store.Get(id)
 	if !ok {
 		respondError(w, http.StatusNotFound, "recording not found")
@@ -68,11 +68,11 @@ func (h *RecordingHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "recording store not available")
 		return
 	}
-	id := r.PathValue("id")
-	if id == "" {
-		respondError(w, http.StatusBadRequest, "id is required")
+	vals, ok := requirePathParams(w, r, "id")
+	if !ok {
 		return
 	}
+	id := vals[0]
 	if err := h.store.Delete(id); err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
 		return

@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/process"
 	"llm-proxy/models"
 )
@@ -59,7 +60,7 @@ func (h *ProcessHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Reque
 	resp := adminStartResponse{
 		Status:   "started",
 		Model:    req.Name,
-		Endpoint: fmt.Sprintf("http://%s:%d", mi.Host, mi.Port),
+		Endpoint: network.FormatURL(mi.Host, mi.Port),
 		Port:     mi.Port,
 	}
 
@@ -225,11 +226,11 @@ func (h *ProcessHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Req
 }
 
 func (h *ProcessHandlers) AdminWorkspaceProcessLogsHandler(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
-	if workspaceID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, "workspace")
+	if !ok {
 		return
 	}
+	workspaceID := vals[0]
 
 	logger := h.admin.ProcessLogger(workspaceID)
 	lp, ok := logger.(interface{ LogPath() string })

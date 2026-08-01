@@ -107,11 +107,11 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 	return totalPerToken / 0.000001
 }
 
-// ApplyMetadataDefaults sets max_tokens, context_budget,
-// reasoning_budget, and tool_call_format from the model's context length
-// when available and the field hasn't been explicitly configured.
-// For local models the GGUF scanner provides context length; for
-// OpenRouter it comes from the limits block in the model list response.
+// ApplyMetadataDefaults sets max_tokens, context_budget, and tool_call_format
+// from the model's context length when available and the field hasn't been
+// explicitly configured. For local models the GGUF scanner provides context
+// length; for OpenRouter it comes from the limits block in the model list
+// response.
 //
 // Context length resolution priority (resolveContextLength):
 //   1. cfg.Metadata.Nctx           — serving context from llama.cpp /slots
@@ -124,8 +124,15 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 //
 //	max_tokens       = context / 3                  (leave 2/3 for prompt + history)
 //	context_budget   = (context - maxTokens) * 2    (chars at ~2 chars/token, reserve response space)
-//	reasoning_budget = context / 8                   only when name suggests reasoning
 //	tool_call_format = "native" when empty for cloud; local/GGUF workloads stay "" (XML)
+//
+// Reasoning enablement is NOT derived here. The think-token budget for local
+// (ModeThinkTokens) providers is auto-computed from max_tokens via
+// DefaultReasoningBudget (assistant/agent.go resolveReasoningSpec), which keeps
+// it tied to the server's serving context. It is NEVER inferred from the model
+// name (the old name-heuristic gate was removed — it caused false
+// positives/negatives). Cloud providers use effort/object/enable_thinking
+// (ReasoningSpec), not a numeric budget.
 func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 	ctxLen := resolveContextLength(cfg)
 	if ctxLen <= 0 {
@@ -144,12 +151,11 @@ func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 		}
 		cfg.ContextBudget = availableCtx * 2
 	}
-	if cfg.ReasoningBudget == 0 {
-		name := strings.ToLower(cfg.Name + " " + cfg.Filename)
-		if strings.Contains(name, "thinking") || strings.Contains(name, "reason") || strings.Contains(name, "r1") || strings.Contains(name, "o3") || strings.Contains(name, "o4") {
-			cfg.ReasoningBudget = ctxLen / 8
-		}
-	}
+	// Reasoning enable params are driven by the provider tier table
+	// (assistant/reasoning_param.go) and explicit per-model configuration
+	// (ModelConfig.ReasoningBudget for local think-tokens), NOT by fragile
+	// name heuristics.  No automatic reasoning-budget derivation from model
+	// name happens here.
 	// Empty format: cloud APIs default to native tool calling. Local/GGUF workloads
 	// (including openai-compat llama.cpp with a .gguf file) stay empty → XML text
 	// mode so fat tool-arg JSON is not parsed server-side. Explicit overrides win.

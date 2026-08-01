@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,12 +16,27 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
+
+// Sentinel errors for shell PGID queries from the automation executor.
+var (
+	ErrShellPGIDNotAvailable = errors.New("shell PGID not available")
+	ErrNoShellPool           = errors.New("shell pool not available")
+)
+
+// maxCapturedEventsPerRun bounds how many agent events are retained in memory
+// per run for the automation result. The complete stream is written to the
+// run-dir events.jsonl; only the tail is kept in RAM.
+const maxCapturedEventsPerRun = 500
 
 // TaskExecutor executes automations.
 type TaskExecutor interface {
 	Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error)
+	// ShellPGID returns the negated process group ID for a workspace's
+	// active shell session. Returns an error when not available.
+	ShellPGID(ctx context.Context, workspaceID string) (int, error)
 }
 
 type ExecuteRequest struct {
@@ -30,8 +46,9 @@ type ExecuteRequest struct {
 	TaskContent    string
 	Strategy       ExecutionStrategy
 	State          *models.AgentState
-	Model          string // Optional model override
-	RecordingRef   string // Recording file ID for playback (empty = live LLM)
+	Model          string   // Optional model override
+	AllowedTools   []string // restrict tools for unattended runs
+	RecordingRef   string   // Recording file ID for playback (empty = live LLM)
 }
 
 type ExecuteResponse struct {
@@ -86,13 +103,37 @@ func (e *DefaultTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (
 	return resp, nil
 }
 
+func (e *DefaultTaskExecutor) ShellPGID(ctx context.Context, workspaceID string) (int, error) {
+	return 0, ErrShellPGIDNotAvailable
+}
+
 // LLMTaskExecutor is a TaskExecutor that uses an LLM client for execution.
 type LLMTaskExecutor struct {
-	svc LLMServiceProvider
+	svc       LLMServiceProvider
+	shellPool shell.ShellProvider
 }
 
 func NewLLMTaskExecutor(svc LLMServiceProvider) TaskExecutor {
 	return &LLMTaskExecutor{svc: svc}
+}
+
+// SetShellPool injects the shell provider for PGID queries during force-stop.
+func (e *LLMTaskExecutor) SetShellPool(pool shell.ShellProvider) {
+	e.shellPool = pool
+}
+
+// ShellPGID returns the negated process group ID for a workspace's active
+// shell session. Returns an error when no shell pool is configured or no
+// active session exists.
+func (e *LLMTaskExecutor) ShellPGID(ctx context.Context, workspaceID string) (int, error) {
+	if e.shellPool == nil {
+		return 0, ErrNoShellPool
+	}
+	pgid, ok := e.shellPool.PGID(workspaceID)
+	if !ok {
+		return 0, fmt.Errorf("no active shell session for workspace %s", workspaceID)
+	}
+	return pgid, nil
 }
 
 func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
@@ -124,8 +165,12 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	procLog = runLog
 	var capturedEvents []any
 
+	toolProvider := e.svc.ToolProvider()
+	if len(req.AllowedTools) > 0 {
+		toolProvider = assistant.NewAllowedToolsProvider(toolProvider, req.AllowedTools)
+	}
 	agentOpts := e.buildAgentOptions(execCtx, client, req, procLog, &capturedEvents, eventSink)
-	agent := assistant.NewAgent(client, e.svc.ToolProvider(), e.svc.Engine(), agentOpts)
+	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
 	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
 	useNativeTools := false
@@ -243,6 +288,13 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
 			*capturedEvents = append(*capturedEvents, ev)
+			// Bound in-memory retention: the full event stream already lives in
+			// the run-dir events.jsonl, and recordRun drops the slice. Keeping
+			// every chunk of a long report in RAM for the run's duration is
+			// wasted memory under concurrent long runs.
+			if len(*capturedEvents) > maxCapturedEventsPerRun {
+				*capturedEvents = (*capturedEvents)[len(*capturedEvents)-maxCapturedEventsPerRun:]
+			}
 			e.svc.Events().Publish(req.WorkspaceID, ev)
 			if eventSink != nil {
 				eventSink.Write(ev)

@@ -11,7 +11,7 @@ import CommunicationSettings from "./CommunicationSettings.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
 import { useConfig } from "../../composables/models/useConfig";
 import { useMcpServers } from "../../composables/system/useMcpServers";
-import { useMetrics } from "../../composables/system/useMetrics";
+import { useLogLevel } from "../../composables/system/useMetrics";
 import { useModels } from "../../composables/models/useModels";
 import { AdminApiService } from "../../services/admin/adminService";
 import { useProviders } from "../../composables/models/useProviders";
@@ -53,7 +53,7 @@ const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } =
   useMcpServers();
 const { settingsTabs, getIcon, getLabel, fetchManifests } =
   useProviders();
-const { logLevel, updateLogLevel } = useMetrics();
+const { logLevel, updateLogLevel } = useLogLevel();
 const toast = useToast();
 
 const activeTab = inject<Ref<SettingsTab>>("activeSettingsTab", ref("local"));

@@ -13,9 +13,17 @@ import (
 	"llm-proxy/models"
 )
 
-var agentsFileCache core.ContentCache
+const (
+	agentsCacheKey               = "agents:"
+	agentsFileCacheMaxEntries    = 100             // per-workspace cache bound (PL-6)
+	agentsFileCacheTTL           = 30 * time.Minute // stale entries evicted lazily on Get
+)
 
-const agentsCacheKey = "agents:"
+// agentsFileCache memoizes AGENTS.md reads per workspace, bounded at
+// agentsFileCacheMaxEntries to prevent unbounded growth for long-lived servers.
+// Entries expire after agentsFileCacheTTL (lazy eviction on Get) so edits to
+// AGENTS.md are picked up without a restart.
+var agentsFileCache = core.NewTTLCache[string, string](agentsFileCacheMaxEntries, agentsFileCacheTTL, nil)
 
 const MaxHistoryChars = 12 * 1024
 
@@ -78,9 +86,47 @@ func TruncateHistory(history []proxy.Message) []proxy.Message {
 		startIdx = 1
 	}
 
+	// Anchor the first user message (the original task) so truncation never
+	// drops it. A persisted/replayed session must always retain the user's
+	// prompt; dropping it renders the conversation blank on reopen.
+	userAnchor := -1
+	for i := startIdx; i < len(history); i++ {
+		if history[i].Role == proxy.UserRole {
+			userAnchor = i
+			break
+		}
+	}
+
 	for totalChars > MaxHistoryChars && startIdx < len(history)-1 {
+		// Protect the original user task from being dropped: prefer trimming
+		// later messages, but if we reach the user anchor and still over
+		// budget, cap its content (dropping the whole task would blank the
+		// conversation on reopen).
+		if startIdx == userAnchor {
+			// Trim any later messages first.
+			for startIdx+1 < len(history) && totalChars > MaxHistoryChars {
+				totalChars -= len(history[startIdx+1].Content)
+				history = append(history[:startIdx+1], history[startIdx+2:]...)
+			}
+			if totalChars <= MaxHistoryChars {
+				break
+			}
+			// Still over budget: cap the user message content itself.
+			remaining := MaxHistoryChars - (totalChars - len(history[startIdx].Content))
+			if remaining > 0 && remaining < len(history[startIdx].Content) {
+				capped := []byte(history[startIdx].Content)
+				capped = capped[:remaining]
+				history[startIdx].Content = string(capped) + "\n…[truncated]"
+				totalChars = MaxHistoryChars
+			}
+			break
+		}
 		totalChars -= len(history[startIdx].Content)
 		history = append(history[:startIdx], history[startIdx+1:]...)
+		// Indices after the removed one shift down by one.
+		if userAnchor > startIdx {
+			userAnchor--
+		}
 	}
 
 	return history
@@ -203,11 +249,11 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 	copy(history, base)
 
 	var (
-		streamingContent   string          // visible text from EventToolStream
-		streamingReasoning string          // thinking text from EventReasoning
+		streamingContent   string // visible text from EventToolStream
+		streamingReasoning string // thinking text from EventReasoning
 		pending            []proxy.ToolCall
-		turnContent        string          // snapshot of streamingContent at first call
-		turnReasoning      string          // snapshot of streamingReasoning at first call
+		turnContent        string // snapshot of streamingContent at first call
+		turnReasoning      string // snapshot of streamingReasoning at first call
 	)
 
 	flushPendingGroup := func() {

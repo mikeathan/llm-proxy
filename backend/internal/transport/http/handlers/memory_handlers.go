@@ -17,11 +17,11 @@ func NewMemoryHandlers(store *memory.Store) *MemoryHandlers {
 }
 
 func (h *MemoryHandlers) ListMemories(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("workspace")
-	if wsID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, "workspace")
+	if !ok {
 		return
 	}
+	wsID := vals[0]
 	memType := memory.MemoryType(r.URL.Query().Get("type"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 100 {
@@ -44,11 +44,11 @@ func (h *MemoryHandlers) ListMemories(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MemoryHandlers) SearchMemories(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("workspace")
-	if wsID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, "workspace")
+	if !ok {
 		return
 	}
+	wsID := vals[0]
 
 	var req struct {
 		Query string `json:"query"`
@@ -77,12 +77,11 @@ func (h *MemoryHandlers) SearchMemories(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *MemoryHandlers) GetMemory(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("workspace")
-	idStr := r.PathValue("id")
-	if wsID == "" || idStr == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace and id are required")
+	vals, ok := requirePathParamsMsg(w, r, "workspace and id are required", "workspace", "id")
+	if !ok {
 		return
 	}
+	wsID, idStr := vals[0], vals[1]
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid id")
@@ -102,12 +101,11 @@ func (h *MemoryHandlers) GetMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MemoryHandlers) UpdateMemory(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("workspace")
-	idStr := r.PathValue("id")
-	if wsID == "" || idStr == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace and id are required")
+	vals, ok := requirePathParamsMsg(w, r, "workspace and id are required", "workspace", "id")
+	if !ok {
 		return
 	}
+	wsID, idStr := vals[0], vals[1]
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid id")
@@ -130,12 +128,11 @@ func (h *MemoryHandlers) UpdateMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MemoryHandlers) DeleteMemory(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("workspace")
-	idStr := r.PathValue("id")
-	if wsID == "" || idStr == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace and id are required")
+	vals, ok := requirePathParamsMsg(w, r, "workspace and id are required", "workspace", "id")
+	if !ok {
 		return
 	}
+	wsID, idStr := vals[0], vals[1]
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid id")
@@ -150,11 +147,11 @@ func (h *MemoryHandlers) DeleteMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MemoryHandlers) ClearWorkspace(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("workspace")
-	if wsID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, "workspace")
+	if !ok {
 		return
 	}
+	wsID := vals[0]
 	memType := memory.MemoryType(r.URL.Query().Get("type"))
 
 	n, err := h.store.DeleteAllByWorkspace(r.Context(), wsID, memType)

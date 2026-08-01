@@ -47,6 +47,7 @@ type Automation struct {
 	TaskFile     string        `yaml:"task_file"     json:"task_file"`
 	Strategy     string        `yaml:"strategy"      json:"strategy"` // "isolated" | "persistent"
 	Model        string        `yaml:"model,omitempty"  json:"model,omitempty"` // Model override for this automation
+	AllowedTools []string      `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"` // restrict tools for unattended runs
 	RecordingRef string        `yaml:"recording_ref,omitempty" json:"recording_ref,omitempty"` // Recording file ID for playback
 }
 

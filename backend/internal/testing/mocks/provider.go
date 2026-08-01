@@ -157,6 +157,9 @@ func (m *MockLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-ch
 	return nil, errors.New("streaming not implemented in mock")
 }
 
+// ReasoningField returns the default OpenAI-compatible wire field.
+func (m *MockLLMClient) ReasoningField() string { return proxy.ReasoningFieldBudget }
+
 // Mock RateLimiter
 type MockRateLimiter struct{}
 

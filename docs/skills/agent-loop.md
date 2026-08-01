@@ -25,7 +25,15 @@ executor.go Execute()
   │     │     │     │     ├── processStream() — accumulates chunks, detects stuck
   │     │     │     │     └── handleEmptyStream() — XML fallback on empty
   │     │     │     ├── rd.check() — repetition/spiral detector
+  │     │     │     ├── rd.checkAlternating() — tool oscillation detector
   │     │     │     └── execute tools → append to history → loop
+  │     │     │           ├── executeSingleToolStep() — guardrail check + single tool exec
+  │     │     │           │     └── timeout: ToolTimeout / FilesystemToolTimeout / GuardrailTimeout
+  │     │     │           └── executePlan() — multi-step plan bypass path
+  │     │     │                 ├── pre-check: steps > MaxPlanSteps → fail fast
+  │     │     │                 ├── plan-level timeout: context.WithTimeout(MaxPlanDuration)
+  │     │     │                 ├── per-step: executeSingleToolStep() with inline check i >= MaxPlanSteps
+  │     │     │                 └── guardrail checks: per step, per tool
   │     │     └── max_steps reached or done
   │     └── Return result
 ```
@@ -44,6 +52,8 @@ executor.go Execute()
 **Reasoning stuck (token-level):** When reasoning content exceeds `maxTokens * 2` chars (floor 2000), the stream is aborted. A `lifecycle` event with phase `stuck_detected` is emitted.
 
 **Early stuck for models without reasoning budget:** When `reasoningBudget == 0` (no server-side thinking enforcement), stuck fires at `maxTokens / stuckNonReasoningDivisor` chars instead — currently divisor=1 gives threshold at `maxTokens` (e.g. 2048 chars for a local model). Divisor=2 was tried but caused false positives on Gemma 4 (~1371 chars of legitimate `<think>` blocks before output). See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`.
+
+Note: local/GGUF models now auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec` → `DefaultReasoningBudget`, `max_tokens/3`), so local reasoning is normally enforced server-side and this early-stuck branch mainly covers cloud/opaque providers that emit no readable reasoning stream. The derivation is from context size, never the model name.
 
 **Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
 
@@ -142,6 +152,8 @@ When native tools stream returns empty:
 | `MinReasoningStuckThreshold` | 2000 | `agent.go` | Floor for stuck detection |
 | `AgentGlobalTimeout` | 30 min | `agent.go` | Total wall-clock per Execute |
 | `AgentTurnTimeout` | 10 min | `agent.go` | Per-LLM-call timeout |
+| `AgentRetryTimeout` | 5 min | `agent.go` | Timeout for non-streaming fallback |
+| `DefaultStarvationLimit` | 15 | `session.go` | Consecutive no-tool-call turns before stall error |
 | `streamReasoningBudgetDivisor` | 3 | `stream.go` | Divisor for reasoning_budget |
 | `emptyToolCallSpiralLimit` | 3 | `stream.go` | Closed empty `<tool_call>` blocks → early stuck |
 
@@ -209,6 +221,16 @@ passing pre-serialized strings to `appendToolResult`: `string(json.Marshal(resul
 raw, _ := json.Marshal(result)
 a.appendToolResult(history, tc, string(raw))
 ```
+
+## executePlan Execution (Plan Bypass Path)
+
+When the model emits a multi-step plan (legacy `execute_plan` tool), it bypasses the standard turn loop:
+
+- **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), plan fails before any step executes.
+- **Plan-level timeout:** whole plan wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 min).
+- **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout`/`FilesystemToolTimeout` as regular tool calls.
+- **Inline check:** after each step, `if i >= MaxPlanSteps → abort`.
+- **Guardrail checks:** each step/tool goes through `resolveGuardrail` with `GuardrailTimeout`.
 
 ## Important Gotchas
 

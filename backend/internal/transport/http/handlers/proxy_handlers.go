@@ -3,12 +3,12 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 )
 
@@ -84,7 +84,7 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 	target := mi.URL
 	isCloud := true
 	if target == "" {
-		target = fmt.Sprintf("http://%s:%d", mi.Host, mi.Port)
+		target = network.FormatURL(mi.Host, mi.Port)
 		isCloud = false
 	}
 

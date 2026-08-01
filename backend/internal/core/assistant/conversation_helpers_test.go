@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"fmt"
 	"testing"
 
 	"llm-proxy/internal/core/assistant/prompts"
@@ -280,4 +281,24 @@ func TestBuildPartialHistory(t *testing.T) {
 			t.Errorf("turn2 message: expected %q, got %q", "Here is the file report.", h[3].Content)
 		}
 	})
+}
+
+func TestAgentsFileCache_BoundedEviction(t *testing.T) {
+	agentsFileCache.Clear()
+
+	for i := 0; i < agentsFileCacheMaxEntries+1; i++ {
+		key := agentsCacheKey + fmt.Sprintf("ws-%d", i)
+		agentsFileCache.Put(key, fmt.Sprintf("content-%d", i))
+	}
+
+	if n := agentsFileCache.Len(); n > agentsFileCacheMaxEntries {
+		t.Fatalf("cache exceeded max entries: got %d, want ≤%d", n, agentsFileCacheMaxEntries)
+	}
+
+	if agentsFileCache.Contains(agentsCacheKey + "ws-0") {
+		t.Error("oldest entry ws-0 should have been evicted when cache was at capacity")
+	}
+	if !agentsFileCache.Contains(agentsCacheKey + fmt.Sprintf("ws-%d", agentsFileCacheMaxEntries)) {
+		t.Error("most recent entry should still be present after eviction")
+	}
 }

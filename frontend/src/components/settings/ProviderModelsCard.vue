@@ -211,6 +211,48 @@ const {
                 </label>
               </div>
             </div>
+            <div class="form-section-divider">Safety Timeouts</div>
+            <div class="tuning-grid">
+              <div class="form-group">
+                <label class="form-label">Per-Tool Timeout (sec)
+                  <InfoTooltip text="Maximum duration for a single tool execution (except filesystem). 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.tool_timeout_seconds" type="number" class="form-input" placeholder="120" min="0" max="600" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Filesystem Timeout (sec)
+                  <InfoTooltip text="Maximum duration for filesystem reads and writes. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.filesystem_tool_timeout_seconds" type="number" class="form-input" placeholder="30" min="0" max="300" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Duration (min)
+                  <InfoTooltip text="Maximum wall-clock time for plan execution. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.max_plan_duration_minutes" type="number" class="form-input" placeholder="15" min="0" max="120" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Steps
+                  <InfoTooltip text="Maximum number of steps a plan can contain. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.max_plan_steps" type="number" class="form-input" placeholder="50" min="0" max="500" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout (sec)
+                  <InfoTooltip text="Maximum time for guardrail validation. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.guardrail_timeout_seconds" type="number" class="form-input" placeholder="5" min="0" max="60" step="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout Behavior
+                  <InfoTooltip text="Guardrail timeout response: fail-open (allow) or fail-closed (reject) the tool call" />
+                </label>
+                <select v-model="modelForm.guardrail_timeout_behavior" class="form-input">
+                  <option value="fail-open">Fail Open (allow)</option>
+                  <option value="fail-closed">Fail Closed (reject)</option>
+                </select>
+              </div>
+            </div>
           </template>
           <template v-else>
             <div class="form-group">
@@ -392,6 +434,48 @@ const {
                 </label>
               </div>
             </div>
+            <div class="form-section-divider">Safety Timeouts</div>
+            <div class="tuning-grid">
+              <div class="form-group">
+                <label class="form-label">Per-Tool Timeout (sec)
+                  <InfoTooltip text="Maximum duration for a single tool execution (except filesystem). 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.tool_timeout_seconds" type="number" class="form-input" placeholder="120" min="0" max="600" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Filesystem Timeout (sec)
+                  <InfoTooltip text="Maximum duration for filesystem reads and writes. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.filesystem_tool_timeout_seconds" type="number" class="form-input" placeholder="30" min="0" max="300" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Duration (min)
+                  <InfoTooltip text="Maximum wall-clock time for plan execution. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.max_plan_duration_minutes" type="number" class="form-input" placeholder="15" min="0" max="120" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Steps
+                  <InfoTooltip text="Maximum number of steps a plan can contain. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.max_plan_steps" type="number" class="form-input" placeholder="50" min="0" max="500" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout (sec)
+                  <InfoTooltip text="Maximum time for guardrail validation. 0 = disabled" />
+                </label>
+                <input v-model.number="modelForm.guardrail_timeout_seconds" type="number" class="form-input" placeholder="5" min="0" max="60" step="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout Behavior
+                  <InfoTooltip text="Guardrail timeout response: fail-open (allow) or fail-closed (reject) the tool call" />
+                </label>
+                <select v-model="modelForm.guardrail_timeout_behavior" class="form-input">
+                  <option value="fail-open">Fail Open (allow)</option>
+                  <option value="fail-closed">Fail Closed (reject)</option>
+                </select>
+              </div>
+            </div>
           </template>
         </template>
         <template v-else>
@@ -527,6 +611,48 @@ const {
                 </label>
               </div>
             </div>
+            <div class="form-section-divider">Safety Timeouts</div>
+            <div class="tuning-grid">
+              <div class="form-group">
+                <label class="form-label">Per-Tool Timeout (sec)
+                  <InfoTooltip text="Maximum duration for a single tool execution (except filesystem). 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.tool_timeout_seconds" type="number" class="form-input" placeholder="120" min="0" max="600" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Filesystem Timeout (sec)
+                  <InfoTooltip text="Maximum duration for filesystem reads and writes. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.filesystem_tool_timeout_seconds" type="number" class="form-input" placeholder="30" min="0" max="300" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Duration (min)
+                  <InfoTooltip text="Maximum wall-clock time for plan execution. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.max_plan_duration_minutes" type="number" class="form-input" placeholder="15" min="0" max="120" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Steps
+                  <InfoTooltip text="Maximum number of steps a plan can contain. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.max_plan_steps" type="number" class="form-input" placeholder="50" min="0" max="500" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout (sec)
+                  <InfoTooltip text="Maximum time for guardrail validation. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.guardrail_timeout_seconds" type="number" class="form-input" placeholder="5" min="0" max="60" step="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout Behavior
+                  <InfoTooltip text="Guardrail timeout response: fail-open (allow) or fail-closed (reject) the tool call" />
+                </label>
+                <select v-model="editingModel.guardrail_timeout_behavior" class="form-input">
+                  <option value="fail-open">Fail Open (allow)</option>
+                  <option value="fail-closed">Fail Closed (reject)</option>
+                </select>
+              </div>
+            </div>
           </template>
           <template v-else>
             <div class="form-group">
@@ -659,6 +785,48 @@ const {
                   />
                   <span class="text-sm text-gray-300">Prefill tool calls</span>
                 </label>
+              </div>
+            </div>
+            <div class="form-section-divider">Safety Timeouts</div>
+            <div class="tuning-grid">
+              <div class="form-group">
+                <label class="form-label">Per-Tool Timeout (sec)
+                  <InfoTooltip text="Maximum duration for a single tool execution (except filesystem). 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.tool_timeout_seconds" type="number" class="form-input" placeholder="120" min="0" max="600" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Filesystem Timeout (sec)
+                  <InfoTooltip text="Maximum duration for filesystem reads and writes. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.filesystem_tool_timeout_seconds" type="number" class="form-input" placeholder="30" min="0" max="300" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Duration (min)
+                  <InfoTooltip text="Maximum wall-clock time for plan execution. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.max_plan_duration_minutes" type="number" class="form-input" placeholder="15" min="0" max="120" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Plan Steps
+                  <InfoTooltip text="Maximum number of steps a plan can contain. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.max_plan_steps" type="number" class="form-input" placeholder="50" min="0" max="500" step="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout (sec)
+                  <InfoTooltip text="Maximum time for guardrail validation. 0 = disabled" />
+                </label>
+                <input v-model.number="editingModel.guardrail_timeout_seconds" type="number" class="form-input" placeholder="5" min="0" max="60" step="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Guardrail Timeout Behavior
+                  <InfoTooltip text="Guardrail timeout response: fail-open (allow) or fail-closed (reject) the tool call" />
+                </label>
+                <select v-model="editingModel.guardrail_timeout_behavior" class="form-input">
+                  <option value="fail-open">Fail Open (allow)</option>
+                  <option value="fail-closed">Fail Closed (reject)</option>
+                </select>
               </div>
             </div>
           </template>

@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/internal/core/orchestrator"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 	"path/filepath"
 )
@@ -118,7 +118,7 @@ func getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeN
 		}
 
 		if mc.Port > 0 {
-			view.Endpoint = fmt.Sprintf("http://%s:%d", host, mc.Port)
+			view.Endpoint = network.FormatURL(host, mc.Port)
 		}
 
 		out = append(out, view)

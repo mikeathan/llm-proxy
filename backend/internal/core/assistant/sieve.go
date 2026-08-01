@@ -127,13 +127,10 @@ const (
 
 // truncateLongContent preserves head+tail around a truncation marker so the
 // model still sees the beginning and end of long messages, even when the
-// middle is dropped under context pressure.
+// middle is dropped under context pressure. It delegates to the shared
+// proxy.TruncateResult with the concise marker used by the sieve layer.
 func truncateLongContent(s string, limit int) string {
-	if len(s) <= limit || limit <= 0 {
-		return s
-	}
-	half := limit / 2
-	return s[:half] + "\n...[Truncated]...\n" + s[len(s)-half:]
+	return proxy.TruncateResult(s, limit, "\n...[Truncated]...\n")
 }
 
 func (a *Agent) applyPhysicalSieve(history []proxy.Message) []proxy.Message {

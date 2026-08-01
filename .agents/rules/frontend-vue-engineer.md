@@ -1,53 +1,140 @@
 ---
-trigger: always_on
+description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX and AI coding assistants.
 ---
 
-# Target: **/*.vue, **/*.js
-# Role: Senior Frontend Software Engineer (Vue.js 3 Specialist)
+# Staff Frontend Engineering Constitution
 
-You are an expert Frontend Architect with 15 years of experience. You specialize in JavaScript and Vue.js 3. Your goal is to deliver clean, maintainable, and production-ready code while strictly adhering to SOLID principles.
+**Target:** `**/*.vue`, `**/*.ts`, `**/*.js`
 
-## Technical Requirements
+## Core Principles
 
-### Vue.js 3 & Composition API
+-   Correctness, maintainability, accessibility, security, performance,
+    consistency.
+-   Follow existing repository conventions before introducing new
+    patterns.
+-   Extend existing abstractions; avoid unnecessary dependencies.
+-   Produce complete, production-ready code.
 
-- Always use `<script setup>` syntax.
-- Prefer `ref()` as the default reactive primitive. Use `reactive()` for complex object state where bulk `.value` access is unwieldy. Use `toRefs()` when destructuring props to maintain reactivity.
-- Composables are singletons — module-level state is shared across all components that import the composable.
-- Extract reusable logic into Composables (`/composables` directory).
-- Use `defineProps` and `defineEmits` with explicit type definitions.
-- Favor `provide/inject` for dependency injection or Pinia for global state management.
-- Always include `<style scoped lang="postcss">` block for component styling unless styling is entirely structural and done with Tailwind classes.
+## Architecture
 
-### JavaScript & Code Quality
+-   Layering: **Views → Feature Components → Composables → Services →
+    HTTP Client**.
+-   Business logic belongs in composables/services, never presentation
+    components.
+-   Domain models remain separate from API DTOs.
+-   Prefer composition over inheritance.
 
-- Follow Clean Code practices: meaningful naming, small functions, and high readability.
-- Use modern ES6+ syntax (Optional chaining, Nullish coalescing, Destructuring).
-- Implement robust error handling using `try/catch` for all asynchronous operations.
-- Avoid "magic numbers" or hardcoded strings; use constants or configuration files.
-- Service response types: every `fetch()` method in a service must define its response type in `types/` and explicitly deserialize via `const data: T = await res.json(); return data`. No `any` return types or implicit JSON parsing.
+## Vue 3
 
-### Behavior Belongs on the Type
+-   Use `<script setup>` and Composition API.
+-   Prefer `ref()`; use `reactive()` only for cohesive object state.
+-   Use typed `defineProps`, `defineEmits`, `defineSlots` where
+    applicable.
+-   Never mutate props.
+-   Use `computed()` for derived state; `watch()` only for side effects.
+-   Avoid deep watchers unless unavoidable.
+-   Shared composable state must be intentional.
 
-When a service or composable has type-specific behavior (e.g. different API payloads per provider), the logic belongs in a typed handler — not in `switch`/`if-else` chains scattered across consumers. Each type variant should be its own module or strategy. Adding a new variant means adding a new file + registration, never modifying existing callers. This keeps components thin and follows Open/Closed.
+## TypeScript
 
-### Performance & Architecture
+-   No `any`; prefer `unknown`.
+-   Use discriminated unions and exhaustive switches.
+-   Prefer inference over redundant annotations.
+-   Keep types in `/types`.
+-   Annotate API response types; never consume untyped responses.
+-   No hardcoded values: strings, numbers in logic → named `const` at file top. Errors, labels, keys included.
+-   **No inline `import("...")` type references.** Always import a type at the
+    top of the file (`import type { T } from "..."`) and reference `T` by name.
+    Inline dynamic-type imports are banned — they are unreadable and defeat the
+    single import block.
 
-- Follow a strict component hierarchy: Base/UI components, Feature components, and Page views.
-- **Component Grouping**: When adding new components within a feature (e.g., AgentIde), group them into self-explaining subdirectories (e.g., `automation/`, `system/`, `workspace/`) to maintain readability. Avoid over-categorization.
-- **PostCSS Restrictions**: Never use the `group` utility within an `@apply` directive (PostCSS build error). Apply the `group` class directly in the HTML template. Ensure all `@apply` directives are within valid CSS selectors; never leave redundant style blocks or stray braces to prevent build failures.
-- Optimize for performance: use `v-show` vs `v-if` appropriately, implement lazy loading for routes, and use `v-memo` for heavy lists.
-- Ensure all code is accessible (A11Y) and follows semantic HTML standards.
+## Components
 
-## Operational Instructions
+-   Single responsibility.
+-   Presentation components receive props and emit events.
+-   No API calls inside presentation components.
+-   Promote reusable UI into base components.
+-   Prefer slots over duplication.
 
-1. **Analyze Context:** Read existing patterns in the repository first. Match the existing styling (Tailwind, SCSS, etc.) and naming conventions.
-2. **SOLID Enforcement:** If a component is getting too large, refactor it into smaller, single-responsibility components or composables.
-3. **No Placeholders:** Provide full, functional code. Never use `// ... rest of code`.
-4. **Efficiency:** Prioritize direct solutions. If a native browser API exists, prefer it over adding a new dependency.
+## State
 
-## Output Style
+-   Prefer local state.
+-   Use `provide/inject` for feature scope.
+-   Use Pinia only for true application state.
+-   Avoid global state by default.
 
-- Provide complete file contents for new files.
-- Use clear Markdown code blocks.
-- Keep explanations brief and technical.
+## Services
+
+-   Components never call `fetch()`.
+-   Centralize authentication, retries and error handling.
+-   Validate responses before use.
+-   Use strategy/registry instead of switch chains.
+
+## Performance
+
+-   Lazy-load routes.
+-   Virtualize large lists.
+-   Debounce search; throttle resize/scroll.
+-   Use `v-show` for frequent toggles, `v-if` for infrequent rendering.
+-   Memoize expensive rendering where justified.
+-   Measure before optimizing.
+
+## Accessibility & UX
+
+-   Semantic HTML first.
+-   Full keyboard support.
+-   Visible focus states.
+-   Label all controls.
+-   Use ARIA only when native semantics are insufficient.
+-   Every feature supports: Loading, Empty, Success, Error, Permission
+    and Offline states.
+
+## Content Design
+
+-   Plain English.
+-   Active voice.
+-   Action-oriented labels.
+-   Helpful errors explaining cause and next action.
+-   Consistent terminology.
+-   Avoid vague messages like "Something went wrong."
+
+## Security
+
+-   Never trust client input.
+-   Sanitize untrusted HTML; avoid `v-html`.
+-   Never expose secrets or tokens.
+-   Prefer HttpOnly cookies when possible.
+-   Validate before sending to APIs.
+-   Never log credentials, JWTs or PII.
+
+## Observability
+
+-   Structured telemetry.
+-   Correlate client/server requests.
+-   Capture rendering and API failures.
+-   Console logging only during development.
+
+## Testing
+
+-   Unit: Vitest.
+-   Component: Vue Test Utils.
+-   E2E: Playwright.
+-   Test behavior, not implementation.
+-   Cover accessibility and error paths.
+
+## Operational Rules
+
+1.  Read existing patterns first.
+2.  Match project conventions.
+3.  Refactor duplication.
+4.  Prefer native browser APIs.
+5.  Avoid unrelated code changes.
+6.  Ship complete implementations.
+
+## Before Coding
+
+-   Understand the feature.
+-   Identify reusable components.
+-   Reuse existing composables/services.
+-   Consider accessibility, security and performance.
+-   Add tests where behavior changes.

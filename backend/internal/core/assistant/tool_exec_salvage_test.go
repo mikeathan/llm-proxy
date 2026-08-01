@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -24,10 +25,10 @@ func TestExtractTruncatedJSONField(t *testing.T) {
 		wantPrefix   string
 	}{
 		{
-			name:       "network-scan truncated no-space colon",
-			raw:        `{"content":"# Network Reconnaissance Report\n**Task ID:** network-recon\n\n| Host | Port |\n|------|------|\n| 192.168.50.10 | 22 |\n\n### Hardening\n- Enable NLA\n- Implement IP-based`,
-			field:      "content",
-			wantPrefix: "# Network Reconnaissance Report",
+			name:         "network-scan truncated no-space colon",
+			raw:          `{"content":"# Network Reconnaissance Report\n**Task ID:** network-recon\n\n| Host | Port |\n|------|------|\n| 192.168.50.10 | 22 |\n\n### Hardening\n- Enable NLA\n- Implement IP-based`,
+			field:        "content",
+			wantPrefix:   "# Network Reconnaissance Report",
 			wantContains: "Implement IP-based",
 		},
 		{
@@ -415,63 +416,50 @@ func TestBestAvailableAnswer(t *testing.T) {
 	}
 }
 
-func TestSalvageReportFromToolCallsAndHistory(t *testing.T) {
-	long := strings.Repeat("r", salvageMinContentLen) + " report body"
-	truncWrite := proxy.ToolCall{
-		Function: proxy.FunctionCall{
-			Name:      models.ToolFileWrite,
-			Arguments: `{"content":"` + long,
-		},
+// TestResolveFallbackAnswer_NoSynthesis ensures a run that completes work via a
+// successful write but returns no final text falls back to bestAvailableAnswer
+// (""), and crucially does NOT dump the written file's contents as the report.
+func TestResolveFallbackAnswer_SynthesizesSummaryForCompletedWrite(t *testing.T) {
+	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
+	writeArgs, _ := json.Marshal(map[string]string{
+		"path":    "ts-dashboard/app.ts",
+		"content": strings.Repeat("x", salvageMinContentLen) + " const x = 1;",
+	})
+	s := newRunSession(agent, nil, []proxy.Message{
+		{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{
+			ID:       "c1",
+			Function: proxy.FunctionCall{Name: models.ToolFileWrite, Arguments: string(writeArgs)},
+		}}},
+		{Role: proxy.ToolRole, ToolCallID: "c1", Content: `"File written successfully"`},
+	})
+	got := s.resolveFallbackAnswer()
+	if got != "" {
+		t.Fatalf("expected empty fallback (no synthesized summary), got %q", clip(got, 80))
 	}
-	if got := salvageReportFromToolCalls([]proxy.ToolCall{truncWrite}); !strings.Contains(got, "report body") {
-		t.Fatalf("tool calls salvage: got %q", clip(got, 40))
-	}
-	if got := salvageReportFromToolCalls([]proxy.ToolCall{{
-		Function: proxy.FunctionCall{Name: models.ToolNetworkScan, Arguments: `{"content":"` + long},
-	}}); got != "" {
-		t.Fatalf("scan must not salvage, got %q", got)
-	}
-
-	hist := []proxy.Message{
-		{Role: proxy.UserRole, Content: "scan"},
-		{Role: proxy.AssistantRole, Content: "planning only text that is long enough"},
-		{
-			Role: proxy.AssistantRole,
-			Content: "writing report",
-			ToolCalls: []proxy.ToolCall{truncWrite},
-		},
-	}
-	if got := salvageReportFromHistory(hist); !strings.Contains(got, "report body") {
-		t.Fatalf("history salvage: got %q", clip(got, 40))
-	}
-	if got := salvageReportFromHistory([]proxy.Message{
-		{Role: proxy.AssistantRole, Content: "only text long enough for fallback"},
-	}); got != "" {
-		t.Fatalf("no tool calls: want empty, got %q", got)
+	if strings.Contains(got, "const x = 1;") {
+		t.Fatalf("must not dump file content, got %q", clip(got, 80))
 	}
 }
 
 func TestResolveFallbackAnswer_Priority(t *testing.T) {
-	long := strings.Repeat("z", salvageMinContentLen) + " salvaged report"
 	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 
-	// Salvage wins over assistant prose.
+	// Last substantive non-tool assistant text wins (tool-call messages skipped).
 	s := newRunSession(agent, nil, []proxy.Message{
 		{Role: proxy.AssistantRole, Content: "This is a sufficiently long final answer for recovery."},
 		{
-			Role: proxy.AssistantRole,
+			Role:    proxy.AssistantRole,
 			Content: "I will write the file now.",
 			ToolCalls: []proxy.ToolCall{{
 				Function: proxy.FunctionCall{
 					Name:      models.ToolFileWrite,
-					Arguments: `{"content":"` + long,
+					Arguments: `{"content":"` + strings.Repeat("z", salvageMinContentLen),
 				},
 			}},
 		},
 	})
-	got := s.resolveFallbackAnswer()
-	if !strings.Contains(got, "salvaged report") {
-		t.Fatalf("salvage should win priority, got %q", clip(got, 60))
+	if got := s.resolveFallbackAnswer(); !strings.Contains(got, "sufficiently long") {
+		t.Fatalf("expected last substantive text, got %q", clip(got, 60))
 	}
 
 	// Text-only fallback.
@@ -489,8 +477,7 @@ func TestResolveFallbackAnswer_Priority(t *testing.T) {
 	}
 }
 
-func TestHandleTurnError_GiveUpUsesFallbackSalvage(t *testing.T) {
-	long := strings.Repeat("q", salvageMinContentLen) + " history report"
+func TestHandleTurnError_GiveUpWhenNoFallback(t *testing.T) {
 	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	s := newRunSession(agent, nil, []proxy.Message{
 		{
@@ -498,7 +485,7 @@ func TestHandleTurnError_GiveUpUsesFallbackSalvage(t *testing.T) {
 			ToolCalls: []proxy.ToolCall{{
 				Function: proxy.FunctionCall{
 					Name:      models.ToolFileWrite,
-					Arguments: `{"content":"` + long,
+					Arguments: `{"content":"` + strings.Repeat("q", salvageMinContentLen),
 				},
 			}},
 		},
@@ -508,11 +495,14 @@ func TestHandleTurnError_GiveUpUsesFallbackSalvage(t *testing.T) {
 	err := fmt.Errorf(`llm completion failed: Failed to parse tool call arguments as JSON: missing closing quote`)
 
 	done, reply, outErr := s.handleTurnError(err)
-	if !done || outErr != nil {
-		t.Fatalf("done=%v err=%v", done, outErr)
+	if !done {
+		t.Fatalf("expected done=true, got done=%v reply=%q err=%v", done, reply, outErr)
 	}
-	if !strings.Contains(reply, "history report") {
-		t.Fatalf("expected salvaged history report, got %q", clip(reply, 60))
+	if reply != "" {
+		t.Fatalf("expected empty reply (no salvage), got %q", clip(reply, 60))
+	}
+	if outErr == nil {
+		t.Fatal("expected stall error when no fallback answer is available")
 	}
 }
 
@@ -530,4 +520,72 @@ func clip(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// TestHandleToolTurn_SalvagePersistsReportAsText verifies Fix A: when a tool
+// call's args are truncated so the report is salvaged, the persisted history
+// entry must carry the salvaged Content AND have ToolCalls cleared (otherwise
+// the report is lost on session reopen and the frontend renders a blank
+// tool-call card).
+func TestHandleToolTurn_SalvagePersistsReportAsText(t *testing.T) {
+	long := strings.Repeat("r", salvageMinContentLen) + " final report body"
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	s := newRunSession(agent, context.Background(), nil)
+
+	turnMsg := proxy.Message{
+		Role: proxy.AssistantRole,
+		ToolCalls: []proxy.ToolCall{{
+			ID: "call_salvage",
+			Function: proxy.FunctionCall{
+				Name:      models.ToolFileWrite,
+				Arguments: `{"content":"` + long, // truncated: no closing brace, no path
+			},
+		}},
+	}
+
+	done, reply, err := s.handleToolTurn(turnMsg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !done {
+		t.Fatal("expected done=true after salvage")
+	}
+	if !strings.Contains(reply, "final report body") {
+		t.Fatalf("reply missing report: %q", clip(reply, 80))
+	}
+
+	if len(s.history) == 0 {
+		t.Fatal("history not recorded")
+	}
+	last := s.history[len(s.history)-1]
+	if last.Content != reply {
+		t.Fatalf("persisted content = %q, want reply %q", clip(last.Content, 80), clip(reply, 80))
+	}
+	if len(last.ToolCalls) != 0 {
+		t.Fatalf("persisted ToolCalls must be cleared after salvage, got %d", len(last.ToolCalls))
+	}
+}
+
+// TestTruncateHistory_PreservesFirstUserMessage verifies Fix B: truncation for
+// oversized history must never drop the original user task, or the persisted
+// session renders blank on reopen.
+func TestTruncateHistory_PreservesFirstUserMessage(t *testing.T) {
+	big := strings.Repeat("x", MaxHistoryChars) // exceeds budget alone
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: "list all files and report"},
+		{Role: proxy.AssistantRole, Content: big},
+		{Role: proxy.ToolRole, Content: "result"},
+	}
+	out := TruncateHistory(history)
+
+	foundUser := false
+	for _, m := range out {
+		if m.Role == proxy.UserRole && m.Content == "list all files and report" {
+			foundUser = true
+		}
+	}
+	if !foundUser {
+		t.Fatalf("first user message dropped by truncation; out=%d msgs", len(out))
+	}
 }

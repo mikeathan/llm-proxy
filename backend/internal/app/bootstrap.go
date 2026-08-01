@@ -39,9 +39,10 @@ type Core struct {
 }
 
 type Infra struct {
-	Logger     logging.Logger
-	Clock      utils.Clock
-	NodeHerder nodeherder.MCPService
+	Logger       logging.Logger
+	Clock        utils.Clock
+	NodeHerder   nodeherder.MCPService
+	ShellManager shell.ShellProvider
 }
 
 type Container struct {
@@ -54,7 +55,9 @@ type Container struct {
 
 // Building automation task executor
 func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.TaskExecutor {
-	return automation.NewLLMTaskExecutor(svc)
+	exec := automation.NewLLMTaskExecutor(svc).(*automation.LLMTaskExecutor)
+	exec.SetShellPool(c.Infra.ShellManager)
+	return exec
 }
 
 func (c *Container) BuildAppServices() *AppServices {
@@ -80,7 +83,15 @@ func (c *Container) BuildAppServices() *AppServices {
 	}
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
-		client := proxy.NewLLMClient(baseURL, model, nil, headers)
+		var client proxy.Client
+		// Route by the actual upstream destination, not the config provider
+		// slug: a model whose BaseURL points at the local llama.cpp host must
+		// use thinking_budget_tokens even if its slug is "openai".
+		if proxy.IsLocalModelURL(baseURL, c.Core.Runtime.ModelHost()) {
+			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
+		} else {
+			client = proxy.NewLLMClient(baseURL, model, nil, headers)
+		}
 		// Always wrap in RecordingClient so that run-specific recording.jsonl is supported,
 		// but only set recordDir if recording is globally enabled.
 		client = recorder.New(client, c.RecordDir, model)
@@ -125,6 +136,7 @@ func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, 
 
 	if sm, err := shell.NewHostShellManager(); err == nil {
 		shellManager = sm
+		c.Infra.ShellManager = sm
 		c.Infra.Logger.Debug("Host Shell Manager initialized successfully")
 	} else {
 		log.Fatalf("[SECURITY] Failed to start Host Shell Manager: %v", err)
@@ -169,6 +181,10 @@ func (s AppServices) Shutdown() {
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")
 		s.Runtime.Shutdown()
+	}
+	if s.guardrailEngine != nil {
+		logging.Info("Stopping guardrail override reaper...")
+		s.guardrailEngine.Stop()
 	}
 	if s.AppCtx != nil {
 		s.AppCtx.Shutdown()
@@ -359,7 +375,7 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.Dispatcher, error) {
 	persistenceMgr := svc.Persistence()
 
-	exec := automation.NewLLMTaskExecutor(svc)
+	exec := c.BuildTaskExecutor(svc)
 
 	d, err := automation.NewDispatcher(persistenceMgr, exec, c.Infra.Logger,
 

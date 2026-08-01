@@ -136,8 +136,10 @@ func TestNormalizeHistory_XMLMode_EmptyAssistantNoToolCall(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(got))
 	}
-	if got[0].Content != "Thinking..." {
-		t.Fatalf("genuinely empty assistant messages should fall back to 'Thinking...', got %q", got[0].Content)
+	// Genuinely empty assistant messages are left empty (no fabricated
+	// "Thinking..." placeholder) — the UI renders a neutral state instead.
+	if got[0].Content != "" {
+		t.Fatalf("empty assistant content should remain empty, got %q", got[0].Content)
 	}
 }
 

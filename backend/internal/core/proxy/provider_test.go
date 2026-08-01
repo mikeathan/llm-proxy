@@ -35,6 +35,8 @@ func (d *dummyClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan
 	return nil, errors.New("streaming not implemented in dummy")
 }
 
+func (d *dummyClient) ReasoningField() string { return proxy.ReasoningFieldBudget }
+
 func TestRuntimeClientProvider_NoModelError(t *testing.T) {
 	runtime := &mocks.MockManager{}
 	selector := &mockSelector{def: ""}

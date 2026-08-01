@@ -32,11 +32,11 @@ type WebhookHandler struct {
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	connectorName := r.PathValue("connector_name")
-	if connectorName == "" {
-		writeJSONError(w, http.StatusBadRequest, "connector_name is required")
+	vals, ok := requirePathParams(w, r, "connector_name")
+	if !ok {
 		return
 	}
+	connectorName := vals[0]
 
 	reg := h.Registry()
 	cfg, ok := reg.Communication.Connectors[connectorName]

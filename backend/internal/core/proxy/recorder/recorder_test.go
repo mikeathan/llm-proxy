@@ -26,6 +26,28 @@ func (m *mockClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan 
 	return m.streamFn(ctx, req)
 }
 
+func (m *mockClient) ReasoningField() string { return proxy.ReasoningFieldBudget }
+
+// localStub is a minimal proxy.Client that reports the llama.cpp wire field,
+// used to prove RecordingClient delegates ReasoningField to its underlying.
+type localStub struct {
+	proxy.Client
+}
+
+func (localStub) ReasoningField() string { return proxy.ReasoningFieldThinkTokens }
+
+func TestRecordingClient_ReasoningFieldDelegates(t *testing.T) {
+	rc := New(localStub{}, "", "m")
+	if got := rc.ReasoningField(); got != proxy.ReasoningFieldThinkTokens {
+		t.Errorf("recording client ReasoningField = %q, want %q (delegated from underlying)", got, proxy.ReasoningFieldThinkTokens)
+	}
+
+	rcCloud := New(&mockClient{}, "", "m")
+	if got := rcCloud.ReasoningField(); got != proxy.ReasoningFieldBudget {
+		t.Errorf("recording client ReasoningField = %q, want %q (delegated from mock underlying)", got, proxy.ReasoningFieldBudget)
+	}
+}
+
 func readJSONL(path string) ([]recordLine, error) {
 	f, err := os.Open(path)
 	if err != nil {

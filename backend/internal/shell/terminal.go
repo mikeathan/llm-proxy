@@ -159,6 +159,15 @@ func (ps *persistentShell) killAll() {
 	_ = syscall.Kill(-ps.cmd.Process.Pid, syscall.SIGTERM)
 }
 
+// PGID returns a negated process group ID suitable for syscall.Kill.
+// Returns 0 if the shell has no active process.
+func (ps *persistentShell) PGID() int {
+	if ps.cmd == nil || ps.cmd.Process == nil {
+		return 0
+	}
+	return -ps.cmd.Process.Pid
+}
+
 type sessionInfo struct {
 	sb          Terminal
 	lastUsed    time.Time
@@ -287,6 +296,22 @@ func (hm *HostShellManager) HealthCheck() (idle, active int) {
 	return 0, len(hm.sessions) // For now, all sessions are counted as active
 }
 
+// PGID returns the negated process group ID for a workspace's active shell
+// session. ok=false when no active session exists for workspaceID.
+func (hm *HostShellManager) PGID(workspaceID string) (int, bool) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	si, ok := hm.sessions[workspaceID]
+	if !ok {
+		return 0, false
+	}
+	pgid := si.sb.PGID()
+	if pgid == 0 {
+		return 0, false
+	}
+	return pgid, true
+}
+
 func (hm *HostShellManager) Shutdown() {
 	hm.cancel()
 	hm.mu.Lock()
@@ -327,12 +352,22 @@ func (s *ShellSession) Cleanup(ctx context.Context) error {
 		return nil
 	}
 	_ = s.shell.stdin.Close()
+	_ = s.shell.stdin.Close()
 	select {
 	case <-s.shell.done:
 	case <-ctx.Done():
 		s.shell.killAll()
 	}
 	return nil
+}
+
+// PGID returns a negated process group ID suitable for syscall.Kill.
+// Delegates to the underlying persistent shell.
+func (s *ShellSession) PGID() int {
+	if s.shell == nil {
+		return 0
+	}
+	return s.shell.PGID()
 }
 
 var workspaceEnvTemplates = []string{

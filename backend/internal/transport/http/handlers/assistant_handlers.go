@@ -270,11 +270,11 @@ func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID
 }
 
 func (h *AssistantMessageHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
-	if workspaceID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, "workspace")
+	if !ok {
 		return
 	}
+	workspaceID := vals[0]
 
 	sessions, err := h.persistence.ListSessions(workspaceID)
 	if err != nil {
@@ -287,13 +287,11 @@ func (h *AssistantMessageHandler) ListSessions(w http.ResponseWriter, r *http.Re
 }
 
 func (h *AssistantMessageHandler) GetSession(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
-	sessionID := r.PathValue("session")
-
-	if workspaceID == "" || sessionID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace and session are required")
+	vals, ok := requirePathParamsMsg(w, r, "workspace and session are required", "workspace", "session")
+	if !ok {
 		return
 	}
+	workspaceID, sessionID := vals[0], vals[1]
 
 	session, err := h.persistence.ReadSession(workspaceID, sessionID)
 	if err != nil {
@@ -311,13 +309,11 @@ func (h *AssistantMessageHandler) GetSession(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *AssistantMessageHandler) DeleteSession(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
-	sessionID := r.PathValue("session")
-
-	if workspaceID == "" || sessionID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace and session are required")
+	vals, ok := requirePathParamsMsg(w, r, "workspace and session are required", "workspace", "session")
+	if !ok {
 		return
 	}
+	workspaceID, sessionID := vals[0], vals[1]
 
 	if err := h.persistence.DeleteSession(workspaceID, sessionID); err != nil {
 		h.logger.Error("failed to delete session", "workspace", workspaceID, "session", sessionID, "error", err)
@@ -329,12 +325,11 @@ func (h *AssistantMessageHandler) DeleteSession(w http.ResponseWriter, r *http.R
 }
 
 func (h *AssistantMessageHandler) DeleteAllSessions(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
-
-	if workspaceID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace is required")
+	vals, ok := requirePathParams(w, r, "workspace")
+	if !ok {
 		return
 	}
+	workspaceID := vals[0]
 
 	if err := h.persistence.DeleteAllSessions(workspaceID); err != nil {
 		h.logger.Error("failed to delete all sessions", "workspace", workspaceID, "error", err)
@@ -350,13 +345,11 @@ type RenameSessionRequest struct {
 }
 
 func (h *AssistantMessageHandler) RenameSession(w http.ResponseWriter, r *http.Request) {
-	workspaceID := r.PathValue("workspace")
-	sessionID := r.PathValue("session")
-
-	if workspaceID == "" || sessionID == "" {
-		writeJSONError(w, http.StatusBadRequest, "workspace and session are required")
+	vals, ok := requirePathParamsMsg(w, r, "workspace and session are required", "workspace", "session")
+	if !ok {
 		return
 	}
+	workspaceID, sessionID := vals[0], vals[1]
 
 	var req RenameSessionRequest
 	if err := decodeJSON(w, r, &req); err != nil {

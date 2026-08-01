@@ -34,9 +34,17 @@ type FileLogger struct {
 	path   string
 	ctx    []any
 	closer io.Closer
+
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 var _ Logger = (*FileLogger)(nil)
+
+// fileLoggerSyncInterval is how often a FileLogger with a file target fsyncs.
+// Per-line fsync would block callers (including the agent loop) on a disk
+// syscall for every log line; periodic sync bounds crash loss to one interval.
+const fileLoggerSyncInterval = time.Second
 
 func NewFileLogger(opts Options) (*FileLogger, error) {
 	var writers []io.Writer
@@ -78,9 +86,35 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		path:   logPath,
 		ctx:    []any{},
 		closer: closer,
+		stop:   make(chan struct{}),
 	}
 	fileLogger.level.Store(level)
+	// Start a periodic fsync goroutine only when writing to a file. Stdout-only
+	// loggers (and NopLogger) don't need one. The goroutine exits on Close.
+	if closer != nil {
+		go fileLogger.syncLoop()
+	}
 	return fileLogger, nil
+}
+
+// syncLoop periodically fsyncs the log file so buffered lines survive a crash.
+func (l *FileLogger) syncLoop() {
+	ticker := time.NewTicker(fileLoggerSyncInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			l.syncFile()
+		case <-l.stop:
+			return
+		}
+	}
+}
+
+func (l *FileLogger) syncFile() {
+	if f, ok := l.closer.(*os.File); ok && f != nil {
+		_ = f.Sync()
+	}
 }
 
 func (l *FileLogger) Debug(msg string, args ...any) {
@@ -124,6 +158,10 @@ func (l *FileLogger) LogPath() string {
 }
 
 func (l *FileLogger) Close() error {
+	l.stopOnce.Do(func() {
+		close(l.stop)
+	})
+	l.syncFile()
 	if l.closer != nil {
 		return l.closer.Close()
 	}
@@ -150,9 +188,6 @@ func (l *FileLogger) log(level Level, msg string, args ...any) {
 	)
 
 	l.out.Println(line)
-	if f, ok := l.closer.(*os.File); ok && f != nil {
-		_ = f.Sync()
-	}
 }
 
 func (l *FileLogger) enabled(level Level) bool {

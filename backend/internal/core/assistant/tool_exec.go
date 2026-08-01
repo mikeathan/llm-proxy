@@ -7,6 +7,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -20,6 +21,11 @@ import (
 )
 
 const planGenMaxTokens = 4096 // max tokens for plan generation LLM call
+
+const (
+	planErrMaxSteps  = "plan exceeds max steps: %d > %d"             // pre-check at executePlan entry
+	planErrStepLimit = "plan aborted: exceeded max steps limit (%d)" // in-loop belt-and-suspenders check
+)
 
 type ExecutionPlan struct {
 	Description string          `json:"description"`
@@ -100,17 +106,70 @@ func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*Exe
 	return &plan, nil
 }
 
+// executeSingleToolStep resolves guardrails, executes one tool, appends
+// the result to history, and fires notifications.
+// Returns stopBatch (guardrail denied) and execErr (execution failed).
+func (a *Agent) executeSingleToolStep(
+	ctx context.Context,
+	tc proxy.ToolCall,
+	history *[]proxy.Message,
+	mu *sync.Mutex,
+) (stopBatch bool, execErr error) {
+	approved, stopBatch := a.resolveGuardrail(ctx, tc, history, mu)
+	if stopBatch {
+		return true, nil
+	}
+
+	a.notifyToolCall(tc)
+	toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
+	if approved {
+		toolCtx = models.WithGuardrailApproved(toolCtx)
+	}
+
+	toolCtx, cancel := a.toolCtxWithTimeout(toolCtx, tc.Function.Name)
+	defer cancel()
+
+	result, err := a.deps.Engine.ExecuteTool(toolCtx, tc)
+
+	mu.Lock()
+	var finalResult any
+	if err != nil {
+		if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
+			finalResult = str
+		} else {
+			finalResult = map[string]string{"error": err.Error()}
+		}
+	} else {
+		finalResult = result
+	}
+	resultStr := a.appendToolResult(history, tc, finalResult)
+	a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", resultStr)
+	a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
+	if t := GetUsageTracker(ctx); t != nil {
+		t.AddToolCall(tc.Function.Name)
+	}
+	mu.Unlock()
+
+	if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 // processToolCalls validates tool args, resolves guardrails, and executes
 // via Engine.  A guardrail denial stops the entire batch.
 // Returns (salvagedReport, err). salvagedReport is non-empty when a truncated
 // write_file/append_file content field was recovered as the task deliverable.
-func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message) (string, error) {
+func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message, toolsList []proxy.Tool) (string, error) {
 	var mu sync.Mutex
 
-	toolsList, listErr := a.deps.Provider.ListTools(ctx)
-	if listErr != nil {
-		a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
-		return "", fmt.Errorf("list tools: %w", listErr)
+	if len(toolsList) == 0 {
+		var listErr error
+		toolsList, listErr = a.deps.Provider.ListTools(ctx)
+		if listErr != nil {
+			a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
+			return "", fmt.Errorf("list tools: %w", listErr)
+		}
 	}
 
 	for _, tc := range msg.ToolCalls {
@@ -139,40 +198,12 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			return "", nil
 		}
 
-		approved, stopBatch := a.resolveGuardrail(ctx, tc, history, &mu)
-		if stopBatch {
-			return "", nil
-		}
-
-		a.notifyToolCall(tc)
-		toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
-		if approved {
-			toolCtx = models.WithGuardrailApproved(toolCtx)
-		}
-		result, err := a.deps.Engine.ExecuteTool(toolCtx, tc)
-		mu.Lock()
-		var finalResult any
-		if err != nil {
-			if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
-				finalResult = str
-			} else {
-				finalResult = map[string]string{"error": err.Error()}
+		stopBatch, execErr := a.executeSingleToolStep(ctx, tc, history, &mu)
+		a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", execErr)
+		if stopBatch || execErr != nil {
+			if execErr != nil {
+				a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
 			}
-		} else {
-			finalResult = result
-		}
-		a.appendToolResult(history, tc, finalResult)
-		resultStr, _ := json.Marshal(finalResult)
-		a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", string(resultStr))
-		a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", err)
-		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-		if t := GetUsageTracker(ctx); t != nil {
-			t.AddToolCall(tc.Function.Name)
-		}
-		mu.Unlock()
-
-		if err != nil {
-			a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", err)
 			return "", nil
 		}
 	}
@@ -180,7 +211,28 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 }
 
 func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex) (approved, stopBatch bool) {
-	if err := a.deps.Guardrails.ValidateToolCall(ctx, tc, a.config.WorkspaceID); err != nil {
+	grCtx, grCancel := a.guardrailCtxWithTimeout(ctx)
+	defer grCancel()
+	if err := a.deps.Guardrails.ValidateToolCall(grCtx, tc, a.config.WorkspaceID); err != nil {
+		// A timeout (or other context error) during guardrail evaluation is not a
+		// policy decision. Apply the configured failure behavior instead of
+		// treating it as a guardrail violation (which would wrongly prompt for an
+		// allow/deny decision).
+		if errors.Is(grCtx.Err(), context.DeadlineExceeded) {
+			switch a.config.GuardrailTimeoutBehavior {
+			case "fail-closed":
+				a.deps.Logger.Error("guardrail evaluation timed out; failing closed (tool denied)",
+					"name", tc.Function.Name, "timeout", a.config.GuardrailTimeout)
+				mu.Lock()
+				a.appendToolResult(history, tc, map[string]string{"error": "guardrail evaluation timed out"})
+				mu.Unlock()
+				return false, true
+			default: // fail-open (and any unrecognized value)
+				a.deps.Logger.Warn("guardrail evaluation timed out; failing open (tool allowed)",
+					"name", tc.Function.Name, "timeout", a.config.GuardrailTimeout)
+				return false, false
+			}
+		}
 		a.deps.Logger.Warn("guardrail check rejected tool call", "name", tc.Function.Name, "error", err)
 		a.notifyGuardrailViolation(tc.Function.Name, err)
 
@@ -235,14 +287,30 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 	a.deps.Logger.Debug("executing plan", "steps", len(plan.Steps), "description", plan.Description)
 	currentHistory := append([]proxy.Message{}, history...)
 
-	toolsList, listErr := a.deps.Provider.ListTools(ctx)
+	if a.config.MaxPlanSteps > 0 && len(plan.Steps) > a.config.MaxPlanSteps {
+		return "", currentHistory, fmt.Errorf(planErrMaxSteps, len(plan.Steps), a.config.MaxPlanSteps)
+	}
+
+	planCtx := ctx
+	var planCancel context.CancelFunc
+	if a.config.MaxPlanDuration > 0 {
+		planCtx, planCancel = context.WithTimeout(ctx, a.config.MaxPlanDuration)
+		defer planCancel()
+	}
+
+	toolsList, listErr := a.deps.Provider.ListTools(planCtx)
 	if listErr != nil {
 		return "", currentHistory, fmt.Errorf("list tools: %w", listErr)
 	}
 
 	var mu sync.Mutex
 	for i, step := range plan.Steps {
-		if err := ctx.Err(); err != nil {
+		if a.config.MaxPlanSteps > 0 && i >= a.config.MaxPlanSteps {
+			a.deps.Logger.Info("plan execution aborted: max steps exceeded", "step", i, "limit", a.config.MaxPlanSteps)
+			return "", currentHistory, fmt.Errorf(planErrStepLimit, a.config.MaxPlanSteps)
+		}
+
+		if err := planCtx.Err(); err != nil {
 			a.deps.Logger.Info("plan execution halted", "step", i, "error", err)
 			return "", currentHistory, fmt.Errorf("plan execution halted: %w", err)
 		}
@@ -275,32 +343,11 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 		}
 		currentHistory = append(currentHistory, turnMsg)
 
-		approved, stopBatch := a.resolveGuardrail(ctx, tc, &currentHistory, &mu)
+		stopBatch, execErr := a.executeSingleToolStep(planCtx, tc, &currentHistory, &mu)
 		if stopBatch {
 			a.deps.Logger.Warn("plan step guardrail denied", "step", i, "tool", step.ToolName)
 			return "", currentHistory, fmt.Errorf("plan step %d: guardrail denied %s", i, step.ToolName)
 		}
-
-		a.notifyToolCall(tc)
-
-		toolCtx := models.WithWorkspaceID(ctx, a.config.WorkspaceID)
-		if approved {
-			toolCtx = models.WithGuardrailApproved(toolCtx)
-		}
-
-		result, execErr := a.deps.Engine.ExecuteTool(toolCtx, tc)
-		var finalResult any
-		if execErr != nil {
-			finalResult = map[string]string{"error": execErr.Error()}
-		} else {
-			finalResult = result
-		}
-		a.appendToolResult(&currentHistory, tc, finalResult)
-		a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-		if t := GetUsageTracker(ctx); t != nil {
-			t.AddToolCall(step.ToolName)
-		}
-
 		if execErr != nil {
 			a.deps.Logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
 			return "", currentHistory, fmt.Errorf("plan step %d failed: %w", i, execErr)
@@ -326,6 +373,32 @@ func toolCategory(toolName string) string {
 	default:
 		return "general"
 	}
+}
+
+// toolCtxWithTimeout wraps ctx with the per-tool timeout derived from
+// toolCategory and AgentConfig. Returns ctx unchanged when the timeout is 0
+// (disabled). Filesystem tools use FilesystemToolTimeout; all others use
+// ToolTimeout.
+func (a *Agent) toolCtxWithTimeout(ctx context.Context, toolName string) (context.Context, context.CancelFunc) {
+	timeout := a.config.ToolTimeout
+	if toolCategory(toolName) == "filesystem" && a.config.FilesystemToolTimeout > 0 {
+		timeout = a.config.FilesystemToolTimeout
+	}
+	if timeout > 0 {
+		return context.WithTimeout(ctx, timeout)
+	}
+	return ctx, func() {}
+}
+
+// guardrailCtxWithTimeout wraps ctx with GuardrailTimeout so a slow guardrail
+// evaluation (external policy service, DB, expensive computation) cannot block
+// the agent loop past the configured bound. Returns ctx unchanged when the
+// timeout is 0 (disabled) so guardrail evaluation remains unbounded (legacy).
+func (a *Agent) guardrailCtxWithTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if a.config.GuardrailTimeout > 0 {
+		return context.WithTimeout(ctx, a.config.GuardrailTimeout)
+	}
+	return ctx, func() {}
 }
 
 const salvageMinContentLen = 100 // min chars of recovered content to treat as final report
@@ -437,31 +510,6 @@ func trySalvageWriteContent(tc proxy.ToolCall) string {
 		return ""
 	}
 	return content
-}
-
-// salvageReportFromToolCalls returns the first recoverable write/append report
-// from a tool-call batch. Shared by processToolCalls and history fallback.
-func salvageReportFromToolCalls(calls []proxy.ToolCall) string {
-	for _, tc := range calls {
-		if report := trySalvageWriteContent(tc); report != "" {
-			return report
-		}
-	}
-	return ""
-}
-
-// salvageReportFromHistory walks history newest-first and salvages truncated
-// write_file/append_file args from assistant tool calls.
-func salvageReportFromHistory(history []proxy.Message) string {
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role != proxy.AssistantRole {
-			continue
-		}
-		if report := salvageReportFromToolCalls(history[i].ToolCalls); report != "" {
-			return report
-		}
-	}
-	return ""
 }
 
 // extractToolArgField returns a string field from tool-call args JSON.
@@ -716,14 +764,15 @@ func sanitizeToolArgs(raw string, originalErr error) string {
 
 // appendToolResult marshals the tool result, truncates it (proxy.TruncateResult
 // caps at ~8KB to avoid blowing the context window), and appends as a tool-role
-// message linked to the original call ID.
-func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) {
+// message linked to the original call ID. It returns the truncated content so
+// callers can reuse it (e.g. for logging) without re-marshaling (O5).
+func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) string {
 	raw, _ := json.Marshal(result)
-	strContent := string(raw)
-	strContent = proxy.TruncateResult(strContent)
+	strContent := proxy.TruncateResultDefault(string(raw))
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
 		Content:    strContent,
 		ToolCallID: tc.ID,
 	})
+	return strContent
 }

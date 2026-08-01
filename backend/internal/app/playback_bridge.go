@@ -171,6 +171,12 @@ func (b *PlaybackBridge) Chat(ctx context.Context, req proxy.ChatRequest) (*prox
 	return nil, fmt.Errorf("playback: turn has no response or chunks")
 }
 
+// ReasoningField returns the default OpenAI-compatible wire field. The playback
+// bridge replays recorded cloud/OpenAI traffic, which uses "reasoning_budget".
+func (b *PlaybackBridge) ReasoningField() string {
+	return proxy.ReasoningFieldBudget
+}
+
 func (b *PlaybackBridge) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 	turn := b.nextValidTurn()
 	if turn == nil {

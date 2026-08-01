@@ -54,14 +54,18 @@ of run events to the frontend.
 Each run produces:
 - `run-meta.json` — machine-readable metadata (model, status, steps, duration).
 - `run.log` — human-readable chronological log (tool calls, results, reasoning budget).
-- `events.jsonl` — structured event stream (lifecycle events with timestamps).
+- `events.jsonl` — structured event stream (lifecycle events with timestamps). The in-memory
+  `EventSink` is thread-safe, buffers writes and flushes per write, and fsyncs periodically
+  (1s interval) plus once on `Close` — a crash loses at most one sync interval of events.
+  In-RAM capture per run is bounded to the most recent 500 events (the full stream lives in
+  `events.jsonl`); `recordRun` drops the older slice to bound memory under concurrent long runs.
 - `recording.jsonl` — LLM request/response recordings (when `--record` is active).
 
 ## III. Error Handling
 
 - Model not found: run fails with `ErrUnknownModel`.
 - Model context maxed: agent sieves and retries.
-- Agent times out: 30-minute global timeout, 10-minute per-turn timeout.
+- Agent times out: Per-turn timeout is 10 minutes. The full automation run is bounded by `automationTimeout` (10 minutes, defined in `dispatcher.go:29`) which applies to **all** trigger paths: cron, webhook (via `Trigger()`), and manual. The dispatcher wraps the execution context with `context.WithTimeout(ctx, automationTimeout)` in `Trigger()` and the cron job function.
 - Dispatch to stopped workspace: 404.
 
 ## IV. Configuration

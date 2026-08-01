@@ -13,13 +13,13 @@ type testLogger struct {
 	T *testing.T
 }
 
-func (l *testLogger) Debug(msg string, args ...any) { l.T.Logf("DEBUG: "+msg, args...) }
-func (l *testLogger) Info(msg string, args ...any)  { l.T.Logf("INFO: "+msg, args...) }
-func (l *testLogger) Warn(msg string, args ...any)  { l.T.Logf("WARN: "+msg, args...) }
-func (l *testLogger) Error(msg string, args ...any) { l.T.Logf("ERROR: "+msg, args...) }
+func (l *testLogger) Debug(msg string, args ...any)   { l.T.Logf("DEBUG: "+msg, args...) }
+func (l *testLogger) Info(msg string, args ...any)    { l.T.Logf("INFO: "+msg, args...) }
+func (l *testLogger) Warn(msg string, args ...any)    { l.T.Logf("WARN: "+msg, args...) }
+func (l *testLogger) Error(msg string, args ...any)   { l.T.Logf("ERROR: "+msg, args...) }
 func (l *testLogger) With(args ...any) logging.Logger { return l }
-func (l *testLogger) SetLevel(logging.Level)        {}
-func (l *testLogger) Level() logging.Level          { return logging.LevelDebug }
+func (l *testLogger) SetLevel(logging.Level)          {}
+func (l *testLogger) Level() logging.Level            { return logging.LevelDebug }
 
 var _ logging.Logger = (*testLogger)(nil)
 
@@ -128,47 +128,68 @@ func TestStripThinkBlocks(t *testing.T) {
 }
 
 func TestHandleNoToolCalls(t *testing.T) {
+	toolResultHistory := []proxy.Message{
+		{Role: proxy.ToolRole, Content: "data"},
+	}
 	tests := []struct {
-		name                string
-		content             string
-		reasoningContent    string
+		name                 string
+		content              string
+		reasoningContent     string
+		history              []proxy.Message
+		toolsList            []proxy.Tool
 		lastContentWithTools string
-		forcedCompletionSent bool
-		wantDone            bool
-		wantReplyContains   string
-		wantNagged          bool // forcedCompletionSent set after call
+		postToolNudgeCount   int
+		finalizeAttempts     int
+		wantDone             bool
+		wantReplyContains    string
+		wantNudged           bool // postToolNudgeCount incremented / nag injected
+		wantFinalized        bool // finalizeAttempts incremented / finalize injected
 	}{
 		{
-			name:                "native tools text accepted",
-			content:             "# Final Report\nTask completed successfully.",
-			wantDone:            true,
-			wantReplyContains:   "Task completed successfully",
-			wantNagged:          false,
+			name:              "native tools text accepted",
+			content:           "# Final Report\nTask completed successfully.",
+			toolsList:         nil,
+			wantDone:          true,
+			wantReplyContains: "Task completed successfully",
 		},
 		{
 			name:                 "content-with-tools fallback",
 			content:              "",
 			reasoningContent:     "thinking",
 			lastContentWithTools: "Previous saved answer",
+			toolsList:            []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
 			wantDone:             true,
 			wantReplyContains:    "Previous saved answer",
-			wantNagged:           false,
 		},
 		{
-			name:                "one-shot nag on empty",
-			content:             "",
-			reasoningContent:    "thinking",
-			wantDone:            false,
-			wantNagged:          true,
+			name:             "re-arm nudge after tool result",
+			content:          "",
+			reasoningContent: "thinking",
+			history:          toolResultHistory,
+			toolsList:        []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
+			wantDone:         false,
+			wantNudged:       true,
 		},
 		{
-			name:                 "nag exhausted — fallback",
-			content:              "",
-			reasoningContent:     "thinking",
-			forcedCompletionSent: true,
-			wantDone:             true,
-			wantReplyContains:    "",
-			wantNagged:           true, // stays true
+			name:               "finalize once nudges exhausted",
+			content:            "",
+			reasoningContent:   "thinking",
+			history:            toolResultHistory,
+			toolsList:          []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
+			postToolNudgeCount: postToolNudgeMax,
+			wantDone:           false,
+			wantFinalized:      true,
+		},
+		{
+			name:               "terminal when ladder exhausted",
+			content:            "",
+			reasoningContent:   "thinking",
+			history:            toolResultHistory,
+			toolsList:          []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
+			postToolNudgeCount: postToolNudgeMax,
+			finalizeAttempts:   1,
+			wantDone:           true,
+			wantReplyContains:  "",
 		},
 	}
 
@@ -180,9 +201,10 @@ func TestHandleNoToolCalls(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newRunSession(agent, context.Background(), nil)
+			s := newRunSession(agent, context.Background(), tt.history)
 			s.lastContentWithTools = tt.lastContentWithTools
-			s.forcedCompletionSent = tt.forcedCompletionSent
+			s.postToolNudgeCount = tt.postToolNudgeCount
+			s.finalizeAttempts = tt.finalizeAttempts
 
 			turnMsg := proxy.Message{
 				Role:             proxy.AssistantRole,
@@ -190,7 +212,7 @@ func TestHandleNoToolCalls(t *testing.T) {
 				ReasoningContent: tt.reasoningContent,
 			}
 
-			reply, done, err := s.handleNoToolCalls(turnMsg, nil, nil)
+			reply, done, err := s.handleNoToolCalls(turnMsg, nil, tt.toolsList)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -200,21 +222,60 @@ func TestHandleNoToolCalls(t *testing.T) {
 			if !strings.Contains(reply, tt.wantReplyContains) {
 				t.Errorf("reply = %q, expected to contain %q", reply, tt.wantReplyContains)
 			}
-			if s.forcedCompletionSent != tt.wantNagged {
-				t.Errorf("forcedCompletionSent = %v, want %v", s.forcedCompletionSent, tt.wantNagged)
-			}
-
-			if tt.wantNagged && !tt.forcedCompletionSent {
-				// First nag: verify the nag prompt was injected into history
-				if len(s.history) < 2 {
-					t.Fatalf("expected nag in history, got %d entries", len(s.history))
+			if tt.wantNudged {
+				if s.postToolNudgeCount != tt.postToolNudgeCount+1 {
+					t.Errorf("postToolNudgeCount = %d, want %d", s.postToolNudgeCount, tt.postToolNudgeCount+1)
 				}
 				last := s.history[len(s.history)-1]
 				if last.Role != proxy.UserRole || !strings.Contains(last.Content, "SYSTEM: Continue") {
 					t.Errorf("expected nag prompt as last history entry, got role=%v content=%q", last.Role, last.Content[:min(len(last.Content), 40)])
 				}
 			}
+			if tt.wantFinalized {
+				if s.finalizeAttempts != tt.finalizeAttempts+1 {
+					t.Errorf("finalizeAttempts = %d, want %d", s.finalizeAttempts, tt.finalizeAttempts+1)
+				}
+				if !s.textOnlyNextTurn {
+					t.Error("textOnlyNextTurn should be set for finalization turn")
+				}
+				last := s.history[len(s.history)-1]
+				if last.Role != proxy.UserRole || !strings.Contains(last.Content, "FINAL REPORT") {
+					t.Errorf("expected finalize prompt as last history entry, got role=%v content=%q", last.Role, last.Content[:min(len(last.Content), 40)])
+				}
+			}
 		})
 	}
 }
 
+// TestFlagSplit_NagDoesNotDisableHardCap verifies the post-tool nudge counter
+// does not disable the forced-completion hard cap at MaxSteps*2.
+func TestFlagSplit_NagDoesNotDisableHardCap(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5})
+	s := newRunSession(agent, context.Background(), nil)
+	s.postToolNudgeCount = postToolNudgeMax // nudges already exhausted
+	s.steps = agent.config.MaxSteps * 2     // at the hard-cap threshold
+
+	stopped, _, _ := s.checkForcedCompletion()
+	if !stopped {
+		t.Fatal("hard cap should fire despite exhausted nudges")
+	}
+	if !s.hardCapTriggered {
+		t.Error("hardCapTriggered should be set after the hard cap fires")
+	}
+}
+
+// TestFlagSplit_HardCapIndependent verifies the hard cap is governed solely by
+// its own flag and does not reset across calls.
+func TestFlagSplit_HardCapIndependent(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5})
+	s := newRunSession(agent, context.Background(), nil)
+	s.steps = agent.config.MaxSteps * 2
+
+	if stopped, _, _ := s.checkForcedCompletion(); !stopped {
+		t.Fatal("expected hard cap to fire on first call at threshold")
+	}
+	// Second call must be a no-op (already triggered), not a re-fire.
+	if stopped, _, _ := s.checkForcedCompletion(); stopped {
+		t.Error("hard cap should not re-fire once hardCapTriggered is set")
+	}
+}

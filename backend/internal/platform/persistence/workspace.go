@@ -39,8 +39,7 @@ func NewWorkspaceManager(r *storage.PathResolver) *WorkspaceManager {
 // Locking
 // ============================================================================
 
-// AcquireLock acquires an exclusive flock on the workspace.
-func (m *WorkspaceManager) AcquireLock(workspaceID string) (*os.File, error) {
+func (m *WorkspaceManager) openLockFile(workspaceID string) (*os.File, error) {
 	dirPath := m.resolver.WorkspaceDir(workspaceID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace dir: %w", err)
@@ -52,6 +51,15 @@ func (m *WorkspaceManager) AcquireLock(workspaceID string) (*os.File, error) {
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
+	}
+	return f, nil
+}
+
+// AcquireLock acquires an exclusive flock on the workspace.
+func (m *WorkspaceManager) AcquireLock(workspaceID string) (*os.File, error) {
+	f, err := m.openLockFile(workspaceID)
+	if err != nil {
+		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		f.Close()
@@ -62,17 +70,9 @@ func (m *WorkspaceManager) AcquireLock(workspaceID string) (*os.File, error) {
 
 // TryAcquireLock attempts a non-blocking exclusive flock.
 func (m *WorkspaceManager) TryAcquireLock(workspaceID string) (*os.File, error) {
-	dirPath := m.resolver.WorkspaceDir(workspaceID)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create workspace dir: %w", err)
-	}
-	if err := os.MkdirAll(m.resolver.InternalDir(workspaceID), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create internal dir: %w", err)
-	}
-	lockPath := m.resolver.Lock(workspaceID)
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	f, err := m.openLockFile(workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open lock file: %w", err)
+		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
@@ -117,37 +117,11 @@ func (m *WorkspaceManager) ReadState(workspaceID string) (*models.AgentState, er
 
 // WriteState writes state.json atomically (temp file + rename + sync).
 func (m *WorkspaceManager) WriteState(workspaceID string, state *models.AgentState) error {
-	dirPath := m.resolver.InternalDir(workspaceID)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("failed to create workspace dir: %w", err)
-	}
-	tmpFile, err := os.CreateTemp(dirPath, "state-*.json.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp state file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		tmpFile.Close()
 		return fmt.Errorf("failed to encode state: %w", err)
 	}
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write temp state file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to sync temp state file: %w", err)
-	}
-	tmpFile.Close()
-
-	destPath := m.resolver.State(workspaceID)
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("failed to rename temp state file to state.json: %w", err)
-	}
-	return nil
+	return storage.WriteAtomic(m.resolver.State(workspaceID), "state-*.json.tmp", data)
 }
 
 // ============================================================================
@@ -174,37 +148,11 @@ func (m *WorkspaceManager) ReadConfig(workspaceID string) (*models.WorkspaceConf
 
 // WriteConfig writes config.yaml atomically.
 func (m *WorkspaceManager) WriteConfig(workspaceID string, cfg *models.WorkspaceConfig) error {
-	dirPath := m.resolver.InternalDir(workspaceID)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("failed to create workspace dir: %w", err)
-	}
-	tmpFile, err := os.CreateTemp(dirPath, "config-*.yaml.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp config file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		tmpFile.Close()
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write temp config file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to sync temp config file: %w", err)
-	}
-	tmpFile.Close()
-
-	destPath := m.resolver.Config(workspaceID)
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("failed to rename temp config file to config.yaml: %w", err)
-	}
-	return nil
+	return storage.WriteAtomic(m.resolver.Config(workspaceID), "config-*.yaml.tmp", data)
 }
 
 // ============================================================================
@@ -226,32 +174,7 @@ func (m *WorkspaceManager) ReadHeartbeat(workspaceID string) (string, error) {
 
 // WriteHeartbeat writes heartbeat.md atomically.
 func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) error {
-	dirPath := m.resolver.WorkspaceDir(workspaceID)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("failed to create workspace dir: %w", err)
-	}
-	tmpFile, err := os.CreateTemp(dirPath, "heartbeat-*.md.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp heartbeat file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.WriteString(content); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write temp heartbeat file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to sync temp heartbeat file: %w", err)
-	}
-	tmpFile.Close()
-
-	destPath := m.resolver.Heartbeat(workspaceID)
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("failed to rename temp heartbeat file to heartbeat.md: %w", err)
-	}
-	return nil
+	return storage.WriteAtomic(m.resolver.Heartbeat(workspaceID), "heartbeat-*.md.tmp", []byte(content))
 }
 
 // ============================================================================
@@ -273,32 +196,7 @@ func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, e
 
 // WriteTaskFile writes an arbitrary task file atomically.
 func (m *WorkspaceManager) WriteTaskFile(workspaceID, filename, content string) error {
-	dirPath := m.resolver.WorkspaceDir(workspaceID)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("failed to create workspace dir: %w", err)
-	}
-	tmpFile, err := os.CreateTemp(dirPath, fmt.Sprintf("%s-*.tmp", filename))
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.WriteString(content); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to sync temp file: %w", err)
-	}
-	tmpFile.Close()
-
-	destPath := m.resolver.TaskFile(workspaceID, filename)
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("failed to rename temp file to %s: %w", filename, err)
-	}
-	return nil
+	return storage.WriteAtomic(m.resolver.TaskFile(workspaceID, filename), fmt.Sprintf("%s-*.tmp", filename), []byte(content))
 }
 
 func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
@@ -463,41 +361,13 @@ func (m *WorkspaceManager) migrateSessionDir(workspaceID, sessionID string) erro
 
 // WriteSession writes an assistant session JSON file atomically.
 func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.AssistantSession) error {
-	dirPath := m.resolver.SessionsDir(workspaceID)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("failed to create sessions dir: %w", err)
-	}
-
-	filename := session.ID + ".json"
-	tmpFile, err := os.CreateTemp(dirPath, "session-*.json.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp session file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
 	session.UpdatedAt = time.Now()
 	data, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
-		tmpFile.Close()
 		return fmt.Errorf("failed to encode session: %w", err)
 	}
-
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write temp session file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to sync temp session file: %w", err)
-	}
-	tmpFile.Close()
-
-	destPath := filepath.Join(dirPath, filename)
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("failed to rename temp session file: %w", err)
-	}
-	return nil
+	destPath := filepath.Join(m.resolver.SessionsDir(workspaceID), session.ID+".json")
+	return storage.WriteAtomic(destPath, "session-*.json.tmp", data)
 }
 
 // DeleteSession deletes an assistant session JSON file from both locations.

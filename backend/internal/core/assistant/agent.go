@@ -7,6 +7,7 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/orchestrator"
@@ -20,15 +21,23 @@ import (
 )
 
 const (
-	DefaultMaxSteps             = 25
-	DefaultContextBudget        = 8000   // chars, not tokens — rough heuristic for context window pressure
-	DefaultMaxTokens            = 3072
-	DefaultAutomationTemperature = 0.1   // low temperature for deterministic automation tasks
-	MinReasoningStuckThreshold  = 2000   // chars; floor for stuck detection even at small max_tokens
-	DefaultStarvationLimit      = 15
-	AgentGlobalTimeout          = 30 * time.Minute  // total wall-clock for one Execute call
-	AgentTurnTimeout            = 10 * time.Minute  // per-LLM-call timeout (stream or Chat)
-	AgentRetryTimeout           = 5 * time.Minute   // tool-support-fallback retry timeout
+	DefaultMaxSteps              = 25
+	DefaultContextBudget         = 8000 // chars, not tokens — rough heuristic for context window pressure
+	DefaultMaxTokens             = 3072
+	DefaultAutomationTemperature = 0.1  // low temperature for deterministic automation tasks
+	MinReasoningStuckThreshold   = 2000 // chars; floor for stuck detection even at small max_tokens
+	DefaultStarvationLimit       = 15
+	AgentGlobalTimeout           = 30 * time.Minute // total wall-clock for one Execute call
+	AgentTurnTimeout             = 10 * time.Minute // per-LLM-call timeout (stream or Chat)
+	AgentRetryTimeout            = 5 * time.Minute  // tool-support-fallback retry timeout
+
+	// Safety timeout defaults (all configurable per-model via AgentOptions / ModelConfig)
+	DefaultToolTimeout              = 2 * time.Minute  // per-tool execution timeout
+	DefaultFilesystemToolTimeout    = 30 * time.Second // filesystem I/O timeout
+	DefaultMaxPlanDuration          = 15 * time.Minute // plan execution wall-clock
+	DefaultMaxPlanSteps             = 50               // max steps per plan
+	DefaultGuardrailTimeout         = 5 * time.Second  // guardrail validation timeout
+	DefaultGuardrailTimeoutBehavior = "fail-open"      // fail-open | fail-closed
 )
 
 // DefaultReasoningBudget returns the auto-computed reasoning budget for a given
@@ -40,6 +49,34 @@ func DefaultReasoningBudget(maxTokens int) int {
 		return 0
 	}
 	return maxTokens / 3
+}
+
+// resolveReasoningSpec builds the per-agent ReasoningSpec from the provider
+// tier table, combining the resolved wire Mode with the think-token budget for
+// local (ModeThinkTokens) providers. This is the single source of truth for the
+// resolved spec; the resolver later decides the wire field.
+//
+// Local reasoning budget derivation (SSOT): when no explicit budget is
+// configured, it is derived from the model's max_tokens via
+// DefaultReasoningBudget (max_tokens/3). max_tokens itself is derived from the
+// server's serving context (ctxLen/3 in ApplyMetadataDefaults), so the budget
+// tracks the context size the user launched the server with. Derivation is NEVER
+// based on model name (the old name-heuristic gate was removed — it caused
+// false positives/negatives). Explicit configuration always wins.
+func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) ReasoningSpec {
+	tier, ok := providerTiers[providerType]
+	if !ok {
+		return ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}
+	}
+	spec := tier.Reasoning
+	if spec.Mode == ModeThinkTokens {
+		if configuredBudget > 0 {
+			spec.Budget = configuredBudget
+		} else if maxTokens > 0 {
+			spec.Budget = DefaultReasoningBudget(maxTokens)
+		}
+	}
+	return spec
 }
 
 // ReasoningBudgetExceeded returns true when accumulated reasoning content
@@ -54,33 +91,52 @@ func ReasoningBudgetExceeded(reasoningChars int, budgetTokens int) bool {
 }
 
 type ProviderTuningDefaults struct {
-	MaxSteps        int
-	ContextBudget   int
-	MaxTokens       int
-	ToolCallFormat  string
-	Prefill         bool
-	ReasoningBudget int
+	MaxSteps       int
+	ContextBudget  int
+	MaxTokens      int
+	ToolCallFormat string
+	Prefill        bool
+	Reasoning      ReasoningSpec
 }
 
+// providerTiers is the frozen baseline of per-provider agent-tuning defaults.
+// It is allocated once at package init; callers must treat the returned map as
+// read-only (ProviderTiers returns the shared instance, never a copy). The
+// reasoning wire field is resolved here (ReasoningReasoningSpec) — the single
+// source of truth for per-provider reasoning enable params.
+var providerTiers = map[string]ProviderTuningDefaults{
+	"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeThinkTokens, Effort: EffortMedium, Budget: 0}},
+	"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeObject, Effort: EffortMedium}},
+	"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
+	"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEnableThinking, Enabled: true}},
+}
+
+// ProviderTiers returns the shared provider-tuning table. Treat as read-only.
 func ProviderTiers() map[string]ProviderTuningDefaults {
-	return map[string]ProviderTuningDefaults{
-		"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, ReasoningBudget: 0},
-		"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-		"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-		"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 8192},
-		"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
-		"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 4096},
-		"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, ReasoningBudget: 2048},
+	return providerTiers
+}
+
+// TierForProvider returns the tuning defaults for a provider type, or a safe
+// OpenAI-compatible default for unknown providers. Agent tuning only — the
+// reasoning-budget wire field is resolved per-request from the client.
+func TierForProvider(providerType string) ProviderTuningDefaults {
+	if t, ok := providerTiers[providerType]; ok {
+		return t
 	}
+	return ProviderTuningDefaults{}
 }
 
 // AgentConfig holds immutable per-agent data from user/model config.
 type AgentConfig struct {
-	MaxSteps        int
-	ContextBudget   int
-	MaxTokens       int
-	ReasoningBudget int
-	Temperature     float64
+	MaxSteps       int
+	ContextBudget  int
+	MaxTokens      int
+	ReasoningSpec  ReasoningSpec
+	ReasoningBudget int // local think-token budget (ModeThinkTokens); 0 for effort/object/enabled modes
+	Temperature    float64
 	ICUWeight       float64
 	GlobalTimeout   time.Duration
 	UseNativeTools  bool
@@ -96,6 +152,13 @@ type AgentConfig struct {
 	Channel EventChannel
 	// ConversationID scopes assistant events to a specific chat session.
 	ConversationID string
+	// Safety timeouts — per-model overrides for unattended run hardening.
+	ToolTimeout              time.Duration
+	FilesystemToolTimeout    time.Duration
+	MaxPlanDuration          time.Duration
+	MaxPlanSteps             int
+	GuardrailTimeout         time.Duration
+	GuardrailTimeoutBehavior string
 }
 
 // AgentRuntimeDeps holds shared services injected into every Agent.
@@ -118,17 +181,48 @@ type Agent struct {
 	config AgentConfig
 	deps   AgentRuntimeDeps
 
-	// Per-execution state. These are mutated during Execute and MUST NOT
-	// persist across calls. TODO(A8): move into runSession.
-	prefillDisabled bool
-	memoryInjected  bool
+	runS *runSession // current execution session; nil outside Execute
+
+	cachedToolManual    string // cached BuildToolManual output
+	cachedToolReference string // cached BuildNativeToolReference output
+	toolsHash           uint64 // fingerprint of tool set used to build cache
+}
+
+// prefillDisabled returns whether prefill has been disabled at runtime.
+func (a *Agent) prefillDisabled() bool {
+	if a.runS == nil {
+		return false
+	}
+	return a.runS.prefillDisabled
+}
+
+// setPrefillDisabled sets the runtime prefill-disabled flag.
+func (a *Agent) setPrefillDisabled(v bool) {
+	if a.runS != nil {
+		a.runS.prefillDisabled = v
+	}
+}
+
+// memoryInjected returns whether hot memory has been injected this session.
+func (a *Agent) memoryInjected() bool {
+	if a.runS == nil {
+		return false
+	}
+	return a.runS.memoryInjected
+}
+
+// setMemoryInjected sets the memory-injected flag.
+func (a *Agent) setMemoryInjected(v bool) {
+	if a.runS != nil {
+		a.runS.memoryInjected = v
+	}
 }
 
 type AgentOptions struct {
 	MaxSteps                 int
 	ContextBudget            int
 	MaxResponseTokens        int
-	ReasoningBudget          int
+	ReasoningBudget          int // configured think-token budget (local mode); 0 => tier default
 	Temperature              float64
 	ICUWeight                float64
 	Logger                   logging.Logger
@@ -143,7 +237,7 @@ type AgentOptions struct {
 	ProviderType             string
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
-	MemoryStore              *memory.Store      // nil when memory is disabled
+	MemoryStore              *memory.Store // nil when memory is disabled
 
 	EnableHotMemory bool // inject hot memory at session start
 	// Channel is the event stream this agent publishes to. Defaults to
@@ -151,6 +245,15 @@ type AgentOptions struct {
 	Channel EventChannel
 	// ConversationID scopes this agent's events to a specific chat session.
 	ConversationID string
+
+	// Safety timeouts — per-model overrides for unattended run hardening.
+	// Zero means "use global default" (set in applyDefaults).
+	ToolTimeout              time.Duration // default 2 min; 0 = disabled
+	FilesystemToolTimeout    time.Duration // default 30 sec
+	MaxPlanDuration          time.Duration // default 15 min
+	MaxPlanSteps             int           // default 50
+	GuardrailTimeout         time.Duration // default 5 sec
+	GuardrailTimeoutBehavior string        // "fail-open" | "fail-closed"
 }
 
 type GuardrailDecisionStore struct {
@@ -260,6 +363,24 @@ func (o *AgentOptions) applyDefaults() {
 	if o.Channel == "" {
 		o.Channel = ChannelAssistant
 	}
+	if o.ToolTimeout <= 0 {
+		o.ToolTimeout = DefaultToolTimeout
+	}
+	if o.FilesystemToolTimeout <= 0 {
+		o.FilesystemToolTimeout = DefaultFilesystemToolTimeout
+	}
+	if o.MaxPlanDuration <= 0 {
+		o.MaxPlanDuration = DefaultMaxPlanDuration
+	}
+	if o.MaxPlanSteps <= 0 {
+		o.MaxPlanSteps = DefaultMaxPlanSteps
+	}
+	if o.GuardrailTimeout <= 0 {
+		o.GuardrailTimeout = DefaultGuardrailTimeout
+	}
+	if o.GuardrailTimeoutBehavior == "" {
+		o.GuardrailTimeoutBehavior = DefaultGuardrailTimeoutBehavior
+	}
 }
 
 // ApplyModelConfig copies model-level overrides from cfg into the options.
@@ -294,6 +415,24 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
 	if cfg.TimeoutMinutes > 0 {
 		o.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
 	}
+	if cfg.ToolTimeoutSeconds > 0 {
+		o.ToolTimeout = time.Duration(cfg.ToolTimeoutSeconds) * time.Second
+	}
+	if cfg.FilesystemToolTimeoutSeconds > 0 {
+		o.FilesystemToolTimeout = time.Duration(cfg.FilesystemToolTimeoutSeconds) * time.Second
+	}
+	if cfg.MaxPlanDurationMinutes > 0 {
+		o.MaxPlanDuration = time.Duration(cfg.MaxPlanDurationMinutes) * time.Minute
+	}
+	if cfg.MaxPlanSteps > 0 {
+		o.MaxPlanSteps = cfg.MaxPlanSteps
+	}
+	if cfg.GuardrailTimeoutSeconds > 0 {
+		o.GuardrailTimeout = time.Duration(cfg.GuardrailTimeoutSeconds) * time.Second
+	}
+	if cfg.GuardrailTimeoutBehavior != "" {
+		o.GuardrailTimeoutBehavior = cfg.GuardrailTimeoutBehavior
+	}
 	return cfg.EnableExecutionPlan
 }
 
@@ -302,7 +441,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 
 	gr := opts.Guardrails
 	if gr == nil {
-		gr = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil)
+		gr = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil, nil)
 	}
 
 	useNative := provider.UseNativeTools()
@@ -334,82 +473,58 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			OnGuardrail:  opts.GuardrailDecisionHandler,
 		},
 		config: AgentConfig{
-			MaxSteps:        opts.MaxSteps,
-			ContextBudget:   opts.ContextBudget,
-			MaxTokens:       opts.MaxResponseTokens,
-			ReasoningBudget: opts.ReasoningBudget,
-			Temperature:     opts.Temperature,
-			ICUWeight:       opts.ICUWeight,
-			GlobalTimeout:   opts.GlobalTimeout,
-			UseNativeTools:  useNative,
-			UsePrefill:      usePrefill,
-			WorkspaceID:     opts.WorkspaceID,
-			ModelName:       opts.ModelName,
-			ProviderType:    opts.ProviderType,
-			EnableHotMemory: opts.EnableHotMemory,
-			Channel:         opts.Channel,
-			ConversationID:  opts.ConversationID,
+			MaxSteps:                 opts.MaxSteps,
+			ContextBudget:            opts.ContextBudget,
+			MaxTokens:                opts.MaxResponseTokens,
+			ReasoningSpec:            resolveReasoningSpec(opts.ProviderType, opts.ReasoningBudget, opts.MaxResponseTokens),
+			ReasoningBudget:          opts.ReasoningBudget,
+			Temperature:              opts.Temperature,
+			ICUWeight:                opts.ICUWeight,
+			GlobalTimeout:            opts.GlobalTimeout,
+			UseNativeTools:           useNative,
+			UsePrefill:               usePrefill,
+			WorkspaceID:              opts.WorkspaceID,
+			ModelName:                opts.ModelName,
+			ProviderType:             opts.ProviderType,
+			EnableHotMemory:          opts.EnableHotMemory,
+			Channel:                  opts.Channel,
+			ConversationID:           opts.ConversationID,
+			ToolTimeout:              opts.ToolTimeout,
+			FilesystemToolTimeout:    opts.FilesystemToolTimeout,
+			MaxPlanDuration:          opts.MaxPlanDuration,
+			MaxPlanSteps:             opts.MaxPlanSteps,
+			GuardrailTimeout:         opts.GuardrailTimeout,
+			GuardrailTimeoutBehavior: opts.GuardrailTimeoutBehavior,
 		},
 	}
-	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_budget", a.config.ReasoningBudget, "max_steps", a.config.MaxSteps)
+
+	// Keep the numeric ReasoningBudget in sync with the resolved spec for local
+	// (ModeThinkTokens) providers, so downstream consumers (preflight ICU cost,
+	// ReasoningBudgetExceeded stuck-check, interceptor budget) use the derived
+	// value rather than the raw config (which is 0 when auto-derived). The spec
+	// remains the single source of truth; this field is its numeric projection.
+	if a.config.ReasoningSpec.Mode == ModeThinkTokens {
+		a.config.ReasoningBudget = a.config.ReasoningSpec.Budget
+	}
+
+	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_mode", int(a.config.ReasoningSpec.Mode), "max_steps", a.config.MaxSteps)
 	return a
 }
 
-type toolKey struct {
-	name string
-	args string
-}
-
-type repetitionDetector struct {
-	recentCalls           []toolKey
-	duplicateStreak       int
-	lastTool              string
-	consecutiveToolStreak int
-}
-
-func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.ToolCall) (bool, string, error) {
-		for _, tc := range toolCalls {
-			key := toolKey{tc.Function.Name, tc.Function.Arguments}
-			// system_error is a no-op bookkeeping tool and is expected to repeat.
-			if tc.Function.Name != models.ToolSystemError {
-				if len(rd.recentCalls) > 0 && rd.recentCalls[len(rd.recentCalls)-1] == key {
-					rd.duplicateStreak++
-					logger.Warn("duplicate action detected", "tool", key.name, "args", key.args, "streak", rd.duplicateStreak)
-					if rd.duplicateStreak >= 3 {
-						rd.duplicateStreak = 0
-					rd.recentCalls = nil
-					return true, "", fmt.Errorf("infinite loop detected: %s called 3+ times with identical args", key.name)
-				}
-				return true, prompts.AutomationDuplicateNagPrompt, nil
-			}
-			rd.duplicateStreak = 0
-
-			// Catch same-tool-any-args spirals (e.g. memory_search with varying queries).
-			if tc.Function.Name == rd.lastTool {
-				rd.consecutiveToolStreak++
-			if rd.consecutiveToolStreak >= 12 {
-				rd.consecutiveToolStreak = 0
-				rd.lastTool = ""
-				rd.recentCalls = nil
-				return true, "", fmt.Errorf("spiral detected: %s called %d+ consecutive times", key.name, 12)
-				}
-			} else {
-				rd.consecutiveToolStreak = 0
-				rd.lastTool = tc.Function.Name
-			}
-
-			if len(rd.recentCalls) >= 3 {
-				rd.recentCalls = rd.recentCalls[1:]
-			}
-			rd.recentCalls = append(rd.recentCalls, key)
-		}
-	}
-	return false, "", nil
-}
+// watchdogGracePeriod is the extra time the watchdog waits past GlobalTimeout
+// before force-cancelling the run. It gives legitimate long-running tools a
+// small margin beyond the configured bound before the hard kill.
+const watchdogGracePeriod = 5 * time.Minute
 
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
 	execCtx, cancel := context.WithTimeout(ctx, a.config.GlobalTimeout)
 	defer cancel()
+
+	// Watchdog: if the global timeout fires but the run is still alive (a guardrail
+	// eval, a stuck stream, or an un-cancellable syscall), force-cancel execCtx to
+	// unblock any goroutines still observing it. The goroutine exits on execCtx.Done()
+	// once the run completes normally, so it never leaks.
+	a.startWatchdog(execCtx, cancel)
 
 	execCtx = WithUsageTracker(execCtx)
 
@@ -435,20 +550,59 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 		}
 	}
 
+	a.rebuildToolCache(execCtx)
+
 	s := newRunSession(a, execCtx, history)
 	return s.run()
+}
+
+// startWatchdog launches a goroutine that force-cancels the run if it outlives
+// GlobalTimeout by watchdogGracePeriod — a backstop for guardrail evals, stuck
+// streams, or syscalls that ignore context cancellation.
+func (a *Agent) startWatchdog(execCtx context.Context, cancel context.CancelFunc) {
+	a.startWatchdogGrace(execCtx, cancel, watchdogGracePeriod)
+}
+
+func (a *Agent) startWatchdogGrace(execCtx context.Context, cancel context.CancelFunc, grace time.Duration) {
+	go func() {
+		select {
+		case <-time.After(a.config.GlobalTimeout + grace):
+			a.deps.Logger.Error("watchdog: context still alive past global timeout, forcing shutdown",
+				"globalTimeout", a.config.GlobalTimeout, "grace", grace)
+			cancel() // idempotent; unblocks goroutines still observing execCtx
+		case <-execCtx.Done():
+			return
+		}
+	}()
 }
 
 func (a *Agent) prepareMessages(history []proxy.Message) []proxy.Message {
 	return proxy.NormalizeHistory(history, a.config.UseNativeTools)
 }
 
-// injectToolInstructions embeds XML tool definitions into the system prompt.
-// Used when native API-level tools are disabled (local models, XML fallback).
-func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
-	if len(tools) == 0 {
-		return history
+func toolsFingerprint(tools []proxy.Tool) uint64 {
+	h := fnv.New64a()
+	for _, t := range tools {
+		h.Write([]byte(t.Function.Name))
+		h.Write([]byte{0})
+		h.Write([]byte(t.Function.Description))
+		h.Write([]byte{0})
+		fmt.Fprintf(h, "%v", t.Function.Parameters)
+		h.Write([]byte{0})
 	}
+	return h.Sum64()
+}
+
+func (a *Agent) rebuildToolCache(ctx context.Context) {
+	tools, err := a.deps.Provider.ListTools(ctx)
+	if err != nil {
+		return
+	}
+	fp := toolsFingerprint(tools)
+	if fp == a.toolsHash {
+		return
+	}
+
 	info := make([]prompts.ToolInfo, len(tools))
 	for i, t := range tools {
 		info[i] = prompts.ToolInfo{
@@ -457,9 +611,33 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 			Parameters:  t.Function.Parameters,
 		}
 	}
-	instructions := prompts.BuildToolManual(info)
+	a.cachedToolManual = prompts.BuildToolManual(info)
+	a.cachedToolReference = prompts.BuildNativeToolReference(info)
+	a.toolsHash = fp
+}
+
+// injectToolInstructions embeds XML tool definitions into the system prompt.
+// Used when native API-level tools are disabled (local models, XML fallback).
+func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
+	if len(tools) == 0 {
+		return history
+	}
+
+	instructions := a.cachedToolManual
+	if instructions == "" {
+		info := make([]prompts.ToolInfo, len(tools))
+		for i, t := range tools {
+			info[i] = prompts.ToolInfo{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
+			}
+		}
+		instructions = prompts.BuildToolManual(info)
+	}
+
 	a.deps.Logger.Debug("injecting XML tool manual into system prompt",
-		"tool_count", len(info),
+		"tool_count", len(tools),
 		"manual_chars", len(instructions),
 		"has_manual", len(instructions) > 0,
 	)
@@ -496,15 +674,19 @@ func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy
 	if len(tools) == 0 {
 		return history
 	}
-	info := make([]prompts.ToolInfo, len(tools))
-	for i, t := range tools {
-		info[i] = prompts.ToolInfo{
-			Name:        t.Function.Name,
-			Description: t.Function.Description,
-			Parameters:  t.Function.Parameters,
+
+	reference := a.cachedToolReference
+	if reference == "" {
+		info := make([]prompts.ToolInfo, len(tools))
+		for i, t := range tools {
+			info[i] = prompts.ToolInfo{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
+			}
 		}
+		reference = prompts.BuildNativeToolReference(info)
 	}
-	reference := prompts.BuildNativeToolReference(info)
 	newHistory := make([]proxy.Message, 0, len(history)+1)
 	foundSystem := false
 	for _, msg := range history {
@@ -525,4 +707,3 @@ func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy
 	}
 	return newHistory
 }
-

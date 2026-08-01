@@ -1,7 +1,7 @@
 ---
 id: LAW
 status: law
-last_reviewed: 2026-07-11
+last_reviewed: 2026-08-01
 ---
 
 # Constitution (The Law)

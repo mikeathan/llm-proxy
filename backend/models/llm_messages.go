@@ -1,5 +1,7 @@
 package models
 
+import "strings"
+
 type ChatRole string
 type ToolChoice string
 
@@ -14,8 +16,6 @@ const (
 	ToolChoiceNone     ToolChoice = "none"
 )
 
-type ExecutionHistory = []Message
-
 type ResponseFormat struct {
 	Type   string      `json:"type,omitempty"`
 	Name   string      `json:"name,omitempty"`
@@ -25,36 +25,130 @@ type ResponseFormat struct {
 // Message
 
 type Message struct {
-	Role             ChatRole   `json:"role"`
-	Content          string     `json:"content"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Role             ChatRole          `json:"role"`
+	Content          string            `json:"content"`
+	ReasoningContent string            `json:"reasoning_content,omitempty"` // llama.cpp / Qwen / NVIDIA: structured reasoning field
+	Reasoning        string            `json:"reasoning,omitempty"`         // openrouter / some gateways: opaque reasoning string
+	ReasoningDetails []ReasoningDetail `json:"reasoning_details,omitempty"` // openrouter: structured reasoning parts
+	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+	ToolCallID       string            `json:"tool_call_id,omitempty"`
+}
+
+// ReasoningDetail models openrouter-style structured reasoning parts
+// (summary / thinking / content / text). Single unmarshal, zero cost when absent.
+type ReasoningDetail struct {
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // Chat Request
 type ChatRequest struct {
-	Model                string          `json:"model"`
-	Messages             []Message       `json:"messages"`
-	MaxTokens            int             `json:"max_tokens,omitempty"`
-	Temperature          float64         `json:"temperature,omitempty"`
-	ReasoningBudget      int             `json:"reasoning_budget,omitempty"`
-	ThinkingBudgetTokens int             `json:"thinking_budget_tokens,omitempty"`
-	Tools                []Tool          `json:"tools,omitempty"`
-	ToolChoice           ToolChoice      `json:"tool_choice,omitempty"`
-	Stream               bool            `json:"stream,omitempty"`
-	ResponseFormat       *ResponseFormat `json:"response_format,omitempty"`
-	Grammar              *string         `json:"grammar,omitempty"`               // llama.cpp / TGI: GBNF grammar string
-	GuidedJSON           *string         `json:"guided_json,omitempty"`           // vLLM: JSON schema for guided decoding
-	GuidedGrammar        *string         `json:"guided_grammar,omitempty"`        // vLLM: GBNF grammar alternative
+	Model                string                `json:"model"`
+	Messages             []Message             `json:"messages"`
+	MaxTokens            int                   `json:"max_tokens,omitempty"`
+	Temperature          float64               `json:"temperature,omitempty"`
+	ReasoningBudget      int                   `json:"reasoning_budget,omitempty"`
+	ThinkingBudgetTokens int                  `json:"thinking_budget_tokens,omitempty"`
+	ReasoningEffort      string                `json:"reasoning_effort,omitempty"`       // openai / gemini / vertex / mulerouter
+	Reasoning            *ReasoningObject      `json:"reasoning,omitempty"`              // openrouter
+	ChatTemplateKwargs   *ChatTemplateKwargs   `json:"chat_template_kwargs,omitempty"`   // nvidia
+	Tools                []Tool                `json:"tools,omitempty"`
+	ToolChoice           ToolChoice            `json:"tool_choice,omitempty"`
+	Stream               bool                  `json:"stream,omitempty"`
+	ResponseFormat       *ResponseFormat       `json:"response_format,omitempty"`
+	Grammar              *string               `json:"grammar,omitempty"`               // llama.cpp / TGI: GBNF grammar string
+	GuidedJSON           *string               `json:"guided_json,omitempty"`           // vLLM: JSON schema for guided decoding
+	GuidedGrammar        *string               `json:"guided_grammar,omitempty"`        // vLLM: GBNF grammar alternative
 }
 
-// SetReasoningBudget sets both reasoning_budget (OpenAI-compatible) and
-// thinking_budget_tokens (llama.cpp-compatible) to the same value, so the
-// budget is enforced regardless of which backend is serving the request.
-func (r *ChatRequest) SetReasoningBudget(budget int) {
-	r.ReasoningBudget = budget
-	r.ThinkingBudgetTokens = budget
+// ReasoningObject is the openrouter reasoning-enable payload.
+type ReasoningObject struct {
+	Effort   string `json:"effort,omitempty"`
+	Enabled  bool   `json:"enabled,omitempty"`
+	MaxTokens int   `json:"max_tokens,omitempty"`
+}
+
+// ChatTemplateKwargs carries provider-specific chat-template overrides.
+// NVIDIA NIM / Poolside use it to enable thinking via
+// chat_template_kwargs.enable_thinking.
+type ChatTemplateKwargs struct {
+	EnableThinking bool `json:"enable_thinking,omitempty"`
+}
+
+// HasSeparateReasoning reports whether the message carries reasoning in a
+// dedicated field (not inline). OpenAI o-series/GPT-5 reasoning is opaque and
+// never populates these — callers use this to decide between showing real
+// reasoning vs. a neutral "working" status.
+func (m Message) HasSeparateReasoning() bool {
+	return m.ReasoningContent != "" || m.Reasoning != "" || len(m.ReasoningDetails) > 0
+}
+
+// extractReasoning returns the reasoning text for m following a fixed
+// precedence: ReasoningContent → Reasoning → joined ReasoningDetails → inline
+// <think>/<thinking>/<reasoning>/<REASONING_SCRATCHPAD> tags (only when present
+// in Content). Returns "" when none. It never mutates m.Content.
+func (m Message) ExtractReasoning() string {
+	if m.ReasoningContent != "" {
+		return m.ReasoningContent
+	}
+	if m.Reasoning != "" {
+		return m.Reasoning
+	}
+	if len(m.ReasoningDetails) > 0 {
+		var b strings.Builder
+		for _, d := range m.ReasoningDetails {
+			if d.Text != "" {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(d.Text)
+			}
+		}
+		if b.Len() > 0 {
+			return b.String()
+		}
+	}
+	if strings.Contains(m.Content, "<think") ||
+		strings.Contains(m.Content, "<thinking") ||
+		strings.Contains(m.Content, "<reasoning") ||
+		strings.Contains(m.Content, "<REASONING_SCRATCHPAD") {
+		return extractInlineReasoning(m.Content)
+	}
+	return ""
+}
+
+// extractInlineReasoning pulls the first inline reasoning block out of content.
+// Supported tags: <think>, <thinking>, <reasoning>, <REASONING_SCRATCHPAD>.
+func extractInlineReasoning(content string) string {
+	pairs := []struct{ open, close string }{
+		{"<think>", "</think>"},
+		{"<thinking>", "</thinking>"},
+		{"<reasoning>", "</reasoning>"},
+		{"<REASONING_SCRATCHPAD>", "</REASONING_SCRATCHPAD>"},
+	}
+	best := -1
+	bestPair := -1
+	for i, p := range pairs {
+		idx := strings.Index(content, p.open)
+		if idx < 0 {
+			continue
+		}
+		if best == -1 || idx < best {
+			best = idx
+			bestPair = i
+		}
+	}
+	if bestPair < 0 {
+		return ""
+	}
+	p := pairs[bestPair]
+	tagEnd := best + len(p.open)
+	closeIdx := strings.Index(content[tagEnd:], p.close)
+	if closeIdx < 0 {
+		// Unterminated — return remainder.
+		return strings.TrimSpace(content[tagEnd:])
+	}
+	return strings.TrimSpace(content[tagEnd : tagEnd+closeIdx])
 }
 
 type ToolCall struct {

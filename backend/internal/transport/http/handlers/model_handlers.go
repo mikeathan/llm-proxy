@@ -146,6 +146,13 @@ type modelFormRequest struct {
 	Pricing              *models.ModelPricing  `json:"pricing"`
 	Limits               *models.ModelLimits   `json:"limits"`
 	Meta                 *models.ModelMeta     `json:"meta"`
+
+	ToolTimeoutSeconds           int    `json:"tool_timeout_seconds"`
+	FilesystemToolTimeoutSeconds int    `json:"filesystem_tool_timeout_seconds"`
+	MaxPlanDurationMinutes       int    `json:"max_plan_duration_minutes"`
+	MaxPlanSteps                 int    `json:"max_plan_steps"`
+	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds"`
+	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior"`
 }
 
 // enrichMetadataFromProviders populates model metadata from the provider's
@@ -246,6 +253,9 @@ func hasModelOverrides(cfg models.ModelConfig) bool {
 	return cfg.MaxSteps > 0 || cfg.ReasoningBudget > 0 || cfg.SlotTimeout > 0 ||
 		cfg.ToolCallFormat != "" || (cfg.Prefill != nil && *cfg.Prefill) || cfg.TimeoutMinutes > 0 ||
 		cfg.Temperature > 0 ||
+		cfg.ToolTimeoutSeconds > 0 || cfg.FilesystemToolTimeoutSeconds > 0 ||
+		cfg.MaxPlanDurationMinutes > 0 || cfg.MaxPlanSteps > 0 ||
+		cfg.GuardrailTimeoutSeconds > 0 || cfg.GuardrailTimeoutBehavior != "" ||
 		(cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0)
 }
 
@@ -260,14 +270,20 @@ func writeModelOverrides(name string, cfg models.ModelConfig, updateFn func(func
 				weight = cfg.ProviderConfig.InternalCreditWeight
 			}
 			s.ModelOverrides[name] = models.ModelOverride{
-				MaxSteps:        cfg.MaxSteps,
-				ReasoningBudget: cfg.ReasoningBudget,
-				SlotTimeout:     cfg.SlotTimeout,
-				Temperature:     cfg.Temperature,
-				ICUWeight:       weight,
-				ToolCallFormat:  cfg.ToolCallFormat,
-				Prefill:         cfg.Prefill,
-				TimeoutMinutes:  cfg.TimeoutMinutes,
+				MaxSteps:                     cfg.MaxSteps,
+				ReasoningBudget:              cfg.ReasoningBudget,
+				SlotTimeout:                  cfg.SlotTimeout,
+				Temperature:                  cfg.Temperature,
+				ICUWeight:                    weight,
+				ToolCallFormat:               cfg.ToolCallFormat,
+				Prefill:                      cfg.Prefill,
+				TimeoutMinutes:               cfg.TimeoutMinutes,
+				ToolTimeoutSeconds:           cfg.ToolTimeoutSeconds,
+				FilesystemToolTimeoutSeconds: cfg.FilesystemToolTimeoutSeconds,
+				MaxPlanDurationMinutes:       cfg.MaxPlanDurationMinutes,
+				MaxPlanSteps:                 cfg.MaxPlanSteps,
+				GuardrailTimeoutSeconds:      cfg.GuardrailTimeoutSeconds,
+				GuardrailTimeoutBehavior:     cfg.GuardrailTimeoutBehavior,
 			}
 		})
 	}
@@ -297,6 +313,13 @@ func modelConfigFromRequest(req modelFormRequest, filename, path string, args []
 		SlotTimeout:     req.SlotTimeout,
 		TimeoutMinutes:  req.TimeoutMinutes,
 		ToolCallFormat:  req.ToolCallFormat,
+
+		ToolTimeoutSeconds:           req.ToolTimeoutSeconds,
+		FilesystemToolTimeoutSeconds: req.FilesystemToolTimeoutSeconds,
+		MaxPlanDurationMinutes:       req.MaxPlanDurationMinutes,
+		MaxPlanSteps:                 req.MaxPlanSteps,
+		GuardrailTimeoutSeconds:      req.GuardrailTimeoutSeconds,
+		GuardrailTimeoutBehavior:     req.GuardrailTimeoutBehavior,
 	}
 }
 

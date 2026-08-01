@@ -224,6 +224,12 @@ func TestPersistentShell_ProcessGroupIsolation(t *testing.T) {
 	if pgid != ps.cmd.Process.Pid {
 		t.Errorf("expected process group ID %d to equal PID %d (separate group)", pgid, ps.cmd.Process.Pid)
 	}
+
+	// Verify PGID method returns the negated PID (for syscall.Kill)
+	pgidFromPGID := ps.PGID()
+	if pgidFromPGID != -ps.cmd.Process.Pid {
+		t.Errorf("PGID() returned %d, expected %d (-pid for process group)", pgidFromPGID, -ps.cmd.Process.Pid)
+	}
 }
 
 func TestHostShellManager_ExecuteContextCancel(t *testing.T) {

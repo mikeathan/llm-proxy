@@ -269,6 +269,12 @@ const ToolErrorNagPrompt = "SYSTEM: The tool call above failed. Read the error o
 	"Respond with ONLY a tool call. Nothing else.\n\n" +
 	automationNagFormatExample
 
+// AutomationFinalizePrompt is injected as a user message during the deterministic
+// finalization turn (tools disabled) to force the model to deliver its final
+// report as plain text. It never carries real user/task text, so it is registered
+// as a synthetic control message (see isAgentControlMessage).
+const AutomationFinalizePrompt = "SYSTEM: You have completed all tool work for this task. Produce your FINAL REPORT now as a plain-text assistant message. Do NOT call any tools. Summarize the actual results of the work you performed."
+
 // AutomationNagPrompt is sent when a model outputs text without any tool calls
 // and natural completion did not apply (e.g. no preceding tool result).
 // Dual-path: unfinished work needs a tool; finished work needs final text.
