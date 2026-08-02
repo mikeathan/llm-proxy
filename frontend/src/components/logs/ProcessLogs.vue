@@ -4,7 +4,6 @@
       <h2 class="logs-title">
         Model Process Logs
         <span v-if="logs?.running" class="status-indicator">
-          <span class="status-ping"></span>
           <span class="status-dot"></span>
         </span>
       </h2>
@@ -38,9 +37,6 @@ defineProps<{
 }
 .status-indicator {
   @apply flex h-2 w-2 relative;
-}
-.status-ping {
-  @apply animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75;
 }
 .status-dot {
   @apply relative inline-flex rounded-full h-2 w-2 bg-green-500;

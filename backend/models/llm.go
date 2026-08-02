@@ -40,6 +40,12 @@ type ProviderModelInfo struct {
 	Pricing *ModelPricing `json:"pricing,omitempty"`
 	Limits  *ModelLimits  `json:"limits,omitempty"`
 	Meta    *ModelMeta    `json:"meta,omitempty"`
+
+	// Published capabilities extracted from the provider's live catalog
+	// (§2.10): context window and per-model output cap.  Explicit fields — we
+	// do not overload the llama-specific ModelMeta names.
+	ContextLength  int `json:"context_length,omitempty"`
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 type Provider interface {

@@ -215,16 +215,21 @@ export function useAssistant() {
       })
     }
 
-    abortController.value = new AbortController()
-
+    let aborted = false
     try {
+      // The POST no longer returns the finished answer — the backend starts a
+      // detached background run and responds 202 {status:"running"} immediately.
+      // The run survives page refreshes / client disconnects; it is observed
+      // live over the SSE event bus. We do NOT pass an AbortSignal: aborting
+      // the fetch must not cancel the run (the cancel button does that via
+      // /assistant/cancel). We also must NOT disconnect SSE or finalize here —
+      // the SSE lifecycle{completed} event drives finalization, and keeping SSE
+      // connected lets a refresh reconnect and resume streaming.
       const response = await AssistantService.sendMessage({
         workspace_id: workspaceId,
         conversation_id: currentSessionId.value || undefined,
         message: text,
-      }, abortController.value.signal)
-
-      sse.disconnect()
+      })
 
       if (!currentSessionId.value && response.conversation_id) {
         currentSessionId.value = response.conversation_id
@@ -258,21 +263,13 @@ export function useAssistant() {
 
       // The builder finalizes from the SSE lifecycle{completed} event
       // (finalizeOn:'lifecycle', Hermes-aligned) — the same path automation
-      // uses, so the answer can never be lost if the HTTP body is empty.
-      // This explicit call is a redundant, idempotent backup (finalize() is
-      // guarded by `finalized`) in case the lifecycle event was missed.
-      builder.finalize(response.reply)
-
-      // NOTE: do NOT call builder.reset() here — it would clobber the
-      // phase='done' state that finalize() just set and hide the answer.
-      // The next sendMessage() already resets the builder (builder.reset()).
-
-      sse.reset()
-
-      await fetchSessions(workspaceId)
+      // uses, so the answer can never be lost. Do NOT disconnect SSE or reset
+      // the builder here: the run is still live and streaming. Keep loading=true
+      // so the UI reflects the in-flight run.
 
     } catch (err) {
       if ((err as any)?.name === 'AbortError') {
+        aborted = true
         error.value = null
       } else {
         error.value = err instanceof Error ? err.message : 'Failed to send message'
@@ -281,7 +278,11 @@ export function useAssistant() {
       sse.disconnect()
       builder.reset()
     } finally {
-      loading.value = false
+      if (!aborted) {
+        // A navigation abort leaves the run alive; keep loading=true and SSE
+        // connected so streaming continues / a refresh can reconnect.
+        loading.value = false
+      }
       abortController.value = null
     }
   }

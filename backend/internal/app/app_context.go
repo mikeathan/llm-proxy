@@ -21,18 +21,18 @@ import (
 )
 
 type AppContext struct {
-	manager      llm.RuntimeManager
-	orch         *orchestrator.Orchestrator
-	dbProvider   db.Provider      // shared SQLite connection for ledger + memory
-	memoryStore  *memory.Store    // agent memory, nil when disabled
-	dataMgr      *storage.DataManager
-	resolver     *storage.PathResolver
-	rootDir      string
-	gpuConfig    models.GPUConfig
-	metrics      *metrics.MetricsService
-	hostSettings *storage.HostSettingsStore
-	terminal     shell.ShellProvider
-	configMu     sync.RWMutex
+	manager       llm.RuntimeManager
+	orch          *orchestrator.Orchestrator
+	dbProvider    db.Provider   // shared SQLite connection for ledger + memory
+	memoryStore   *memory.Store // agent memory, nil when disabled
+	dataMgr       *storage.DataManager
+	resolver      *storage.PathResolver
+	rootDir       string
+	gpuConfig     models.GPUConfig
+	metrics       *metrics.MetricsService
+	hostSettings  *storage.HostSettingsStore
+	terminal      shell.ShellProvider
+	configMu      sync.RWMutex
 	cliEnableRuns bool
 }
 
@@ -385,10 +385,20 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		if req.GPUSysfsPath != "" {
 			sys.Metrics.GPU.SysfsPath = req.GPUSysfsPath
 		}
+		if req.GPUSampleIntervalSec > 0 {
+			sys.Metrics.GPUSampleIntervalSec = req.GPUSampleIntervalSec
+		}
+		if req.GPUSmoothingAlpha > 0 {
+			sys.Metrics.GPUSmoothingAlpha = req.GPUSmoothingAlpha
+		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save system config: %w", err)
+	}
+
+	if s.metrics != nil && req.GPUSmoothingAlpha > 0 {
+		s.metrics.SetSmoothingAlpha(req.GPUSmoothingAlpha)
 	}
 
 	// 1.5 Update Settings
@@ -506,35 +516,35 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 				if cfg.ProviderConfig != nil {
 					credID = cfg.ProviderConfig.APIKeyName
 				}
-			c.Catalogue[i] = models.ModelRegistryEntry{
-				ID:           cfg.Name,
-				Name:         cfg.Name,
-				ProviderID:   cfg.Provider,
-				ModelID:      cfg.Filename,
-				CredentialID: credID,
-				Port:         cfg.Port,
-				Args:         cfg.Args,
-				Prefill:      cfg.Prefill,
-				Metadata:     cfg.Metadata,
+				c.Catalogue[i] = models.ModelRegistryEntry{
+					ID:           cfg.Name,
+					Name:         cfg.Name,
+					ProviderID:   cfg.Provider,
+					ModelID:      cfg.Filename,
+					CredentialID: credID,
+					Port:         cfg.Port,
+					Args:         cfg.Args,
+					Prefill:      cfg.Prefill,
+					Metadata:     cfg.Metadata,
+				}
+				return nil
 			}
-			return nil
 		}
-	}
-	credID := ""
-	if cfg.ProviderConfig != nil {
-		credID = cfg.ProviderConfig.APIKeyName
-	}
-	c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
-		ID:           cfg.Name,
-		Name:         cfg.Name,
-		ProviderID:   cfg.Provider,
-		ModelID:      cfg.Filename,
-		CredentialID: credID,
-		Port:         cfg.Port,
-		Args:         cfg.Args,
-		Prefill:      cfg.Prefill,
-		Metadata:     cfg.Metadata,
-	})
+		credID := ""
+		if cfg.ProviderConfig != nil {
+			credID = cfg.ProviderConfig.APIKeyName
+		}
+		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
+			ID:           cfg.Name,
+			Name:         cfg.Name,
+			ProviderID:   cfg.Provider,
+			ModelID:      cfg.Filename,
+			CredentialID: credID,
+			Port:         cfg.Port,
+			Args:         cfg.Args,
+			Prefill:      cfg.Prefill,
+			Metadata:     cfg.Metadata,
+		})
 		return nil
 	})
 }

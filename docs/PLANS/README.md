@@ -17,32 +17,59 @@ Organized by subsystem:
 - `automation/` — SPEC-007: dispatcher, triggers
 - `discovery/` — SPEC-003: model catalog, UI panels
 - `assistant-ui/` — SPEC-003: chat UI, bubbles, layout
-- `cross-cutting/` — Multi-SPEC or standalone: connectors, user input, lifecycle, testing
-- `codebase-audit-report.md` — Comprehensive audit: bugs, performance, architecture, docs gaps, testing gaps (July 2026)
+- `cross-cutting/` — Multi-SPEC or standalone: connectors, user input, lifecycle, testing, agent instructions
+
+> The **Codebase Audit Report** (88 findings) was an audit, not a plan — it now lives at
+> [`docs/audits/codebase-audit-report.md`](../audits/codebase-audit-report.md).
 
 ## Active Plans
 
+> Status legend: `active` (in flight) · `approved` (accepted, in progress) · `partial` (some phases done)
+> · `proposed` (design pending) · `complete` (done, kept for reference) · `reverted`/`superseded` (archived).
+
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
-| [`codebase-audit-report.md`](codebase-audit-report.md) | Codebase Audit Report (88 findings + resolved duplication appendix) | active | 2026-07-03 | — |
 | [`unattended-run-safety-hardening.md`](unattended-run-safety-hardening.md) | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | approved | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
-| [`gpu-metrics-background-sampler.md`](gpu-metrics-background-sampler.md) | GPU Metrics Background Sampler | complete | 2026-07-23 | — |
-| [`fix-final-report-realignment.md`](fix-final-report-realignment.md) | Fix automation "Final Report" regression | — | — | SPEC-001 |
+| [`gpu-performance.md`](gpu-performance.md) | GPU Performance (consolidated: completed + next steps) | active | 2026-08-06 | — |
 | [`agent-loop/agent-improvements.md`](agent-loop/agent-improvements.md) | Agent Improvements (7-phase) | partial | — | SPEC-001 |
-| [`agent-loop/ephemeral-turn-context.md`](agent-loop/ephemeral-turn-context.md) | Ephemeral Turn Context | reverted | — | SPEC-001 |
+| [`agent-loop/fix-final-report-realignment.md`](agent-loop/fix-final-report-realignment.md) | Fix automation "Final Report" regression | — | — | SPEC-001 |
 | [`assistant-ui/overhaul-chat-history-layout.md`](assistant-ui/overhaul-chat-history-layout.md) | Assistant UI Overhaul | active | 2026-06-25 | SPEC-003 |
 | [`assistant-ui/automation-renderer-unify-consumption.md`](assistant-ui/automation-renderer-unify-consumption.md) | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
+| [`assistant-ui/automation-edit-form-reactivity.md`](assistant-ui/automation-edit-form-reactivity.md) | Fix Automation Edit Form — reactive populate | proposed | 2026-08-01 | SPEC-003, SPEC-007 |
 | [`assistant-ui/knight-rider-arc-bubble.md`](assistant-ui/knight-rider-arc-bubble.md) | Knight Rider Arc Bubble | active | 2026-06-26 | SPEC-003 |
 | [`assistant-ui/cancel-stale-turn-bleed.md`](assistant-ui/cancel-stale-turn-bleed.md) | Cancel Stale Turn Bleed | active | 2026-06-26 | SPEC-003 |
-| [`cross-cutting/cloud-provider-token-budgets.md`](cross-cutting/cloud-provider-token-budgets.md) | Cloud Provider Token Budgets + Provider Set Reduction | proposed | 2026-08-01 | SPEC-005, SPEC-003 |
+| [`cross-cutting/cloud-provider-token-budgets.md`](cross-cutting/cloud-provider-token-budgets.md) | Cloud Provider Token Budgets + Provider Set Reduction | active | 2026-08-01 | SPEC-005, SPEC-003 |
 | [`cross-cutting/connector-inbound-webhook.md`](cross-cutting/connector-inbound-webhook.md) | Communication Connector Inbound Webhook | complete | 2026-06-28 | SPEC-009 |
 | [`cross-cutting/connector-auto-reply.md`](cross-cutting/connector-auto-reply.md) | Communication Connector Auto-Reply & Automation Trigger | active | 2026-06-28 | SPEC-009 |
 | [`cross-cutting/webhook-fresh-sessions.md`](cross-cutting/webhook-fresh-sessions.md) | Fresh Webhook Sessions + Source Grouping | complete | 2026-07-09 | SPEC-009 |
 | [`cross-cutting/session-source-backend-driven.md`](cross-cutting/session-source-backend-driven.md) | Session `source` derived from backend (single source of truth) | complete | 2026-07-09 | SPEC-009 |
 | [`cross-cutting/reasoning-capture-dynamic.md`](cross-cutting/reasoning-capture-dynamic.md) | Dynamic, provider-agnostic reasoning enable + capture + neutral indicator (typed, SOLID) | complete | 2026-07-28 | SPEC-003, SPEC-005 |
+| [`cross-cutting/per-model-reasoning-overrides-and-settings-layout.md`](cross-cutting/per-model-reasoning-overrides-and-settings-layout.md) | Per-Model Reasoning Overrides and Settings Layout Repair | complete | 2026-08-02 | SPEC-005 |
+| [`cross-cutting/post-implementation-cleanup.md`](cross-cutting/post-implementation-cleanup.md) | Post-Implementation Cleanup: Duplication & Dead Code | active | 2026-08-01 | SPEC-005 |
+| [`cross-cutting/agents-md-layering-guardrails.md`](cross-cutting/agents-md-layering-guardrails.md) | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
 | [`cross-cutting/universal-agent-completion.md`](cross-cutting/universal-agent-completion.md) | Universal Agent Completion Model | complete | 2026-07-21 | SPEC-001, SPEC-002 |
 | [`memory/memory-improvements-implementation-plan.md`](memory/memory-improvements-implementation-plan.md) | Memory Improvements | partial | — | SPEC-004 |
 
 Completed, superseded, and not-implemented plans live in [`ARCHIVE/`](ARCHIVE/) — loaded only when their specific topic is relevant.
+
+## Remaining Work (non-complete plans)
+
+Filtered view of everything not `complete`. Use this as the live "what's left" tracker — **no separate todo folder**, status stays on the plan itself.
+
+| Status | Plan | Open scope |
+|--------|-------|-----------|
+| approved | Unattended Run Safety Hardening | Steps 6+ (post-refactor safety fixes, optimizations) |
+| active | GPU Performance | P0–P4 rendering/metrics; P5 blocked on fix-final-report-realignment |
+| active | Assistant UI Overhaul | Phases 4–5 (refresh resilience, deferred backend SSE bleed) |
+| active | Knight Rider Arc Bubble | extraction to `ArcOrbitLoader` (input/header) |
+| active | Cancel Stale Turn Bleed | deferred backend SSE bleed follow-up |
+| active | Cloud Provider Token Budgets | Phase 7 reasoning enable (merged); remaining budget phases |
+| active | Connector Auto-Reply | Phase 3 interactive gateway paths |
+| active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |
+| partial | Agent Improvements | remaining of 7 phases |
+| partial | Memory Improvements | remaining phases (nudge, meter, dedup, search, tagging) |
+| proposed | Automation Edit Form Reactivity | implement derive-don't-sync refactor |
+| proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
+| — | Fix Final Report Realignment | canonical empty-finalization fix; GPU P5 depends on it |
 
 See [`docs/INDEX.md`](../INDEX.md) for the full catalog with IDs and cross-references.

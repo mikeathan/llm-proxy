@@ -3,8 +3,8 @@ package models
 // ProviderManifest defines the static metadata for a cloud provider.
 // This is read from JSON files to dynamically register providers.
 type ProviderManifest struct {
-	ID             string            `json:"id"`               // unique slug (e.g., openai, mulerouter)
-	Name           string            `json:"name"`             // display name (e.g., OpenAI, MuleRouter)
+	ID             string            `json:"id"`               // unique slug (e.g., openai, nvidia)
+	Name           string            `json:"name"`             // display name (e.g., OpenAI, NVIDIA NIM)
 	DefaultBaseURL string            `json:"default_base_url"` // fallback URL if not configured
 	Archetype      ProviderArchetype `json:"archetype"`        // implementation template
 	Auth           AuthProviderConfig `json:"auth"`            // authentication settings
@@ -17,7 +17,6 @@ type ProviderArchetype string
 const (
 	ArchetypeOpenAICompatible ProviderArchetype = "openai-compatible"
 	ArchetypeGemini           ProviderArchetype = "gemini"
-	ArchetypeVertex           ProviderArchetype = "vertex"
 	ArchetypeCustom           ProviderArchetype = "custom"
 )
 

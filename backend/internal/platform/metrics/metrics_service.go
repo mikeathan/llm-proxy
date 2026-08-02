@@ -10,11 +10,19 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
+const defaultGPUSmoothingAlpha = 0.3
+
+const gpuSeedSamples = 3
+
 func NewMetricsService(cfg *models.Config) *MetricsService {
 	provider, name, initErr := buildGPUProvider(cfg)
 	interval := 0
 	if cfg != nil {
 		interval = cfg.Metrics.GPUSampleIntervalSec
+	}
+	alpha := 0.0
+	if cfg != nil {
+		alpha = cfg.Metrics.GPUSmoothingAlpha
 	}
 	return &MetricsService{
 		gpu:               provider,
@@ -22,7 +30,43 @@ func NewMetricsService(cfg *models.Config) *MetricsService {
 		gpuInitErr:        initErr,
 		nowFn:             time.Now,
 		gpuSampleInterval: time.Duration(interval) * time.Second,
+		gpuSmoothingAlpha: alpha,
 	}
+}
+
+func (s *MetricsService) effectiveSmoothingAlpha() float64 {
+	s.gpuMu.RLock()
+	a := s.gpuSmoothingAlpha
+	s.gpuMu.RUnlock()
+	if a <= 0 || a > 1 {
+		return defaultGPUSmoothingAlpha
+	}
+	return a
+}
+
+func (s *MetricsService) smoothGPU(sample *GPUMetrics) *GPUMetrics {
+	if sample == nil {
+		return nil
+	}
+	alpha := s.effectiveSmoothingAlpha()
+
+	s.gpuMu.Lock()
+	if s.gpuSeedCount < gpuSeedSamples {
+		s.gpuUtilAvg += (sample.UtilizationPct - s.gpuUtilAvg) / float64(s.gpuSeedCount+1)
+		s.gpuMemAvg += (sample.MemoryUtilizationPct - s.gpuMemAvg) / float64(s.gpuSeedCount+1)
+		s.gpuSeedCount++
+	} else {
+		s.gpuUtilAvg += alpha * (sample.UtilizationPct - s.gpuUtilAvg)
+		s.gpuMemAvg += alpha * (sample.MemoryUtilizationPct - s.gpuMemAvg)
+	}
+	util := s.gpuUtilAvg
+	mem := s.gpuMemAvg
+	s.gpuMu.Unlock()
+
+	out := *sample
+	out.UtilizationPct = util
+	out.MemoryUtilizationPct = mem
+	return &out
 }
 
 func (s *MetricsService) SetThroughputSource(src ThroughputSource) {
@@ -108,6 +152,7 @@ func (s *MetricsService) Start() {
 	s.gpuMu.Unlock()
 
 	gpu, err := s.gpu.Sample()
+	gpu = s.smoothGPU(gpu)
 	s.gpuMu.Lock()
 	s.gpuCached = gpu
 	s.gpuCachedErr = err
@@ -121,6 +166,7 @@ func (s *MetricsService) Start() {
 			select {
 			case <-ticker.C:
 				gpu, err := s.gpu.Sample()
+				gpu = s.smoothGPU(gpu)
 				s.gpuMu.Lock()
 				s.gpuCached = gpu
 				s.gpuCachedErr = err
@@ -153,7 +199,11 @@ func (s *MetricsService) readGPU() (*GPUMetrics, error) {
 	if hasCache {
 		return cached, cachedErr
 	}
-	return s.gpu.Sample()
+	sample, err := s.gpu.Sample()
+	if err != nil {
+		return nil, err
+	}
+	return s.smoothGPU(sample), nil
 }
 
 func (s *MetricsService) readHostMetrics() HostMetrics {
@@ -189,6 +239,12 @@ func (s *MetricsService) readHostMetrics() HostMetrics {
 	}
 
 	return m
+}
+
+func (s *MetricsService) SetSmoothingAlpha(a float64) {
+	s.gpuMu.Lock()
+	s.gpuSmoothingAlpha = a
+	s.gpuMu.Unlock()
 }
 
 func (s *MetricsService) GPUProvider() string {

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/core/llm/providers"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -434,54 +436,6 @@ func TestClientChat_ResponseFormatNotSet(t *testing.T) {
 	}
 }
 
-func TestIsLocalModelURL(t *testing.T) {
-	cases := []struct {
-		name      string
-		baseURL   string
-		modelHost string
-		want      bool
-	}{
-		// Exact host match (no scheme/port on either side).
-		{"bare host exact", "http://127.0.0.1", "127.0.0.1", true},
-		{"bare host mismatch", "http://127.0.0.1", "10.0.0.5", false},
-		{"localhost exact", "http://localhost", "localhost", true},
-
-		// Host with port in the URL, host-only modelHost.
-		{"url has port host only", "http://127.0.0.1:8080/v1/chat/completions", "127.0.0.1", true},
-		{"url has port host only https", "https://127.0.0.1:9000", "127.0.0.1", true},
-		{"url different port", "http://127.0.0.1:9999", "127.0.0.1", true},
-
-		// Host:port in modelHost matches URL host:port.
-		{"hostport exact", "http://127.0.0.1:8080", "127.0.0.1:8080", true},
-		{"hostport mismatch port", "http://127.0.0.1:8080", "127.0.0.1:8081", false},
-
-		// Path suffix on the URL still resolves to the local host.
-		{"path suffix", "http://127.0.0.1:8080/v1/chat/completions", "127.0.0.1", true},
-		{"path suffix explicit", "http://localhost:1234/chat/completions", "localhost:1234", true},
-
-		// Cloud / external URLs must NOT be treated as local.
-		{"openai cloud", "https://api.openai.com/v1/chat/completions", "127.0.0.1", false},
-		{"nvidia cloud", "https://integrate.api.nvidia.com/v1/chat/completions", "127.0.0.1", false},
-		{"openrouter cloud", "https://openrouter.ai/api/v1/chat/completions", "127.0.0.1", false},
-		{"lan but not modelhost", "http://192.168.1.50:8080", "127.0.0.1", false},
-
-		// Empty modelHost => never local (cannot decide).
-		{"empty modelhost", "http://127.0.0.1:8080", "", false},
-
-		// Trailing slash normalization.
-		{"trailing slash host", "http://127.0.0.1/", "127.0.0.1", true},
-		{"trailing slash modelhost", "http://127.0.0.1:8080", "127.0.0.1/", true},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := IsLocalModelURL(c.baseURL, c.modelHost); got != c.want {
-				t.Errorf("IsLocalModelURL(%q, %q) = %v, want %v", c.baseURL, c.modelHost, got, c.want)
-			}
-		})
-	}
-}
-
 func TestSetReasoningBudget(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -548,7 +502,59 @@ func TestLLMClient_ReasoningField(t *testing.T) {
 	}
 }
 
-// TestLLMClient_NoGoroutineLeakOnNormalCompletion verifies that Chat and Stream
+// TestLLMClient_OutputCap400_TypedError verifies §2.6/§5: a 400 carrying an
+// output-cap phrasing is converted to the typed OutputCapError (never retried,
+// never a raw string), while an unrelated 400 stays an LLMHTTPError.
+func TestLLMClient_OutputCap400_TypedError(t *testing.T) {
+	calls := 0
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return newTestResponse(http.StatusBadRequest, `{"error":{"message":"max_tokens is greater than the maximum allowed (4096)"}}`), nil
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test", MaxTokens: 8192})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var oe *providers.OutputCapError
+	if !errors.As(err, &oe) {
+		t.Fatalf("expected *OutputCapError, got %T: %v", err, err)
+	}
+	if oe.Requested != 8192 {
+		t.Errorf("expected Requested 8192, got %d", oe.Requested)
+	}
+	if oe.Available != 4096 {
+		t.Errorf("expected Available 4096, got %d", oe.Available)
+	}
+	if !errors.Is(err, providers.ErrOutputCapExceeded) {
+		t.Fatalf("expected errors.Is ErrOutputCapExceeded, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("output-cap 400 must not be retried, got %d calls", calls)
+	}
+
+	// Unrelated 400 stays a plain LLMHTTPError.
+	calls = 0
+	httpClient2 := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return newTestResponse(http.StatusBadRequest, `{"error":"bad request"}`), nil
+		}),
+	}
+	client2 := NewLLMClient("http://example.test", "test-model", httpClient2, nil)
+	_, err2 := client2.Chat(context.Background(), ChatRequest{Model: "test"})
+	var httpErr *LLMHTTPError
+	if !errors.As(err2, &httpErr) {
+		t.Fatalf("expected *LLMHTTPError for unrelated 400, got %T: %v", err2, err2)
+	}
+	if calls != 1 {
+		t.Fatalf("unrelated 400 must not be retried either, got %d calls", calls)
+	}
+}
+
+
 // do not leak the ctx-done force-close goroutine when the response completes
 // normally (the context is never cancelled). Baseline goroutine count is taken
 // before the call and compared after, with a small retry window to let any

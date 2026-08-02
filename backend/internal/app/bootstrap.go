@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"llm-proxy/internal/buildinfo"
 	assistantPkg "llm-proxy/internal/core/assistant"
@@ -82,12 +83,21 @@ func (c *Container) BuildAppServices() *AppServices {
 		runLoggingEnabled:    c.RunLoggingEnabled,
 	}
 
+	// WorkloadClassifier is built once (modelHost + cached local interface IPs)
+	// and shared by the client factory and the reasoning wire — the single
+	// "is this workload local?" authority (Fix 1 unification).
+	modelHost := ""
+	if c.Core.Runtime != nil {
+		modelHost = c.Core.Runtime.ModelHost()
+	}
+	workloadClassifier := models.NewWorkloadClassifier(modelHost, models.LocalInterfaceIPs())
+
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
 		var client proxy.Client
 		// Route by the actual upstream destination, not the config provider
 		// slug: a model whose BaseURL points at the local llama.cpp host must
 		// use thinking_budget_tokens even if its slug is "openai".
-		if proxy.IsLocalModelURL(baseURL, c.Core.Runtime.ModelHost()) {
+		if workloadClassifier.ClassifyEndpoint(baseURL) {
 			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
 		} else {
 			client = proxy.NewLLMClient(baseURL, model, nil, headers)
@@ -339,6 +349,16 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 	secretsStore := dataMgr.Secrets()
 	manager := llm.NewManagerFromRegistry(registry, sys, settings, secretsStore, func() models.RegistryData {
 		return dataMgr.Registry().Get()
+	})
+
+	// Inject the dedicated provider infrastructure HTTP client (pooled
+	// SharedTransport, 45s timeout).  Provider traffic (catalogue listing,
+	// /slots probes, connection tests) is a separate class from agent tools —
+	// it never inherits agent-tool LAN/internet guardrails (C1 / Constitution
+	// I.2 amendment).
+	manager.Registrar().SetHTTPDoer(&http.Client{
+		Transport: proxy.SharedTransport,
+		Timeout:   45 * time.Second,
 	})
 
 	logging.Debug("Creating server context...")

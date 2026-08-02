@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import LogLevelPanel from "./LogLevelPanel.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
+import InfoTooltip from "../common/display/InfoTooltip.vue";
 import {
   argsToString,
   stringToArgs,
@@ -264,6 +265,34 @@ function handleRestart() {
             type="text"
             class="form-input"
             placeholder="/sys/class/drm/card0/device"
+          />
+        </div>
+
+        <div class="form-group mt-4">
+          <label class="form-label">GPU Sample Interval (seconds)
+            <InfoTooltip text="How often the backend polls the GPU for utilization. Higher = less CPU but older readings; lower = fresher but more frequent sampling. Requires a backend restart to take effect." />
+          </label>
+          <div class="form-helper">Background polling period for GPU metrics</div>
+          <input
+            v-model.number="cfg.gpu_sample_interval_seconds"
+            type="number"
+            class="form-input"
+            placeholder="10"
+            min="1" max="300" step="1"
+          />
+        </div>
+
+        <div class="form-group mt-4">
+          <label class="form-label">GPU Smoothing (0–1)
+            <InfoTooltip text="Exponential-moving-average factor for the displayed GPU utilization. Lower = calmer, flatter gauge that dampens spikes more; higher = tracks raw changes (1.0 = off). Applies immediately without a restart." />
+          </label>
+          <div class="form-helper">EMA smoothing factor for the GPU utilization gauge</div>
+          <input
+            v-model.number="cfg.gpu_smoothing_alpha"
+            type="number"
+            class="form-input"
+            placeholder="0.3"
+            min="0.05" max="1" step="0.05"
           />
         </div>
       </div>

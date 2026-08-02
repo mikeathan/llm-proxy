@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import type { SessionBrief } from '../../../types/assistant'
 import { sourceIcon } from '../../../utils/assistant/source'
 import { formatElapsedSince } from '../../../utils/format/time'
@@ -16,12 +16,21 @@ const emit = defineEmits<{
 
 const now = ref(Date.now())
 let tick: ReturnType<typeof setInterval> | null = null
-onMounted(() => {
+
+function startTick() {
+  if (tick) return
   tick = setInterval(() => { now.value = Date.now() }, 1000)
-})
-onUnmounted(() => {
-  if (tick) clearInterval(tick)
-})
+}
+function stopTick() {
+  if (tick) { clearInterval(tick); tick = null }
+}
+
+watch(() => props.sessions.length, (n) => {
+  if (n > 0) startTick()
+  else stopTick()
+}, { immediate: true })
+
+onUnmounted(stopTick)
 
 const sorted = computed(() =>
   [...props.sessions].sort(
@@ -108,7 +117,7 @@ const elapsed = (s: SessionBrief): string => formatElapsedSince(s.updated_at, no
 }
 
 .session-card {
-  @apply p-3 border-l-2 border-l-green-500 rounded-lg bg-gray-800/10 cursor-pointer hover:bg-gray-800/40 transition-all border-gray-800/50 hover:border-gray-600;
+  @apply p-3 border-l-2 border-l-green-500 rounded-lg bg-gray-800/10 cursor-pointer hover:bg-gray-800/40 transition-colors border-gray-800/50 hover:border-gray-600;
 }
 
 .card-row {
@@ -132,7 +141,6 @@ const elapsed = (s: SessionBrief): string => formatElapsedSince(s.updated_at, no
 .pulse-dot {
   @apply w-1.5 h-1.5 rounded-full animate-pulse shrink-0;
   background: var(--color-live, #22c55e);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--color-live, #22c55e) 60%, transparent);
 }
 
 .meta-val {

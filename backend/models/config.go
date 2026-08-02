@@ -370,16 +370,28 @@ type ModelConfig struct {
 	ProviderConfig *ProviderConfig   `json:"provider_config,omitempty"`
 	Metadata       *ModelMetadata    `json:"metadata,omitempty"`
 
+	// WorkloadClass is a computed field resolved at the runtime boundary after
+	// provider configuration and secret hydration.  Never persisted — a stored
+	// value goes stale the moment a base URL changes.  Budget, ICU, and the
+	// reasoning wire all key on it (single authority).
+	WorkloadClass WorkloadClass `json:"-" yaml:"-"`
+
+	// Published capabilities resolved from the live provider catalog (when a
+	// provider publishes them).  Computed-only; never persisted.
+	PublishedContextLength int `json:"-" yaml:"-"`
+	PublishedOutputCap     int `json:"-" yaml:"-"`
+
 	// Agent tuning — per-model overrides for agent loop behaviour.
 	// Zero values mean "use the global default."
-	MaxSteps            int          `json:"max_steps,omitempty"`
-	ContextBudget       int          `json:"context_budget,omitempty"`
-	MaxTokens           int          `json:"max_tokens,omitempty"`
-	Temperature         float64      `json:"temperature,omitempty"`          // overrides the 0.1 automation default
-	ToolCallFormat      string       `json:"tool_call_format,omitempty"`     // "xml" or "native"
-	Prefill             *bool        `json:"prefill,omitempty"`
-	TimeoutMinutes      int          `json:"timeout_minutes,omitempty"`      // per-execution timeout, 0 = use global default (30 min)
-	EnableExecutionPlan bool         `json:"enable_execution_plan,omitempty"`
+	MaxSteps            int     `json:"max_steps,omitempty"`
+	ContextBudget       int     `json:"context_budget,omitempty"`
+	MaxTokens           int     `json:"max_tokens,omitempty"`
+	Temperature         float64 `json:"temperature,omitempty"`      // overrides the 0.1 automation default
+	ToolCallFormat      string  `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill             *bool   `json:"prefill,omitempty"`
+	ReasoningEnabled    *bool   `json:"reasoning_enabled,omitempty"` // provider-native reasoning toggle
+	TimeoutMinutes      int     `json:"timeout_minutes,omitempty"`   // per-execution timeout, 0 = use global default (30 min)
+	EnableExecutionPlan bool    `json:"enable_execution_plan,omitempty"`
 
 	// Resource-aware orchestration. Zero values mean "use provider default."
 	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens
@@ -403,6 +415,11 @@ type ModelMetadata struct {
 	Quantization  string `json:"quantization"`
 	Author        string `json:"author,omitempty"`
 	Description   string `json:"description,omitempty"`
+	// MaxOutputTokens is the published per-model output cap from the provider's
+	// live catalog, persisted with the model so the cloud clamp survives a
+	// restart (Phase 2 — "carry MaxOutputTokens into ModelMetadata").  0 means
+	// unknown; the tier row remains the fallback.
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -417,6 +434,7 @@ type ProviderConfig struct {
 type MetricsConfig struct {
 	GPU                  GPUConfig `json:"gpu"`
 	GPUSampleIntervalSec int       `json:"gpu_sample_interval_seconds,omitempty"`
+	GPUSmoothingAlpha    float64   `json:"gpu_smoothing_alpha,omitempty"`
 }
 
 type GPUConfig struct {

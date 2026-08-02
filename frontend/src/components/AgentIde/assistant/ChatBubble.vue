@@ -77,11 +77,22 @@ const phaseLabel = computed(() => {
 // auto-scroll can't follow it — pin the inset's own scroll to the newest line,
 // with the same pause-on-scroll-up behaviour as the outer container.
 const { container: insetEl, scrollIfNearBottom: scrollInsetIfNearBottom, updateWasNearBottom: onInsetScroll, notifyContent: notifyInsetContent } = useAutoScroll(50, 2000)
+// Throttled (~250ms): live reasoning flushes ~10x/sec and each scroll of the
+// inset is a layout+composite pass. Coalescing keeps the inset following the
+// stream with far less compositing work. Gated to the last (live) bubble only —
+// historical bubbles have frozen turns (frozen turns can't grow the inset or
+// be near-bottom), so the per-flush notifyContent/scroll bookkeeping in every
+// historical bubble was the audit's #6 update fan-out.
+let lastInsetScrollAt = 0
 watch(
   () => props.liveReasoning,
   () => {
+    if (!props.isLastTurn) return
     notifyInsetContent()
     nextTick(() => {
+      const now = Date.now()
+      if (now - lastInsetScrollAt < 250) return
+      lastInsetScrollAt = now
       scrollInsetIfNearBottom(insetEl.value, "instant")
     })
   },
@@ -90,10 +101,10 @@ watch(
 
 <template>
   <div
-    :class="['message-wrapper', 'message-wrapper--assistant', { 'is-loading': loading && isLastTurn }]"
+    :class="['message-wrapper', 'message-wrapper--assistant', { 'is-loading': loading && isLastTurn, 'message-wrapper--virtualized': !(loading && isLastTurn) }]"
   >
     <div class="message-bubble message-bubble--assistant">
-      <ArcOrbitLoader v-if="!turn.canceled" :active="loading && isLastTurn" radius="1rem" />
+      <ArcOrbitLoader v-if="!turn.canceled" :active="loading && isLastTurn && paused" radius="1rem" />
 
       <button
         v-if="!turn.canceled || turn.segments.length > 0"
@@ -141,13 +152,17 @@ watch(
           <!-- Live (streaming) reasoning — the in-flight thought is always the
                newest event, so it renders at the tail, after committed
                segments.  v-show (not v-if) so it never unmounts, which avoids
-               the panel expand/collapse flicker during fast commits. -->
+               the panel expand/collapse flicker during fast commits. Rendered
+               as plain text while streaming (no MarkdownViewer) to avoid the
+               O(n^2) marked() re-parse on every flush; the committed reasoning
+               segment re-renders with full markdown via MarkdownViewer at
+               ChatBubble below. -->
           <div
             v-show="liveReasoningVisible"
             class="inset-reasoning inset-reasoning--live"
           >
             <span class="inset-label">Reasoning</span>
-            <MarkdownViewer :content="liveReasoning" />
+            <div class="inset-reasoning-text">{{ liveReasoning }}</div>
           </div>
 
           <div v-if="phase === 'generating'" class="inset-generating">
@@ -184,6 +199,7 @@ watch(
 <style scoped>
 .message-wrapper { @apply flex w-full; }
 .message-wrapper--assistant { @apply justify-start; }
+.message-wrapper--virtualized { content-visibility: auto; contain-intrinsic-size: auto 120px; }
 
 .message-bubble { @apply max-w-full sm:max-w-[85%] rounded-2xl p-3 sm:p-4 flex flex-col gap-2 shadow-sm relative break-words; isolation: isolate; }
 .message-bubble--assistant { @apply bg-gray-800/40 border border-white/5 text-gray-200; min-height: 60px; }
@@ -224,6 +240,7 @@ watch(
 .inset-reasoning { @apply mb-2 pl-2; }
 .inset-reasoning :deep(.bubble-reasoning) { @apply text-[11px] leading-snug text-gray-400 px-0; }
 .inset-reasoning--live { @apply min-h-[1.25rem]; }
+.inset-reasoning-text { @apply text-[11px] leading-snug text-gray-400 whitespace-pre-wrap break-words; }
 .inset-label { @apply text-[10px] uppercase tracking-wider text-indigo-400/60 mb-0.5 block; }
 .inset-label--guardrail { @apply text-red-400/80; }
 
@@ -256,9 +273,10 @@ watch(
 .bubble-result { @apply px-1 py-2 text-sm leading-relaxed; }
 
 .bubble-paused { display: flex; align-items: center; gap: 3px; padding: 2px 6px; font-size: 11px; color: rgb(107, 114, 128); }
-.thinking-gap-dot { width: 5px; height: 5px; border-radius: 50%; background: rgb(107, 114, 128); animation: thinking-pulse 1.2s ease-in-out infinite; }
-.thinking-gap-dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-gap-dot:nth-child(3) { animation-delay: 0.4s; }
+.thinking-gap-dot { width: 5px; height: 5px; border-radius: 50%; background: rgb(107, 114, 128); }
+.bubble-paused:not(.bubble-paused--hidden) .thinking-gap-dot { animation: thinking-pulse 1.2s ease-in-out infinite; }
+.bubble-paused:not(.bubble-paused--hidden) .thinking-gap-dot:nth-child(2) { animation-delay: 0.2s; }
+.bubble-paused:not(.bubble-paused--hidden) .thinking-gap-dot:nth-child(3) { animation-delay: 0.4s; }
 .bubble-paused-label { color: rgb(107, 114, 128); font-size: 11px; }
 .bubble-paused--hidden { visibility: hidden; }
 @keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }

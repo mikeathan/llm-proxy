@@ -146,6 +146,39 @@ func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
 	}
 }
 
+func TestAdminConfigHandler_ReturnsGPUMetrics(t *testing.T) {
+	admin := &mocks.MockAdminService{}
+	admin.GetSystemFunc = func() models.SystemConfig {
+		return models.SystemConfig{
+			Metrics: models.MetricsConfig{
+				GPUSampleIntervalSec: 12,
+				GPUSmoothingAlpha:    0.25,
+			},
+		}
+	}
+	handler := newSystemHandlers(admin)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/config", nil)
+	rr := httptest.NewRecorder()
+
+	handler.AdminConfigHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got, ok := resp["gpu_sample_interval_seconds"]; !ok || got != float64(12) {
+		t.Fatalf("expected gpu_sample_interval_seconds 12, got %v (present=%v)", got, ok)
+	}
+	if got, ok := resp["gpu_smoothing_alpha"]; !ok || got != 0.25 {
+		t.Fatalf("expected gpu_smoothing_alpha 0.25, got %v (present=%v)", got, ok)
+	}
+}
+
 func TestAdminConfigUpdateHandler_SetsServiceEnv(t *testing.T) {
 	t.Setenv("SERVICE_CLIENT_ID", "")
 	t.Setenv("SERVICE_CLIENT_SECRET", "")
@@ -554,8 +587,8 @@ func TestAdminStateHandler_AgentDefaults(t *testing.T) {
 	if gemini.MaxSteps != 35 {
 		t.Errorf("expected gemini max_steps 35, got %d", gemini.MaxSteps)
 	}
-	if gemini.MaxTokens != 4096 {
-		t.Errorf("expected gemini max_tokens 4096, got %d", gemini.MaxTokens)
+	if gemini.MaxTokens != 8192 {
+		t.Errorf("expected gemini max_tokens 8192 (cloud tuning-table prefill matches the policy cap, H3), got %d", gemini.MaxTokens)
 	}
 
 	local, ok := resp.Config.ProviderDefaults["local"]
@@ -564,6 +597,76 @@ func TestAdminStateHandler_AgentDefaults(t *testing.T) {
 	}
 	if local.ContextBudget != 8000 {
 		t.Errorf("expected local context_budget 8000, got %d", local.ContextBudget)
+	}
+}
+
+// TestAdminStateHandler_ReasoningCapability verifies the reasoning capability
+// descriptor is surfaced per provider via provider_defaults, and that local is
+// non-toggleable (no UI toggle, no wire change).
+func TestAdminStateHandler_ReasoningCapability(t *testing.T) {
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{
+		GetGuardrailsFunc: func() models.AgentGuardrailsConfig {
+			return models.AgentGuardrailsConfig{}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/state", nil)
+	rr := httptest.NewRecorder()
+	handler.AdminStateHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Config struct {
+			ProviderDefaults map[string]struct {
+				Reasoning struct {
+					Supported      bool   `json:"supported"`
+					Toggleable     bool   `json:"toggleable"`
+					DefaultEnabled bool   `json:"default_enabled"`
+					Mode           string `json:"mode"`
+				} `json:"reasoning"`
+				SupportsBaseURL bool `json:"supports_base_url"`
+			} `json:"provider_defaults"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	expect := map[string]struct {
+		toggleable     bool
+		defaultEnabled bool
+		mode           string
+		supportsBase   bool
+	}{
+		"openai":     {toggleable: true, defaultEnabled: true, mode: "effort", supportsBase: true},
+		"gemini":     {toggleable: true, defaultEnabled: true, mode: "effort", supportsBase: false},
+		"openrouter": {toggleable: true, defaultEnabled: true, mode: "object", supportsBase: true},
+		"nvidia":     {toggleable: true, defaultEnabled: true, mode: "enable_thinking", supportsBase: true},
+		"local":      {toggleable: false, defaultEnabled: false, mode: "think_tokens", supportsBase: false},
+	}
+	for k, want := range expect {
+		pd, ok := resp.Config.ProviderDefaults[k]
+		if !ok {
+			t.Fatalf("expected provider_defaults.%s", k)
+		}
+		if pd.Reasoning.Toggleable != want.toggleable {
+			t.Errorf("%s: toggleable got %v want %v", k, pd.Reasoning.Toggleable, want.toggleable)
+		}
+		if pd.Reasoning.DefaultEnabled != want.defaultEnabled {
+			t.Errorf("%s: default_enabled got %v want %v", k, pd.Reasoning.DefaultEnabled, want.defaultEnabled)
+		}
+		if pd.Reasoning.Mode != want.mode {
+			t.Errorf("%s: mode got %q want %q", k, pd.Reasoning.Mode, want.mode)
+		}
+		if pd.Reasoning.Supported != (pd.Reasoning.Toggleable || pd.Reasoning.DefaultEnabled) {
+			t.Errorf("%s: supported must equal toggleable||default_enabled", k)
+		}
+		if pd.SupportsBaseURL != want.supportsBase {
+			t.Errorf("%s: supports_base_url got %v want %v", k, pd.SupportsBaseURL, want.supportsBase)
+		}
 	}
 }
 

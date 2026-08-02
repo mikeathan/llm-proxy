@@ -1,5 +1,5 @@
 // Global configuration types
-export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'vertex' | 'mulerouter' | 'nvidia'
+export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
 export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication'
 
 export interface APIKeyItem {
@@ -110,6 +110,16 @@ export interface WebhookUIState {
   statusMsg: string
 }
 
+// ReasoningCapability describes whether (and how) a provider's reasoning toggle
+// can be rendered. Surfaced by the backend per provider via provider_defaults;
+// the UI never hardcodes provider names.
+export interface ReasoningCapability {
+  supported: boolean
+  toggleable: boolean
+  default_enabled: boolean
+  mode: string
+}
+
 export interface AgentDefaults {
   max_steps: number
   context_budget: number
@@ -125,6 +135,10 @@ export interface AgentDefaults {
   max_plan_steps: number
   guardrail_timeout_seconds: number
   guardrail_timeout_behavior: string
+  reasoning?: ReasoningCapability
+  // supports_base_url is surfaced by the backend per provider (provider_defaults);
+  // it replaces the previously hardcoded OpenAI-compatible provider list.
+  supports_base_url?: boolean
 }
 
 export interface GlobalConfig {
@@ -137,6 +151,8 @@ export interface GlobalConfig {
   gpu_binary?: string
   gpu_index?: number
   gpu_sysfs_path?: string
+  gpu_sample_interval_seconds?: number
+  gpu_smoothing_alpha?: number
   primary_model?: string
   fallback_model?: string
   default_args?: string[]

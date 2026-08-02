@@ -5,6 +5,7 @@ import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 
 defineProps<{
   loading: boolean
+  paused: boolean
   inputMessage: string
 }>()
 
@@ -37,7 +38,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 <template>
   <div class="input-area">
     <div class="input-wrap">
-      <ArcOrbitLoader :active="loading" :thickness="1" :glow="2" radius="0.75rem" />
+      <ArcOrbitLoader :active="loading && paused" :thickness="1" radius="0.75rem" />
       <textarea
         ref="inputRef"
         :value="inputMessage"
@@ -72,7 +73,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 <style scoped>
 .input-area { @apply p-3 sm:p-4 border-t border-gray-700 bg-gray-800 flex gap-2 shrink-0; }
 .input-wrap { @apply flex-1 relative; isolation: isolate; }
-.chat-input { @apply w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none placeholder-gray-600 transition-all; position: relative; z-index: 0; }
+.chat-input { @apply w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none placeholder-gray-600 transition-colors; position: relative; z-index: 0; }
 .chat-input:disabled { @apply opacity-50 cursor-not-allowed; }
 .chat-input.is-loading { @apply border-transparent; }
 .btn-send { @apply bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md w-14 shrink-0; }

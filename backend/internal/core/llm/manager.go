@@ -82,6 +82,10 @@ type RuntimeManager interface {
 	Shutdown()
 	Registrar() *providers.ProviderRegistrar
 	ApplyModelOverrides(overrides map[string]models.ModelOverride)
+	// ClassifyModel returns the workload class using the fully-hydrated
+	// effective endpoint (per-credential base_url overrides + provider
+	// defaults applied).
+	ClassifyModel(models.ModelConfig) models.WorkloadClass
 }
 
 type LLMRuntimeManager struct {
@@ -530,8 +534,12 @@ func (m *LLMRuntimeManager) Sync() {
 		cfg.MaxTokens = 0
 		cfg.ContextBudget = 0
 		cfg.ReasoningBudget = 0
+		// Resolve the hydrated workload class on a deep-copied cfg.  The
+		// resolver accesses the registrar/secrets only and never re-enters
+		// manager locks (S3).  The computed field is non-persistent.
+		cfg.WorkloadClass = m.registrar.Classify(cfg)
 		orchestrator.ApplyMetadataDefaults(&cfg)
-		logging.Info("Sync: model metadata applied", "model", name, "max_tokens", cfg.MaxTokens, "context_budget", cfg.ContextBudget, "reasoning_budget", cfg.ReasoningBudget, "provider", cfg.Provider)
+		logging.Info("Sync: model metadata applied", "model", name, "max_tokens", cfg.MaxTokens, "context_budget", cfg.ContextBudget, "reasoning_budget", cfg.ReasoningBudget, "provider", cfg.Provider, "workload", cfg.WorkloadClass)
 		m.models[name] = cfg
 	}
 
@@ -550,13 +558,19 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 			logging.Info("ApplyModelOverrides: model not found", "model", name)
 			continue
 		}
+		// Local workloads never persist budget overrides — their max_tokens /
+		// context_budget are n_ctx-derived (Phase 3).  Stale persisted values
+		// must not be reapplied.  Use the registrar's workload classifier as the
+		// single source of truth (provider label + GGUF artifact + hydrated
+		// endpoint) rather than re-implementing a partial check here.
+		localWorkload := m.registrar.Classify(cfg) == models.WorkloadLocal
 		if override.MaxSteps > 0 {
 			cfg.MaxSteps = override.MaxSteps
 		}
-		if override.ContextBudget > 0 {
+		if !localWorkload && override.ContextBudget > 0 {
 			cfg.ContextBudget = override.ContextBudget
 		}
-		if override.MaxTokens > 0 {
+		if !localWorkload && override.MaxTokens > 0 {
 			cfg.MaxTokens = override.MaxTokens
 			logging.Info("ApplyModelOverrides: MaxTokens override applied", "model", name, "value", override.MaxTokens)
 		}
@@ -585,8 +599,15 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		if override.Prefill != nil {
 			cfg.Prefill = override.Prefill
 		}
+		if override.ReasoningEnabled != nil {
+			cfg.ReasoningEnabled = override.ReasoningEnabled
+		}
 		m.models[name] = cfg
 	}
+}
+
+func (m *LLMRuntimeManager) ClassifyModel(cfg models.ModelConfig) models.WorkloadClass {
+	return m.registrar.Classify(cfg)
 }
 
 func portReady(port int) bool {

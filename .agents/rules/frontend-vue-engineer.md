@@ -116,11 +116,13 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 
 ## Testing
 
--   Unit: Vitest.
--   Component: Vue Test Utils.
--   E2E: Playwright.
--   Test behavior, not implementation.
--   Cover accessibility and error paths.
+- Unit: Vitest. Tests live in `src/__TESTS__/` **mirroring the source tree** — a test for
+  `src/utils/message/textAppend.ts` goes in `src/__TESTS__/utils/message/textAppend.test.ts`.
+  Run with `npm test` (`vitest run`).
+- Component: Vue Test Utils.
+- E2E: Playwright.
+- Test behavior, not implementation.
+- Cover accessibility and error paths.
 
 ## Operational Rules
 

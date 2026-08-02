@@ -85,7 +85,7 @@ const handleCreateFile = (workspace: string) => {
           <Icon name="document" size="sm" />
           <span>Playbooks</span>
         </button>
-        <button @click="emit('open-chat')" :disabled="!selectedWorkspace" class="action-pill" :class="{ 'action-pill--active': chatActive, 'animate-alert-glow': chatRunning }" title="Chat">
+        <button @click="emit('open-chat')" :disabled="!selectedWorkspace" class="action-pill" :class="{ 'action-pill--active': chatActive, 'action-pill--running': chatRunning }" title="Chat">
           <Icon name="lightning" size="sm" />
           <span>Chat</span>
           <NotificationDot v-if="chatRunning" :count="runningAssistantCount" />
@@ -393,6 +393,11 @@ const handleCreateFile = (workspace: string) => {
 
 .action-pill--active {
   @apply text-blue-400 bg-blue-600/10;
+}
+
+.action-pill--running {
+  color: var(--color-live, #22c55e);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-live, #22c55e) 40%, transparent);
 }
 
 /* Transitions */

@@ -5,11 +5,12 @@ import {
   getDefaultModelSettings,
   deriveModelName,
   createEmptyModelForm,
-  computeDefaultsFromContext,
+  isLocalEndpoint,
 } from '../../utils/model/modelUtils'
 import type { ModelForm } from '../../utils/model/modelUtils'
 import type { APIKeyItem, ProviderType } from '../../types/admin'
-import type { AvailableModel, Model, ProviderModelInfo } from '../../types/model'
+import type { AvailableModel, Model, ProviderModelInfo, WorkloadClass } from '../../types/model'
+import { DEFAULT_CONFIG } from '../models/useConfig'
 
 export function useProviderModels(
   props: {
@@ -33,22 +34,7 @@ export function useProviderModels(
   const agentDefaults = computed(() => {
     const pd = state.value?.config?.provider_defaults?.[props.provider]
     if (pd) return pd
-    return state.value?.config?.agent_defaults ?? {
-      max_steps: 25,
-      context_budget: 8000,
-      max_tokens: 3072,
-      temperature: 0.1,
-      reasoning_budget: 0,
-      timeout_minutes: 30,
-      tool_call_format: '',
-      prefill: false,
-      tool_timeout_seconds: 120,
-      filesystem_tool_timeout_seconds: 30,
-      max_plan_duration_minutes: 15,
-      max_plan_steps: 50,
-      guardrail_timeout_seconds: 5,
-      guardrail_timeout_behavior: 'fail-open',
-    }
+    return state.value?.config?.agent_defaults ?? DEFAULT_CONFIG.agent_defaults
   })
 
   const providerModels = ref<ProviderModelInfo[]>([])
@@ -58,6 +44,19 @@ export function useProviderModels(
   const modelForm = ref<ModelForm>(createEmptyModelForm(props.provider, props.models, agentDefaults.value))
   const filterText = ref('')
   const lastDerivedName = ref('')
+
+  // Provisional workload class for an UNSAVED model, derived from the selected
+  // credential's base_url (a loopback endpoint means the model will serve
+  // locally even under a cloud provider slug). The backend remains
+  // authoritative after save; this only prevents the add form from showing
+  // cloud-only controls for a model that will be classified local.
+  const addFormWorkload = computed<WorkloadClass>(() => {
+    if (props.provider === 'local') return 'local'
+    const key = props.apiKeys.find(
+      (k) => k.name === modelForm.value.key || k.id === modelForm.value.key,
+    )
+    return isLocalEndpoint(key?.base_url) ? 'local' : 'cloud'
+  })
 
   const filteredProviderModels = computed(() => {
     if (!filterText.value) return providerModels.value
@@ -110,13 +109,6 @@ export function useProviderModels(
     if (!modelForm.value.name || modelForm.value.name === lastDerivedName.value) {
       modelForm.value.name = derived
       lastDerivedName.value = derived
-    }
-    const selected = providerModels.value.find(m => m.id === id)
-    const ctx = selected?.meta?.n_ctx || selected?.meta?.n_ctx_train || selected?.limits?.context
-    const defaults = computeDefaultsFromContext(ctx)
-    if (defaults) {
-      modelForm.value.context_budget = defaults.context_budget
-      modelForm.value.max_tokens = defaults.max_tokens
     }
   })
 
@@ -175,7 +167,7 @@ export function useProviderModels(
   }
 
   async function saveNewModel() {
-    const { name, key, id, filename, port, args, ...tuning } = modelForm.value
+    const { name, key, id, filename, port, args, reasoning_enabled, ...tuning } = modelForm.value
     const finalName = name || deriveModelName(id, filename)
     if (props.provider === 'local') {
       if (!filename) return
@@ -190,12 +182,17 @@ export function useProviderModels(
     } else {
       if (!id || !modelForm.value.key) return
       const selected = providerModels.value.find(m => m.id === id)
+      // A loopback-credential (provisionally local) add never carries
+      // reasoning_enabled — the field is meaningless for a local workload and
+      // the backend local path ignores it anyway.
+      const reasoning = addFormWorkload.value === 'cloud' ? { reasoning_enabled } : {}
       await addModel({
         name: finalName,
         provider: props.provider,
         model_id: id,
         provider_config: { api_key_name: key },
         ...tuning,
+        ...reasoning,
         ...(selected?.pricing ? { pricing: selected.pricing } : {}),
         ...(selected?.limits ? { limits: selected.limits } : {}),
         ...(selected?.meta ? { meta: selected.meta } : {}),
@@ -262,6 +259,11 @@ export function useProviderModels(
   })
 
   function handleEdit(model: Model) {
+    // Keep the persisted value verbatim (including unset/undefined) so the
+    // nullable reasoning_enabled contract survives an edit-save cycle: a model
+    // with no explicit override stays unset instead of being coerced to the
+    // provider default. The checkbox renders unchecked for unset, checked for
+    // an explicit true, and saving an untouched unset value omits the field.
     editingModel.value = JSON.parse(JSON.stringify(model))
     isAddingNew.value = false
   }
@@ -308,6 +310,7 @@ export function useProviderModels(
     editingModel,
     isAddingNew,
     modelForm,
+    addFormWorkload,
     filterText,
     lastDerivedName,
     agentDefaults,

@@ -98,6 +98,7 @@ func getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeN
 		view := adminModelView{
 			Name:             mc.Name,
 			Provider:         mc.Provider,
+			WorkloadClass:    mc.WorkloadClass,
 			Filename:         filename,
 			ResolvedPath:     fullPath,
 			Args:             mc.Args,
@@ -112,6 +113,7 @@ func getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeN
 			MaxTokens:        maxTokens,
 			Temperature:      temperature,
 			ReasoningBudget:  reasoningBudget,
+			ReasoningEnabled: mc.ReasoningEnabled,
 			SlotTimeout:      slotTimeout,
 			TimeoutMinutes:   timeoutMinutes,
 			ToolCallFormat:   toolCallFormat,

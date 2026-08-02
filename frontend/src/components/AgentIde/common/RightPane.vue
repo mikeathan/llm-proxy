@@ -88,7 +88,7 @@ const emit = defineEmits<{
 }
 
 .pulse-container {
-  @apply sticky top-0 z-20 bg-gray-900/80 backdrop-blur-md pb-4 pt-1;
+  @apply sticky top-0 z-20 bg-gray-900 pb-4 pt-1;
   @apply flex justify-center;
 }
 

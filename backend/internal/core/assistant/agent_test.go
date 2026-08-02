@@ -3983,7 +3983,7 @@ func TestPrepareChatRequest_NvidiaDoesNotSendThinkingBudgetTokens(t *testing.T) 
 }
 
 func TestPrepareChatRequest_CloudProviderDoesNotSendThinkingBudgetTokens(t *testing.T) {
-	for _, pt := range []string{"openai", "openrouter", "mulerouter", "gemini", "vertex"} {
+	for _, pt := range []string{"openai", "openrouter", "gemini"} {
 		t.Run(pt, func(t *testing.T) {
 			client := &MockClient{
 				Response: proxy.ChatResponse{
@@ -4052,7 +4052,7 @@ func TestResolveReasoningSpec_LocalExplicitWins(t *testing.T) {
 // TestResolveReasoningSpec_CloudUnaffected verifies cloud providers keep their
 // tier Mode and are never given a numeric think-token budget.
 func TestResolveReasoningSpec_CloudUnaffected(t *testing.T) {
-	for _, pt := range []string{"openai", "gemini", "vertex", "openrouter", "mulerouter", "nvidia"} {
+	for _, pt := range []string{"openai", "gemini", "openrouter", "nvidia"} {
 		spec := resolveReasoningSpec(pt, 0, 4096)
 		if spec.Mode == ModeThinkTokens {
 			t.Errorf("%s should not resolve to think-tokens mode", pt)

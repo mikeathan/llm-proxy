@@ -47,12 +47,16 @@ watch(sidebarOpen, (open) => {
   if (open) inboundCount.value = 0
 })
 
-watch(liveEvents, (events) => {
-  const last = events[events.length - 1]
+// Watches the liveEvents array length (O(1)) instead of deep-walking the whole
+// unbounded history on every SSE append (O(n) per event, O(n²) over a long
+// stream — the audit's flagged hot path). The callback only reads the last
+// element, so the deep traversal was pure waste.
+watch(() => liveEvents.value.length, () => {
+  const last = liveEvents.value[liveEvents.value.length - 1]
   if (last && (last.payload as any)?.inbound) {
     inboundCount.value++
   }
-}, { deep: true })
+})
 
 function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value;
@@ -62,7 +66,9 @@ function toggleSidebar() {
 const insetCollapsed = ref<Record<number, boolean>>({});
 const expandedSegments = ref<Record<string, boolean>>({});
 
-const turns = computed(() => groupTurns(messages.value));
+const turns = computed(() => {
+  return groupTurns(messages.value)
+})
 const lastMessageIsUser = computed(() => {
   if (messages.value.length === 0) return false;
   return messages.value[messages.value.length - 1]?.role === "user";
@@ -298,6 +304,7 @@ watch(phase, (p) => {
 
       <ChatInput
         :loading="loading"
+        :paused="paused"
         :input-message="inputMessage"
         @send="handleSend"
         @cancel="cancel"
@@ -316,7 +323,7 @@ watch(phase, (p) => {
 
 /* ── Desktop sidebar ── */
 .chat-sidebar {
-  @apply shrink-0 transition-all duration-200 ease-out overflow-hidden;
+  @apply shrink-0 transition-[width] duration-200 ease-out overflow-hidden;
   width: 0;
 }
 

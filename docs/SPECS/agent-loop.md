@@ -168,7 +168,7 @@ Executor → Agent.Execute()
 | `ModelConfig.ToolCallFormat` | (empty) | `"native"` to force native tools |
 | `ModelConfig.MaxTokens` | 3072 | Per-request token limit sent in `max_tokens` to the LLM |
 
-Provider-specific defaults are defined in `assistant/tiers.go` (`ProviderTiers()`) and exposed to the frontend via `adminTuningDefaults` in `GET /admin/api/state`. The UI uses these to prefill model forms with reasonable values per provider (e.g. Gemini/Vertex/OpenAI get 4096 tokens and `native` tools; local models get 2048 tokens and XML text mode).
+Provider-specific defaults are defined in `models/tuning.go` (`ProviderTuningDefaults()`) for the numeric rows and `assistant/reasoning_param.go` (`providerReasoningTable`) for the reasoning wire, composed in `assistant/agent.go`, and exposed to the frontend via `adminTuningDefaults` in `GET /admin/api/state`. The UI uses these to prefill model forms with reasonable values per provider (e.g. Gemini/OpenAI/NVIDIA/OpenRouter get 8192 output-cap tokens and `native` tools; local models get 2048 prefill tokens and XML text mode).
 
 ## IV. Testing Strategy
 - Unit tests: `agent_test.go` covers simple execution, tool calls, loop detection, streaming, premature termination, `precededByToolResult`.

@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	api "llm-proxy/internal/transport/http"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/tools/notifiers"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/network"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
 
@@ -92,6 +92,7 @@ func NewAdminHandlers(
 type adminModelView struct {
 	Name             string                 `json:"name"`
 	Provider         string                 `json:"provider"`
+	WorkloadClass    models.WorkloadClass   `json:"workload_class,omitempty"`
 	Filename         string                 `json:"filename"`
 	ResolvedPath     string                 `json:"resolved_path"`
 	Args             []string               `json:"args"`
@@ -107,6 +108,7 @@ type adminModelView struct {
 	MaxTokens        int                    `json:"max_tokens"`
 	Temperature      float64                `json:"temperature"`
 	ReasoningBudget  int                    `json:"reasoning_budget"`
+	ReasoningEnabled *bool                  `json:"reasoning_enabled,omitempty"`
 	SlotTimeout      int                    `json:"slot_timeout"`
 	TimeoutMinutes   int                    `json:"timeout_minutes"`
 	ToolCallFormat   string                 `json:"tool_call_format"`
@@ -157,27 +159,42 @@ type adminTuningDefaults struct {
 	MaxPlanSteps                 int    `json:"max_plan_steps"`
 	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds"`
 	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior"`
+
+	Reasoning       adminReasoningCapability `json:"reasoning"`
+	SupportsBaseURL bool                     `json:"supports_base_url"`
+}
+
+// adminReasoningCapability exposes the provider's reasoning toggle capability
+// to the frontend so the UI can render the "Enable Thinking" control without
+// hardcoding provider names. Surfaced via provider_defaults.
+type adminReasoningCapability struct {
+	Supported      bool   `json:"supported"`
+	Toggleable     bool   `json:"toggleable"`
+	DefaultEnabled bool   `json:"default_enabled"`
+	Mode           string `json:"mode"`
 }
 
 type adminConfigView struct {
-	WorkspacesDir       string                          `json:"workspaces_dir"`
-	ModelHost           string                          `json:"model_host"`
-	IdleTimeoutSecs     int                             `json:"idle_timeout_seconds"`
-	GPUProvider         string                          `json:"gpu_provider"`
-	GPUBinary           string                          `json:"gpu_binary"`
-	GPUIndex            int                             `json:"gpu_index"`
-	DefaultArgs         []string                        `json:"default_args"`
-	ServiceClientID     string                          `json:"service_client_id,omitempty"`
-	ServiceClientSecret string                          `json:"service_client_secret,omitempty"`
-	PrimaryModel        string                          `json:"primary_model"`
-	FallbackModel       string                          `json:"fallback_model"`
-	Providers           map[string]adminProviderView    `json:"providers"`
-	Guardrails          models.AgentGuardrailsConfig    `json:"guardrails"`
-	Communication       models.CommunicationConfig      `json:"communication"`
-	Search              models.SearchConfig             `json:"search"`
-	AgentDefaults       adminTuningDefaults             `json:"agent_defaults"`
-	ProviderDefaults    map[string]adminTuningDefaults  `json:"provider_defaults"`
-	RunLogging          *models.RunLoggingConfig        `json:"run_logging,omitempty"`
+	WorkspacesDir        string                         `json:"workspaces_dir"`
+	ModelHost            string                         `json:"model_host"`
+	IdleTimeoutSecs      int                            `json:"idle_timeout_seconds"`
+	GPUProvider          string                         `json:"gpu_provider"`
+	GPUBinary            string                         `json:"gpu_binary"`
+	GPUIndex             int                            `json:"gpu_index"`
+	GPUSampleIntervalSec int                            `json:"gpu_sample_interval_seconds,omitempty"`
+	GPUSmoothingAlpha    float64                        `json:"gpu_smoothing_alpha,omitempty"`
+	DefaultArgs          []string                       `json:"default_args"`
+	ServiceClientID      string                         `json:"service_client_id,omitempty"`
+	ServiceClientSecret  string                         `json:"service_client_secret,omitempty"`
+	PrimaryModel         string                         `json:"primary_model"`
+	FallbackModel        string                         `json:"fallback_model"`
+	Providers            map[string]adminProviderView   `json:"providers"`
+	Guardrails           models.AgentGuardrailsConfig   `json:"guardrails"`
+	Communication        models.CommunicationConfig     `json:"communication"`
+	Search               models.SearchConfig            `json:"search"`
+	AgentDefaults        adminTuningDefaults            `json:"agent_defaults"`
+	ProviderDefaults     map[string]adminTuningDefaults `json:"provider_defaults"`
+	RunLogging           *models.RunLoggingConfig       `json:"run_logging,omitempty"`
 }
 
 type adminSystemView struct {
@@ -262,16 +279,16 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	var activeDetails *adminActiveModel
 	if ai := h.runtime.ActiveInfo(); ai != nil {
 		activeName = ai.Name
-	activeDetails = &adminActiveModel{
-				Name:      ai.Name,
-				Provider:  ai.Provider,
-				Endpoint:  network.FormatURL(host, ai.Port),
-				Port:      ai.Port,
-				PID:       ai.PID,
-				Ready:     ai.Ready,
-				StartedAt: ai.Started,
-				LastUsed:  ai.LastUsed,
-			}
+		activeDetails = &adminActiveModel{
+			Name:      ai.Name,
+			Provider:  ai.Provider,
+			Endpoint:  network.FormatURL(host, ai.Port),
+			Port:      ai.Port,
+			PID:       ai.PID,
+			Ready:     ai.Ready,
+			StartedAt: ai.Started,
+			LastUsed:  ai.LastUsed,
+		}
 	}
 
 	activePort := 0
@@ -288,39 +305,32 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 		NextPort:  nextPort,
 		Active:    activeDetails,
 		Config: adminConfigView{
-			WorkspacesDir:       sys.WorkspacesDir,
-			ModelHost:           sys.Server.ModelHost,
-			IdleTimeoutSecs:     sys.Server.IdleTimeoutSecs,
-			GPUProvider:         h.admin.GPUConfig().Provider,
-			GPUBinary:           h.admin.GPUConfig().Binary,
-			GPUIndex:            h.admin.GPUConfig().Index,
-			DefaultArgs:         settings.Local.DefaultArgs,
-			ServiceClientID:     id,
-			ServiceClientSecret: secret,
-			PrimaryModel:        reg.PrimaryModel,
-			FallbackModel:       reg.FallbackModel,
-			Providers:           getProvidersView(h.admin),
-			Guardrails:          h.admin.GetGuardrails(),
-			Communication:       reg.Communication,
-			Search:              reg.Search,
-			AgentDefaults: adminTuningDefaults{
-				MaxSteps:                     assistant.DefaultMaxSteps,
-				ContextBudget:                assistant.DefaultContextBudget,
-				MaxTokens:                    assistant.DefaultMaxTokens,
-				Temperature:                  assistant.DefaultAutomationTemperature,
-				ReasoningBudget:              0,
-				TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
-				ToolCallFormat:               "",
-				Prefill:                      false,
-				ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
-				FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
-				MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
-				MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
-				GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
-				GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
-			},
+			WorkspacesDir:        sys.WorkspacesDir,
+			ModelHost:            sys.Server.ModelHost,
+			IdleTimeoutSecs:      sys.Server.IdleTimeoutSecs,
+			GPUProvider:          h.admin.GPUConfig().Provider,
+			GPUBinary:            h.admin.GPUConfig().Binary,
+			GPUIndex:             h.admin.GPUConfig().Index,
+			GPUSampleIntervalSec: sys.Metrics.GPUSampleIntervalSec,
+			GPUSmoothingAlpha:    sys.Metrics.GPUSmoothingAlpha,
+			DefaultArgs:          settings.Local.DefaultArgs,
+			ServiceClientID:      id,
+			ServiceClientSecret:  secret,
+			PrimaryModel:         reg.PrimaryModel,
+			FallbackModel:        reg.FallbackModel,
+			Providers:            getProvidersView(h.admin),
+			Guardrails:           h.admin.GetGuardrails(),
+			Communication:        reg.Communication,
+			Search:               reg.Search,
+			AgentDefaults: func() adminTuningDefaults {
+				d := baseAdminTuningDefaults()
+				d.MaxSteps = assistant.DefaultMaxSteps
+				d.ContextBudget = assistant.DefaultContextBudget
+				d.MaxTokens = assistant.DefaultMaxTokens
+				return d
+			}(),
 			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
-			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
+			RunLogging:       &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}
 
@@ -370,25 +380,48 @@ func parseLogLevel(input string) (logging.Level, error) {
 	}
 }
 
+// baseAdminTuningDefaults returns the adminTuningDefaults fields shared by every
+// record (agent + per-provider defaults): the assistant default temperature,
+// zero reasoning budget, and the suite of timeout/duration/guardrail fields
+// sourced from assistant package constants.  Per-record fields (MaxSteps,
+// ContextBudget, MaxTokens, ToolCallFormat, Prefill) are set by the caller.
+func baseAdminTuningDefaults() adminTuningDefaults {
+	return adminTuningDefaults{
+		Temperature:                  assistant.DefaultAutomationTemperature,
+		ReasoningBudget:              0,
+		TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
+		ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
+		FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
+		MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
+		MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
+		GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
+		GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
+	}
+}
+
+// convertProviderTiers builds the admin provider_defaults payload from the
+// composed assistant.ProviderTiers table. Numeric fields come from the embedded
+// models.ProviderTuning; the reasoning capability from the assistant capability
+// table (assistant.ReasoningCapabilityFor), so the frontend never hardcodes
+// provider names.
 func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[string]adminTuningDefaults {
 	out := make(map[string]adminTuningDefaults, len(in))
 	for k, v := range in {
-		out[k] = adminTuningDefaults{
-			MaxSteps:                     v.MaxSteps,
-			ContextBudget:                v.ContextBudget,
-			MaxTokens:                    v.MaxTokens,
-			Temperature:                  assistant.DefaultAutomationTemperature,
-			ReasoningBudget:              v.Reasoning.Budget,
-			TimeoutMinutes:               int(assistant.AgentGlobalTimeout.Minutes()),
-			ToolCallFormat:               v.ToolCallFormat,
-			Prefill:                      v.Prefill,
-			ToolTimeoutSeconds:           int(assistant.DefaultToolTimeout.Seconds()),
-			FilesystemToolTimeoutSeconds: int(assistant.DefaultFilesystemToolTimeout.Seconds()),
-			MaxPlanDurationMinutes:       int(assistant.DefaultMaxPlanDuration.Minutes()),
-			MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
-			GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
-			GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
+		d := baseAdminTuningDefaults()
+		d.MaxSteps = v.MaxSteps
+		d.ContextBudget = v.ContextBudget
+		d.MaxTokens = v.MaxTokens
+		d.ToolCallFormat = v.ToolCallFormat
+		d.Prefill = v.Prefill
+		cap := assistant.ReasoningCapabilityFor(k)
+		d.Reasoning = adminReasoningCapability{
+			Supported:      cap.Toggleable || cap.DefaultEnabled,
+			Toggleable:     cap.Toggleable,
+			DefaultEnabled: cap.DefaultEnabled,
+			Mode:           cap.Mode.String(),
 		}
+		d.SupportsBaseURL = models.SupportsBaseURL(k)
+		out[k] = d
 	}
 	return out
 }

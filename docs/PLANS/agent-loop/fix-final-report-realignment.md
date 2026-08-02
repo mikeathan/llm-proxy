@@ -17,6 +17,17 @@ tools-disabled finalization turn**. Works for any LLM, not just Qwen.
 
 ---
 
+### Sequencing constraint (added via consolidation with `gpu-performance.md`)
+
+The GPU plan's P5 note deferred this exact stuck/nudge-loop bug ("empty finalization
+turn") as a measurement confound. **This document is the canonical fix.** It must land
+**before** any GPU P1 re-measure (`gpu-performance.md` §P1), because an unfixed nudge-loop
+inflates/skews during-run GPU measurement windows. The GPU plan owns only pure
+rendering/metrics items (P0–P4); the agent-loop recovery ladder lives here. Do not
+duplicate the investigation in the GPU plan.
+
+---
+
 ## 1. Root cause (verified)
 - Pre-branch HEAD `f89b2cf` cleared `forcedCompletionSent=false` inside
   `resetParseErrorState` on **every** tool turn → nudge re-armed each tool turn →

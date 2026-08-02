@@ -77,7 +77,6 @@ const handleClear = () => {
           <span class="tab-icon">⚙️</span>
           Process Logs
           <span v-if="processLogRunning" class="running-dot">
-            <span class="running-ping"></span>
             <span class="running-inner"></span>
           </span>
         </button>
@@ -147,10 +146,6 @@ const handleClear = () => {
 
 .running-dot {
   @apply relative flex h-2 w-2 ml-1;
-}
-
-.running-ping {
-  @apply animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75;
 }
 
 .running-inner {

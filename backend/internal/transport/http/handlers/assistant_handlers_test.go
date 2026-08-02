@@ -117,16 +117,25 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	// Execute
 	handler.ServeHTTP(w, req)
 
-	// Assert
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d body: %s", w.Code, w.Body.String())
+	// The message endpoint starts a detached background run and returns
+	// immediately with 202 Accepted; the run is observed over SSE.
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	// Wait for the detached run to register, then finish, before asserting.
+	if !waitForRunning(t, handler, "test-ws", 5*time.Second) {
+		t.Fatal("run did not start within 5s")
+	}
+	if !waitForNotRunning(t, handler, "test-ws", 5*time.Second) {
+		t.Fatal("run did not complete within 5s")
 	}
 
 	// Check response body
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if reply, ok := resp["reply"].(string); !ok || !strings.Contains(reply, "The lamp is on.") {
-		t.Errorf("expected reply 'The lamp is on.', got %v", resp)
+	if resp["status"] != "running" {
+		t.Errorf("expected status=running, got %v", resp["status"])
 	}
 
 	// Verify calls
@@ -203,8 +212,16 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", w.Code)
+	}
+
+	// Wait for the run to register, then finish, before asserting on effects.
+	if !waitForRunning(t, handler, "test-jail", 5*time.Second) {
+		t.Fatal("run did not start within 5s")
+	}
+	if !waitForNotRunning(t, handler, "test-jail", 5*time.Second) {
+		t.Fatal("run did not complete within 5s")
 	}
 
 	// Verify the request sent to LLM contains the jail prompt
@@ -271,8 +288,16 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	// Wait for the run to register, then finish, before asserting on effects.
+	if !waitForRunning(t, handler, "test-trunc", 5*time.Second) {
+		t.Fatal("run did not start within 5s")
+	}
+	if !waitForNotRunning(t, handler, "test-trunc", 5*time.Second) {
+		t.Fatal("run did not complete within 5s")
 	}
 
 	// Check the request sent to LLM
@@ -830,8 +855,8 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var started, completed bool
@@ -1031,4 +1056,180 @@ func waitForRunning(t *testing.T, handler *AssistantMessageHandler, workspaceID 
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
+}
+
+// waitForNotRunning polls until the running map entry is gone (the detached run
+// finished or was cancelled).  Used by tests that trigger a run via ServeHTTP
+// and then need to observe its asynchronous completion.
+func waitForNotRunning(t *testing.T, handler *AssistantMessageHandler, workspaceID string, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		if !handler.RunningExists(workspaceID) {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+// TestAssistant_RunWithCancel_SurvivesParentContextCancel verifies the core
+// fix for the "refresh kills the run" regression: cancelling the *parent*
+// context passed to RunWithCancel (which previously was r.Context(), killed by
+// a client disconnect) must NOT cancel the detached run. The run is derived
+// from context.Background() and must keep going until CancelAgent is called.
+//
+// It uses a blocking mock LLM client so the run stays in-flight, letting us
+// assert the run survives an explicit parent-context cancellation (the signal a
+// disconnected client delivers).
+func TestAssistant_RunWithCancel_SurvivesParentContextCancel(t *testing.T) {
+	logger := &noopLogger{}
+	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockLimiter := &mocks.MockRateLimiter{}
+	mockMCP.SetSystemPrompt("System Prompt")
+	mockMCP.SetToolsResult(nil)
+	engine := assistant.NewEngine(mockMCP, logger)
+
+	// Blocking client: Chat blocks until release is closed, keeping the run
+	// in-flight so we can observe parent-context cancellation behaviour.
+	release := make(chan struct{})
+	blockingClient := &blockingLLMClient{release: release}
+	mockClient := &mocks.MockLLMClientProvider{Client: blockingClient}
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
+
+	tmpWorkspaces := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
+	defer os.RemoveAll(tmpWorkspaces)
+
+	handler := NewAssistantMessageHandler(service)
+
+	payload := &AssistantMessage{ConversationID: "survive-test", WorkspaceID: "test-ws", Message: "hello"}
+
+	// Use a cancellable parent ctx to simulate a client disconnect (r.Context()).
+	parentCtx, cancelParent := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handler.RunWithCancel(parentCtx, "test-ws", payload, logger)
+	}()
+
+	if !waitForRunning(t, handler, "test-ws", time.Second) {
+		t.Fatal("RunWithCancel did not register in running map within 1s")
+	}
+
+	// Simulate the browser closing the tab / aborting the fetch: cancel the
+	// parent request context.
+	cancelParent()
+
+	// Give the goroutine a moment to observe the (now inert) parent cancel.
+	time.Sleep(50 * time.Millisecond)
+
+	// The run must still be registered — it must NOT have been killed by the
+	// parent context cancellation.
+	if !handler.RunningExists("test-ws") {
+		t.Fatal("run was killed by parent context cancel; it must survive client disconnect")
+	}
+
+	// Let the run finish, then clean up.
+	close(release)
+	handler.CancelAgent("test-ws", "")
+	<-done
+
+	if handler.RunningExists("test-ws") {
+		t.Error("expected running map entry to be removed after explicit cancel")
+	}
+}
+
+// blockingLLMClient implements proxy.Client but blocks Chat until release is
+// closed, so a run stays in-flight for deterministic cancellation tests.
+type blockingLLMClient struct {
+	release chan struct{}
+}
+
+func (c *blockingLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.release:
+		return &proxy.ChatResponse{
+			Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "ok"}}},
+		}, nil
+	}
+}
+
+func (c *blockingLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	ch := make(chan *proxy.ChatResponse)
+	go func() {
+		defer close(ch)
+		select {
+		case <-ctx.Done():
+		case <-c.release:
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "ok"}}}}
+		}
+	}()
+	return ch, nil
+}
+
+func (c *blockingLLMClient) ReasoningField() string { return proxy.ReasoningFieldBudget }
+
+// TestAssistant_ServeHTTP_Returns202AndKeepsRunning verifies that the message
+// endpoint returns immediately (202 Accepted) and starts a detached run that
+// outlives the HTTP request, instead of blocking until the agent finishes.
+func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
+	logger := &noopLogger{}
+	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
+	mockLimiter := &mocks.MockRateLimiter{}
+	mockMCP.SetSystemPrompt("System Prompt")
+	mockMCP.SetToolsResult(nil)
+	engine := assistant.NewEngine(mockMCP, logger)
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
+
+	tmpWorkspaces := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
+	defer os.RemoveAll(tmpWorkspaces)
+
+	handler := NewAssistantMessageHandler(service)
+	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+	clientMock.Responses = []proxy.ChatResponse{
+		{
+			Choices: []proxy.Choice{{
+				Message: proxy.Message{
+					Role:    proxy.AssistantRole,
+					Content: "async",
+				},
+			}},
+		},
+	}
+
+	body := `{"workspace_id":"test-ws","conversation_id":"svc-test","message":"hi"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/conversation/message", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response body: %v", err)
+	}
+	if resp["status"] != "running" {
+		t.Errorf("expected status=running, got %v", resp["status"])
+	}
+
+	// The run must be registered and still alive immediately after the handler
+	// returns — the response does not wait for the agent to finish.
+	if !waitForRunning(t, handler, "test-ws", time.Second) {
+		t.Fatal("ServeHTTP did not start a detached run that outlives the request")
+	}
+
+	// Clean up the run.
+	handler.CancelAgent("test-ws", "")
 }

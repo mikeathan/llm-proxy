@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<Props>(), {
   className: ''
 });
 
-const baseClasses = "inline-flex items-center justify-center font-bold uppercase tracking-wider transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
+const baseClasses = "inline-flex items-center justify-center font-bold uppercase tracking-wider transition-colors transition-transform duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
 
 const variantClasses = computed(() => {
   switch (props.variant) {

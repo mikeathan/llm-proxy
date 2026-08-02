@@ -130,9 +130,10 @@ const testProvider = async (type: string, payload: { key: string; name: string; 
   }
 };
 
-// OpenAI-compatible providers that support per-key base URLs
-const openAICompatibleProviders = new Set(['openai', 'openrouter', 'mulerouter', 'nvidia']);
-const providerHasBaseUrl = (p: string) => openAICompatibleProviders.has(p);
+// Whether a provider supports a per-key custom base URL is a backend-surfaced
+// capability (provider_defaults[id].supports_base_url), not a hardcoded list.
+const providerHasBaseUrl = (p: string) =>
+  config.value?.provider_defaults?.[p]?.supports_base_url ?? false;
 
 function clearTestStatus(type: string) {
   testStatus.value[type] = { loading: false };
@@ -322,31 +323,6 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
                     v-model="config.providers.gemini.region"
                     type="text"
                     class="form-input"
-                  />
-                </div>
-              </template>
-
-              <template
-                v-if="provider === 'vertex' && config.providers?.vertex"
-              >
-                <div class="form-group">
-                  <label class="form-label">Project ID</label>
-                  <div class="form-helper">GCP Project ID</div>
-                  <input
-                    v-model="config.providers.vertex.project_id"
-                    type="text"
-                    class="form-input"
-                    required
-                  />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Region</label>
-                  <div class="form-helper">GCP Region (e.g. us-central1)</div>
-                  <input
-                    v-model="config.providers.vertex.region"
-                    type="text"
-                    class="form-input"
-                    required
                   />
                 </div>
               </template>

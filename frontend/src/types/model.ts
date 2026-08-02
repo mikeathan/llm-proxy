@@ -18,9 +18,36 @@ export interface ProviderConfig {
   internal_credit_weight?: number
 }
 
+// Workload class as computed by the backend (single authority): local workloads
+// derive max_tokens/context_budget from serving n_ctx; cloud workloads are
+// editable and prefilled from published capabilities.
+export type WorkloadClass = 'local' | 'cloud' | ''
+
+// The agent-tuning + safety-timeout fields edited by ModelTuningFields.vue.
+// All fields optional so both the add-form ModelForm and the edit
+// Partial<Model> satisfy it; omitted fields mean "use provider default".
+export interface TuningFields {
+  max_steps?: number
+  context_budget?: number
+  max_tokens?: number
+  reasoning_budget?: number
+  reasoning_enabled?: boolean
+  temperature?: number
+  timeout_minutes?: number
+  tool_call_format?: string
+  prefill?: boolean
+  tool_timeout_seconds?: number
+  filesystem_tool_timeout_seconds?: number
+  max_plan_duration_minutes?: number
+  max_plan_steps?: number
+  guardrail_timeout_seconds?: number
+  guardrail_timeout_behavior?: string
+}
+
 export interface Model {
   name: string
   provider: import('./admin').ProviderType
+  workload_class?: WorkloadClass
   model_id?: string
   filename?: string
   resolved_path?: string
@@ -32,6 +59,7 @@ export interface Model {
   provider_config?: ProviderConfig
   metadata?: ModelMetadata
   prefill?: boolean
+  reasoning_enabled?: boolean
   max_steps?: number
   context_budget?: number
   max_tokens?: number
@@ -98,6 +126,7 @@ export interface NewModelForm {
   provider_config?: ProviderConfig
   metadata?: ModelMetadata
   prefill?: boolean
+  reasoning_enabled?: boolean
   max_steps?: number
   context_budget?: number
   max_tokens?: number

@@ -6,9 +6,9 @@ import (
 )
 
 type fakeGPUProvider struct {
-	sample   *GPUMetrics
-	err      error
-	calls    int
+	sample *GPUMetrics
+	err    error
+	calls  int
 }
 
 func (f *fakeGPUProvider) Name() string {
@@ -27,6 +27,92 @@ type fakeThroughput struct {
 
 func (f *fakeThroughput) LastTokensPerSecond() (float64, time.Time) {
 	return f.tps, f.ts
+}
+
+func TestMetricsService_SmoothsGPUUtilizationSpikes(t *testing.T) {
+	provider := &scriptedGPUProvider{values: []float64{9, 0, 23, 0}}
+	svc := &MetricsService{
+		gpu:               provider,
+		gpuProviderName:   "scripted",
+		nowFn:             time.Now,
+		gpuSmoothingAlpha: 0.3,
+	}
+
+	first := svc.Snapshot()
+	if first.GPUCorePercent != 9 {
+		t.Fatalf("expected seed value 9, got %v", first.GPUCorePercent)
+	}
+
+	svc.Snapshot()
+	third := svc.Snapshot()
+	if third.GPUCorePercent >= 23 {
+		t.Fatalf("expected core spike dampened below 23, got %v", third.GPUCorePercent)
+	}
+	if third.GPUCorePercent <= 0 {
+		t.Fatalf("expected dampened core value above 0, got %v", third.GPUCorePercent)
+	}
+	if third.GPUMemoryPercent >= 23 {
+		t.Fatalf("expected memory spike dampened below 23, got %v", third.GPUMemoryPercent)
+	}
+}
+
+func TestMetricsService_SetSmoothingAlpha(t *testing.T) {
+	svc := &MetricsService{
+		gpu:               &fakeGPUProvider{sample: &GPUMetrics{Vendor: "fake"}},
+		gpuProviderName:   "fake",
+		nowFn:             time.Now,
+		gpuSmoothingAlpha: 0.3,
+	}
+
+	svc.SetSmoothingAlpha(0)
+	if got := svc.effectiveSmoothingAlpha(); got != defaultGPUSmoothingAlpha {
+		t.Fatalf("expected default alpha after 0, got %v", got)
+	}
+	svc.SetSmoothingAlpha(2)
+	if got := svc.effectiveSmoothingAlpha(); got != defaultGPUSmoothingAlpha {
+		t.Fatalf("expected default alpha after >1, got %v", got)
+	}
+
+	svc.SetSmoothingAlpha(0.9)
+	if got := svc.effectiveSmoothingAlpha(); got != 0.9 {
+		t.Fatalf("expected 0.9 after SetSmoothingAlpha, got %v", got)
+	}
+}
+
+func TestMetricsService_SeedsFromMeanOfFirstSamples(t *testing.T) {
+	provider := &scriptedGPUProvider{values: []float64{30, 0, 0, 0, 0, 0, 0, 0, 0}}
+	svc := &MetricsService{
+		gpu:               provider,
+		gpuProviderName:   "scripted",
+		nowFn:             time.Now,
+		gpuSmoothingAlpha: 0.3,
+	}
+
+	svc.Snapshot()
+	svc.Snapshot()
+	third := svc.Snapshot()
+	if third.GPUCorePercent != 10 {
+		t.Fatalf("expected mean of first 3 samples (30,0,0) = 10, got %v", third.GPUCorePercent)
+	}
+	if third.GPUMemoryPercent != 10 {
+		t.Fatalf("expected memory seed mean 10, got %v", third.GPUMemoryPercent)
+	}
+}
+
+type scriptedGPUProvider struct {
+	values []float64
+	idx    int
+}
+
+func (p *scriptedGPUProvider) Name() string { return "scripted" }
+
+func (p *scriptedGPUProvider) Sample() (*GPUMetrics, error) {
+	v := 0.0
+	if p.idx < len(p.values) {
+		v = p.values[p.idx]
+		p.idx++
+	}
+	return &GPUMetrics{Vendor: "scripted", UtilizationPct: v, MemoryUtilizationPct: v}, nil
 }
 
 func TestMetricsServiceSnapshot_WithGPUAndThroughput(t *testing.T) {

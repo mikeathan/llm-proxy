@@ -10,25 +10,25 @@ import (
 	"llm-proxy/models"
 )
 
-func TestDynamicProviderRegistry(t *testing.T) {
+func TestDynamicProviderRegistry_OpenRouter(t *testing.T) {
 	registry := providers.GetRegistry()
-	
-	// Test that mulerouter is loaded
-	m, ok := registry.Get("mulerouter")
+
+	// Test that openrouter is loaded
+	m, ok := registry.Get("openrouter")
 	if !ok {
-		t.Fatal("expected mulerouter manifest to be loaded")
+		t.Fatal("expected openrouter manifest to be loaded")
 	}
-	if m.Name != "MuleRouter" {
-		t.Errorf("expected MuleRouter name, got %s", m.Name)
+	if m.Name != "OpenRouter" {
+		t.Errorf("expected OpenRouter name, got %s", m.Name)
 	}
 
 	cfg := models.ModelConfig{
-		Provider: "mulerouter",
+		Provider: "openrouter",
 		ProviderConfig: &models.ProviderConfig{
 			APIKey: "test-key",
 		},
 	}
-	
+
 	p := providers.NewOpenAICompatibleProvider(cfg, m)
 
 	// Test GetEndpoint
@@ -36,8 +36,8 @@ func TestDynamicProviderRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if url != "https://api.mulerouter.ai/vendors/openai/v1/chat/completions" {
-		t.Errorf("expected URL https://api.mulerouter.ai/vendors/openai/v1/chat/completions, got %s", url)
+	if url != "https://openrouter.ai/api/v1/chat/completions" {
+		t.Errorf("expected URL https://openrouter.ai/api/v1/chat/completions, got %s", url)
 	}
 	if header.Get("Authorization") != "Bearer test-key" {
 		t.Errorf("expected Authorization header Bearer test-key, got %s", header.Get("Authorization"))
