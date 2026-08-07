@@ -8,6 +8,7 @@ export interface AutomationRun {
   duration_ms: number
   model: string
   recording_ref?: string
+  run_dir_name?: string
   events?: AgentEvent[]
 }
 
@@ -46,8 +47,6 @@ export interface RecordingStatus {
 
 
 export interface AgentState {
-  last_output: string
-  last_error: string
   next_run_at: string
   is_running: boolean
   last_pulse: string

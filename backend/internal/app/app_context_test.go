@@ -16,6 +16,7 @@ import (
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/internal/testing/mocks"
@@ -51,7 +52,7 @@ func (m *mockShellProvider) ListSessions() []models.TerminalSessionView {
 	return m.sessions
 }
 
-func (m *mockShellProvider) Shutdown() {
+func (m *mockShellProvider) Shutdown(ctx context.Context) {
 	m.shutdownCalled = true
 }
 
@@ -62,7 +63,7 @@ func (m *mockShellProvider) PGID(workspaceID string) (int, bool) {
 // Helper to create valid server with optional config overrides
 func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.Config) *app.AppContext {
 	dir := t.TempDir()
-	t.Setenv("LLM_PROXY_CONFIG_DIR", dir)
+	t.Setenv("LLM_PROXY_HOME", dir)
 
 	// 1. Create System Config (config.json)
 	sys := models.SystemConfig{}
@@ -131,7 +132,7 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	secData, _ := json.Marshal(sec)
 	_ = os.WriteFile(filepath.Join(dir, "secrets.json"), secData, 0644)
 
-	dataMgr, err := storage.NewDataManager(dir)
+	dataMgr, err := storage.NewDataManager(seededPaths(t, dir))
 	if err != nil {
 		t.Fatalf("NewDataManager: %v", err)
 	}
@@ -141,6 +142,18 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	}
 
 	return app.NewServer(mgr, dataMgr)
+}
+
+// seededPaths returns a collapse-mode Paths over an isolated temp dir with a
+// seeded master key, so tests never touch the developer's real config and
+// NewDataManager's loud master-key requirement is satisfied.
+func seededPaths(t *testing.T, dir string) paths.Paths {
+	t.Helper()
+	p := paths.Paths{ConfigDir: dir, DataDir: dir}
+	if err := p.SeedDefaults(); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+	return p
 }
 
 func TestEnsureModelProxyHandler_MissingHeader_NoDefault(t *testing.T) {
@@ -492,17 +505,63 @@ func TestAppContextSelectModels_FirstModel(t *testing.T) {
 		},
 	}
 
+	// No primary set: SelectModels must NOT auto-pick Catalogue[0]; both unset
+	// yields empty primary (callers error), fallback stays empty too.
 	initialCfg := &models.Config{
 		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
 	}
 	ctx := createTestServer(t, mgr, initialCfg)
 
 	p, f := ctx.SelectModels()
-	if p != "alpha" {
-		t.Fatalf("expected alpha, got %s", p)
+	if p != "" {
+		t.Fatalf("expected empty primary when unset, got %s", p)
 	}
 	if f != "" {
 		t.Fatalf("expected empty fallback, got %s", f)
+	}
+}
+
+func TestAppContextSelectModels_FallbackWhenPrimaryUnset(t *testing.T) {
+	mgr := &mocks.MockManager{
+		ListModelsFunc: func() []models.ModelConfig {
+			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
+		},
+	}
+
+	initialCfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
+		Server: models.ServerConfig{FallbackModel: "beta"},
+	}
+	ctx := createTestServer(t, mgr, initialCfg)
+
+	p, f := ctx.SelectModels()
+	if p != "beta" {
+		t.Fatalf("expected primary to fall back to fallback model, got %s", p)
+	}
+	if f != "beta" {
+		t.Fatalf("expected fallback beta, got %s", f)
+	}
+}
+
+func TestAppContextSelectModels_PrimaryWins(t *testing.T) {
+	mgr := &mocks.MockManager{
+		ListModelsFunc: func() []models.ModelConfig {
+			return []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}}
+		},
+	}
+
+	initialCfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha"}, {Name: "beta"}},
+		Server: models.ServerConfig{PrimaryModel: "alpha", FallbackModel: "beta"},
+	}
+	ctx := createTestServer(t, mgr, initialCfg)
+
+	p, f := ctx.SelectModels()
+	if p != "alpha" {
+		t.Fatalf("expected primary alpha, got %s", p)
+	}
+	if f != "beta" {
+		t.Fatalf("expected fallback beta, got %s", f)
 	}
 }
 
@@ -549,7 +608,7 @@ func TestAppContextUpdateSystem_Persists(t *testing.T) {
 	_ = os.WriteFile(path, data, 0644)
 
 	// Create manager
-	dataMgr, _ := storage.NewDataManager(dir)
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	dataMgr.LoadAll()
 
 	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
@@ -562,7 +621,7 @@ func TestAppContextUpdateSystem_Persists(t *testing.T) {
 	}
 
 	// Verify persistence via new manager
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	if err := loadedMgr.LoadAll(); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -589,7 +648,7 @@ func TestAppContextPersistModel_UpdatesExisting(t *testing.T) {
 		t.Fatalf("persist model: %v", err)
 	}
 
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	loadedMgr.LoadAll()
 	loaded := loadedMgr.Registry().Get()
 
@@ -621,7 +680,7 @@ func TestAppContextPersistModel_IncludesArgs(t *testing.T) {
 	}
 
 	// Reload and verify
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	loadedMgr.LoadAll()
 	loaded := loadedMgr.Registry().Get()
 
@@ -654,7 +713,7 @@ func TestAppContextPersistReplaceModel(t *testing.T) {
 		t.Fatalf("persist replace new: %v", err)
 	}
 
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	loadedMgr.LoadAll()
 	loaded := loadedMgr.Registry().Get()
 
@@ -679,7 +738,7 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 		t.Fatalf("persist delete: %v", err)
 	}
 
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	loadedMgr.LoadAll()
 	loaded := loadedMgr.Registry().Get()
 
@@ -693,7 +752,7 @@ func TestAppContextPersistDeleteModel(t *testing.T) {
 
 func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	dir := t.TempDir()
-	dataMgr, _ := storage.NewDataManager(dir)
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	_ = dataMgr.LoadAll()
 
 	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
@@ -726,7 +785,7 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 	}
 
 	// Verify persistence
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	_ = loadedMgr.LoadAll()
 	loadedReg := loadedMgr.Registry().Get()
 	loadedCfg, ok := loadedReg.Communication.Connectors["my-telegram"]
@@ -737,7 +796,7 @@ func TestAppContextUpdateSettings_Tools(t *testing.T) {
 
 func TestAppContextConnectorWebhookURL_Persists(t *testing.T) {
 	dir := t.TempDir()
-	dataMgr, _ := storage.NewDataManager(dir)
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	_ = dataMgr.LoadAll()
 
 	ctx := app.NewServer(mocks.NewMockManager(), dataMgr)
@@ -768,7 +827,7 @@ func TestAppContextConnectorWebhookURL_Persists(t *testing.T) {
 	}
 
 	// Verify persisted to disk
-	loadedMgr, _ := storage.NewDataManager(dir)
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
 	_ = loadedMgr.LoadAll()
 	loadedCfg, ok := loadedMgr.Registry().Get().Communication.Connectors["my-telegram"]
 	if !ok || loadedCfg.WebhookURL != "https://example.com/api/v1/webhooks/my-telegram" {
@@ -833,7 +892,7 @@ func TestAppContext_TerminalLifecycle(t *testing.T) {
 	})
 
 	t.Run("Shutdown proxies to provider", func(t *testing.T) {
-		s.Shutdown()
+		s.Shutdown(context.Background())
 		if !mock.shutdownCalled {
 			t.Error("expected Shutdown to be called on provider")
 		}
@@ -866,5 +925,196 @@ func TestApplySystemUpdate_GPUMetricsFields(t *testing.T) {
 	}
 	if sys.Metrics.GPUSmoothingAlpha != 0.15 {
 		t.Fatalf("expected GPUSmoothingAlpha 0.15, got %v", sys.Metrics.GPUSmoothingAlpha)
+	}
+}
+
+func TestFactoryReset_RepointsRuntimeSecrets(t *testing.T) {
+	mgr := mocks.NewMockManager()
+	var gotStore models.SecretsStore
+	syncCalled := false
+	mgr.SetSecretsFunc = func(s models.SecretsStore) { gotStore = s }
+	mgr.SyncFunc = func() { syncCalled = true }
+
+	srv := createTestServer(t, mgr, nil)
+	oldStore := srv.Secrets()
+
+	if _, err := srv.FactoryReset(); err != nil {
+		t.Fatalf("FactoryReset: %v", err)
+	}
+	newStore := srv.Secrets()
+
+	if gotStore == nil {
+		t.Fatal("runtime was never re-pointed at the post-reset secret store")
+	}
+	if gotStore != newStore {
+		t.Error("runtime SetSecrets received a store different from the live post-reset store")
+	}
+	if gotStore == oldStore {
+		t.Error("runtime still points at the pre-reset secret store")
+	}
+	if !syncCalled {
+		t.Error("expected exactly one runtime Sync reconciliation after reset")
+	}
+}
+
+func TestFactoryReset_RejectsActiveRuns(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+	srv.SetActiveWorkChecker(func() bool { return true })
+
+	if _, err := srv.FactoryReset(); err == nil {
+		t.Fatal("expected factory reset to be rejected while a run is active")
+	}
+}
+
+func TestClearRuntimeData_RejectsActiveWork(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+	srv.SetActiveWorkChecker(func() bool { return true })
+
+	if err := srv.ClearRuntimeData(); err == nil {
+		t.Fatal("expected clear-runtime-data to be rejected while work is active")
+	}
+}
+
+func TestClearRuntimeData_AllowsWhenIdle(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+	srv.SetActiveWorkChecker(func() bool { return false })
+
+	if err := srv.ClearRuntimeData(); err != nil {
+		t.Fatalf("clear-runtime-data should succeed when idle: %v", err)
+	}
+}
+
+func TestWipeout_RejectsActiveWork(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+	srv.SetActiveWorkChecker(func() bool { return true })
+
+	if _, err := srv.Wipeout(); err == nil {
+		t.Fatal("expected wipeout to be rejected while work is active")
+	}
+}
+
+// TestDeleteProviderWithCleanup_RemovesProviderEntry verifies that deleting a
+// provider also removes its stale provider registry entry (not just models).
+func TestDeleteProviderWithCleanup_RemovesProviderEntry(t *testing.T) {
+	initialCfg := &models.Config{
+		Providers: map[string]models.ProviderItem{
+			"openrouter": {Type: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1"},
+		},
+		Models: []models.ModelConfig{{Name: "or-model", Provider: "openrouter", Filename: "or/x"}},
+	}
+	srv := createTestServer(t, mocks.NewMockManager(), initialCfg)
+
+	if err := srv.DeleteProviderWithCleanup("openrouter"); err != nil {
+		t.Fatalf("delete provider: %v", err)
+	}
+	reg := srv.GetRegistry()
+	if _, ok := reg.Providers["openrouter"]; ok {
+		t.Fatal("expected stale provider registry entry to be removed")
+	}
+	if len(reg.Catalogue) != 0 {
+		t.Fatalf("expected catalogue models removed, got %+v", reg.Catalogue)
+	}
+}
+
+// TestPersistDeleteModel_ClearsDanglingRefs verifies that deleting a model also
+// clears a PrimaryModel/FallbackModel that referenced it, so selection cannot
+// resolve to a non-existent model.
+func TestPersistDeleteModel_ClearsDanglingRefs(t *testing.T) {
+	cfg := &models.Config{
+		Models: []models.ModelConfig{
+			{Name: "alpha", Provider: "local", Filename: "a"},
+			{Name: "beta", Provider: "local", Filename: "b"},
+		},
+		Server: models.ServerConfig{PrimaryModel: "alpha", FallbackModel: "beta"},
+	}
+	ctx := createTestServer(t, mocks.NewMockManager(), cfg)
+
+	if err := ctx.PersistDeleteModel("alpha"); err != nil {
+		t.Fatalf("persist delete: %v", err)
+	}
+	reg := ctx.GetRegistry()
+	if reg.PrimaryModel != "" {
+		t.Fatalf("expected primary cleared after deleting alpha, got %q", reg.PrimaryModel)
+	}
+	if reg.FallbackModel != "beta" {
+		t.Fatalf("expected fallback beta retained, got %q", reg.FallbackModel)
+	}
+
+	if err := ctx.PersistDeleteModel("beta"); err != nil {
+		t.Fatalf("persist delete: %v", err)
+	}
+	reg = ctx.GetRegistry()
+	if reg.FallbackModel != "" {
+		t.Fatalf("expected fallback cleared after deleting beta, got %q", reg.FallbackModel)
+	}
+}
+
+// TestDeleteProviderWithCleanup_ClearsDanglingRefs verifies bulk provider
+// deletion clears primary/fallback refs for the removed provider's models.
+func TestDeleteProviderWithCleanup_ClearsDanglingRefs(t *testing.T) {
+	cfg := &models.Config{
+		Providers: map[string]models.ProviderItem{
+			"openrouter": {Type: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1"},
+		},
+		Models: []models.ModelConfig{{Name: "or-model", Provider: "openrouter", Filename: "or/x"}},
+		Server: models.ServerConfig{PrimaryModel: "or-model"},
+	}
+	srv := createTestServer(t, mocks.NewMockManager(), cfg)
+
+	if err := srv.DeleteProviderWithCleanup("openrouter"); err != nil {
+		t.Fatalf("delete provider: %v", err)
+	}
+	reg := srv.GetRegistry()
+	if reg.PrimaryModel != "" {
+		t.Fatalf("expected primary cleared after deleting provider model, got %q", reg.PrimaryModel)
+	}
+}
+
+// TestApplySystemUpdate_RejectsUnknownModel verifies the backend refuses to set a
+// primary/fallback that does not exist in the catalogue, surfacing a typed
+// ModelNotFoundError (which the HTTP layer maps to a 400).
+func TestApplySystemUpdate_RejectsUnknownModel(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+
+	err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{
+		PrimaryModel: "ghost",
+	})
+	if err == nil {
+		t.Fatal("expected error setting non-existent primary model")
+	}
+	var notFound *models.ModelNotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("expected *models.ModelNotFoundError through storage chain, got %T: %v", err, err)
+	}
+
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{
+		FallbackModel: "ghost",
+	}); err == nil {
+		t.Fatal("expected error setting non-existent fallback model")
+	}
+
+	reg := srv.GetRegistry()
+	if reg.PrimaryModel != "" || reg.FallbackModel != "" {
+		t.Fatalf("refs must remain unset, got primary=%q fallback=%q", reg.PrimaryModel, reg.FallbackModel)
+	}
+}
+
+// TestApplySystemUpdate_AcceptsExistingModel verifies a valid primary/fallback is
+// persisted.
+func TestApplySystemUpdate_AcceptsExistingModel(t *testing.T) {
+	cfg := &models.Config{
+		Models: []models.ModelConfig{{Name: "alpha", Provider: "local", Filename: "a"}},
+	}
+	srv := createTestServer(t, mocks.NewMockManager(), cfg)
+
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{
+		PrimaryModel:  "alpha",
+		FallbackModel: "alpha",
+	}); err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+	reg := srv.GetRegistry()
+	if reg.PrimaryModel != "alpha" || reg.FallbackModel != "alpha" {
+		t.Fatalf("expected refs set to alpha, got primary=%q fallback=%q", reg.PrimaryModel, reg.FallbackModel)
 	}
 }

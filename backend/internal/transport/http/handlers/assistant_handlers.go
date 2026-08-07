@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -157,20 +158,28 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 }
 
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	client, err := h.getLLMClient(ctx, log)
-	if err != nil {
-		return nil, err
+	client, herr := h.getLLMClient(ctx, log)
+	if herr != nil {
+		// Surface on the SSE bus so the client renders a visible error instead of hanging.
+		h.publishRunError(payload, herr.Message)
+		return nil, herr
 	}
 
-	// Set up recording infrastructure (run directory, event sink, tee logger).
+	// Resolve the conversation ID up front: a brand-new conversation carries an
+	// empty ID, and the recording run directory must be created under a
+	// well-formed {model}/{conversation} path (an empty ID would otherwise
+	// collapse the task segment in NewRunDir, orphaning the directory directly
+	// beneath the model). Passing the resolved ID through to Execute also
+	// ensures the session uses the same ID.
+	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
+
+	// Set up recording infrastructure (run directory, event sink). The workspace
+	// process log is used directly; no per-run duplicate log is written.
 	runID := assistantPkg.GenerateRunID()
-	eventSink, runLogCloser, runLog := h.setupRecording(client, payload.WorkspaceID, payload.ConversationID, modelName(payload, h.svc), runID)
+	eventSink, procLog := h.setupRecording(client, payload.WorkspaceID, conversationID, modelName(payload, h.svc), runID)
 	defer func() {
 		if eventSink != nil {
 			eventSink.Close()
-		}
-		if runLogCloser != nil {
-			runLogCloser()
 		}
 		if rcl, ok := client.(interface{ CloseRun(string) }); ok {
 			rcl.CloseRun(runID)
@@ -182,7 +191,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		recorder = eventSink
 	}
 
-	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, payload.ConversationID, payload.Message, payload.ContextVersion, payload.Timezone, payload.ExcludeTools, runLog, h.provider, client, h.engine, h.svc.Events(), recorder)
+	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, payload.Timezone, payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) {
 			return result, nil
@@ -192,17 +201,20 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	return result, nil
 }
 
-// setupRecording creates the run directory, event sink, and tee logger for
-// recording infrastructure. Returns zero values when recording is disabled.
-func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceID, conversationID, modelName, runID string) (*automation.EventSink, func(), logging.Logger) {
+// setupRecording creates the run directory and event sink for recording
+// infrastructure. The workspace process logger is returned for execution; no
+// per-run duplicate log is created. Returns zero values when recording is
+// disabled.
+func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceID, conversationID, modelName, runID string) (*automation.EventSink, logging.Logger) {
+	procLog := h.svc.ProcessLogger(workspaceID)
 	if !h.svc.RunLoggingEnabled() || modelName == "" {
-		return nil, nil, h.svc.ProcessLogger(workspaceID)
+		return nil, procLog
 	}
 	parent := filepath.Join(h.svc.RootDir(), "runs")
 	rd, rErr := automation.NewRunDir(parent, workspaceID, conversationID, modelName)
 	if rErr != nil {
 		h.logger.Error("failed to create run dir", "error", rErr)
-		return nil, nil, h.svc.ProcessLogger(workspaceID)
+		return nil, procLog
 	}
 	es, esErr := automation.NewEventSink(rd.EventsPath())
 	var eventSink *automation.EventSink
@@ -214,16 +226,7 @@ func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceI
 	} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
 		rcl.SetDir(rd.Root)
 	}
-	procLog := h.svc.ProcessLogger(workspaceID)
-	tl, tlErr := automation.NewTeeLogger(procLog, rd.LogPath())
-	if tlErr == nil {
-		return eventSink, func() {
-			if c, ok := tl.(interface{ Close() error }); ok {
-				c.Close()
-			}
-		}, tl
-	}
-	return eventSink, nil, procLog
+	return eventSink, procLog
 }
 
 // modelName extracts the model name from the assistant request.
@@ -245,12 +248,40 @@ func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.
 			}
 		}
 		log.Error("get LLM client failed", "error", err)
+		// Actionable message when no model is selected, so the user gets a clear next step instead of a silent failure.
+		if primary, _ := h.svc.SelectModels(); primary == "" {
+			return nil, &handlerError{
+				Status:  http.StatusInternalServerError,
+				Message: "No primary model is configured. Add and select a model in Settings → Providers, then retry.",
+			}
+		}
 		return nil, &handlerError{
 			Status:  http.StatusInternalServerError,
 			Message: "failed to get LLM client",
 		}
 	}
 	return client, nil
+}
+
+// publishRunError emits an SSE error event for the conversation. Early client-acquisition failures occur before h.service.Execute (where run events are normally published), so they must be surfaced here to avoid a silent hang.
+//
+// The event is published on the workspace channel alone: ConversationID is empty
+// for a brand-new conversation (the id is only known after the run starts), and
+// the SSE stream is workspace-scoped, so requiring a non-empty ConversationID
+// would silently swallow the very first-send error. We only require WorkspaceID
+// (always present from the request routing).
+func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, message string) {
+	if payload.WorkspaceID == "" {
+		return
+	}
+	h.svc.Events().Publish(payload.WorkspaceID, assistantPkg.AgentEvent{
+		ID:             fmt.Sprintf("run_err_%d", time.Now().UnixNano()),
+		Type:           assistantPkg.EventError,
+		Channel:        assistantPkg.ChannelAssistant,
+		ConversationID: payload.ConversationID,
+		Payload:        map[string]any{"error": message},
+		Timestamp:      time.Now(),
+	})
 }
 
 // Session Management Handlers

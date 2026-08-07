@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import type { AutomationRun } from "../../../types/dispatcher";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
 import Icon from "../../icons/Icon.vue";
+import InlineConfirm from "../../ui/InlineConfirm.vue";
 
 const props = defineProps<{
   run: AutomationRun;
@@ -10,10 +12,26 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "delete-run", run: AutomationRun): void;
+  (e: "delete-automation-runs", automation: { name: string; workspace: string }): void;
 }>();
 
+const confirmDeleteRun = ref(false);
+const confirmClearRuns = ref(false);
 
+function handleDeleteRun() {
+  confirmDeleteRun.value = false;
+  emit("delete-run", props.run);
+}
 
+function handleClearRuns() {
+  if (!props.run.workspace_id) return;
+  confirmClearRuns.value = false;
+  emit("delete-automation-runs", {
+    name: props.run.automation_name,
+    workspace: props.run.workspace_id,
+  });
+}
 </script>
 
 <template>
@@ -29,6 +47,22 @@ const emit = defineEmits<{
         </h2>
         <div class="header-actions">
           <span class="run-id-tag">{{ run.id }}</span>
+          <div class="header-action-divider" aria-hidden="true"></div>
+          <button
+            class="btn-danger-outline group"
+            title="Delete this run and its artifacts"
+            @click="confirmDeleteRun = true"
+          >
+            <Icon name="trash" size="sm" />
+            <span>Delete This Run</span>
+          </button>
+          <button
+            class="btn-danger-text group"
+            title="Delete all runs for this automation"
+            @click="confirmClearRuns = true"
+          >
+            <span>Clear All Runs</span>
+          </button>
           <button
             @click="emit('close')"
             class="btn-close group"
@@ -37,6 +71,21 @@ const emit = defineEmits<{
             <Icon name="close" size="sm" />
           </button>
         </div>
+      </div>
+
+      <div class="confirm-row">
+        <InlineConfirm
+          v-if="confirmDeleteRun"
+          message="Delete this run? This removes the run and its artifacts (events, recordings, logs) and cannot be undone."
+          @confirm="handleDeleteRun"
+          @cancel="confirmDeleteRun = false"
+        />
+        <InlineConfirm
+          v-if="confirmClearRuns"
+          message="Delete ALL runs for this automation? This removes every run directory and cannot be undone."
+          @confirm="handleClearRuns"
+          @cancel="confirmClearRuns = false"
+        />
       </div>
 
       <div class="stats-grid">
@@ -118,11 +167,30 @@ const emit = defineEmits<{
 }
 
 .header-actions {
-  @apply flex items-center gap-4;
+  @apply flex items-center gap-3 flex-wrap justify-end;
+}
+
+.header-action-divider {
+  @apply w-px h-5 bg-gray-700;
 }
 
 .run-id-tag {
   @apply text-[10px] px-2 py-1 bg-gray-700/50 rounded text-gray-400 font-mono border border-white/5;
+}
+
+.btn-danger-outline {
+  @apply flex items-center gap-1.5 text-xs font-semibold text-red-400 border border-red-500/40
+         hover:bg-red-500/10 hover:border-red-400 rounded-md px-2.5 py-1.5 transition-colors
+         active:scale-95 whitespace-nowrap;
+}
+
+.btn-danger-text {
+  @apply text-xs font-semibold text-red-400/80 hover:text-red-400 rounded-md px-2 py-1.5
+         transition-colors active:scale-95 whitespace-nowrap;
+}
+
+.confirm-row {
+  @apply flex flex-col gap-2 mt-2;
 }
 
 .btn-close {

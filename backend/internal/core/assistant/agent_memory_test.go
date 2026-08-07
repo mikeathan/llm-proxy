@@ -250,7 +250,7 @@ func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
 
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
-			// Return submit_final_answer so the agent completes cleanly
+			// Return a tool call so the agent completes cleanly
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{
 					{Message: proxy.Message{
@@ -287,7 +287,7 @@ func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
 
 	history := []proxy.Message{
 		{Role: proxy.SystemRole, Content: "test system prompt"},
-		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the steps in 'test.md'.\n---\nStep 1\n---\n\nCall submit_final_answer when done."},
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " in workspace 'ws-1'.\nExecute the steps in 'test.md'.\n---\nStep 1\n---\n\nWrite your final report when done."},
 	}
 	for i := 0; i < 3; i++ {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: "intermediate response with lots of text to eat up budget and trigger the flush mechanism"})

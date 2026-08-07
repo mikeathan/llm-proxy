@@ -84,7 +84,7 @@ func minimalTestDataManager(t *testing.T) *storage.DataManager {
 	data, _ := json.Marshal(cfg)
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
 
-	mgr, err := storage.NewDataManager(dir)
+	mgr, err := storage.NewDataManager(seededPaths(t, dir))
 	if err != nil {
 		t.Fatalf("NewDataManager: %v", err)
 	}

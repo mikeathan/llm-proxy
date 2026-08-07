@@ -37,7 +37,7 @@ Convert the entire agent architecture into a **pure text-in/text-out interface**
 ### Phase 3: Universal System Prompt & Finality
 - **Action**: Dynamically serialize available tools into the system prompt.
 - **Status**: ✅ DONE — `prompts.BuildToolManual()` injects tools into the system prompt as text.
-- **Divergence**: Exit is now explicit via `submit_final_answer` only. The heuristic soft exit (keyword matching) was removed (Constitution II.7).
+- **Divergence**: Exit is now natural completion (content-only final answer). The heuristic soft exit (keyword matching) was removed (Constitution II.7).
 
 ### Phase 4: Guardrailed Agent Loop & Explicit Error Recovery
 - **Duplicate Detection**: ✅ Track last 3 calls, block duplicates after 3-streak.
@@ -55,7 +55,7 @@ Convert the entire agent architecture into a **pure text-in/text-out interface**
 1. ✅ HTTP client does not strip tools — the agent controls tool inclusion.
 2. ✅ Parser relies strictly on `<tool_call>` XML tags — no markdown, no naked JSON, no jsonrepair.
 3. ✅ Large outputs are truncated before entering the context window.
-4. ✅ Agent exits via `submit_final_answer` (automation) or explicit chat-mode heuristics.
+4. ✅ Agent exits via natural completion (automation) or explicit chat-mode heuristics.
 5. ✅ Per-model configuration (MaxSteps, ContextBudget, ToolCallFormat) flows from ModelConfig to AgentOptions.
 6. ✅ Parse errors generate specific, actionable feedback instead of generic nags.
 7. ✅ Tool role messages are converted to user role with tool_call_id embedded in content when native tools disabled — avoids Jinja template errors.
@@ -67,7 +67,7 @@ Convert the entire agent architecture into a **pure text-in/text-out interface**
 |---|---|---|
 | Markdown ` ```json ` fences | XML `<tool_call>` tags | Models more reliable with XML; markdown fences ambiguous |
 | Pure text-only (no native tools ever) | Native tools allowed for cloud models | Constitution II.5 amended; cloud models handle native tools reliably |
-| Heuristic soft exit (keyword matching) | Explicit `submit_final_answer` only | Keywords caused false positives/negatives across model families |
+| Heuristic soft exit (keyword matching) | Natural completion (content-only final answer) | Keywords caused false positives/negatives across model families |
 | Max 15 turns | Default 25, per-model configurable | Complex tasks need more turns |
 | jsonrepair for malformed JSON | No repair — specific error feedback instead | Repair created phantom tool calls from garbage input |
 | Tool→user role conversion | Tool roles converted to user with call_id in content when native=false | Jinja templates in some llama.cpp backends reject orphan tool roles |

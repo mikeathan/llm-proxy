@@ -2,6 +2,7 @@ package llm_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,9 +15,11 @@ func TestIdleReaper_IgnoresStartingModels(t *testing.T) {
 	restoreExec := utils.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
-	// Initially port is NOT ready (still starting)
-	isReady := false
-	restorePort := utils.SetPortReady(func(port int) bool { return isReady })
+	// Initially port is NOT ready (still starting). The readiness flag is read
+	// by the reaper goroutine via the portReady stub, so it must be atomic to
+	// avoid a data race when the test flips it below.
+	var isReady atomic.Bool
+	restorePort := utils.SetPortReady(func(port int) bool { return isReady.Load() })
 	defer restorePort()
 
 	setupModelFile(t, "reap_test.gguf")
@@ -28,6 +31,9 @@ func TestIdleReaper_IgnoresStartingModels(t *testing.T) {
 		time.Millisecond*50, // idle timeout
 		time.Millisecond*20, // reaper tick
 	)
+	// Stop the reaper goroutine so it does not outlive this test and race with
+	// the next test's PortReady/ExecCommandContext overrides.
+	defer m.Shutdown()
 
 	_, _ = m.EnsureModel(context.Background(), "test")
 
@@ -40,7 +46,7 @@ func TestIdleReaper_IgnoresStartingModels(t *testing.T) {
 	}
 
 	// Now simulate ready
-	isReady = true
+	isReady.Store(true)
 	// Wait for another reaper tick
 	time.Sleep(time.Millisecond * 100)
 
@@ -80,6 +86,9 @@ func TestIdleReaper_RespectsZeroTimeout(t *testing.T) {
 		0,                   // NO idle timeout
 		time.Millisecond*20, // reaper tick
 	)
+	// Stop the reaper goroutine so it does not outlive this test and race with
+	// the next test's PortReady/ExecCommandContext overrides.
+	defer m.Shutdown()
 
 	_, _ = m.EnsureModel(context.Background(), "test")
 

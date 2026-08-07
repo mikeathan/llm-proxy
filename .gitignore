@@ -32,8 +32,6 @@ go.work.sum
 
 # Secrets / local config that may hold API keys (never commit)
 **/secrets.json
-backend/config/secrets.json
-backend/config/config.json
 
 # Editor/IDE
 # .idea/
@@ -51,16 +49,19 @@ backend/workspaces/*
 backend/internal/transport/http/frontend_dist/*
 backend/reports/*
 
-# Workspace data
-backend/data/workspaces/*
+# Runtime artifacts under backend/data (not part of the repo).
 backend/data/registry.json
 backend/data/secrets.json
-.aider*
 backend/data/orchestrator.db*
+backend/data/workspaces/*
+backend/data/runs/*
+.aider*
+
+# Agent workspace files — default is relative to the executable/CWD.
+workspaces/
 
 node_modules/
 .sandbox/
-backend/data/runs/*
 
 
 .codebase-memory/*

@@ -161,8 +161,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	execCtx = models.WithRunID(execCtx, generateRunID())
 	execCtx = assistant.WithUsageTracker(execCtx)
 
-	runDir, eventSink, _, runLog := e.setupRunDir(execCtx, client, req, procLog)
-	procLog = runLog
+	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
 	var capturedEvents []any
 
 	toolProvider := e.svc.ToolProvider()
@@ -189,9 +188,6 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	if eventSink != nil {
 		eventSink.Close()
 	}
-	if tl, ok := procLog.(*teeLogger); ok {
-		tl.Close()
-	}
 	if rcl, ok := client.(interface{ CloseRun(string) }); ok {
 		rcl.CloseRun(models.GetRunID(execCtx))
 	}
@@ -208,15 +204,21 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	return e.handleAgentSuccess(req, resp, procLog, execCtx, runDir, capturedEvents, startTime, finalReply, fullHistory)
 }
 
+func runDirName(runDir *RunDir) string {
+	if runDir == nil {
+		return ""
+	}
+	return filepath.Base(runDir.Root)
+}
+
 // getLLMClient returns the LLM client for a live model or playback recording.
 func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, resp *ExecuteResponse, startTime time.Time) (proxy.Client, error) {
 	if req.RecordingRef != "" {
 		client, err := e.svc.GetPlaybackClient(ctx, req.RecordingRef)
 		if err != nil {
 			errStr := fmt.Sprintf("failed to load recording %s: %v", req.RecordingRef, err)
-			resp.State.LastError = errStr
 			resp.State.SetRunning("")
-			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil, nil)
 			return nil, fmt.Errorf("failed to load recording: %w", err)
 		}
 		procLog := e.svc.ProcessLogger(req.WorkspaceID)
@@ -233,32 +235,31 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 	}
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
-		resp.State.LastError = errStr
 		resp.State.SetRunning("")
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil, nil)
 		return nil, fmt.Errorf("failed to get llm client: %w", err)
 	}
 	return client, nil
 }
 
-func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*RunDir, *EventSink, bool, logging.Logger) {
+func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*RunDir, *EventSink, bool) {
 	if !e.svc.RunLoggingEnabled() {
-		return nil, nil, false, procLog
+		return nil, nil, false
 	}
 	rootDir := e.svc.RootDir()
 	if rootDir == "" || req.Model == "" {
-		return nil, nil, false, procLog
+		return nil, nil, false
 	}
 	parent := filepath.Join(rootDir, "runs")
 	runDir, rErr := NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
 	if rErr != nil {
 		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
-		return nil, nil, false, procLog
+		return nil, nil, false
 	}
 	eventSink, esErr := NewEventSink(runDir.EventsPath())
 	if esErr != nil {
 		procLog.Warn("failed to create event sink, continuing without", "error", esErr)
-		return runDir, nil, false, procLog
+		return runDir, nil, false
 	}
 	hasRecording := false
 	if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
@@ -268,12 +269,7 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 		rcl.SetDir(runDir.Root)
 		hasRecording = true
 	}
-	runLog, tlErr := newTeeLogger(procLog, runDir.LogPath())
-	if tlErr != nil {
-		procLog.Warn("failed to create run log, continuing without", "error", tlErr)
-		return runDir, eventSink, hasRecording, procLog
-	}
-	return runDir, eventSink, hasRecording, runLog
+	return runDir, eventSink, hasRecording
 }
 
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
@@ -342,9 +338,8 @@ func (e *LLMTaskExecutor) handleAgentError(req ExecuteRequest, resp *ExecuteResp
 		meta.RecordingPath = runDir.RecordingRelPath(e.svc.RecordDir())
 		runDir.WriteMeta(meta)
 	}
-	resp.State.LastError = errStr
 	resp.State.SetRunning("")
-	e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents)
+	e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents, runDir)
 	return resp, fmt.Errorf("agent execution failed: %w", agErr)
 }
 
@@ -386,7 +381,6 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 	elapsed := time.Since(startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
 	resp.Output = fullOutput
-	resp.State.LastOutput = fullOutput
 	runResult = fullOutput
 	resp.State.SetRunning("")
 
@@ -420,7 +414,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 		runDir.WriteMeta(meta)
 	}
 
-	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents)
+	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents, runDir)
 	return resp, nil
 }
 
@@ -440,7 +434,7 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm %ds", h, m, s)
 }
 
-func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any) {
+func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any, runDir *RunDir) {
 	if state == nil {
 		return
 	}
@@ -455,6 +449,7 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
 		RecordingRef:   req.RecordingRef,
+		RunDirName:     runDirName(runDir),
 		Events:         nil, // events live in the run dir, not in state.json
 	}
 

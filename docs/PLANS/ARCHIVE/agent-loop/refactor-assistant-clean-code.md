@@ -125,7 +125,7 @@ modelCompatNotified     bool      // passed to handleNoToolCalls →
 ### 1.5 Key Complexity Hotspots
 
 1. **`computeNextResponse` (178 lines, ~12 decision points):** Budget pre-flight, prefill retry, streaming dispatch, stream failure fallback, empty-stream XML retry, non-streaming fallback — all in one function.
-2. **`Execute` (200 lines, ~18 decision points):** Error classification, sieve streak tracking, starvation counting, duplicate detection, tool result assembly, submit_final_answer detection.
+2. **`Execute` (200 lines, ~18 decision points):** Error classification, sieve streak tracking, starvation counting, duplicate detection, tool result assembly, completion detection.
 3. **`processToolCalls` (115 lines):** Batched submission rejection, guardrail validation, async guardrail decision with channel-based blocking, engine execution, error handling, result appending — interleaved with lock management.
 
 ---
@@ -765,8 +765,8 @@ func (s *runSession) trimLargeWriteContent(turnMsg *proxy.Message) {
     // Content trimming for large write_file payloads
 }
 
-func (s *runSession) checkSubmitFinalAnswer(turnMsg proxy.Message) (string, bool) {
-    // submit_final_answer detection and summary extraction
+func (s *runSession) checkTaskCompletion(turnMsg proxy.Message, history []proxy.Message) (string, bool) {
+    // completion detection
 }
 ```
 
@@ -1434,7 +1434,7 @@ Shows where each function ends up after ALL phases complete:
 | `ProviderTiers`, `ProviderTuningDefaults` | 0.2c | `agent.go` |
 | `GuardrailDecisionStore`, `NewGuardrailDecisionCallback` | 0.2b | `agent.go` |
 | `Execute` (thin wrapper) | 2.2 | `agent.go` |
-| `runSession.run()`, `handleContextSizeError`, `handleToolCallParseError`, `resetParseErrorState`, `trimLargeWriteContent`, `checkSubmitFinalAnswer` | 2.2-2.3 | `session.go` |
+| `runSession.run()`, `handleContextSizeError`, `handleToolCallParseError`, `resetParseErrorState`, `trimLargeWriteContent`, `checkTaskCompletion` | 2.2-2.3 | `session.go` |
 | `executeTurn`, `handleContentToolCalls`, `precededByToolResult`, `countConsecutiveChat`, `isPrematureTermination` | 1.5 | `session.go` |
 | `handleNoToolCalls` | 2.4 | `session.go` (on `*runSession`) |
 | `HistorySieve`, `physicalSieve`, `reactiveSieve`, `aggressiveSieve` | 3.1-3.2 | `sieve.go` |

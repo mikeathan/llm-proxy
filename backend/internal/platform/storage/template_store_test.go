@@ -32,14 +32,22 @@ This is a test content.
 		if err != nil {
 			t.Fatalf("List failed: %v", err)
 		}
-		if len(list) != 1 {
-			t.Errorf("expected 1 template, got %d", len(list))
+		// The 8 shipped templates are extracted on first run alongside the
+		// custom one (Phase 7 extract-on-first-run; never overwrite existing).
+		if len(list) != 9 {
+			t.Errorf("expected 9 templates (8 shipped + 1 custom), got %d", len(list))
 		}
-		if list[0].ID != "test-id" {
-			t.Errorf("expected ID test-id, got %s", list[0].ID)
+		found := false
+		for _, tmpl := range list {
+			if tmpl.ID == "test-id" {
+				found = true
+				if tmpl.Name != "Test Playbook" {
+					t.Errorf("expected Name Test Playbook, got %s", tmpl.Name)
+				}
+			}
 		}
-		if list[0].Name != "Test Playbook" {
-			t.Errorf("expected Name Test Playbook, got %s", list[0].Name)
+		if !found {
+			t.Error("custom test template not listed")
 		}
 	})
 

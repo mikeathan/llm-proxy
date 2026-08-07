@@ -153,8 +153,8 @@ function handleRestart() {
       <div class="form-group">
         <label class="form-label">Workspaces Directory</label>
         <div class="form-helper">
-          Path for agent workspaces (automations, state). Defaults to
-          &lt;repo&gt;/workspaces
+          Where agent workspace files are stored. When empty, defaults to
+          ./workspaces relative to the running binary (or the launch directory).
         </div>
         <input
           v-model="cfg.workspaces_dir"

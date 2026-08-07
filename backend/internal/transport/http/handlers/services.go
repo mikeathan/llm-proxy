@@ -14,6 +14,7 @@ import (
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"time"
 )
@@ -93,6 +94,9 @@ type AdminService interface {
 	ResetShell(workspaceID string) error
 	ListShellSessions() []models.TerminalSessionView
 	RunLoggingEnabled() bool
+	FactoryReset() (storage.ResetResult, error)
+	ClearRuntimeData() error
+	Wipeout() (storage.WipeoutResult, error)
 }
 
 // WorkspaceService encapsulates workspace configuration, state, and file operations,
@@ -109,6 +113,8 @@ type WorkspaceService interface {
 	WriteTaskFile(workspaceID, filename, content string) error
 	DeleteTaskFile(workspaceID, filename string) error
 	DeleteWorkspace(workspaceID string) error
+	DeleteAutomationRuns(workspaceID, automation string) error
+	DeleteRunByID(workspaceID, runID string) error
 }
 
 type workspaceService struct {
@@ -186,6 +192,14 @@ func (s *workspaceService) DeleteTaskFile(workspaceID, filename string) error {
 
 func (s *workspaceService) DeleteWorkspace(workspaceID string) error {
 	return s.mgr.DeleteWorkspace(workspaceID)
+}
+
+func (s *workspaceService) DeleteAutomationRuns(workspaceID, automation string) error {
+	return s.mgr.DeleteAutomationRuns(workspaceID, automation)
+}
+
+func (s *workspaceService) DeleteRunByID(workspaceID, runID string) error {
+	return s.mgr.DeleteRunByID(workspaceID, runID)
 }
 
 type AssistantService interface {

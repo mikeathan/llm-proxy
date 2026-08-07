@@ -175,6 +175,70 @@ func TestFileLogger_LevelGetter(t *testing.T) {
 	}
 }
 
+func TestFileLogger_ReopenAfterLogDirRemoved(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "llm-proxy.log")
+
+	logger, err := logging.NewFileLogger(logging.Options{
+		File:  logFile,
+		Level: logging.LevelInfo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logger.Info("before clear")
+
+	// Simulate clear-runtime-data removing the logs/ directory wholesale.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	logger.Info("after clear")
+	_ = logger.Close()
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("recreated log file unreadable: %v", err)
+	}
+	if !strings.Contains(string(data), "after clear") {
+		t.Fatalf("expected post-reopen line to land in the recreated file, got: %q", string(data))
+	}
+}
+
+func TestFileLogger_ReopenDerivedLoggerShared(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "llm-proxy.log")
+
+	base, err := logging.NewFileLogger(logging.Options{
+		File:  logFile,
+		Level: logging.LevelInfo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived := base.With("component", "test")
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := base.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	derived.Info("from derived logger")
+	_ = base.Close()
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("recreated log file unreadable: %v", err)
+	}
+	if !strings.Contains(string(data), "from derived logger") {
+		t.Fatalf("expected derived-logger write to reach the reopened file, got: %q", string(data))
+	}
+}
+
 func TestFileLogger_ConcurrentSetLevelAndLogging(t *testing.T) {
 	logger, err := logging.NewFileLogger(logging.Options{
 		Stdout: true,

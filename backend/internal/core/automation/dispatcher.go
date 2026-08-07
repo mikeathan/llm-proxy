@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -34,9 +35,15 @@ const automationTimeout = 10 * time.Minute
 const shellPGIDPollInterval = 2 * time.Second
 
 // stopDiagnosticDelay is the time StopAutomation waits before checking
-// whether a run has actually terminated. Exported as a package-level var so
-// tests can set it to zero to exercise the force-kill path synchronously.
-var stopDiagnosticDelay = 30 * time.Second
+// whether a run has actually terminated. It is a per-Dispatcher field
+// (defaultDiagnosticDelay) so tests can set it to zero on their own instance to
+// exercise the force-kill path synchronously without mutating a shared global.
+const defaultDiagnosticDelay = 30 * time.Second
+
+// ErrNoActiveRun is returned by StopAutomation when the workspace has no
+// in-flight automation to stop. Callers that stop-then-cleanup (e.g. workspace
+// deletion) can treat this as benign.
+var ErrNoActiveRun = errors.New("no active automation found")
 
 // Dispatcher manages automation execution via a cron scheduler.
 type Dispatcher struct {
@@ -58,6 +65,9 @@ type Dispatcher struct {
 
 	runMu      sync.RWMutex
 	activeRuns map[string]*activeRun // workspaceID -> run metadata
+	// diagnosticDelay is how long StopAutomation waits before force-killing an
+	// unresponsive shell. Zero means the default (defaultDiagnosticDelay).
+	diagnosticDelay time.Duration
 
 	stopOnce sync.Once
 }
@@ -83,13 +93,14 @@ func NewDispatcher(
 		cron: cron.New(cron.WithParser(cron.NewParser(
 			cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		))),
-		logger:      logger,
-		workerCount: 1,
-		jobs:        make(map[string]cron.EntryID),
-		stopCh:      make(chan struct{}),
-		metrics:     &DispatcherMetrics{},
-		events:      NewEventBus(),
-		activeRuns:  make(map[string]*activeRun),
+		logger:          logger,
+		workerCount:     1,
+		jobs:            make(map[string]cron.EntryID),
+		stopCh:          make(chan struct{}),
+		metrics:         &DispatcherMetrics{},
+		events:          NewEventBus(),
+		activeRuns:      make(map[string]*activeRun),
+		diagnosticDelay: defaultDiagnosticDelay,
 	}
 
 	for _, opt := range opts {
@@ -188,7 +199,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (d *Dispatcher) Stop() {
+func (d *Dispatcher) Stop(ctx context.Context) {
 	d.stopOnce.Do(func() {
 		d.logger.Info("Stopping dispatcher")
 		close(d.stopCh)
@@ -199,8 +210,8 @@ func (d *Dispatcher) Stop() {
 		select {
 		case <-cronCtx.Done():
 			d.logger.Info("All cron jobs finished")
-		case <-time.After(30 * time.Second):
-			d.logger.Warn("Cron jobs did not finish within timeout")
+		case <-ctx.Done():
+			d.logger.Warn("Cron jobs did not finish within shutdown deadline")
 		}
 	})
 }
@@ -547,7 +558,6 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 
 	if err != nil {
 		state.SetRunning("")
-		state.LastError = err.Error()
 		d.persistence.WriteState(entry.Workspace, state)
 		
 		// Un-hang the UI by publishing the error over the EventBus
@@ -570,17 +580,11 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	}
 
 	if resp != nil && resp.State != nil {
-		// Successful execution, clear old error immediately
-		state.LastError = ""
-
 		if resp.Output != "" && resp.State != nil {
 			ApplyPulseLogic(resp)
 		}
 
 		state.SetRunning("")
-		if resp.Output != "" {
-			state.LastOutput = resp.Output
-		}
 		if !resp.State.LastPulse.IsZero() {
 			state.LastPulse = resp.State.LastPulse
 		}
@@ -700,7 +704,7 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 	d.runMu.Unlock()
 
 	if !ok {
-		return fmt.Errorf("no active automation found for workspace %s", workspaceID)
+		return fmt.Errorf("%w: %s", ErrNoActiveRun, workspaceID)
 	}
 
 	r.cancel()
@@ -715,8 +719,12 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 	r.diagCancel = diagCancel
 
 	go func() {
+		delay := d.diagnosticDelay
+		if delay <= 0 {
+			delay = defaultDiagnosticDelay
+		}
 		select {
-		case <-time.After(stopDiagnosticDelay):
+		case <-time.After(delay):
 			d.runMu.Lock()
 			currentRun, stillRunning := d.activeRuns[workspaceID]
 			isSameRun := stillRunning && currentRun == r

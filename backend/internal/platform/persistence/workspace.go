@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,9 @@ var workspaceFiles = []string{
 	models.StateFilename,
 	models.ConfigFilename,
 }
+
+// ErrRunNotFound is returned when a requested run ID has no history entry.
+var ErrRunNotFound = errors.New("run not found")
 
 // WorkspaceManager handles atomic file I/O for workspaces with flock locking.
 type WorkspaceManager struct {
@@ -121,7 +125,7 @@ func (m *WorkspaceManager) WriteState(workspaceID string, state *models.AgentSta
 	if err != nil {
 		return fmt.Errorf("failed to encode state: %w", err)
 	}
-	return storage.WriteAtomic(m.resolver.State(workspaceID), "state-*.json.tmp", data)
+	return storage.WriteAtomic(m.resolver.State(workspaceID), "state-*.json.tmp", data, storage.ClassUserContent)
 }
 
 // ============================================================================
@@ -152,7 +156,7 @@ func (m *WorkspaceManager) WriteConfig(workspaceID string, cfg *models.Workspace
 	if err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
-	return storage.WriteAtomic(m.resolver.Config(workspaceID), "config-*.yaml.tmp", data)
+	return storage.WriteAtomic(m.resolver.Config(workspaceID), "config-*.yaml.tmp", data, storage.ClassUserContent)
 }
 
 // ============================================================================
@@ -174,7 +178,7 @@ func (m *WorkspaceManager) ReadHeartbeat(workspaceID string) (string, error) {
 
 // WriteHeartbeat writes heartbeat.md atomically.
 func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) error {
-	return storage.WriteAtomic(m.resolver.Heartbeat(workspaceID), "heartbeat-*.md.tmp", []byte(content))
+	return storage.WriteAtomic(m.resolver.Heartbeat(workspaceID), "heartbeat-*.md.tmp", []byte(content), storage.ClassUserContent)
 }
 
 // ============================================================================
@@ -196,7 +200,7 @@ func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, e
 
 // WriteTaskFile writes an arbitrary task file atomically.
 func (m *WorkspaceManager) WriteTaskFile(workspaceID, filename, content string) error {
-	return storage.WriteAtomic(m.resolver.TaskFile(workspaceID, filename), fmt.Sprintf("%s-*.tmp", filename), []byte(content))
+	return storage.WriteAtomic(m.resolver.TaskFile(workspaceID, filename), fmt.Sprintf("%s-*.tmp", filename), []byte(content), storage.ClassUserContent)
 }
 
 func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
@@ -300,7 +304,179 @@ func (m *WorkspaceManager) DeleteWorkspace(workspaceID string) error {
 	if err := os.RemoveAll(m.resolver.WorkspaceDir(workspaceID)); err != nil {
 		return err
 	}
-	return os.RemoveAll(m.resolver.SessionsDir(workspaceID))
+	// Remove the full per-workspace metadata dir (config.yaml, state.json,
+	// .lock, process.log, sessions/). Deleting it also clears the nested
+	// sessions dir that the old code removed separately.
+	if err := os.RemoveAll(m.resolver.InternalDir(workspaceID)); err != nil {
+		return err
+	}
+	// Remove the per-workspace automation runs tree (data/runs/{ws}) so deleting
+	// a workspace does not leave orphaned run dirs/recordings behind.
+	return storage.RemoveScopedDir(m.resolver.RunsRoot(), m.resolver.WorkspaceRunsDir(workspaceID))
+}
+
+// purgeHistory removes history entries for which keep returns false.
+func purgeHistory(state *models.AgentState, keep func(models.AutomationRun) bool) {
+	if state == nil || len(state.History) == 0 {
+		return
+	}
+	filtered := state.History[:0]
+	for _, run := range state.History {
+		if keep(run) {
+			filtered = append(filtered, run)
+		}
+	}
+	state.History = filtered
+}
+
+// pruneEmptyParents removes now-empty ancestor directories beneath the runs
+// root after a run tree has been deleted. Only empty directories are removed
+// (os.Remove fails on non-empty), so unrelated runs/automations are preserved.
+// Each path is treated independently, so a non-empty dir does not prevent
+// pruning a sibling empty dir (e.g. when clearing all runs across models).
+func (m *WorkspaceManager) pruneEmptyParents(paths ...string) {
+	for _, p := range paths {
+		if p == "" || p == m.resolver.RunsRoot() {
+			continue
+		}
+		rel, err := filepath.Rel(m.resolver.RunsRoot(), p)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+			continue
+		}
+		os.Remove(p) // dir is non-empty or gone; skip it and continue
+	}
+}
+
+// DeleteAutomationRuns removes every on-disk run directory for an automation
+// across all model subdirs (data/runs/{workspaceID}/{model}/{automation}) and
+// purges the matching History/LastRuns entries from state.json so deleted runs
+// do not resurface in the UI. The workspace lock serializes the read-modify-
+// write against a concurrently running automation.
+func (m *WorkspaceManager) DeleteAutomationRuns(workspaceID, automation string) error {
+	lock, err := m.AcquireLock(workspaceID)
+	if err != nil {
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+	defer m.ReleaseLock(lock)
+
+	runsRoot := m.resolver.WorkspaceRunsDir(workspaceID)
+	modelsDir, err := os.ReadDir(runsRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			modelsDir = nil
+		} else {
+			return fmt.Errorf("list runs models: %w", err)
+		}
+	}
+	var modelDirs []string
+	for _, modelEntry := range modelsDir {
+		if !modelEntry.IsDir() {
+			continue
+		}
+		model := modelEntry.Name()
+		autoDir := m.resolver.WorkspaceAutomationRunsDirModel(workspaceID, model, automation)
+		if err := storage.RemoveScopedDir(m.resolver.RunsRoot(), autoDir); err != nil {
+			return err
+		}
+		modelDirs = append(modelDirs, filepath.Join(runsRoot, model))
+	}
+
+	state, err := m.ReadState(workspaceID)
+	if err != nil {
+		return err
+	}
+	purgeHistory(state, func(run models.AutomationRun) bool { return run.AutomationName != automation })
+	delete(state.LastRuns, automation)
+
+	if err := m.WriteState(workspaceID, state); err != nil {
+		return err
+	}
+
+	m.pruneEmptyParents(modelDirs...)
+	return nil
+}
+
+// DeleteRunByID removes a single automation run by its history ID. It looks up
+// the run in state.json, removes its on-disk run directory (when a
+// run_dir_name is present), and purges the matching History/LastRuns entries so
+// the deleted run does not resurface in the UI after a refresh. Deleting by ID
+// works uniformly for every run, including runs that predate run_dir_name
+// persistence (those simply have no on-disk directory to remove). The workspace
+// lock serializes the read-modify-write against a concurrently running
+// automation writing its own state.
+func (m *WorkspaceManager) DeleteRunByID(workspaceID, runID string) error {
+	// Check the run exists before taking the lock, so a delete request for a
+	// non-existent run never triggers AcquireLock's mkdir side effect on a
+	// workspace that does not exist.
+	if probe, err := m.ReadState(workspaceID); err != nil {
+		return err
+	} else if findRun(probe, runID) == nil {
+		return fmt.Errorf("run %q: %w", runID, ErrRunNotFound)
+	}
+
+	lock, err := m.AcquireLock(workspaceID)
+	if err != nil {
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+	defer m.ReleaseLock(lock)
+
+	// Re-read under the lock so a concurrently written state is not clobbered.
+	state, err := m.ReadState(workspaceID)
+	if err != nil {
+		return err
+	}
+	target := findRun(state, runID)
+	if target == nil {
+		return fmt.Errorf("run %q: %w", runID, ErrRunNotFound)
+	}
+	// Snapshot the run's identity before purging history — purgeHistory filters
+	// the History slice in place, which would otherwise overwrite the backing
+	// array that target points into.
+	targetModel := target.Model
+	targetAutomation := target.AutomationName
+	targetRunDir := target.RunDirName
+
+	// Remove the on-disk run directory when the run is addressable by a dir
+	// name. Guarded to stay beneath the runs root.
+	if targetRunDir != "" {
+		runPath := m.resolver.RunDir(workspaceID, targetModel, targetAutomation, targetRunDir)
+		if err := storage.RemoveScopedDir(m.resolver.RunsRoot(), runPath); err != nil {
+			return err
+		}
+	}
+
+	purgeHistory(state, func(run models.AutomationRun) bool { return run.ID != runID })
+
+	if last, ok := state.LastRuns[targetAutomation]; ok && last != nil && last.ID == runID {
+		delete(state.LastRuns, targetAutomation)
+	}
+
+	if err := m.WriteState(workspaceID, state); err != nil {
+		return err
+	}
+
+	// Prune now-empty model/automation parent dirs so deleting the last run of
+	// an automation leaves no dangling empty folders.
+	if targetModel != "" && targetAutomation != "" {
+		m.pruneEmptyParents(
+			filepath.Join(m.resolver.WorkspaceRunsDir(workspaceID), targetModel, targetAutomation),
+			filepath.Join(m.resolver.WorkspaceRunsDir(workspaceID), targetModel),
+		)
+	}
+	return nil
+}
+
+// findRun returns the history entry with the given run ID, or nil.
+func findRun(state *models.AgentState, runID string) *models.AutomationRun {
+	if state == nil {
+		return nil
+	}
+	for i := range state.History {
+		if state.History[i].ID == runID {
+			return &state.History[i]
+		}
+	}
+	return nil
 }
 
 // ============================================================================
@@ -367,10 +543,12 @@ func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.Assi
 		return fmt.Errorf("failed to encode session: %w", err)
 	}
 	destPath := filepath.Join(m.resolver.SessionsDir(workspaceID), session.ID+".json")
-	return storage.WriteAtomic(destPath, "session-*.json.tmp", data)
+	return storage.WriteAtomic(destPath, "session-*.json.tmp", data, storage.ClassUserContent)
 }
 
-// DeleteSession deletes an assistant session JSON file from both locations.
+// DeleteSession deletes an assistant session JSON file from both locations and
+// removes the conversation's on-disk run directories so deleting a conversation
+// does not orphan its events/recording artifacts under runs/.
 func (m *WorkspaceManager) DeleteSession(workspaceID, sessionID string) error {
 	path := filepath.Join(m.resolver.SessionsDir(workspaceID), sessionID+".json")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -378,11 +556,48 @@ func (m *WorkspaceManager) DeleteSession(workspaceID, sessionID string) error {
 	}
 	oldPath := filepath.Join(m.sessionOldDir(workspaceID), sessionID+".json")
 	os.Remove(oldPath)
+	return m.removeSessionRunDirs(workspaceID, sessionID)
+}
+
+// removeSessionRunDirs removes the per-conversation run directories
+// (runs/{ws}/{model}/{sessionID}) across all model subdirs and prunes now-empty
+// model dirs. Assistant conversations live under {model}/{conversationID}, so
+// deleting a conversation must also clean its run artifacts. A missing runs
+// tree is not an error.
+func (m *WorkspaceManager) removeSessionRunDirs(workspaceID, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	runsRoot := m.resolver.WorkspaceRunsDir(workspaceID)
+	modelsDir, err := os.ReadDir(runsRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("list runs models: %w", err)
+	}
+	var modelDirs []string
+	for _, modelEntry := range modelsDir {
+		if !modelEntry.IsDir() {
+			continue
+		}
+		model := modelEntry.Name()
+		dir := m.resolver.WorkspaceAutomationRunsDirModel(workspaceID, model, sessionID)
+		if err := storage.RemoveScopedDir(m.resolver.RunsRoot(), dir); err != nil {
+			return err
+		}
+		modelDirs = append(modelDirs, filepath.Join(runsRoot, model))
+	}
+	m.pruneEmptyParents(modelDirs...)
 	return nil
 }
 
-// DeleteAllSessions removes all assistant session files for a workspace.
+// DeleteAllSessions removes all assistant session files for a workspace and
+// their per-conversation run directories. Session IDs are collected before the
+// sessions dir is wiped so the corresponding run dirs can still be located.
 func (m *WorkspaceManager) DeleteAllSessions(workspaceID string) error {
+	sessionIDs := m.collectSessionIDs(workspaceID)
+
 	dir := m.resolver.SessionsDir(workspaceID)
 	if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
 		return err
@@ -394,13 +609,18 @@ func (m *WorkspaceManager) DeleteAllSessions(workspaceID string) error {
 	if err := os.RemoveAll(oldDir); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+
+	for _, sessionID := range sessionIDs {
+		if err := m.removeSessionRunDirs(workspaceID, sessionID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// ListSessions returns a list of session summaries for a workspace.
-// Checks both the metadata directory and the legacy workspace directory.
-func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {
-	// Collect unique session IDs from both new and legacy locations
+// collectSessionIDs returns the unique session IDs across both the metadata
+// sessions directory and the legacy workspace-located directory.
+func (m *WorkspaceManager) collectSessionIDs(workspaceID string) []string {
 	seen := map[string]bool{}
 	var sessionIDs []string
 
@@ -423,6 +643,13 @@ func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBri
 
 	collectIDs(m.resolver.SessionsDir(workspaceID))
 	collectIDs(m.sessionOldDir(workspaceID))
+	return sessionIDs
+}
+
+// ListSessions returns a list of session summaries for a workspace.
+// Checks both the metadata directory and the legacy workspace directory.
+func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {
+	sessionIDs := m.collectSessionIDs(workspaceID)
 
 	var briefs []models.SessionBrief
 	for _, sessionID := range sessionIDs {
@@ -479,4 +706,3 @@ func firstUserSnippet(history []models.Message) string {
 	}
 	return ""
 }
-

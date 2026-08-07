@@ -87,3 +87,27 @@ func (r *PathResolver) WorkspacesRoot() string {
 func (r *PathResolver) MetadataRoot() string {
 	return r.metadataDir
 }
+
+// RunsRoot returns the base automation/recording runs directory (data/runs).
+func (r *PathResolver) RunsRoot() string {
+	return filepath.Join(r.rootDir, "runs")
+}
+
+// WorkspaceRunsDir returns the per-workspace runs directory
+// (data/runs/{workspaceID}).
+func (r *PathResolver) WorkspaceRunsDir(id string) string {
+	return filepath.Join(r.RunsRoot(), id)
+}
+
+// WorkspaceAutomationRunsDirModel returns the per-workspace, per-model,
+// per-automation runs directory (data/runs/{workspaceID}/{model}/{automation}),
+// matching the layout produced by NewRunDir (parent/{ws}/{model}/{task}/...).
+func (r *PathResolver) WorkspaceAutomationRunsDirModel(workspaceID, model, automation string) string {
+	return filepath.Join(r.WorkspaceRunsDir(workspaceID), model, automation)
+}
+
+// RunDir returns a specific run directory
+// (data/runs/{workspaceID}/{model}/{task}/{runDir}).
+func (r *PathResolver) RunDir(workspaceID, model, task, runDir string) string {
+	return filepath.Join(r.WorkspaceRunsDir(workspaceID), model, task, runDir)
+}

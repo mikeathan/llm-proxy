@@ -6,7 +6,6 @@ They identify gaps, regressions, and bugs found during testing or production use
 | File | Title | Status |
 |------|-------|--------|
 | `2026-06-26-stale-turn-bleed.md` | Stale turn bleed on cancel + new message | complete |
-| `2026-07-05-submit-final-answer-overwrite.md` | submit_final_answer content overwrite under context pressure | complete |
 | `2026-07-06-assistant-debug-cycle.md` | Full debug cycle: tool calls, history leak, emoji loop, GBNF limitations | complete |
 | `gpu-performance-audit.md` | **GPU Performance — consolidated audit** (all knowledge, fixes, lessons, measurements) | reference |
 | `agent-stability-report.md` | Agent Stability Audit (13 issues) | complete |

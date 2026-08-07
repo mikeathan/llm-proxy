@@ -495,7 +495,7 @@ Progressive disclosure: the system prompt lists available skills in `<available_
 
 **`stream.go` — `injectAvailableSkills()`**: Lists skills in `<available_skills>` block, appended to system prompt.
 
-**`session.go` — post-complex-task trigger**: After `submit_final_answer`, if `steps >= 5` and skill store exists, inject a user message suggesting the agent save the workflow as a skill.
+**`session.go` — post-complex-task trigger**: After natural completion (`checkTaskCompletion`), if `steps >= 5` and skill store exists, inject a user message suggesting the agent save the workflow as a skill.
 
 #### Test Plan
 

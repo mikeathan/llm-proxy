@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -19,6 +20,13 @@ var validIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func validateID(id string) bool {
 	return validIDRegex.MatchString(id)
+}
+
+// isDotOrEmpty reports whether s is an empty string or a "." / ".." path
+// segment. Such values must be rejected before filepath.Join in path
+// resolvers, which would otherwise clean/collapse them into sibling paths.
+func isDotOrEmpty(s string) bool {
+	return s == "" || s == "." || s == ".."
 }
 
 type Dispatcher interface {
@@ -117,12 +125,13 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 				}
 			}
 
+			// An automation's output is sourced only from its own latest run
+			// (LastRuns). The workspace-wide LastOutput/LastError fields are
+			// legacy and never fall back to here, so a run-less automation
+			// reports no stale output.
 			if last, ok := state.LastRuns[entry.Name]; ok {
 				info.LastOutput = last.Output
 				info.LastError = last.Error
-			} else {
-				info.LastOutput = state.LastOutput
-				info.LastError = state.LastError
 			}
 			info.IsRunning = state.ActiveAutomation == entry.Name
 		}
@@ -394,6 +403,10 @@ func (h *DispatcherHandlers) ReadWorkspaceFile(w http.ResponseWriter, r *http.Re
 		return
 	}
 	filename := r.PathValue("file")
+	if isDotOrEmpty(filename) {
+		respondError(w, http.StatusBadRequest, "invalid file path")
+		return
+	}
 
 	content, err := h.workspace.ReadTaskFile(workspaceID, filename)
 	if err != nil {
@@ -409,6 +422,10 @@ func (h *DispatcherHandlers) WriteWorkspaceFile(w http.ResponseWriter, r *http.R
 		return
 	}
 	filename := r.PathValue("file")
+	if isDotOrEmpty(filename) {
+		respondError(w, http.StatusBadRequest, "invalid file path")
+		return
+	}
 
 	var req struct {
 		Content string `json:"content"`
@@ -533,6 +550,10 @@ func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.
 		return
 	}
 	filename := r.PathValue("file")
+	if isDotOrEmpty(filename) {
+		respondError(w, http.StatusBadRequest, "invalid file path")
+		return
+	}
 
 	if err := h.workspace.DeleteTaskFile(workspaceID, filename); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -544,6 +565,14 @@ func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.
 func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID, _, ok := h.parse(w, r, models.WorkspaceIDParam)
 	if !ok {
+		return
+	}
+
+	// Stop any in-flight automation before deleting the workspace's on-disk
+	// state, so a running executor cannot keep writing to a removed meta/ or
+	// runs/ tree. "No active run" is not an error — the workspace may be idle.
+	if err := h.dispatcher.StopAutomation(workspaceID); err != nil && !errors.Is(err, automation.ErrNoActiveRun) {
+		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -578,13 +607,64 @@ func (h *DispatcherHandlers) DeleteAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Always try to unregister from dispatcher (handles "ghost" entries)
+	// Always try to unregister from dispatcher (handles "ghost" entries).
 	h.dispatcher.Unregister(workspaceID, automationName)
 
+	// Remove the per-automation runs tree and purge its history so deleting an
+	// automation (even a "ghost" entry missing from config) does not leave
+	// orphaned run dirs/recordings behind.
+	if err := h.workspace.DeleteAutomationRuns(workspaceID, automationName); err != nil {
+		h.logger.Warn("failed to remove automation runs dir", "workspace", workspaceID, "automation", automationName, "error", err)
+	}
+
+	status := "deleted"
 	if !found {
-		respondJSON(w, map[string]string{"status": "deleted/cleaned"})
+		status = "deleted/cleaned"
+	}
+	respondJSON(w, map[string]string{"status": status})
+}
+
+// DeleteRun removes a single automation run by its history ID so individual
+// runs can be pruned from the UI. The run is looked up in state.json by ID, so
+// deletion works uniformly for every run (including runs without an on-disk
+// directory). The run ID is a generated token (run_<nano>) and is never joined
+// into a filesystem path, so only empty/dot segments are rejected for it while
+// the workspace ID is fully validated.
+func (h *DispatcherHandlers) DeleteRun(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
+	runID := r.PathValue("run")
+
+	if !validateID(workspaceID) || isDotOrEmpty(runID) {
+		respondError(w, http.StatusBadRequest, "invalid run path")
 		return
 	}
 
+	if err := h.workspace.DeleteRunByID(workspaceID, runID); err != nil {
+		if errors.Is(err, persistence.ErrRunNotFound) {
+			respondError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"status": "deleted"})
+}
+
+// DeleteAutomationRuns removes every run directory for an automation across all
+// model subdirs and purges the matching history from state.json, so a user can
+// clear an automation's entire runs folder from the UI.
+func (h *DispatcherHandlers) DeleteAutomationRuns(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue(models.WorkspaceIDParam)
+	automation := r.PathValue("automation")
+
+	if !validateID(workspaceID) || !validateID(automation) {
+		respondError(w, http.StatusBadRequest, "invalid automation path")
+		return
+	}
+
+	if err := h.workspace.DeleteAutomationRuns(workspaceID, automation); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	respondJSON(w, map[string]string{"status": "deleted"})
 }

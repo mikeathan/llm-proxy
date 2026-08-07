@@ -212,7 +212,7 @@ func TestResolvePublishedCapabilitiesFromCatalog(t *testing.T) {
 				req.PublishedContextLength = 99999
 			}
 
-			h.resolvePublishedCapabilitiesFromCatalog(context.Background(), req)
+			resolvePublishedCapabilitiesFromCatalog(context.Background(), h.runtime, req)
 
 			if req.PublishedOutputCap != c.wantCap || req.PublishedContextLength != c.wantCtx {
 				t.Fatalf("published caps = %d/%d, want %d/%d", req.PublishedOutputCap, req.PublishedContextLength, c.wantCap, c.wantCtx)

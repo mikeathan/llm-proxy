@@ -5,10 +5,12 @@ import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import Icon from "../../icons/Icon.vue";
+import InlineConfirm from "../../ui/InlineConfirm.vue";
 import ChatMessages from "../assistant/ChatMessages.vue";
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import GuardrailBanner from "../../common/chat/GuardrailBanner.vue";
+import { useTurnInset } from "../../../composables/ui/useTurnInset";
 
 const props = defineProps<{
   automation: Automation;
@@ -19,7 +21,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "delete-run", run: AutomationRun): void;
+  (e: "delete-automation-runs", automation: Automation): void;
 }>();
+
+const confirmClearRuns = ref(false);
+const confirmDeleteRunId = ref<string | null>(null);
 
 const showHistory = ref(false);
 const expandedHistoryRuns = ref<Record<string, boolean>>({});
@@ -67,18 +74,11 @@ const {
 
 const automationTurns = computed(() => groupTurns(displayMessages.value));
 
-const insetCollapsed = ref<Record<number, boolean>>({});
 const expandedSegments = ref<Record<string, boolean>>({});
+const { insetCollapsed, isInsetCollapsed, toggleInset } = useTurnInset(phase, automationTurns);
 
-function isInsetCollapsed(turnIdx: number): boolean {
-  return !!insetCollapsed.value[turnIdx];
-}
 function isSegExpanded(turnIdx: number, segIdx: number): boolean {
   return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
-}
-function toggleInset(turnIdx: number) {
-  const current = !!insetCollapsed.value[turnIdx];
-  insetCollapsed.value = { ...insetCollapsed.value, [turnIdx]: !current };
 }
 function toggleSegment(turnIdx: number, segIdx: number) {
   const key = `${turnIdx}-${segIdx}`;
@@ -174,13 +174,30 @@ watch(
             <h4 class="section-title section-title--success">
               Latest Summary Report
             </h4>
-            <button
-              v-if="automation.history && automation.history.length > 0"
-              @click="showHistory = !showHistory"
-              class="btn-history-toggle"
-            >
-              {{ showHistory ? "Back to Latest" : "Full Timeline History" }}
-            </button>
+            <div class="header-actions-right">
+              <button
+                v-if="automation.history && automation.history.length > 0"
+                @click="showHistory = !showHistory"
+                class="btn-history-toggle"
+              >
+                {{ showHistory ? "Back to Latest" : "Full Timeline History" }}
+              </button>
+              <button
+                v-if="automation.history && automation.history.length > 0"
+                @click="confirmClearRuns = !confirmClearRuns"
+                class="btn-clear-runs"
+                title="Delete every run directory for this automation"
+              >
+                Clear All Runs
+              </button>
+            </div>
+            <InlineConfirm
+              v-if="confirmClearRuns"
+              message="Delete ALL run artifacts for this automation? This removes every run directory and cannot be undone."
+              @confirm="emit('delete-automation-runs', automation); confirmClearRuns = false"
+              @cancel="confirmClearRuns = false"
+              class="clear-runs-confirm"
+            />
           </div>
 
           <div v-if="!showHistory" class="output-box">
@@ -213,6 +230,13 @@ watch(
                 </div>
                 <div class="entry-actions">
                   <span class="entry-duration">{{ run.duration_ms }}ms</span>
+                  <button
+                    class="entry-del-btn"
+                    :title="`Delete this run`"
+                    @click.stop="confirmDeleteRunId = run.id"
+                  >
+                    <Icon name="trash" size="xs" />
+                  </button>
                   <Icon
                     v-if="!expandedHistoryRuns[run.id]"
                     name="close"
@@ -221,6 +245,14 @@ watch(
                   />
                   <Icon v-else name="close" size="xs" class="text-blue-400" />
                 </div>
+              </div>
+
+              <div v-if="confirmDeleteRunId === run.id" class="entry-confirm" @click.stop>
+                <InlineConfirm
+                  :message="`Delete this run? This removes the run and its artifacts and cannot be undone.`"
+                  @confirm="confirmDeleteRunId = null; emit('delete-run', run)"
+                  @cancel="confirmDeleteRunId = null"
+                />
               </div>
 
               <div v-if="expandedHistoryRuns[run.id]" class="entry-details">
@@ -431,6 +463,26 @@ watch(
 
 .btn-history-toggle {
   @apply text-[10px] text-gray-500 hover:text-blue-400 uppercase tracking-widest font-bold transition-colors;
+}
+
+.header-actions-right {
+  @apply flex items-center gap-3;
+}
+
+.btn-clear-runs {
+  @apply text-[10px] text-red-500/70 hover:text-red-400 uppercase tracking-widest font-bold transition-colors border border-red-500/30 rounded px-2 py-1;
+}
+
+.clear-runs-confirm {
+  @apply mt-3;
+}
+
+.entry-del-btn {
+  @apply text-gray-500 hover:text-red-400 transition-colors shrink-0 flex items-center justify-center;
+}
+
+.entry-confirm {
+  @apply mt-1;
 }
 
 .output-box {

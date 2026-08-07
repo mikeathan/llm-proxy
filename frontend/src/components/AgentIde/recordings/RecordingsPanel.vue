@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
-import type { RecordingMeta, RecordingStatus, Automation } from '../../../types/dispatcher'
-import { DispatcherService } from '../../../services/automation/dispatcherService'
+import type { RecordingMeta, Automation } from '../../../types/dispatcher'
+import { useRecordings } from '../../../composables/automation/useRecordings'
 import { formatBytes, formatTS } from '../../../utils/format/formatters'
 
 const props = defineProps<{
@@ -17,6 +17,16 @@ const emit = defineEmits<{
   (e: 'show-automation', id: string): void
 }>()
 
+const {
+  recordings,
+  status,
+  loading,
+  fetchStatus,
+  fetchRecordings,
+  deleteRecording,
+  clearAutomationRecordingRef,
+} = useRecordings()
+
 const replayingId = ref<string | null>(null)
 watch(() => props.automations, (autos) => {
   if (replayingId.value && !autos.some(a => a.is_running)) {
@@ -24,33 +34,15 @@ watch(() => props.automations, (autos) => {
   }
 }, { deep: true })
 
-const recordings = ref<RecordingMeta[]>([])
-const status = ref<RecordingStatus>({ enabled: false, dir: '' })
-const loading = ref(false)
 const selectedRecording = ref<string | null>(null)
 const expandedAuto = ref<string | null>(null)
 
 onMounted(async () => {
-  try {
-    status.value = await DispatcherService.getRecordingStatus()
-    if (status.value.enabled) {
-      await fetchRecordings()
-    }
-  } catch {
-    status.value = { enabled: false, dir: '' }
+  await fetchStatus()
+  if (status.value.enabled) {
+    await fetchRecordings()
   }
 })
-
-async function fetchRecordings() {
-  loading.value = true
-  try {
-    recordings.value = await DispatcherService.listRecordings()
-  } catch {
-    recordings.value = []
-  } finally {
-    loading.value = false
-  }
-}
 
 function recordingsForAuto(automationName: string): RecordingMeta[] {
   return recordings.value.filter(r => r.automation_name === automationName)
@@ -63,14 +55,16 @@ const toggleExpand = (name: string) => {
 
 async function clearRecording(auto: Automation, recording: RecordingMeta) {
   if (!auto.workspace) return
-  await DispatcherService.clearAutomationRecordingRef(auto.workspace, auto.name)
+  await clearAutomationRecordingRef(auto.workspace, auto.name)
   selectedRecording.value = null
   emit('recording-deselected', recording)
 }
 
-async function deleteRecording(id: string) {
-  await DispatcherService.deleteRecording(id)
-  recordings.value = recordings.value.filter(r => r.id !== id)
+async function deleteRecordingEntry(id: string) {
+  await deleteRecording(id)
+  if (selectedRecording.value === id) {
+    selectedRecording.value = null
+  }
 }
 
 function handleReplayClick(auto: Automation, rec: RecordingMeta) {
@@ -170,7 +164,7 @@ function handleReplayClick(auto: Automation, rec: RecordingMeta) {
               ■ Stop
             </button>
             <button
-              @click.stop="deleteRecording(rec.id)"
+              @click.stop="deleteRecordingEntry(rec.id)"
               class="btn-delete"
               title="Delete recording"
               :disabled="rec.id === replayingId && auto.is_running"

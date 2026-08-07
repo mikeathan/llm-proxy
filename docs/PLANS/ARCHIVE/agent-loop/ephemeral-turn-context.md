@@ -162,7 +162,7 @@ turnMsg, parseErr, toolsList, err := s.agent.executeTurn(s.ctx, &s.history, s.st
    - Reasoning character count per turn decreases (especially mid-run turns 5-15)
    - Total reasoning chars drops by ~30%
 5. Expected outcome: total duration decreases from ~370s to ~310s
-6. Confirm `submit_final_answer` is still called correctly (no regression)
+6. Confirm natural completion still works correctly (no regression)
 
 ## Expected Benefit
 

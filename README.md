@@ -65,9 +65,9 @@ go build ./...                     # compile everything
 go test ./...                      # run all tests
 go run ./tools/check-complexity/   # complexity ≤12
 npm install && npm run build       # frontend production build
-go run main.go                      # start (default :4001, data dir = ./data)
-go run main.go --data <dir>         # override data directory
-go run main.go --record             # record LLM responses to {data}/runs/ for replay tests
+go run main.go                      # start (default :4001; all files under ~/.config/llm-proxy or LLM_PROXY_HOME)
+go run main.go --data <dir>         # explicit single root for everything (overrides LLM_PROXY_HOME)
+go run main.go --record             # record LLM responses to {root}/runs/ for replay tests
 ```
 
 Full dev workflow and AI-agent rules: see [`AGENTS.md`](AGENTS.md).

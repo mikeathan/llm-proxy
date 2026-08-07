@@ -34,6 +34,7 @@ const newWorkspaceName = ref('')
 const newFileName = ref('')
 const newWorkspaceOpen = ref(false)
 const newWsInput = ref<HTMLInputElement | null>(null)
+const newWsBar = ref<HTMLElement | null>(null)
 
 const confirmingDeleteWs = ref<string | null>(null)
 const confirmingDeleteFile = ref<{ ws: string, file: string } | null>(null)
@@ -42,6 +43,25 @@ const toggleNewWorkspace = () => {
   newWorkspaceOpen.value = !newWorkspaceOpen.value
   if (newWorkspaceOpen.value) {
     nextTick(() => newWsInput.value?.focus())
+  }
+}
+
+// Close the collapsible New-workspace panel when focus leaves it, but never
+// when focus moves within the panel itself (e.g. onto the Create button).
+// Guarding on the bar keeps the panel mounted while the Add button is clicked;
+// a naive "@blur close" unmounts the panel (v-if) before the click lands and
+// silently swallows the create.
+const onNewWorkspaceBlur = (e: FocusEvent) => {
+  const bar = newWsBar.value
+  if (bar && e.relatedTarget instanceof Node && bar.contains(e.relatedTarget)) {
+    return
+  }
+  newWorkspaceOpen.value = false
+}
+
+const onNewWorkspaceKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    newWorkspaceOpen.value = false
   }
 }
 
@@ -100,7 +120,7 @@ const handleCreateFile = (workspace: string) => {
 
     <!-- Collapsible New Workspace Input -->
     <Transition name="slide-down">
-      <div v-if="newWorkspaceOpen" class="action-bar">
+      <div v-if="newWorkspaceOpen" ref="newWsBar" class="action-bar" @keydown.esc="onNewWorkspaceKeydown">
         <div class="input-wrapper group">
           <input
             ref="newWsInput"
@@ -108,9 +128,9 @@ const handleCreateFile = (workspace: string) => {
             placeholder="New workspace name..."
             class="action-input"
             @keyup.enter="handleCreateWorkspace"
-            @blur="newWorkspaceOpen = false"
+            @blur="onNewWorkspaceBlur"
           />
-          <button @click="handleCreateWorkspace" class="btn-add-action" title="Create Workspace">
+          <button @mousedown.prevent @click="handleCreateWorkspace" class="btn-add-action" title="Create Workspace">
             <Icon name="plus" size="sm" />
           </button>
         </div>

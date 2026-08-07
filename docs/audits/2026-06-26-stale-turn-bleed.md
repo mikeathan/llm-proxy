@@ -26,7 +26,7 @@ There was no explicit cancel endpoint, so the user had no way to stop the orphan
 
 ## Detection
 
-User reported screenshot. Backend logs confirmed: `stream closed by context cancel` followed by continued tool calls (`list_directory`, `submit_final_answer`).
+User reported screenshot. Backend logs confirmed: `stream closed by context cancel` followed by continued tool calls (`list_directory`).
 
 ## Resolution
 

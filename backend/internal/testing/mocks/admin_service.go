@@ -4,6 +4,7 @@ import (
 	"context"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
@@ -28,7 +29,6 @@ type MockAdminService struct {
 	UpdateMCPServerFunc       func(models.MCPServerConfig) error
 	RemoveMCPServerFunc       func(string) error
 	EnvironmentFunc           func() map[string]string
-	SetEnvironmentFunc        func(map[string]string) error
 	ModelsFunc                func() []models.ModelConfig
 	ProvidersFunc             func() map[string]models.ProviderItem
 	WorkspacesDirFunc         func() string
@@ -46,6 +46,9 @@ type MockAdminService struct {
 	ListShellSessionsFunc     func() []models.TerminalSessionView
 	DeleteProviderWithCleanupFunc func(string) error
 	RunLoggingEnabledFunc     func() bool
+	FactoryResetFunc          func() (storage.ResetResult, error)
+	ClearRuntimeDataFunc      func() error
+	WipeoutFunc               func() (storage.WipeoutResult, error)
 }
 
 func (m *MockAdminService) RunLoggingEnabled() bool {
@@ -206,13 +209,6 @@ func (m *MockAdminService) Environment() map[string]string {
 	return map[string]string{}
 }
 
-func (m *MockAdminService) SetEnvironment(env map[string]string) error {
-	if m.SetEnvironmentFunc != nil {
-		return m.SetEnvironmentFunc(env)
-	}
-	return nil
-}
-
 func (m *MockAdminService) Models() []models.ModelConfig {
 	if m.ModelsFunc != nil {
 		return m.ModelsFunc()
@@ -307,4 +303,25 @@ func (m *MockAdminService) DeleteProviderWithCleanup(provider string) error {
 		return m.DeleteProviderWithCleanupFunc(provider)
 	}
 	return nil
+}
+
+func (m *MockAdminService) FactoryReset() (storage.ResetResult, error) {
+	if m.FactoryResetFunc != nil {
+		return m.FactoryResetFunc()
+	}
+	return storage.ResetResult{}, nil
+}
+
+func (m *MockAdminService) ClearRuntimeData() error {
+	if m.ClearRuntimeDataFunc != nil {
+		return m.ClearRuntimeDataFunc()
+	}
+	return nil
+}
+
+func (m *MockAdminService) Wipeout() (storage.WipeoutResult, error) {
+	if m.WipeoutFunc != nil {
+		return m.WipeoutFunc()
+	}
+	return storage.WipeoutResult{}, nil
 }

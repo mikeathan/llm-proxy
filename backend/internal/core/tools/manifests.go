@@ -4,10 +4,12 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"llm-proxy/models"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+
+	"llm-proxy/models"
 )
 
 //go:embed manifests/*.json
@@ -24,9 +26,9 @@ type ToolManifest struct {
 }
 
 // LoadManifest generic helper to load a manifest for a specific tool.
-// It tries to load from the disk first (if root is provided) to support dev-syncing,
-// and falls back to the embedded standard manifests.
-func LoadManifest(root string, toolKey string, target any) error {
+// It tries to load from the disk first (to support dev-syncing), and falls back
+// to the embedded standard manifests in production.
+func LoadManifest(toolKey string, target any) error {
 	var data []byte
 	var err error
 
@@ -61,7 +63,7 @@ func LoadManifest(root string, toolKey string, target any) error {
 }
 
 // LoadManifestAsTool loads a JSON manifest and converts it to an LLM-ready tool definition.
-func LoadManifestAsTool(root string, toolKey string, toolName string) (map[string]any, string, error) {
+func LoadManifestAsTool(toolKey string, toolName string) (map[string]any, string, error) {
 	var data []byte
 	var err error
 
@@ -126,62 +128,40 @@ func LoadManifestAsTool(root string, toolKey string, toolName string) (map[strin
 
 	return params, description, nil
 }
-func GetDefaultGuardrails(root string) models.AgentGuardrailsConfig {
-	var cfg models.AgentGuardrailsConfig
-	cfg.Global.BlockSecrets = true
 
-	_ = LoadManifest(root, "terminal", &cfg.Terminal)
-	_ = LoadManifest(root, "search", &cfg.Search)
-	_ = LoadManifest(root, "communication", &cfg.Communication)
-	_ = LoadManifest(root, "filesystem", &cfg.FileSystem)
-	_ = LoadManifest(root, "network", &cfg.Network)
-	_ = LoadManifest(root, "security", &cfg.Global)
+var (
+	defaultGuardrailsOnce sync.Once
+	defaultGuardrails     models.AgentGuardrailsConfig
+)
 
-	return cfg
-}
+// GetDefaultGuardrails returns the merged guardrail defaults from the static
+// manifests. The result is computed once and cached (P3) — manifests do not
+// change at runtime — and deep-copied per call so no caller can mutate the
+// shared cache.
+func GetDefaultGuardrails() models.AgentGuardrailsConfig {
+	defaultGuardrailsOnce.Do(func() {
+		cfg := models.AgentGuardrailsConfig{}
+		cfg.Global.BlockSecrets = true
 
-// SaveManifest updates the on-disk manifest file with new guardrails.
-// This is used for dev-syncing UI changes back to the source repository.
-func SaveManifest(root string, toolKey string, guardrails any) error {
-	var path string
-	_, filename, _, ok := runtime.Caller(0)
-	if ok {
-		sourceDir := filepath.Dir(filename)
-		path = filepath.Join(sourceDir, "manifests", toolKey+".json")
-	}
+		_ = LoadManifest("terminal", &cfg.Terminal)
+		_ = LoadManifest("search", &cfg.Search)
+		_ = LoadManifest("communication", &cfg.Communication)
+		_ = LoadManifest("filesystem", &cfg.FileSystem)
+		_ = LoadManifest("network", &cfg.Network)
+		_ = LoadManifest("security", &cfg.Global)
 
-	if path == "" {
-		return fmt.Errorf("could not resolve source path for tool manifest: %s", toolKey)
-	}
+		defaultGuardrails = cfg
+	})
 
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("source manifest not found on disk for %s: %w", toolKey, err)
-	}
-	
-	// 1. Read existing manifest to preserve all fields
-	var m ToolManifest
-
-	data, err := os.ReadFile(path)
+	// Deep copy so callers cannot mutate the shared cache through the returned
+	// value's slices/maps.
+	data, err := json.Marshal(defaultGuardrails)
 	if err != nil {
-		return fmt.Errorf("failed to read manifest for writing: %w", err)
+		return defaultGuardrails
 	}
-
-	if err := json.Unmarshal(data, &m); err != nil {
-		return err
+	var copy models.AgentGuardrailsConfig
+	if err := json.Unmarshal(data, &copy); err != nil {
+		return defaultGuardrails
 	}
-
-	// 2. Replace Guardrails
-	newData, err := json.MarshalIndent(guardrails, "", "  ")
-	if err != nil {
-		return err
-	}
-	m.Guardrails = newData
-
-	// 3. Write back
-	finalData, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, finalData, 0644)
+	return copy
 }

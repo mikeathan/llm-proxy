@@ -26,7 +26,6 @@ type ConversationDeps interface {	SelectModels() (string, string)
 	MemoryStore() *memory.Store
 	Events() EventPublisher
 	RunLoggingEnabled() bool
-	RootDir() string
 }
 
 type conversationService struct {
@@ -99,6 +98,18 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	return s.handleSuccessResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log), nil
 }
 
+// NormalizeConversationID returns the given conversation ID, or generates a
+// fresh "conv_<timestamp>" ID when it is empty. It is the single source of
+// truth for new-conversation ID generation, used both when resolving a session
+// and when creating the per-run recording directory so the two agree on the
+// same ID for a brand-new conversation.
+func NormalizeConversationID(conversationID string) string {
+	if conversationID == "" {
+		return "conv_" + time.Now().Format("20060102150405")
+	}
+	return conversationID
+}
+
 func (s *conversationService) resolveSession(workspaceID, conversationID, contextVersion, timezone string, log logging.Logger) (*models.AssistantSession, error) {
 	session, sErr := s.persistence.ReadSession(workspaceID, conversationID)
 	if sErr != nil {
@@ -107,9 +118,7 @@ func (s *conversationService) resolveSession(workspaceID, conversationID, contex
 	}
 
 	if session == nil {
-		if conversationID == "" {
-			conversationID = "conv_" + time.Now().Format("20060102150405")
-		}
+		conversationID = NormalizeConversationID(conversationID)
 		session = &models.AssistantSession{
 			ID:             conversationID,
 			WorkspaceID:    workspaceID,

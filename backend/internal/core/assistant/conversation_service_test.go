@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/core/assistant/guardrails"
@@ -119,6 +120,22 @@ func TestConversationService_Execute_NewSession(t *testing.T) {
 	if len(result.Events) == 0 {
 		t.Error("Events should not be empty")
 	}
+}
+
+func TestNormalizeConversationID(t *testing.T) {
+	t.Run("empty generates fresh ID", func(t *testing.T) {
+		got := NormalizeConversationID("")
+		if !strings.HasPrefix(got, "conv_") || len(got) <= len("conv_") {
+			t.Fatalf("NormalizeConversationID(\"\") = %q, want conv_<timestamp>", got)
+		}
+	})
+
+	t.Run("non-empty preserved", func(t *testing.T) {
+		const id = "conv_20260101120000"
+		if got := NormalizeConversationID(id); got != id {
+			t.Fatalf("NormalizeConversationID(%q) = %q, want %q", id, got, id)
+		}
+	})
 }
 
 func TestConversationService_Execute_EmptyWorkspaceID(t *testing.T) {

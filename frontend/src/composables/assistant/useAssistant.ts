@@ -6,14 +6,16 @@ import { buildSegmentsFromHistory } from '../../utils/message/turnGrouper'
 import type { SessionLifecyclePayload } from './useAssistantSSE'
 import type { AssistantMessage, SessionBrief } from '../../types/assistant'
 import { clearRunningFlags } from '../../utils/assistant/running'
+import { useAppBanner } from '../ui/useAppBanner'
+
+const { show: showBanner, clear: clearBanner } = useAppBanner()
 
 const loading = ref(false)
-const error = ref<string | null>(null)
 const currentSessionId = ref<string | null>(null)
 const messages = ref<AssistantMessage[]>([])
 const sessions = ref<SessionBrief[]>([])
 const activeWorkspaceId = ref<string | null>(null)
-  const abortController = ref<AbortController | null>(null)
+const abortController = ref<AbortController | null>(null)
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
 
@@ -35,7 +37,15 @@ export function useAssistant() {
 
   const sse = useAssistantSSE(
     () => activeWorkspaceId.value || '',
-    (ev) => builder.handleEvent(ev),
+    (ev) => {
+      // An early run failure (e.g. no model configured) is terminal on the SSE
+      // bus — no lifecycle{completed} will follow, so clear the loading state
+      // that sendMessage() set, otherwise the UI hangs on a spinner forever.
+      if (ev.type === 'error') {
+        loading.value = false
+      }
+      builder.handleEvent(ev)
+    },
     applySessionUpdate,
   )
 
@@ -85,10 +95,10 @@ export function useAssistant() {
 
   const fetchSessions = async (workspaceId: string) => {
     loading.value = true
-    error.value = null
+    clearBanner()
     try {
       // Preserve in-memory running state — the disk doesn't store it and
-      // SSE lifecycle events update it faster than ListSessions re-reads.
+      // SSE events update it faster than ListSessions re-reads.
       // Capture after the API call so SSE events that arrived during the
       // request are reflected (avoids a race between connectSSE and fetch).
       const result = await AssistantService.listSessions(workspaceId)
@@ -98,7 +108,7 @@ export function useAssistant() {
         running: s.running ?? runningIds.has(s.id)
       }))
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to fetch sessions'
+      showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to fetch sessions' })
       console.error(err)
     } finally {
       loading.value = false
@@ -124,12 +134,12 @@ export function useAssistant() {
     }
 
     loading.value = true
-    error.value = null
+    clearBanner()
     sse.reset()
     try {
       const session = await AssistantService.getSession(workspaceId, sessionId)
       if (!session) {
-        error.value = 'Session not found'
+        showBanner({ severity: 'error', message: 'Session not found' })
         newSession()
         return
       }
@@ -193,7 +203,7 @@ export function useAssistant() {
     messages.value.push({ role: 'user', content: text })
 
     loading.value = true
-    error.value = null
+    clearBanner()
 
     sse.reset()
     builder.reset()
@@ -270,9 +280,8 @@ export function useAssistant() {
     } catch (err) {
       if ((err as any)?.name === 'AbortError') {
         aborted = true
-        error.value = null
       } else {
-        error.value = err instanceof Error ? err.message : 'Failed to send message'
+        showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to send message' })
         console.error(err)
       }
       sse.disconnect()
@@ -289,7 +298,7 @@ export function useAssistant() {
 
   const deleteSession = async (workspaceId: string, sessionId: string) => {
     loading.value = true
-    error.value = null
+    clearBanner()
     try {
       await AssistantService.deleteSession(workspaceId, sessionId)
       sessions.value = sessions.value.filter(s => s.id !== sessionId)
@@ -299,7 +308,7 @@ export function useAssistant() {
         messages.value = []
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to delete session'
+      showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to delete session' })
       console.error(err)
     } finally {
       loading.value = false
@@ -315,7 +324,7 @@ export function useAssistant() {
   const deleteSessionsByIds = async (workspaceId: string, ids: string[]) => {
     if (ids.length === 0) return
     loading.value = true
-    error.value = null
+    clearBanner()
     try {
       for (const id of ids) {
         await AssistantService.deleteSession(workspaceId, id)
@@ -327,7 +336,7 @@ export function useAssistant() {
       }
       await fetchSessions(workspaceId)
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to delete sessions'
+      showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to delete sessions' })
       console.error(err)
     } finally {
       loading.value = false
@@ -355,34 +364,34 @@ export function useAssistant() {
         messages.value = []
         messages.value.push({ role: 'user', content: p.snippet })
       }
-		if (idx === -1) {
-			sessions.value.unshift({
-				id: cid,
-				snippet: p.snippet ?? "",
-				updated_at: new Date().toISOString(),
-				running: true,
-				source: p.source,
-			})
-		} else {
-			const existing = sessions.value[idx]
-			if (existing) sessions.value[idx] = { ...existing, running: true, snippet: p.snippet ?? existing.snippet, source: p.source ?? existing.source }
-		}
-		} else if (p.phase === "session_progress") {
-			if (idx !== -1) {
-				const existing = sessions.value[idx]
-				// Keep the stable title set on session_started. Progress events
-				// carry transient step text ("Step N: ..."), not the title.
-				if (existing) sessions.value[idx] = { ...existing, snippet: existing.snippet }
-			}
-		}
-		else if (p.phase === "session_completed") {
-			if (idx !== -1) {
-				const existing = sessions.value[idx]
-				if (existing) sessions.value[idx] = { ...existing, running: false }
-			}
-			if (cid === currentSessionId.value) {
-				loading.value = false
-			}
+      if (idx === -1) {
+        sessions.value.unshift({
+          id: cid,
+          snippet: p.snippet ?? "",
+          updated_at: new Date().toISOString(),
+          running: true,
+          source: p.source,
+        })
+      } else {
+        const existing = sessions.value[idx]
+        if (existing) sessions.value[idx] = { ...existing, running: true, snippet: p.snippet ?? existing.snippet, source: p.source ?? existing.source }
+      }
+    } else if (p.phase === "session_progress") {
+      if (idx !== -1) {
+        const existing = sessions.value[idx]
+        // Keep the stable title set on session_started. Progress events
+        // carry transient step text ("Step N: ..."), not the title.
+        if (existing) sessions.value[idx] = { ...existing, snippet: existing.snippet }
+      }
+    }
+    else if (p.phase === "session_completed") {
+      if (idx !== -1) {
+        const existing = sessions.value[idx]
+        if (existing) sessions.value[idx] = { ...existing, running: false }
+      }
+      if (cid === currentSessionId.value) {
+        loading.value = false
+      }
     }
   }
 
@@ -396,7 +405,6 @@ export function useAssistant() {
 
   return {
     loading,
-    error,
     currentSessionId,
     messages,
     sessions,

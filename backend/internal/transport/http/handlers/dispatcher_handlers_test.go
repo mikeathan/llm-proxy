@@ -18,7 +18,8 @@ import (
 
 // Minimal hand-rolled mock for dispatcher satisfying the full interface
 type testDispatcher struct {
-	mgr *persistence.WorkspaceManager
+	mgr        *persistence.WorkspaceManager
+	stopCalled map[string]bool
 }
 
 func (t *testDispatcher) Persistence() *persistence.WorkspaceManager { return t.mgr }
@@ -26,7 +27,12 @@ func (t *testDispatcher) Register(ws string, a *models.Automation) error { retur
 func (t *testDispatcher) Unregister(ws, name string) error { return nil }
 func (t *testDispatcher) ListAll() []*automation.AutomationEntry { return nil }
 func (t *testDispatcher) Trigger(ctx context.Context, ws, name, _ string) error { return nil }
-func (t *testDispatcher) StopAutomation(ws string) error { return nil }
+func (t *testDispatcher) StopAutomation(ws string) error {
+	if t.stopCalled != nil {
+		t.stopCalled[ws] = true
+	}
+	return nil
+}
 func (t *testDispatcher) Metrics() *automation.DispatcherMetrics { return &automation.DispatcherMetrics{} }
 func (t *testDispatcher) Events() *automation.EventBus { return nil }
 func (t *testDispatcher) GlobalActivity() []models.AutomationRun { return nil }
@@ -172,5 +178,152 @@ func TestDispatcherHandlers_Validation(t *testing.T) {
 				t.Errorf("%s: expected status %d, got %d. Body: %s", tt.name, tt.wantStatus, rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+// listDispatcher returns a fixed automation entry so ListAutomations can be
+// exercised through the handler.
+type listDispatcher struct {
+	*testDispatcher
+	entries []*automation.AutomationEntry
+}
+
+func (l *listDispatcher) ListAll() []*automation.AutomationEntry { return l.entries }
+
+// TestListAutomations_NoStaleOutputAfterDelete verifies that an automation's
+// output is sourced only from its own latest run (LastRuns), and that deleting
+// all its runs removes the output entirely rather than surfacing stale data.
+func TestListAutomations_NoStaleOutputAfterDelete(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	wsID := "auto-output"
+	automationName := "task-a"
+
+	entry := &automation.AutomationEntry{
+		ID:        wsID + "/" + automationName,
+		Workspace: wsID,
+		Name:      automationName,
+		TaskFile:  "task.md",
+		Model:     "model-1",
+	}
+	entry.Trigger, _ = automation.New(models.TriggerConfig{Type: models.TriggerManual})
+	entry.Strategy = &automation.IsolatedStrategy{}
+
+	handlers := NewDispatcherHandlers(
+		&listDispatcher{testDispatcher: &testDispatcher{mgr: mgr}, entries: []*automation.AutomationEntry{entry}},
+		NewWorkspaceService(mgr),
+		logging.NewNopLogger(),
+	)
+
+	last := &models.AutomationRun{
+		ID:             "run_1",
+		WorkspaceID:    wsID,
+		AutomationName: automationName,
+		Model:          "model-1",
+		Output:         "latest summary",
+	}
+	if err := mgr.WriteState(wsID, &models.AgentState{LastRuns: map[string]*models.AutomationRun{automationName: last}}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/admin/api/dispatcher/automations", nil)
+	rr := httptest.NewRecorder()
+	handlers.ListAutomations(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ListAutomations status: %d %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "latest summary") {
+		t.Fatalf("expected automation output from LastRuns, got: %s", rr.Body.String())
+	}
+
+	// Delete all runs for the automation; its output must disappear.
+	if err := mgr.DeleteAutomationRuns(wsID, automationName); err != nil {
+		t.Fatalf("DeleteAutomationRuns: %v", err)
+	}
+	rr = httptest.NewRecorder()
+	handlers.ListAutomations(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ListAutomations status after delete: %d", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "latest summary") {
+		t.Errorf("stale automation output surfaced after deleting all runs: %s", rr.Body.String())
+	}
+}
+
+// TestDeleteRun_NotFound returns 404 when the run ID has no history entry, so a
+// double-click or already-deleted run does not surface a spurious server error.
+func TestDeleteRun_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	handlers := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	req := httptest.NewRequest("DELETE", "/admin/api/dispatcher/runs/ws/run/run_999", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("run", "run_999")
+	rr := httptest.NewRecorder()
+	handlers.DeleteRun(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown run, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestDeleteWorkspace_RemovesAllLocationsAndStopsRuns verifies the DELETE
+// workspace endpoint stops any in-flight automation and removes the entire
+// on-disk footprint: the user content dir, the metadata dir (config.yaml,
+// state.json, .lock, process.log, sessions/), and the runs tree.
+func TestDeleteWorkspace_RemovesAllLocationsAndStopsRuns(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	dispatcher := &testDispatcher{mgr: mgr, stopCalled: map[string]bool{}}
+	handlers := NewDispatcherHandlers(dispatcher, NewWorkspaceService(mgr), logging.NewNopLogger())
+	wsID := "delete-ws"
+
+	if err := mgr.WriteTaskFile(wsID, "notes.txt", "hello"); err != nil {
+		t.Fatalf("WriteTaskFile: %v", err)
+	}
+	if err := mgr.WriteConfig(wsID, &models.WorkspaceConfig{Model: "m"}); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	if err := mgr.WriteState(wsID, &models.AgentState{}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	if err := mgr.WriteSession(wsID, &models.AssistantSession{
+		ID: "s1", WorkspaceID: wsID, History: []models.Message{{Role: models.UserRole, Content: "hi"}},
+	}); err != nil {
+		t.Fatalf("WriteSession: %v", err)
+	}
+	if err := os.WriteFile(resolver.Lock(wsID), nil, 0600); err != nil {
+		t.Fatalf("write .lock: %v", err)
+	}
+	if err := os.WriteFile(resolver.ProcessLog(wsID), []byte("log"), 0600); err != nil {
+		t.Fatalf("write process.log: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(resolver.WorkspaceRunsDir(wsID), "m", "task", "r1"), 0755); err != nil {
+		t.Fatalf("seed run dir: %v", err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/admin/api/dispatcher/workspaces/"+wsID, nil)
+	req.SetPathValue(models.WorkspaceIDParam, wsID)
+	rr := httptest.NewRecorder()
+	handlers.DeleteWorkspace(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DeleteWorkspace status: %d %s", rr.Code, rr.Body.String())
+	}
+
+	if !dispatcher.stopCalled[wsID] {
+		t.Error("expected StopAutomation to be called for the workspace")
+	}
+
+	for _, path := range []string{
+		resolver.WorkspaceDir(wsID),
+		resolver.InternalDir(wsID),
+		resolver.WorkspaceRunsDir(wsID),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, err=%v", path, err)
+		}
 	}
 }

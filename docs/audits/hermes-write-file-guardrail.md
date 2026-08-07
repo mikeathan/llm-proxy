@@ -11,7 +11,7 @@ last_reviewed: 2026-07-19
 
 ## Symptom
 
-A weak local model (Qwen3.5-9B) called `write_file` to persist a network-scan report despite the system prompt instructing it not to. Earlier plan docs (`docs/PLANS/cross-cutting/universal-agent-completion.md:699`) cited "Hermes guardrail layers (for small/weak models)" raising the question of whether we should copy a Hermes structural guardrail that blocks file writes when not explicitly requested.
+A weak local model (Qwen3.5-9B) called `write_file` to persist a network-scan report despite the system prompt instructing it not to. Earlier plan docs (`docs/PLANS/ARCHIVE/cross-cutting/universal-agent-completion.md:699`) cited "Hermes guardrail layers (for small/weak models)" raising the question of whether we should copy a Hermes structural guardrail that blocks file writes when not explicitly requested.
 
 ## Finding
 
@@ -30,4 +30,4 @@ No structural fix to port from Hermes. The gap is inherent to prompt-based tool 
 
 - Hermes Agent source: `run_agent.py` (AIAgent), `agent/prompt_builder.py`
 - Hermes docs: https://hermes-agent.nousresearch.com/docs/developer-guide/agent-loop
-- Plan doc: `docs/PLANS/cross-cutting/universal-agent-completion.md` §699
+- Plan doc: `docs/PLANS/ARCHIVE/cross-cutting/universal-agent-completion.md` §699

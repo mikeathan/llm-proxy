@@ -1,6 +1,8 @@
 package persistence
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -119,6 +121,151 @@ func TestWorkspaceManager_Paths(t *testing.T) {
 	rel := mgr.GetRelativeWorkspacePath()
 	if rel == "" {
 		t.Error("expected non-empty relative path")
+	}
+}
+
+// TestWorkspaceManager_DeleteWorkspace_RemovesAllLocations verifies that
+// deleting a workspace removes every on-disk location it owns: the user content
+// dir, the full per-workspace metadata dir (config.yaml, state.json, .lock,
+// process.log, sessions/), and the automation runs tree.
+func TestWorkspaceManager_DeleteWorkspace_RemovesAllLocations(t *testing.T) {
+	tmpWorkspaces := t.TempDir()
+	tmpMetadata := t.TempDir()
+	resolver := storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpMetadata)
+	mgr := NewWorkspaceManager(resolver)
+	wsID := "delete-me"
+
+	// Seed user content.
+	if err := mgr.WriteTaskFile(wsID, "notes.txt", "hello"); err != nil {
+		t.Fatalf("WriteTaskFile: %v", err)
+	}
+
+	// Seed metadata: config, state, a session, a lock file and a process log.
+	if err := mgr.WriteConfig(wsID, &models.WorkspaceConfig{Model: "m"}); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	if err := mgr.WriteState(wsID, &models.AgentState{NextRunAt: time.Now()}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	if err := mgr.WriteSession(wsID, &models.AssistantSession{
+		ID:          "s1",
+		WorkspaceID: wsID,
+		History:     []models.Message{{Role: models.UserRole, Content: "hi"}},
+	}); err != nil {
+		t.Fatalf("WriteSession: %v", err)
+	}
+	if err := os.WriteFile(resolver.ProcessLog(wsID), []byte("log"), 0600); err != nil {
+		t.Fatalf("write process.log: %v", err)
+	}
+	if err := os.WriteFile(resolver.Lock(wsID), nil, 0600); err != nil {
+		t.Fatalf("write .lock: %v", err)
+	}
+
+	// Seed an automation runs tree.
+	if err := os.MkdirAll(filepath.Join(resolver.WorkspaceRunsDir(wsID), "m", "task", "20260815T120000Z_aaaa"), 0755); err != nil {
+		t.Fatalf("seed run dir: %v", err)
+	}
+
+	// Every location must exist before the delete.
+	for _, path := range []string{
+		resolver.WorkspaceDir(wsID),
+		resolver.InternalDir(wsID),
+		resolver.WorkspaceRunsDir(wsID),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("precondition: %s should exist: %v", path, err)
+		}
+	}
+
+	if err := mgr.DeleteWorkspace(wsID); err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+
+	// Every location must be gone afterwards.
+	for _, path := range []string{
+		resolver.WorkspaceDir(wsID),
+		resolver.InternalDir(wsID),
+		resolver.WorkspaceRunsDir(wsID),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, err=%v", path, err)
+		}
+	}
+}
+
+// seedRunDir creates a run directory with a marker file so deletion tests can
+// assert on real on-disk removal.
+func seedRunDir(t *testing.T, base, model, task string) string {
+	t.Helper()
+	dir := filepath.Join(base, model, task, "20260815T120000Z_aaaa")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("seed run dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("seed events.jsonl: %v", err)
+	}
+	return dir
+}
+
+func TestWorkspaceManager_DeleteSession_RemovesRunDirs(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := NewWorkspaceManager(resolver)
+	wsID := "ws-1"
+
+	if err := mgr.WriteSession(wsID, &models.AssistantSession{
+		ID: "conv_1", WorkspaceID: wsID,
+		History: []models.Message{{Role: models.UserRole, Content: "hi"}},
+	}); err != nil {
+		t.Fatalf("WriteSession: %v", err)
+	}
+
+	runToDelete := seedRunDir(t, resolver.WorkspaceRunsDir(wsID), "m1", "conv_1")
+	runToKeep := seedRunDir(t, resolver.WorkspaceRunsDir(wsID), "m1", "conv_2")
+
+	if err := mgr.DeleteSession(wsID, "conv_1"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	if _, err := os.Stat(runToDelete); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be removed, err=%v", runToDelete, err)
+	}
+	if _, err := os.Stat(runToKeep); err != nil {
+		t.Errorf("expected unrelated run dir %s to remain, err=%v", runToKeep, err)
+	}
+}
+
+func TestWorkspaceManager_DeleteAllSessions_RemovesRunDirs(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := NewWorkspaceManager(resolver)
+	wsID := "ws-1"
+
+	for _, id := range []string{"conv_1", "conv_2"} {
+		if err := mgr.WriteSession(wsID, &models.AssistantSession{
+			ID: id, WorkspaceID: wsID,
+			History: []models.Message{{Role: models.UserRole, Content: "hi"}},
+		}); err != nil {
+			t.Fatalf("WriteSession %s: %v", id, err)
+		}
+	}
+
+	runA := seedRunDir(t, resolver.WorkspaceRunsDir(wsID), "m1", "conv_1")
+	runB := seedRunDir(t, resolver.WorkspaceRunsDir(wsID), "m1", "conv_2")
+	// An automation task dir is not a session ID and must survive.
+	runAuto := seedRunDir(t, resolver.WorkspaceRunsDir(wsID), "m1", "automation-x")
+
+	if err := mgr.DeleteAllSessions(wsID); err != nil {
+		t.Fatalf("DeleteAllSessions: %v", err)
+	}
+
+	for _, path := range []string{runA, runB} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, err=%v", path, err)
+		}
+	}
+	if _, err := os.Stat(runAuto); err != nil {
+		t.Errorf("expected automation run dir %s to remain, err=%v", runAuto, err)
 	}
 }
 

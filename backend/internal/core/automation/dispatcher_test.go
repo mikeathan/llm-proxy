@@ -44,9 +44,7 @@ func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 	wsPath := resolver.WorkspaceDir(wsID)
 	os.MkdirAll(filepath.Join(wsPath, ".internal"), 0755)
 
-	staleState := &models.AgentState{
-		LastOutput: "previous run output",
-	}
+	staleState := &models.AgentState{}
 	staleState.SetRunning("some-automation")
 	if err := manager.WriteState(wsID, staleState); err != nil {
 		t.Fatalf("failed to write stale state: %v", err)
@@ -100,12 +98,30 @@ func (e *pgidMockExecutor) ShellPGID(ctx context.Context, workspaceID string) (i
 	return e.pgid, e.pgidErr
 }
 
+// cancelDiagnostic cancels the StopAutomation diagnostic goroutine for a
+// workspace. StopAutomation leaves that goroutine sleeping until the
+// diagnostic delay (default 30s); cancelling it terminates the goroutine
+// promptly so a test that calls StopAutomation does not leak it.
+func cancelDiagnostic(t *testing.T, d *Dispatcher, workspaceID string) {
+	t.Helper()
+	d.runMu.Lock()
+	r, ok := d.activeRuns[workspaceID]
+	d.runMu.Unlock()
+	if ok && r.diagCancel != nil {
+		r.diagCancel()
+	}
+}
+
 func TestStopAutomation_ForceKillUsesPGID(t *testing.T) {
 	d := &Dispatcher{
 		logger:     logging.NewNopLogger(),
 		activeRuns: make(map[string]*activeRun),
 		executor:   &pgidMockExecutor{pgid: -12345},
 	}
+	// StopAutomation spawns a diagnostic goroutine that sleeps for the default
+	// 30s delay; cancel it so the test terminates the goroutine promptly instead
+	// of leaving it to linger until the delay elapses.
+	defer cancelDiagnostic(t, d, "test-ws")
 
 	_, cancel := context.WithCancel(context.Background())
 	d.activeRuns["test-ws"] = &activeRun{cancel: cancel, pgid: -12345}
@@ -135,6 +151,7 @@ func TestStopAutomation_NoShellGraceful(t *testing.T) {
 		activeRuns: make(map[string]*activeRun),
 		executor:   &pgidMockExecutor{pgidErr: fmt.Errorf("no shell")},
 	}
+	defer cancelDiagnostic(t, d, "test-ws")
 
 	_, cancel := context.WithCancel(context.Background())
 	d.activeRuns["test-ws"] = &activeRun{cancel: cancel}
@@ -169,13 +186,10 @@ func TestStopAutomation_NoActiveRun(t *testing.T) {
 }
 
 func TestStopAutomation_ReplacedRunNoStaleKill(t *testing.T) {
-	prevDelay := stopDiagnosticDelay
-	stopDiagnosticDelay = 0
-	defer func() { stopDiagnosticDelay = prevDelay }()
-
 	d := &Dispatcher{
-		logger:     logging.NewNopLogger(),
-		activeRuns: make(map[string]*activeRun),
+		logger:          logging.NewNopLogger(),
+		activeRuns:      make(map[string]*activeRun),
+		diagnosticDelay: 0,
 	}
 	d.events = NewEventBus()
 
@@ -222,4 +236,33 @@ func TestDefaultTaskExecutor_ShellPGID(t *testing.T) {
 	if pgid != 0 {
 		t.Errorf("expected 0, got %d", pgid)
 	}
+}
+
+func TestDispatcher_Stop_RespectsContext(t *testing.T) {
+	d, err := NewDispatcher(nil, &mockExecutor{}, logging.NewStderrLogger(logging.LevelError))
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+
+	// A cancelled context must make Stop return promptly rather than waiting on
+	// cron teardown. This guards the bounded-shutdown contract: shutdown must
+	// never stall past the caller's deadline.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		d.Stop(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success — Stop returned without blocking on the context deadline.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop blocked past the cancelled context deadline")
+	}
+
+	// Stop must be idempotent and safe to call again.
+	d.Stop(context.Background())
 }

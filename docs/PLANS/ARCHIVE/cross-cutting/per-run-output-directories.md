@@ -33,7 +33,7 @@ Replace flat recording files with per-run directories containing all run artifac
         recording.jsonl                    ← LLM request/response stream (already exists, moved here)
         events.jsonl                       ← AgentEvents, written live, never pruned
         run-meta.json                      ← Lightweight summary (duration, model, steps, error, recording path)
-        final-report.md                    ← The agent's submit_final_answer output
+        final-report.md                    ← The agent's final answer output
 ```
 
 ### What changes

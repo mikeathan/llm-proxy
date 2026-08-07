@@ -242,7 +242,6 @@ func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content st
 		return fmt.Errorf("file size exceeds quota (max %d KB)", cfg.MaxFileSizeKB)
 	}
 
-
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -316,7 +315,7 @@ func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlo
 		return "", fmt.Errorf("resulting file would exceed quota (max %d KB)", cfg.MaxFileSizeKB)
 	}
 
-	if err := storage.WriteAtomic(absPath, filepath.Base(absPath)+"-*.tmp", []byte(newContent)); err != nil {
+	if err := storage.WriteAtomic(absPath, filepath.Base(absPath)+"-*.tmp", []byte(newContent), storage.ClassUserContent); err != nil {
 		return "", fmt.Errorf("atomic write: %w", err)
 	}
 	return fmt.Sprintf("Replaced 1 block (%d bytes).", len(oldBlock)), nil
@@ -370,4 +369,3 @@ func buildReplacement(content, oldBlock, newBlock string, normIdx int, normConte
 
 	return content[:start] + newBlock + content[end:]
 }
-

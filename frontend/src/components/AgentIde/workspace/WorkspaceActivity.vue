@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { AutomationRun } from "../../../types/dispatcher";
+import InlineConfirm from "../../ui/InlineConfirm.vue";
+import { formatDate } from "../../../utils/format/time";
 
 const props = defineProps<{
   history: AutomationRun[];
@@ -9,7 +11,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "select-run", run: AutomationRun): void;
+  (e: "delete-run", run: AutomationRun): void;
 }>();
+
+const confirmDeleteRunId = ref<string | null>(null);
+
+function confirmDeleteRun(run: AutomationRun) {
+  confirmDeleteRunId.value = null;
+  emit("delete-run", run);
+}
 
 // Flat list of runs, sorted by most recent first
 const sortedHistory = computed(() => {
@@ -17,9 +27,6 @@ const sortedHistory = computed(() => {
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
   );
 });
-
-import { formatDate } from "../../../utils/format/time";
-
 
 const getStatusClass = (run: AutomationRun) => {
   if (run.error) return run.recording_ref ? "border-l-red-500 recording-run" : "border-l-red-500";
@@ -78,8 +85,25 @@ const formatDuration = (ms: number): string => {
               <span class="meta-sep">·</span>
               <span class="meta-val">{{ formatDuration(run.duration_ms) }}</span>
             </div>
-            <span v-if="run.error" class="fail-tag">Failed</span>
-            <span v-else class="success-tag">Success</span>
+            <div class="flex items-center gap-2">
+              <span v-if="run.error" class="fail-tag">Failed</span>
+              <span v-else class="success-tag">Success</span>
+              <button
+                class="run-del-btn"
+                :title="`Delete this run`"
+                @click.stop="confirmDeleteRunId = run.id"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div v-if="confirmDeleteRunId === run.id" class="card-confirm" @click.stop>
+            <InlineConfirm
+              :message="`Delete run for &quot;${run.automation_name}&quot;? This removes the run and its artifacts and cannot be undone.`"
+              @confirm="confirmDeleteRun(run)"
+              @cancel="confirmDeleteRunId = null"
+            />
           </div>
         </div>
       </div>
@@ -178,5 +202,13 @@ const formatDuration = (ms: number): string => {
 
 .success-tag {
   @apply text-[8px] bg-green-900/20 text-green-500 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-green-500/20 inline-block shrink-0;
+}
+
+.run-del-btn {
+  @apply text-[10px] text-gray-500 hover:text-red-400 shrink-0 w-4 h-4 flex items-center justify-center rounded;
+}
+
+.card-confirm {
+  @apply mt-2;
 }
 </style>

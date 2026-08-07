@@ -100,7 +100,7 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 
 func TestLoadTerminalManifest(t *testing.T) {
 	var manifest models.TerminalGuardrailsConfig
-	err := LoadManifest("", "terminal", &manifest)
+	err := LoadManifest("terminal", &manifest)
 	if err != nil {
 		t.Fatalf("Failed to load manifest: %v", err)
 	}

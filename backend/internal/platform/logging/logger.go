@@ -16,6 +16,12 @@ type LogPathProvider interface {
 	LogPath() string
 }
 
+// Reopenable is implemented by loggers that can replace their file descriptor
+// after the log directory was removed and recreated (e.g. clear-runtime-data).
+type Reopenable interface {
+	Reopen() error
+}
+
 var (
 	globalLogger Logger
 	mu           sync.RWMutex
@@ -31,6 +37,18 @@ func GetGlobalLogger() Logger {
 	mu.RLock()
 	defer mu.RUnlock()
 	return globalLogger
+}
+
+// ReopenGlobalLogger reopens the global logger's file target (if any) after the
+// log directory was removed and recreated. No-op for loggers without a file
+// target.
+func ReopenGlobalLogger() error {
+	if l := GetGlobalLogger(); l != nil {
+		if r, ok := l.(Reopenable); ok {
+			return r.Reopen()
+		}
+	}
+	return nil
 }
 
 func Debug(msg string, args ...any) {

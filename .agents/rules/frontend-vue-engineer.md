@@ -23,6 +23,11 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
     components.
 -   Domain models remain separate from API DTOs.
 -   Prefer composition over inheritance.
+-   **Centralization:** app-level init (startup data refresh, global watchers,
+    socket/SSE subscriptions, bootstrap) must live in **one centralized
+    composable/bootstrap** (e.g. a module-level singleton that registers its own
+    watchers), not scattered across components — so frontend lifecycle wiring is
+    not forgotten or duplicated.
 
 ## Vue 3
 
@@ -76,8 +81,7 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 -   Virtualize large lists.
 -   Debounce search; throttle resize/scroll.
 -   Use `v-show` for frequent toggles, `v-if` for infrequent rendering.
--   Memoize expensive rendering where justified.
--   Measure before optimizing.
+-   Measure before optimizing; use `computed()`, virtualization, or memoization only when justified by measured cost.
 
 ## Accessibility & UX
 

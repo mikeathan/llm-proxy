@@ -42,4 +42,4 @@ Build the following table using the actual search results. Replace `PASS` or `FA
 
 If any row has `FAIL`, the **Overall** is `FAIL`. If all rows are `PASS`, the **Overall** is `PASS`.
 
-Call `submit_final_answer` with the table above. Include any notes about unexpected results (e.g. leftover entries from previous runs). Do not call any other tools after the report.
+Write the final report with the table above. Include any notes about unexpected results (e.g. leftover entries from previous runs). Do not call any other tools after the report.

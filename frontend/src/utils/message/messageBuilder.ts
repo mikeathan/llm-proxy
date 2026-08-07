@@ -235,6 +235,17 @@ export function useMessageBuilder(
         streaming.value = false
         thinking.value = false
         return
+      case 'error':
+        // Early run failures (e.g. no model configured) arrive on the SSE bus before the agent starts; render them as a visible error segment.
+        ensureAssistant()
+        getSegments().push({ kind: 'error', message: String((ev.payload as any)?.error ?? 'Unknown error') })
+        streaming.value = false
+        thinking.value = false
+        // Terminal: the run ended before any lifecycle{completed} will fire, so
+        // drive the bubble to 'done' and let the owning composable clear loading.
+        setPhase('done')
+        forceUpdate()
+        return
       case 'message':
         // A message with content and no tool calls signals the final answer
         // (Hermes: "no tool calls + substantive content = done"). Finalize from

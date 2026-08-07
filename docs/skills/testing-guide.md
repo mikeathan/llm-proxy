@@ -48,7 +48,6 @@ go run main.go --record
 
 Each run produces:
 - `run-meta.json` — duration, LLM calls, tool calls, result
-- `run.log` — chronological agent events (turn timing, tool calls, reasoning length)
 - `recording.jsonl` — full request/response pairs (for replay)
 - `events.jsonl` — SSE events (lifecycle, stuck, fallback)
 - `final-report.md` — agent's final output

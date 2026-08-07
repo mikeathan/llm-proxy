@@ -119,6 +119,32 @@ func TestAdminConfigUpdateHandler_UpdateSystemError(t *testing.T) {
 	}
 }
 
+func TestAdminConfigUpdateHandler_ModelNotFoundIsBadRequest(t *testing.T) {
+	admin := &mocks.MockAdminService{
+		ApplySystemUpdateFunc: func(ctx context.Context, req models.SystemUpdatePayload) error {
+			return &models.ModelNotFoundError{Role: "primary", ModelName: "ghost"}
+		},
+	}
+	handler := newSystemHandlers(admin)
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/config", strings.NewReader(`{"primary_model":"ghost"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.AdminConfigUpdateHandler(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["error"] != `primary model "ghost" does not exist` {
+		t.Fatalf("expected clear model-not-found message, got %q", resp["error"])
+	}
+}
+
 func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
 	t.Setenv("SERVICE_CLIENT_ID", "client-id")
 	t.Setenv("SERVICE_CLIENT_SECRET", "client-secret")
