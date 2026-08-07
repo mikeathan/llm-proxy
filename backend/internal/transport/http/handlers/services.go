@@ -37,6 +37,11 @@ type RuntimeService interface {
 	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error
 	SelectModels() (string, string)
 	ApplyModelOverrides(overrides map[string]models.ModelOverride)
+	// ClassifyModel returns the workload class using the fully-hydrated
+	// effective endpoint (per-credential base_url overrides + provider
+	// defaults applied) — the same classification used at the runtime
+	// boundary, so registration never disagrees with runtime.
+	ClassifyModel(models.ModelConfig) models.WorkloadClass
 }
 
 type AdminService interface {

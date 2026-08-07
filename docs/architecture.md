@@ -243,13 +243,21 @@ When adding a prompt:
 
 3. **Saving model overrides to registry.json** — Agent tuning fields (`max_steps`, `context_budget`, `max_tokens`, `tool_call_format`, `prefill`) go to `settings.yml`, NOT `registry.json`. See Constitution III.5.
 
+   Provider-native reasoning toggles follow the same rule. Keep unset/true/false
+   distinct with a nullable field, and preserve explicit `false` during JSON
+   serialization.
+
 4. **Modifying history in the normalizer** — `NormalizeHistory()` does role conversion and metadata stripping only. Nag injection and feedback belong in the agent loop (`agent.go`). See Constitution II.8.
 
 5. **Adding new model fields without updating the UI** — New `ModelConfig` fields must be added to:
    - The request structs in `registry_handlers.go` (both add and update)
    - `adminModelView` in `admin_handlers.go`
    - `getModelsView()` mapping in `admin_view.go`
-   - Both `runtimeCfg` and `persistCfg` in the handler
+    - Both `runtimeCfg` and `persistCfg` in the handler
+
+   Scoped Vue styles do not cross component boundaries. When a form block moves
+   into a child component, move its layout and control styles with it rather than
+   relying on the parent component's scoped stylesheet.
 
 6. **Unified agent flow — assistant and automation share the same path** — Both assistant conversations and automation tasks use the same `buildChatRequest`, `processStream`, and `handleNoToolCalls` logic. No context-type branching exists in the agent core. Behavioral differences (memory injection) are expressed via `AgentOptions` fields. Natural completion (no tool calls + substantive visible content) is the canonical completion path — the model writes its answer as plain text when done, without requiring provider-specific tool-call conventions.
 
@@ -259,9 +267,30 @@ When adding a prompt:
 
 8. **`tool_choice` is NOT forced to `"required"`** — Phase 2 (§4.2.8) removed the `tool_choice: "required"` override. The model freely chooses between calling tools and writing text — natural completion requires the model to write its final answer as plain text without tool calls, which is only possible when `tool_choice` is not coerced.
 
-   Reasoning wire params are resolved per provider by `assistant/reasoning_param.go` — a `ReasoningSpec` (typed mode/effort/budget) is applied through a `ReasoningParamResolver` (strategy pattern). Only the provider-appropriate field is serialized: local llama.cpp → `thinking_budget_tokens`; openai/gemini/vertex/mulerouter → `reasoning_effort`; openrouter → `reasoning` object; nvidia → `chat_template_kwargs.enable_thinking`. A local host (via `IsLocalModelURL`) always overrides to `thinking_budget_tokens`, so an `openai`-slugged config pointed at local llama.cpp keeps working. See `models/llm_messages.go` `ChatRequest` and `stream.go` `buildChatRequest()`.
+   Reasoning wire params are resolved per provider by `assistant/reasoning_param.go` — a `ReasoningSpec` (typed mode/effort/budget) is applied through a `ReasoningParamResolver` (strategy pattern). Only the provider-appropriate field is serialized: local llama.cpp → `thinking_budget_tokens`; openai/gemini → `reasoning_effort`; openrouter → `reasoning` object; nvidia → `chat_template_kwargs.enable_thinking`. A workload classified `WorkloadLocal` (via the shared `WorkloadClassifier`, the same classifier that drives budget and ICU) always overrides to `thinking_budget_tokens`, so an `openai`-slugged config pointed at a local URL keeps working. See `models/llm_messages.go` `ChatRequest` and `stream.go` `buildChatRequest()`.
 
-   Even when `reasoning_budget` is 0 in the model config, the agent dynamically computes the local think-token budget from `max_tokens` via `DefaultReasoningBudget()` (= `max_tokens / 3`) and syncs it into `ReasoningSpec.Budget`. This is implemented at agent-build time in `resolveReasoningSpec` (`agent.go`), the single source of truth for the resolved spec, and scoped to local/GGUF providers (ModeThinkTokens). Because `max_tokens` is itself derived from the server's serving context (`ctxLen / 3` in `ApplyMetadataDefaults`), the reasoning budget tracks the context size the user launched the server with — no manual budget config, no model-name matching. Cloud providers (openai/gemini/vertex/openrouter/mulerouter/nvidia) use `reasoning_effort` / `reasoning` object / `chat_template_kwargs.enable_thinking` instead (see `assistant/reasoning_param.go`), never a numeric budget. An explicit `reasoning_budget` in the model config always overrides the derived value. See `agent.go` `DefaultReasoningBudget()` and `resolveReasoningSpec()`.
+   Even when `reasoning_budget` is 0 in the model config, the agent dynamically computes the local think-token budget from `max_tokens` via `DefaultReasoningBudget()` (= `max_tokens / 3`) and syncs it into `ReasoningSpec.Budget`. This is implemented at agent-build time in `resolveReasoningSpec` (`agent.go`), the single source of truth for the resolved spec, and scoped to local/GGUF workloads (ModeThinkTokens). Because `max_tokens` is itself derived from the server's serving context (`ctxLen / 3` in `ApplyMetadataDefaults`, **local-only**), the reasoning budget tracks the context size the user launched the server with — no manual budget config, no model-name matching.     Cloud workloads (openai/gemini/openrouter/nvidia) use `reasoning_effort` / `reasoning` object / `chat_template_kwargs.enable_thinking` instead (see `assistant/reasoning_param.go`), never a numeric budget. An explicit `reasoning_budget` in the model config always overrides the derived value. See `agent.go` `DefaultReasoningBudget()` and `resolveReasoningSpec()`.
+
+    **Never hardcode provider names to decide UI/feature gating.** The `reasoning_enabled`
+    toggle and any other provider-varying behaviour must be driven by the declarative
+    `ReasoningCapability` table in `assistant/reasoning_param.go`, surfaced to the frontend
+    via `provider_defaults[provider].reasoning` in `GET /admin/api/state`. The frontend
+    renders from that descriptor (e.g. `reasoning?.toggleable`, `policy.isCloud`) and never
+    writes `provider === 'nvidia' || provider === 'openrouter'`. Adding a provider = one
+    table row (+ one resolver only if the wire mechanism is new); no UI/backend name checks.
+    The table is keyed by *provider type* (wire protocol), not vendor, and is reclassified
+    `WorkloadLocal` by the shared `WorkloadClassifier` for local/loopback endpoints.
+
+    **The canonical provider key set has exactly one home:** `models.ProviderIDs()`
+    (backend, leaf package — no import cycle) and `PROVIDER_IDS` (frontend,
+    `constants/providers.ts`). The numeric tuning table (`models/tuning.go`),
+    the two reasoning tables (`assistant/reasoning_param.go`), and the frontend
+    `PROVIDER_META` display record all key off it, and a drift test
+    (`models/provider_registry_test.go`, `reasoning_param_test.go`) fails CI if any
+    table gains or loses a provider without the others. Provider *capabilities* (e.g.
+    `supports_base_url`, surfaced via `provider_defaults[id].supports_base_url`) are
+    emitted by the backend (`models.SupportsBaseURL`), never re-listed in the UI — the
+    old `new Set(['openai','openrouter','nvidia'])` in `Settings.vue` is gone.
 
 9. **Memory system — see `docs/skills/memory-system.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
 

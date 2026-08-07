@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/utils"
 	"math/rand/v2"
 	"net/http"
@@ -58,15 +60,10 @@ var (
 	// StreamChunkTimeout allows overriding the chunk timeout for testing.
 	StreamChunkTimeout = DefaultStreamChunkTimeout
 
-	// SharedTransport is a pooled transport shared by all LLMClient instances to ensure
-	// connection reuse and prevent socket exhaustion
-	SharedTransport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ResponseHeaderTimeout: DefaultResponseHeaderTimeout,
-		IdleConnTimeout:       DefaultIdleConnTimeout,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-	}
+	// SharedTransport is the pooled transport shared by all outbound HTTP
+	// clients.  Single source of truth lives in platform/network; this alias
+	// keeps existing callers compiling.
+	SharedTransport = network.SharedTransport
 )
 
 // NewLLMClient builds a client for an upstream that speaks the OpenAI-compatible
@@ -98,34 +95,6 @@ func newLLMClient(baseURL string, model string, httpClient *http.Client, headers
 // reasoning budget.
 func (c *LLMClient) ReasoningField() string {
 	return c.reasoningField
-}
-
-// IsLocalModelURL reports whether baseURL targets the local llama.cpp inference
-// host. llama.cpp expects the reasoning budget under "thinking_budget_tokens",
-// whereas any OpenAI-compatible gateway expects "reasoning_budget". Comparing
-// against the configured model host (rather than the provider slug) is what lets
-// an "openai"-slugged model whose BaseURL points at local llama.cpp use the
-// correct field.
-func IsLocalModelURL(baseURL, modelHost string) bool {
-	if modelHost == "" {
-		return false
-	}
-	norm := func(u string) string {
-		u = strings.TrimPrefix(u, "http://")
-		u = strings.TrimPrefix(u, "https://")
-		u = strings.TrimSuffix(u, "/")
-		return u
-	}
-	target := norm(baseURL)
-	host := norm(modelHost)
-	if target == host {
-		return true
-	}
-	// baseURL includes the /v1/chat/completions path or a port; compare host:port.
-	if strings.HasPrefix(target, host+":") || strings.HasPrefix(target, host+"/") {
-		return true
-	}
-	return false
 }
 
 // SetReasoningBudget applies budget to req under the field name reported by
@@ -215,6 +184,19 @@ func IsRetryableResponse(status int, body string) bool {
 	return false
 }
 
+// reqMaxTokens extracts the requested max_tokens from a serialized request body
+// so a typed output-cap error can report what was asked.  Returns 0 when the
+// field is absent or unparseable.
+func reqMaxTokens(body []byte) int {
+	var probe struct {
+		MaxTokens int `json:"max_tokens"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return 0
+	}
+	return probe.MaxTokens
+}
+
 // backoffForRetry returns the wait before retry attempt N (N >= 1) using
 // exponential growth (800ms, 1.6s, 3.2s) with ±20% jitter to avoid thundering
 // herds.
@@ -270,6 +252,15 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 		b, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		httpErr := &LLMHTTPError{Kind: kind, StatusCode: resp.StatusCode, Body: string(b)}
+		// An output-cap 400 is a deterministic capability failure: convert it
+		// to the typed OutputCapError immediately (never retried, never parsed
+		// outside the provider edge) so the caller can clamp and retry once.
+		if resp.StatusCode == http.StatusBadRequest {
+			if oe := providers.ParseOutputCapError(httpErr.Body); oe != nil {
+				oe.Requested = reqMaxTokens(body)
+				return nil, oe
+			}
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

@@ -1,12 +1,21 @@
 package providers
 
 import (
+	"errors"
 	"fmt"
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"sync"
 )
+
+// ErrUnknownProvider is the typed error returned when a model references a
+// provider that is not registered.  Providers fail closed rather than
+// silently falling back to local — a stale vertex/mulerouter entry in an
+// installed registry must be reported, never re-routed to the local host.
+var ErrUnknownProvider = errors.New("unknown provider")
 
 // ProviderRegistrar manages the configuration and instantiation of LLM providers.
 // It centralizes infrastructure settings and secret resolution.
@@ -17,6 +26,20 @@ type ProviderRegistrar struct {
 	secrets   models.SecretsStore
 	modelHost string
 
+	// workloadClassifier is built once with the model host and cached local
+	// interface IPs; reused for runtime workload classification.
+	workloadClassifier models.WorkloadClassifier
+
+	// doer is the dedicated provider infrastructure HTTP client (shared
+	// platform transport-backed, 45s timeout).  Injected by bootstrap.
+	doer HTTPDoer
+
+	// catalogCache is the SHARED catalog listing cache owned by the registrar.
+	// Provider instances are built fresh per call, so the cache must live here
+	// (not on the provider) for a catalog fetched once to be reused across
+	// calls (§2.10 #3).  Injected into OpenAI-compatible providers at Build.
+	catalogCache *core.TTLCache[string, []models.ProviderModelInfo]
+
 	// System defaults
 	defaultBinary   string
 	defaultModelDir string
@@ -25,10 +48,12 @@ type ProviderRegistrar struct {
 // NewProviderRegistrar creates a new registrar with the given dependencies.
 func NewProviderRegistrar(registry *ProviderRegistry, secrets models.SecretsStore, modelHost string) *ProviderRegistrar {
 	return &ProviderRegistrar{
-		registry:  registry,
-		configs:   make(map[string]models.ProviderItem),
-		secrets:   secrets,
-		modelHost: modelHost,
+		registry:           registry,
+		configs:            make(map[string]models.ProviderItem),
+		secrets:            secrets,
+		modelHost:          modelHost,
+		workloadClassifier: models.NewWorkloadClassifier(modelHost, models.LocalInterfaceIPs()),
+		catalogCache:       core.NewTTLCache[string, []models.ProviderModelInfo](catalogCacheMaxEntries, catalogTTL, nil),
 	}
 }
 
@@ -61,11 +86,21 @@ func (r *ProviderRegistrar) SetSecrets(s models.SecretsStore) {
 	r.secrets = s
 }
 
+// SetHTTPDoer injects the dedicated provider infrastructure HTTP client
+// (shared platform transport-backed, 45s timeout) threaded into provider
+// factories at build time.  Providers never inherit agent-tool guardrails (C1).
+func (r *ProviderRegistrar) SetHTTPDoer(doer HTTPDoer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.doer = doer
+}
+
 // SetModelHost updates the host used for local model inference.
 func (r *ProviderRegistrar) SetModelHost(host string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.modelHost = host
+	r.workloadClassifier = models.NewWorkloadClassifier(host, models.LocalInterfaceIPs())
 }
 
 // Build instantiates a models.Provider based on the provided model configuration.
@@ -139,13 +174,27 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 	if manifest, ok := r.registry.Get(providerName); ok {
 		logging.Debug("Instantiating cloud provider", "name", providerName, "url", pCfg.ProviderConfig.BaseURL, "manifest_default", manifest.DefaultBaseURL)
 		if factory, ok := GetProviderFactory(manifest.Archetype); ok {
-			return factory(pCfg, manifest), nil
+			provider := factory(pCfg, manifest)
+			// Thread the dedicated infrastructure client + shared workload
+			// classifier into providers that accept them (C1, §3.4).
+			if settable, ok := provider.(interface{ SetHTTPDoer(HTTPDoer) }); ok {
+				settable.SetHTTPDoer(r.doer)
+			}
+			if settable, ok := provider.(interface{ SetWorkloadClassifier(models.WorkloadClassifier) }); ok {
+				settable.SetWorkloadClassifier(r.workloadClassifier)
+			}
+			if settable, ok := provider.(interface{ SetCatalogCache(*core.TTLCache[string, []models.ProviderModelInfo]) }); ok {
+				settable.SetCatalogCache(r.catalogCache)
+			}
+			return provider, nil
 		}
 	}
 
-	// Resilient Fallback to local for unknown providers
-	logging.Warn("Unknown provider, falling back to local", "provider", providerName)
-	return NewLocalProvider(pCfg, r.defaultBinary, modelDir, r.ModelHost()), nil
+	// Fail closed: an unknown provider must never silently fall back to the
+	// local host.  Removing a provider (e.g. vertex/mulerouter deprecation)
+	// surfaces affected models as a typed error so the operator can migrate
+	// or delete them explicitly.
+	return nil, fmt.Errorf("%w: %s", ErrUnknownProvider, providerName)
 }
 
 // resolveSecret handles the logic of finding the real key for a masked or empty input.
@@ -174,15 +223,81 @@ func (r *ProviderRegistrar) resolveSecret(provider, key, name string) (string, s
 func (r *ProviderRegistrar) ModelHost() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return ResolveHost(r.modelHost)
+	return network.ResolveHost(r.modelHost)
+}
+
+// EffectiveEndpoint resolves the fully-hydrated base URL for a model's provider
+// endpoint, mirroring Build()'s secret-hydration and infrastructure-default
+// steps (1–2) WITHOUT constructing a provider.  This is the same source used
+// for inference, so workload classification and budget/context resolution key
+// on the effective endpoint — including per-credential base-URL overrides.
+// Returns an empty string when nothing is configured (local models).
+func (r *ProviderRegistrar) EffectiveEndpoint(cfg models.ModelConfig) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.EffectiveEndpointLocked(cfg)
+}
+
+// EffectiveEndpointLocked is the lock-free core of EffectiveEndpoint.  Callers
+// must hold r.mu (read).
+func (r *ProviderRegistrar) EffectiveEndpointLocked(cfg models.ModelConfig) string {
+	pCfg := cfg.ProviderConfig
+	if pCfg == nil {
+		return ""
+	}
+
+	providerName := cfg.Provider
+	if providerName == "" || providerName == "local" {
+		return ""
+	}
+
+	baseURL := pCfg.BaseURL
+
+	// 1. Per-credential base_url override from the secrets store.
+	if r.secrets != nil {
+		apiKey := pCfg.APIKey
+		apiKeyName := pCfg.APIKeyName
+		if apiKey == "" || storage.IsMasked(apiKey) {
+			if _, keyBaseURL, err := r.resolveSecret(providerName, apiKey, apiKeyName); err == nil && keyBaseURL != "" {
+				baseURL = keyBaseURL
+			}
+		}
+	}
+
+	// 2. Registrar infrastructure default.
+	if baseURL == "" {
+		if item, ok := r.configs[providerName]; ok {
+			baseURL = item.BaseURL
+		}
+	}
+
+	// 3. Manifest default base URL (no configured override).
+	if baseURL == "" {
+		if manifest, ok := r.registry.Get(providerName); ok {
+			baseURL = manifest.DefaultBaseURL
+		}
+	}
+
+	return baseURL
+}
+
+// Classify returns the workload class for a model using the fully-hydrated
+// effective endpoint (per-credential overrides + provider defaults applied).
+func (r *ProviderRegistrar) Classify(cfg models.ModelConfig) models.WorkloadClass {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	classifierCfg := cfg
+	if classifierCfg.ProviderConfig == nil {
+		classifierCfg.ProviderConfig = &models.ProviderConfig{}
+	} else {
+		cp := *classifierCfg.ProviderConfig
+		classifierCfg.ProviderConfig = &cp
+	}
+	classifierCfg.ProviderConfig.BaseURL = r.EffectiveEndpointLocked(cfg)
+	return r.workloadClassifier.Classify(classifierCfg)
 }
 
 // DefaultBinary returns the configured llama-server binary path.
-func (r *ProviderRegistrar) DefaultBinary() string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.defaultBinary
-}
 
 // ResolveBinary returns the best available binary path: the explicit value from
 // the local provider config if set, otherwise the default. This is the

@@ -97,7 +97,6 @@ func createTestServer(t *testing.T, mgr llm.RuntimeManager, initialCfg *models.C
 	settingsData, _ := json.Marshal(settings)
 	_ = os.WriteFile(filepath.Join(dir, "settings.yml"), settingsData, 0644)
 
-
 	// 2. Create Registry (registry.json)
 	reg := models.RegistryData{
 		Providers: make(map[string]models.ProviderRegistryEntry),
@@ -847,4 +846,25 @@ func TestAppContext_TerminalLifecycle(t *testing.T) {
 			t.Error("expected error when terminal provider is nil")
 		}
 	})
+
+}
+
+func TestApplySystemUpdate_GPUMetricsFields(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+
+	err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{
+		GPUSampleIntervalSec: 7,
+		GPUSmoothingAlpha:    0.15,
+	})
+	if err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+
+	sys := srv.GetSystem()
+	if sys.Metrics.GPUSampleIntervalSec != 7 {
+		t.Fatalf("expected GPUSampleIntervalSec 7, got %d", sys.Metrics.GPUSampleIntervalSec)
+	}
+	if sys.Metrics.GPUSmoothingAlpha != 0.15 {
+		t.Fatalf("expected GPUSmoothingAlpha 0.15, got %v", sys.Metrics.GPUSmoothingAlpha)
+	}
 }

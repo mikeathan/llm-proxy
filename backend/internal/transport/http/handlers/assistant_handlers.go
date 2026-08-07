@@ -59,19 +59,27 @@ func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandl
 	}
 }
 
+// ServeHTTP accepts an assistant message and starts the agent run as a
+// detached background job. It returns immediately with 202 Accepted and a
+// lightweight status payload; the run outlives this HTTP request and is
+// observed by the client over the SSE event bus (reasoning/content stream,
+// lifecycle completion). This keeps a run alive across page refreshes and
+// client disconnects — only the explicit /assistant/cancel endpoint stops it.
 func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	payload, log, ok := h.prepareRequest(w, r)
 	if !ok {
 		return
 	}
 
-	result, err := h.RunWithCancel(r.Context(), payload.WorkspaceID, payload, log)
-	if err != nil {
-		writeJSONError(w, err.Status, err.Message)
-		return
-	}
+	go func() {
+		_, _ = h.RunWithCancel(r.Context(), payload.WorkspaceID, payload, log)
+	}()
 
-	respondJSON(w, result)
+	w.WriteHeader(http.StatusAccepted)
+	respondJSON(w, map[string]any{
+		"status":          "running",
+		"conversation_id": payload.ConversationID,
+	})
 }
 
 // cancelPriorForWorkspace signals any in-flight agent for the same workspace
@@ -252,13 +260,20 @@ func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.
 // in-flight agent for the same workspace, executes handleAssistant, then
 // cleans up the running map entry.
 //
-// The parent ctx is chained so that client disconnects (HTTP path) or
-// explicit cancels propagate to the agent.  Webhook callers should pass
-// context.Background() because the agent outlives the webhook HTTP request.
+// The execution context is derived from context.Background(), NOT the caller's
+// context. This is intentional: a client disconnect (page refresh / tab close /
+// aborted fetch) must NOT kill an in-flight assistant run. The run outlives the
+// triggering HTTP request and is observed via the SSE event bus instead. The
+// only way to stop a run is the explicit /assistant/cancel endpoint, which
+// calls the stored cancel func. This mirrors the automation subsystem, which
+// already runs detached via context.Background().
+//
+// The ctx parameter is retained for signature stability and is only used for
+// request-scoped logging/values; it does not cancel the run.
 func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID string, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
 	h.cancelPriorForWorkspace(workspaceID, log)
 
-	execCtx, cancel := context.WithCancel(ctx)
+	execCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	h.running.Store(workspaceID, &runningAgent{cancel: cancel, done: done})
 	defer func() {

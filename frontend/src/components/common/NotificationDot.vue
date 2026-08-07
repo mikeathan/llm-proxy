@@ -17,7 +17,7 @@ defineProps<{
 }
 
 .notif-dot {
-  @apply absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full animate-pulse;
+  @apply absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full;
   background: var(--color-live, #22c55e);
   box-shadow: 0 0 6px color-mix(in srgb, var(--color-live, #22c55e) 60%, transparent);
 }

@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
-import { PROVIDER_ICONS, PROVIDER_LABELS, PROVIDER_STYLES } from '../../constants/providers'
+import { PROVIDER_ICONS, PROVIDER_LABELS, PROVIDER_STYLES, PROVIDER_IDS } from '../../constants/providers'
 import type { ProviderType, SettingsTab } from '../../types/admin'
 
 export interface ProviderManifest {
@@ -29,10 +29,13 @@ export function useProviders() {
   }
 
   const cloudProviders = computed(() => {
-    // Merge static ones that might not be in the registry yet (like vertex/gemini if they stay as Go)
-    // and dynamic ones from the registry.
+    // Merge the static cloud providers (those not yet sourced from the dynamic
+    // registry) with dynamic ones. PROVIDER_IDS is the single source of truth
+    // for which providers exist; we exclude 'local' (infrastructure, not cloud).
     const dynamic = manifests.value.map(m => m.id as ProviderType)
-    const staticProviders: ProviderType[] = ['gemini', 'vertex']
+    const staticProviders = PROVIDER_IDS.filter(
+      (id): id is ProviderType => id !== 'local' && !dynamic.includes(id as ProviderType),
+    )
     return Array.from(new Set([...staticProviders, ...dynamic]))
   })
 

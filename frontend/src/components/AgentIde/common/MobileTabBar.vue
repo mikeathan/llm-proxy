@@ -42,7 +42,7 @@ function setPanel(v: "explorer" | "workspace" | "monitor") {
     <button
       @click="emit('toggle-chat')"
       :disabled="!canOpenAssistant"
-      :class="['mobile-tab', workspaceMiddleTab === 'chat' && modelValue === 'workspace' ? 'mobile-tab--active' : '', { 'animate-alert-glow': chatRunning }]"
+      :class="['mobile-tab', workspaceMiddleTab === 'chat' && modelValue === 'workspace' ? 'mobile-tab--active' : '', { 'mobile-tab--running': chatRunning }]"
       title="Open Workspace Assistant"
     >
       Chat
@@ -62,5 +62,10 @@ function setPanel(v: "explorer" | "workspace" | "monitor") {
 
 .mobile-tab--active {
   @apply bg-blue-600 text-white shadow-md;
+}
+
+.mobile-tab--running {
+  color: var(--color-live, #22c55e);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-live, #22c55e) 40%, transparent);
 }
 </style>

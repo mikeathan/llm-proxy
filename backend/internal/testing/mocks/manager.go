@@ -31,6 +31,7 @@ type MockManager struct {
 	ShutdownFunc               func()
 	RegistrarFunc              func() *providers.ProviderRegistrar
 	SyncFunc                   func()
+	ClassifyModelFunc          func(models.ModelConfig) models.WorkloadClass
 }
 
 func (m *MockManager) Registrar() *providers.ProviderRegistrar {
@@ -76,6 +77,17 @@ func (m *MockManager) ListProviderModels(ctx context.Context, provider, apiKeyNa
 		return m.ListProviderModelsFunc(ctx, provider, apiKeyName)
 	}
 	return nil, nil
+}
+
+// ClassifyModel defaults to the pure classifier (provider label, GGUF
+// artifact, effective endpoint host on ProviderConfig.BaseURL) so handler
+// tests keep working without a registrar; tests that exercise credential
+// hydration override ClassifyModelFunc.
+func (m *MockManager) ClassifyModel(cfg models.ModelConfig) models.WorkloadClass {
+	if m.ClassifyModelFunc != nil {
+		return m.ClassifyModelFunc(cfg)
+	}
+	return models.NewWorkloadClassifier("", nil).Classify(cfg)
 }
 
 func (m *MockManager) EnsureModel(ctx context.Context, name string) (llm.ModelInstance, error) {

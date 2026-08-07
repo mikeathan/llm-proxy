@@ -31,9 +31,10 @@ const (
 	stuckNonReasoningDivisor     = 1                // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
 	streamHeartbeatInterval      = 30 * time.Second // progress log during long streams
 	nonStreamHeartbeatInterval   = 15 * time.Second // fallback_waiting lifecycle event
-	stuckThresholdMultiplier     = 2                // stuck threshold = max_tokens * 2
-	streamCharCapMultiplier      = 4                // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
-	maxHotInjectionChars         = 2000             // character cap for hot memory injection
+	streamNotifyCoalesceInterval = 50 * time.Millisecond
+	stuckThresholdMultiplier     = 2    // stuck threshold = max_tokens * 2
+	streamCharCapMultiplier      = 4    // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
+	maxHotInjectionChars         = 2000 // character cap for hot memory injection
 	// emptyToolCallSpiralLimit: closed empty <tool_call></tool_call> blocks in pure-reasoning
 	// streams trigger stuck early. Qwen 3.5 observed looping 100+ empty tags (~19s) before the
 	// char threshold; abort at 3 closed empties so recovery (nag) starts in ~1s. Does not kill
@@ -71,10 +72,19 @@ func (a *Agent) buildChatRequest(
 		req.Temperature = a.config.Temperature
 	}
 	// Single source of truth for reasoning wire params. The resolver is chosen
-	// by provider type + local-host detection; buildChatRequest knows nothing
-	// about per-provider wire details (Dependency Inversion).
-	resolver := NewReasoningResolver(a.config.ProviderType, a.deps.Client, a.config.ReasoningBudget)
-	resolver.Apply(&req, a.config.ReasoningSpec)
+	// by workload class + provider type; buildChatRequest knows nothing about
+	// per-provider wire details (Dependency Inversion).
+	// Runtime guard: the final spec must pass Validate() before hitting the
+	// wire. An invalid spec (e.g. ModeObject + EffortNone) would otherwise
+	// reach the provider; on failure we emit no reasoning params at all.
+	if err := a.config.ReasoningSpec.Validate(); err != nil {
+		if a.deps.Logger != nil {
+			a.deps.Logger.Error("reasoning spec invalid; omitting reasoning params", "error", err)
+		}
+	} else {
+		resolver := NewReasoningResolver(a.config.WorkloadClass, a.config.ProviderType, a.config.ReasoningBudget)
+		resolver.Apply(&req, a.config.ReasoningSpec)
+	}
 	if a.deps.Logger != nil {
 		a.deps.Logger.Debug("reasoning resolver applied",
 			"provider", a.config.ProviderType,
@@ -539,6 +549,24 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 
 	streamStartTime := time.Now()
 
+	var pendingReasoning, pendingContent string
+	var lastEmittedReasoning, lastEmittedContent string
+	var lastNotifyAt time.Time
+	flushPendingNotify := func() {
+		if pendingReasoning != "" && pendingReasoning != lastEmittedReasoning {
+			a.notify(EventReasoning, pendingReasoning)
+			lastEmittedReasoning = pendingReasoning
+			pendingReasoning = ""
+		}
+		if pendingContent != "" && pendingContent != lastEmittedContent {
+			a.notify(EventToolStream, pendingContent)
+			lastEmittedContent = pendingContent
+			pendingContent = ""
+		}
+		lastNotifyAt = time.Now()
+	}
+	defer flushPendingNotify()
+
 	streamDone := make(chan struct{})
 	defer close(streamDone)
 
@@ -709,14 +737,18 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 
 				if reasoningChunk != "" || reasoningStr != "" || len(reasoningDetails) > 0 {
 					if disp := fullMsg.ExtractReasoning(); disp != "" {
-						a.notify(EventReasoning, disp)
+						pendingReasoning = disp
 					}
 				}
 				if chunkContent != "" {
 					displayContent, _ := FilterStreamingMarkup(fullMsg.Content)
 					if displayContent != "" {
-						a.notify(EventToolStream, displayContent)
+						pendingContent = displayContent
 					}
+				}
+
+				if time.Since(lastNotifyAt) >= streamNotifyCoalesceInterval {
+					flushPendingNotify()
 				}
 			}
 		}

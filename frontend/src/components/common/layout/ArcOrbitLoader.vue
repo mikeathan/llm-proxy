@@ -5,13 +5,11 @@ withDefaults(defineProps<{
   thickness?: number
   duration?: number
   color?: string
-  glow?: number
 }>(), {
   radius: '1rem',
   thickness: 1.5,
   duration: 2.4,
   color: '129, 140, 248',
-  glow: 4,
 })
 </script>
 
@@ -48,8 +46,9 @@ withDefaults(defineProps<{
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
+}
+.arc-orbit-loader.is-active::before {
   animation: arc-orbit v-bind(duration + 's') linear infinite;
-  filter: drop-shadow(0 0 v-bind(glow + 'px') rgba(v-bind(color), 0.45));
 }
 @keyframes arc-orbit {
   to { --arc-angle: 360deg; }

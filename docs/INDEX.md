@@ -50,27 +50,35 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
 | `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
-| `docs/PLANS/agent-loop/ephemeral-turn-context.md` | Ephemeral Turn Context | reverted | — | SPEC-001 |
+| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (**canonical empty-finalization-turn fix; GPU P5 depends on it**) | — | — | SPEC-001 |
 | `docs/PLANS/assistant-ui/automation-edit-form-reactivity.md` | Fix Automation Edit Form (reactive populate) | proposed | 2026-08-01 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md` | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/cancel-stale-turn-bleed.md` | Cancel Stale Turn Bleed | active | 2026-06-26 | SPEC-003 |
 | `docs/PLANS/assistant-ui/knight-rider-arc-bubble.md` | Knight Rider Arc Bubble | active | 2026-06-26 | SPEC-003 |
 | `docs/PLANS/assistant-ui/overhaul-chat-history-layout.md` | Assistant UI Overhaul | active | 2026-06-25 | SPEC-003 |
-| `docs/PLANS/cross-cutting/cloud-provider-token-budgets.md` | Cloud Provider Token Budgets + Provider Set Reduction | proposed | 2026-08-01 | SPEC-005, SPEC-003 |
+| `docs/PLANS/cross-cutting/cloud-provider-token-budgets.md` | Cloud Provider Token Budgets + Provider Set Reduction (**+ Phase 7 reasoning enable, merged**) | active | 2026-08-01 | SPEC-005, SPEC-003 |
+| `docs/PLANS/cross-cutting/per-model-reasoning-overrides-and-settings-layout.md` | Per-Model Reasoning Overrides and Settings Layout Repair | complete | 2026-08-02 | SPEC-005 |
 | `docs/PLANS/cross-cutting/connector-inbound-webhook.md` | Communication Connector Inbound Webhook | complete | 2026-06-28 | SPEC-009 |
 | `docs/PLANS/cross-cutting/connector-auto-reply.md` | Communication Connector Auto-Reply & Automation Trigger | active | 2026-06-28 | SPEC-009 |
 | `docs/PLANS/cross-cutting/reasoning-capture-dynamic.md` | Dynamic provider-agnostic reasoning + neutral indicator (incl. merged neutral-working-state) | complete | 2026-07-28 | SPEC-003, SPEC-005 |
 | `docs/PLANS/cross-cutting/session-source-backend-driven.md` | Session `source` derived from backend (single source of truth) | complete | 2026-07-09 | SPEC-009 |
 | `docs/PLANS/cross-cutting/universal-agent-completion.md` | Universal Agent Completion Model | complete | 2026-07-21 | SPEC-001, SPEC-002 |
 | `docs/PLANS/cross-cutting/webhook-fresh-sessions.md` | Fresh Webhook Sessions + Source Grouping | complete | 2026-07-09 | SPEC-009 |
-| `docs/PLANS/fix-final-report-realignment.md` | Fix automation "Final Report" regression | — | — | SPEC-001 |
-| `docs/PLANS/gpu-metrics-background-sampler.md` | GPU Metrics Background Sampler | complete | 2026-07-23 | — |
+| `docs/PLANS/cross-cutting/post-implementation-cleanup.md` | Post-Implementation Cleanup: Duplication & Dead Code | active | 2026-08-01 | SPEC-005 |
+| `docs/PLANS/cross-cutting/agents-md-layering-guardrails.md` | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
+| `docs/PLANS/gpu-performance.md` | GPU Performance (consolidated: completed + next steps; P5 bug note → fix-final-report) | active | 2026-08-06 | — |
 | `docs/PLANS/memory/memory-improvements-implementation-plan.md` | Memory Improvements | partial | — | SPEC-004 |
 | `docs/PLANS/unattended-run-safety-hardening.md` | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | approved | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
 
+> **Consolidation map (2026-08-06):** Three clusters grouped by true overlap.
+> - **Cluster A (merged):** `provider-agnostic-reasoning-enable.md` (proposed) → **Phase 7** of `cloud-provider-token-budgets.md`; original archived to `ARCHIVE/cross-cutting/`. Shared surface: `reasoning_param.go`, `models/workload.go`, `tuning.go`, `admin_handlers.go`, `ModelTuningFields.vue`. `WorkloadClass` (budget Phase B+C) is the precondition.
+> - **Cluster B (merged):** GPU plan P5 stuck/nudge-loop bug note folded into `fix-final-report-realignment.md` as a sequencing constraint (GPU P1 re-measure blocked until that fix lands). GPU plan keeps only P0–P4 rendering/metrics.
+> - **Cluster C (grouped, not merged):** `overhaul-chat-history-layout` + `cancel-stale-turn-bleed` + `knight-rider-arc-bubble` share `ChatBubble.vue`/`ChatInput.vue`/`turnGrouper.ts` but are distinct concerns. `cancel-stale-turn-bleed`'s deferred backend SSE bleed overlaps overhaul **Phase 5** (home for the backend fix).
+> - **Archive candidate:** `agent-loop/ephemeral-turn-context.md` (status reverted — historical, no active overlap).
+
 ## Archived Plans
 
-Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHIVE/` — loaded only when their specific topic is relevant. On 2026-07-11, 7 stale plans were archived: `agent-loop/enhanced-agent-flow-and-compatibility.md`, `assistant-ui/simple-three-bubble.md`, `cross-cutting/interactive-user-input.md`, `cross-cutting/per-run-output-directories.md`, `cross-cutting/terminal-ui.md`, `assistant-ui/running-indicator-webhook.md`, `memory/mbtcp-implementation.md`. On 2026-08-01, the superseded `assistant-ui/automation-unified-renderer-and-report-truncation.md` was archived (replaced by `automation-renderer-unify-consumption.md`); the root `DUPLICATION_AUDIT.md` and `cross-cutting/reasoning-neutral-working-state.md` were merged into `docs/PLANS/codebase-audit-report.md` (appendix) and `docs/PLANS/cross-cutting/reasoning-capture-dynamic.md` respectively.
+Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHIVE/` — loaded only when their specific topic is relevant. On 2026-07-11, 7 stale plans were archived: `agent-loop/enhanced-agent-flow-and-compatibility.md`, `assistant-ui/simple-three-bubble.md`, `cross-cutting/interactive-user-input.md`, `cross-cutting/per-run-output-directories.md`, `cross-cutting/terminal-ui.md`, `assistant-ui/running-indicator-webhook.md`, `memory/mbtcp-implementation.md`. On 2026-08-01, the superseded `assistant-ui/automation-unified-renderer-and-report-truncation.md` was archived (replaced by `automation-renderer-unify-consumption.md`); the root `DUPLICATION_AUDIT.md` and `cross-cutting/reasoning-neutral-working-state.md` were merged into `docs/PLANS/codebase-audit-report.md` (appendix) and `docs/PLANS/cross-cutting/reasoning-capture-dynamic.md` respectively. On 2026-08-06, `cross-cutting/provider-agnostic-reasoning-enable.md` (proposed) was merged into `cross-cutting/cloud-provider-token-budgets.md` as **Phase 7** and archived to `ARCHIVE/cross-cutting/` (consolidation — shared `WorkloadClass`/`reasoning_param.go` surface). On 2026-08-07: the **Codebase Audit Report** was reclassified from plan to audit and moved to `docs/audits/codebase-audit-report.md`; `agent-loop/ephemeral-turn-context.md` (reverted) was archived to `ARCHIVE/agent-loop/`; `fix-final-report-realignment.md` moved to `agent-loop/`; `agents-md/` merged into `cross-cutting/`. The "Remaining Work" view in `PLANS/README.md` now tracks non-complete plans by status (no separate todo folder).
 
 ## Audits
 
@@ -80,13 +88,14 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `docs/audits/2026-07-05-submit-final-answer-overwrite.md` | submit_final_answer Content Overwrite | complete | 2026-07-05 |
 | `docs/audits/2026-07-06-assistant-debug-cycle.md` | Full Debug Cycle (tool calls, history leak, GBNF) | complete | 2026-07-06 |
 | `docs/audits/agent-stability-report.md` | Agent Stability Audit (13 issues) | complete | 2026-05-28 |
+| `docs/audits/gpu-performance-audit.md` | GPU Performance — consolidated audit (all knowledge + fixes + lessons) | reference | 2026-08-06 |
 | `docs/audits/ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete | 2026-06-08 |
 | `docs/audits/memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference | 2026-06-03 |
 | `docs/audits/remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete | 2026-06-03 |
 | `docs/audits/backend-audit-report.md` | Backend Audit Report (bugs, leaks, bottlenecks) | reference | 2026-07-03 |
 | `docs/audits/hermes-write-file-guardrail.md` | Hermes Agent write_file Guardrail | reference | — |
 | `docs/audits/write-file-truncation-cycles.md` | write_file Truncation Cycles + Block Editing | reference | — |
-| `docs/PLANS/codebase-audit-report.md` | Codebase Audit Report (88 findings + resolved duplication appendix) | active | 2026-07-03 |
+| `docs/audits/codebase-audit-report.md` | Codebase Audit Report (88 findings + resolved duplication appendix) | active | 2026-07-03 |
 
 ## Agent Rules (AI Assistant Guidance)
 

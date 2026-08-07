@@ -49,11 +49,11 @@ const toggleExpand = () => {
 
 <style scoped lang="postcss">
 .metrics-pulse {
-  @apply relative flex flex-col items-center gap-4 bg-gray-900/60 backdrop-blur-md border border-white/10 px-4 py-2 rounded-lg shadow-xl w-full cursor-pointer transition-all duration-300 hover:bg-gray-900/80 hover:border-white/20 select-none;
+  @apply relative flex flex-col items-center gap-4 bg-gray-900/90 border border-white/10 px-4 py-2 rounded-lg shadow-xl w-full cursor-pointer transition-all duration-300 hover:bg-gray-900 hover:border-white/20 select-none;
 }
 
 .metrics-pulse--expanded {
-  @apply py-4 bg-gray-900/90;
+  @apply py-4 bg-gray-900;
 }
 
 .expand-hint {

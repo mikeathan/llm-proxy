@@ -11,11 +11,18 @@ import (
 )
 
 type GeminiProvider struct {
-	cfg models.ModelConfig
+	cfg  models.ModelConfig
+	doer HTTPDoer
 }
 
 func NewGeminiProvider(cfg models.ModelConfig) *GeminiProvider {
-	return &GeminiProvider{cfg: cfg}
+	return &GeminiProvider{cfg: cfg, doer: defaultProviderDoer()}
+}
+
+// SetHTTPDoer swaps the injected provider HTTP client (called by the registrar
+// at build time).
+func (p *GeminiProvider) SetHTTPDoer(doer HTTPDoer) {
+	p.doer = doer
 }
 
 func (p *GeminiProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
@@ -44,7 +51,11 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]models.ProviderModel
 	}
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", p.cfg.ProviderConfig.APIKey)
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.doer.Do(req)
 	if err != nil {
 		return nil, err
 	}

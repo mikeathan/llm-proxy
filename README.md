@@ -17,7 +17,7 @@ runs from one Go binary with an embedded frontend; no separate servers or
 databases to wire up.
 
 - **Model Runtime** — Start/stop llama-server on demand with idle-timeout
-  reaping. Local GGUF models plus cloud providers (OpenAI, Gemini, Vertex AI).
+  reaping. Local GGUF models plus cloud providers (OpenAI, Gemini, OpenRouter, NVIDIA).
 - **Chat Proxy** — `POST /v1/chat/completions` in OpenAI wire format, so any
   OpenAI-compatible client works unchanged.
 - **Autonomous Agent** — The model emits tool calls, tools execute (terminal,

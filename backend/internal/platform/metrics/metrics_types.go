@@ -70,10 +70,14 @@ type MetricsService struct {
 	nowFn           func() time.Time
 
 	gpuSampleInterval time.Duration
+	gpuSmoothingAlpha float64
 	gpuMu             sync.RWMutex
 	gpuCached         *GPUMetrics
 	gpuCachedErr      error
 	gpuCachedAt       time.Time
+	gpuUtilAvg        float64
+	gpuMemAvg         float64
+	gpuSeedCount      int
 	stopCh            chan struct{}
 }
 

@@ -1,11 +1,11 @@
 ---
-status: proposed
+status: active
 last_reviewed: 2026-08-01
 ---
 
 # Cloud Provider Token Budgets + Provider Set Reduction
 
-**Status:** 📋 Proposed — design revised, implementation not started
+**Status:** 🚧 Active — Phases A, 0, B+C, 2, 3, 4, 5 implemented 2026-08-01; Phase 6 docs updated
 **Related SPECs:** SPEC-005 (Orchestrator / Budget), SPEC-003 (Discovery Panel UI)
 **Constitution:** I.1–I.2 (network clients), II.11 (per-model config flow), III.5 (two-tier model persistence), VI (budget)
 **Rules:** `.agents/rules/go-staff-engineer.md`, `.agents/rules/frontend-vue-engineer.md`
@@ -681,6 +681,13 @@ mechanical diff.
 | 4 | Frontend extract + field policy | UI only | `npm run build` |
 | 5 | Loose ends X2 / X3 / X4 | cleanup | — |
 | 6 | SPEC-005 amendment + doc corrections | docs | stewardship |
+| 7 | Provider-agnostic reasoning enable (capability-driven `reasoning_enabled` toggle) | cloud wire behavior change; local excluded | capability + workload tests |
+
+> **Phase 7 merged in from `provider-agnostic-reasoning-enable.md`** (was: proposed,
+> 2026-08-02). It is a review-driven follow-up to this plan — both share `reasoning_param.go`,
+> `models/workload.go` (`WorkloadClass`), `models/tuning.go`, `admin_handlers.go`, and
+> `ModelTuningFields.vue`. The `WorkloadClass` built in Phase B+C is a hard precondition for
+> Phase 7 (the override gate keys on `opts.WorkloadClass`). Original reasoning plan archived.
 
 ### Phase A — Characterization goldens
 
@@ -1124,3 +1131,138 @@ this plan said "unverified" — superseded).
 
 **What we cannot adopt:** 1. Omitting requires `MaxTokens == 0`, which trips
 `stream.go:430` instantly (M10) and zeroes ICU reservations. Blocked until §8.3.
+
+---
+
+## 10. Phase 7 — Provider-Agnostic Reasoning Enable
+
+**Merged from `provider-agnostic-reasoning-enable.md`** (was proposed, 2026-08-02; original
+archived). Review-driven follow-up to this plan. **Precondition:** `WorkloadClass`
+(Phase B+C) must already be implemented — the override gate at `agent.go:507` keys on
+`opts.WorkloadClass`, and `NewReasoningResolver` (Phase B+C Fix 1) already classifies by
+workload, not provider slug.
+
+### 10.1 Intent
+
+Extend the per-model `reasoning_enabled` toggle from NVIDIA + OpenRouter to **every cloud
+workload** (openai, gemini, nvidia, openrouter) while removing the scattered
+`provider === "nvidia" || provider === "openrouter"` checks in the frontend. Replace them
+with a single declarative capability descriptor owned by the backend and surfaced through the
+admin API. Local llama.cpp workloads (`WorkloadClass == local`, including OpenAI-slugged
+loopback URLs) are explicitly excluded — no toggle, no wire change.
+
+The system stays **LLM-agnostic**: the capability table is keyed by *provider type* (wire
+protocol), not vendor. The numeric tuning table (`models/tuning.go`) deliberately excludes
+reasoning — that separation is preserved.
+
+### 10.2 Review findings (what is wrong today)
+
+| # | Location | Problem |
+|---|---|---|
+| R1 | `ModelTuningFields.vue:101` | `v-if="provider === 'nvidia' || provider === 'openrouter'"` — hardcoded provider names decide toggle rendering |
+| R2 | `useProviderModels.ts:245` | `handleEdit` only seeds `reasoning_enabled` for nvidia/openrouter — same list duplicated |
+| R3 | `modelUtils.ts:39-41` | `defaultReasoningEnabled()` returns `provider === "nvidia" || provider === "openrouter"` — third copy |
+| R4 | `agent.go:90-95` | `applyReasoningEnabledOverride` hardcodes `ModeEnableThinking || ModeObject`; silently drops override for `ModeEffort` (OpenAI/Gemini) — toggle inert today |
+| R5 | `reasoning_param.go:162-168` | `providerReasoningTable` rows carry `Enabled: true` only for nvidia/openrouter |
+| R6 | `adminTuningDefaults` / `provider_defaults` | No reasoning capability exposed to frontend — why the frontend hardcodes names |
+| R7 | Workload gating | Toggle not gated on `workload_class`; an OpenAI-slug→local-URL model renders a meaningless toggle |
+
+**Keep:** `providerReasoningTable` + `ReasoningParamResolver` strategy abstraction; the
+`WorkloadClassifier` (already shared with this plan's budget path); `models.ProviderTuningDefaults`
+excluding reasoning.
+
+### 10.3 Backend — capability descriptor (single source of truth)
+
+Extend `reasoning_param.go` so the table row declares capability:
+
+```go
+type ReasoningCapability struct {
+    Mode           ReasoningMode
+    Effort         ReasoningEffort
+    DefaultEnabled bool
+    Toggleable     bool
+}
+```
+
+- `providerReasoningTable` → `map[string]ReasoningCapability`. Rows: `local` →
+  `Toggleable:false`; `openai`/`gemini`/`openrouter`/`nvidia` → `Toggleable:true,
+  DefaultEnabled:true` (unchanged defaults).
+- Add `EffortNone` to `ReasoningEffort` with explicit `String()` returning `""` (avoids the
+  current default-case-returns-`"medium"` leak).
+- `ReasoningSpec.Validate()` matrix: `ModeEffort`+`EffortNone` = valid; `ModeObject`+
+  `EffortNone` = invalid; `ModeEnableThinking`/`ModeThinkTokens`+`EffortNone` = invalid.
+- `effortResolver.Apply` MUST short-circuit on `EffortNone` before any `String()` call →
+  delegate to `noopResolver.Apply` (clears fields) and return.
+- `buildChatRequest` (`stream.go:76`) MUST call `spec.Validate()` on the final spec
+  (post-`applyReasoningEnabledOverride`, pre-`Apply`) and return a typed error on failure.
+- Rework `applyReasoningEnabledOverride` to be capability- + workload-driven, taking workload
+  class; local or nil-enabled → no mutation. `NewAgent` passes `opts.WorkloadClass`.
+- Add `ReasoningCapabilityFor(providerType)` exported from `assistant` for the admin handler.
+
+**Behavior change (document in SPEC-005 §3):** persisted `reasoning_enabled:false` on
+OpenAI/Gemini models becomes active — `false` ⇒ `reasoning_effort` omitted (provider default)
+instead of the explicit `medium` sent today. Affects every existing OpenAI/Gemini model;
+covered by a regression test, not silently shipped.
+
+### 10.4 Backend — expose capability via admin API
+
+- `adminTuningDefaults` gains `Reasoning` capability object
+  `{ supported, toggleable, default_enabled, mode }` (JSON snake_case).
+- `convertProviderTiers` signature → `map[string]assistant.ProviderTuningDefaults`; body reads
+  `Reasoning` via `assistant.ReasoningCapabilityFor(k)`. Call site `admin_handlers.go:315`
+  changes to `assistant.ProviderTiers()`. No new import — `admin_handlers.go` already imports
+  `assistant`.
+- `modelFormRequest` already accepts `reasoning_enabled`; persistence path unchanged.
+
+### 10.5 Frontend — remove every `provider ===` reasoning check
+
+- `types/admin.ts`: new `ReasoningCapability` interface; `AgentDefaults` gains `reasoning?`.
+- `modelUtils.ts`: delete `defaultReasoningEnabled`; `getDefaultModelSettings` sources
+  `reasoning_enabled: defaults.reasoning?.default_enabled ?? false`.
+- `useProviderModels.ts:245`: seed `reasoning_enabled` gated on **workload + capability**, not
+  provider list (verify `model.workload_class` present on the models list).
+- `ModelTuningFields.vue:101`: render from `policy.isCloud && reasoning?.toggleable`; mode-aware
+  label/tooltip. New prop `reasoning?: ReasoningCapability`.
+- `ProviderModelsCard.vue`: pass `:reasoning="agentDefaults?.reasoning"` at all four
+  `ModelTuningFields` call sites; local sites pass `provider="local"` (toggle stays hidden).
+
+**UI editability matrix (workload × field):**
+
+| Field | Cloud | Local (incl. openai-slug→local URL) |
+|---|---|---|
+| `max_tokens`, `context_budget` | editable (clamped) | derived (read-only) |
+| `reasoning_budget` | editable | editable → `thinking_budget_tokens` |
+| `reasoning_enabled` toggle | shown iff `reasoning.toggleable` | never shown |
+| `temperature`, `tool_call_format`, `prefill`, timeouts | editable | editable |
+
+### 10.6 Docs
+
+- SPEC-005 §3: `reasoning_enabled` applies to all cloud workloads; per-provider wire mapping is
+  the capability table; local excluded; effort-mode `false` = omitted `reasoning_effort`;
+  OpenAI-compat base URLs inherit the `openai` row.
+- Add this plan to `docs/INDEX.md`.
+- Note the "provider-name checks" pitfall + capability-table pattern in `docs/architecture.md`.
+
+### 10.7 Expected files
+
+Backend: `reasoning_param.go`, `agent.go`, `admin_handlers.go` + tests
+(`admin_handlers_test.go`, `agent_test.go`, `reasoning_param_test.go`).
+Frontend: `types/admin.ts`, `modelUtils.ts`, `useProviderModels.ts`, `ModelTuningFields.vue`,
+`ProviderModelsCard.vue`. Docs: `orchestrator.md`, `INDEX.md`, `architecture.md`.
+
+### 10.8 Test plan
+
+- `reasoning_enabled` unset/true/false for every cloud provider → correct wire per capability
+  table. Effort-mode disabled ⇒ no `reasoning_effort`; enabled ⇒ `medium`; nil ⇒ tier default.
+- Behavior-change regression: persisted `false` on openai/gemini now yields omitted
+  `reasoning_effort`.
+- OpenRouter explicit `enabled:false` still serializes; NVIDIA `enable_thinking` true/false.
+- Local workload (incl. loopback OpenAI slug) ⇒ never sends/receives a toggle.
+- `provider_defaults[provider].reasoning` present; `local.reasoning.toggleable === false`.
+- `go build ./... && go test ./...` + `go run ./tools/check-complexity/`; `npm run build`.
+
+### 10.9 Non-goals
+
+No change to `reasoning_budget` semantics; no new wire mechanism for new providers (table is
+additive); no change to local llama.cpp reasoning; no settings.yml migration; no change to
+cloud token-budget calculation or the numeric per-provider tuning table (`models/tuning.go`).

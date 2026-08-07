@@ -21,8 +21,16 @@ import (
 )
 
 const (
-	DefaultMaxSteps              = 25
-	DefaultContextBudget         = 8000 // chars, not tokens — rough heuristic for context window pressure
+	DefaultMaxSteps      = 25
+	DefaultContextBudget = 8000 // chars, not tokens — rough heuristic for context window pressure
+	// DefaultMaxTokens is the GLOBAL agent-loop fallback: applied in
+	// applyDefaults() when an agent is constructed with no per-model max_tokens,
+	// and surfaced as the display fallback in modelViewTuning.  It is
+	// deliberately distinct from the per-provider MaxTokens rows in
+	// models/tuning.go (which drive cloud output-cap clamps) — this is the
+	// "no provider info" default, not a provider's preferred cap.  Do not
+	// collapse the two: unifying them would change cloud cap clamps or the
+	// unconfigured-model behaviour (stuck-detection sensitivity).
 	DefaultMaxTokens             = 3072
 	DefaultAutomationTemperature = 0.1  // low temperature for deterministic automation tasks
 	MinReasoningStuckThreshold   = 2000 // chars; floor for stuck detection even at small max_tokens
@@ -79,6 +87,31 @@ func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) 
 	return spec
 }
 
+// applyReasoningEnabledOverride reconciles the per-model reasoning_enabled
+// toggle with the provider's capability and workload class. It is capability-
+// and workload-driven (not provider-name-driven): local workloads never take
+// the override, and effort-mode providers map a disabled toggle to omitting
+// reasoning_effort rather than sending a concrete effort.
+func applyReasoningEnabledOverride(spec ReasoningSpec, enabled *bool, workload models.WorkloadClass) ReasoningSpec {
+	if workload == models.WorkloadLocal || enabled == nil {
+		return spec
+	}
+	if spec.Mode == ModeThinkTokens { // non-toggleable; guard for safety
+		return spec
+	}
+	switch spec.Mode {
+	case ModeObject, ModeEnableThinking:
+		spec.Enabled = *enabled // today's behaviour
+	case ModeEffort:
+		if *enabled {
+			spec.Effort = EffortMedium // medium
+		} else {
+			spec.Effort = EffortNone // omit on the wire
+		}
+	}
+	return spec
+}
+
 // ReasoningBudgetExceeded returns true when accumulated reasoning content
 // (in characters) exceeds the token budget by a wide enough margin to indicate
 // the server is not enforcing the limit. The factor of 4 converts tokens to
@@ -91,27 +124,42 @@ func ReasoningBudgetExceeded(reasoningChars int, budgetTokens int) bool {
 }
 
 type ProviderTuningDefaults struct {
-	MaxSteps       int
-	ContextBudget  int
-	MaxTokens      int
-	ToolCallFormat string
-	Prefill        bool
-	Reasoning      ReasoningSpec
+	// ProviderTuning carries the numeric agent-tuning defaults shared with the
+	// leaf models package (MaxSteps, ContextBudget, MaxTokens, ToolCallFormat,
+	// Prefill, DefaultContext) — embedded to avoid duplicating those fields.
+	models.ProviderTuning
+	Reasoning ReasoningSpec
 }
 
-// providerTiers is the frozen baseline of per-provider agent-tuning defaults.
+// providerTiers is the composed per-provider agent-tuning table: numeric
+// defaults come from the leaf models.ProviderTuningDefaults table (single
+// source — see models/tuning.go), reasoning wire from the capability table
+// (providerReasoningCapabilities in reasoning_param.go).
 // It is allocated once at package init; callers must treat the returned map as
-// read-only (ProviderTiers returns the shared instance, never a copy). The
-// reasoning wire field is resolved here (ReasoningReasoningSpec) — the single
-// source of truth for per-provider reasoning enable params.
-var providerTiers = map[string]ProviderTuningDefaults{
-	"local":      {MaxSteps: 25, ContextBudget: 8000, MaxTokens: 2048, ToolCallFormat: "", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeThinkTokens, Effort: EffortMedium, Budget: 0}},
-	"gemini":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
-	"vertex":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
-	"openai":     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 4096, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
-	"openrouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeObject, Effort: EffortMedium}},
-	"mulerouter": {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}},
-	"nvidia":     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 2048, ToolCallFormat: "native", Prefill: false, Reasoning: ReasoningSpec{Mode: ModeEnableThinking, Enabled: true}},
+// read-only (ProviderTiers returns the shared instance, never a copy).
+var providerTiers = composeProviderTiers()
+
+func composeProviderTiers() map[string]ProviderTuningDefaults {
+	numeric := models.ProviderTuningDefaults()
+	out := make(map[string]ProviderTuningDefaults, len(numeric))
+	for provider, n := range numeric {
+		reasoning, ok := providerReasoningCapabilities[provider]
+		if !ok {
+			reasoning = ReasoningCapability{Mode: ModeEffort, Effort: EffortMedium}
+		}
+		out[provider] = ProviderTuningDefaults{
+			ProviderTuning: models.ProviderTuning{
+				MaxSteps:       n.MaxSteps,
+				ContextBudget:  n.ContextBudget,
+				MaxTokens:      n.MaxTokens,
+				ToolCallFormat: n.ToolCallFormat,
+				Prefill:        n.Prefill,
+				DefaultContext: n.DefaultContext,
+			},
+			Reasoning: reasoning.Spec(),
+		}
+	}
+	return out
 }
 
 // ProviderTiers returns the shared provider-tuning table. Treat as read-only.
@@ -119,24 +167,14 @@ func ProviderTiers() map[string]ProviderTuningDefaults {
 	return providerTiers
 }
 
-// TierForProvider returns the tuning defaults for a provider type, or a safe
-// OpenAI-compatible default for unknown providers. Agent tuning only — the
-// reasoning-budget wire field is resolved per-request from the client.
-func TierForProvider(providerType string) ProviderTuningDefaults {
-	if t, ok := providerTiers[providerType]; ok {
-		return t
-	}
-	return ProviderTuningDefaults{}
-}
-
 // AgentConfig holds immutable per-agent data from user/model config.
 type AgentConfig struct {
-	MaxSteps       int
-	ContextBudget  int
-	MaxTokens      int
-	ReasoningSpec  ReasoningSpec
+	MaxSteps        int
+	ContextBudget   int
+	MaxTokens       int
+	ReasoningSpec   ReasoningSpec
 	ReasoningBudget int // local think-token budget (ModeThinkTokens); 0 for effort/object/enabled modes
-	Temperature    float64
+	Temperature     float64
 	ICUWeight       float64
 	GlobalTimeout   time.Duration
 	UseNativeTools  bool
@@ -144,6 +182,7 @@ type AgentConfig struct {
 	WorkspaceID     string
 	ModelName       string
 	ProviderType    string
+	WorkloadClass   models.WorkloadClass
 	SkipStuckCheck  bool
 	EnableHotMemory bool
 	// Channel is the event stream this agent publishes to (assistant vs
@@ -223,6 +262,7 @@ type AgentOptions struct {
 	ContextBudget            int
 	MaxResponseTokens        int
 	ReasoningBudget          int // configured think-token budget (local mode); 0 => tier default
+	ReasoningEnabled         *bool
 	Temperature              float64
 	ICUWeight                float64
 	Logger                   logging.Logger
@@ -235,6 +275,7 @@ type AgentOptions struct {
 	Orchestrator             *orchestrator.Orchestrator
 	ModelName                string
 	ProviderType             string
+	WorkloadClass            models.WorkloadClass
 	GlobalTimeout            time.Duration
 	PlanStrategy             *ExecutionPlanStrategy
 	MemoryStore              *memory.Store // nil when memory is disabled
@@ -390,6 +431,9 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
 	if cfg.Provider != "" {
 		o.ProviderType = cfg.Provider
 	}
+	if cfg.WorkloadClass != "" {
+		o.WorkloadClass = cfg.WorkloadClass
+	}
 	if cfg.MaxSteps > 0 {
 		o.MaxSteps = cfg.MaxSteps
 	}
@@ -401,6 +445,9 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
 	}
 	if cfg.ReasoningBudget > 0 {
 		o.ReasoningBudget = cfg.ReasoningBudget
+	}
+	if cfg.ReasoningEnabled != nil {
+		o.ReasoningEnabled = cfg.ReasoningEnabled
 	}
 	if cfg.Temperature > 0 {
 		o.Temperature = cfg.Temperature
@@ -476,7 +523,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			MaxSteps:                 opts.MaxSteps,
 			ContextBudget:            opts.ContextBudget,
 			MaxTokens:                opts.MaxResponseTokens,
-			ReasoningSpec:            resolveReasoningSpec(opts.ProviderType, opts.ReasoningBudget, opts.MaxResponseTokens),
+			ReasoningSpec:            applyReasoningEnabledOverride(resolveReasoningSpec(opts.ProviderType, opts.ReasoningBudget, opts.MaxResponseTokens), opts.ReasoningEnabled, opts.WorkloadClass),
 			ReasoningBudget:          opts.ReasoningBudget,
 			Temperature:              opts.Temperature,
 			ICUWeight:                opts.ICUWeight,
@@ -486,6 +533,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			WorkspaceID:              opts.WorkspaceID,
 			ModelName:                opts.ModelName,
 			ProviderType:             opts.ProviderType,
+			WorkloadClass:            opts.WorkloadClass,
 			EnableHotMemory:          opts.EnableHotMemory,
 			Channel:                  opts.Channel,
 			ConversationID:           opts.ConversationID,

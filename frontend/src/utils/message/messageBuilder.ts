@@ -38,6 +38,23 @@ function safeParseArgs(raw: string): string {
   }
 }
 
+// Adaptive streaming-flush cadence. Each flush re-runs markdown on the ENTIRE
+// accumulated live reasoning and swaps its DOM subtree, so the per-flush cost
+// grows with the reasoning length (O(n²) over a phase). Short reasoning keeps
+// the tight 100ms interval for a responsive stream; as the text grows the
+// interval widens toward 250ms, cutting flush frequency ~2.5x exactly where
+// the re-parse cost is highest. Pure + O(1), so it stays trivially testable.
+const FLUSH_INTERVAL_MIN_MS = 100
+const FLUSH_INTERVAL_MAX_MS = 250
+const FLUSH_INTERVAL_RAMP_CHARS = 4000
+
+function flushIntervalMs(textLength: number): number {
+  const ramp = Math.min(textLength / FLUSH_INTERVAL_RAMP_CHARS, 1)
+  return Math.round(
+    FLUSH_INTERVAL_MIN_MS + (FLUSH_INTERVAL_MAX_MS - FLUSH_INTERVAL_MIN_MS) * ramp,
+  )
+}
+
 export function useMessageBuilder(
   messages: Ref<AssistantMessage[]>,
   options: MessageBuilderOptions = {},
@@ -59,6 +76,42 @@ export function useMessageBuilder(
   const paused = ref(false)
   const phase = ref<InsetPhase>('idle')
   let pauseTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Streaming flush throttle. tool_stream events arrive every 10–50ms; each
+  // one that touched liveReasoning.value + forceUpdate() triggered a full
+  // markdown re-parse and template re-render. We buffer the text and flush at
+  // most once per interval, using the adaptive cadence (flushIntervalMs): 100ms
+  // for short reasoning, widening to 250ms as the text grows so the O(n²)
+  // markdown re-parse + DOM swap of the live block stays bounded. The flush
+  // ONLY updates the liveReasoning ref — it deliberately does NOT replace the
+  // message object (no forceUpdate). That keeps the turns computed frozen during
+  // pure text streaming, so committed turns never re-render or re-parse markdown
+  // (the memoized-list pattern ChatGPT/Gemini use). forceUpdate() runs only on
+  // segment mutations (tool_call/tool_result/commitReasoning/guardrail), where
+  // the turn genuinely changes. All branch logic (reasoningBuffer,
+  // commitReasoning, lastClean) stays immediate — only the reactive mirror is
+  // deferred.
+  let pendingText = ''
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+  function scheduleFlush(text: string) {
+    pendingText = text
+    if (flushTimer) return
+    flushTimer = setTimeout(flushLiveReasoning, flushIntervalMs(pendingText.length))
+  }
+
+  function flushLiveReasoning() {
+    flushTimer = null
+    liveReasoning.value = pendingText
+  }
+
+  function clearPendingFlush() {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    pendingText = ''
+  }
 
   // Transition helper — idempotent: re-setting the same phase is a no-op, and
   // transitions never move backward (done is terminal until reset()).
@@ -127,6 +180,7 @@ export function useMessageBuilder(
       const segments = getSegments()
       segments.push({ kind: 'reasoning', text: reasoningBuffer })
       reasoningBuffer = ''
+      clearPendingFlush()
       liveReasoning.value = ''
     }
   }
@@ -230,22 +284,18 @@ export function useMessageBuilder(
 
     if (clean.startsWith(lastClean)) {
       reasoningBuffer = clean
-      liveReasoning.value = clean
-      render()
+      scheduleFlush(clean)
     } else if (inReasoningPhase) {
       reasoningBuffer = clean
-      liveReasoning.value = clean
-      render()
+      scheduleFlush(clean)
       inReasoningPhase = false
     } else {
       commitReasoning()
       reasoningBuffer = clean
-      liveReasoning.value = clean
       lastClean = clean
-      render()
+      scheduleFlush(clean)
     }
     lastClean = clean
-    forceUpdate()
   }
 
   function handleToolCall(tc: { function: { name: string; arguments: string } }) {
@@ -308,8 +358,11 @@ export function useMessageBuilder(
     // the SSE message event (lastReply), or the reasoning stream
     // (liveReasoning / reasoningCommitted). Use whichever carried it so the
     // answer is never lost (Hermes: the substantive final answer must survive)
-    // and is rendered exactly once in the result area.
-    const answer = reply || lastReply || liveReasoning.value || reasoningCommitted
+    // and is rendered exactly once in the result area. Capture the throttled
+    // buffer before clearing it — it may hold the final unflushed chunk.
+    const pending = pendingText
+    clearPendingFlush()
+    const answer = reply || lastReply || pending || liveReasoning.value || reasoningCommitted
    
     // Clear transient streaming flags but PRESERVE phase='done' so the final
     // answer renders in the result area. Callers must not reset() right after
@@ -329,6 +382,7 @@ export function useMessageBuilder(
 
   function reset() {
     if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null }
+    clearPendingFlush()
     assistantIdx = null
     lastClean = ''
     reasoningBuffer = ''

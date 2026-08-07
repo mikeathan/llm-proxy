@@ -45,3 +45,11 @@ After cancelling a turn mid-stream and sending a new message, stale reasoning fr
 ## Follow-up
 
 Plan: investigate backend SSE handler for `content` field accumulation on resume after cancel. Likely location: `backend/internal/core/assistant/stream.go` and `agent.go` event emission. Until fixed, the symptom is: prior turn reasoning text may appear at the start of the new turn's `finalAnswer` HTML.
+
+> **Consolidation cross-reference (2026-08-06):** this deferred backend bleed overlaps
+> `overhaul-chat-history-layout.md` **Phase 5** (Stop Button & Refresh Resilience — the
+> backend `stream.go` / `tool_exec.go` context-check work). Track both in one place; Phase 5
+> is the home for the backend fix. The three assistant-ui plans
+> (`overhaul-chat-history-layout`, `cancel-stale-turn-bleed`, `knight-rider-arc-bubble`) are
+> grouped by shared component surface (`ChatBubble.vue` / `ChatInput.vue` / `turnGrouper.ts`)
+> but remain separate docs — distinct concerns (layout vs. cancel bug vs. animation).

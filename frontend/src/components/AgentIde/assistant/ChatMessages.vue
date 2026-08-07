@@ -65,21 +65,42 @@ function formatStamp(): string {
 // user is parked at the bottom — pause when they scroll up to read, then
 // resume (snap to bottom) after a short idle if fresh output arrived. Mirrors
 // the automation live-run behaviour.
-// Watch liveReasoning/thinking too: during a long reasoning stream the content
-// grows via the liveReasoning prop while `turns` is still stable (reasoning only
+// Watch liveReasoning too: during a long reasoning stream the content grows
+// via the liveReasoning prop while `turns` is still stable (reasoning only
 // commits to a segment at a tool_call/message boundary), so without this the
 // pane would overflow without ever scrolling.
-watch(
-  () => [props.turns, props.liveReasoning, props.thinking],
-  () => {
-    notifyContent()
-    nextTick(() => {
-      scrollIfNearBottom(container.value, "instant")
-      atBottom.value = isNearBottom(container.value)
-    })
-  },
-  { deep: true },
-)
+// The scroll is THROTTLED (~250ms): live reasoning flushes ~10x/sec, and
+// scrolling the whole pane every flush is a full-pane scroll+layout+composite
+// pass (the GPU hot path during streaming). Coalescing to a few scrolls/sec
+// keeps the pane following content with far less compositing. notifyContent()
+// still runs every change so the pause/resume bookkeeping never misses input.
+let lastScrollAt = 0
+let lastScrollHeight = 0
+function maybeScroll() {
+  // Bookkeeping always runs so pause/resume never misses input.
+  notifyContent()
+  nextTick(() => {
+    const now = Date.now()
+    if (now - lastScrollAt < 250) return
+    const el = container.value
+    if (!el) return
+    // Skip the scrollTop mutation entirely when nothing grew since the last
+    // pass — a flush that added no content otherwise forces a pointless
+    // synchronous layout + composite of the whole pane.
+    if (el.scrollHeight === lastScrollHeight) return
+    lastScrollAt = now
+    lastScrollHeight = el.scrollHeight
+    scrollIfNearBottom(el, "instant")
+    atBottom.value = isNearBottom(el)
+  })
+}
+
+watch(() => props.liveReasoning, maybeScroll)
+watch(() => props.thinking, maybeScroll)
+// Tool/segment/message events replace the message object → turns recomputes.
+// Watched by reference (not deep) — deep-walking the whole history on every
+// flush is wasted work; a new turns array is enough to detect the change.
+watch(() => props.turns, maybeScroll)
 
 defineExpose({
   scrollToBottom: (behavior: ScrollBehavior = "smooth") => scrollToBottom(container.value, behavior),

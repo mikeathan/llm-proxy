@@ -30,17 +30,27 @@ type LocalSettings struct {
 
 // ModelOverride stores per-model agent tuning fields that override
 // the base values from the registry catalogue.
+//
+// Zero-value semantics: every field uses omitempty, so a zero value is never
+// serialized.  This is what makes RESET work without nullable pointers — the
+// handler writes the whole entry, and any field deliberately reset to zero
+// (or left at its derived baseline) is simply dropped from the serialized
+// entry on the next save.  Local workloads always write zero budget fields
+// (MaxTokens/ContextBudget), so a stale persisted budget override is removed
+// by writing the entry without those fields — explicit map-entry replacement,
+// never zero-value guessing about deletion.
 type ModelOverride struct {
-	MaxSteps        int     `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
-	ContextBudget   int     `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
-	MaxTokens       int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
-	Temperature     float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
-	ToolCallFormat  string  `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
-	Prefill         *bool   `yaml:"prefill,omitempty" json:"prefill,omitempty"`
-	ReasoningBudget int     `yaml:"reasoning_budget,omitempty" json:"reasoning_budget,omitempty"`
-	SlotTimeout     int     `yaml:"slot_timeout,omitempty" json:"slot_timeout,omitempty"`
-	ICUWeight       float64 `yaml:"icu_weight,omitempty" json:"icu_weight,omitempty"`
-	TimeoutMinutes  int     `yaml:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"`
+	MaxSteps         int     `yaml:"max_steps,omitempty" json:"max_steps,omitempty"`
+	ContextBudget    int     `yaml:"context_budget,omitempty" json:"context_budget,omitempty"`
+	MaxTokens        int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Temperature      float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	ToolCallFormat   string  `yaml:"tool_call_format,omitempty" json:"tool_call_format,omitempty"`
+	Prefill          *bool   `yaml:"prefill,omitempty" json:"prefill,omitempty"`
+	ReasoningEnabled *bool   `yaml:"reasoning_enabled,omitempty" json:"reasoning_enabled,omitempty"`
+	ReasoningBudget  int     `yaml:"reasoning_budget,omitempty" json:"reasoning_budget,omitempty"`
+	SlotTimeout      int     `yaml:"slot_timeout,omitempty" json:"slot_timeout,omitempty"`
+	ICUWeight        float64 `yaml:"icu_weight,omitempty" json:"icu_weight,omitempty"`
+	TimeoutMinutes   int     `yaml:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"`
 
 	ToolTimeoutSeconds           int    `yaml:"tool_timeout_seconds,omitempty" json:"tool_timeout_seconds,omitempty"`
 	FilesystemToolTimeoutSeconds int    `yaml:"filesystem_tool_timeout_seconds,omitempty" json:"filesystem_tool_timeout_seconds,omitempty"`
@@ -56,7 +66,7 @@ type UserSettings struct {
 	Guardrails     *AgentGuardrailsConfig   `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
 	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
-	RunOutput      *RunLoggingConfig            `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
+	RunOutput      *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 }
 
 type RunLoggingConfig struct {
@@ -85,23 +95,25 @@ func DefaultMemoryConfig() MemoryConfig {
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
 type SystemUpdatePayload struct {
-	WorkspacesDir       string                  `json:"workspaces_dir,omitempty"`
-	ModelHost           string                  `json:"model_host,omitempty"`
-	IdleTimeoutSecs     int                     `json:"idle_timeout_seconds,omitempty"`
-	GPUProvider         string                  `json:"gpu_provider,omitempty"`
-	GPUBinary           string                  `json:"gpu_binary,omitempty"`
-	GPUIndex            *int                    `json:"gpu_index,omitempty"`
-	GPUSysfsPath        string                  `json:"gpu_sysfs_path,omitempty"`
-	ServiceClientID     string                  `json:"service_client_id,omitempty"`
-	ServiceClientSecret string                  `json:"service_client_secret,omitempty"`
-	Environment         map[string]string       `json:"environment,omitempty"`
-	DefaultArgs         []string                `json:"default_args,omitempty"`
-	PrimaryModel        string                  `json:"primary_model,omitempty"`
-	FallbackModel       string                  `json:"fallback_model,omitempty"`
-	Communication       *CommunicationConfig    `json:"communication,omitempty"`
-	Search              *SearchConfig           `json:"search,omitempty"`
-	Providers           map[string]ProviderItem `json:"providers,omitempty"`
-	Guardrails          *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
-	Bind                string                  `json:"bind,omitempty"` // For AdminSystemHandler specifically
-	RunLogging          *RunLoggingConfig       `json:"run_logging,omitempty"`
+	WorkspacesDir        string                  `json:"workspaces_dir,omitempty"`
+	ModelHost            string                  `json:"model_host,omitempty"`
+	IdleTimeoutSecs      int                     `json:"idle_timeout_seconds,omitempty"`
+	GPUProvider          string                  `json:"gpu_provider,omitempty"`
+	GPUBinary            string                  `json:"gpu_binary,omitempty"`
+	GPUIndex             *int                    `json:"gpu_index,omitempty"`
+	GPUSysfsPath         string                  `json:"gpu_sysfs_path,omitempty"`
+	GPUSampleIntervalSec int                     `json:"gpu_sample_interval_seconds,omitempty"`
+	GPUSmoothingAlpha    float64                 `json:"gpu_smoothing_alpha,omitempty"`
+	ServiceClientID      string                  `json:"service_client_id,omitempty"`
+	ServiceClientSecret  string                  `json:"service_client_secret,omitempty"`
+	Environment          map[string]string       `json:"environment,omitempty"`
+	DefaultArgs          []string                `json:"default_args,omitempty"`
+	PrimaryModel         string                  `json:"primary_model,omitempty"`
+	FallbackModel        string                  `json:"fallback_model,omitempty"`
+	Communication        *CommunicationConfig    `json:"communication,omitempty"`
+	Search               *SearchConfig           `json:"search,omitempty"`
+	Providers            map[string]ProviderItem `json:"providers,omitempty"`
+	Guardrails           *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
+	Bind                 string                  `json:"bind,omitempty"` // For AdminSystemHandler specifically
+	RunLogging           *RunLoggingConfig       `json:"run_logging,omitempty"`
 }

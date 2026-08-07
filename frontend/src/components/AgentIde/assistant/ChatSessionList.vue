@@ -187,7 +187,7 @@ function cancelRename() {
 }
 
 .btn-header-icon {
-  @apply p-1.5 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-all duration-150 flex items-center justify-center;
+  @apply p-1.5 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors transition-transform duration-150 flex items-center justify-center;
 }
 .btn-header-icon:active { @apply scale-95; }
 
@@ -249,7 +249,7 @@ function cancelRename() {
 }
 
 .session-dot {
-  @apply text-blue-500 text-[10px] shrink-0 animate-pulse;
+  @apply text-blue-500 text-[10px] shrink-0;
 }
 
 .session-snippet {

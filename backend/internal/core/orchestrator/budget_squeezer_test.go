@@ -200,47 +200,16 @@ func TestResolveICUWeight_Local_NoMetadata(t *testing.T) {
 	}
 }
 
-func TestResolveContextLength_Metadata(t *testing.T) {
+func TestResolveLocalContext_Metadata(t *testing.T) {
 	cfg := &models.ModelConfig{
 		Metadata: &models.ModelMetadata{ContextLength: 8192},
 	}
-	if resolveContextLength(cfg) != 8192 {
-		t.Fatalf("expected 8192 from metadata, got %d", resolveContextLength(cfg))
+	if ResolveLocalContext(cfg) != 8192 {
+		t.Fatalf("expected 8192 from metadata, got %d", ResolveLocalContext(cfg))
 	}
 }
 
-func TestResolveContextLength_MetadataWinsOverFragment(t *testing.T) {
-	cfg := &models.ModelConfig{
-		Name:     "deepseek-v3",
-		Metadata: &models.ModelMetadata{ContextLength: 128000},
-	}
-	if resolveContextLength(cfg) != 128000 {
-		t.Fatalf("expected metadata 128000 to win, got %d", resolveContextLength(cfg))
-	}
-}
-
-func TestResolveContextLength_FragmentMatch(t *testing.T) {
-	cfg := &models.ModelConfig{Name: "deepseek-v3"}
-	if resolveContextLength(cfg) != 64_000 {
-		t.Fatalf("expected 64K for deepseek-v3, got %d", resolveContextLength(cfg))
-	}
-}
-
-func TestResolveContextLength_ProviderDefault(t *testing.T) {
-	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "nvidia"}
-	if resolveContextLength(cfg) != 128_000 {
-		t.Fatalf("expected 128K for nvidia, got %d", resolveContextLength(cfg))
-	}
-}
-
-func TestResolveContextLength_NoMatch(t *testing.T) {
-	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "unknown"}
-	if resolveContextLength(cfg) != 0 {
-		t.Fatalf("expected 0 for unknown, got %d", resolveContextLength(cfg))
-	}
-}
-
-func TestResolveContextLength_NctxTakesPriority(t *testing.T) {
+func TestResolveLocalContext_NctxTakesPriority(t *testing.T) {
 	// Nctx (serving context) should win over ContextLength (training context).
 	// This is the typical scenario for local GGUF models served by llama.cpp
 	// where n_ctx_train=262K but n_ctx=8K.
@@ -251,12 +220,12 @@ func TestResolveContextLength_NctxTakesPriority(t *testing.T) {
 			Nctx:          8192,
 		},
 	}
-	if got := resolveContextLength(cfg); got != 8192 {
+	if got := ResolveLocalContext(cfg); got != 8192 {
 		t.Fatalf("expected 8192 from Nctx, got %d", got)
 	}
 }
 
-func TestResolveContextLength_NctxOnly(t *testing.T) {
+func TestResolveLocalContext_NctxOnly(t *testing.T) {
 	// Nctx set, ContextLength unset — common for external API models
 	// where the proxy discovered n_ctx via /slots but has no GGUF metadata.
 	cfg := &models.ModelConfig{
@@ -265,53 +234,69 @@ func TestResolveContextLength_NctxOnly(t *testing.T) {
 			Nctx: 8192,
 		},
 	}
-	if got := resolveContextLength(cfg); got != 8192 {
+	if got := ResolveLocalContext(cfg); got != 8192 {
 		t.Fatalf("expected 8192 from Nctx, got %d", got)
 	}
 }
 
-func TestResolveContextLength_NctxBelowProviderDefault(t *testing.T) {
-	// Nctx is smaller than the provider default (openai=128K). Should
-	// return Nctx — the actual serving limit is the authoritative value.
+func TestResolveLocalContext_ContextLengthCapped(t *testing.T) {
+	// Training context is capped to defaultLocalContextMax — a value above it
+	// is never a real serving window.
 	cfg := &models.ModelConfig{
 		Provider: "openai",
 		Metadata: &models.ModelMetadata{
-			Nctx: 8192,
+			ContextLength: 2_000_000,
 		},
 	}
-	if got := resolveContextLength(cfg); got != 8192 {
-		t.Fatalf("expected 8192 (below 128K default), got %d", got)
+	if got := ResolveLocalContext(cfg); got != defaultLocalContextMax {
+		t.Fatalf("expected defaultLocalContextMax (%d), got %d", defaultLocalContextMax, got)
 	}
 }
 
-func TestResolveContextLength_NctxAboveProviderDefault(t *testing.T) {
-	// Nctx above the provider default should be capped, same as
-	// ContextLength. Edge case — unlikely in practice.
-	cfg := &models.ModelConfig{
-		Provider: "openai",
-		Metadata: &models.ModelMetadata{
-			Nctx: 1_000_000,
-		},
+func TestResolveLocalContext_NoMetadata(t *testing.T) {
+	// No metadata at all → the universal local fallback, numeric — never a
+	// typed error and never providerCtxDefaults (Fix 2 / V2).
+	cfg := &models.ModelConfig{Provider: "openai"}
+	if got := ResolveLocalContext(cfg); got != defaultLocalContextLength {
+		t.Fatalf("expected defaultLocalContextLength (%d), got %d", defaultLocalContextLength, got)
 	}
-	if got := resolveContextLength(cfg); got != 128_000 {
-		t.Fatalf("expected 128K (capped to openai provider default), got %d", got)
+}
+
+func TestResolvePublishedContext_FragmentMatch(t *testing.T) {
+	cfg := &models.ModelConfig{Name: "deepseek-v3"}
+	if resolvePublishedContext(*cfg) != 64_000 {
+		t.Fatalf("expected 64K for deepseek-v3, got %d", resolvePublishedContext(*cfg))
+	}
+}
+
+func TestResolvePublishedContext_ProviderDefault(t *testing.T) {
+	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "nvidia"}
+	if resolvePublishedContext(*cfg) != 128_000 {
+		t.Fatalf("expected 128K for nvidia, got %d", resolvePublishedContext(*cfg))
+	}
+}
+
+func TestResolvePublishedContext_NoMatch(t *testing.T) {
+	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "unknown"}
+	if resolvePublishedContext(*cfg) != 0 {
+		t.Fatalf("expected 0 for unknown, got %d", resolvePublishedContext(*cfg))
 	}
 }
 
 func TestApplyMetadataDefaults_AllZero(t *testing.T) {
+	// Cloud (nvidia) with no metadata uses the per-provider tier row — the
+	// output cap is 8192 (tuning.go), NOT the old ctx/3 = 42666.  The tier
+	// history budget (nvidia = 20000) is the clamp target.
 	cfg := &models.ModelConfig{
 		Name:     "test-model",
 		Provider: "nvidia",
 	}
 	ApplyMetadataDefaults(cfg)
-	expectedTokens := 128_000 / 3
-	expectedBudget := (128_000 - expectedTokens) * 2
-	if cfg.MaxTokens != expectedTokens {
-		t.Fatalf("expected max_tokens=%d, got %d", expectedTokens, cfg.MaxTokens)
+	if cfg.MaxTokens != 8192 {
+		t.Fatalf("expected max_tokens=8192 (tier row), got %d", cfg.MaxTokens)
 	}
-	if cfg.ContextBudget != expectedBudget {
-		t.Fatalf("expected context_budget=%d (reserving %d for response), got %d",
-			expectedBudget, expectedTokens, cfg.ContextBudget)
+	if cfg.ContextBudget != 20000 {
+		t.Fatalf("expected context_budget=20000 (nvidia tier history), got %d", cfg.ContextBudget)
 	}
 }
 
@@ -429,27 +414,34 @@ func TestApplyMetadataDefaults_NoOverwriteExisting(t *testing.T) {
 	}
 }
 
-func TestIsLocalWorkload(t *testing.T) {
+func TestClassifyWorkload(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  *models.ModelConfig
-		want bool
+		want models.WorkloadClass
 	}{
-		{"nil", nil, false},
-		{"provider local", &models.ModelConfig{Provider: "local"}, true},
-		{"provider LOCAL", &models.ModelConfig{Provider: "LOCAL"}, true},
-		{"openai cloud no gguf", &models.ModelConfig{Provider: "openai", Name: "gpt-4o"}, false},
-		{"openai + gguf filename", &models.ModelConfig{Provider: "openai", Filename: "Qwen3.5-9B-UD-Q4_K_XL.gguf"}, true},
-		{"openai + GGUF path", &models.ModelConfig{Provider: "openai", Path: "/models/Qwen.GGUF"}, true},
-		{"openai + gguf name", &models.ModelConfig{Provider: "openai", Name: "qwen3.5-9b.gguf"}, true},
-		{"openrouter cloud", &models.ModelConfig{Provider: "openrouter", Name: "anthropic/claude"}, false},
-		{"filename not suffix", &models.ModelConfig{Provider: "openai", Filename: "gguf-notes.txt"}, false},
-		{"spaces around path", &models.ModelConfig{Provider: "openai", Path: "  model.gguf  "}, true},
+		{"nil", nil, models.WorkloadCloud},
+		{"provider local", &models.ModelConfig{Provider: "local"}, models.WorkloadLocal},
+		{"provider LOCAL", &models.ModelConfig{Provider: "LOCAL"}, models.WorkloadLocal},
+		{"openai cloud no gguf", &models.ModelConfig{Provider: "openai", Name: "gpt-4o"}, models.WorkloadCloud},
+		{"openai + gguf filename", &models.ModelConfig{Provider: "openai", Filename: "Qwen3.5-9B-UD-Q4_K_XL.gguf"}, models.WorkloadLocal},
+		{"openai + GGUF path", &models.ModelConfig{Provider: "openai", Path: "/models/Qwen.GGUF"}, models.WorkloadLocal},
+		{"openai + gguf name", &models.ModelConfig{Provider: "openai", Name: "qwen3.5-9b.gguf"}, models.WorkloadLocal},
+		{"openrouter cloud", &models.ModelConfig{Provider: "openrouter", Name: "anthropic/claude"}, models.WorkloadCloud},
+		{"filename not suffix", &models.ModelConfig{Provider: "openai", Filename: "gguf-notes.txt"}, models.WorkloadCloud},
+		{"spaces around path", &models.ModelConfig{Provider: "openai", Path: "  model.gguf  "}, models.WorkloadLocal},
+		// M8: openai + local URL + non-.gguf name is a local workload.
+		{"openai + local base url", &models.ModelConfig{Provider: "openai", Name: "llama-alias", ProviderConfig: &models.ProviderConfig{BaseURL: "http://127.0.0.1:8080"}}, models.WorkloadLocal},
+		{"openai + remote base url", &models.ModelConfig{Provider: "openai", Name: "gpt-4o", ProviderConfig: &models.ProviderConfig{BaseURL: "https://api.openai.com/v1"}}, models.WorkloadCloud},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isLocalWorkload(tt.cfg); got != tt.want {
-				t.Fatalf("isLocalWorkload()=%v want %v", got, tt.want)
+			var cfg models.ModelConfig
+			if tt.cfg != nil {
+				cfg = *tt.cfg
+			}
+			if got := classifyWorkload(cfg); got != tt.want {
+				t.Fatalf("classifyWorkload()=%v want %v", got, tt.want)
 			}
 		})
 	}
@@ -501,16 +493,6 @@ func TestApplyMetadataDefaults_ToolCallFormatMatrix(t *testing.T) {
 		{
 			name: "nvidia empty defaults native",
 			cfg:  &models.ModelConfig{Name: "nvidia-model", Provider: "nvidia", Metadata: meta(128_000)},
-			want: "native",
-		},
-		{
-			name: "vertex empty defaults native",
-			cfg:  &models.ModelConfig{Name: "vertex-model", Provider: "vertex", Metadata: meta(1_048_576)},
-			want: "native",
-		},
-		{
-			name: "mulerouter empty defaults native",
-			cfg:  &models.ModelConfig{Name: "mule", Provider: "mulerouter", Metadata: meta(128_000)},
 			want: "native",
 		},
 		{

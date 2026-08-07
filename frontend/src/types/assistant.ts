@@ -55,8 +55,15 @@ export interface ChatRequestPayload {
 
 import type { AgentEvent } from './dispatcher'
 
+// ChatResponsePayload is the response to POST /conversation/message. The
+// backend starts a detached background run and returns immediately with
+// status:"running"; the run is observed live over SSE. `reply` is only
+// populated if the run somehow completed synchronously (legacy/edge cases) —
+// normally it is absent and the SSE lifecycle{completed} event finalizes the
+// turn.
 export interface ChatResponsePayload {
-  reply: string
+  status?: string
+  reply?: string
   conversation_id: string
   events?: AgentEvent[]
   canceled?: boolean

@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import type { GlobalConfig } from '../../types/admin'
 
-const DEFAULT_CONFIG: GlobalConfig = {
+export const DEFAULT_CONFIG: GlobalConfig = {
   providers: {
     local: {
       type: 'local',
@@ -49,7 +49,7 @@ const DEFAULT_CONFIG: GlobalConfig = {
   agent_defaults: {
     max_steps: 25,
     context_budget: 8000,
-    max_tokens: 3072,
+    max_tokens: 2048,
     temperature: 0.1,
     reasoning_budget: 0,
     timeout_minutes: 30,
@@ -61,15 +61,6 @@ const DEFAULT_CONFIG: GlobalConfig = {
     max_plan_steps: 50,
     guardrail_timeout_seconds: 5,
     guardrail_timeout_behavior: 'fail-open',
-  },
-  provider_defaults: {
-    local: { max_steps: 25, context_budget: 8000, max_tokens: 2048, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: '', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
-    gemini: { max_steps: 35, context_budget: 50000, max_tokens: 4096, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: 'native', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
-    vertex: { max_steps: 35, context_budget: 50000, max_tokens: 4096, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: 'native', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
-    openai: { max_steps: 35, context_budget: 50000, max_tokens: 4096, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: 'native', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
-    openrouter: { max_steps: 30, context_budget: 30000, max_tokens: 2048, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: 'native', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
-    mulerouter: { max_steps: 30, context_budget: 30000, max_tokens: 2048, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: 'native', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
-    nvidia: { max_steps: 30, context_budget: 20000, max_tokens: 2048, temperature: 0.1, reasoning_budget: 0, timeout_minutes: 30, tool_call_format: 'native', prefill: false, tool_timeout_seconds: 120, filesystem_tool_timeout_seconds: 30, max_plan_duration_minutes: 15, max_plan_steps: 50, guardrail_timeout_seconds: 5, guardrail_timeout_behavior: 'fail-open' },
   },
   run_logging: { enabled: false },
 }

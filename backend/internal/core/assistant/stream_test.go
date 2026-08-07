@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
 )
 
 func TestContainsSubstantiveToolCall(t *testing.T) {
@@ -366,5 +366,132 @@ func TestCleanReasoningContent_Precompiled(t *testing.T) {
 
 	if thinkTagsRe == nil {
 		t.Error("thinkTagsRe must be precompiled, not nil")
+	}
+}
+
+func runNotifyCoalescingFeed(t *testing.T, deltas []proxy.Message) (reasoning, content []string, fullMsg proxy.Message) {
+	t.Helper()
+	agent := &Agent{
+		config: AgentConfig{Channel: "test", MaxTokens: 1_000_000},
+		deps: AgentRuntimeDeps{
+			Logger:   logging.NewNopLogger(),
+			Observer: func(ev AgentEvent) {},
+		},
+	}
+	agent.deps.Observer = func(ev AgentEvent) {
+		switch ev.Type {
+		case EventReasoning:
+			reasoning = append(reasoning, ev.Payload.(string))
+		case EventToolStream:
+			content = append(content, ev.Payload.(string))
+		}
+	}
+	feed := make(chan *proxy.ChatResponse, 1)
+	go func() {
+		defer close(feed)
+		for _, d := range deltas {
+			feed <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: d}}}
+		}
+	}()
+	fullMsg.Role = proxy.AssistantRole
+	if err := agent.processStream(context.Background(), feed, &fullMsg, false, false); err != nil {
+		t.Fatalf("processStream returned unexpected error: %v", err)
+	}
+	return reasoning, content, fullMsg
+}
+
+func assertOrderedSnapshots(t *testing.T, kind string, snapshots []string, want string) {
+	t.Helper()
+	if len(snapshots) == 0 {
+		t.Fatalf("%s: expected at least one snapshot", kind)
+	}
+	if got := snapshots[len(snapshots)-1]; got != want {
+		t.Errorf("%s: final snapshot = %q, want %q", kind, got, want)
+	}
+	for i := 1; i < len(snapshots); i++ {
+		if !strings.HasPrefix(snapshots[i], snapshots[i-1]) {
+			t.Fatalf("%s: snapshot %d (%q) is not a prefix of snapshot %d (%q)",
+				kind, i-1, snapshots[i-1], i, snapshots[i])
+		}
+	}
+}
+
+func TestProcessStream_NotifyCoalescing(t *testing.T) {
+	const chunks = 200
+	const chunkLen = 11
+	deltas := make([]proxy.Message, chunks)
+	for i := range deltas {
+		deltas[i] = proxy.Message{Content: strings.Repeat("x", chunkLen)}
+	}
+	_, content, _ := runNotifyCoalescingFeed(t, deltas)
+	want := strings.Repeat("x", chunks*chunkLen)
+	assertOrderedSnapshots(t, "EventToolStream", content, want)
+	if len(content) >= chunks {
+		t.Errorf("notify was not coalesced: got %d events for %d chunks (want < %d)", len(content), chunks, chunks)
+	}
+}
+
+func TestProcessStream_NotifyCoalescing_Reasoning(t *testing.T) {
+	const chunks = 200
+	const chunkLen = 11
+	deltas := make([]proxy.Message, chunks)
+	for i := range deltas {
+		deltas[i] = proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen)}
+	}
+	reasoning, _, _ := runNotifyCoalescingFeed(t, deltas)
+	want := strings.Repeat("r", chunks*chunkLen)
+	assertOrderedSnapshots(t, "EventReasoning", reasoning, want)
+	if len(reasoning) >= chunks {
+		t.Errorf("reasoning notify was not coalesced: got %d events for %d chunks (want < %d)", len(reasoning), chunks, chunks)
+	}
+}
+
+func TestProcessStream_NotifyCoalescing_ReasoningThenContent(t *testing.T) {
+	const perPhase = 100
+	const chunkLen = 11
+	deltas := make([]proxy.Message, 0, perPhase*2)
+	for i := 0; i < perPhase; i++ {
+		deltas = append(deltas, proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen)})
+	}
+	for i := 0; i < perPhase; i++ {
+		deltas = append(deltas, proxy.Message{Content: strings.Repeat("x", chunkLen)})
+	}
+	reasoning, content, _ := runNotifyCoalescingFeed(t, deltas)
+	wantReasoning := strings.Repeat("r", perPhase*chunkLen)
+	wantContent := strings.Repeat("x", perPhase*chunkLen)
+	assertOrderedSnapshots(t, "EventReasoning", reasoning, wantReasoning)
+	assertOrderedSnapshots(t, "EventToolStream", content, wantContent)
+	if len(reasoning) >= perPhase {
+		t.Errorf("reasoning notify was not coalesced: got %d events for %d chunks (want < %d)", len(reasoning), perPhase, perPhase)
+	}
+	if len(content) >= perPhase {
+		t.Errorf("content notify was not coalesced: got %d events for %d chunks (want < %d)", len(content), perPhase, perPhase)
+	}
+}
+
+func TestProcessStream_NotifyCoalescing_Dedupe(t *testing.T) {
+	const stall = 50
+	const chunkLen = 11
+	deltas := make([]proxy.Message, 0, stall+2)
+	for i := 0; i < stall; i++ {
+		deltas = append(deltas, proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen)})
+	}
+	deltas = append(deltas, proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen) + "a"})
+	deltas = append(deltas, proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen) + "ab"})
+	reasoning, _, _ := runNotifyCoalescingFeed(t, deltas)
+	var finalWant strings.Builder
+	for _, d := range deltas {
+		finalWant.WriteString(d.ReasoningContent)
+	}
+	if got := reasoning[len(reasoning)-1]; got != finalWant.String() {
+		t.Errorf("EventReasoning: final snapshot = %q, want %q", got, finalWant.String())
+	}
+	for i := 1; i < len(reasoning); i++ {
+		if reasoning[i] == reasoning[i-1] {
+			t.Errorf("EventReasoning emitted byte-identical snapshot at index %d: %q", i, reasoning[i])
+		}
+	}
+	if len(reasoning) >= stall+2 {
+		t.Errorf("dedupe failed: got %d events for %d chunks (want < %d)", len(reasoning), len(deltas), len(deltas))
 	}
 }

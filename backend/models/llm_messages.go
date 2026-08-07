@@ -43,36 +43,39 @@ type ReasoningDetail struct {
 
 // Chat Request
 type ChatRequest struct {
-	Model                string                `json:"model"`
-	Messages             []Message             `json:"messages"`
-	MaxTokens            int                   `json:"max_tokens,omitempty"`
-	Temperature          float64               `json:"temperature,omitempty"`
-	ReasoningBudget      int                   `json:"reasoning_budget,omitempty"`
-	ThinkingBudgetTokens int                  `json:"thinking_budget_tokens,omitempty"`
-	ReasoningEffort      string                `json:"reasoning_effort,omitempty"`       // openai / gemini / vertex / mulerouter
-	Reasoning            *ReasoningObject      `json:"reasoning,omitempty"`              // openrouter
-	ChatTemplateKwargs   *ChatTemplateKwargs   `json:"chat_template_kwargs,omitempty"`   // nvidia
-	Tools                []Tool                `json:"tools,omitempty"`
-	ToolChoice           ToolChoice            `json:"tool_choice,omitempty"`
-	Stream               bool                  `json:"stream,omitempty"`
-	ResponseFormat       *ResponseFormat       `json:"response_format,omitempty"`
-	Grammar              *string               `json:"grammar,omitempty"`               // llama.cpp / TGI: GBNF grammar string
-	GuidedJSON           *string               `json:"guided_json,omitempty"`           // vLLM: JSON schema for guided decoding
-	GuidedGrammar        *string               `json:"guided_grammar,omitempty"`        // vLLM: GBNF grammar alternative
+	Model                string              `json:"model"`
+	Messages             []Message           `json:"messages"`
+	MaxTokens            int                 `json:"max_tokens,omitempty"`
+	Temperature          float64             `json:"temperature,omitempty"`
+	ReasoningBudget      int                 `json:"reasoning_budget,omitempty"`
+	ThinkingBudgetTokens int                 `json:"thinking_budget_tokens,omitempty"`
+	ReasoningEffort      string              `json:"reasoning_effort,omitempty"`     // openai / gemini
+	Reasoning            *ReasoningObject    `json:"reasoning,omitempty"`            // openrouter
+	ChatTemplateKwargs   *ChatTemplateKwargs `json:"chat_template_kwargs,omitempty"` // nvidia
+	Tools                []Tool              `json:"tools,omitempty"`
+	ToolChoice           ToolChoice          `json:"tool_choice,omitempty"`
+	Stream               bool                `json:"stream,omitempty"`
+	ResponseFormat       *ResponseFormat     `json:"response_format,omitempty"`
+	Grammar              *string             `json:"grammar,omitempty"`        // llama.cpp / TGI: GBNF grammar string
+	GuidedJSON           *string             `json:"guided_json,omitempty"`    // vLLM: JSON schema for guided decoding
+	GuidedGrammar        *string             `json:"guided_grammar,omitempty"` // vLLM: GBNF grammar alternative
 }
 
 // ReasoningObject is the openrouter reasoning-enable payload.
 type ReasoningObject struct {
-	Effort   string `json:"effort,omitempty"`
-	Enabled  bool   `json:"enabled,omitempty"`
-	MaxTokens int   `json:"max_tokens,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	Enabled   *bool  `json:"enabled,omitempty"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
 }
 
 // ChatTemplateKwargs carries provider-specific chat-template overrides.
 // NVIDIA NIM / Poolside use it to enable thinking via
-// chat_template_kwargs.enable_thinking.
+// chat_template_kwargs.enable_thinking. The bool has no omitempty so an
+// explicit false is serialized as "enable_thinking": false — omitting it would
+// drop the disabled override and leave the provider's native default in force.
+// The parent pointer is nil'd by resolvers when the kwargs must not appear.
 type ChatTemplateKwargs struct {
-	EnableThinking bool `json:"enable_thinking,omitempty"`
+	EnableThinking bool `json:"enable_thinking"`
 }
 
 // HasSeparateReasoning reports whether the message carries reasoning in a

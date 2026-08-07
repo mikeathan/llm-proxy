@@ -20,10 +20,11 @@ const htmlContent = computed(() => {
     raw = match[1];
   }
 
-  return marked(raw, {
+  const html = marked(raw, {
     gfm: true,
     breaks: true,
   })
+  return html
 })
 </script>
 

@@ -13,9 +13,6 @@ var defaultFactories = map[models.ProviderArchetype]ProviderFactory{
 	models.ArchetypeGemini: func(cfg models.ModelConfig, m models.ProviderManifest) models.Provider {
 		return NewGeminiProvider(cfg)
 	},
-	models.ArchetypeVertex: func(cfg models.ModelConfig, m models.ProviderManifest) models.Provider {
-		return NewVertexProvider(cfg)
-	},
 }
 
 func GetProviderFactory(archetype models.ProviderArchetype) (ProviderFactory, bool) {

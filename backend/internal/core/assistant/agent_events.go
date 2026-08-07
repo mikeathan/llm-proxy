@@ -31,8 +31,6 @@ const (
 	EventReasoning            AgentEventType = "reasoning"
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
-	EventMemoryRecall         AgentEventType = "memory_recall"
-	EventMemoryFlush          AgentEventType = "memory_flush"
 )
 
 // EventChannel isolates event streams by producer so a frontend subscriber
@@ -186,14 +184,6 @@ func (a *Agent) notifyLifecycle(phase string, extra map[string]any) {
 // providers (no readable reasoning stream) get a working indicator.
 func (a *Agent) notifyAgentThinking() {
 	a.notifyLifecycle(PhaseAgentThinking, map[string]any{})
-}
-
-func (a *Agent) notifyMemoryRecall(query string, count int) {
-	a.notify(EventMemoryRecall, map[string]any{"query": query, "count": count})
-}
-
-func (a *Agent) notifyMemoryFlush(count int) {
-	a.notify(EventMemoryFlush, map[string]any{"saved_count": count})
 }
 
 func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {

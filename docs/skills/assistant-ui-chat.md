@@ -123,11 +123,18 @@ function forceUpdate() {
 ```
 
 Call `forceUpdate()` after every mutation that must be reflected in the template:
-- After pushing a segment (tool_call, reasoning)
+- After pushing a segment (tool_call, reasoning, guardrail)
 - After updating a segment (tool_result)
-- After `render()` (sets `m.content`)
+- After `commitReasoning()` pushes a reasoning segment
+- **NOT during pure text streaming** — see below
 
-**Do NOT call `forceUpdate()` in `handleToolStream()`** — `render()` already sets `m.content` on the reactive proxy, which triggers computed re-evaluation. Calling `forceUpdate()` additionally causes excessive re-renders that can interfere with tool_call/tool_result segment rendering.
+**Streaming renders via the `liveReasoning` ref only; committed turns stay frozen.** `handleToolStream()` buffers streamed text in `pendingText` and flushes `liveReasoning.value` at most once per 100ms (`scheduleFlush()`). The flush does NOT replace the message object — no `forceUpdate()`. This keeps the `turns` computed frozen during text streaming, so historical turns never re-render and their `MarkdownViewer` computeds never re-run (the memoized-list pattern ChatGPT/Gemini use). `forceUpdate()` runs only on segment mutations (`tool_call`/`tool_result`/`commitReasoning`/`guardrail`), where the turn genuinely changes. `clearPendingFlush()` runs in `commitReasoning()`/`finalize()`/`reset()` so committed or finished text is never re-flashed as live.
+
+**Live reasoning is plain text, re-rendered via the `liveReasoning` ref (no MarkdownViewer while streaming).** `ChatBubble.vue` binds `{{ liveReasoning }}` as plain text — the 100ms flush caps the DOM swap of the live block to ~10/sec; because turns are frozen, committed history never re-parses. Committed reasoning segments re-render with full markdown via `MarkdownViewer`. An incremental text-node append experiment (Round 5) was attempted and reverted — it produced no GPU win and caused a rendering regression (content leaking out of the capped inset).
+
+**The inset keeps its 320px cap + internal scroller.** Long reasoning stays bounded inside the bubble and scrolls internally (the inset follows the newest line via the throttled inset auto-scroll, gated to the last turn). Do NOT suspend the cap or set `overflow-y: visible` on `.bubble-inset` — combined with the `grid-template-rows: 1fr/0fr` collapse wrapper and `min-height: 0`, visible overflow lets the streaming text leak outside the panel.
+
+**Auto-scroll is throttled (~250ms) and skips no-op passes.** `ChatMessages.vue` coalesces `scrollIfNearBottom` to ≤1 per 250ms and skips the `scrollTop` mutation entirely when `scrollHeight` didn't grow (while `notifyContent()` still runs for pause/resume bookkeeping). It watches `turns` by reference instead of `deep: true` (no whole-history deep-walk per flush). Do not restore per-flush scrolls or a deep watch on `turns` — they cause full-pane scroll+layout+composite passes during streaming.
 
 ## Inactivity Detection with `paused` Timer
 
@@ -229,15 +236,20 @@ The thinking-gap shows animated dots during inactivity pauses (no events for 200
 
 The dots NEVER appear while text is streaming. The user needs to see the text, not be distracted by animation.
 
-## Animation States
+## Animation States & GPU / Compositing Notes
 
 | Element | Loading | Not Loading |
 |---------|---------|-------------|
-| Assistant bubble left edge | Vertical gradient bar animates (`live-pulse`) | Hidden |
-| Input textarea border | Indigo box-shadow fades in/out (`input-glow`) | Default gray border |
-| Thinking-gap dots | Animated dots + "Thinking" text during inactivity pauses | Hidden (space always reserved) |
+| Arc-orbit loader (input + last bubble) | Rotates (`arc-orbit`) **only while `.is-active`** (thinking-gaps) | Inert (`opacity: 0`, animation stopped) |
+| Thinking-gap dots | `thinking-pulse` opacity animation **only while visible** (`.bubble-paused:not(.bubble-paused--hidden)`) | Inert (`visibility: hidden`, animation stopped) |
+| Generating pulse-dots | Only rendered while `phase === 'generating'` | Not in DOM |
 
-All use `ease-in-out` timing with 1.6-2s cycles (dots: 1.2s). No event-based toggling for the gradient bar — just tied to the `loading` ref.
+**GPU / compositing rules (see the consolidated `docs/audits/gpu-performance-audit.md` and
+forward-looking `docs/PLANS/gpu-performance.md`):**
+- **Never leave a CSS animation running on a hidden/invisible element.** CSS animations run even at `opacity: 0` / `visibility: hidden`. Every animation is gated to its visible state — the arc-orbit animation lives on `.arc-orbit-loader.is-active::before`, and the thinking-gap dots animate only under `.bubble-paused:not(.bubble-paused--hidden)`.
+- **`content-visibility: auto` on non-live turns** (`.message-wrapper--virtualized`, applied when `!(loading && isLastTurn)`) skips paint/composite of offscreen history so a growing session doesn't re-composite the whole pane. `contain-intrinsic-size: auto 120px` keeps scroll heights stable.
+- **Avoid `backdrop-blur` on always-visible elements** — each layer is a constant macOS compositing cost. `RightPane` pulse-container and `MetricsPulse` use solid `bg-gray-900` instead.
+- The live reasoning box is plain text re-rendered via `{{ liveReasoning }}` (throttled 100ms flush / 250ms outer auto-scroll); the inset keeps its 320px cap + internal scroll. Parity check (2026-08-05): same browser, Gemini ≈3% GPU vs llm-proxy ≈30% — the residual is NOT a platform floor, but the Round-5 append/uncap experiment was reverted (no GPU win + rendering regression). Root cause of the residual still open; profile with Chrome DevTools Performance before more changes (`?perf=1` telemetry was removed — its rAF loop was itself a GPU confound).
 
 ### Empty inset suppression
 
@@ -290,7 +302,8 @@ This makes the user message available for `groupTurns()` to anchor the turn, and
 - **`ensureAssistant()` must be called in every handler that touches segments** — `handleToolCall()`, `handleToolResult()`. Missing it causes orphaned segments.
 - **Handler first, then refs** — in `handleEvent`, call the handler BEFORE toggling `streaming`/`thinking` to prevent work section flickering.
 - **Do NOT reset pause timer on non-stream events** — `tool_call`/`tool_result`/`message` should NOT call `resetPauseTimer()`. Only `tool_stream` resets the timer.
-- **Do NOT call `forceUpdate()` in `handleToolStream()`** — `render()` already triggers reactivity. Extra `forceUpdate()` causes excessive re-renders.
+- **Do NOT call `forceUpdate()` during pure text streaming** — `scheduleFlush()` (100ms) updates only `liveReasoning.value`; committed turns stay frozen (memoized-list pattern). `forceUpdate()` is reserved for segment mutations.
+- **Throttle auto-scroll (~250ms) and never deep-watch `turns`** — per-flush pane scrolling + `deep: true` history traversal are the GPU/CPU hot path during streaming.
 - **Use `visibility: hidden` for the thinking-gap**, not `v-if` or `v-show`. The space must be reserved to prevent bubble height changes.
 - **Start the pause timer at agent startup** — call `builder.resetPauseTimer()` after `sse.connect()`.
 - **SSE must be connected before HTTP POST** — wait for "ping" event before sending the agent request.
