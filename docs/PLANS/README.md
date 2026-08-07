@@ -47,6 +47,7 @@ Organized by subsystem:
 | [`cross-cutting/per-model-reasoning-overrides-and-settings-layout.md`](cross-cutting/per-model-reasoning-overrides-and-settings-layout.md) | Per-Model Reasoning Overrides and Settings Layout Repair | complete | 2026-08-02 | SPEC-005 |
 | [`cross-cutting/post-implementation-cleanup.md`](cross-cutting/post-implementation-cleanup.md) | Post-Implementation Cleanup: Duplication & Dead Code | active | 2026-08-01 | SPEC-005 |
 | [`cross-cutting/agents-md-layering-guardrails.md`](cross-cutting/agents-md-layering-guardrails.md) | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
+| [`cross-cutting/xdg-config-data-relocation.md`](cross-cutting/xdg-config-data-relocation.md) | XDG Config/Data Relocation + Storage Cleanup + Reset Controls | proposed | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | [`cross-cutting/universal-agent-completion.md`](cross-cutting/universal-agent-completion.md) | Universal Agent Completion Model | complete | 2026-07-21 | SPEC-001, SPEC-002 |
 | [`memory/memory-improvements-implementation-plan.md`](memory/memory-improvements-implementation-plan.md) | Memory Improvements | partial | — | SPEC-004 |
 
@@ -70,6 +71,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | partial | Memory Improvements | remaining phases (nudge, meter, dedup, search, tagging) |
 | proposed | Automation Edit Form Reactivity | implement derive-don't-sync refactor |
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
-| — | Fix Final Report Realignment | canonical empty-finalization fix; GPU P5 depends on it |
+| proposed | XDG Config/Data Relocation | all 13 phases (paths pkg, storage tests, resolver unification, race/perf/security fixes, settings.yml merge, relocation + migration, reset controls) |
+| active | Fix Final Report Realignment | canonical empty-finalization fix; GPU P5 depends on it |
 
 See [`docs/INDEX.md`](../INDEX.md) for the full catalog with IDs and cross-references.

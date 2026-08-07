@@ -50,7 +50,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
 | `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
-| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (**canonical empty-finalization-turn fix; GPU P5 depends on it**) | — | — | SPEC-001 |
+| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (**canonical empty-finalization-turn fix; GPU P5 depends on it**) | active | 2026-08-07 | SPEC-001 |
 | `docs/PLANS/assistant-ui/automation-edit-form-reactivity.md` | Fix Automation Edit Form (reactive populate) | proposed | 2026-08-01 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md` | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/cancel-stale-turn-bleed.md` | Cancel Stale Turn Bleed | active | 2026-06-26 | SPEC-003 |

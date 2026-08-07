@@ -1,3 +1,9 @@
+---
+status: active
+date: 2026-08-07
+related_specs: [SPEC-001]
+---
+
 # Plan: Fix automation "Final Report" regression (full clean realignment)
 
 ## 0. TL;DR

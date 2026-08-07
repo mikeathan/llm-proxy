@@ -9,6 +9,7 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   exit 0
 fi
 
+echo "[gitleaks] scanning staged changes for secrets..."
 gitleaks git --staged --redact --no-banner
 status=$?
 

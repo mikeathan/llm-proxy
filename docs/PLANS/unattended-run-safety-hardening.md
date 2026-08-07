@@ -1,3 +1,9 @@
+---
+status: approved
+date: 2026-07-22
+related_specs: [SPEC-001, SPEC-006, SPEC-007]
+---
+
 # Unattended Run Safety Hardening Plan
 
 **Status:** approved — Steps 0–5 complete (2026-07-22)
