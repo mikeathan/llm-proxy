@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, inject, type Ref } from "vue";
+import { ref, onMounted, computed, inject, watch, type Ref } from "vue";
 import GlobalSettings from "./GlobalSettings.vue";
 import SecuritySettings from "./SecuritySettings.vue";
 import McpServers from "./McpServers.vue";
@@ -75,11 +75,23 @@ async function fetchProviderKeysForTab(provider: ProviderType) {
 
 function setTab(tab: SettingsTab) {
   activeTab.value = tab;
-  if (isProviderTab(tab)) {
-    ensureProvider(tab);
-    fetchProviderKeysForTab(tab as ProviderType);
-  }
 }
+
+// Load provider keys whenever a provider tab is active.  The active tab is
+// App-level reactive state (not reset per visit), so a provider tab can already
+// be active when Settings mounts — loading only inside setTab (a click handler)
+// left the key list empty in that case.  immediate: true covers the
+// already-active-at-mount path as well as subsequent tab switches.
+watch(
+  () => activeTab.value,
+  (tab) => {
+    if (isProviderTab(tab)) {
+      ensureProvider(tab);
+      fetchProviderKeysForTab(tab as ProviderType);
+    }
+  },
+  { immediate: true },
+);
 
 async function updateApiKeys(type: ProviderType, keys: APIKeyItem[]) {
   try {
@@ -270,7 +282,7 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
             <h2 class="config-header">
               {{ getLabel(provider) }} Configuration
             </h2>
-            <form @submit.prevent="handleSaveConfig" class="form-section">
+            <div class="form-section">
               <ApiKeySettings
                 :apiKeys="providerKeys[provider] || []"
                 title="API Keys"
@@ -328,17 +340,18 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
               </template>
 
               <div class="form-actions">
-                <BaseButton 
-                  type="submit" 
-                  variant="primary" 
-                  :loading="isSaving" 
+                <BaseButton
+                  type="button"
+                  variant="primary"
+                  :loading="isSaving"
                   icon="play"
                   className="w-full"
+                  @click="handleSaveConfig"
                 >
                   Save {{ provider }} Configuration
                 </BaseButton>
               </div>
-            </form>
+            </div>
           </div>
         </div>
 

@@ -1,25 +1,23 @@
 import { ref } from 'vue'
-import type { Automation, DispatcherMetrics, AgentState, AutomationRun } from '../../types/dispatcher'
+import type { Automation, AutomationRun, AgentState, DispatcherMetrics } from '../../types/dispatcher'
+import { useAppBanner } from '../ui/useAppBanner'
+import { DispatcherService } from '../../services/automation/dispatcherService'
+
+const { show: showBanner, clear: clearBanner } = useAppBanner()
 
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
 const workspaces = ref<{ id: string }[]>([])
 const workspaceFiles = ref<Record<string, string[]>>({})
 const loading = ref(false)
-const error = ref<string | null>(null)
 
 async function fetchAutomations(silent = false) {
   if (!silent) loading.value = true
-  error.value = null
+  clearBanner()
   try {
-    const res = await fetch('/admin/api/dispatcher/automations')
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
-    automations.value = JSON.parse(text)
+    automations.value = await DispatcherService.listAutomations()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to fetch automations'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to fetch automations' })
     console.error('fetchAutomations error:', e)
   } finally {
     if (!silent) loading.value = false
@@ -28,106 +26,69 @@ async function fetchAutomations(silent = false) {
 
 async function fetchWorkspaces() {
   try {
-    const res = await fetch('/admin/api/dispatcher/workspaces')
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
-    workspaces.value = JSON.parse(text)
+    workspaces.value = await DispatcherService.listWorkspaces()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to fetch workspaces'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to fetch workspaces' })
     console.error('fetchWorkspaces error:', e)
   }
 }
 
 async function fetchWorkspaceFiles(workspace: string) {
   try {
-    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/files`)
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
-    // Update ref object with new key in a reactive way
-    workspaceFiles.value = { 
-      ...workspaceFiles.value, 
-      [workspace]: JSON.parse(text) 
+    const files = await DispatcherService.listWorkspaceFiles(workspace)
+    workspaceFiles.value = {
+      ...workspaceFiles.value,
+      [workspace]: files,
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to fetch workspace files'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to fetch workspace files' })
     console.error('fetchWorkspaceFiles error:', e)
   }
 }
 
 async function fetchWorkspaceState(workspace: string): Promise<AgentState> {
-  const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/state`)
-  const text = await res.text()
-  if (!res.ok) {
-    throw new Error(`Server error: ${res.status} - ${text}`)
-  }
-  return JSON.parse(text)
+  return DispatcherService.getWorkspaceState(workspace)
 }
 
 async function createWorkspace(id: string) {
-  const res = await fetch('/admin/api/dispatcher/workspaces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id })
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Server error: ${res.status} - ${text}`)
+  try {
+    await DispatcherService.createWorkspace(id)
+  } catch (e) {
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to create workspace' })
+    console.error('createWorkspace error:', e)
+    throw e
   }
   await fetchWorkspaces()
 }
 
 async function fetchMetrics() {
   try {
-    const res = await fetch('/admin/api/dispatcher/metrics')
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
-    metrics.value = JSON.parse(text)
+    metrics.value = await DispatcherService.getMetrics()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to fetch metrics'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to fetch metrics' })
     console.error('fetchMetrics error:', e)
   }
 }
 
 async function triggerAutomation(workspace: string, automation: string, recordingRef?: string) {
-  error.value = null
+  clearBanner()
   try {
-    let url = `/admin/api/dispatcher/trigger/${workspace}/${automation}`
-    if (recordingRef) {
-      url += `?recording_ref=${encodeURIComponent(recordingRef)}`
-    }
-    const res = await fetch(url, { method: 'POST' })
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
-    // Refresh automations to get current output
+    await DispatcherService.triggerAutomation(workspace, automation, recordingRef)
     await fetchAutomations()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to trigger automation'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to trigger automation' })
     console.error('triggerAutomation error:', e)
     throw e
   }
 }
 
 async function stopAutomation(workspace: string) {
-  error.value = null
+  clearBanner()
   try {
-    const res = await fetch(`/admin/api/dispatcher/stop/${workspace}`, {
-      method: 'POST'
-    })
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
+    await DispatcherService.stopAutomation(workspace)
     await fetchAutomations()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to stop automation'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to stop automation' })
     console.error('stopAutomation error:', e)
     throw e
   }
@@ -135,39 +96,21 @@ async function stopAutomation(workspace: string) {
 
 async function updateAutomation(workspace: string, oldName: string, automation: Automation) {
   try {
-    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations/${oldName}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(automation)
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
+    await DispatcherService.updateAutomation(workspace, oldName, automation)
     await fetchAutomations()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to update automation'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to update automation' })
     console.error('updateAutomation error:', e)
     throw e
   }
 }
 
-function clearError() {
-  error.value = null
-}
-
 async function deleteAutomation(workspace: string, automation: string) {
   try {
-    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations/${automation}`, {
-      method: 'DELETE'
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
+    await DispatcherService.deleteAutomation(workspace, automation)
     await fetchAutomations()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to delete automation'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to delete automation' })
     console.error('deleteAutomation error:', e)
     throw e
   }
@@ -175,18 +118,10 @@ async function deleteAutomation(workspace: string, automation: string) {
 
 async function createAutomation(workspace: string, automation: Automation) {
   try {
-    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/automations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(automation)
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
+    await DispatcherService.createAutomation(workspace, automation)
     await fetchAutomations()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to create automation'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to create automation' })
     console.error('createAutomation error:', e)
     throw e
   }
@@ -194,16 +129,10 @@ async function createAutomation(workspace: string, automation: Automation) {
 
 async function deleteWorkspaceFile(workspace: string, file: string) {
   try {
-    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}/files/${file}`, {
-      method: 'DELETE'
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
+    await DispatcherService.deleteWorkspaceFile(workspace, file)
     await fetchWorkspaceFiles(workspace)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to delete file'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to delete file' })
     console.error('deleteWorkspaceFile error:', e)
     throw e
   }
@@ -211,28 +140,45 @@ async function deleteWorkspaceFile(workspace: string, file: string) {
 
 async function deleteWorkspace(workspace: string) {
   try {
-    const res = await fetch(`/admin/api/dispatcher/workspaces/${workspace}`, {
-      method: 'DELETE'
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Server error: ${res.status} - ${text}`)
-    }
+    await DispatcherService.deleteWorkspace(workspace)
     await fetchWorkspaces()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to delete workspace'
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to delete workspace' })
     console.error('deleteWorkspace error:', e)
     throw e
   }
 }
 
-async function fetchGlobalActivity(): Promise<AutomationRun[]> {
-  const res = await fetch('/admin/api/dispatcher/activity')
-  const text = await res.text()
-  if (!res.ok) {
-    throw new Error(`Server error: ${res.status} - ${text}`)
+// Confirmation is handled by the UI (InlineConfirm), not here, so these
+// functions perform the action directly and surface errors via a banner.
+async function deleteRun(run: AutomationRun) {
+  if (!run.workspace_id || !run.id) {
+    return
   }
-  return JSON.parse(text)
+  try {
+    await DispatcherService.deleteRun(run.workspace_id, run.id)
+  } catch (e) {
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to delete run' })
+    console.error('deleteRun error:', e)
+    throw e
+  }
+}
+
+async function deleteAutomationRuns(workspace: string, automation: string) {
+  if (!workspace || !automation) {
+    return
+  }
+  try {
+    await DispatcherService.deleteAutomationRuns(workspace, automation)
+  } catch (e) {
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to clear automation runs' })
+    console.error('deleteAutomationRuns error:', e)
+    throw e
+  }
+}
+
+async function fetchGlobalActivity(): Promise<AutomationRun[]> {
+  return DispatcherService.getGlobalActivity()
 }
 
 export function useDispatcher() {
@@ -242,8 +188,6 @@ export function useDispatcher() {
     workspaces,
     workspaceFiles,
     loading,
-    error,
-    clearError,
     fetchAutomations,
     fetchMetrics,
     triggerAutomation,
@@ -258,5 +202,7 @@ export function useDispatcher() {
     deleteAutomation,
     updateAutomation,
     stopAutomation,
+    deleteRun,
+    deleteAutomationRuns,
   }
 }

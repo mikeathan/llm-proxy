@@ -3,6 +3,10 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
+
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/secretcrypto"
 	"llm-proxy/models"
 )
 
@@ -11,50 +15,102 @@ import (
 type SecretStore struct {
 	store     *Store[models.EncryptedSecretData]
 	masterKey []byte
+
+	// decrypted is a cache of the decrypted view (P1). getDecrypted no longer
+	// AES-decrypts and unmarshals on every call — the request hot path only
+	// pays the cost after a Load or Update invalidates the cache.
+	mu        sync.RWMutex
+	decrypted *models.SecretData
 }
 
 func NewSecretStore(store *Store[models.EncryptedSecretData], masterKey []byte) *SecretStore {
-	return &SecretStore{store: store, masterKey: masterKey}
+	s := &SecretStore{store: store, masterKey: masterKey}
+	// Invalidate the cache whenever the underlying encrypted store changes
+	// (external edits via the watcher, our own writes).
+	store.OnChange(func(models.EncryptedSecretData) {
+		s.invalidate()
+	})
+	return s
+}
+
+// invalidate drops the cached decrypted view. Safe for concurrent callers.
+func (b *SecretStore) invalidate() {
+	b.mu.Lock()
+	b.decrypted = nil
+	b.mu.Unlock()
 }
 
 func (b *SecretStore) getDecrypted() models.SecretData {
-	edata := b.store.Get()
-	if edata.Ciphertext == "" {
-		return models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+	b.mu.RLock()
+	if b.decrypted != nil {
+		cached := *b.decrypted
+		b.mu.RUnlock()
+		return cached
+	}
+	b.mu.RUnlock()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// Double-check after acquiring the write lock.
+	if b.decrypted != nil {
+		return *b.decrypted
 	}
 
-	plaintext, err := DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
+	edata := b.store.Get()
+	if edata.Ciphertext == "" {
+		data := models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+		b.decrypted = &data
+		return data
+	}
+
+	if edata.Version > models.SecretVersionCurrent {
+		logging.Warn("secrets.json version is newer than supported; decrypting best-effort",
+			"version", edata.Version, "supported", models.SecretVersionCurrent)
+	}
+
+	plaintext, err := secretcrypto.DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
 	if err != nil {
-		fmt.Printf("Warning: Failed to decrypt secrets json: %v\n", err)
-		return models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+		logging.Warn("failed to decrypt secrets json", "error", err)
+		data := models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+		b.decrypted = &data
+		return data
 	}
 
 	var data models.SecretData
 	if err := json.Unmarshal(plaintext, &data.ProviderKeys); err != nil {
-		fmt.Printf("Warning: Failed to unmarshal decrypted secrets: %v\n", err)
-		return models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+		logging.Warn("failed to unmarshal decrypted secrets", "error", err)
+		data = models.SecretData{Version: edata.Version, ProviderKeys: make(map[string][]models.SecretEntry)}
+		b.decrypted = &data
+		return data
 	}
 	data.Version = edata.Version
 	if data.ProviderKeys == nil {
 		data.ProviderKeys = make(map[string][]models.SecretEntry)
 	}
+	b.decrypted = &data
 	return data
 }
 
 func (b *SecretStore) updateEncrypted(fn func(data *models.SecretData)) error {
+	b.invalidate()
+
 	return b.store.Update(func(edata *models.EncryptedSecretData) error {
 		var data models.SecretData
-		// Decrypt
+		// Decrypt existing credentials. A ciphertext that cannot be decrypted
+		// (e.g. the master key was rotated, or the file is corrupt) is treated as
+		// empty rather than aborting the write — we are about to overwrite it
+		// anyway. This mirrors getDecrypted's graceful handling and keeps the
+		// secrets UI usable after a key change / factory reset.
 		if edata.Ciphertext != "" {
-			plaintext, err := DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
+			plaintext, err := secretcrypto.DecryptAES(b.masterKey, edata.Ciphertext, edata.Nonce)
 			if err != nil {
-				return fmt.Errorf("failed to decrypt secrets: %w", err)
-			}
-			if err := json.Unmarshal(plaintext, &data.ProviderKeys); err != nil {
-				return fmt.Errorf("failed to unmarshal secrets: %w", err)
+				logging.Warn("existing secrets ciphertext undecryptable; starting from empty store",
+					"error", err)
+			} else if err := json.Unmarshal(plaintext, &data.ProviderKeys); err != nil {
+				logging.Warn("existing secrets ciphertext unmarshalable; starting from empty store",
+					"error", err)
 			}
 		}
-
 		if data.ProviderKeys == nil {
 			data.ProviderKeys = make(map[string][]models.SecretEntry)
 		}
@@ -68,11 +124,12 @@ func (b *SecretStore) updateEncrypted(fn func(data *models.SecretData)) error {
 			return fmt.Errorf("failed to marshal updated secrets: %w", err)
 		}
 
-		cipher, nonce, err := EncryptAES(b.masterKey, plaintext)
+		cipher, nonce, err := secretcrypto.EncryptAES(b.masterKey, plaintext)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt updated secrets: %w", err)
 		}
 
+		edata.Version = models.SecretVersionCurrent
 		edata.Ciphertext = cipher
 		edata.Nonce = nonce
 		return nil
@@ -119,7 +176,8 @@ func (b *SecretStore) SetProviderKeys(provider string, keys []models.APIKeyItem)
 				if existing, ok := existingByID[k.ID]; ok {
 					keyVal = existing.key
 				} else {
-					fmt.Printf("Warning: could not resolve masked key for ID %s in provider %s\n", k.ID, provider)
+					logging.Warn("could not resolve masked key",
+						"id", k.ID, "provider", provider)
 				}
 			}
 			if baseURL == "" {
@@ -215,46 +273,42 @@ func (b *SecretStore) MaskedSecret(category, provider string) string {
 	return MaskKey(val)
 }
 
-func (b *SecretStore) GetResolvedProviderKey(provider, name string) (string, error) {
+// resolveKey finds the matching API key entry for a provider. With an empty
+// name it returns the first key (the default credential); with a name it
+// matches Name or ID. It backs both GetResolvedProviderKey and
+// GetResolvedProviderKeyInfo so the linear scan lives in one place.
+func (b *SecretStore) resolveKey(provider, name string) (models.APIKeyItem, error) {
 	keys := b.GetProviderKeys(provider)
 	if len(keys) == 0 {
-		return "", fmt.Errorf("provider %q not found", provider)
+		return models.APIKeyItem{}, fmt.Errorf("provider %q not found", provider)
 	}
 
 	if name != "" {
 		for _, k := range keys {
 			if k.Name == name || k.ID == name {
-				return k.Key, nil
+				return k, nil
 			}
 		}
-		return "", fmt.Errorf("key %q not found for provider %q", name, provider)
+		return models.APIKeyItem{}, fmt.Errorf("key %q not found for provider %q", name, provider)
 	}
 
-	return keys[0].Key, nil
+	return keys[0], nil
+}
+
+func (b *SecretStore) GetResolvedProviderKey(provider, name string) (string, error) {
+	k, err := b.resolveKey(provider, name)
+	if err != nil {
+		return "", err
+	}
+	return k.Key, nil
 }
 
 func (b *SecretStore) GetResolvedProviderKeyInfo(provider, name string) (*models.ResolvedProviderKeyInfo, error) {
-	keys := b.GetProviderKeys(provider)
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("provider %q not found", provider)
+	k, err := b.resolveKey(provider, name)
+	if err != nil {
+		return nil, err
 	}
-
-	if name != "" {
-		for _, k := range keys {
-			if k.Name == name || k.ID == name {
-				return &models.ResolvedProviderKeyInfo{
-					Key:     k.Key,
-					BaseURL: k.BaseURL,
-				}, nil
-			}
-		}
-		return nil, fmt.Errorf("key %q not found for provider %q", name, provider)
-	}
-
-	return &models.ResolvedProviderKeyInfo{
-		Key:     keys[0].Key,
-		BaseURL: keys[0].BaseURL,
-	}, nil
+	return &models.ResolvedProviderKeyInfo{Key: k.Key, BaseURL: k.BaseURL}, nil
 }
 
 func (b *SecretStore) ResolveMaskedKey(provider, maskedKey string) (string, error) {

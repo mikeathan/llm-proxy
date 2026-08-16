@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1232,4 +1233,105 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 
 	// Clean up the run.
 	handler.CancelAgent("test-ws", "")
+}
+
+// TestHandleAssistant_NoTargetModelPublishesErrorEvent verifies that an early
+// client-acquisition failure (no primary model configured) is surfaced on the
+// SSE bus as an EventError rather than silently discarded. This is the backend
+// half of the "UI does nothing with no error" fix.
+func TestHandleAssistant_NoTargetModelPublishesErrorEvent(t *testing.T) {
+	logger := &noopLogger{}
+	mockClient := &mocks.MockLLMClientProvider{
+		GetClientErr: errors.New("no target model available"),
+	}
+	mockLimiter := &mocks.MockRateLimiter{}
+	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
+
+	eventBus := automation.NewEventBus()
+	eventCh, _ := eventBus.Subscribe("ws-no-model", assistant.ChannelAssistant)
+
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mocks.NewMockNodeHerder(nil))
+	service.EventBusRef = eventBus
+	// SelectModels() defaults to "" so the actionable "no primary model" path fires.
+
+	handler := NewAssistantMessageHandler(service)
+
+	payload := &AssistantMessage{
+		WorkspaceID:    "ws-no-model",
+		ConversationID: "conv-no-model",
+		Message:        "do something",
+	}
+
+	_, herr := handler.RunWithCancel(context.Background(), payload.WorkspaceID, payload, logger)
+	if herr == nil {
+		t.Fatal("expected a handlerError for no target model, got nil")
+	}
+	if herr.Status != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", herr.Status)
+	}
+
+	select {
+	case ev := <-eventCh:
+		if ev.Type != assistant.EventError {
+			t.Fatalf("expected EventError on the bus, got %q", ev.Type)
+		}
+		if ev.ConversationID != "conv-no-model" {
+			t.Errorf("event conversation_id = %q, want conv-no-model", ev.ConversationID)
+		}
+		payloadErr, _ := ev.Payload.(map[string]any)["error"].(string)
+		if payloadErr == "" {
+			t.Error("event payload missing error message")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for EventError on the bus")
+	}
+}
+
+// TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation verifies
+// the regression from the "added a provider but no primary model" scenario: a
+// brand-new conversation has an empty ConversationID, and the error event must
+// still reach the workspace-scoped SSE bus (it must not be silently dropped).
+func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *testing.T) {
+	logger := &noopLogger{}
+	mockClient := &mocks.MockLLMClientProvider{
+		GetClientErr: errors.New("no target model available"),
+	}
+	mockLimiter := &mocks.MockRateLimiter{}
+	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
+
+	eventBus := automation.NewEventBus()
+	eventCh, _ := eventBus.Subscribe("ws-empty-conv", assistant.ChannelAssistant)
+
+	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mocks.NewMockNodeHerder(nil))
+	service.EventBusRef = eventBus
+
+	handler := NewAssistantMessageHandler(service)
+
+	payload := &AssistantMessage{
+		WorkspaceID:    "ws-empty-conv",
+		ConversationID: "", // first send: no session id yet
+		Message:        "do something",
+	}
+
+	_, herr := handler.RunWithCancel(context.Background(), payload.WorkspaceID, payload, logger)
+	if herr == nil {
+		t.Fatal("expected a handlerError for no target model, got nil")
+	}
+
+	select {
+	case ev := <-eventCh:
+		if ev.Type != assistant.EventError {
+			t.Fatalf("expected EventError on the bus, got %q", ev.Type)
+		}
+		// ConversationID is empty by design; the event must still be delivered.
+		if ev.ConversationID != "" {
+			t.Errorf("event conversation_id = %q, want empty", ev.ConversationID)
+		}
+		payloadErr, _ := ev.Payload.(map[string]any)["error"].(string)
+		if payloadErr == "" {
+			t.Error("event payload missing error message")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for EventError on the bus (empty conversation_id)")
+	}
 }

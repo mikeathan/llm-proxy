@@ -2,10 +2,13 @@ package storage
 
 import (
 	"bufio"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
 	"strings"
+
+	shipped "llm-proxy/data/templates"
 )
 
 // TemplateStore manages the library of task templates.
@@ -14,7 +17,39 @@ type TemplateStore struct {
 }
 
 func NewTemplateStore(dir string) *TemplateStore {
-	return &TemplateStore{baseDir: dir}
+	s := &TemplateStore{baseDir: dir}
+	s.extractShipped()
+	return s
+}
+
+// extractShipped copies embedded default templates that are missing on disk. It
+// never overwrites an existing file, so user-edited templates survive upgrades.
+func (s *TemplateStore) extractShipped() {
+	if err := os.MkdirAll(s.baseDir, 0o700); err != nil {
+		logging.Warn("failed to create templates dir", "dir", s.baseDir, "error", err)
+		return
+	}
+	entries, err := shipped.FS.ReadDir(".")
+	if err != nil {
+		logging.Warn("failed to read embedded templates", "error", err)
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		dst := filepath.Join(s.baseDir, e.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		data, rerr := shipped.FS.ReadFile(e.Name())
+		if rerr != nil {
+			continue
+		}
+		if werr := os.WriteFile(dst, data, 0o600); werr != nil {
+			logging.Warn("failed to extract template", "name", e.Name(), "error", werr)
+		}
+	}
 }
 
 // List returns metadata for all available templates.

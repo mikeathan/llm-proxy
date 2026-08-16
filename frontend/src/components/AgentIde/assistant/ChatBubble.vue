@@ -49,7 +49,7 @@ const isStreamingPhase = computed(() =>
 // would otherwise paint as an empty rounded panel.  The header, animated
 // border and "Thinking" dots already convey activity on their own.
 const insetHasContent = computed(() =>
-  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail') ||
+  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail' || s.kind === 'error') ||
   liveReasoningVisible.value ||
   props.phase === 'generating')
 
@@ -146,6 +146,14 @@ watch(
                 <span class="inset-guardrail-tool">{{ seg.tool }}</span>
                 <span class="inset-guardrail-error">{{ seg.error }}</span>
               </div>
+            </div>
+
+            <div
+              v-else-if="seg.kind === 'error'"
+              class="inset-error"
+            >
+              <span class="inset-label inset-label--error">Error</span>
+              <span class="inset-error-message">{{ seg.message }}</span>
             </div>
           </template>
 
@@ -253,6 +261,14 @@ watch(
 }
 .inset-guardrail-error {
   @apply text-[11px] leading-snug text-red-200/80;
+}
+
+.inset-error {
+  @apply mb-2 pl-2 border-l-2 border-red-500/70 bg-red-500/10 rounded-r py-1.5 pr-2;
+}
+.inset-label--error { @apply text-red-400/80; }
+.inset-error-message {
+  @apply text-[11px] leading-snug text-red-200/90 whitespace-pre-wrap break-words;
 }
 
 .inset-generating {

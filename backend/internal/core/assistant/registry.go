@@ -371,7 +371,7 @@ func (r *LocalToolRegistry) ExecuteTool(ctx context.Context, call proxy.ToolCall
 }
 
 func (r *LocalToolRegistry) addTool(toolKey string, toolName string) {
-	params, desc, err := tools.LoadManifestAsTool("", toolKey, toolName)
+	params, desc, err := tools.LoadManifestAsTool(toolKey, toolName)
 	if err != nil {
 		logging.Warn("failed to load tool manifest", "key", toolKey, "error", err)
 		return

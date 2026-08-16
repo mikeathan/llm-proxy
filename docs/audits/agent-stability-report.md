@@ -199,13 +199,13 @@ Problems:
   backtick-balance check if a code block is incomplete in the stream.
 
 **Fix:**
-- The `submit_final_answer` tool should be the **only** path to task completion
-  in automation mode.
+- Natural completion is the **only** path to task completion in automation mode
+  (content-only final answer, no further tool calls). See Constitution §7.
 - Remove the soft exit heuristic entirely for automation tasks.
 - Instead, if a model produces text without tool calls for 2 consecutive turns
   in automation mode, inject a message saying: "You have not called any tools
-  for 2 turns. If you are done, call `submit_final_answer`. Otherwise, continue
-  with your next tool call inside `<tool_call>` tags."
+  for 2 turns. If you are done, write your final answer directly. Otherwise,
+  continue with your next tool call inside `<tool_call>` tags."
 - For chat mode (non-automation), keep the simple step-1 or 2-consecutive-chat
   exit rule but remove the heuristic keyword matching.
 
@@ -361,10 +361,10 @@ When a turn produces no valid tool calls, analyze WHY:
 - Tool name not recognized → list valid tool names
 - Missing required args → show the required parameters
 
-### Step 5: Remove Soft Exit, Rely on `submit_final_answer` (1 hour)
+### Step 5: Remove Soft Exit, Rely on Natural Completion (1 hour)
 
-The soft exit heuristic is a band-aid. Remove it. If models struggle to call
-`submit_final_answer`, the fix is better prompting, not heuristic guesswork.
+The soft exit heuristic is a band-aid. Remove it. If models struggle to produce
+a natural final answer, the fix is better prompting, not heuristic guesswork.
 
 ### Step 6: Per-Model Configuration (2-3 hours)
 
@@ -400,7 +400,7 @@ for structured tool calling. The system demands it:
 2. Understand a complex system prompt with 4+ sections (rules, tool manual,
    tool interface, workspace rules)
 3. Never output conversational text without tool calls in automation mode
-4. Know to call `submit_final_answer` to exit
+4. Know to write a final natural-language answer to exit
 5. Produce JSON with correct quoting and no trailing commas
 
 A 20B model has limited instruction-following precision. It will frequently:

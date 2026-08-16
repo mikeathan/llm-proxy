@@ -92,7 +92,7 @@ Record live LLM interactions by starting the server with `--record`:
 go run main.go --record
 ```
 
-This wraps every LLM client in a `RecordingClient` that writes JSONL transcripts to `data/runs/<model>/<task>/<timestamp>_<session>.jsonl` and enables the replay/fixture store. Each run also gets a per-run folder under `data/runs/` containing `events.jsonl`, `run.log`, and `recording.jsonl` whenever run logging is enabled (config `run_logging.enabled`, `--enable-runs`, or `--record`).
+This wraps every LLM client in a `RecordingClient` that writes JSONL transcripts to `data/runs/<model>/<task>/<timestamp>_<session>.jsonl` and enables the replay/fixture store. Each run also gets a per-run folder under `data/runs/` containing `events.jsonl` and `recording.jsonl` whenever run logging is enabled (config `run_logging.enabled`, `--enable-runs`, or `--record`).
 
 Run replay tests offline (no LLM required):
 

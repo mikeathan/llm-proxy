@@ -7,7 +7,7 @@ import { useFileEditor } from "../../composables/editor/useFileEditor";
 import { useAutomationRunner } from "../../composables/automation/useAutomationRunner";
 import { useWorkspaceHistory } from "../../composables/automation/useWorkspaceHistory";
 import { useResponsiveLayout } from "../../composables/ui/useResponsiveLayout";
-import type { Automation } from "../../types/dispatcher";
+import type { Automation, AutomationRun } from "../../types/dispatcher";
 import type { MemoryEntry } from "../../types/memory";
 import { DispatcherService } from "../../services/automation/dispatcherService";
 
@@ -31,7 +31,6 @@ import { useRunningActivity } from "../../composables/assistant/useRunningActivi
 import { useMetrics } from "../../composables/system/useMetrics";
 import MobileTabBar from "./common/MobileTabBar.vue";
 import SidebarNavTabs from "./common/SidebarNavTabs.vue";
-import ErrorBanner from "./common/ErrorBanner.vue";
 import RightPane from "./common/RightPane.vue";
 import Icon from "../icons/Icon.vue";
 
@@ -41,7 +40,6 @@ const {
   workspaces,
   workspaceFiles,
   loading,
-  error,
   fetchAutomations,
   fetchMetrics,
   triggerAutomation,
@@ -56,7 +54,8 @@ const {
   updateAutomation,
   deleteAutomation,
   stopAutomation,
-  clearError,
+  deleteRun,
+  deleteAutomationRuns,
 } = useDispatcher();
 
 const { state: adminState, refresh: refreshModels } = useModels();
@@ -108,6 +107,48 @@ const {
   () => refreshHistory(selectedWorkspace.value, fetchWorkspaceState, fetchGlobalActivity),
   fetchAutomations,
 );
+
+// The delete composables already surface errors via a banner, so these handlers
+// treat a thrown error as "action did not happen": no refresh and no view close.
+async function handleDeleteRun(run: AutomationRun) {
+  try {
+    await deleteRun(run);
+  } catch {
+    return;
+  }
+  refreshHistory(selectedWorkspace.value, fetchWorkspaceState, fetchGlobalActivity);
+}
+
+async function handleClearAutomationRuns(auto: { workspace: string; name: string }) {
+  if (!auto.workspace || !auto.name) return;
+  try {
+    await deleteAutomationRuns(auto.workspace, auto.name);
+  } catch {
+    return;
+  }
+  refreshHistory(selectedWorkspace.value, fetchWorkspaceState, fetchGlobalActivity);
+}
+
+async function handleDeleteRunFromHistory(run: AutomationRun) {
+  try {
+    await deleteRun(run);
+  } catch {
+    return;
+  }
+  handleCloseDetails();
+  refreshHistory(selectedWorkspace.value, fetchWorkspaceState, fetchGlobalActivity);
+}
+
+async function handleClearAutomationRunsFromHistory(auto: { workspace: string; name: string }) {
+  if (!auto.workspace || !auto.name) return;
+  try {
+    await deleteAutomationRuns(auto.workspace, auto.name);
+  } catch {
+    return;
+  }
+  handleCloseDetails();
+  refreshHistory(selectedWorkspace.value, fetchWorkspaceState, fetchGlobalActivity);
+}
 
 const {
   selectedFile,
@@ -326,12 +367,6 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
 
     <!-- Left Pane: Sidebar -->
     <div v-show="!isMobile || mobilePanel === 'explorer'" class="sidebar">
-      <ErrorBanner
-        v-if="error"
-        :message="error"
-        @dismiss="clearError"
-      />
-
       <SidebarNavTabs
         :modelValue="leftTab"
         :recordingsEnabled="recordingsEnabled"
@@ -429,6 +464,8 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         v-else-if="activeMainView === 'history'"
         :run="selectedRun!"
         @close="handleCloseDetails"
+        @delete-run="handleDeleteRunFromHistory"
+        @delete-automation-runs="handleClearAutomationRunsFromHistory"
       />
 
       <!-- Memory Detail View -->
@@ -482,6 +519,8 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
         :is-executing="triggering || (selectedAutomation?.is_running ?? false)"
         :selectedRun="selectedRun"
         @close="handleCloseDetails"
+        @delete-run="handleDeleteRun"
+        @delete-automation-runs="handleClearAutomationRuns"
       />
 
       <!-- Assistant View (full main pane) -->
@@ -507,6 +546,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       @stop="handleStop"
       @select-run="handleSelectRun"
       @select-assistant-session="openAssistantSession"
+      @delete-run="handleDeleteRun"
     />
 
     <!-- Modals & Overlays -->

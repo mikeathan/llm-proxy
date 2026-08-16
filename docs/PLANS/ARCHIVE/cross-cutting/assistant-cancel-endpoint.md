@@ -122,7 +122,7 @@ No budget values were changed. `maxTokens`, `reasoningBudget`, `stuckThresholdMu
 
 ## Why
 
-User scenario: send "tell me a joke" to local Qwen3.5-9B. Stream produced 7467 chars of content over 90+ seconds, no EOS, no `submit_final_answer`, no premature termination. Per-turn checks didn't fire because the model never completed a turn. The budget-exceeded warning was logged but the stream kept consuming chunks.
+User scenario: send "tell me a joke" to local Qwen3.5-9B. Stream produced 7467 chars of content over 90+ seconds, no EOS, no final answer, no premature termination. Per-turn checks didn't fire because the model never completed a turn. The budget-exceeded warning was logged but the stream kept consuming chunks.
 
 ## Decisions
 

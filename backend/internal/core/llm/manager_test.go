@@ -338,6 +338,9 @@ func TestRuntimeManager_IdleReaperStopsModel(t *testing.T) {
 		time.Millisecond*50, // idle timeout
 		time.Millisecond*20, // reaper tick
 	)
+	// Stop the reaper goroutine so it does not outlive this test and race with
+	// the next test's PortReady/ExecCommandContext overrides.
+	defer m.Shutdown()
 
 	_, _ = m.EnsureModel(context.Background(), "test")
 

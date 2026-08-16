@@ -7,12 +7,15 @@ import Logs from './components/logs/Logs.vue'
 import AgentIde from './components/AgentIde/AgentIde.vue'
 import { useModels } from './composables/models/useModels'
 import { useMcpServers } from './composables/system/useMcpServers'
+import { useModelBanner } from './composables/models/useModelBanner'
 import Toast from './components/ui/Toast.vue'
 import ConfirmDialog from './components/ui/ConfirmDialog.vue'
+import AppBanner from './components/ui/AppBanner.vue'
 import { useConfirm } from './composables/ui/useConfirm'
 import type { AppTab, SettingsTab } from './types'
 
 const { isOpen, options, handleConfirm, handleCancel } = useConfirm()
+const { recompute: recomputeModelBanner } = useModelBanner()
 
 const activeTab = ref<AppTab>('dashboard')
 const activeSettingsTab = ref<SettingsTab>('local')
@@ -30,8 +33,13 @@ provide('setActiveSettingsTab', (tab: SettingsTab) => {
 const { state, refresh: refreshModels } = useModels()
 const { refresh: refreshMcp } = useMcpServers()
 
+// The model warning logic lives in useModelBanner, which registers its
+// state/transient watchers once at module load (no per-component startup
+// wiring). The only trigger we keep here is the centralized post-refresh
+// recompute so the warning appears/disappears reactively after a Settings save
+// or model add without a page reload.
 onMounted(() => {
-  Promise.all([refreshModels(), refreshMcp()])
+  Promise.all([refreshModels(), refreshMcp()]).then(recomputeModelBanner)
 })
 </script>
 
@@ -45,6 +53,7 @@ onMounted(() => {
       </div>
 
       <div v-else class="h-full">
+        <AppBanner />
         <Dashboard v-if="activeTab === 'dashboard'" />
         <Settings  v-else-if="activeTab === 'settings'" />
         <Logs      v-else-if="activeTab === 'logs'" />
@@ -52,7 +61,7 @@ onMounted(() => {
       </div>
     </main>
     <Toast />
-    <ConfirmDialog 
+    <ConfirmDialog
       v-model="isOpen"
       v-bind="options"
       @confirm="handleConfirm"

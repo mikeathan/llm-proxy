@@ -17,6 +17,12 @@ import (
 // installed registry must be reported, never re-routed to the local host.
 var ErrUnknownProvider = errors.New("unknown provider")
 
+// ErrUnresolvedKey is the typed error returned when a cloud model explicitly
+// references a credential (by name or masked placeholder) that cannot be
+// hydrated to a real key.  Shipping an empty/masked Authorization header would
+// only produce a confusing 401 at request time, so Build fails fast instead.
+var ErrUnresolvedKey = errors.New("unresolved provider API key")
+
 // ProviderRegistrar manages the configuration and instantiation of LLM providers.
 // It centralizes infrastructure settings and secret resolution.
 type ProviderRegistrar struct {
@@ -128,7 +134,20 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 
 		if apiKey == "" || storage.IsMasked(apiKey) {
 			realKey, keyBaseURL, err := r.resolveSecret(providerName, apiKey, apiKeyName)
-			if err == nil {
+			if err != nil {
+				// An explicit credential reference (named key or masked
+				// placeholder) that cannot be hydrated is always a
+				// misconfiguration — fail loudly rather than shipping an
+				// empty/masked Authorization header that surfaces only as a
+				// confusing 401 at request time.  A wholly unkeyed model
+				// (no name, nothing stored) may still be a no-auth endpoint,
+				// so that case is tolerated with a warning.
+				if apiKeyName != "" || storage.IsMasked(apiKey) {
+					return nil, fmt.Errorf("%w: provider %q credential %q", ErrUnresolvedKey, providerName, apiKeyName)
+				}
+				logging.Warn("cloud provider has no configured key; proceeding without auth",
+					"provider", providerName, "credential", apiKeyName)
+			} else {
 				pCfg.ProviderConfig.APIKey = realKey
 				if keyBaseURL != "" {
 					pCfg.ProviderConfig.BaseURL = keyBaseURL

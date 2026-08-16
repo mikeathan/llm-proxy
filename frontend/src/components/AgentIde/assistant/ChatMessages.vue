@@ -22,7 +22,6 @@ const props = defineProps<{
   isInsetCollapsed: (idx: number) => boolean
   isSegExpanded: (turnIdx: number, segIdx: number) => boolean
   phase: InsetPhase
-  error?: string | null
   mode?: 'chat' | 'automation'
 }>()
 
@@ -34,7 +33,6 @@ const emit = defineEmits<{
   retry: [text: string]
   toggleInset: [idx: number]
   toggleSegment: [turnIdx: number, segIdx: number]
-  dismissError: []
   "scroll-update": [atBottom: boolean]
 }>()
 
@@ -120,13 +118,6 @@ defineExpose({
       </div>
     </div>
 
-    <div v-if="error" class="chat-error-banner">
-      <span class="chat-error-text">{{ error }}</span>
-      <button class="chat-error-dismiss" @click="emit('dismissError')" title="Dismiss">
-        <Icon name="close" size="xs" />
-      </button>
-    </div>
-
     <template v-for="(turn, idx) in turns" :key="'turn-' + idx">
       <UserMessage
         v-if="!isAutomation"
@@ -168,8 +159,5 @@ defineExpose({
 .chat-empty-card { @apply bg-gray-800/40 border border-white/5 rounded-2xl p-6 mx-1; }
 .chat-empty { @apply flex flex-col items-center justify-center text-center text-gray-500 gap-3 max-w-sm mx-auto; }
 .welcome-icon { @apply text-4xl mb-2 opacity-50; }
-.chat-error-banner { @apply flex items-start gap-2 px-3 py-2.5 mx-1 rounded-lg text-xs leading-relaxed; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); }
-.chat-error-text { @apply flex-1 text-red-300/90; }
-.chat-error-dismiss { @apply shrink-0 p-0.5 rounded text-red-400/60 hover:text-red-300 hover:bg-white/5 transition-colors; }
 .scroll-to-bottom { @apply absolute bottom-4 right-4 z-10 flex items-center justify-center p-2 rounded-full bg-gray-700/90 hover:bg-gray-600 text-gray-200 shadow-lg border border-white/10 transition-colors; }
 </style>

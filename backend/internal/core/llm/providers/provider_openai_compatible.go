@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"llm-proxy/internal/core"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"net/http"
 	"net/url"
@@ -300,6 +301,14 @@ func (p *OpenAICompatibleProvider) setAuthHeaders(header http.Header) {
 	}
 
 	value := p.cfg.ProviderConfig.APIKey
+	if value == "" && p.cfg.ProviderConfig.APIKeyName != "" {
+		// Defense-in-depth: a request that explicitly names a credential but
+		// reaches the wire with an empty key is always a misconfiguration
+		// (Build should have caught it).  Fail loudly so a 401 is not mistaken
+		// for an upstream problem.  An unkeyed, unnamed endpoint (no-auth) is
+		// left silent.
+		logging.Error("provider request sent without its named API key", "provider", p.cfg.Provider, "credential", p.cfg.ProviderConfig.APIKeyName)
+	}
 	if p.manifest.Auth.HeaderPrefix != "" {
 		value = p.manifest.Auth.HeaderPrefix + " " + value
 	} else if p.manifest.Auth.Type == "bearer" && !strings.HasPrefix(strings.ToLower(value), "bearer ") {

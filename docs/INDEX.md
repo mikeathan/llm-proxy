@@ -50,23 +50,27 @@ status, and cross-references to related documents. Use this as the starting poin
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
 | `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
-| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (**canonical empty-finalization-turn fix; GPU P5 depends on it**) | — | — | SPEC-001 |
+| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (**canonical empty-finalization-turn fix; GPU P5 depends on it**) | active | 2026-08-07 | SPEC-001 |
 | `docs/PLANS/assistant-ui/automation-edit-form-reactivity.md` | Fix Automation Edit Form (reactive populate) | proposed | 2026-08-01 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md` | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/cancel-stale-turn-bleed.md` | Cancel Stale Turn Bleed | active | 2026-06-26 | SPEC-003 |
+| `docs/PLANS/assistant-ui/consolidate-app-banner.md` | Consolidate banner logic into a single event-driven `AppBanner` | complete | 2026-08-14 | SPEC-003 |
 | `docs/PLANS/assistant-ui/knight-rider-arc-bubble.md` | Knight Rider Arc Bubble | active | 2026-06-26 | SPEC-003 |
 | `docs/PLANS/assistant-ui/overhaul-chat-history-layout.md` | Assistant UI Overhaul | active | 2026-06-25 | SPEC-003 |
+| `docs/PLANS/assistant-ui/reasoning-inset-auto-collapse.md` | Reasoning inset auto-expand while running, collapse on done | complete | 2026-08-14 | SPEC-003 |
 | `docs/PLANS/cross-cutting/cloud-provider-token-budgets.md` | Cloud Provider Token Budgets + Provider Set Reduction (**+ Phase 7 reasoning enable, merged**) | active | 2026-08-01 | SPEC-005, SPEC-003 |
 | `docs/PLANS/cross-cutting/per-model-reasoning-overrides-and-settings-layout.md` | Per-Model Reasoning Overrides and Settings Layout Repair | complete | 2026-08-02 | SPEC-005 |
 | `docs/PLANS/cross-cutting/connector-inbound-webhook.md` | Communication Connector Inbound Webhook | complete | 2026-06-28 | SPEC-009 |
 | `docs/PLANS/cross-cutting/connector-auto-reply.md` | Communication Connector Auto-Reply & Automation Trigger | active | 2026-06-28 | SPEC-009 |
 | `docs/PLANS/cross-cutting/reasoning-capture-dynamic.md` | Dynamic provider-agnostic reasoning + neutral indicator (incl. merged neutral-working-state) | complete | 2026-07-28 | SPEC-003, SPEC-005 |
 | `docs/PLANS/cross-cutting/session-source-backend-driven.md` | Session `source` derived from backend (single source of truth) | complete | 2026-07-09 | SPEC-009 |
-| `docs/PLANS/cross-cutting/universal-agent-completion.md` | Universal Agent Completion Model | complete | 2026-07-21 | SPEC-001, SPEC-002 |
+| `docs/PLANS/ARCHIVE/cross-cutting/universal-agent-completion.md` | Universal Agent Completion Model | complete | 2026-07-21 | SPEC-001, SPEC-002 |
 | `docs/PLANS/cross-cutting/webhook-fresh-sessions.md` | Fresh Webhook Sessions + Source Grouping | complete | 2026-07-09 | SPEC-009 |
 | `docs/PLANS/cross-cutting/post-implementation-cleanup.md` | Post-Implementation Cleanup: Duplication & Dead Code | active | 2026-08-01 | SPEC-005 |
+| `docs/PLANS/cross-cutting/xdg-config-data-relocation.md` | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened; **2026-08-11: two-root design superseded by single-root consolidation — all files under one root**) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | `docs/PLANS/cross-cutting/agents-md-layering-guardrails.md` | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
 | `docs/PLANS/gpu-performance.md` | GPU Performance (consolidated: completed + next steps; P5 bug note → fix-final-report) | active | 2026-08-06 | — |
+| `docs/PLANS/primary-model-warning-banner.md` | Remove model auto-bootstrap; explicit primary/fallback selection + banners | complete | 2026-08-14 | SPEC-003, CONSTITUTION III.4 |
 | `docs/PLANS/memory/memory-improvements-implementation-plan.md` | Memory Improvements | partial | — | SPEC-004 |
 | `docs/PLANS/unattended-run-safety-hardening.md` | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | approved | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
 
@@ -85,7 +89,6 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | File | Title | Status | Date |
 |------|-------|--------|------|
 | `docs/audits/2026-06-26-stale-turn-bleed.md` | Stale Turn Bleed on Cancel + New Message | complete | 2026-06-26 |
-| `docs/audits/2026-07-05-submit-final-answer-overwrite.md` | submit_final_answer Content Overwrite | complete | 2026-07-05 |
 | `docs/audits/2026-07-06-assistant-debug-cycle.md` | Full Debug Cycle (tool calls, history leak, GBNF) | complete | 2026-07-06 |
 | `docs/audits/agent-stability-report.md` | Agent Stability Audit (13 issues) | complete | 2026-05-28 |
 | `docs/audits/gpu-performance-audit.md` | GPU Performance — consolidated audit (all knowledge + fixes + lessons) | reference | 2026-08-06 |
@@ -119,6 +122,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 |------|-------|-------|
 | `docs/services/llm-proxy.service` | systemd service unit | Operational |
 | `docs/service_setup` | Service installation instructions | Setup |
+| `docs/data-layout.md` | Data Layout — root resolution, meta/ vs runs/ split, cleanup surfaces | Reference |
 | `docs/SPEC-change-management.md` | SPEC Lifecycle & Change Management | Reference |
 | `docs/SPECS/README.md` | Subdirectory catalog for all SPEC files | Index |
 | `docs/audits/README.md` | Subdirectory catalog for audit files | Index |

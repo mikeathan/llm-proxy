@@ -70,6 +70,15 @@ export const AdminApiService = {
 
   restartSystem: (): Promise<void> =>
     post<void>(API_ENDPOINTS.restart),
+
+  factoryReset: (): Promise<{ key_regenerated: boolean; key_externally_managed: boolean }> =>
+    post<{ key_regenerated: boolean; key_externally_managed: boolean }>(API_ENDPOINTS.factoryReset),
+
+  clearRuntimeData: (): Promise<void> =>
+    post<void>(API_ENDPOINTS.clearRuntimeData),
+
+  wipeout: (): Promise<{ root_dir: string; workspaces_dir: string }> =>
+    post<{ root_dir: string; workspaces_dir: string }>(API_ENDPOINTS.wipeout),
     
   fetchHostSettings: (): Promise<any> =>
     get<any>(API_ENDPOINTS.hostSettings),

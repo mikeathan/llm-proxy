@@ -34,6 +34,17 @@ export function useRecordings() {
     recordings.value = recordings.value.filter(r => r.id !== id)
   }
 
+  // Clear/set the recording_ref on an automation (which mode a replay uses).
+  // Multi-step (getConfig -> find -> update), so it lives here rather than in a
+  // presentation component.
+  async function setAutomationRecordingRef(workspace: string, automation: string, recordingRef: string) {
+    await DispatcherService.setAutomationRecordingRef(workspace, automation, recordingRef)
+  }
+
+  async function clearAutomationRecordingRef(workspace: string, automation: string) {
+    await DispatcherService.clearAutomationRecordingRef(workspace, automation)
+  }
+
   return {
     recordings,
     status,
@@ -41,6 +52,8 @@ export function useRecordings() {
     error,
     fetchStatus,
     fetchRecordings,
-    deleteRecording
+    deleteRecording,
+    setAutomationRecordingRef,
+    clearAutomationRecordingRef,
   }
 }

@@ -75,6 +75,8 @@ func (h *SecretsHandlers) AdminProviderKeysPutHandler(w http.ResponseWriter, r *
 			}
 		}
 		reg.Catalogue = out
+		// Clear any primary/fallback that pointed at a now-removed model.
+		models.ClearDanglingModelRefs(reg)
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to cleanup orphaned models: "+err.Error())
 		return
@@ -100,6 +102,8 @@ func cascadeRemoveModelsForKey(reg *models.RegistryData, provider, keyName, keyI
 		}
 	}
 	reg.Catalogue = out
+	// Clear any primary/fallback that pointed at a now-removed model.
+	models.ClearDanglingModelRefs(reg)
 }
 
 // AdminProviderKeyDeleteHandler removes a single key by ID from a provider,

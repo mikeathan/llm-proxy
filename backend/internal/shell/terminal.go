@@ -312,15 +312,18 @@ func (hm *HostShellManager) PGID(workspaceID string) (int, bool) {
 	return pgid, true
 }
 
-func (hm *HostShellManager) Shutdown() {
+func (hm *HostShellManager) Shutdown(ctx context.Context) {
 	hm.cancel()
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
 	for _, s := range hm.sessions {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		_ = s.sb.Cleanup(cleanupCtx)
 		cancel()
+		if ctx.Err() != nil {
+			break
+		}
 	}
 }
 

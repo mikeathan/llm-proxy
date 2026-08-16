@@ -15,7 +15,7 @@ reference the removed `sessionSource(id)` parser and `groupOrder`/`groupLabels`.
 
 ## Problem
 
-Webhook conversations reuse a stable session key (`wb_{connectorName}_{chatID}`). When a second message arrives in the same Telegram chat, `findOrCreateSourceSession` returns the existing session with its full history — including the prior `submit_final_answer` containing a ~2000-char report. Qwen gets confused by its own output in context and produces malformed responses (echoed content text alongside the tool call).
+Webhook conversations reuse a stable session key (`wb_{connectorName}_{chatID}`). When a second message arrives in the same Telegram chat, `findOrCreateSourceSession` returns the existing session with its full history — including the prior final answer containing a ~2000-char report. Qwen gets confused by its own output in context and produces malformed responses (echoed content text alongside the tool call).
 
 ## Solution
 

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"llm-proxy/internal/platform/storage"
 )
 
 type RecordingStore struct {
@@ -81,6 +83,17 @@ func (s *RecordingStore) Delete(id string) error {
 
 	if err := os.Remove(m.FilePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete recording file %s: %w", m.FilePath, err)
+	}
+
+	// Nested recordings (data/runs/{ws}/{model}/{task}/{ts}_{sid}/recording.jsonl)
+	// live inside a run directory that also holds events.jsonl, run-meta.json
+	// and final-report.md. Removing only the .jsonl would orphan those siblings,
+	// so delete the whole run directory when applicable.
+	if filepath.Base(m.FilePath) == "recording.jsonl" {
+		runDir := filepath.Dir(m.FilePath)
+		if err := storage.RemoveScopedDir(s.recordDir, runDir); err != nil {
+			return err
+		}
 	}
 	return nil
 }

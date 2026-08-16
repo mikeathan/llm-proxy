@@ -2,20 +2,14 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
-	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"llm-proxy/internal/app"
+	"llm-proxy/internal/boot"
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/platform/env"
-	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/storage"
 )
 
 var (
@@ -25,110 +19,33 @@ var (
 )
 
 func main() {
-	versionFlag := flag.Bool("version", false, "print version and exit")
-	dataFlag := flag.String("data", "data", "path to data directory containing config, secrets, and registry")
-	recordEnabled := flag.Bool("record", false, "enable recording of LLM responses for replay testing (saved under {data}/runs/)")
-	enableRuns := flag.Bool("enable-runs", false, "enable per-run output (events.jsonl, run.log, etc.)")
-	flag.Parse()
+	opts := boot.ParseFlags()
 
-	// Load Environment (.env files)
-	env.LoadEnv()
-
-	buildInfo := buildInfo()
-
-	if *versionFlag {
-		printVersion(buildInfo)
+	if opts.Version {
+		boot.PrintVersion(&buildinfo.Info{Version: Version, Commit: Commit, BuildDate: BuildDate})
 		return
 	}
 
-	logger := initLogger()
-	logging.SetGlobalLogger(logger)
-
-	// Initialize new Storage/Data Manager
-	dataMgr, err := storage.NewDataManager(*dataFlag)
-	if err != nil {
-		logging.Error("failed to initialize data manager", "error", err)
-		os.Exit(1)
-	}
-
-	// Setup Graceful Shutdown Context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// Configure Data Stack
-	if err := app.InitializeData(dataMgr); err != nil {
+	booted, err := boot.Startup(ctx, opts, &buildinfo.Info{Version: Version, Commit: Commit, BuildDate: BuildDate})
+	if err != nil {
 		os.Exit(1)
 	}
-	defer dataMgr.Close()
-
-	// Bootstrap using the new DataManager and app context
-	proxyApp := app.New(ctx, dataMgr, logger, buildInfo, *recordEnabled, *enableRuns)
-	bindAddr := app.ResolveBindAddr(dataMgr)
-
-	if *recordEnabled {
-		logging.Info("Recording enabled — LLM responses saved under {data}/runs/")
-	}
-
-	logStartup(logger, buildInfo, bindAddr)
-
-	go func() {
-		if err := proxyApp.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logging.Error("server exited", "error", err)
-			os.Exit(1)
-		}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer closeCancel()
+		booted.DataManager.Close(closeCtx)
 	}()
 
-	<-ctx.Done()
-	logging.Info("Shutting down...")
+	proxyApp := app.New(ctx, booted.DataManager, booted.Logger, booted.BuildInfo, opts.Record, opts.EnableRuns)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	boot.LogStartup(booted.BuildInfo, booted.BindAddr)
 
-	if err := proxyApp.Shutdown(shutdownCtx); err != nil {
-		logging.Error("shutdown error", "error", err)
+	if opts.Record {
+		boot.LogStartupRecording()
 	}
 
-	logging.Info("Exit complete")
-}
-
-func buildInfo() *buildinfo.Info {
-	return &buildinfo.Info{
-		Version:   Version,
-		Commit:    Commit,
-		BuildDate: BuildDate,
-	}
-}
-
-func printVersion(info *buildinfo.Info) {
-	fmt.Printf(
-		"llm-proxy %s (commit %s, built %s)\n",
-		info.Version,
-		info.Commit,
-		info.BuildDate,
-	)
-}
-
-func logStartup(logger logging.Logger, info *buildinfo.Info, bind string) {
-	//print version info
-	logging.Info(
-		"LLM proxy version",
-		"version", info.Version,
-		"commit", info.Commit,
-		"build_date", info.BuildDate,
-	)
-
-	// print bind address
-	logging.Info("LLM proxy listening", "bind", bind)
-}
-
-func initLogger() logging.Logger {
-	logger, err := logging.NewFileLogger(logging.Options{
-		Stdout: true,
-		File:   "logs/llm-proxy.log",
-		Level:  logging.LevelInfo,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create logger: %v", err)
-	}
-	return logger
+	boot.Serve(ctx, proxyApp, booted.BindAddr)
 }

@@ -59,7 +59,6 @@ Central state machine for processing SSE events into renderable messages and seg
 | `streaming` | `Ref<boolean>` | True while tool_stream events are being received |
 | `thinking` | `Ref<boolean>` | True during reasoning phase — set by `agent_thinking` lifecycle (pre-response compute wait) OR `tool_stream` events |
 | `paused` | `Ref<boolean>` | True when no tool_stream events for 200ms (inactivity detection) |
-| `isFinalTurn` | boolean | Set by message event with submit_final_answer |
 | `lastClean` | string | Last tool_stream text for detecting contiguous streaming |
 | `inReasoningPhase` | boolean | True during `reasoning` events, false during `tool_stream` events. Used by `handleToolStream` to detect reasoning→content transitions without a fragile length heuristic. |
 
@@ -71,8 +70,7 @@ Central state machine for processing SSE events into renderable messages and seg
 | `tool_call` | Call `ensureAssistant()` + `commitReasoning()`. Push `tool_call` segment with `status: 'running'`. **Does NOT restart pause timer.** |
 | `tool_result` | Call `ensureAssistant()`. Find matching `tool_call` segment, update to `status: 'success'`. **Does NOT restart pause timer.** |
 | `guardrail_violation` | Call `ensureAssistant()`, push `{kind: 'guardrail', tool, error}` segment, `render()`. Synchronous rejections emit this with NO preceding `tool_call`/`tool_result` pair, so it must create the segment itself. |
-| `message` (no submit_final_answer) | `commitReasoning()`, `render()`. **Does NOT restart pause timer.** |
-| `message` (has submit_final_answer) | Set `isFinalTurn = true`, discard `reasoningBuffer`, set message content to `reasoningCommitted` only. The `submit_final_answer` segment is handled by the normal `handleToolCall → handleToolResult` flow — **no special frontend code**. |
+| `message` | `commitReasoning()`, `render()`. **Does NOT restart pause timer.** |
 | `finalize(reply)` | Ensure message content is `reasoningCommitted`, push result message. |
 
 ### CRITICAL: `ensureAssistant()` must be called before pushing segments
@@ -180,7 +178,7 @@ s.agent.processToolCalls(...)       // sends tool_call, then executes, then tool
 s.agent.notify(EventMessage, ...)   // THEN sends the message event
 ```
 
-If `EventMessage` is sent before `processToolCalls`, the frontend receives the `message` event first. `handleMessage()` detects `submit_final_answer`, sets `isFinalTurn = true`, and returns early. Tool call segments are never created because the turn is frozen before any tool_call events arrive.
+If `EventMessage` is sent before `processToolCalls`, the frontend receives the `message` event first. `handleMessage()` treats it as the final turn and returns early. Tool call segments are never created because the turn is frozen before any tool_call events arrive.
 
 ## Frontend: SSE Connection Timing
 
@@ -210,19 +208,13 @@ type Segment =
 
 - `reasoning` segments are pushed by `commitReasoning()` when a turn boundary is detected or a tool call occurs
 - `tool_call` segments are pushed by `handleToolCall()` with status `'running'`, updated by `handleToolResult()` to `'success'`
-- `submit_final_answer` tool calls go through the SAME path as every other tool call — no special handling
 - Status transition from `'running'` to `'success'` is synchronous (no setTimeout, no rAF). The real time gap between `tool_call` and `tool_result` events (the tool execution time) provides natural visibility for the spinner.
 
-## submit_final_answer Event Flow
+## Natural Completion Flow
 
-The `submit_final_answer` tool call flows through the normal tool execution path (`tool_exec.go:154-175`):
+The agent completes a task by producing a content-only assistant message (no further tool calls). The frontend handles this as a normal `message` event: `commitReasoning()` moves streamed text to a reasoning segment, and the final answer text becomes `turn.finalAnswer`. There is no special frontend code for completion — the `message` event is treated the same as any other turn boundary.
 
-1. `notifyToolCall(tc)` → frontend receives `tool_call` → pushes segment as `running`
-2. `ExecuteTool(...)` → tool is "executed" (returns immediately - it's a completion marker)
-3. `notifyToolResult(...)` → frontend receives `tool_result` → updates segment to `success`
-4. `checkSubmitFinalAnswer(turnMsg)` (session.go:214) → extracts summary, returns as reply
-
-The `message` event (sent after `processToolCalls` returns) contains `submit_final_answer` in its `tool_calls`, but the handler only uses it to set `isFinalTurn = true` and clear the reasoning buffer. **It must NOT push a segment** — that creates a duplicate tool call item.
+The `message` event is sent after `processToolCalls` returns and must NOT push a tool-call segment — the tool calls are already represented by their own `tool_call`/`tool_result` events.
 
 ## Thinking-Gap Dots Indicator
 
@@ -269,15 +261,15 @@ The `groupTurns()` function converts the flat `messages[]` array into structured
 
 When `assistantMsgs.length === 1` (e.g., for webhook-triggered runs or direct text responses), `turn.finalAnswer` must be set explicitly from the single message's content. The `> 1` branch sets `finalAnswer = last.content` automatically, but the `=== 1` branch historically left it empty — causing the "Result" section to be hidden.
 
-**Rule:** When exactly one assistant message exists, set `turn.finalAnswer = only.content` in the same block where `agentOutput` and `segments` are set. The `finalAnswer` content is still filtered by `buildSegmentsFromHistory()` (Change B moves non-submit tool-call content to reasoning segments, so only actual report text ends up in `finalAnswer`).
+**Rule:** When exactly one assistant message exists, set `turn.finalAnswer = only.content` in the same block where `agentOutput` and `segments` are set. The `finalAnswer` content is still filtered by `buildSegmentsFromHistory()` (tool-call content is moved to reasoning segments, so only actual report text ends up in `finalAnswer`).
 
 ### `buildSegmentsFromHistory()` content-routing logic
 
-When reconstructing segments from persisted history, assistant messages with tool calls (but NOT `submit_final_answer`) have their `content` moved to a reasoning segment. This prevents intermediate planning text from appearing as raw output:
+When reconstructing segments from persisted history, assistant messages with tool calls have their `content` moved to a reasoning segment. This prevents intermediate planning text from appearing as raw output:
 
 1. Messages with `reasoning_content` → reasoning segment
-2. Non-submit messages with `tool_calls + content` → content moved to reasoning segment, message content cleared
-3. `submit_final_answer` messages → content preserved (it IS the report)
+2. Messages with `tool_calls + content` → content moved to reasoning segment, message content cleared
+3. Content-only messages (natural completion) → content preserved (it IS the report)
 
 ## Webhook Sessions
 
@@ -308,6 +300,6 @@ This makes the user message available for `groupTurns()` to anchor the turn, and
 - **Start the pause timer at agent startup** — call `builder.resetPauseTimer()` after `sse.connect()`.
 - **SSE must be connected before HTTP POST** — wait for "ping" event before sending the agent request.
 - **Do NOT use `watch(messages, scrollToBottom)`** — it causes flickering. Only scroll on new segments.
-- **submit_final_answer is just a completion marker** — it does NOT generate the report. The report content is streamed as reasoning text before the tool call. The tool execution is instant (~21ms).
+- **The final answer is the content-only message** — completion is signaled by the model producing text with no further tool calls. The report content is the final assistant message, not a separate tool call.
 - **`finalAnswer` must be set for single-message turns** — `groupTurns()` in `turnGrouper.ts` only sets `turn.finalAnswer` when `assistantMsgs.length > 1`. For webhook runs or direct responses (`=== 1`), set `turn.finalAnswer = only.content` explicitly to avoid an empty Result section.
 - **Webhook sessions need a synthetic user message** — `sendMessage()` is bypassed, so no user-role message reaches `messages.value`. In `applySessionUpdate()`, push the `session_started.snippet` as `{ role: 'user', content: snippet }` so `groupTurns()` can create a turn.

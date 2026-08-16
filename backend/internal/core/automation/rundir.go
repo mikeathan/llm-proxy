@@ -35,9 +35,18 @@ type RunMeta struct {
 	RecordingPath  string `json:"recording_path,omitempty"`
 }
 
-// NewRunDir creates the run directory under parent/{workspaceID}/{task}/{model}/{timestamp}_{sessionID}.
+// unknownTaskFallback substitutes for an empty task segment so the run
+// directory layout {workspace}/{model}/{task}/{timestamp}_{session} is never
+// silently collapsed by filepath.Join (which drops empty elements, orphaning
+// the directory directly beneath the model).
+const unknownTaskFallback = "unknown"
+
+// NewRunDir creates the run directory under parent/{workspaceID}/{model}/{task}/{timestamp}_{sessionID}.
 // parent is the base directory (record-dir or data/runs/) — must already exist.
 func NewRunDir(parent, workspaceID, task, model string) (*RunDir, error) {
+	if task == "" {
+		task = unknownTaskFallback
+	}
 	sessionID := generateSessionID()
 	timestamp := time.Now().UTC().Format("20060102T150405Z")
 	dirName := fmt.Sprintf("%s_%s", timestamp, sessionID)
@@ -52,7 +61,6 @@ func (r *RunDir) RecordingPath() string   { return filepath.Join(r.Root, "record
 func (r *RunDir) EventsPath() string      { return filepath.Join(r.Root, "events.jsonl") }
 func (r *RunDir) MetaPath() string        { return filepath.Join(r.Root, "run-meta.json") }
 func (r *RunDir) ReportPath() string      { return filepath.Join(r.Root, "final-report.md") }
-func (r *RunDir) LogPath() string         { return filepath.Join(r.Root, "run.log") }
 
 func (r *RunDir) RecordingRelPath(parent string) string {
 	if parent == "" {

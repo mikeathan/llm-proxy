@@ -25,6 +25,7 @@ const emit = defineEmits<{
   (e: "stop"): void
   (e: "select-run", run: AutomationRun): void
   (e: "select-assistant-session", sessionId: string): void
+  (e: "delete-run", run: AutomationRun): void
 }>()
 </script>
 
@@ -73,6 +74,7 @@ const emit = defineEmits<{
         :history="workspaceHistory"
         :loading="loading"
         @select-run="(run: AutomationRun) => emit('select-run', run)"
+        @delete-run="(run: AutomationRun) => emit('delete-run', run)"
       />
     </div>
 

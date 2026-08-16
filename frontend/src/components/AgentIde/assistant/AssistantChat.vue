@@ -9,6 +9,7 @@ import ChatSessionList from "./ChatSessionList.vue";
 import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
 import Icon from "../../../components/icons/Icon.vue";
+import { useTurnInset } from "../../../composables/ui/useTurnInset";
 
 const props = defineProps<{
   workspaceId: string;
@@ -21,14 +22,12 @@ const emit = defineEmits<{
 const { isMobile } = useResponsiveLayout(640);
 
 const {
-  loading, error, messages, sessions, currentSessionId, pendingDecision,
+  loading, messages, sessions, currentSessionId, pendingDecision,
   thinking, liveReasoning, paused, phase,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
   liveEvents,
 } = useAssistant();
-
-const dismissError = () => { error.value = null }
 
 const inputMessage = ref("");
 const sidebarOpen = ref(false);
@@ -63,39 +62,24 @@ function toggleSidebar() {
   inboundCount.value = 0
 }
 
-const insetCollapsed = ref<Record<number, boolean>>({});
 const expandedSegments = ref<Record<string, boolean>>({});
 
 const turns = computed(() => {
   return groupTurns(messages.value)
 })
+const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets } = useTurnInset(phase, turns);
 const lastMessageIsUser = computed(() => {
   if (messages.value.length === 0) return false;
   return messages.value[messages.value.length - 1]?.role === "user";
 });
 
-function isInsetCollapsed(turnIdx: number): boolean {
-  return !!insetCollapsed.value[turnIdx];
-}
-
 function isSegExpanded(turnIdx: number, segIdx: number): boolean {
   return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
-}
-
-function toggleInset(turnIdx: number) {
-  const current = !!insetCollapsed.value[turnIdx];
-  insetCollapsed.value = { ...insetCollapsed.value, [turnIdx]: !current };
 }
 
 function toggleSegment(turnIdx: number, segIdx: number) {
   const key = `${turnIdx}-${segIdx}`;
   expandedSegments.value = { ...expandedSegments.value, [key]: !expandedSegments.value[key] };
-}
-
-function collapseAllInsets() {
-  const collapsed: Record<number, boolean> = {};
-  turns.value.forEach((_, idx) => { collapsed[idx] = true; });
-  insetCollapsed.value = collapsed;
 }
 
 onMounted(() => { if (props.workspaceId) initWorkspace(); });
@@ -173,31 +157,6 @@ const handleDeleteGroup = async (ids: string[]) => {
   if (!confirm("Delete all conversations in this group? This cannot be undone.")) return;
   await deleteSessionsByIds(props.workspaceId, ids);
 };
-
-watch(loading, async (newVal, oldVal) => {
-  if (!oldVal && newVal) {
-    await nextTick();
-    const lastIdx = turns.value.length - 1;
-    if (lastIdx >= 0) {
-      insetCollapsed.value = { ...insetCollapsed.value, [lastIdx]: false };
-    }
-  }
-  if (oldVal && !newVal) {
-    await nextTick();
-    collapseAllInsets();
-  }
-});
-
-// Auto-collapse a turn's inset once it reaches the done phase so the work
-// detail hides behind the chevron and only the final answer stays visible.
-watch(phase, (p) => {
-  if (p === 'done') {
-    const lastIdx = turns.value.length - 1;
-    if (lastIdx >= 0) {
-      insetCollapsed.value = { ...insetCollapsed.value, [lastIdx]: true };
-    }
-  }
-});
 </script>
 
 <template>
@@ -295,11 +254,9 @@ watch(phase, (p) => {
         :is-inset-collapsed="isInsetCollapsed"
         :is-seg-expanded="isSegExpanded"
         :phase="phase"
-        :error="error"
         @retry="handleRetry"
         @toggle-inset="toggleInset"
         @toggle-segment="toggleSegment"
-        @dismiss-error="dismissError"
       />
 
       <ChatInput

@@ -212,6 +212,6 @@ runs. Delete the terminal stack.
 - Consider a raw/compact "debug" toggle later if operators miss the monospace
   terminal scrollback — out of scope for this plan (user wants the terminal
   removed).
-- `docs/architecture.md` Pitfall #6 + `docs/PLANS/cross-cutting/universal-agent-completion.md`
+- `docs/architecture.md` Pitfall #6 + `docs/PLANS/ARCHIVE/cross-cutting/universal-agent-completion.md`
   already updated for the channel split; this plan's completion should be noted
   in `docs/skills/assistant-ui-patterns.md` (renderer unification).

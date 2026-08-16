@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/testing/utils"
@@ -47,7 +48,7 @@ func minimalDataManager(t *testing.T) *storage.DataManager {
 	data, _ := json.Marshal(cfg)
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
 
-	mgr, err := storage.NewDataManager(dir)
+	mgr, err := storage.NewDataManager(seededPaths(t, dir))
 	if err != nil {
 		t.Fatalf("NewDataManager: %v", err)
 	}
@@ -62,16 +63,28 @@ func minimalDataManager(t *testing.T) *storage.DataManager {
 	return mgr
 }
 
+// seededPaths returns a collapse-mode Paths over an isolated temp dir with a
+// seeded master key (mirrors the helper in app_context_test.go, which lives in
+// the external app_test package).
+func seededPaths(t *testing.T, dir string) paths.Paths {
+	t.Helper()
+	p := paths.Paths{ConfigDir: dir, DataDir: dir}
+	if err := p.SeedDefaults(); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+	return p
+}
+
 func TestLimiter_IsSingleton(t *testing.T) {
 	utils.SetRequiredEnv(t)
 	logger := &mocks.MockLogger{}
 	clock := realutils.NewRealClock()
-	
+
 	dir := t.TempDir()
-	dataMgr, _ := storage.NewDataManager(dir)
-	
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, dir))
+
 	appCtx := NewServer(nil, dataMgr)
-	
+
 	// Enable sandboxing so bootstrap doesn't fatal
 	settings := appCtx.HostSettings()
 	settings.Sandboxing.Enabled = true

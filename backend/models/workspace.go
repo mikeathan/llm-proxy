@@ -74,13 +74,15 @@ type AutomationRun struct {
 	DurationMs     int64     `json:"duration_ms"`
 	Model          string    `json:"model"`
 	RecordingRef   string    `json:"recording_ref"`
-	Events         []any     `json:"events"` // Full event log for "Live Console" reconstruction
+	// RunDirName is the last path segment of the on-disk run directory
+	// (data/runs/{workspace}/{model}/{automation}/{RunDirName}), used by the UI
+	// to prune individual run artifacts. Empty when run logging is disabled.
+	RunDirName    string `json:"run_dir_name,omitempty"`
+	Events        []any  `json:"events"` // Full event log for "Live Console" reconstruction
 }
 
 // AgentState represents the execution history and state from workspaces/{id}/state.json
 type AgentState struct {
-	LastOutput string    `json:"last_output"`
-	LastError  string    `json:"last_error"`
 	NextRunAt  time.Time `json:"next_run_at"`
 	ActiveAutomation string    `json:"active_automation,omitempty"`
 	LastPulse        time.Time `json:"last_pulse"` // For HEARTBEAT_OK suppression

@@ -38,7 +38,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Track up to 3 recent `(name, args)` pairs.
 - Consecutive identical calls increment `duplicateStreak`.
 - At 3 duplicates: hard error ("infinite loop detected").
-- `submit_final_answer` and `system_error` tools are exempt.
+- `system_error` tools are exempt.
 
 ### 5. Exit Heuristics
 
@@ -179,7 +179,7 @@ Provider-specific defaults are defined in `models/tuning.go` (`ProviderTuningDef
 - II.4: Unambiguous Tool Boundaries (XML-only)
 - II.5: Text-First Tool Interface (native tools for cloud)
 - II.6: Token Budgeting & Structural Sieve
-- II.7: Explicit Task Completion (submit_final_answer)
+- II.7: Natural Task Completion
 - II.8: Context-Preserving Normalization
 - II.10: Guardrail Decision Flow (user approval for blocked tool calls)
 

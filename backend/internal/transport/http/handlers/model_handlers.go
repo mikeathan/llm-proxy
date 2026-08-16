@@ -63,6 +63,8 @@ func (h *ModelHandlers) AdminRegistryPutHandler(w http.ResponseWriter, r *http.R
 		reg.Catalogue = req.Catalogue
 		reg.Providers = translateProvidersToRegistry(req.Providers)
 		reg.MCPServers = req.MCPServers
+		// Clear any primary/fallback that pointed at a now-removed model.
+		models.ClearDanglingModelRefs(reg)
 	})
 
 	if err != nil {
@@ -316,12 +318,12 @@ func (r *modelFormRequest) enrichMetadataFromProviders(classify func(models.Mode
 // enrichMetadataFromProviders take the cloud recomputation path (zeroing the
 // prefilled tier defaults), which is what lets ApplyMetadataDefaults clamp to
 // the published cap.
-func (h *ModelHandlers) resolvePublishedCapabilitiesFromCatalog(ctx context.Context, req *modelFormRequest) {
+func resolvePublishedCapabilitiesFromCatalog(ctx context.Context, runtime RuntimeService, req *modelFormRequest) {
 	// Gate on the workload class (hydrated classifier over provider label, GGUF
 	// artifact, and the effective endpoint host) — a local-URL openai model
 	// (including a per-credential loopback base_url) must never consult a cloud
 	// catalog.
-	workload := req.workloadClass(h.runtime.ClassifyModel)
+	workload := req.workloadClass(runtime.ClassifyModel)
 	if workload == models.WorkloadLocal {
 		return
 	}
@@ -335,7 +337,7 @@ func (h *ModelHandlers) resolvePublishedCapabilitiesFromCatalog(ctx context.Cont
 	if modelID == "" {
 		return
 	}
-	infos, err := h.runtime.ListProviderModels(ctx, req.Provider, req.ProviderConfig.APIKeyName)
+	infos, err := runtime.ListProviderModels(ctx, req.Provider, req.ProviderConfig.APIKeyName)
 	if err != nil {
 		logging.Debug("[enrich] catalog lookup skipped", "provider", req.Provider, "model", modelID, "err", err)
 		return
@@ -510,11 +512,72 @@ func modelConfigFromRequest(req modelFormRequest, filename, path string, args []
 	}
 }
 
-// persistAndWriteOverrides builds the persistence copy of a model config,
+// registerModelFromRequest runs the model-registration pipeline: catalog
+// capability enrichment, metadata defaults, and runtime add. It returns the
+// runtime config, used by handleAddModel.
+//
+// req is mutated in place by the enrichment steps; callers must use the same
+// req when persisting (persistModelAndOverrides) so the persisted Metadata
+// carries the catalog-derived capabilities.
+func registerModelFromRequest(
+	ctx context.Context,
+	runtime RuntimeService,
+	admin AdminService,
+	req *modelFormRequest,
+	filename, fullPath string,
+	runtimeArgs []string,
+) (models.ModelConfig, error) {
+	resolvePublishedCapabilitiesFromCatalog(ctx, runtime, req)
+	req.enrichMetadataFromProviders(runtime.ClassifyModel)
+
+	logging.Debug("[registerModel] before ApplyMetadataDefaults", "name", req.Name, "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens, "reasoning", req.ReasoningBudget, "metadata", req.Metadata)
+	runtimeCfg := modelConfigFromRequest(*req, filename, fullPath, runtimeArgs, admin.Environment())
+	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
+	logging.Info("[registerModel] after ApplyMetadataDefaults", "name", runtimeCfg.Name, "ctx_budget", runtimeCfg.ContextBudget, "max_tokens", runtimeCfg.MaxTokens, "reasoning", runtimeCfg.ReasoningBudget)
+
+	if err := runtime.AddModel(runtimeCfg); err != nil {
+		return runtimeCfg, err
+	}
+	return runtimeCfg, nil
+}
+
+// persistModelAndOverrides builds the persistence copy of a model config,
 // applies metadata defaults, persists it via persistFn, then writes the
-// agent-tuning overrides (Phase 3 budget persistence included) and responds
-// with the runtime config.  Shared by handleAddModel/handleUpdateModel — the
-// two call sites differ only in the persist target and error phrasing.
+// agent-tuning overrides (Phase 3 budget persistence included). It is the
+// non-HTTP core used by persistAndWriteOverrides.
+func persistModelAndOverrides(
+	admin AdminService,
+	req modelFormRequest,
+	filename string,
+	persistFn func(models.ModelConfig) error,
+	runtimeCfg models.ModelConfig,
+	submittedMaxTokens, submittedCtxBudget int,
+) error {
+	persistCfg := modelConfigFromRequest(req, filename, "", append([]string{}, req.Args...), nil)
+	orchestrator.ApplyMetadataDefaults(&persistCfg)
+	if err := persistFn(persistCfg); err != nil {
+		return err
+	}
+
+	// Whether the model had a persisted override before this save — used by
+	// writeModelOverrides to clear a stale entry when no override remains.
+	_, hadOverride := admin.GetSettings().ModelOverrides[req.Name]
+
+	budgetOverride := modelBudgetOverride{
+		ExplicitMaxTokens: submittedMaxTokens,
+		ExplicitCtxBudget: submittedCtxBudget,
+		DerivedMaxTokens:  persistCfg.MaxTokens,
+		DerivedCtxBudget:  persistCfg.ContextBudget,
+		WorkloadClass:     persistCfg.WorkloadClass,
+	}
+	writeModelOverrides(req.Name, runtimeCfg, budgetOverride, hadOverride, admin.UpdateSettings)
+	return nil
+}
+
+// persistAndWriteOverrides is the HTTP wrapper around persistModelAndOverrides:
+// it persists, writes overrides, and responds with the runtime config. Shared
+// by handleAddModel/handleUpdateModel — the two call sites differ only in the
+// persist target and error phrasing.
 func (h *ModelHandlers) persistAndWriteOverrides(
 	w http.ResponseWriter,
 	req modelFormRequest,
@@ -524,26 +587,10 @@ func (h *ModelHandlers) persistAndWriteOverrides(
 	runtimeCfg models.ModelConfig,
 	submittedMaxTokens, submittedCtxBudget int,
 ) {
-	persistCfg := modelConfigFromRequest(req, filename, "", append([]string{}, req.Args...), nil)
-	orchestrator.ApplyMetadataDefaults(&persistCfg)
-	if err := persistFn(persistCfg); err != nil {
+	if err := persistModelAndOverrides(h.admin, req, filename, persistFn, runtimeCfg, submittedMaxTokens, submittedCtxBudget); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, persistErrMsg+err.Error())
 		return
 	}
-
-	// Whether the model had a persisted override before this save — used by
-	// writeModelOverrides to clear a stale entry when no override remains.
-	_, hadOverride := h.admin.GetSettings().ModelOverrides[req.Name]
-
-	budgetOverride := modelBudgetOverride{
-		ExplicitMaxTokens: submittedMaxTokens,
-		ExplicitCtxBudget: submittedCtxBudget,
-		DerivedMaxTokens:  persistCfg.MaxTokens,
-		DerivedCtxBudget:  persistCfg.ContextBudget,
-		WorkloadClass:     persistCfg.WorkloadClass,
-	}
-	writeModelOverrides(req.Name, runtimeCfg, budgetOverride, hadOverride, h.admin.UpdateSettings)
-
 	respondJSON(w, runtimeCfg)
 }
 
@@ -614,23 +661,12 @@ func (h *ModelHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	submittedMaxTokens := req.MaxTokens
 	submittedCtxBudget := req.ContextBudget
 
-	// Backend-authoritative: for cloud models, pull the published context
-	// window and output cap from the live catalog when the form didn't carry
-	// them, so CloudBudgetPolicy clamps to what the model actually publishes
-	// (V5).  The catalog is read once per TTL (shared cache, §2.10 #3).  MUST
-	// run before enrichMetadataFromProviders: the published caps ride into
-	// req.Metadata, whose ContextLength drives the cloud recomputation path
-	// (zeroing the prefilled tier defaults so the clamp applies).
-	h.resolvePublishedCapabilitiesFromCatalog(r.Context(), &req)
-
-	req.enrichMetadataFromProviders(h.runtime.ClassifyModel)
-
-	logging.Debug("[addModel] before ApplyMetadataDefaults", "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens, "reasoning", req.ReasoningBudget, "metadata", req.Metadata)
-	runtimeCfg := modelConfigFromRequest(req, filename, fullPath, runtimeArgs, h.admin.Environment())
-	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
-	logging.Info("[addModel] after ApplyMetadataDefaults", "ctx_budget", runtimeCfg.ContextBudget, "max_tokens", runtimeCfg.MaxTokens, "reasoning", runtimeCfg.ReasoningBudget)
-
-	if err := h.runtime.AddModel(runtimeCfg); err != nil {
+	// Register the model through the shared pipeline (registerModelFromRequest),
+	// which pulls the published context window / output cap from the live
+	// catalog (V5) and enriches metadata before applying defaults and adding to
+	// the runtime.
+	runtimeCfg, err := registerModelFromRequest(r.Context(), h.runtime, h.admin, &req, filename, fullPath, runtimeArgs)
+	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, llm.ErrModelExists) {
 			status = http.StatusConflict
@@ -711,7 +747,7 @@ func (h *ModelHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 	// Backend-authoritative catalog lookup (V5): same as add — published caps
 	// from the live catalog keep the cloud clamp accurate on edits too.  Runs
 	// before enrichment so the persisted Metadata drives cloud recomputation.
-	h.resolvePublishedCapabilitiesFromCatalog(r.Context(), &req)
+	resolvePublishedCapabilitiesFromCatalog(r.Context(), h.runtime, &req)
 
 	req.enrichMetadataFromProviders(h.runtime.ClassifyModel)
 

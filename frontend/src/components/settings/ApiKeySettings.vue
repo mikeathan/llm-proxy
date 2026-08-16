@@ -235,6 +235,8 @@ function addKey() {
               class="form-input"
               placeholder="Paste new key to update"
               autocomplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
             />
             <BaseButton
               variant="secondary"
@@ -355,6 +357,8 @@ function addKey() {
             class="form-input"
             placeholder="API Key value"
             autocomplete="new-password"
+            data-1p-ignore
+            data-lpignore="true"
           />
           <BaseButton
             variant="primary"

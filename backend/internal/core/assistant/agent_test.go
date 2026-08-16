@@ -3167,8 +3167,8 @@ func TestAgent_StuckDetectionExtractsToolCallFromReasoning(t *testing.T) {
 				if streamCallCount == 1 {
 					// Reasoning content that far exceeds the threshold, but
 					// contains an embedded <tool_call> block inside <think>.
-					reasoning := `<think>The user wants to submit the final answer.
-I should use the submit_final_answer tool to complete this.
+					reasoning := `<think>The user wants a file report.
+I should use the read_file tool to complete this.
 <tool_call>{"tool": "` + "read_file" + `", "args": {"summary": "done"}}</tool_call>
 </think>
 `
@@ -4467,7 +4467,7 @@ func TestAgent_CancelDuringStreamXMLRetry_NoFallbackToNonStreaming(t *testing.T)
 	}
 }
 
-func TestAgent_SubmitFinalAnswer_NoDuplicateInHistory(t *testing.T) {
+func TestAgent_NaturalCompletion_NoDuplicateInHistory(t *testing.T) {
 	var events []AgentEvent
 
 	client := &MockClient{

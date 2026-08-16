@@ -4,6 +4,11 @@ import "errors"
 
 var ErrSecretNotFound = errors.New("secret not found")
 
+// SecretVersionCurrent is the format version written to secrets.json and the
+// encrypted payload. It is incremented only on a breaking format change and
+// validated on read so schema drift is detectable (D4).
+const SecretVersionCurrent = 1
+
 type SecretData struct {
 	Version      int                      `json:"version"`
 	ProviderKeys map[string][]SecretEntry `json:"provider_keys,omitempty"`

@@ -2,16 +2,11 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/orchestrator"
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/db"
-	"llm-proxy/internal/platform/env"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
@@ -30,10 +25,19 @@ type AppContext struct {
 	rootDir       string
 	gpuConfig     models.GPUConfig
 	metrics       *metrics.MetricsService
-	hostSettings  *storage.HostSettingsStore
 	terminal      shell.ShellProvider
 	configMu      sync.RWMutex
 	cliEnableRuns bool
+
+	// rootCtx is the application lifecycle context, injected by app.New so the
+	// watcher restarted after factory reset stays tethered to a cancellable
+	// root (Constitution II.2/II.14) instead of a leaked context.Background().
+	rootCtx context.Context
+
+	// activeWork reports whether any assistant run or automation is executing.
+	// Registered at assembly time (buildHTTP); a nil checker is treated as
+	// "no known active work" for shell-session-only guards.
+	activeWork func() bool
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -48,7 +52,6 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		resolver:     storage.NewPathResolver(rootDir, dataMgr.WorkspacesDir(), dataMgr.MetadataDir()),
 		rootDir:      rootDir,
 		gpuConfig:    sys.Metrics.GPU,
-		hostSettings: storage.NewHostSettingsStore(),
 	}
 
 	s.initOrchestrator()
@@ -115,11 +118,10 @@ func (a *AppContext) SelectModels() (string, string) {
 	p := reg.PrimaryModel
 	f := reg.FallbackModel
 
-	// If no primary is set, auto-select first available model from registry
+	// If no primary is set, fall back to the fallback model only — never an
+	// arbitrary catalogue entry. Callers already error on an empty primary.
 	if p == "" {
-		if len(reg.Catalogue) > 0 {
-			p = reg.Catalogue[0].Name
-		}
+		p = f
 	}
 
 	return p, f
@@ -131,68 +133,6 @@ func (s *AppContext) Runtime() llm.RuntimeManager {
 
 func (s *AppContext) Orchestrator() *orchestrator.Orchestrator {
 	return s.orch
-}
-
-func (s *AppContext) initOrchestrator() {
-	dbPath := filepath.Join(s.rootDir, "orchestrator.db")
-	p, err := db.Open(dbPath)
-	if err != nil {
-		logging.Warn("failed to open orchestrator database", "error", err)
-		return
-	}
-	s.dbProvider = p
-
-	orch, err := orchestrator.NewOrchestrator(p)
-	if err != nil {
-		logging.Warn("failed to initialize orchestrator, running without budget control", "error", err)
-		return
-	}
-	s.orch = orch
-	logging.Info("Orchestrator initialized", "db", dbPath)
-
-	memStore, memErr := memory.New(p)
-	if memErr != nil {
-		logging.Error("failed to initialize memory store, memory disabled — all memory features unavailable", "error", memErr)
-		return
-	}
-	s.memoryStore = memStore
-	logging.Info("Memory store initialized", "db", dbPath)
-}
-
-func (s *AppContext) DBProvider() db.Provider {
-	return s.dbProvider
-}
-
-func (s *AppContext) MemoryStore() *memory.Store {
-	return s.memoryStore
-}
-
-func (s *AppContext) refreshMetricsService() {
-	var ts metrics.TerminalSource
-	if s.metrics != nil {
-		ts = s.metrics.TerminalSource()
-		s.metrics.Stop()
-	}
-	s.metrics = metrics.NewMetricsService(&models.Config{
-		Metrics: models.MetricsConfig{
-			GPU: s.gpuConfig,
-		},
-	})
-	s.metrics.SetThroughputSource(s.manager)
-	if ts != nil {
-		s.metrics.SetTerminalSource(ts)
-	}
-	s.metrics.Start()
-}
-
-func (s *AppContext) SetTerminalSource(src metrics.TerminalSource) {
-	if s.metrics != nil {
-		s.metrics.SetTerminalSource(src)
-	}
-}
-
-func (s *AppContext) SetShellProvider(tp shell.ShellProvider) {
-	s.terminal = tp
 }
 
 func (s *AppContext) Manager() llm.RuntimeManager {
@@ -240,539 +180,30 @@ func (s *AppContext) SetWorkspacesDir(dir string) {
 	s.resolver = storage.NewPathResolver(s.resolver.RootDir(), dir, s.dataMgr.MetadataDir())
 }
 
-// Tier 1: System
-func (s *AppContext) GetSystem() models.SystemConfig {
-	return s.dataMgr.System().Get()
+func (s *AppContext) SetRootContext(ctx context.Context) {
+	s.rootCtx = ctx
 }
 
-func (s *AppContext) RunLoggingEnabled() bool {
-	if s.cliEnableRuns {
+func (s *AppContext) SetActiveWorkChecker(fn func() bool) {
+	s.activeWork = fn
+}
+
+// hasActiveRuns reports whether any assistant or automation run is executing.
+// Used by factory-reset: the reset wipes the registry under a live agent, so it
+// must not proceed while a run is active. Shell sessions are intentionally NOT
+// part of this check — factory-reset leaves workspaces/meta/shell state intact.
+func (s *AppContext) hasActiveRuns() bool {
+	return s.activeWork != nil && s.activeWork()
+}
+
+// hasActiveWork reports whether clear-runtime-data would clobber live state:
+// any registered assistant/automation run, or any live persistent shell session.
+func (s *AppContext) hasActiveWork() bool {
+	if s.hasActiveRuns() {
 		return true
 	}
-	sys := s.GetSystem()
-	if sys.Server.RunLogging != nil {
-		return sys.Server.RunLogging.Enabled
+	if s.terminal != nil && len(s.terminal.ListSessions()) > 0 {
+		return true
 	}
 	return false
-}
-
-func (s *AppContext) UpdateSystem(fn func(*models.SystemConfig)) error {
-	return s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
-		fn(sys)
-		return nil
-	})
-}
-
-// Tier 2: Registry
-func (s *AppContext) GetRegistry() models.RegistryData {
-	return s.dataMgr.Registry().Get()
-}
-
-func (s *AppContext) UpdateRegistry(fn func(*models.RegistryData)) error {
-	return s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
-		fn(reg)
-		return nil
-	})
-}
-
-func (s *AppContext) GPUConfig() models.GPUConfig {
-	return s.gpuConfig
-}
-
-func (s *AppContext) SetGPUConfig(cfg models.GPUConfig) {
-	s.gpuConfig = cfg
-	s.refreshMetricsService()
-}
-
-func (s *AppContext) Environment() map[string]string {
-	return map[string]string{}
-}
-
-func (s *AppContext) Models() []models.ModelConfig {
-	reg := s.dataMgr.Registry().Get()
-	out := make([]models.ModelConfig, len(reg.Catalogue))
-	for i, m := range reg.Catalogue {
-		out[i] = models.ModelConfig{
-			Name:     m.Name,
-			Provider: m.ProviderID,
-			Filename: m.ModelID,
-			Port:     m.Port,
-			Args:     m.Args,
-			Prefill:  m.Prefill,
-			ProviderConfig: &models.ProviderConfig{
-				APIKeyName: m.CredentialID,
-			},
-		}
-	}
-	return out
-}
-
-func (s *AppContext) Providers() map[string]models.ProviderItem {
-	reg := s.dataMgr.Registry().Get()
-	settings := s.dataMgr.Settings().Get()
-	out := make(map[string]models.ProviderItem)
-
-	// 1. Populate from Registry
-	for k, v := range reg.Providers {
-		out[k] = models.ProviderItem{
-			Type:    v.Type,
-			BaseURL: v.BaseURL,
-		}
-	}
-
-	// 2. Ensure 'local' is present and enriched from system config
-	local := out["local"]
-	if local.Type == "" {
-		local.Type = "local"
-	}
-	local.LlamaServerBinary = settings.Local.LlamaServerBinary
-	local.ModelDir = settings.Local.ModelDir
-	local.DefaultArgs = settings.Local.DefaultArgs
-	out["local"] = local
-
-	return out
-}
-
-func (s *AppContext) SetEnvironment(env map[string]string) error {
-	return nil
-}
-
-func (s *AppContext) GetGuardrails() models.AgentGuardrailsConfig {
-	// Start with defaults from manifests
-	cfg := tools.GetDefaultGuardrails(s.rootDir)
-
-	// Overlay with user overrides from settings.yml
-	settings := s.dataMgr.Settings().Get()
-	if settings.Guardrails != nil {
-		cfg.MergeWith(settings.Guardrails)
-	}
-	return cfg
-}
-
-func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpdatePayload) error {
-	// 1. Update Infrastructure (SystemConfig)
-	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
-		if req.Bind != "" {
-			sys.Server.Bind = req.Bind
-		}
-		if req.WorkspacesDir != "" {
-			sys.WorkspacesDir = req.WorkspacesDir
-			s.SetWorkspacesDir(req.WorkspacesDir)
-		}
-		if req.ModelHost != "" {
-			sys.Server.ModelHost = req.ModelHost
-		}
-		if req.IdleTimeoutSecs > 0 {
-			sys.Server.IdleTimeoutSecs = req.IdleTimeoutSecs
-		}
-		if req.Environment != nil {
-			sys.Server.Environment = req.Environment
-		}
-		if req.RunLogging != nil {
-			sys.Server.RunLogging = req.RunLogging
-		}
-
-		// 2. Sync GPU Configuration (moved into transaction for persistence)
-		if req.GPUProvider != "" {
-			sys.Metrics.GPU.Provider = req.GPUProvider
-		}
-		if req.GPUBinary != "" {
-			sys.Metrics.GPU.Binary = req.GPUBinary
-		}
-		if req.GPUIndex != nil {
-			sys.Metrics.GPU.Index = *req.GPUIndex
-		}
-		if req.GPUSysfsPath != "" {
-			sys.Metrics.GPU.SysfsPath = req.GPUSysfsPath
-		}
-		if req.GPUSampleIntervalSec > 0 {
-			sys.Metrics.GPUSampleIntervalSec = req.GPUSampleIntervalSec
-		}
-		if req.GPUSmoothingAlpha > 0 {
-			sys.Metrics.GPUSmoothingAlpha = req.GPUSmoothingAlpha
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to save system config: %w", err)
-	}
-
-	if s.metrics != nil && req.GPUSmoothingAlpha > 0 {
-		s.metrics.SetSmoothingAlpha(req.GPUSmoothingAlpha)
-	}
-
-	// 1.5 Update Settings
-	err = s.dataMgr.Settings().Update(func(set *models.UserSettings) error {
-		if req.DefaultArgs != nil {
-			set.Local.DefaultArgs = req.DefaultArgs
-		}
-		if local, ok := req.Providers["local"]; ok {
-			// We allow clearing these fields by removing the != "" check
-			set.Local.LlamaServerBinary = local.LlamaServerBinary
-			set.Local.ModelDir = local.ModelDir
-			if local.DefaultArgs != nil {
-				set.Local.DefaultArgs = local.DefaultArgs
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to save settings: %w", err)
-	}
-
-	// 2. Registry and Infrastructure updates (Sync handled by subscribers)
-
-	// 3. Update Registry Providers
-	if req.Providers != nil {
-		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
-			if reg.Providers == nil {
-				reg.Providers = make(map[string]models.ProviderRegistryEntry)
-			}
-			for id, p := range req.Providers {
-				if id == "local" {
-					continue // Infrastructure-only
-				}
-				entry := reg.Providers[id]
-				entry.Type = p.Type
-				entry.BaseURL = p.BaseURL
-				reg.Providers[id] = entry
-			}
-			if req.PrimaryModel != "" {
-				reg.PrimaryModel = req.PrimaryModel
-			}
-			if req.FallbackModel != "" {
-				reg.FallbackModel = req.FallbackModel
-			}
-			if req.Communication != nil {
-				reg.Communication = *req.Communication
-			}
-			if req.Search != nil {
-				reg.Search = *req.Search
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("failed to save registry: %w", err)
-		}
-	} else if req.PrimaryModel != "" || req.FallbackModel != "" || req.Communication != nil || req.Search != nil {
-		// Just update registry items if providers weren't involved
-		err = s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
-			if req.PrimaryModel != "" {
-				reg.PrimaryModel = req.PrimaryModel
-			}
-			if req.FallbackModel != "" {
-				reg.FallbackModel = req.FallbackModel
-			}
-			if req.Communication != nil {
-				reg.Communication = *req.Communication
-			}
-			if req.Search != nil {
-				reg.Search = *req.Search
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("failed to save registry: %w", err)
-		}
-	}
-
-	// 5. Update Environment Variables (.env)
-	envUpdates := map[string]string{}
-	if req.ServiceClientID != "" {
-		os.Setenv("SERVICE_CLIENT_ID", req.ServiceClientID)
-		envUpdates["SERVICE_CLIENT_ID"] = req.ServiceClientID
-	}
-	if req.ServiceClientSecret != "" {
-		os.Setenv("SERVICE_CLIENT_SECRET", req.ServiceClientSecret)
-		envUpdates["SERVICE_CLIENT_SECRET"] = req.ServiceClientSecret
-	}
-	if len(envUpdates) > 0 {
-		envPath, _ := env.EnvFilePaths()
-		_ = env.UpdateEnvFile(envPath, envUpdates)
-	}
-
-	// 7. Sync Guardrails
-	if req.Guardrails != nil {
-		if err := s.UpdateSettings(func(set *models.UserSettings) {
-			set.Guardrails = req.Guardrails
-		}); err != nil {
-			return fmt.Errorf("failed to sync guardrails: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *AppContext) ServiceCredentials() (id, secret string) {
-	return os.Getenv("SERVICE_CLIENT_ID"), os.Getenv("SERVICE_CLIENT_SECRET")
-}
-
-func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
-	logging.Info("Persisting new model to registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		for i, existing := range c.Catalogue {
-			if existing.Name == cfg.Name {
-				credID := ""
-				if cfg.ProviderConfig != nil {
-					credID = cfg.ProviderConfig.APIKeyName
-				}
-				c.Catalogue[i] = models.ModelRegistryEntry{
-					ID:           cfg.Name,
-					Name:         cfg.Name,
-					ProviderID:   cfg.Provider,
-					ModelID:      cfg.Filename,
-					CredentialID: credID,
-					Port:         cfg.Port,
-					Args:         cfg.Args,
-					Prefill:      cfg.Prefill,
-					Metadata:     cfg.Metadata,
-				}
-				return nil
-			}
-		}
-		credID := ""
-		if cfg.ProviderConfig != nil {
-			credID = cfg.ProviderConfig.APIKeyName
-		}
-		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
-			ID:           cfg.Name,
-			Name:         cfg.Name,
-			ProviderID:   cfg.Provider,
-			ModelID:      cfg.Filename,
-			CredentialID: credID,
-			Port:         cfg.Port,
-			Args:         cfg.Args,
-			Prefill:      cfg.Prefill,
-			Metadata:     cfg.Metadata,
-		})
-		return nil
-	})
-}
-
-func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
-	logging.Info("Replacing model in registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		replaced := false
-		credID := ""
-		if cfg.ProviderConfig != nil {
-			credID = cfg.ProviderConfig.APIKeyName
-		}
-		newEntry := models.ModelRegistryEntry{
-			ID:             cfg.Name,
-			Name:           cfg.Name,
-			ProviderID:     cfg.Provider,
-			ModelID:        cfg.Filename,
-			CredentialID:   credID,
-			Port:           cfg.Port,
-			Args:           cfg.Args,
-			Prefill:        cfg.Prefill,
-			TimeoutMinutes: cfg.TimeoutMinutes,
-			Metadata:       cfg.Metadata,
-		}
-		for i, m := range c.Catalogue {
-			if m.Name == cfg.Name {
-				c.Catalogue[i] = newEntry
-				replaced = true
-				break
-			}
-		}
-		if !replaced {
-			c.Catalogue = append(c.Catalogue, newEntry)
-		}
-		return nil
-	})
-}
-
-func (s *AppContext) PersistDeleteModel(name string) error {
-	logging.Info("Deleting model from registry", "name", name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		out := c.Catalogue[:0]
-		for _, m := range c.Catalogue {
-			if m.Name != name {
-				out = append(out, m)
-			}
-		}
-		c.Catalogue = out
-		return nil
-	})
-}
-
-func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {
-	if explicitPath != "" && filepath.IsAbs(explicitPath) {
-		return explicitPath
-	}
-	if filename == "" && explicitPath != "" {
-		return explicitPath
-	}
-	if filepath.IsAbs(filename) {
-		return filename
-	}
-	modelDir := s.GetSettings().Local.ModelDir
-	if modelDir != "" {
-		return filepath.Join(modelDir, filename)
-	}
-	if explicitPath != "" {
-		return explicitPath
-	}
-	return filename
-}
-
-func (s *AppContext) DeleteProviderWithCleanup(provider string) error {
-	if err := s.dataMgr.Secrets().DeleteAllProviderKeys(provider); err != nil {
-		return fmt.Errorf("failed to delete keys for provider %q: %w", provider, err)
-	}
-
-	if err := s.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
-		out := reg.Catalogue[:0]
-		for _, m := range reg.Catalogue {
-			if m.ProviderID != provider {
-				out = append(out, m)
-			}
-		}
-		reg.Catalogue = out
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to cleanup models for provider %q: %w", provider, err)
-	}
-
-	return nil
-}
-
-func (s *AppContext) RefreshMetricsService() {
-	s.refreshMetricsService()
-}
-
-func (s *AppContext) MetricsSnapshot() metrics.MetricsSnapshot {
-	if s.metrics == nil {
-		s.refreshMetricsService()
-	}
-	return s.metrics.Snapshot()
-}
-
-func (s *AppContext) ListMCPServers() []models.MCPServerConfig {
-	reg := s.dataMgr.Registry().Get()
-	out := make([]models.MCPServerConfig, len(reg.MCPServers))
-	for i, s := range reg.MCPServers {
-		out[i] = models.MCPServerConfig{
-			Name:    s.Name,
-			URL:     s.URL,
-			Enabled: s.Enabled,
-		}
-	}
-	return out
-}
-
-func (s *AppContext) AddMCPServer(cfg models.MCPServerConfig) error {
-	logging.Info("Adding new MCP server to registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		for _, existing := range c.MCPServers {
-			if existing.Name == cfg.Name {
-				return nil
-			}
-		}
-		c.MCPServers = append(c.MCPServers, models.MCPServerRegistryEntry{
-			Name:    cfg.Name,
-			URL:     cfg.URL,
-			Enabled: cfg.Enabled,
-		})
-		return nil
-	})
-}
-
-func (s *AppContext) UpdateMCPServer(cfg models.MCPServerConfig) error {
-	logging.Info("Updating MCP server in registry", "name", cfg.Name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		for i, m := range c.MCPServers {
-			if m.Name == cfg.Name {
-				c.MCPServers[i] = models.MCPServerRegistryEntry{
-					Name:    cfg.Name,
-					URL:     cfg.URL,
-					Enabled: cfg.Enabled,
-				}
-				return nil
-			}
-		}
-		return nil
-	})
-}
-
-func (s *AppContext) RemoveMCPServer(name string) error {
-	logging.Info("Removing MCP server from registry", "name", name)
-	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		out := c.MCPServers[:0]
-		for _, m := range c.MCPServers {
-			if m.Name != name {
-				out = append(out, m)
-			}
-		}
-		c.MCPServers = out
-		return nil
-	})
-}
-
-func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
-	if workspaceID == "" {
-		return logging.GetGlobalLogger()
-	}
-
-	logFile := s.resolver.ProcessLog(workspaceID)
-	l, err := logging.NewFileLogger(logging.Options{
-		File:   logFile,
-		Stdout: true,
-		Level:  logging.LevelInfo,
-	})
-	if err != nil {
-		return logging.GetGlobalLogger()
-	}
-	return l
-}
-func (s *AppContext) ListTemplates() ([]models.TemplateMetadata, error) {
-	return s.dataMgr.Templates().List()
-}
-
-func (s *AppContext) GetTemplate(id string) (models.Template, error) {
-	return s.dataMgr.Templates().Get(id)
-}
-
-func (s *AppContext) HostSettings() models.HostSettings {
-	settings, err := s.hostSettings.Read()
-	if err != nil {
-		logging.Error("Failed to read host settings, returning defaults", "error", err)
-	}
-	// Inject runtime functional state
-	settings.Sandboxing.Functional = (s.terminal != nil)
-	return settings
-}
-
-func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {
-	return s.hostSettings.Write(settings)
-}
-
-func (s *AppContext) Shutdown() {
-	if s.metrics != nil {
-		s.metrics.Stop()
-	}
-	if s.terminal != nil {
-		logging.Info("Shutting down shell provider...")
-		s.terminal.Shutdown()
-	}
-	if s.dbProvider != nil {
-		logging.Info("Shutting down shared database...")
-		s.dbProvider.DB().Close()
-	}
-}
-
-func (s *AppContext) ResetShell(workspaceID string) error {
-	if s.terminal == nil {
-		return fmt.Errorf("terminal provider is not initialized")
-	}
-	s.terminal.Recycle(context.Background(), workspaceID)
-	return nil
-}
-
-func (s *AppContext) ListShellSessions() []models.TerminalSessionView {
-	if s.terminal == nil {
-		return nil
-	}
-	return s.terminal.ListSessions()
 }

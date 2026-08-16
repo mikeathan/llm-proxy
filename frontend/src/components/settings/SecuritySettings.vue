@@ -4,8 +4,10 @@ import BaseToggle from '../common/buttons/BaseToggle.vue'
 import TerminalMonitor from './TerminalMonitor.vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import { useToast } from '../../composables/useToast'
+import { useConfirm } from '../../composables/ui/useConfirm'
 
 const toast = useToast()
+const { confirm: confirmDialog } = useConfirm()
 const isLoading = ref(true)
 const isSaving = ref(false)
 
@@ -73,6 +75,55 @@ const handleRestart = async () => {
     }
 }
 
+const isResetting = ref(false)
+
+const handleClearRuntimeData = async () => {
+    if (!confirm("Clear all runtime state (per-workspace sessions, process logs, locks, runs, and app logs)? Config, secrets, and database are untouched. Active sessions/runs are stopped.")) return
+    isResetting.value = true
+    try {
+        await AdminApiService.clearRuntimeData()
+        toast.success("Runtime data cleared")
+    } catch (e: any) {
+        toast.error(`Failed to clear runtime data: ${e.message}`)
+    } finally {
+        isResetting.value = false
+    }
+}
+
+const handleFactoryReset = async () => {
+    if (!confirm("FACTORY RESET: reset settings.yml, registry, and secrets to defaults and generate a NEW master key. All stored API keys are unrecoverable. Orchestrator DB, templates, and workspaces are untouched. Restart recommended afterwards.")) return
+    isResetting.value = true
+    try {
+        const res = await AdminApiService.factoryReset()
+        toast.success(res.key_externally_managed
+            ? "Factory reset complete (master key externally managed, reused)"
+            : "Factory reset complete. New master key generated.")
+    } catch (e: any) {
+        toast.error(`Factory reset failed: ${e.message}`)
+    } finally {
+        isResetting.value = false
+    }
+}
+
+const handleWipeout = async () => {
+    const ok = await confirmDialog({
+        title: 'Wipeout (Uninstall)',
+        message: 'This permanently deletes everything the service created: configuration, settings, API keys/secrets, the orchestrator database, templates, logs, runs, and the workspaces directory. The server will stop afterwards. This cannot be undone.',
+        type: 'error',
+        confirmText: 'Wipe everything',
+        cancelText: 'Cancel',
+    })
+    if (!ok) return
+    isResetting.value = true
+    try {
+        await AdminApiService.wipeout()
+        toast.success('Service wiped. The server is stopping.')
+    } catch (e: any) {
+        toast.error(`Wipeout failed: ${e.message}`)
+        isResetting.value = false
+    }
+}
+
 // Track changes manually instead of auto-saving
 watch(settings, (newVal) => {
     if (!isLoading.value) {
@@ -133,6 +184,43 @@ onMounted(() => {
               <strong>Initialization Error</strong>
               <p>The terminal provider failed to initialize. The agent will fall back to single-shot command execution. Check system logs for details.</p>
             </div>
+          </div>
+        </div>
+
+        <!-- Reset Controls (Phase 10) -->
+        <div class="setting-group advanced-card">
+          <div class="toggle-header">
+            <div>
+              <span class="setting-label">Reset Controls</span>
+              <span class="setting-description">
+                Clear runtime state or reset configuration and secrets to factory defaults. Both operate on a fixed allowlist of paths — orchestrator DB, templates, and workspaces are never touched.
+              </span>
+            </div>
+          </div>
+          <div class="flex gap-3 mt-3">
+            <button
+                @click="handleClearRuntimeData"
+                class="btn-secondary"
+                :disabled="isResetting"
+            >
+                Clear Runtime Data
+            </button>
+            <button
+                @click="handleFactoryReset"
+                class="btn-danger"
+                :disabled="isResetting"
+            >
+                Factory Reset
+            </button>
+          </div>
+          <div class="flex mt-3">
+            <button
+                @click="handleWipeout"
+                class="btn-wipeout"
+                :disabled="isResetting"
+            >
+                Wipeout (Uninstall)
+            </button>
           </div>
         </div>
 
@@ -265,5 +353,13 @@ onMounted(() => {
 
 .btn-secondary {
   @apply px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-bold rounded-lg border border-gray-700 transition-all active:scale-95;
+}
+
+.btn-danger {
+  @apply px-4 py-2 bg-red-700/80 hover:bg-red-600 text-white text-sm font-bold rounded-lg border border-red-500 transition-all active:scale-95 disabled:opacity-50 disabled:grayscale;
+}
+
+.btn-wipeout {
+  @apply px-4 py-2 bg-red-900 hover:bg-red-800 text-white text-sm font-bold rounded-lg border-2 border-red-600 transition-all active:scale-95 disabled:opacity-50 disabled:grayscale;
 }
 </style>

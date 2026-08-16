@@ -17,7 +17,7 @@ func TestHostShellManager_Execution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create HostShellManager: %v", err)
 	}
-	defer hm.Shutdown()
+	defer hm.Shutdown(context.Background())
 
 	tmpDir, _ := os.MkdirTemp("", "shell-test-*")
 	defer os.RemoveAll(tmpDir)
@@ -237,7 +237,7 @@ func TestHostShellManager_ExecuteContextCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHostShellManager failed: %v", err)
 	}
-	defer hm.Shutdown()
+	defer hm.Shutdown(context.Background())
 
 	tmpDir := t.TempDir()
 
@@ -268,6 +268,37 @@ func TestHostShellManager_ExecuteContextCancel(t *testing.T) {
 		// Returned promptly — success
 	case <-time.After(5 * time.Second):
 		t.Fatal("Execute did not return within 5s of context cancellation")
+	}
+}
+
+func TestHostShellManager_Shutdown_RespectsContext(t *testing.T) {
+	hm, err := NewHostShellManager()
+	if err != nil {
+		t.Fatalf("NewHostShellManager failed: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if _, err := hm.GetOrCreate(context.Background(), "ctx-shutdown-ws", tmpDir, 0, nil, nil); err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	// A cancelled context must make Shutdown return promptly. Shutdown derives a
+	// 5s cleanup budget per session from the context; with a cancelled parent
+	// the first cleanup is bounded and the loop breaks early.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		hm.Shutdown(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success — Shutdown returned without blocking on the context deadline.
+	case <-time.After(3 * time.Second):
+		t.Fatal("Shutdown blocked past the cancelled context deadline")
 	}
 }
 

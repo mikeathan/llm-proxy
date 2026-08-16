@@ -76,7 +76,10 @@ After=network.target
 Type=simple
 User=mikeathan
 WorkingDirectory=/home/mikeathan/dev/llm-proxy
-ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy --data /home/mikeathan/dev/llm-proxy/data
+# Self-contained layout: LLM_PROXY_HOME=<dir> gives <dir>/config + <dir>/data.
+# (An explicit --data sets the DATA root only; ConfigDir still follows env/XDG/home.)
+Environment=LLM_PROXY_HOME=/home/mikeathan/llm-proxy
+ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"time"
@@ -82,6 +83,11 @@ func (h *SystemHandlers) AdminSystemPutHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.admin.ApplySystemUpdate(r.Context(), req); err != nil {
+		var notFound *models.ModelNotFoundError
+		if errors.As(err, &notFound) {
+			writeJSONError(w, http.StatusBadRequest, notFound.Error())
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err.Error())
 		return
 	}
@@ -96,6 +102,11 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 	}
 
 	if err2 := h.admin.ApplySystemUpdate(r.Context(), req); err2 != nil {
+		var notFound *models.ModelNotFoundError
+		if errors.As(err2, &notFound) {
+			writeJSONError(w, http.StatusBadRequest, notFound.Error())
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err2.Error())
 		return
 	}
@@ -108,10 +119,7 @@ func (h *SystemHandlers) AdminRestartHandler(w http.ResponseWriter, r *http.Requ
 	h.logger.Info("Restart requested via Admin UI")
 	respondJSON(w, map[string]string{"status": "restarting", "message": "Backend is restarting..."})
 
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(0)
-	}()
+	go shutdownAfterResponse()
 }
 
 // AdminHostSettingsHandler handles GET /admin/api/host
@@ -152,4 +160,57 @@ func (h *SystemHandlers) AdminTerminalResetHandler(w http.ResponseWriter, r *htt
 // AdminTerminalSessionsHandler handles GET /admin/api/host/terminal/sessions
 func (h *SystemHandlers) AdminTerminalSessionsHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, h.admin.ListShellSessions())
+}
+
+// AdminFactoryResetHandler handles POST /admin/api/system/factory-reset
+func (h *SystemHandlers) AdminFactoryResetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	res, err := h.admin.FactoryReset()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "factory reset failed: "+err.Error())
+		return
+	}
+	respondJSON(w, res)
+}
+
+// AdminClearRuntimeDataHandler handles POST /admin/api/system/clear-runtime-data
+func (h *SystemHandlers) AdminClearRuntimeDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if err := h.admin.ClearRuntimeData(); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "clear runtime data failed: "+err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"status": "ok"})
+}
+
+// AdminWipeoutHandler handles POST /admin/api/system/wipeout — a full uninstall
+// that removes the data root, workspaces, and secrets, then stops the process.
+func (h *SystemHandlers) AdminWipeoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	res, err := h.admin.Wipeout()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "wipeout failed: "+err.Error())
+		return
+	}
+	respondJSON(w, res)
+
+	// The data the process depends on is gone; stop it after the response flushes.
+	go shutdownAfterResponse()
+}
+
+// shutdownAfterResponse waits briefly for the HTTP response to flush, then exits
+// the process. It is a package variable so tests can stub the process exit (a
+// real os.Exit would terminate the test binary).
+var shutdownAfterResponse = func() {
+	time.Sleep(500 * time.Millisecond)
+	os.Exit(0)
 }

@@ -62,7 +62,7 @@ export const DEFAULT_CONFIG: GlobalConfig = {
     guardrail_timeout_seconds: 5,
     guardrail_timeout_behavior: 'fail-open',
   },
-  run_logging: { enabled: false },
+  run_logging: { enabled: true },
 }
 
 // Global state to share across components

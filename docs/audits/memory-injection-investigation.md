@@ -132,7 +132,7 @@ History[1] = User:
     Step 7: edit, recompile, rerun
     Step 8: fetch_url
     Step 9: get_network_info
-    Step 10: compile results, submit_final_answer
+    Step 10: compile results, write final report
     ---
     Use your tools to complete every step.
 
@@ -486,7 +486,7 @@ All recordings: `/Users/mikeathan/dev/llm-proxy/backend/testdata/recordings/gemm
 14:47:55Z WARN reasoning budget exceeded, letting server enforcement handle it
          │   reasoning_used 915 | budget 910
          └── single warning (budgetWarned flag works)
-14:48:13Z tool → submit_final_answer
+14:48:13Z → final answer
 ```
 
 ### llama.cpp performance metrics (from server logs)
@@ -647,7 +647,7 @@ executor.go Execute()
   │     ├── Turn 4: mkdir, write, chmod, sh ✅
   │     ├── Turn 5: npm install typescript ❌ (was in memory), tsc --version ❌
   │     ├── Turn 6-10: ... (rest of steps)
-  │     └── submit_final_answer ✅
+  │     └── final answer ✅
   └── Return result
 ```
 
@@ -669,7 +669,7 @@ executor.go Execute()
   │     ├── Agent never sees "npx tsc --version" — it sees "check memory, skip"
   │     ├── npm install typescript → skipped ✅
   │     ├── tsc --version → skipped ✅
-  │     └── submit_final_answer ✅
+  │     └── final answer ✅
   └── Return result
 ```
 
@@ -806,57 +806,34 @@ The context budget is currently 10924 chars (determined by `context_budget` on t
 ### Attempt 7: notify_user description + prompt-level changes (June 7)
 
 After disabling memory injection for automation, the model began calling `notify_user` instead of
-`submit_final_answer` at task completion. Several prompt attempts were tried:
+producing a final answer at task completion. Several prompt attempts were tried:
 
-#### 7a. Changing the `notify_user` tool description
+- Changed the `notify_user` tool description to "Do NOT use this to submit final results."
+- Removed memory nudge prompts from `AutomationTaskPrompt` and `GetSystemPrompt()`.
+- Added a negative rule to `DefaultRules` ("Do NOT use 'notify_user' to submit results").
 
-**What:** Changed from "Send notifications and reports to the user via external platforms"
-to "Send a short notification to the user during execution. Do NOT use this to submit
-final results — call submit_final_answer instead."
-
-**Result:** No change. The model's behavior was identical with both descriptions.
-The root cause was that `submit_final_answer` was never in the native tool schema sent
-to the LLM (a trailing comma in `system.json` caused Go's `json.Unmarshal` to reject
-the manifest, silently dropping both system tools).
-
-#### 7b. Removing memory nudge prompts from the task prompt
-
-**What:** Removed the `During execution — when you discover a durable fact...save it immediately
-with memory_update` paragraph from `AutomationTaskPrompt`. Removed `MemoryProactiveNudge` from
-`GetSystemPrompt()`.
-
-**Result:** Reduced noise but root cause was the missing `submit_final_answer` tool.
-
-#### 7c. Adding "Do NOT use notify_user" rules to DefaultRules
-
-**What:** Added a bullet to rule 6: "Do NOT use 'notify_user' to submit results."
-
-**Result:** No change. Negative instructions ("don't do X") are less effective than
-positive instructions ("do Y") for small models. The 4B model ignores this at step 10.
+None of these worked — the root cause was not prompting.
 
 ---
 
 ### Root Cause (June 7, Updated)
 
-The `submit_final_answer` and `system_error` tools were silently dropped from the tool registry
-because a trailing comma in `manifests/system.json` caused Go's strict `json.Unmarshal` to reject
-the manifest during `LoadManifestAsTool`. The function returned an error, `addTool` logged a
-warning and returned without adding the tools. The LLM never received `submit_final_answer` in
-its native tool schema, so despite the prompt telling it to call the tool, the model physically
-could not emit it.
+The completion tool (and `system_error`) were silently dropped from the tool registry because a
+trailing comma in `manifests/system.json` caused Go's strict `json.Unmarshal` to reject the
+manifest during `LoadManifestAsTool`. The function returned an error, `addTool` logged a warning
+and returned without adding the tools. With `tool_choice: required`, the model had to pick a tool
+and fell back to `notify_user` (closest match), which the guardrail then blocked.
 
-Event timeline:
+> **Superseded (2026-07-22):** The dropped tool was the removed synthetic `submit_final_answer`.
+> Completion is now natural (content-only final answer, no tool call). See commit `f89b2cf` and
+> `docs/PLANS/ARCHIVE/cross-cutting/universal-agent-completion.md`.
 
-1. Memory branch introduced trailing comma in `system.json` line 34
-2. On every server restart, `InitializeAgentStack` → `registerAll()` → `registerSystemTools()`
-   → `registerTool` → `addTool` → `LoadManifestAsTool("", "system", "submit_final_answer")` fails
-   → warning logged, tool silently dropped
-3. The LLM receives 12 tools in its schema — none of them `submit_final_answer`
-4. The system prompt text still says "call 'submit_final_answer'" (it's built from `templates.go`,
-   not from the manifest)
-5. With `tool_choice: required`, the model must pick a tool; it falls back to `notify_user`
-   (closest match — "Send notifications and reports")
-6. Guardrail blocks `notify_user` → run fails with `context canceled`
+**Durable lessons (still apply):**
+
+1. A trailing comma in any `manifests/*.json` silently drops the tool with only a warning log.
+   Validate manifests after edits.
+2. Negative instructions ("don't do X") are less effective than positive instructions ("do Y")
+   for small models.
 
 ## Why memory injection works for interactive but not automation
 
@@ -903,5 +880,5 @@ model's attention is exhausted. Future work should focus on step-aware injection
 rather than removing the feature entirely.
 
 The `notify_user` mis-selection bug was ultimately caused by a single trailing comma
-in `system.json` that silently dropped `submit_final_answer` from the native tool schema.
+in `system.json` that silently dropped a tool from the native tool schema.
 All prompt-level attempts to fix it were addressing the symptom, not the cause.

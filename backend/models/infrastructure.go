@@ -7,16 +7,19 @@ const (
 	DefaultModelPortStart = 8081
 )
 
+// SystemServerConfig is the infrastructure-level server section of
+// SystemConfig. It embeds the persisted AppServerConfig (bind/host/limits/env)
+// and surfaces the canonical top-level AppConfig RunLogging field as
+// Server.RunLogging. A named type (not an inline anonymous struct) so
+// projections and the model share one definition and cannot drift.
+type SystemServerConfig struct {
+	AppServerConfig
+	RunLogging *RunLoggingConfig `json:"run_logging,omitempty"`
+}
+
 // SystemConfig represents the infrastructure-level settings (Tier 1: config.json)
 type SystemConfig struct {
-	Server struct {
-		Bind            string            `json:"bind"`
-		ModelHost       string            `json:"model_host"`
-		IdleTimeoutSecs int               `json:"idle_timeout_seconds"`
-		Environment     map[string]string `json:"environment,omitempty"`
-		LogLevel        string            `json:"log_level,omitempty"`
-		RunLogging      *RunLoggingConfig `json:"run_logging,omitempty"`
-	} `json:"server"`
+	Server SystemServerConfig `json:"server"`
 
 	WorkspacesDir string        `json:"workspaces_dir"`
 	Metrics       MetricsConfig `json:"metrics,omitempty"`
@@ -73,8 +76,12 @@ type RunLoggingConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
+// DefaultRunLoggingConfig returns the shipped first-run default. Run logging
+// is enabled by default to match the historical shipped config.json
+// (run_logging.enabled = true) that predates the single-root config relocation;
+// fresh installs must keep producing per-run events.jsonl and final reports.
 func DefaultRunLoggingConfig() RunLoggingConfig {
-	return RunLoggingConfig{Enabled: false}
+	return RunLoggingConfig{Enabled: true}
 }
 
 type MemoryConfig struct {

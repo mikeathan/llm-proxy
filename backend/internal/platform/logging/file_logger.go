@@ -22,6 +22,7 @@ const (
 
 type Options struct {
 	Stdout bool
+	Stderr bool // write to os.Stderr (used for the pre-resolution fallback logger)
 	File   string // file path, empty = no file
 	Level  Level
 }
@@ -33,10 +34,74 @@ type FileLogger struct {
 	out    *log.Logger
 	path   string
 	ctx    []any
-	closer io.Closer
+	target *fileTarget // shared mutable file target; nil for stdout/stderr-only loggers
 
 	stop     chan struct{}
 	stopOnce sync.Once
+}
+
+// fileTarget owns the log file descriptor so Reopen can swap it under a lock.
+// With-derived loggers share the same target, so a reopen is observed by every
+// logger writing to the same file (e.g. after clear-runtime-data recreates
+// logs/ and the old fd points at a deleted inode).
+type fileTarget struct {
+	mu   sync.Mutex
+	file *os.File
+}
+
+var _ io.Writer = (*fileTarget)(nil)
+
+func (t *fileTarget) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.file == nil {
+		return 0, io.ErrClosedPipe
+	}
+	return t.file.Write(p)
+}
+
+func (t *fileTarget) Sync() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.file == nil {
+		return nil
+	}
+	return t.file.Sync()
+}
+
+func (t *fileTarget) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.file == nil {
+		return nil
+	}
+	err := t.file.Close()
+	t.file = nil
+	return err
+}
+
+// Reopen closes the current descriptor and reopens path, so a deleted log file
+// (e.g. after clear-runtime-data removes and recreates logs/) is replaced with a
+// live fd.
+func (t *fileTarget) Reopen(path string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.file != nil {
+		_ = t.file.Close()
+		t.file = nil
+	}
+	if path == "" {
+		return nil
+	}
+	if err := ensureLogDir(path); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	t.file = f
+	return nil
 }
 
 var _ Logger = (*FileLogger)(nil)
@@ -49,10 +114,14 @@ const fileLoggerSyncInterval = time.Second
 func NewFileLogger(opts Options) (*FileLogger, error) {
 	var writers []io.Writer
 	logPath := ""
-	var closer io.Closer
+	var target *fileTarget
 
 	if opts.Stdout {
 		writers = append(writers, os.Stdout)
+	}
+
+	if opts.Stderr {
+		writers = append(writers, os.Stderr)
 	}
 
 	if opts.File != "" {
@@ -60,13 +129,13 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		if err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-		if err != nil {
+		t := &fileTarget{}
+		if err := t.Reopen(path); err != nil {
 			return nil, err
 		}
-		writers = append(writers, f)
+		writers = append(writers, t)
 		logPath = path
-		closer = f
+		target = t
 	}
 
 	if len(writers) == 0 {
@@ -85,16 +154,33 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		out:    log.New(mw, "", 0),
 		path:   logPath,
 		ctx:    []any{},
-		closer: closer,
+		target: target,
 		stop:   make(chan struct{}),
 	}
 	fileLogger.level.Store(level)
 	// Start a periodic fsync goroutine only when writing to a file. Stdout-only
 	// loggers (and NopLogger) don't need one. The goroutine exits on Close.
-	if closer != nil {
+	if target != nil {
 		go fileLogger.syncLoop()
 	}
 	return fileLogger, nil
+}
+
+// NewStderrLogger returns a logger that writes only to os.Stderr. It is used as
+// the fallback logger for the window before paths are resolved and the file
+// logger is created at Paths.LogsDir() (Phase 0/7 boot ordering). It performs no
+// fsync and owns no file descriptor to close.
+func NewStderrLogger(level Level) *FileLogger {
+	if level == "" {
+		level = LevelInfo
+	}
+	l := &FileLogger{
+		out:  log.New(os.Stderr, "", 0),
+		ctx:  []any{},
+		stop: make(chan struct{}),
+	}
+	l.level.Store(level)
+	return l
 }
 
 // syncLoop periodically fsyncs the log file so buffered lines survive a crash.
@@ -112,9 +198,19 @@ func (l *FileLogger) syncLoop() {
 }
 
 func (l *FileLogger) syncFile() {
-	if f, ok := l.closer.(*os.File); ok && f != nil {
-		_ = f.Sync()
+	if l.target != nil {
+		_ = l.target.Sync()
 	}
+}
+
+// Reopen closes and reopens the file target (if any), so writes resume on a
+// live descriptor after the log directory was removed and recreated. No-op for
+// loggers without a file target.
+func (l *FileLogger) Reopen() error {
+	if l.target == nil {
+		return nil
+	}
+	return l.target.Reopen(l.path)
 }
 
 func (l *FileLogger) Debug(msg string, args ...any) {
@@ -149,7 +245,7 @@ func (l *FileLogger) With(args ...any) Logger {
 		out:    l.out,
 		path:   l.path,
 		ctx:    ctx,
-		closer: l.closer,
+		target: l.target,
 	}
 }
 
@@ -162,8 +258,8 @@ func (l *FileLogger) Close() error {
 		close(l.stop)
 	})
 	l.syncFile()
-	if l.closer != nil {
-		return l.closer.Close()
+	if l.target != nil {
+		return l.target.Close()
 	}
 	return nil
 }

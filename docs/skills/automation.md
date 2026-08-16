@@ -58,14 +58,13 @@ last_reviewed: 2026-07-11
 ### Agent Loop (`internal/core/assistant/`)
 - `run()` in `session.go` — main loop, handles turn-by-turn execution
 - `executeTurn()` — sieve → computeNextResponse → parse tools → execute → check repetition
-- Returns final answer via `submit_final_answer` tool
+- Returns final answer via natural completion (content-only message)
 
 ## Run Output Structure
 
 ```
 backend/data/runs/workspace-<id>/<task-name>/<model>/<timestamp>_<uuid>/
 ├── run-meta.json      # Duration, LLM calls, tool calls, result
-├── run.log            # Chronological agent events
 ├── recording.jsonl    # Full request/response pairs (for replay)
 ├── events.jsonl       # SSE events (lifecycle, stuck, fallback)
 └── final-report.md    # Agent's final output
@@ -97,8 +96,8 @@ Templates live in `backend/data/templates/`. They're plain markdown files copied
 ## Important Gotchas
 
 - The workspace is NOT cleaned between runs. Leftover files from previous runs pollute the agent's context and cause confusion.
-- `submit_final_answer` must be in the tools manifest. A trailing comma in `system.json` previously dropped it silently.
-- `notify_user` is NOT a valid tool for automation. The guardrail blocks it. Use `submit_final_answer` for final results.
+- `notify_user` is NOT a valid tool for automation. The guardrail blocks it. Write the final report directly as natural-language output.
+- A trailing comma in a tools manifest (`system.json`) can silently drop a tool entry — validate manifests after edits.
 - The spiral detector kills runs that repeat the same tool call with varying args 12+ times. This prevents infinite search loops.
 - Memory can accumulate across runs in orchestrator.db. To fully reset, delete the db file.
 - For memory-tags tests, the persona count for `tags:["persona"]` should be 4 (fact 6 is appended into the same topic).

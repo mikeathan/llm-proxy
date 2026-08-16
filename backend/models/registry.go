@@ -1,5 +1,7 @@
 package models
 
+import "fmt"
+
 // RegistryData represents the dynamic application state (Tier 3: registry.json)
 type RegistryData struct {
 	Providers     map[string]ProviderRegistryEntry `json:"providers"`
@@ -35,4 +37,44 @@ type MCPServerRegistryEntry struct {
 	URL       string `json:"url"`
 	Enabled   bool   `json:"enabled"`
 	TLSCACert string `json:"tls_ca_cert,omitempty"`
+}
+
+// ClearDanglingModelRefs ensures PrimaryModel/FallbackModel never dangle: if
+// either references a model that is no longer in the catalogue, it is cleared so
+// selection logic cannot resolve to a non-existent model. Call after any
+// catalogue rebuild.
+func ClearDanglingModelRefs(reg *RegistryData) {
+	names := make(map[string]bool, len(reg.Catalogue))
+	for _, m := range reg.Catalogue {
+		names[m.Name] = true
+	}
+	if reg.PrimaryModel != "" && !names[reg.PrimaryModel] {
+		reg.PrimaryModel = ""
+	}
+	if reg.FallbackModel != "" && !names[reg.FallbackModel] {
+		reg.FallbackModel = ""
+	}
+}
+
+// ModelExists reports whether a model with the given name is present in the
+// catalogue. Used to validate primary/fallback references at set time.
+func ModelExists(reg *RegistryData, name string) bool {
+	for _, m := range reg.Catalogue {
+		if m.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ModelNotFoundError is returned when a primary/fallback reference names a model
+// that is not present in the catalogue. Surfaced to clients as an HTTP 400
+// (bad request) rather than a server error.
+type ModelNotFoundError struct {
+	Role      string // "primary" or "fallback"
+	ModelName string
+}
+
+func (e *ModelNotFoundError) Error() string {
+	return fmt.Sprintf("%s model %q does not exist", e.Role, e.ModelName)
 }

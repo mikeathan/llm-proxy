@@ -32,7 +32,7 @@ type ShellProvider interface {
 	Recycle(ctx context.Context, workspaceID string)
 
 	// Shutdown stops all active sessions and the provider.
-	Shutdown()
+	Shutdown(ctx context.Context)
 
 	// PGID returns the negated process group ID for a workspace's active
 	// shell session. ok=false when no active session exists.
