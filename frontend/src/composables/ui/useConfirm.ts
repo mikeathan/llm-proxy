@@ -1,6 +1,5 @@
 import { ref } from 'vue'
-
-export type DialogType = 'info' | 'warning' | 'error'
+import type { DialogType } from '../../types/ui'
 
 interface ConfirmOptions {
   title: string

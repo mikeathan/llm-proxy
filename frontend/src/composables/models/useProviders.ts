@@ -2,14 +2,7 @@ import { ref, computed } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import { PROVIDER_ICONS, PROVIDER_LABELS, PROVIDER_STYLES, PROVIDER_IDS } from '../../constants/providers'
 import type { ProviderType, SettingsTab } from '../../types/admin'
-
-export interface ProviderManifest {
-  id: string
-  name: string
-  default_base_url: string
-  archetype: string
-  icon?: string
-}
+import type { ProviderManifest } from '../../types/model'
 
 const manifests = ref<ProviderManifest[]>([])
 const isLoading = ref(false)

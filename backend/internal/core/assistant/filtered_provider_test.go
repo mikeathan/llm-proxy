@@ -18,6 +18,11 @@ func (s *stubProvider) ListTools(_ context.Context) ([]proxy.Tool, error) {
 func (s *stubProvider) GetSystemPrompt() (string, error) { return "system", nil }
 func (s *stubProvider) UseNativeTools() bool             { return s.nativeTools }
 
+// The provider tests exercise resolveToolProvider — the single narrow waist for
+// tool availability. A nil guardrail engine isolates the pure allowed/excluded
+// semantics from guardrail-derived exclusions (covered separately in
+// tool_availability_test.go).
+
 func TestFilteredToolProvider_ExcludesTools(t *testing.T) {
 	inner := &stubProvider{
 		tools: []proxy.Tool{
@@ -26,7 +31,7 @@ func TestFilteredToolProvider_ExcludesTools(t *testing.T) {
 			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
 		},
 	}
-	fp := NewFilteredToolProvider(inner, []string{"notify_user"})
+	fp := resolveToolProvider(inner, nil, "", nil, []string{"notify_user"})
 
 	tools, err := fp.ListTools(context.Background())
 	if err != nil {
@@ -48,7 +53,7 @@ func TestFilteredToolProvider_EmptyExclude(t *testing.T) {
 			{Type: "function", Function: proxy.FunctionSchema{Name: "notify_user"}},
 		},
 	}
-	fp := NewFilteredToolProvider(inner, nil)
+	fp := resolveToolProvider(inner, nil, "", nil, nil)
 	tools, err := fp.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -66,7 +71,7 @@ func TestFilteredToolProvider_PreservesOrder(t *testing.T) {
 			{Type: "function", Function: proxy.FunctionSchema{Name: "c"}},
 		},
 	}
-	fp := NewFilteredToolProvider(inner, []string{"b"})
+	fp := resolveToolProvider(inner, nil, "", nil, []string{"b"})
 	tools, _ := fp.ListTools(context.Background())
 	if len(tools) != 2 {
 		t.Fatalf("expected 2 tools, got %d", len(tools))
@@ -78,7 +83,7 @@ func TestFilteredToolProvider_PreservesOrder(t *testing.T) {
 
 func TestFilteredToolProvider_Delegates(t *testing.T) {
 	inner := &stubProvider{nativeTools: true}
-	fp := NewFilteredToolProvider(inner, []string{"notify_user"})
+	fp := resolveToolProvider(inner, nil, "", nil, []string{"notify_user"})
 	if !fp.UseNativeTools() {
 		t.Error("UseNativeTools should delegate to inner provider")
 	}
@@ -99,7 +104,7 @@ func TestAllowedTools_RestrictsAccess(t *testing.T) {
 			{Type: "function", Function: proxy.FunctionSchema{Name: "directory_list"}},
 		},
 	}
-	fp := NewAllowedToolsProvider(inner, []string{"read_file", "directory_list"})
+	fp := resolveToolProvider(inner, nil, "", []string{"read_file", "directory_list"}, nil)
 	tools, err := fp.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -126,7 +131,7 @@ func TestAllowedTools_EmptyAllowsAll(t *testing.T) {
 			{Type: "function", Function: proxy.FunctionSchema{Name: "terminal_execute"}},
 		},
 	}
-	fp := NewAllowedToolsProvider(inner, nil)
+	fp := resolveToolProvider(inner, nil, "", nil, nil)
 	tools, err := fp.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)

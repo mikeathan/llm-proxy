@@ -26,6 +26,7 @@ type MockManager struct {
 	SetModelHostFunc           func(string)
 	ListProviderModelsFunc     func(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error)
 	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
+	ProbeModelAvailabilityFunc func(ctx context.Context, cfg models.ModelConfig) error
 	SelectModelsFunc           func() (string, string)
 	SetSecretsFunc             func(models.SecretsStore)
 	ShutdownFunc               func()
@@ -77,6 +78,13 @@ func (m *MockManager) ListProviderModels(ctx context.Context, provider, apiKeyNa
 		return m.ListProviderModelsFunc(ctx, provider, apiKeyName)
 	}
 	return nil, nil
+}
+
+func (m *MockManager) ProbeModelAvailability(ctx context.Context, cfg models.ModelConfig) error {
+	if m.ProbeModelAvailabilityFunc != nil {
+		return m.ProbeModelAvailabilityFunc(ctx, cfg)
+	}
+	return nil
 }
 
 // ClassifyModel defaults to the pure classifier (provider label, GGUF

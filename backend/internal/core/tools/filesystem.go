@@ -132,12 +132,8 @@ func validateFilePath(path string, isWrite bool, cfg models.FileSystemGuardrails
 		return "", err
 	}
 
-	filename := filepath.Base(absPath)
-
-	for _, blocked := range cfg.BlockedFilenames {
-		if filename == blocked || strings.HasPrefix(filename, blocked) {
-			return "", fmt.Errorf("access to sensitive file '%s' is blocked by guardrails", filename)
-		}
+	if m := blockedFilename(absPath, effectiveBlockedFilenames(cfg.BlockedFilenames)); m != nil {
+		return "", fmt.Errorf("path access denied: access to sensitive file '%s' is blocked", *m)
 	}
 
 	return absPath, nil
@@ -156,15 +152,11 @@ func (f *FileSystemTools) ListDirectory(ctx context.Context, path string) (any, 
 	names := make([]string, 0)
 	for _, entry := range entries {
 		name := entry.Name()
-		// Filter out blocked files from listing too
-		isBlocked := false
-		for _, b := range f.configProvider(ctx).BlockedFilenames {
-			if name == b {
-				isBlocked = true
-				break
-			}
-		}
-		if isBlocked {
+		// Filter out blocked files from listing too.  The effective list merges
+		// user-configured BlockedFilenames with the internal invariant paths
+		// (.sandbox etc.), so a sandbox runtime directory never appears in a
+		// listing and no per-invariant code is needed.
+		if blockedFilename(name, effectiveBlockedFilenames(f.configProvider(ctx).BlockedFilenames)) != nil {
 			continue
 		}
 

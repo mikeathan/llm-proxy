@@ -36,6 +36,11 @@ type MockAssistantService struct {
 	EngineRef      assistant.Engine
 	PersistenceMgr *persistence.WorkspaceManager
 	EventBusRef    *automation.EventBus
+	// GuardrailStore / GuardrailEng override the per-call constructed defaults
+	// so tests can inject a decision store with retained payloads and an engine
+	// backed by a real persistence manager.
+	GuardrailStore *assistant.GuardrailDecisionStore
+	GuardrailEng   *guardrails.GuardrailEngine
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -78,6 +83,9 @@ func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig
 }
 
 func (m *MockAssistantService) GuardrailEngine() *guardrails.GuardrailEngine {
+	if m.GuardrailEng != nil {
+		return m.GuardrailEng
+	}
 	return guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return models.AgentGuardrailsConfig{}
 	}, m.Resolver(), m.PersistenceMgr, nil)
@@ -136,7 +144,7 @@ func (m *MockAssistantService) Resolver() storage.Resolver {
 }
 
 func (m *MockAssistantService) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
-	return nil
+	return m.GuardrailStore
 }
 
 func (m *MockAssistantService) Events() assistant.EventPublisher {

@@ -2,7 +2,7 @@ import { watch } from 'vue'
 import { useModels } from './useModels'
 import { useAppBanner } from '../ui/useAppBanner'
 import { computeModelBanner } from './modelBanner'
-import type { ModelBanner } from './modelBanner'
+import type { ModelBanner } from '../../types/model'
 
 // Owns the model-configuration warning logic and is the canonical emitter of
 // that message to the main app banner. Any other UI logic that needs to surface

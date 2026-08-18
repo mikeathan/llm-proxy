@@ -2,6 +2,7 @@ package assistant_test
 
 import (
 	"context"
+	"fmt"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
@@ -60,6 +61,62 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected result, got nil")
 	}
+}
+
+// TestLocalToolRegistry_WriteErrorIsTruthful verifies write_file/append_file
+// report failures as errors, never as their success string. Previously the
+// handlers returned ("File written successfully", err), and
+// executeSingleToolStep preferred the non-empty string — so failed writes were
+// recorded as successes while the run still errored.
+func TestLocalToolRegistry_WriteErrorIsTruthful(t *testing.T) {
+	wsDir := t.TempDir()
+	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{wsDir},
+		}
+	}), nil, nil)
+
+	writeCall := func(path string) proxy.ToolCall {
+		return proxy.ToolCall{Function: proxy.FunctionCall{
+			Name:      models.ToolFileWrite,
+			Arguments: fmt.Sprintf(`{"path": %q, "content": "x"}`, path),
+		}}
+	}
+
+	t.Run("write to directory fails without success string", func(t *testing.T) {
+		result, err := r.ExecuteTool(context.Background(), writeCall(wsDir))
+		if err == nil {
+			t.Fatal("expected write to a directory to fail")
+		}
+		if s, ok := result.(string); ok && s == "File written successfully" {
+			t.Fatal("write failure must not be reported as the success string")
+		}
+	})
+
+	t.Run("write success returns success string", func(t *testing.T) {
+		result, err := r.ExecuteTool(context.Background(), writeCall("ok.txt"))
+		if err != nil {
+			t.Fatalf("expected write to succeed: %v", err)
+		}
+		if s, ok := result.(string); !ok || s != "File written successfully" {
+			t.Errorf("expected success string, got %v", result)
+		}
+	})
+
+	t.Run("append to missing file fails without success string", func(t *testing.T) {
+		call := proxy.ToolCall{Function: proxy.FunctionCall{
+			Name:      models.ToolFileAppend,
+			Arguments: `{"path": "missing.txt", "content": "x"}`,
+		}}
+		result, err := r.ExecuteTool(context.Background(), call)
+		if err == nil {
+			t.Fatal("expected append to a missing file to fail")
+		}
+		if s, ok := result.(string); ok && s == "Content appended successfully" {
+			t.Fatal("append failure must not be reported as the success string")
+		}
+	})
 }
 
 func TestInitializeAgentStack_Structure(t *testing.T) {

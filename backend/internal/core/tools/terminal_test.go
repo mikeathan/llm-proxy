@@ -12,13 +12,53 @@ import (
 	"time"
 )
 
+// TestRedactBlockedPaths verifies terminal OUTPUT is scrubbed of blocked-path
+// references — both user-configured sensitive files and internal invariant
+// paths like the sandbox runtime dir.  Recursive commands ("find .",
+// "du -sh .", "ls -la") emit those paths even though the input-side guardrail
+// blocks explicit operands — the output must not leak them either.  Both lists
+// flow through the same merged mechanism (effectiveBlockedFilenames) and the
+// same path-segment matching, so adding an internal path later needs no new
+// code here.
+func TestRedactBlockedPaths(t *testing.T) {
+	userBlocked := []string{".env", "id_rsa"}
+	internal := internalBlockedPaths
+	merged := effectiveBlockedFilenames(userBlocked)
+
+	cases := []struct {
+		name    string
+		in      string
+		blocked []string
+		want    string
+	}{
+		{"find traversal output", "./.sandbox/.npm/_cacache/content-v2/x\nAGENTS.md\n", internal, "AGENTS.md\n"},
+		{"find with prefix", "drwxr-xr-x .sandbox\nnotes.txt\n", internal, "notes.txt\n"},
+		{"du output", "12\t./.sandbox\n4\t./docs\n", internal, "4\t./docs\n"},
+		{"ls -la with sandbox", "total 16\ndrwxr-xr-x .sandbox\n-rw-r--r-- file.txt\n", internal, "total 16\n-rw-r--r-- file.txt\n"},
+		{"deep sandbox path", "workspace-1/.sandbox/tmp/x\nkeep.txt\n", internal, "keep.txt\n"},
+		{"no sandbox untouched", "hello\nworld\n", internal, "hello\nworld\n"},
+		{"empty output", "", internal, ""},
+		{"user blocked filename redacted via merged list", ".env.production\nconfig.yml\n", merged, "config.yml\n"},
+		{"internal path redacted via merged list", ".sandbox/x\nkeep\n", merged, "keep\n"},
+		{"user list alone does not catch internal path", ".sandbox/x\n.env\n", userBlocked, ".sandbox/x\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := redactBlockedPaths(c.in, c.blocked); got != c.want {
+				t.Fatalf("redactBlockedPaths(%q, %v) = %q, want %q", c.in, c.blocked, got, c.want)
+			}
+		})
+	}
+}
+
 func TestTerminalTools_Guardrails(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      models.TerminalGuardrailsConfig
-		command     string
-		wantErr     bool
-		errContains string
+		name            string
+		config          models.TerminalGuardrailsConfig
+		blockedFilenames []string
+		command         string
+		wantErr         bool
+		errContains     string
 	}{
 		{
 			name: "Allowed command works",
@@ -78,11 +118,109 @@ func TestTerminalTools_Guardrails(t *testing.T) {
 			wantErr:     true,
 			errContains: "blocked pattern",
 		},
+		{
+			name: "Blocked path: sandbox dir via du",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"du"},
+			},
+			command:     "du -sh .sandbox",
+			wantErr:     true,
+			errContains: "path access denied: access to sensitive file",
+		},
+		{
+			name: "Blocked path: sandbox subpath via find",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"find"},
+			},
+			command:     "find .sandbox -type f",
+			wantErr:     true,
+			errContains: "path access denied",
+		},
+		{
+			name: "Blocked path: explicit ./sandbox prefix",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"du"},
+			},
+			command:     "du -sh ./.sandbox",
+			wantErr:     true,
+			errContains: "path access denied",
+		},
+		{
+			name: "Blocked path: sensitive .env via cat",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"cat"},
+			},
+			blockedFilenames: []string{".env"},
+			command:          "cat .env",
+			wantErr:          true,
+			errContains:      "sensitive file",
+		},
+		{
+			name: "Blocked path: ssh key basename",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"cat"},
+			},
+			blockedFilenames: []string{".ssh", "id_rsa"},
+			command:          "cat .ssh/id_rsa",
+			wantErr:          true,
+			errContains:      "sensitive file",
+		},
+		{
+			name: "Blocked path: allowed glob does not trigger",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"du"},
+			},
+			command: "du -sh *",
+			wantErr: false,
+		},
+		{
+			name: "Blocked path: git status unaffected",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"git"},
+			},
+			command: "git status",
+			wantErr: false,
+		},
+		{
+			name: "Blocked path: no blocked filenames configured",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"cat"},
+			},
+			command: "cat .env",
+			wantErr: false,
+		},
+		{
+			name: "Blocked path: non-blocked dot dir allowed",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"cat"},
+			},
+			command: "cat .gitignore",
+			wantErr: false,
+		},
+		{
+			name: "Blocked path: npm cache under sandbox blocked",
+			config: models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"ls"},
+			},
+			command:     "ls .sandbox/node_modules",
+			wantErr:     true,
+			errContains: "path access denied",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateTerminalCommand(tt.command, tt.config, nil, "")
+			err := ValidateTerminalCommand(tt.command, tt.config, tt.blockedFilenames, nil, "")
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Expected error but got nil")
@@ -111,6 +249,35 @@ func TestLoadTerminalManifest(t *testing.T) {
 	}
 	if len(manifest.BlockedPatterns) == 0 {
 		t.Error("Manifest loaded with zero blocked patterns")
+	}
+}
+
+func TestCheckBlockedPaths_AbsoluteJailPath(t *testing.T) {
+	jail := filepath.Join(os.TempDir(), "workspace-health-ws")
+	sandboxAbs := filepath.Join(jail, ".sandbox")
+
+	tests := []struct {
+		name    string
+		command string
+		blocked []string
+		wantErr bool
+	}{
+		{"absolute sandbox inside jail", "du -sh " + sandboxAbs, nil, true},
+		{"absolute sandbox subpath inside jail", "find " + filepath.Join(sandboxAbs, "tmp") + " -type f", nil, true},
+		{"absolute outside jail untouched by block", "du -sh /var/log", nil, false},
+		{"absolute sensitive file inside jail", "cat " + filepath.Join(jail, ".env"), []string{".env"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkBlockedPaths(tt.command, tt.blocked, jail)
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for %q, got nil", tt.command)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tt.command, err)
+			}
+		})
 	}
 }
 
@@ -259,7 +426,7 @@ func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 				AllowedCommands:      []string{"ls", "cat", "echo"},
 				AllowedExternalPaths: tt.allowedExternal,
 			}
-			err := ValidateTerminalCommand(tt.command, cfg, nil, tt.jailPath, tt.effectiveCwd)
+			err := ValidateTerminalCommand(tt.command, cfg, nil, nil, tt.jailPath, tt.effectiveCwd)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error but got nil")

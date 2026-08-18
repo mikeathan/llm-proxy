@@ -47,6 +47,7 @@ type ExecuteRequest struct {
 	Strategy       ExecutionStrategy
 	State          *models.AgentState
 	Model          string   // Optional model override
+	LoopStrategy   string   // Optional per-run loop archetype override; "" = model config default
 	AllowedTools   []string // restrict tools for unattended runs
 	RecordingRef   string   // Recording file ID for playback (empty = live LLM)
 }
@@ -165,10 +166,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	var capturedEvents []any
 
 	toolProvider := e.svc.ToolProvider()
-	if len(req.AllowedTools) > 0 {
-		toolProvider = assistant.NewAllowedToolsProvider(toolProvider, req.AllowedTools)
-	}
-	agentOpts := e.buildAgentOptions(execCtx, client, req, procLog, &capturedEvents, eventSink)
+	agentOpts := e.buildAgentOptions(req, procLog, &capturedEvents, eventSink)
 	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
 	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
@@ -273,7 +271,7 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 }
 
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
-func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger, capturedEvents *[]any, eventSink *EventSink) assistant.AgentOptions {
+func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, capturedEvents *[]any, eventSink *EventSink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
 		Logger:       procLog,
 		MaxSteps:     assistant.DefaultMaxSteps,
@@ -302,6 +300,9 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 				e.svc.Events().Publish(req.WorkspaceID, ev)
 			},
 		),
+		// AllowedTools restricts the exposed tool schema for unattended runs
+		// (allow ∩ guardrail-disabled, resolved in NewAgent).
+		AllowedTools: req.AllowedTools,
 	}
 	if req.Model == "" {
 		return opts
@@ -310,12 +311,13 @@ func (e *LLMTaskExecutor) buildAgentOptions(ctx context.Context, client proxy.Cl
 	if !ok {
 		return opts
 	}
-	if opts.ApplyModelConfig(cfg) {
-		tools, listErr := e.svc.ToolProvider().ListTools(ctx)
-		if listErr == nil && len(tools) > 0 {
-			opts.PlanStrategy = assistant.NewExecutionPlanStrategy(client, tools, procLog)
-			procLog.Debug("execution plan strategy enabled", "tools", len(tools))
-		}
+	opts.ApplyModelConfig(cfg)
+	// Per-run loop-strategy override: applied AFTER the model config so the
+	// automation wins for this run only. Unknown non-empty values are rejected
+	// at the automation/template handler boundary (400); ParseLoopStrategy is
+	// defense-in-depth here.
+	if req.LoopStrategy != "" {
+		opts.LoopStrategy = assistant.ParseLoopStrategy(assistant.LoopStrategyName(req.LoopStrategy))
 	}
 	procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
 	return opts
@@ -634,7 +636,6 @@ func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) st
 	return fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
 }
-
 
 // ============================================================================
 // Pulse Logic (Smart Skip)

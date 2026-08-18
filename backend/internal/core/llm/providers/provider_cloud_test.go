@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/core/llm/providers"
@@ -94,4 +95,77 @@ func TestNvidiaProvider_Manifest(t *testing.T) {
 	if header.Get("Authorization") != "Bearer nvapi-test" {
 		t.Errorf("expected Authorization header Bearer nvapi-test, got %s", header.Get("Authorization"))
 	}
+}
+
+// TestProbeChatModel verifies the availability probe distinguishes a callable
+// model (200), a listed-but-not-entitled model (404), and an unreachable
+// upstream (connection closed before a response).
+func TestProbeChatModel(t *testing.T) {
+	newProvider := func(t *testing.T, server *httptest.Server) *providers.OpenAICompatibleProvider {
+		t.Helper()
+		m, _ := providers.GetRegistry().Get("nvidia")
+		cfg := models.ModelConfig{
+			Provider: "nvidia",
+			ProviderConfig: &models.ProviderConfig{
+				APIKey:  "test-key",
+				BaseURL: server.URL,
+			},
+		}
+		return providers.NewOpenAICompatibleProvider(cfg, m)
+	}
+
+	t.Run("available", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/chat/completions" {
+				t.Errorf("expected path /chat/completions, got %s", r.URL.Path)
+			}
+			if r.Method != http.MethodPost {
+				t.Errorf("expected POST, got %s", r.Method)
+			}
+			if r.Header.Get("Authorization") != "Bearer test-key" {
+				t.Errorf("expected Bearer auth, got %q", r.Header.Get("Authorization"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"p"}}]}`))
+		}))
+		defer server.Close()
+
+		p := newProvider(t, server)
+		if err := p.ProbeChatModel(context.Background(), "deepseek-ai/deepseek-v4-flash-0731"); err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+	})
+
+	t.Run("not callable status", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		}))
+		defer server.Close()
+
+		p := newProvider(t, server)
+		err := p.ProbeChatModel(context.Background(), "gpt-oss-120b")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "status 404") {
+			t.Errorf("expected status 404 in error, got %v", err)
+		}
+	})
+
+	t.Run("upstream unreachable", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			conn.Close()
+		}))
+		defer server.Close()
+
+		p := newProvider(t, server)
+		err := p.ProbeChatModel(context.Background(), "openai/gpt-oss-120b")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "unreachable") {
+			t.Errorf("expected unreachable in error, got %v", err)
+		}
+	})
 }

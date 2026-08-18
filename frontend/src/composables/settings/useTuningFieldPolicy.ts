@@ -1,16 +1,5 @@
 import { computed } from 'vue'
-import type { WorkloadClass } from '../../types/model'
-
-export type TuningFieldState = 'editable' | 'derived'
-
-export interface TuningFieldPolicy {
-  workload: WorkloadClass
-  maxTokens: TuningFieldState
-  contextBudget: TuningFieldState
-  isLocal: boolean
-  isCloud: boolean
-  isUnresolved: boolean
-}
+import type { WorkloadClass, TuningFieldPolicy } from '../../types/model'
 
 /**
  * Field policy for the model tuning form, driven by the server-computed

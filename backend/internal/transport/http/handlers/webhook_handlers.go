@@ -160,7 +160,10 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 		ConversationID: webhookSessionKey(connectorType, chatID),
 		Message:        message,
 		Timezone:       "UTC",
-		ExcludeTools:   []string{models.ToolNotifyUser},
+		// No hardcoded ExcludeTools here — the exposed tool schema is derived
+		// from guardrail policy (DisabledToolNames) at the agent narrow waist,
+		// so a statically-disabled tool (e.g. notify_user with Communication
+		// disabled) is never advertised regardless of channel.
 	}
 
 	// Run agent in a goroutine — the webhook response to Telegram is sent

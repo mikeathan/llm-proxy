@@ -11,8 +11,6 @@ export const PROVIDER_IDS = [
   "nvidia",
 ] as const;
 
-export type ProviderID = (typeof PROVIDER_IDS)[number];
-
 interface ProviderMeta {
   icon: string;
   label: string;

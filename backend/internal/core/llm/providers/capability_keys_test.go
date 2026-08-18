@@ -190,6 +190,84 @@ func TestListModels_LocalSlotsGated(t *testing.T) {
 	}
 }
 
+// TestListModels_RemoteLlamaCPPServingContext is the production-fix regression
+// test: a REMOTE llama.cpp host serving a GGUF model (owned_by "llamacpp",
+// meta.n_ctx_train 262144) is NOT effective-local (no classifier), yet the
+// /slots probe MUST still run because the listing itself carries the llama.cpp
+// fingerprint — and the SERVING n_ctx (8192) must OVERRIDE the training-derived
+// n_ctx_train (262144) so the local budget keys on the real serving window,
+// never the training context (SPEC-005 priority 1).
+func TestListModels_RemoteLlamaCPPServingContext(t *testing.T) {
+	var slotsHits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slots" {
+			slotsHits++
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`[{"n_ctx":8192,"is_processing":false}]`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":[{"id":"Qwen3.6-35B-A3B","owned_by":"llamacpp","meta":{"n_ctx_train":262144,"n_params":20914757184}}]}`))
+	}))
+	defer server.Close()
+
+	m, _ := GetRegistry().Get("openai")
+	cfg := models.ModelConfig{Provider: "openai", ProviderConfig: &models.ProviderConfig{BaseURL: server.URL}}
+	p := NewOpenAICompatibleProviderWithDoer(cfg, m, &http.Client{Transport: server.Client().Transport})
+	// No classifier injected: the listing fingerprint alone must trigger the probe.
+	infos, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if slotsHits == 0 {
+		t.Fatal("remote llama.cpp listing must probe /slots (listing fingerprint, not host locality)")
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(infos))
+	}
+	if infos[0].ContextLength != 8192 {
+		t.Fatalf("serving n_ctx must override n_ctx_train: got ContextLength %d, want 8192", infos[0].ContextLength)
+	}
+	if infos[0].Meta == nil || infos[0].Meta.Nctx != 8192 {
+		t.Fatalf("probe must carry the serving n_ctx on Meta.Nctx for discovery: got %+v", infos[0].Meta)
+	}
+}
+
+// TestListModels_SlotsOverridesTrainingContext verifies the precedence half of
+// the fix: even when the endpoint is effective-local and the /v1/models listing
+// carries n_ctx_train (262144), the /slots probe result (8192) must WIN — the
+// probe previously only filled an EMPTY ContextLength, so a training-derived
+// value would have survived and inflated the local budget.
+func TestListModels_SlotsOverridesTrainingContext(t *testing.T) {
+	var slotsHits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slots" {
+			slotsHits++
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`[{"n_ctx":8192,"is_processing":false}]`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":[{"id":"qwen-alias","meta":{"n_ctx_train":262144}}]}`))
+	}))
+	defer server.Close()
+
+	m, _ := GetRegistry().Get("openai")
+	cfg := models.ModelConfig{Provider: "openai", ProviderConfig: &models.ProviderConfig{BaseURL: server.URL}}
+	p := NewOpenAICompatibleProviderWithDoer(cfg, m, &http.Client{Transport: server.Client().Transport})
+	p.SetWorkloadClassifier(models.NewWorkloadClassifier("127.0.0.1", nil))
+	infos, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if slotsHits == 0 {
+		t.Fatal("effective-local endpoint must probe /slots")
+	}
+	if len(infos) != 1 || infos[0].ContextLength != 8192 {
+		t.Fatalf("serving n_ctx must override training n_ctx_train, got %+v", infos)
+	}
+}
+
 // TestListModels_SlotsTimeout verifies S2: a dead local server does not hang
 // the listing — the /slots probe exits within its child deadline.
 func TestListModels_SlotsTimeout(t *testing.T) {

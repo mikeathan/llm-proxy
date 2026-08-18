@@ -14,7 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/memory"
@@ -27,10 +29,8 @@ const (
 	// divisor=3 gives 910 tokens — enough headroom.  Going higher than 3 wastes
 	// generation budget, going lower than 3 causes the planning-cutoff loop.
 	// See docs/audits/memory-injection-investigation.md for the investigation.
-	streamReasoningBudgetDivisor = 3                // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
-	stuckNonReasoningDivisor     = 1                // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
-	streamHeartbeatInterval      = 30 * time.Second // progress log during long streams
-	nonStreamHeartbeatInterval   = 15 * time.Second // fallback_waiting lifecycle event
+	streamReasoningBudgetDivisor = 3 // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
+	stuckNonReasoningDivisor     = 1 // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
 	streamNotifyCoalesceInterval = 50 * time.Millisecond
 	stuckThresholdMultiplier     = 2    // stuck threshold = max_tokens * 2
 	streamCharCapMultiplier      = 4    // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
@@ -41,6 +41,29 @@ const (
 	// the run — same stuck_detected → handleEmptyStream → nag path as char-threshold stuck.
 	// Dangling open tags (still forming a real call) are not counted.
 	emptyToolCallSpiralLimit = 3
+
+	// Content-level repetition guard (Hermes Agent `repetition_guard` port).
+	// A model in a degenerate loop can spend its output budget echoing one
+	// fragment (observed: ~190 identical `</konjll>` closing tags, no tool
+	// calls, no progress). Existing stuck/spiral detectors inspect reasoning or
+	// parsed native tool calls; neither fires when visible content is dominated
+	// by repeats. These constants mirror Hermes; see isRepetitionDominated.
+	minRepetitionFragmentLen = 400 // below this the guard fails open
+	repetitionWindow         = 60  // exact-repeat window length
+	minRepetitionCount       = 5   // repeats of a window required to signal
+	repetitionDominanceRatio = 0.5 // fraction of content a repeat must cover
+)
+
+// Heartbeat cadences are variables (not consts) so the stream/non-stream
+// liveness tests can shorten them without waiting for the production cadence.
+var (
+	streamHeartbeatInterval    = 30 * time.Second // progress log during long streams
+	nonStreamHeartbeatInterval = 15 * time.Second // fallback_waiting lifecycle event
+	// streamMaxDuration bounds a single stream that is producing no native
+	// tool calls and no natural completion, so a slow degenerate stream cannot
+	// run ~50s+ unchecked (the pre-change per-turn timeout is 10 minutes).
+	// Fires via the heartbeat tick; test-shortenable like the heartbeat.
+	streamMaxDuration = 90 * time.Second
 )
 
 var (
@@ -68,29 +91,7 @@ func (a *Agent) buildChatRequest(
 		Tools:     llmTools,
 		MaxTokens: a.config.MaxTokens,
 	}
-	if a.config.Temperature > 0 {
-		req.Temperature = a.config.Temperature
-	}
-	// Single source of truth for reasoning wire params. The resolver is chosen
-	// by workload class + provider type; buildChatRequest knows nothing about
-	// per-provider wire details (Dependency Inversion).
-	// Runtime guard: the final spec must pass Validate() before hitting the
-	// wire. An invalid spec (e.g. ModeObject + EffortNone) would otherwise
-	// reach the provider; on failure we emit no reasoning params at all.
-	if err := a.config.ReasoningSpec.Validate(); err != nil {
-		if a.deps.Logger != nil {
-			a.deps.Logger.Error("reasoning spec invalid; omitting reasoning params", "error", err)
-		}
-	} else {
-		resolver := NewReasoningResolver(a.config.WorkloadClass, a.config.ProviderType, a.config.ReasoningBudget)
-		resolver.Apply(&req, a.config.ReasoningSpec)
-	}
-	if a.deps.Logger != nil {
-		a.deps.Logger.Debug("reasoning resolver applied",
-			"provider", a.config.ProviderType,
-			"mode", int(a.config.ReasoningSpec.Mode),
-			"budget", a.config.ReasoningSpec.Budget)
-	}
+	a.applyRequestConfig(&req)
 	// Apply provider-specific output constraint when native tools are active.
 	// Local providers get GBNF grammar to prevent invalid JSON in tool call
 	// arguments at the token generation level.  Cloud providers are skipped —
@@ -110,6 +111,36 @@ func (a *Agent) buildChatRequest(
 		}
 	}
 	return req
+}
+
+// applyRequestConfig applies per-model request defaults shared by every LLM
+// call path — the turn loop (via buildChatRequest) and plan generation (via
+// ExecutionPlanStrategy.Generate): temperature and the reasoning wire params.
+// Single source of truth for both concerns.
+func (a *Agent) applyRequestConfig(req *proxy.ChatRequest) {
+	if a.config.Temperature > 0 {
+		req.Temperature = a.config.Temperature
+	}
+	// Single source of truth for reasoning wire params. The resolver is chosen
+	// by workload class + provider type; applyRequestConfig knows nothing about
+	// per-provider wire details (Dependency Inversion).
+	// Runtime guard: the final spec must pass Validate() before hitting the
+	// wire. An invalid spec (e.g. ModeObject + EffortNone) would otherwise
+	// reach the provider; on failure we emit no reasoning params at all.
+	if err := a.config.ReasoningSpec.Validate(); err != nil {
+		if a.deps.Logger != nil {
+			a.deps.Logger.Error("reasoning spec invalid; omitting reasoning params", "error", err)
+		}
+	} else {
+		resolver := reasoning.NewReasoningResolver(a.config.WorkloadClass, a.config.ProviderType, a.config.ReasoningBudget)
+		resolver.Apply(req, a.config.ReasoningSpec)
+	}
+	if a.deps.Logger != nil {
+		a.deps.Logger.Debug("reasoning resolver applied",
+			"provider", a.config.ProviderType,
+			"mode", int(a.config.ReasoningSpec.Mode),
+			"budget", a.config.ReasoningSpec.Budget)
+	}
 }
 
 func (a *Agent) prepareMessagesForTurn(
@@ -364,7 +395,20 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 			}
 		}
 		if streamErr != nil {
-			a.deps.Logger.Warn("streaming not supported, falling back to non-streaming")
+			// Distinguish transport failures from genuine "streaming not
+			// supported" rejections so the operator knows WHY the stream died:
+			// an upstream connection drop (unexpected EOF / timeout / reset)
+			// means the provider never responded, while an HTTP-level error
+			// means the provider answered but rejected streaming. Both fall
+			// back to non-streaming (same as before), but the log now says
+			// which one it was.
+			var terr *proxy.TransportError
+			if errors.As(streamErr, &terr) {
+				a.deps.Logger.Warn("upstream transport failure, falling back to non-streaming",
+					"error_class", terr.Class, "elapsed", terr.Elapsed.Round(time.Second).String(), "error", streamErr)
+			} else {
+				a.deps.Logger.Warn("streaming not supported, falling back to non-streaming", "error", streamErr)
+			}
 			a.setMemoryInjected(false) // retry injection on the non-streaming path
 			return a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 		}
@@ -444,6 +488,17 @@ func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 	return len(fullMsg.ReasoningContent) > a.stuckThreshold()
 }
 
+// repetitionDominated reports whether the streamed visible content is
+// dominated by verbatim repeated fragments while no native tool calls have
+// been parsed. This is the content-level complement to checkStreamStuck: the
+// latter only fires on reasoning-only streams, whereas a model in a
+// degenerate loop can also write visible content (e.g. a malformed tool-call
+// dialect echoed as ~190 closing tags) with no tool calls and no progress.
+// Real tool calls are never discarded — the guard requires zero parsed calls.
+func (a *Agent) repetitionDominated(fullMsg *proxy.Message) bool {
+	return len(fullMsg.ToolCalls) == 0 && isRepetitionDominated(fullMsg.Content)
+}
+
 // countEmptyClosedToolCalls counts closed <tool_call>...</tool_call> blocks whose
 // body is empty/whitespace. Dangling open tags (still forming) are not counted.
 // Case-insensitive to match containsSubstantiveToolCall.
@@ -494,6 +549,61 @@ func containsSubstantiveToolCall(s string) bool {
 	}
 }
 
+// isRepetitionDominated reports whether text is dominated by verbatim
+// repeated fragments. A fragment is "repetition-dominated" when a single
+// 60+ char substring appears often enough that its occurrences cover at
+// least half of the text — the signature of a model repetition loop
+// (Hermes Agent `repetition_guard.is_repetition_dominated`, incident
+// #86581). Returns false for short inputs (fail-open: never flags content
+// the guard cannot confidently judge). Model- and provider-agnostic: it keys
+// purely off the streamed bytes, so it is independent of grammar/tool format.
+func isRepetitionDominated(text string) bool {
+	n := len(text)
+	if n < minRepetitionFragmentLen {
+		return false
+	}
+
+	// Fast path: one normalized line duplicated often enough to cover half
+	// the fragment (a repeated paragraph or sentence on its own line).
+	if lineRepetitionDominated(text, n) {
+		return true
+	}
+
+	// General path: fixed-size exact-repeat windows, sliding one char at a
+	// time. Catches repetition loops that do not align to line boundaries
+	// (e.g. a repeated closing tag on a single line). Integer math keeps this
+	// exact: ratio/window = 0.5/60 = 1/120, so the required count is
+	// ceil(n/120) = (n+119)/120.
+	needed := max(minRepetitionCount, (n+repetitionWindow-1)/(repetitionWindow*2))
+	counts := make(map[string]int, n-repetitionWindow+1)
+	for i := 0; i <= n-repetitionWindow; i++ {
+		key := text[i : i+repetitionWindow]
+		counts[key]++
+		if counts[key] >= needed {
+			return true
+		}
+	}
+	return false
+}
+
+func lineRepetitionDominated(text string, n int) bool {
+	counts := make(map[string]int)
+	for _, line := range strings.Split(text, "\n") {
+		norm := strings.TrimSpace(line)
+		if norm == "" {
+			continue
+		}
+		counts[norm]++
+	}
+	half := (n + 1) / 2 // ceil(n*0.5)
+	for line, c := range counts {
+		if c >= minRepetitionCount && c*len(line) >= half {
+			return true
+		}
+	}
+	return false
+}
+
 // tryExtractToolCallFromReasoning handles models (e.g. Qwen 3.5) that emit
 // <tool_call> blocks inside reasoning content, where they're invisible
 // to the native-tool parser but still valid XML.  Extracts tool calls
@@ -533,6 +643,29 @@ func (a *Agent) tryExtractToolCallFromReasoning(fullMsg *proxy.Message) bool {
 	return true
 }
 
+// resolveStreamChunk resolves one stream chunk's content/reasoning fields into
+// a Message using the Delta→Message fallback (Delta wins; Message only when the
+// Delta field is empty). It is the exact field semantics shared by
+// processStream and plan-generation streaming — a single source of truth, so a
+// new provider reasoning field is learned by every consumer in one place.
+func resolveStreamChunk(choice proxy.Choice) proxy.Message {
+	msg := choice.Delta
+	if msg.Content == "" {
+		msg.Content = choice.Message.Content
+	}
+	if msg.ReasoningContent == "" {
+		msg.ReasoningContent = choice.Message.ReasoningContent
+	}
+	// Openrouter-style opaque/structured reasoning (ReasoningObject).
+	if msg.Reasoning == "" {
+		msg.Reasoning = choice.Message.Reasoning
+	}
+	if len(msg.ReasoningDetails) == 0 {
+		msg.ReasoningDetails = choice.Message.ReasoningDetails
+	}
+	return msg
+}
+
 // processStream consumes an LLM stream, accumulating content/reasoning/tool
 // calls into fullMsg and terminating the stream when a budget or safety cap is
 // reached. The relaxation flags let the caller suppress the no-tool content cap
@@ -567,27 +700,15 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 	}
 	defer flushPendingNotify()
 
-	streamDone := make(chan struct{})
-	defer close(streamDone)
+	var streamContentLen, streamReasoningLen atomic.Int64
 
-	var streamContentLen, streamReasoningLen, streamToolCalls atomic.Int64
-
-	go func() {
-		ticker := time.NewTicker(streamHeartbeatInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				contentLen := int(streamContentLen.Load())
-				reasoningLen := int(streamReasoningLen.Load())
-				a.deps.Logger.Info("stream still generating", "content_len", contentLen, "reasoning_len", reasoningLen)
-			case <-ctx.Done():
-				return
-			case <-streamDone:
-				return
-			}
-		}
-	}()
+	// Liveness heartbeat: emits still_thinking only while the stream is silent
+	// (no content/reasoning advanced since the last tick) so the UI never shows
+	// a dead bubble during a long provider TTFT or silent-stall period.
+	hb := core.NewHeartbeat()
+	hb.Start(ctx, streamHeartbeatInterval)
+	defer hb.Stop()
+	var lastTickContent, lastTickReasoning int64
 
 	logStreamEnd := func(reason string) {
 		a.deps.Logger.Warn("stream ended",
@@ -603,29 +724,45 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 		case <-ctx.Done():
 			logStreamEnd("context_canceled")
 			return ctx.Err()
+		case <-hb.C:
+			contentLen := streamContentLen.Load()
+			reasoningLen := streamReasoningLen.Load()
+			a.deps.Logger.Info("stream still generating", "content_len", contentLen, "reasoning_len", reasoningLen)
+			if contentLen == lastTickContent && reasoningLen == lastTickReasoning {
+				// Silent-stall gate: only signal liveness when nothing advanced
+				// since the last tick, so active streaming stays quiet.
+				a.notifyLifecycle(PhaseStillThinking, map[string]any{
+					"elapsed": time.Since(streamStartTime).Round(time.Second).String(),
+				})
+			}
+			lastTickContent, lastTickReasoning = contentLen, reasoningLen
+			// Per-stream duration cap: a stream producing no native tool calls
+			// and no natural completion beyond the cap is degenerate (e.g. a
+			// slow, varied garbage loop the repetition guard does not catch).
+			// Bound it well under the per-turn timeout so the recovery ladder
+			// can run instead of streaming unchecked for minutes. Unlike the
+			// repetition guard, the accumulated content is preserved (it may be
+			// a genuine slow report) — mirroring the char-cap termination so
+			// handleTextTurn can complete or salvage it.
+			if len(fullMsg.ToolCalls) == 0 && time.Since(streamStartTime) > streamMaxDuration {
+				a.deps.Logger.Warn("stream exceeded max duration with no tool calls, terminating stream",
+					"elapsed", time.Since(streamStartTime).Round(time.Second).String(),
+					"content_chars", len(fullMsg.Content),
+					"reasoning_chars", len(fullMsg.ReasoningContent))
+				logStreamEnd("stream_timeout")
+				return nil
+			}
 		case resp, ok := <-ch:
 			if !ok {
 				return nil
 			}
 			if len(resp.Choices) > 0 {
 				choice := resp.Choices[0]
-				chunkContent := choice.Delta.Content
-				if chunkContent == "" && choice.Message.Content != "" {
-					chunkContent = choice.Message.Content
-				}
-				reasoningChunk := choice.Delta.ReasoningContent
-				if reasoningChunk == "" && choice.Message.ReasoningContent != "" {
-					reasoningChunk = choice.Message.ReasoningContent
-				}
-				// Openrouter-style opaque/structured reasoning (ReasoningObject).
-				reasoningStr := choice.Delta.Reasoning
-				if reasoningStr == "" && choice.Message.Reasoning != "" {
-					reasoningStr = choice.Message.Reasoning
-				}
-				reasoningDetails := choice.Delta.ReasoningDetails
-				if len(reasoningDetails) == 0 && len(choice.Message.ReasoningDetails) > 0 {
-					reasoningDetails = choice.Message.ReasoningDetails
-				}
+				chunk := resolveStreamChunk(choice)
+				chunkContent := chunk.Content
+				reasoningChunk := chunk.ReasoningContent
+				reasoningStr := chunk.Reasoning
+				reasoningDetails := chunk.ReasoningDetails
 
 				if a.deps.Orchestrator != nil && a.deps.Orchestrator.Interceptor != nil {
 					result := a.deps.Orchestrator.Interceptor.InterceptChunk(orchestrator.StreamChunk{
@@ -699,13 +836,27 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				}
 				streamContentLen.Store(int64(len(fullMsg.Content)))
 				streamReasoningLen.Store(int64(len(fullMsg.ReasoningContent)))
-				streamToolCalls.Store(int64(len(fullMsg.ToolCalls)))
 
 				if a.exceedsContentCharCap(fullMsg) {
 					logStreamEnd("char_cap")
 					a.deps.Logger.Warn("content char cap reached, terminating stream",
 						"content_chars", len(fullMsg.Content),
 						"cap", a.config.MaxTokens*streamCharCapMultiplier)
+					return nil
+				}
+
+				// Content-level repetition guard: catch a degenerate loop that
+				// writes visible content (e.g. a malformed tool-call dialect
+				// echoed as repeated closing tags) with no tool calls and no
+				// progress. Runs after content accumulation so it sees the
+				// dominated text; never fires when real tool calls are parsed.
+				if a.repetitionDominated(fullMsg) {
+					a.deps.Logger.Warn("content repetition detected, aborting stream early to trigger fallback",
+						"content_chars", len(fullMsg.Content))
+					a.abortStreamAsStuck("repetition_detected", fullMsg, logStreamEnd, map[string]any{
+						"reason":        "content_repetition",
+						"content_chars": len(fullMsg.Content),
+					})
 					return nil
 				}
 
@@ -755,6 +906,20 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 	}
 }
 
+// abortStreamAsStuck terminates a degenerate stream into the existing stuck
+// recovery ladder. The accumulated content is garbage (a repetition loop), so
+// it is discarded and the turn is signalled as [stuck]: computeNextResponse
+// then routes through handleEmptyStream → handleNoToolCalls → the
+// progressive-sieve nag recovery, exactly like char-threshold stuck. The
+// repetition guard only invokes this with zero parsed tool calls, so nothing
+// legitimate is discarded.
+func (a *Agent) abortStreamAsStuck(reason string, fullMsg *proxy.Message, logStreamEnd func(string), extra map[string]any) {
+	a.notifyLifecycle("stuck_detected", extra)
+	logStreamEnd(reason)
+	fullMsg.Content = ""
+	fullMsg.ReasoningContent = "[stuck]"
+}
+
 func (a *Agent) retryWithoutTools(ctx context.Context, history []proxy.Message) (*proxy.ChatResponse, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, AgentRetryTimeout)
 	defer cancel()
@@ -786,28 +951,42 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	// Neutral "working" status before the (single) response arrives.
 	a.notifyAgentThinking()
 
-	heartbeatDone := make(chan struct{})
-	defer close(heartbeatDone)
+	hb := core.NewHeartbeat()
+	hb.Start(ctx, nonStreamHeartbeatInterval)
+	defer hb.Stop()
 	heartbeatStart := time.Now()
-	go func() {
-		ticker := time.NewTicker(nonStreamHeartbeatInterval)
-		defer ticker.Stop()
+
+	// wait runs a single blocking LLM call in a goroutine and consumes the
+	// heartbeat ticker while waiting, so the UI keeps receiving fallback_waiting
+	// liveness during a slow provider response. Every retry path reuses it. The
+	// goroutine terminates when fn returns, which is bounded by the ctx/chatCtx
+	// timeouts it observes (no leak on ctx.Done).
+	wait := func(fn func() (*proxy.ChatResponse, error)) (*proxy.ChatResponse, error) {
+		type res struct {
+			resp *proxy.ChatResponse
+			err  error
+		}
+		result := make(chan res, 1)
+		go func() {
+			resp, err := fn()
+			result <- res{resp, err}
+		}()
 		for {
 			select {
-			case <-ticker.C:
+			case <-hb.C:
 				elapsed := time.Since(heartbeatStart).Round(time.Second)
 				a.notifyLifecycle("fallback_waiting", map[string]any{
 					"elapsed": elapsed.String(),
 				})
 			case <-ctx.Done():
-				return
-			case <-heartbeatDone:
-				return
+				return nil, ctx.Err()
+			case r := <-result:
+				return r.resp, r.err
 			}
 		}
-	}()
+	}
 
-	resp, err := a.deps.Client.Chat(chatCtx, req)
+	resp, err := wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
 	if err != nil && prefill != "" && isPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
 		a.setPrefillDisabled(true)
@@ -823,17 +1002,17 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			ToolChoice: toolChoice,
 			MaxTokens:  a.config.MaxTokens,
 		}
-		resp, err = a.deps.Client.Chat(chatCtx, req)
+		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
 	}
 	if err != nil && isToolSupportError(err) {
 		a.deps.Logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
-		resp, err = a.retryWithoutTools(ctx, history)
+		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.retryWithoutTools(ctx, history) })
 	}
 	if err != nil && isUnsupportedParameterError(err) {
 		a.deps.Logger.Warn("provider rejected unsupported parameter, retrying without reasoning params", "error", err)
 		proxy.ClearReasoningParams(&req)
-		resp, err = a.deps.Client.Chat(chatCtx, req)
+		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
 	}
 
 	if err != nil {

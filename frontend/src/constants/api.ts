@@ -38,4 +38,3 @@ export const DEFAULT_LOG_LEVEL = 'INFO' as const
 
 // Log level options
 export const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'] as const
-export type LogLevel = (typeof LOG_LEVELS)[number]

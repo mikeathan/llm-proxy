@@ -32,6 +32,15 @@ For non-trivial work follow: **inspect → plan → implement → verify → rev
 - **Centralization:** any app-level initialization, lifecycle wiring, or long-lived background coordination (data refresh loops, global watchers/listeners, bootstrap) must be established in **one well-defined, discoverable place** (a dedicated entrypoint or init layer) rather than spread ad hoc across modules — so startup wiring is not half-forgotten or duplicated across changes.
 - **Report the review, don't just pass it:** the Pre-Completion Review result must be summarized in the final message to the user (each gate: pass/fail/clean), not treated as an internal step.
 
+## Memory / Knowledge Persistence
+Persist durable findings to the harness's long-term memory if it exposes one — do not let learnings
+die with the session. Trigger after: non-trivial bug / edge case solved · subsystem understood beyond
+the source · architectural decision / convention / user preference set · non-obvious build / test /
+setup quirk.
+
+Save quietly at task conclusion; never block the user, never claim memory was written unless it was.
+Prefer a short, searchable summary with `file:line` pointers and verbatim values.
+
 ## Boundaries
 - **Git:** read-only inspection (`git diff`, `git status`, `git log`) is allowed; never commit, push, add, stash, reset, or checkout without explicit user approval.
 - **Comments:** never remove comments unless factually incorrect — then correct the error, do not delete.
@@ -63,4 +72,5 @@ Before marking done, pass every check; fix or report failures.
 5. Check bugs/perf: error paths, edge cases, nil/zero values, redundant work. Run `-race` only when concurrency/lifecycle code changed; inspect perf-sensitive paths without speculative caching or unmeasured optimization.
 6. Search for existing implementations; reuse or extend them. Remove dead code, stubs, newly introduced TODOs, and incomplete work; preserve unrelated existing TODOs.
 7. Confirm conventions, required documentation, tests, and production readiness; report checks run, failures, fixes, and remaining risk to user (or state "clean").
+8. Persist durable findings to harness memory if the harness exposes one (see Memory / Knowledge Persistence).
 Applies to all task sizes and user-requested change reviews.

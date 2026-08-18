@@ -2,16 +2,11 @@
 // "webhook-<platform>" (e.g. "webhook-telegram") or "manual". The frontend only
 // maps that string to an icon/label — it never parses the session ID.
 
-import type { SessionBrief } from '../../types/assistant'
+import type { SessionBrief, SourceSection } from '../../types/assistant'
 
 // SourceSection is a display section in the session list. Webhook sessions are
 // grouped under a headed "Webhook" section; manual sessions render flat
-// (grouped: false) with no header.
-export interface SourceSection {
-  source: string
-  sessions: SessionBrief[]
-  grouped: boolean
-}
+// (grouped: false) with no header. The type lives in types/assistant.ts.
 
 // groupSessionsBySource splits sessions into a webhook section (first, headed)
 // and a manual section (flat). Manual sessions keep the same row markup — they

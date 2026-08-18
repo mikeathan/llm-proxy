@@ -12,27 +12,35 @@ import (
 // surfaces) instead of trusting sticky client-side flags that can miss a
 // completion event.
 type ActiveRunsResponse struct {
-	AssistantRunning  bool `json:"assistant_running"`
-	AutomationRunning bool `json:"automation_running"`
+	AssistantRunning  bool   `json:"assistant_running"`
+	AutomationRunning bool   `json:"automation_running"`
+	// AssistantConversationID is the conversation ID of the agent currently
+	// running for the workspace, or "" when none is running. The frontend uses
+	// it to mark the correct history row as running after a refresh — the
+	// per-session flag itself is not persisted.
+	AssistantConversationID string `json:"assistant_conversation_id"`
 }
 
 // ActiveRunsHandler reports what is executing per workspace by delegating to the
 // authoritative running-state sources of each subsystem. Dependencies are passed
 // as funcs so the handler stays decoupled and trivially testable.
 type ActiveRunsHandler struct {
-	assistantRunning  func(workspaceID string) bool
-	automationRunning func(workspaceID string) bool
+	assistantRunning          func(workspaceID string) bool
+	automationRunning         func(workspaceID string) bool
+	assistantConversationID   func(workspaceID string) string
 }
 
 // NewActiveRunsHandler wires the handler to the subsystem-specific running
-// checks. Both funcs are read-only and must be safe for concurrent use.
+// checks. All funcs are read-only and must be safe for concurrent use.
 func NewActiveRunsHandler(
 	assistantRunning func(workspaceID string) bool,
 	automationRunning func(workspaceID string) bool,
+	assistantConversationID func(workspaceID string) string,
 ) *ActiveRunsHandler {
 	return &ActiveRunsHandler{
-		assistantRunning:  assistantRunning,
-		automationRunning: automationRunning,
+		assistantRunning:        assistantRunning,
+		automationRunning:       automationRunning,
+		assistantConversationID: assistantConversationID,
 	}
 }
 
@@ -45,7 +53,8 @@ func (h *ActiveRunsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	workspaceID := vals[0]
 
 	respondJSON(w, ActiveRunsResponse{
-		AssistantRunning:  h.assistantRunning(workspaceID),
-		AutomationRunning: h.automationRunning(workspaceID),
+		AssistantRunning:        h.assistantRunning(workspaceID),
+		AutomationRunning:       h.automationRunning(workspaceID),
+		AssistantConversationID: h.assistantConversationID(workspaceID),
 	})
 }

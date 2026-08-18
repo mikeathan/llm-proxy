@@ -45,9 +45,19 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 -   No `any`; prefer `unknown`.
 -   Use discriminated unions and exhaustive switches.
 -   Prefer inference over redundant annotations.
--   Keep types in `/types`.
+-   Keep types in `/types`. **Export types ONLY from `src/types/`** — never declare or
+    export an interface/type (`export type` / `export interface`) from `utils/`,
+    `composables/`, or components; import it from `src/types/` with `import type` instead.
+    **Enforced:** ESLint `no-restricted-syntax` in `frontend/eslint.config.js`
+    (`types-must-live-in-src-types`) fails `npm run lint` on any exported type/interface
+    outside `src/types/**`. Pure logic bound to a type (e.g. `isStreamingPhase`) may live in
+    `utils/`/`constants/`, but MUST `import type` the type from `src/types/`.
 -   Annotate API response types; never consume untyped responses.
 -   No hardcoded values: strings, numbers in logic → named `const` at file top. Errors, labels, keys included.
+-   **Fixed-value option sets → a typed union + `as const`/`Record` map, never a bare
+    `string` in domain types** (precedent: `LoopStrategy`, `WorkloadClass`). Backend-driven
+    open sets (e.g. `loop_strategy_options`) stay `string[]`; the typed union covers the
+    known values and helpers degrade gracefully for unknown runtime values.
 -   **No inline `import("...")` type references.** Always import a type at the
     top of the file (`import type { T } from "..."`) and reference `T` by name.
     Inline dynamic-type imports are banned — they are unreadable and defeat the
@@ -60,6 +70,10 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 -   No API calls inside presentation components.
 -   Promote reusable UI into base components.
 -   Prefer slots over duplication.
+-   **Extract shared/reusable UI into base components under `src/components/common/<domain>/`**
+    (e.g. `display/`, `buttons/`, `layout/`, `chat/`). The second use of the same markup
+    is the trigger to extract; a single-use block stays inline where it belongs. Never
+    copy-paste a field/control across features.
 
 ## State
 

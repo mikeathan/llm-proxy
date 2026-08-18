@@ -634,22 +634,29 @@ a separate, characterized protocol change is approved. This prevents the newly r
 `openai` + local-URL case from changing native/XML behavior as an incidental consequence of
 budget refactoring.
 
-### 3.4 The `/slots` gate must key on URL, not filename
+### 3.4 The `/slots` gate must key on the listing, not the URL alone
 
 The original draft of this plan proposed gating `fetchSlotsContext` on `isLocalWorkload`.
 **That would have broken local metadata discovery** for any local model whose name is not
 `.gguf`: no `/slots` probe → no `n_ctx` → `resolveContextLength` falls to
 `providerCtxDefaults["openai"] = 128_000`.
 
-Correct gate:
+Correct gate (2026-08-24 revision — remote llama.cpp hosts):
 
 ```
 probe /slots (or /v1/props for llama.cpp, /api/v1/models for LM Studio)  ⟺  effectiveEndpoint is local
+    ∨  any listed model carries a llama.cpp/local-workload fingerprint
+       (owned_by "llamacpp" | meta.n_ctx_train | .gguf artifact id)
 ```
 
 Probes any local llama.cpp/LM Studio regardless of model name; still skips cloud URLs,
-preserving the wasted-calls fix. For non-`.gguf` local models (M8), the server probe — not
-`providerCtxDefaults` — recovers the real serving `n_ctx` (§2.10 #4). The probe reuses the
+preserving the wasted-calls fix. The listing-fingerprint clause widens the gate to **remote**
+llama.cpp hosts (a GGUF server on another machine is a local workload even though its IP is
+not loopback/modelHost) — exactly the failure the `openai`-provider + remote llama.cpp setup
+hit (`n_ctx_train` 262144 leaking into `max_tokens 87381`). The probe result now **overrides**
+the training-derived `ContextLength` and is carried on `Meta.Nctx` so discovery forwards the
+serving context (SPEC-005 priority 1). For non-`.gguf` local models (M8), the server probe —
+not `providerCtxDefaults` — recovers the real serving `n_ctx` (§2.10 #4). The probe reuses the
 injected `HTTPDoer` with a 5s child context.
 
 Context on how current local models obtained `n_ctx: 8192`: they are added through the

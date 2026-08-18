@@ -1,12 +1,5 @@
 import type { AssistantMessage, Segment } from '../../types/assistant'
-
-export interface Turn {
-  userMessage: string
-  finalAnswer: string
-  segments: Segment[]
-  messages: AssistantMessage[]
-  canceled?: boolean
-}
+import type { Turn } from '../../types/message'
 
 // Matches agent-internal control messages injected by the backend (format
 // errors, retry prompts, incomplete-response warnings, automation nag/retry
@@ -87,6 +80,13 @@ export function buildSegmentsFromHistory(messages: AssistantMessage[]): Assistan
 
     if (msg.reasoning_content) {
       segments.push({ kind: 'reasoning', text: msg.reasoning_content })
+    }
+
+    // A persisted terminal failure is stored as an assistant message with an
+    // `error` field. Render it as an explicit error segment so a reloaded
+    // failed run shows why it stopped instead of a blank turn.
+    if (msg.error) {
+      segments.push({ kind: 'error', message: msg.error })
     }
 
     // Content on assistant messages with tool calls is the model's planning

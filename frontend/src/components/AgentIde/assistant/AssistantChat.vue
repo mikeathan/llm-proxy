@@ -38,6 +38,25 @@ function forceScrollToBottom() {
   chatMessagesRef.value?.scrollToBottom("smooth");
 }
 
+// scrollToLatest waits for the DOM to reflect the latest state change, then
+// scrolls to the bottom. Shared by the send path and session loading so the
+// scroll-after-render dance lives in one place.
+async function scrollToLatest() {
+  await nextTick();
+  forceScrollToBottom();
+}
+
+// launchRun is the single send path shared by the input box (handleSend) and
+// the retry button (handleRetry): collapse every turn's work section (so a
+// stale errored/cancelled bubble from a previous run cannot stay expanded and
+// bleed the new run's live reasoning into it), send, then scroll to the new
+// output after the DOM updates.
+async function launchRun(text: string) {
+  collapseAllInsets();
+  await sendMessage(props.workspaceId, text);
+  await scrollToLatest();
+}
+
 const currentSessionRunning = computed(() =>
   currentSessionId.value != null && sessions.value.some(s => s.id === currentSessionId.value && s.running)
 )
@@ -67,7 +86,7 @@ const expandedSegments = ref<Record<string, boolean>>({});
 const turns = computed(() => {
   return groupTurns(messages.value)
 })
-const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets } = useTurnInset(phase, turns);
+const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets, resetInsets } = useTurnInset(phase, turns);
 const lastMessageIsUser = computed(() => {
   if (messages.value.length === 0) return false;
   return messages.value[messages.value.length - 1]?.role === "user";
@@ -94,7 +113,7 @@ const initWorkspace = async () => {
 
   const handleNewChat = async () => {
     newSession();
-    insetCollapsed.value = {};
+    resetInsets();
     await fetchSessions(props.workspaceId);
   };
 
@@ -102,23 +121,18 @@ const initWorkspace = async () => {
     const text = inputMessage.value.trim();
     if (!text || loading.value) return;
     inputMessage.value = "";
-    collapseAllInsets();
-    await sendMessage(props.workspaceId, text);
-    await nextTick();
-    forceScrollToBottom();
+    await launchRun(text);
   };
 
 const handleRetry = (text: string) => {
-  sendMessage(props.workspaceId, text);
-  forceScrollToBottom();
+  void launchRun(text);
 };
 
   const handleLoadSession = async (sessionId: string) => {
-    insetCollapsed.value = {};
+    resetInsets();
     await loadSession(props.workspaceId, sessionId);
-    await nextTick();
     collapseAllInsets();
-    forceScrollToBottom();
+    await scrollToLatest();
     if (isMobile.value) {
       sidebarOpen.value = false;
     }

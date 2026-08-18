@@ -25,7 +25,17 @@ const (
 // AGENTS.md are picked up without a restart.
 var agentsFileCache = core.NewTTLCache[string, string](agentsFileCacheMaxEntries, agentsFileCacheTTL, nil)
 
+// MaxHistoryChars bounds the initial system + first-user base history (a small
+// fixed seed). It is NOT used for the persisted session file.
 const MaxHistoryChars = 12 * 1024
+
+// MaxPersistedHistoryChars is the last-resort ceiling for persisted session
+// history. Normal runs persist full (untruncated) history so a reload shows the
+// complete tool-call/reasoning/output trail (the 12KB whole-message cap used to
+// drop earlier tool calls — Bug 2). This bound only fires when a pathological
+// run (e.g. hundreds of tool cycles) would otherwise write an unbounded file,
+// keeping the PL-1 disk-usage hardening intent without losing normal-run data.
+const MaxPersistedHistoryChars = 256 * 1024
 
 // LoadAgentsFile returns the workspace agent instructions from AGENTS.md,
 // falling back to the built-in DefaultAgentsMD when the file does not exist.
@@ -66,8 +76,12 @@ func BuildInitialHistory(persistence *persistence.WorkspaceManager, workspaceID,
 	}, nil
 }
 
-// TruncateHistory removes oldest non-system messages when total content exceeds the limit.
-func TruncateHistory(history []proxy.Message) []proxy.Message {
+// TruncateHistory removes oldest non-system messages when total content exceeds
+// maxChars. Callers pass the appropriate bound: the small MaxHistoryChars for
+// the initial base history, or the high MaxPersistedHistoryChars for the
+// persisted session file (so normal runs persist full and only pathological runs
+// are bounded).
+func TruncateHistory(history []proxy.Message, maxChars int) []proxy.Message {
 	if len(history) <= 1 {
 		return history
 	}
@@ -77,7 +91,7 @@ func TruncateHistory(history []proxy.Message) []proxy.Message {
 		totalChars += len(m.Content)
 	}
 
-	if totalChars <= MaxHistoryChars {
+	if totalChars <= maxChars {
 		return history
 	}
 
@@ -97,27 +111,27 @@ func TruncateHistory(history []proxy.Message) []proxy.Message {
 		}
 	}
 
-	for totalChars > MaxHistoryChars && startIdx < len(history)-1 {
+	for totalChars > maxChars && startIdx < len(history)-1 {
 		// Protect the original user task from being dropped: prefer trimming
 		// later messages, but if we reach the user anchor and still over
 		// budget, cap its content (dropping the whole task would blank the
 		// conversation on reopen).
 		if startIdx == userAnchor {
 			// Trim any later messages first.
-			for startIdx+1 < len(history) && totalChars > MaxHistoryChars {
+			for startIdx+1 < len(history) && totalChars > maxChars {
 				totalChars -= len(history[startIdx+1].Content)
 				history = append(history[:startIdx+1], history[startIdx+2:]...)
 			}
-			if totalChars <= MaxHistoryChars {
+			if totalChars <= maxChars {
 				break
 			}
 			// Still over budget: cap the user message content itself.
-			remaining := MaxHistoryChars - (totalChars - len(history[startIdx].Content))
+			remaining := maxChars - (totalChars - len(history[startIdx].Content))
 			if remaining > 0 && remaining < len(history[startIdx].Content) {
 				capped := []byte(history[startIdx].Content)
 				capped = capped[:remaining]
 				history[startIdx].Content = string(capped) + "\n…[truncated]"
-				totalChars = MaxHistoryChars
+				totalChars = maxChars
 			}
 			break
 		}

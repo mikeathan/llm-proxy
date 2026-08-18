@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"llm-proxy/models"
@@ -275,6 +276,18 @@ const ToolErrorNagPrompt = "SYSTEM: The tool call above failed. Read the error o
 // as a synthetic control message (see isAgentControlMessage).
 const AutomationFinalizePrompt = "SYSTEM: You have completed all tool work for this task. Produce your FINAL REPORT now as a plain-text assistant message. Do NOT call any tools. Summarize the actual results of the work you performed."
 
+// EvaluatorReviewPrompt is the evaluator-optimizer stop-guard nudge: before the
+// run finalizes, the model is asked to self-review — verify/fix the work, then
+// summarize. It is a synthetic control message (registered in
+// isAgentControlMessage) so completion detection never mistakes it for user
+// text. Prompt-based self-critique only (no verification-evidence ledger).
+const EvaluatorReviewPrompt = "SYSTEM: Before you deliver your final answer, review the work you have done so far.\n\n" +
+	"1. Check your results against the original request — is anything missing, wrong, or unverified?\n" +
+	"2. Run any relevant build, test, or verification tool to confirm the work actually works.\n" +
+	"3. Fix any issues you find.\n" +
+	"4. Then write your final report as a normal assistant message and stop calling tools.\n\n" +
+	"If the work is already complete and correct, write your final report now — do not repeat work."
+
 // AutomationNagPrompt is sent when a model outputs text without any tool calls
 // and natural completion did not apply (e.g. no preceding tool result).
 // Dual-path: unfinished work needs a tool; finished work needs final text.
@@ -444,18 +457,81 @@ Write your final report as a normal assistant message when the task is done.`
 // The tool result feedback preserves the actual outcome.
 const AutomationTrimmedContentMessage = "[Response trimmed — %s content too long. See tool result feedback.]"
 
-const ExecutionPlanSystemPrompt = "You are a planning assistant. Generate tool execution plans as JSON."
+// ExecutionPlanSystemPrompt frames the plan generator. It carries the
+// deliverable contract mirroring the workspace AGENTS.md Completion rules: plan
+// steps are tool work only, the final report is produced separately as text
+// (never a tool step), and communication tools fire only on explicit external-
+// notification requests — never to deliver task results.
+const ExecutionPlanSystemPrompt = "You are a planning assistant. Generate tool execution plans as JSON. " +
+	"Plan steps describe TOOL WORK ONLY: the final report is produced separately as a plain-text assistant message after the plan runs — never as a plan step."
+
+// formatToolParameters renders a tool schema's parameters as a concise
+// "name (type, required)" list for the plan prompt. Names are sorted for a
+// deterministic prompt. Returns "" when the schema carries no properties.
+// Descriptions are intentionally omitted — the plan prompt stays token-lean
+// and tool-agnostic (no path/workspace vocabulary leakage).
+func formatToolParameters(params any) string {
+	schema, ok := params.(map[string]any)
+	if !ok {
+		return ""
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok || len(props) == 0 {
+		return ""
+	}
+	required := make(map[string]bool)
+	if req, ok := schema["required"].([]any); ok {
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				required[s] = true
+			}
+		}
+	}
+	names := make([]string, 0, len(props))
+	for name := range props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	for i, name := range names {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(name)
+		parts := make([]string, 0, 2)
+		if details, ok := props[name].(map[string]any); ok {
+			if pType, ok := details["type"].(string); ok {
+				parts = append(parts, pType)
+			}
+		}
+		if required[name] {
+			parts = append(parts, "required")
+		}
+		if len(parts) > 0 {
+			sb.WriteString(" (" + strings.Join(parts, ", ") + ")")
+		}
+	}
+	return sb.String()
+}
 
 func BuildExecutionPlanPrompt(tools []ToolInfo, task string) string {
 	var sb strings.Builder
 	sb.WriteString("Generate a step-by-step execution plan for this task.\n")
+	sb.WriteString("Rules:\n")
+	sb.WriteString("- Each step must be a tool call that does real work toward the task.\n")
+	sb.WriteString("- Do NOT add a report, summary, or notify step: after the plan runs, the system produces the final report as a normal assistant message.\n")
+	sb.WriteString("- Only use communication tools (e.g. notify_user) when the task EXPLICITLY requests an external notification — never to deliver task results.\n")
 	sb.WriteString("Available tools:\n")
 	for _, t := range tools {
 		sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+		if params := formatToolParameters(t.Parameters); params != "" {
+			sb.WriteString("  Parameters: " + params + "\n")
+		}
 	}
 	sb.WriteString("\nTask: ")
 	sb.WriteString(task)
-	sb.WriteString("\n\nReturn ONLY a JSON object with \"description\" (string) and \"steps\" (array). ")
+	sb.WriteString("\n\nMake each step self-contained: do not assume working directory, environment, or session state persists from one step to the next unless a tool's description explicitly guarantees it.\n")
+	sb.WriteString("\nReturn ONLY a JSON object with \"description\" (string) and \"steps\" (array). ")
 	sb.WriteString("Each step has \"tool\" (tool name), \"description\" (string), and \"args\" (object with parameter values).")
 	return sb.String()
 }

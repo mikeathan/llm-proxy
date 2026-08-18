@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,8 +13,11 @@ import (
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/utils"
 	"math/rand/v2"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -37,12 +41,73 @@ const (
 // DefaultReasoningField is the wire field used for OpenAI-compatible gateways.
 const DefaultReasoningField = ReasoningFieldBudget
 
+// Path fragments used to join a provider base URL into a chat endpoint.
+// Provider manifests commonly ship base URLs that already carry a trailing
+// /v1 (e.g. NVIDIA's default_base_url), so the join must not double it.
+const (
+	chatCompletionsPath = "/chat/completions"
+	v1Prefix            = "/v1"
+)
+
 type LLMClient struct {
 	httpClient         *http.Client
 	chatCompletionsURL string
 	headers            http.Header
 	model              string
 	reasoningField     string
+}
+
+// retryObserverKey is the context key for a per-request retry observer. A
+// single LLMClient is shared across concurrent agents (see RuntimeClientProvider),
+// so the observer must travel on the request context rather than on the client.
+type retryObserverKeyType struct{}
+
+var retryObserverKey retryObserverKeyType
+
+// RetryReason classifies why an upstream attempt is being retried.
+type RetryReason string
+
+const (
+	// RetryReasonTransport is a connection-level failure (e.g. unexpected EOF).
+	RetryReasonTransport RetryReason = "transport"
+	// RetryReasonStatus is a retryable HTTP status (429/502/503/504/529).
+	RetryReasonStatus RetryReason = "status"
+)
+
+// RetryInfo describes a single retry that is about to happen. It is
+// observational only — it carries no decision power over the retry/backoff.
+type RetryInfo struct {
+	Reason      RetryReason
+	Attempt     int // 1-based attempt being retried (2nd overall attempt => 2)
+	MaxAttempts int
+	Error       string // transport error text (Reason == RetryReasonTransport)
+	// ErrClass is a short stable bucket for the transport failure (e.g.
+	// "connection-closed", "timeout", "tls") so the UI can explain WHY the
+	// upstream is unreachable instead of showing a generic transport string.
+	ErrClass  string // only set when Reason == RetryReasonTransport
+	Status    int    // upstream HTTP status (Reason == RetryReasonStatus)
+	ElapsedMs int64  // time since this LLM call started
+}
+
+// RetryObserver is invoked before each retry so callers can surface transient
+// upstream failures to the UI. It must never block the retry loop.
+type RetryObserver func(RetryInfo)
+
+// WithRetryObserver attaches an observer to ctx, mirroring the UsageTracker
+// context pattern. It is idempotent: an existing observer is preserved.
+func WithRetryObserver(ctx context.Context, obs RetryObserver) context.Context {
+	if RetryObserverFrom(ctx) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, retryObserverKey, obs)
+}
+
+// RetryObserverFrom returns the observer attached to ctx, or nil.
+func RetryObserverFrom(ctx context.Context) RetryObserver {
+	if obs, ok := ctx.Value(retryObserverKey).(RetryObserver); ok {
+		return obs
+	}
+	return nil
 }
 
 const (
@@ -68,25 +133,38 @@ var (
 
 // NewLLMClient builds a client for an upstream that speaks the OpenAI-compatible
 // chat protocol. The reasoning budget is sent as "reasoning_budget" by default.
+// Cloud clients use the dedicated HTTP/1.1-only transport with a 45s
+// response-header timeout so a saturated gateway (e.g. NVIDIA's free tier, which
+// holds requests ~60s then drops the connection) is classified as a clean
+// client-side "timeout" instead of a bare "unexpected EOF".
 func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
-	return newLLMClient(baseURL, model, httpClient, headers, DefaultReasoningField)
+	return newLLMClient(baseURL, model, httpClient, headers, DefaultReasoningField, network.CloudLLMChatTransport)
 }
 
 // NewLLMClientForLocal builds a client for a local llama.cpp server, which
-// expects the reasoning budget under "thinking_budget_tokens".
+// expects the reasoning budget under "thinking_budget_tokens". Local servers
+// get the 10-minute response-header timeout to accommodate long prefill on
+// reasoning models.
 func NewLLMClientForLocal(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
-	return newLLMClient(baseURL, model, httpClient, headers, ReasoningFieldThinkTokens)
+	return newLLMClient(baseURL, model, httpClient, headers, ReasoningFieldThinkTokens, network.LLMChatTransport)
 }
 
-func newLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header, reasoningField string) Client {
+func newLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header, reasoningField string, defaultTransport *http.Transport) Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Transport: SharedTransport,
+			Transport: defaultTransport,
 		}
 	}
 	chatURL := utils.SanitiseUrl(baseURL)
-	if !strings.HasSuffix(chatURL, "/v1/chat/completions") && !strings.HasSuffix(chatURL, "/chat/completions") {
-		chatURL += "/v1/chat/completions"
+	switch {
+	case strings.HasSuffix(chatURL, chatCompletionsPath):
+		// already a full chat endpoint
+	case strings.HasSuffix(chatURL, v1Prefix):
+		// provider manifests commonly include a trailing /v1 (e.g. NVIDIA);
+		// appending the full path would double it into /v1/v1/chat/completions.
+		chatURL += chatCompletionsPath
+	default:
+		chatURL += v1Prefix + chatCompletionsPath
 	}
 	return &LLMClient{chatCompletionsURL: chatURL, model: model, httpClient: httpClient, headers: headers, reasoningField: reasoningField}
 }
@@ -159,7 +237,7 @@ func IsRetryableHTTPStatus(code int) bool {
 		http.StatusBadGateway,         // 502
 		http.StatusServiceUnavailable, // 503
 		http.StatusGatewayTimeout,     // 504
-		529: // NVIDIA NIM "Service temporarily overloaded"
+		529:                           // NVIDIA NIM "Service temporarily overloaded"
 		return true
 	default:
 		return false
@@ -206,12 +284,100 @@ func backoffForRetry(attempt int) time.Duration {
 	return base - base/10 + jitter
 }
 
+// classifyTransportError buckets a connection-level upstream failure into a
+// short, stable category so operators get an actionable signal instead of a
+// generic transport string. Providers such as NVIDIA close the connection (EOF
+// / RST) for models a key is not entitled to, which a bare "unexpected EOF"
+// cannot distinguish from a TLS failure or a dropped proxy tunnel.
+func classifyTransportError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+	if err == nil {
+		return "network"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	switch {
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return "connection-closed"
+	case errors.Is(err, syscall.ECONNRESET):
+		return "connection-reset"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection-refused"
+	case errors.Is(err, syscall.ECONNABORTED):
+		return "connection-aborted"
+	case strings.Contains(err.Error(), "http2"):
+		return "http2"
+	case strings.Contains(err.Error(), "tls"):
+		return "tls"
+	case strings.Contains(err.Error(), "EOF"):
+		return "connection-closed"
+	default:
+		return "network"
+	}
+}
+
+// transportErrorHint maps a classified transport bucket to a short,
+// human-readable explanation so the surfaced error says WHY the upstream is
+// unreachable instead of only showing the raw transport text. Unknown classes
+// get generic guidance.
+func transportErrorHint(class string) string {
+	switch class {
+	case "connection-closed":
+		return "the provider closed the connection before responding — usually a provider queue timeout, model overload, or the API key/model not being entitled. Retry or check provider status."
+	case "timeout":
+		return "the provider did not respond within the client timeout — usually provider overload. Retry later or switch to a less-loaded model."
+	case "connection-reset":
+		return "the provider reset the connection — usually a load-balancer or gateway drop. Retry."
+	case "connection-refused":
+		return "the provider refused the connection — the endpoint may be down or unreachable. Check the base URL and network."
+	case "connection-aborted":
+		return "the connection was aborted — usually a gateway or proxy teardown. Retry."
+	case "tls":
+		return "TLS negotiation failed — check the provider certificate and endpoint."
+	case "http2":
+		return "HTTP/2 framing failed — the provider's HTTP/2 path is broken; the client forces HTTP/1.1."
+	default:
+		return "check provider status, the endpoint URL, and network connectivity."
+	}
+}
+
+// TransportError is returned when upstream transport retries are exhausted. It
+// carries the classified category, attempt count, elapsed time, and the
+// original error (via Unwrap) so callers can surface WHY the upstream is
+// unreachable — a bare "unexpected EOF" hides whether the gateway dropped the
+// connection, timed out, reset, or failed TLS. Error() appends a short
+// human-readable hint for the bucket.
+type TransportError struct {
+	Class    string
+	Attempts int
+	Elapsed  time.Duration
+	URL      string
+	Err      error
+}
+
+func (e *TransportError) Error() string {
+	return fmt.Sprintf("upstream %s failure after %d attempts (elapsed %s) %s: %v — %s",
+		e.Class, e.Attempts, e.Elapsed.Round(time.Second), e.URL, e.Err, transportErrorHint(e.Class))
+}
+
+func (e *TransportError) Unwrap() error { return e.Err }
+
 // doRequest issues the HTTP POST with bounded retry + backoff for transient
 // transport errors and retryable 5xx responses. It returns the (not-yet-closed)
 // response on the first 200; the caller owns the body. Each attempt recreates
 // the request body, and the loop bails immediately if ctx is cancelled.
 func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers http.Header, body []byte) (*http.Response, error) {
 	var lastErr error
+	start := time.Now()
+	observer := RetryObserverFrom(ctx)
 	for attempt := 0; attempt < httpRetryMaxAttempts; attempt++ {
 		if attempt > 0 {
 			timer := time.NewTimer(backoffForRetry(attempt))
@@ -240,8 +406,21 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 				return nil, ctx.Err()
 			}
 			lastErr = err
+			class := classifyTransportError(err)
 			logging.Warn("LLM upstream transport error, retrying",
-				"attempt", attempt+1, "max", httpRetryMaxAttempts, "error", err)
+				"attempt", attempt+1, "max", httpRetryMaxAttempts,
+				"model", c.model, "url", url, "kind", kind,
+				"error_class", class, "error", err)
+			if observer != nil && attempt < httpRetryMaxAttempts-1 {
+				observer(RetryInfo{
+					Reason:      RetryReasonTransport,
+					Attempt:     attempt + 1,
+					MaxAttempts: httpRetryMaxAttempts,
+					Error:       err.Error(),
+					ErrClass:    class,
+					ElapsedMs:   time.Since(start).Milliseconds(),
+				})
+			}
 			continue
 		}
 
@@ -265,15 +444,42 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 			return nil, ctx.Err()
 		}
 		if !IsRetryableResponse(resp.StatusCode, httpErr.Body) {
+			logging.Warn("LLM upstream non-retryable error",
+				"model", c.model, "url", url, "kind", kind,
+				"status", resp.StatusCode, "error", httpErr.Error())
 			return nil, httpErr
 		}
 		lastErr = httpErr
 		logging.Warn("LLM upstream retryable status, retrying",
-			"attempt", attempt+1, "max", httpRetryMaxAttempts, "status", resp.StatusCode)
+			"attempt", attempt+1, "max", httpRetryMaxAttempts,
+			"model", c.model, "url", url, "kind", kind, "status", resp.StatusCode)
+		if observer != nil && attempt < httpRetryMaxAttempts-1 {
+			observer(RetryInfo{
+				Reason:      RetryReasonStatus,
+				Attempt:     attempt + 1,
+				MaxAttempts: httpRetryMaxAttempts,
+				Status:      resp.StatusCode,
+				ElapsedMs:   time.Since(start).Milliseconds(),
+			})
+		}
 	}
 
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	var httpErr *LLMHTTPError
+	if lastErr != nil && !errors.As(lastErr, &httpErr) {
+		// Transport retries exhausted: surface the classified category alongside
+		// the original error so the raw text (e.g. "unexpected EOF") no longer
+		// hides what actually failed (timeout / closed connection / reset / TLS).
+		// The typed TransportError carries elapsed time and a human hint too.
+		return nil, &TransportError{
+			Class:    classifyTransportError(lastErr),
+			Attempts: httpRetryMaxAttempts,
+			Elapsed:  time.Since(start),
+			URL:      url,
+			Err:      lastErr,
+		}
 	}
 	return nil, lastErr
 }
@@ -349,7 +555,7 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 			}
 		}()
 
-		reader := io.Reader(resp.Body)
+		reader := bufio.NewReader(resp.Body)
 		for {
 			// Set a per-chunk timeout. If the server doesn't send a line within
 			// StreamChunkTimeout, we close the stream.
@@ -393,19 +599,13 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 	return ch, nil
 }
 
-func readSSELine(r io.Reader) (string, error) {
-	var buf []byte
-	b := make([]byte, 1)
-	for {
-		n, err := r.Read(b)
-		if n > 0 {
-			if b[0] == '\n' {
-				return string(buf), nil
-			}
-			buf = append(buf, b[0])
-		}
-		if err != nil {
-			return string(buf), err
-		}
+func readSSELine(r *bufio.Reader) (string, error) {
+	line, err := r.ReadBytes('\n')
+	// Strip the trailing line terminator so callers see exactly the line
+	// content, preserving the pre-refactor semantics (no trailing \n/\r).
+	line = bytes.TrimRight(line, "\r\n")
+	if err != nil {
+		return string(line), err
 	}
+	return string(line), nil
 }

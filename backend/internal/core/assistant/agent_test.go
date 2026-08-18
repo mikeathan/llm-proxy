@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
@@ -2815,13 +2816,25 @@ func TestNotifyPrematureTerminationNag(t *testing.T) {
 }
 
 func TestAgent_ExecutePlan_Success(t *testing.T) {
+	callCount := 0
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			callCount++
+			if callCount == 1 {
+				return &proxy.ChatResponse{
+					Choices: []proxy.Choice{{
+						Message: proxy.Message{
+							Role:    "assistant",
+							Content: `{"description": "test plan", "steps": [{"tool": "test_tool", "description": "step 1", "args": {"key": "val"}}]}`,
+						},
+					}},
+				}, nil
+			}
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{
 					Message: proxy.Message{
 						Role:    "assistant",
-						Content: `{"description": "test plan", "steps": [{"tool": "test_tool", "description": "step 1", "args": {"key": "val"}}]}`,
+						Content: "# Report\nAll steps completed successfully.",
 					},
 				}},
 			}, nil
@@ -2834,10 +2847,9 @@ func TestAgent_ExecutePlan_Success(t *testing.T) {
 	}
 	engine := &MockEngine{Result: "step result"}
 
-	strategy := NewExecutionPlanStrategy(client, provider.Tools, logging.NewNopLogger())
 	agent := NewAgent(client, provider, engine, AgentOptions{
 		MaxSteps:     5,
-		PlanStrategy: strategy,
+		LoopStrategy: LoopPlanExecute,
 	})
 
 	reply, _, err := agent.Execute(context.Background(), []proxy.Message{
@@ -2846,8 +2858,8 @@ func TestAgent_ExecutePlan_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if reply != "[Plan execution complete]" {
-		t.Errorf("expected reply '[Plan execution complete]', got %q", reply)
+	if reply != "# Report\nAll steps completed successfully." {
+		t.Errorf("expected synthesized report (not '[Plan execution complete]'), got %q", reply)
 	}
 }
 
@@ -3623,6 +3635,73 @@ func TestGuardrailDecisionStore_Remove(t *testing.T) {
 	}
 }
 
+func TestGuardrailDecisionStore_RetainPayload(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	payload := GuardrailBlockedPayload{
+		DecisionID:  "gr_retain",
+		Tool:        "execute_terminal_command",
+		Args:        `{"command":"wc -l f.txt"}`,
+		Category:    "terminal",
+		WorkspaceID: "ws1",
+	}
+	store.Retain(payload)
+
+	got, ok := store.Payload("gr_retain")
+	if !ok {
+		t.Fatal("expected retained payload to be found after Retain")
+	}
+	if got.Tool != payload.Tool || got.WorkspaceID != "ws1" || got.Category != "terminal" {
+		t.Errorf("retained payload mismatch: %+v", got)
+	}
+	if _, ok := store.Payload("missing"); ok {
+		t.Error("Payload should return false for an unknown id")
+	}
+}
+
+func TestGuardrailDecisionStore_RetainBounded(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	// Retain more than the cap; the oldest entries must be evicted.
+	for i := 0; i < maxRetainedGuardrailDecisions+10; i++ {
+		store.Retain(GuardrailBlockedPayload{DecisionID: fmt.Sprintf("gr_%d", i)})
+	}
+	for i := 0; i < 10; i++ {
+		if _, ok := store.Payload(fmt.Sprintf("gr_%d", i)); ok {
+			t.Errorf("expected oldest entry gr_%d to be evicted", i)
+		}
+	}
+	if _, ok := store.Payload(fmt.Sprintf("gr_%d", maxRetainedGuardrailDecisions+9)); !ok {
+		t.Error("expected newest entry to remain")
+	}
+}
+
+func TestGuardrailDecisionCallback_RetainsPayloadForLateDecision(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	callback := NewGuardrailDecisionCallback(store, nil)
+
+	payload := GuardrailBlockedPayload{
+		DecisionID:  "gr_late",
+		Tool:        "execute_terminal_command",
+		Args:        `{"command":"wc -l f.txt"}`,
+		Reason:      "command 'wc' in chain is not in the allowed whitelist",
+		Category:    "terminal",
+		WorkspaceID: "ws1",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	callback(ctx, payload) // times out: the wait expires, no decision
+
+	// The tombstone must survive the expired wait so a late decision can still
+	// look it up (the handler persists an override for future calls).
+	got, ok := store.Payload("gr_late")
+	if !ok {
+		t.Fatal("expected payload tombstone to survive the expired approval wait")
+	}
+	if got.WorkspaceID != "ws1" || got.Tool != "execute_terminal_command" {
+		t.Errorf("tombstone mismatch: %+v", got)
+	}
+}
+
 func TestGuardrailDecisionCallback_ContextCancelled(t *testing.T) {
 	store := NewGuardrailDecisionStore()
 
@@ -4031,7 +4110,7 @@ func TestPrepareChatRequest_CloudProviderDoesNotSendThinkingBudgetTokens(t *test
 // context. No name matching involved.
 func TestResolveReasoningSpec_LocalAutoBudget(t *testing.T) {
 	spec := resolveReasoningSpec("local", 0, 2730)
-	if spec.Mode != ModeThinkTokens {
+	if spec.Mode != reasoning.ModeThinkTokens {
 		t.Fatalf("local should resolve to ModeThinkTokens, got %v", spec.Mode)
 	}
 	want := DefaultReasoningBudget(2730) // 2730/3 = 910
@@ -4054,7 +4133,7 @@ func TestResolveReasoningSpec_LocalExplicitWins(t *testing.T) {
 func TestResolveReasoningSpec_CloudUnaffected(t *testing.T) {
 	for _, pt := range []string{"openai", "gemini", "openrouter", "nvidia"} {
 		spec := resolveReasoningSpec(pt, 0, 4096)
-		if spec.Mode == ModeThinkTokens {
+		if spec.Mode == reasoning.ModeThinkTokens {
 			t.Errorf("%s should not resolve to think-tokens mode", pt)
 		}
 		if spec.Budget != 0 {
@@ -4067,7 +4146,7 @@ func TestResolveReasoningSpec_CloudUnaffected(t *testing.T) {
 // defaults to the effort mode (no reasoning params sent) rather than crashing.
 func TestResolveReasoningSpec_UnknownFallsBackToEffort(t *testing.T) {
 	spec := resolveReasoningSpec("does-not-exist", 0, 4096)
-	if spec.Mode != ModeEffort {
+	if spec.Mode != reasoning.ModeEffort {
 		t.Errorf("unknown provider should default to ModeEffort, got %v", spec.Mode)
 	}
 }
@@ -5007,5 +5086,60 @@ func TestEventStream_UsesCounterID(t *testing.T) {
 			t.Errorf("event %d: ID %q not exactly 1 greater than previous %d", i, id, prev)
 		}
 		prev = n
+	}
+}
+
+// TestAgent_TransportError_SurfacesClassAndHint verifies that when streaming
+// fails with a typed proxy.TransportError (e.g. NVIDIA dropping the connection:
+// unexpected EOF), the agent still falls back to non-streaming as before, and
+// the surfaced error carries the classified bucket plus the human hint — so a
+// run failure explains WHY (connection-closed/timeout/...) instead of a bare
+// "unexpected EOF".
+func TestAgent_TransportError_SurfacesClassAndHint(t *testing.T) {
+	chatCalls := 0
+	terr := &proxy.TransportError{
+		Class:    "connection-closed",
+		Attempts: 3,
+		URL:      "https://integrate.api.nvidia.com/v1/chat/completions",
+		Err:      errors.New(`Post "https://integrate.api.nvidia.com/v1/chat/completions": unexpected EOF`),
+	}
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, terr
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			chatCalls++
+			// Non-streaming fallback also hits the same dead upstream.
+			return nil, terr
+		},
+	}
+
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}},
+		},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:      5,
+		GlobalTimeout: 5 * time.Second,
+		ProviderType:  "openai",
+	})
+
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	})
+	if err == nil {
+		t.Fatal("expected error when both stream and non-stream fail")
+	}
+	if chatCalls == 0 {
+		t.Error("expected non-streaming fallback to be attempted after stream failure")
+	}
+	if !strings.Contains(err.Error(), "connection-closed") {
+		t.Errorf("expected classified class in error, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "unexpected EOF") {
+		t.Errorf("expected raw transport text in error, got %q", err.Error())
 	}
 }

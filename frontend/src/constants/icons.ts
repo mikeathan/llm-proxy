@@ -12,20 +12,12 @@
 //   1. Add the constant here with a descriptive name.
 //   2. Import it where needed (never inline the raw character).
 //   3. If the icon is an emoji used in multiple contexts, add a helper
-//      function here (e.g. getPhaseMessage, getEventIcon).
+//      function here (e.g. getEventIcon).
 //
 // Adding a new SVG icon:
 //   1. Add the SVG file to assets/svg/ and register it in assets/svg/index.ts.
 //   2. If the icon needs dynamic sizing or theming, add a case to UIIcon.vue. 
 //   3. If it's consumed by two or more components, add a named constant here.
-
-// ── Lifecycle phase icons ──
-export const LIFECYCLE_ICONS: Record<string, string> = {
-  stuck_detected: "⚠️",
-  fallback_started: "🔄",
-  fallback_waiting: "⏳",
-  fallback_completed: "✅",
-}
 
 // ── Tool event emojis for plain-text formatting (dispatcher.ts text export) ──
 // These are NOT used in Vue templates — UI tool calls/results use SVG icons
@@ -49,24 +41,6 @@ export const TOAST_ERROR = "✕"
 export const TOAST_WARNING = "⚠"    // without variation selector — cleaner in toast
 export const TOAST_INFO = "ℹ"
 export const TOAST_CLOSE = "×"
-
-// ── Phase message formatter ──
-export const getPhaseMessage = (phase: string, payload: Record<string, any>): string => {
-  switch (phase) {
-    case "stuck_detected":
-      return `${LIFECYCLE_ICONS[phase]} Model stuck in reasoning loop (${payload.reasoning_chars} chars) — retrying...`
-    case "fallback_started":
-      return `${LIFECYCLE_ICONS[phase]} Switching to ${payload.mode || "fallback"} mode — ${payload.reason || ""}`
-    case "fallback_waiting":
-      return `${LIFECYCLE_ICONS[phase]} Waiting for non-streaming response... (elapsed: ${payload.elapsed || "0s"})`
-    case "fallback_completed":
-      return `${LIFECYCLE_ICONS[phase]} Fallback completed successfully`
-    case "completed":
-      return ``
-    default:
-      return ""
-  }
-}
 
 // ── Event-to-icon mapping used by text formatters ──
 export const getEventIcon = (type: string): string => {

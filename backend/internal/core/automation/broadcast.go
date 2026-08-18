@@ -157,7 +157,12 @@ func (b *EventBus) Unsubscribe(workspaceID string, channel assistant.EventChanne
 		if s == ch {
 			b.subscribers[workspaceID][channel] = append(subs[:i], subs[i+1:]...)
 			delete(b.fullSince, ch)
-			close(ch)
+			// Do NOT close(ch): Publish snapshots the subscriber set and sends
+			// outside the lock, so a concurrent Publish can still be mid-send
+			// when Unsubscribe runs — closing here would make that send panic
+			// ("send on closed channel"). Readers exit on their own ctx.Done(),
+			// never on channel close (see StreamWorkspaceEvents and
+			// handleAutomation). The channel is simply abandoned and GC'd.
 			break
 		}
 	}
@@ -172,6 +177,24 @@ func (b *EventBus) Unsubscribe(workspaceID string, channel assistant.EventChanne
 		delete(b.subscribers, workspaceID)
 	}
 }
+
+// criticalEvents are stateful events that must never be dropped when a
+// subscriber's buffer is full. Dropping them breaks the run's state machine:
+// guardrail_blocked leaves the agent waiting on an approval the UI never shows
+// (recovered only by a manual re-subscribe replay), guardrail_invalidated
+// leaves a stale approval banner, and error hides a terminal failure. They get
+// a bounded blocking send instead of the drop path.
+var criticalEvents = map[assistant.AgentEventType]bool{
+	assistant.EventGuardrailBlocked:     true,
+	assistant.EventGuardrailInvalidated: true,
+	assistant.EventError:                true,
+}
+
+// criticalEventPublishTimeout bounds the blocking send for critical events so a
+// stalled-but-alive subscriber cannot stall the publishing goroutine (the agent
+// loop) indefinitely. On expiry the event is skipped; the recent replay buffer
+// still carries it for the next re-subscribe.
+var criticalEventPublishTimeout = 3 * time.Second
 
 func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 	// Assign a stable ID if the source didn't provide one (e.g. guardrail events
@@ -216,12 +239,28 @@ func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
 	if len(b.recent[workspaceID][channel]) > 1000 {
 		b.recent[workspaceID][channel] = b.recent[workspaceID][channel][len(b.recent[workspaceID][channel])-1000:]
 	}
+	// Snapshot the subscriber set under the lock; sends happen outside it so a
+	// blocking critical-event send can never stall Subscribe/Unsubscribe.
+	subs := append([]chan assistant.AgentEvent(nil), b.subscribers[workspaceID][channel]...)
 	b.mu.Unlock()
 
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	for _, ch := range b.subscribers[workspaceID][channel] {
+	for _, ch := range subs {
+		if criticalEvents[event.Type] {
+			// Critical events are stateful/blocking — never drop them. Wait
+			// briefly for the subscriber to drain a slot; if it cannot, the
+			// recent buffer still carries the event for replay on reconnect.
+			// NewTimer (not time.After) so the timer is stopped immediately on
+			// the success path instead of lingering in the runtime timer heap.
+			timer := time.NewTimer(criticalEventPublishTimeout)
+			select {
+			case ch <- event:
+				timer.Stop()
+			case <-timer.C:
+				logging.Warn("event bus subscriber too slow, giving up on critical event",
+					"workspace", workspaceID, "channel", channel, "type", event.Type)
+			}
+			continue
+		}
 		select {
 		case ch <- event:
 		default:

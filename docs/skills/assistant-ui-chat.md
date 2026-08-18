@@ -245,7 +245,9 @@ forward-looking `docs/PLANS/gpu-performance.md`):**
 
 ### Empty inset suppression
 
-The `.bubble-inset` (reasoning/tool panel) is **only rendered when it has content** — at least one reasoning/tool_call/guardrail segment, visible live reasoning, or the `generating` phase. During the initial wait (`thinking` with no streamed text yet) it is hidden, so the bubble shows the animated border + "Thinking" dots without an empty rounded panel. `insetVisible` in `ChatBubble.vue` is gated by `insetHasContent`, not just the phase.
+The `.bubble-inset` (reasoning/tool panel) is **only rendered when it has content** — at least one reasoning/tool_call/guardrail/notice/error segment, visible live reasoning, or the `generating` phase. During the initial wait (`thinking` with no streamed text yet) it is hidden, so the bubble shows the animated border + "Thinking" dots without an empty rounded panel. `insetVisible` in `ChatBubble.vue` is gated by `insetHasContent`, not just the phase.
+
+**Waiting-on-model placeholder.** One exception: `showWaitingPlaceholder` renders a generic "Waiting on the model…" row inside the inset while the last live turn is in `thinking` with nothing streamed yet. It is provider/model-agnostic and reuses the existing phase state (no new heartbeat or event). It disappears as soon as any reasoning/content/segment/`notice`/`generating` state arrives — the `insetHasContent` gate then takes over. This gives the user feedback during a long provider TTFB or a hanging connection before the first upstream-retry notice appears.
 
 ## Auto-scroll Behavior
 

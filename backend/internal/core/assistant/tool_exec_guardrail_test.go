@@ -180,6 +180,146 @@ func TestGuardrailTimeout_NormalViolationStillDenied(t *testing.T) {
 	}
 }
 
+// TestGuardrailApprovalWait_TimeoutDenies proves the human approval wait is
+// bounded (Constitution II.10 / SPEC guardrails) and honors the per-model
+// GuardrailApprovalTimeout: when no decision arrives before the bound, the call
+// is treated as denied, the violation is recorded, and the run continues — it
+// cannot stall indefinitely.
+func TestGuardrailApprovalWait_TimeoutDenies(t *testing.T) {
+	engine := &MockEngine{Result: "ok"}
+	store := NewGuardrailDecisionStore()
+	var events []AgentEvent
+	agent := &Agent{
+		config: AgentConfig{
+			WorkspaceID:              "ws1",
+			GuardrailTimeout:         5 * time.Second, // validation bound; distinct from the approval bound
+			GuardrailTimeoutBehavior: "fail-closed",
+			GuardrailApprovalTimeout: 40 * time.Millisecond,
+		},
+		deps: AgentRuntimeDeps{
+			Engine:      engine,
+			Guardrails:  newSlowGuardrail(0, true), // fast eval, secret triggers violation
+			Logger:      logging.NewNopLogger(),
+			OnGuardrail: NewGuardrailDecisionCallback(store, func(ev AgentEvent) { events = append(events, ev) }),
+		},
+	}
+
+	history := []proxy.Message{{Role: proxy.UserRole, Content: "read it"}}
+	var mu sync.Mutex
+	start := time.Now()
+	stopBatch, execErr := agent.executeSingleToolStep(context.Background(), secretToolCall(), &history, &mu)
+
+	if !stopBatch {
+		t.Error("approval timeout: expected tool to be denied (stopBatch=true)")
+	}
+	if execErr != nil {
+		t.Errorf("approval timeout: expected no exec error, got %v", execErr)
+	}
+	if engine.Calls != 0 {
+		t.Errorf("approval timeout: expected tool NOT to execute, got %d calls", engine.Calls)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("approval timeout: wait was not bounded by the approval bound, took %v", elapsed)
+	}
+
+	// The UI banner must be cleared: an invalidated event with reason "timeout".
+	timeoutInvalidated := false
+	for _, ev := range events {
+		if ev.Type == EventGuardrailInvalidated {
+			if p, ok := ev.Payload.(GuardrailInvalidatedPayload); ok && p.Reason == "timeout" {
+				timeoutInvalidated = true
+			}
+		}
+	}
+	if !timeoutInvalidated {
+		t.Error("expected a guardrail_invalidated event with reason 'timeout' after the approval wait expired")
+	}
+}
+
+// TestGuardrailApprovalWait_ResolvedAllows proves an approval that arrives
+// within the bound allows the tool to proceed (the wait itself is not a
+// denial — only expiry is).
+func TestGuardrailApprovalWait_ResolvedAllows(t *testing.T) {
+	engine := &MockEngine{Result: "ok"}
+	agent := &Agent{
+		config: AgentConfig{
+			WorkspaceID:              "ws1",
+			GuardrailTimeout:         5 * time.Second,
+			GuardrailTimeoutBehavior: "fail-open",
+		},
+		deps: AgentRuntimeDeps{
+			Engine:     engine,
+			Guardrails: newSlowGuardrail(0, true), // fast eval, secret triggers violation
+			Logger:     logging.NewNopLogger(),
+			OnGuardrail: func(ctx context.Context, payload GuardrailBlockedPayload) (GuardrailDecision, error) {
+				return GuardrailDecision{Allow: true, Persist: false}, nil
+			},
+		},
+	}
+
+	history := []proxy.Message{{Role: proxy.UserRole, Content: "read it"}}
+	var mu sync.Mutex
+	stopBatch, execErr := agent.executeSingleToolStep(context.Background(), secretToolCall(), &history, &mu)
+
+	if stopBatch {
+		t.Error("resolved approval: expected tool to proceed (stopBatch=false)")
+	}
+	if execErr != nil {
+		t.Errorf("resolved approval: expected no exec error, got %v", execErr)
+	}
+	if engine.Calls != 1 {
+		t.Errorf("resolved approval: expected tool to execute, got %d calls", engine.Calls)
+	}
+}
+
+// TestGuardrailApproval_AutomationDeniesImmediately proves Constitution II.10:
+// unattended automation runs have no interactive user, so a non-security
+// guardrail violation must be denied immediately (fed back to the model as a
+// policy block) instead of waiting for an approval prompt that never comes.
+// Regression: the workspace-health-test run stalled for the 5-minute approval
+// bound on an `xargs` whitelist violation and then aborted with a misleading
+// "context deadline exceeded" when the run's 10-minute deadline expired.
+func TestGuardrailApproval_AutomationDeniesImmediately(t *testing.T) {
+	engine := &MockEngine{Result: "ok"}
+	agent := &Agent{
+		config: AgentConfig{
+			WorkspaceID:              "ws1",
+			Channel:                  ChannelAutomation,
+			GuardrailTimeout:         5 * time.Second, // fast eval; violation triggers denial
+			GuardrailTimeoutBehavior: "fail-open",
+		},
+		deps: AgentRuntimeDeps{
+			Engine:     engine,
+			Guardrails: newSlowGuardrail(0, true), // fast eval, secret triggers violation
+			Logger:     logging.NewNopLogger(),
+			OnGuardrail: func(ctx context.Context, payload GuardrailBlockedPayload) (GuardrailDecision, error) {
+				t.Fatal("automation must not wait for a guardrail approval")
+				return GuardrailDecision{}, nil
+			},
+		},
+	}
+
+	history := []proxy.Message{{Role: proxy.UserRole, Content: "read it"}}
+	var mu sync.Mutex
+	stopBatch, execErr := agent.executeSingleToolStep(context.Background(), secretToolCall(), &history, &mu)
+
+	if !stopBatch {
+		t.Error("automation violation: expected tool to be denied (stopBatch=true)")
+	}
+	if execErr != nil {
+		t.Errorf("automation violation: expected no exec error, got %v", execErr)
+	}
+	if engine.Calls != 0 {
+		t.Errorf("automation violation: expected tool NOT to execute, got %d calls", engine.Calls)
+	}
+	// The denial must be fed back to the model with hard policy guidance so it
+	// adapts instead of stalling the unattended run.
+	last := history[len(history)-1]
+	if !strings.Contains(last.Content, "blocked by security policy") {
+		t.Errorf("automation violation: expected policy denial guidance in tool result, got: %s", last.Content)
+	}
+}
+
 func TestAppendToolResult_LockScope(t *testing.T) {
 	agent := &Agent{deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
 	history := []proxy.Message{{Role: proxy.UserRole, Content: "x"}}
@@ -231,5 +371,51 @@ func TestAppendToolResult_ConcurrentSafe(t *testing.T) {
 	}
 	if len(history) != 101 {
 		t.Errorf("expected 101 messages (1 initial + 100 results), got %d", len(history))
+	}
+}
+
+func TestGuardrailApprovalTimeout_DefaultAndConfig(t *testing.T) {
+	// Default: 5 min (Hermes parity), applied when the option is unset.
+	var opts AgentOptions
+	opts.applyDefaults()
+	if opts.GuardrailApprovalTimeout != 5*time.Minute {
+		t.Errorf("expected default approval timeout 5m, got %v", opts.GuardrailApprovalTimeout)
+	}
+
+	// Per-model override wins over the default.
+	cfg := models.ModelConfig{GuardrailApprovalTimeoutSecs: 300}
+	var overridden AgentOptions
+	overridden.ApplyModelConfig(cfg)
+	overridden.applyDefaults()
+	if overridden.GuardrailApprovalTimeout != 300*time.Second {
+		t.Errorf("expected config approval timeout 300s, got %v", overridden.GuardrailApprovalTimeout)
+	}
+}
+
+func TestFormatGuardrailError_NoRetryMessages(t *testing.T) {
+	err := fmt.Errorf("command 'wc' in chain is not in the allowed whitelist")
+
+	denied := formatGuardrailError(err, denialUser)
+	if !strings.Contains(denied["error"], "Do NOT retry, rephrase") {
+		t.Errorf("explicit-denial message missing no-retry guidance: %s", denied["error"])
+	}
+	if strings.Contains(denied["error"], "silence is not consent") {
+		t.Errorf("explicit-denial message must not claim silence is not consent: %s", denied["error"])
+	}
+
+	timeout := formatGuardrailError(err, denialTimeout)
+	if !strings.Contains(timeout["error"], "silence is not consent") {
+		t.Errorf("timeout message missing consent guidance: %s", timeout["error"])
+	}
+	if !strings.Contains(timeout["error"], "Do NOT retry, rephrase") {
+		t.Errorf("timeout message missing no-retry guidance: %s", timeout["error"])
+	}
+
+	policy := formatGuardrailError(err, denialSecurity)
+	if !strings.Contains(policy["error"], "blocked by security policy") {
+		t.Errorf("policy message missing policy wording: %s", policy["error"])
+	}
+	if !strings.Contains(policy["error"], "Do NOT retry, rephrase") {
+		t.Errorf("policy message missing no-retry guidance: %s", policy["error"])
 	}
 }

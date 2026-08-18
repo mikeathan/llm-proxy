@@ -39,8 +39,41 @@ func (t *testDispatcher) GlobalActivity() []models.AutomationRun { return nil }
 func (t *testDispatcher) UnregisterWorkspace(ws string) {}
 func (t *testDispatcher) ClearWorkspaceHistory(ws string) {}
 
-func TestCreateWorkspace_Isolation(t *testing.T) {
-	tmpWorkspaces := t.TempDir()
+func TestValidateAutomation_LoopStrategy(t *testing.T) {
+	dispatcher := &testDispatcher{}
+	handlers := NewDispatcherHandlers(dispatcher, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	cases := []struct {
+		name       string
+		loopStrategy models.LoopStrategy
+		wantErr    bool
+	}{
+		{"empty passes (model config default)", "", false},
+		{"react passes", models.LoopStrategyReact, false},
+		{"plan_execute passes", models.LoopStrategyPlanExecute, false},
+		{"evaluator_optimizer passes", models.LoopStrategyEvaluatorOptimizer, false},
+		{"unknown rejected", "map_reduce", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{
+				Name:         "ok-name",
+				LoopStrategy: tc.loopStrategy,
+			})
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error for invalid loop_strategy")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "react") {
+				t.Errorf("expected valid-values hint listing react, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestCreateWorkspace_Isolation(t *testing.T) {	tmpWorkspaces := t.TempDir()
 	tmpMetadata := t.TempDir()
 	resolver := storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpMetadata)
 	mgr := persistence.NewWorkspaceManager(resolver)

@@ -44,13 +44,17 @@ status, and cross-references to related documents. Use this as the starting poin
 | SPEC-007 | `docs/SPECS/automation-dispatcher.md` | Automation Dispatcher | stable | — |
 | SPEC-008 | `docs/SPECS/mcp-integration.md` | MCP Integration | stable | — |
 | SPEC-009 | `docs/SPECS/communication.md` | Communication Connector System | stable | II.4, II.5, V |
+| SPEC-010 | `docs/SPECS/agent-loop-strategies.md` | Agent Loop Strategies | stable | II.4, II.5, II.6, II.7, II.10, II.13 |
 
 ## Active Implementation Plans
 
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
 | `docs/PLANS/agent-loop/agent-improvements.md` | Agent Improvements (7-phase) | partial | — | SPEC-001 |
-| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (**canonical empty-finalization-turn fix; GPU P5 depends on it**) | active | 2026-08-07 | SPEC-001 |
+| `docs/PLANS/agent-loop/agent-loop-strategies.md` | Agent Loop Strategies (pluggable loop-strategy engine) | complete | 2026-08-16 | SPEC-001, SPEC-010 |
+| `docs/PLANS/agent-loop/strategy-agnostic-completion-and-tool-schema.md` | Strategy-Agnostic Completion + Tool-Schema/Policy Consistency (finalizeReport, hardened plan prompt, guardrail-derived schema, non-aborting plan steps) | complete | 2026-08-18 | SPEC-010, SPEC-006, SPEC-001 |
+| `docs/PLANS/agent-loop/surface-planning-reasoning.md` | Surface Plan-Generation Reasoning (stream the planner: plan-gen streams + relays `EventReasoning` via the shared primitive) | complete | 2026-08-18 | SPEC-010, SPEC-001, SPEC-003 |
+| `docs/PLANS/agent-loop/fix-final-report-realignment.md` | Fix automation "Final Report" regression (canonical empty-finalization-turn fix; GPU P5 depends on it) | complete | 2026-08-07 | SPEC-001 |
 | `docs/PLANS/assistant-ui/automation-edit-form-reactivity.md` | Fix Automation Edit Form (reactive populate) | proposed | 2026-08-01 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md` | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
 | `docs/PLANS/assistant-ui/cancel-stale-turn-bleed.md` | Cancel Stale Turn Bleed | active | 2026-06-26 | SPEC-003 |
@@ -69,6 +73,9 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/cross-cutting/post-implementation-cleanup.md` | Post-Implementation Cleanup: Duplication & Dead Code | active | 2026-08-01 | SPEC-005 |
 | `docs/PLANS/cross-cutting/xdg-config-data-relocation.md` | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened; **2026-08-11: two-root design superseded by single-root consolidation — all files under one root**) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | `docs/PLANS/cross-cutting/agents-md-layering-guardrails.md` | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
+| `docs/PLANS/cross-cutting/sandbox-runtime-invisibility.md` | Sandbox Runtime Invisibility (`.sandbox` hidden from filesystem listings + terminal output) | complete | 2026-08-25 | SPEC-006, CONSTITUTION II.3 |
+| `docs/PLANS/cross-cutting/persist-assistant-run-state-for-reload.md` | Persist assistant run state (errors/cancels/running) for reliable reload | complete | 2026-08-20 | SPEC-001, SPEC-003 |
+| `docs/PLANS/cross-cutting/sqlite-session-storage.md` | SQLite session storage (future work, proposed) | proposed | 2026-08-20 | SPEC-001 |
 | `docs/PLANS/gpu-performance.md` | GPU Performance (consolidated: completed + next steps; P5 bug note → fix-final-report) | active | 2026-08-06 | — |
 | `docs/PLANS/primary-model-warning-banner.md` | Remove model auto-bootstrap; explicit primary/fallback selection + banners | complete | 2026-08-14 | SPEC-003, CONSTITUTION III.4 |
 | `docs/PLANS/memory/memory-improvements-implementation-plan.md` | Memory Improvements | partial | — | SPEC-004 |
@@ -92,12 +99,14 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `docs/audits/2026-07-06-assistant-debug-cycle.md` | Full Debug Cycle (tool calls, history leak, GBNF) | complete | 2026-07-06 |
 | `docs/audits/agent-stability-report.md` | Agent Stability Audit (13 issues) | complete | 2026-05-28 |
 | `docs/audits/gpu-performance-audit.md` | GPU Performance — consolidated audit (all knowledge + fixes + lessons) | reference | 2026-08-06 |
+| `docs/audits/known-performance-findings.md` | Known Performance Findings — provider TTFT vs local logic, SSE reader fix | reference | 2026-08-18 |
 | `docs/audits/ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete | 2026-06-08 |
 | `docs/audits/memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference | 2026-06-03 |
 | `docs/audits/remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete | 2026-06-03 |
 | `docs/audits/backend-audit-report.md` | Backend Audit Report (bugs, leaks, bottlenecks) | reference | 2026-07-03 |
 | `docs/audits/hermes-write-file-guardrail.md` | Hermes Agent write_file Guardrail | reference | — |
 | `docs/audits/write-file-truncation-cycles.md` | write_file Truncation Cycles + Block Editing | reference | — |
+| `docs/audits/degenerate-stream-repetition-guard.md` | Degenerate stream repetition loop — content guard & per-stream duration cap | complete | 2026-08-20 |
 | `docs/audits/codebase-audit-report.md` | Codebase Audit Report (88 findings + resolved duplication appendix) | active | 2026-07-03 |
 
 ## Agent Rules (AI Assistant Guidance)
@@ -115,6 +124,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `AGENTS.md` | Instructions for AI Coding Assistants | 53 | AI assistants |
 | `docs/architecture.md` | Architecture Reference (mappings, contracts, checklists, pitfalls) | 272 | Developers |
 | `CONSTITUTION.md` | Architectural Invariants — The Law | 116 | Everyone |
+| `docs/guides/loop-strategy.md` | Loop Strategy — Operator Guide (which archetype to pick) | — | Operators |
 
 ## Other Documents
 
@@ -137,6 +147,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | Directory | Contents |
 |-----------|----------|
 | `docs/SPECS/` | Behavioral contracts (SPEC-NNN). Read before modifying subsystems. |
+| `docs/guides/` | Operator-facing how-to guides (non-normative; SPECs stay authoritative). |
 | `docs/PLANS/` | Active implementation strategies. Organized by subsystem. |
 | `docs/PLANS/ARCHIVE/` | Completed and superseded plans — load on demand. |
 | `docs/audits/` | Post-hoc analysis of system behavior against specs. |

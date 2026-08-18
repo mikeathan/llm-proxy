@@ -3,11 +3,13 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/orchestrator"
@@ -19,10 +21,16 @@ import (
 type ModelHandlers struct {
 	runtime RuntimeService
 	admin   AdminService
+	// ProbeLauncher runs the model-availability probe. Production launches it in
+	// the background; the probe hard-bounds itself to probeChatTimeout internally,
+	// so the goroutine always terminates (no long-lived coordination loop needing
+	// App.Shutdown tethering). Tests override it to run inline for determinism.
+	// A nil value defaults to background execution.
+	ProbeLauncher func(fn func())
 }
 
 func NewModelHandlers(runtime RuntimeService, admin AdminService) *ModelHandlers {
-	return &ModelHandlers{runtime: runtime, admin: admin}
+	return &ModelHandlers{runtime: runtime, admin: admin, ProbeLauncher: func(fn func()) { go fn() }}
 }
 
 func (h *ModelHandlers) AdminAddModelHandler(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +177,8 @@ type modelFormRequest struct {
 	MaxPlanSteps                 int    `json:"max_plan_steps"`
 	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds"`
 	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior"`
+	GuardrailApprovalTimeoutSecs int    `json:"guardrail_approval_timeout_seconds"`
+	LoopStrategy                 string `json:"loop_strategy"`
 }
 
 // workloadClass classifies the submitted form. The classify func is the
@@ -398,6 +408,18 @@ type modelBudgetOverride struct {
 	WorkloadClass models.WorkloadClass
 }
 
+// validateLoopStrategy rejects an unknown non-empty loop_strategy value with a
+// 400 listing the valid values (from the registry, so the message stays in sync
+// with what the resolver accepts). Shared by add/update model handlers.
+func validateLoopStrategy(w http.ResponseWriter, loopStrategy string) bool {
+	if loopStrategy == "" || assistant.LoopStrategyName(loopStrategy).Valid() {
+		return true
+	}
+	writeJSONError(w, http.StatusBadRequest, fmt.Sprintf(
+		"invalid loop_strategy %q: valid values are %s", loopStrategy, strings.Join(assistant.RegisteredLoopStrategyNames(), ", ")))
+	return false
+}
+
 // hasModelOverrides returns true when the model config contains at least one
 // non-zero agent-tuning field that should be persisted as a user override.
 // MaxTokens/ContextBudget are decided separately via modelBudgetOverride
@@ -409,6 +431,8 @@ func hasModelOverrides(cfg models.ModelConfig) bool {
 		cfg.ToolTimeoutSeconds > 0 || cfg.FilesystemToolTimeoutSeconds > 0 ||
 		cfg.MaxPlanDurationMinutes > 0 || cfg.MaxPlanSteps > 0 ||
 		cfg.GuardrailTimeoutSeconds > 0 || cfg.GuardrailTimeoutBehavior != "" ||
+		cfg.GuardrailApprovalTimeoutSecs > 0 ||
+		cfg.LoopStrategy != "" ||
 		(cfg.ProviderConfig != nil && cfg.ProviderConfig.InternalCreditWeight > 0)
 }
 
@@ -470,6 +494,8 @@ func writeModelOverrides(name string, cfg models.ModelConfig, budget modelBudget
 			MaxPlanSteps:                 cfg.MaxPlanSteps,
 			GuardrailTimeoutSeconds:      cfg.GuardrailTimeoutSeconds,
 			GuardrailTimeoutBehavior:     cfg.GuardrailTimeoutBehavior,
+			GuardrailApprovalTimeoutSecs: cfg.GuardrailApprovalTimeoutSecs,
+			LoopStrategy:                 cfg.LoopStrategy,
 		}
 	})
 }
@@ -509,6 +535,8 @@ func modelConfigFromRequest(req modelFormRequest, filename, path string, args []
 		MaxPlanSteps:                 req.MaxPlanSteps,
 		GuardrailTimeoutSeconds:      req.GuardrailTimeoutSeconds,
 		GuardrailTimeoutBehavior:     req.GuardrailTimeoutBehavior,
+		GuardrailApprovalTimeoutSecs: req.GuardrailApprovalTimeoutSecs,
+		LoopStrategy:                 models.LoopStrategy(req.LoopStrategy),
 	}
 }
 
@@ -603,6 +631,9 @@ func (h *ModelHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
+	if !validateLoopStrategy(w, req.LoopStrategy) {
+		return
+	}
 	logging.Info("[addModel] received", "name", req.Name, "provider", req.Provider,
 		"meta", req.Meta, "limits", req.Limits, "pricing", req.Pricing,
 		"max_steps", req.MaxSteps, "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens,
@@ -675,7 +706,42 @@ func (h *ModelHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.launchAvailabilityProbe(r.Context(), runtimeCfg)
+
 	h.persistAndWriteOverrides(w, req, filename, h.admin.PersistModel, "saved model but failed to persist config: ", runtimeCfg, submittedMaxTokens, submittedCtxBudget)
+}
+
+// launchAvailabilityProbe schedules the warn-only availability probe without
+// delaying the handler response. The probe's runtime is bounded internally to
+// probeChatTimeout, and its context is detached from the request so a client
+// disconnect does not cancel (and thereby invalidate) the check. Only cloud
+// models are probed; local models return immediately.
+func (h *ModelHandlers) launchAvailabilityProbe(ctx context.Context, cfg models.ModelConfig) {
+	launcher := h.ProbeLauncher
+	if launcher == nil {
+		launcher = func(fn func()) { go fn() }
+	}
+	launcher(func() {
+		h.probeModelAvailabilityWarnOnly(context.WithoutCancel(ctx), cfg)
+	})
+}
+
+// probeModelAvailabilityWarnOnly verifies a just-added cloud model's ID is
+// actually callable on its provider endpoint. Public catalogs list models the
+// key is not entitled to, so without this a wrong/not-entitled model ID only
+// surfaces later as a confusing upstream error on the first request. NEVER
+// blocks the save: probe failures are logged as warnings only.
+func (h *ModelHandlers) probeModelAvailabilityWarnOnly(ctx context.Context, cfg models.ModelConfig) {
+	if cfg.Provider == "" || cfg.Provider == "local" {
+		return
+	}
+	if err := h.runtime.ProbeModelAvailability(ctx, cfg); err != nil {
+		logging.Warn("model availability probe failed (model saved; check the model ID and provider entitlement)",
+			"model", cfg.Name, "model_id", cfg.Filename, "provider", cfg.Provider, "error", err)
+		return
+	}
+	logging.Info("model availability probe succeeded",
+		"model", cfg.Name, "model_id", cfg.Filename, "provider", cfg.Provider)
 }
 
 // handleUpdateModel updates an existing model in both runtime and
@@ -684,6 +750,9 @@ func (h *ModelHandlers) handleAddModel(w http.ResponseWriter, r *http.Request) {
 func (h *ModelHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	var req modelFormRequest
 	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if !validateLoopStrategy(w, req.LoopStrategy) {
 		return
 	}
 	logging.Info("[updateModel] body decoded", "name", req.Name, "provider", req.Provider,
@@ -772,6 +841,8 @@ func (h *ModelHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, status, "unable to update model: "+err.Error())
 		return
 	}
+
+	h.launchAvailabilityProbe(r.Context(), runtimeCfg)
 
 	h.persistAndWriteOverrides(w, req, req.Filename, h.admin.PersistReplaceModel, "updated model but failed to persist config: ", runtimeCfg, submittedMaxTokens, submittedCtxBudget)
 }

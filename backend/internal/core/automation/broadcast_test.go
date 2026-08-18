@@ -168,3 +168,159 @@ func TestEventBusStopIdempotentConcurrent(t *testing.T) {
 	// A further call must not panic (double close).
 	bus.Stop()
 }
+
+// TestBroadcastCriticalEventDeliveredWhenFull proves a guardrail_blocked event
+// is never dropped on a full subscriber channel: Publish blocks (bounded) until
+// the reader drains, so the agent's approval wait always reaches the UI. The
+// recent replay buffer is the reconnect net, but live delivery must not depend
+// on a refresh.
+func TestBroadcastCriticalEventDeliveredWhenFull(t *testing.T) {
+	// Short bounded send so the test fails fast if a send is stuck.
+	old := criticalEventPublishTimeout
+	criticalEventPublishTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { criticalEventPublishTimeout = old })
+
+	bus := newEventBus(time.Hour, time.Hour) // no reaper interference
+	defer bus.Stop()
+
+	ws := "ws-critical"
+	ch, _ := bus.Subscribe(ws, assistant.ChannelAutomation)
+	filler := assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: "x"}
+
+	// Fill the subscriber buffer (cap 200) and never drain it yet.
+	for i := 0; i < 200; i++ {
+		bus.Publish(ws, filler)
+	}
+
+	// Publish a critical event on the full channel. It must BLOCK (not return
+	// immediately via the drop path).
+	blocked := assistant.AgentEvent{
+		Channel: assistant.ChannelAutomation,
+		Type:    assistant.EventGuardrailBlocked,
+		Payload: assistant.GuardrailBlockedPayload{DecisionID: "gr_test"},
+	}
+	published := make(chan struct{})
+	go func() {
+		bus.Publish(ws, blocked)
+		close(published)
+	}()
+
+	select {
+	case <-published:
+		t.Fatal("critical event was dropped on a full channel; Publish returned immediately")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	// Drain the channel: the critical event must be delivered (it was queued
+	// behind the fillers, never dropped).
+	deadline := time.Now().Add(time.Second)
+	found := false
+	for time.Now().Before(deadline) && !found {
+		select {
+		case got := <-ch:
+			if got.Type == assistant.EventGuardrailBlocked {
+				found = true
+			}
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	select {
+	case <-published:
+	default:
+		t.Fatal("critical event Publish did not complete after the reader drained")
+	}
+	if !found {
+		t.Fatal("guardrail_blocked event was dropped on a full channel (never delivered)")
+	}
+}
+
+// TestBroadcastNonCriticalDroppedWhenFull locks in the drop behavior for
+// cosmetic events: a full channel drops reasoning/tool_stream traffic so a slow
+// subscriber cannot stall the agent loop. Only critical events block.
+func TestBroadcastNonCriticalDroppedWhenFull(t *testing.T) {
+	bus := newEventBus(time.Hour, time.Hour)
+	defer bus.Stop()
+
+	ws := "ws-drop"
+	ch, _ := bus.Subscribe(ws, assistant.ChannelAutomation)
+	filler := assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: "x"}
+	for i := 0; i < 200; i++ {
+		bus.Publish(ws, filler)
+	}
+
+	// A non-critical publish on the full channel must return immediately (drop).
+	done := make(chan struct{})
+	go func() {
+		bus.Publish(ws, assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: assistant.EventReasoning, Payload: "drop-me"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("non-critical publish blocked on a full channel; it must drop")
+	}
+
+	// Drain one slot and confirm the dropped event is not in the channel (the
+	// next event after the fillers is whatever follows, not the dropped one —
+	// read the buffer head to prove no reasoning event was queued).
+	select {
+	case got := <-ch:
+		if got.Type == assistant.EventReasoning {
+			t.Error("non-critical event was queued on a full channel; expected drop")
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestBroadcastPublishUnsubscribeNoPanic guards the send-on-closed-channel race:
+// Publish snapshots the subscriber set and sends outside the lock, so a
+// concurrent Unsubscribe must never make a send panic. Unsubscribe deliberately
+// does NOT close the channel (readers exit on ctx.Done); this test exercises the
+// churn so -race confirms no closed-channel send and no data race.
+func TestBroadcastPublishUnsubscribeNoPanic(t *testing.T) {
+	bus := newEventBus(time.Hour, time.Hour)
+	defer bus.Stop()
+
+	ws := "ws-churn"
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Publishers: mix critical (blocking-send) and non-critical (drop) events.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if i%2 == 0 {
+					bus.Publish(ws, assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: assistant.EventReasoning, Payload: "x"})
+				} else {
+					bus.Publish(ws, assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: assistant.EventGuardrailBlocked, Payload: assistant.GuardrailBlockedPayload{DecisionID: "gr"}})
+				}
+			}
+		}(i)
+	}
+
+	// Subscriber churn: subscribe then immediately unsubscribe, racing sends.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ch, _ := bus.Subscribe(ws, assistant.ChannelAutomation)
+			bus.Unsubscribe(ws, assistant.ChannelAutomation, ch)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}

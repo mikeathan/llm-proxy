@@ -42,8 +42,9 @@ type AssistantMessageHandler struct {
 }
 
 type runningAgent struct {
-	cancel context.CancelFunc
-	done   chan struct{}
+	cancel         context.CancelFunc
+	done           chan struct{}
+	conversationID string
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
@@ -265,11 +266,11 @@ func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.
 
 // publishRunError emits an SSE error event for the conversation. Early client-acquisition failures occur before h.service.Execute (where run events are normally published), so they must be surfaced here to avoid a silent hang.
 //
-// The event is published on the workspace channel alone: ConversationID is empty
-// for a brand-new conversation (the id is only known after the run starts), and
-// the SSE stream is workspace-scoped, so requiring a non-empty ConversationID
-// would silently swallow the very first-send error. We only require WorkspaceID
-// (always present from the request routing).
+// The event is published on the workspace channel alone: the SSE stream is
+// workspace-scoped, so we only require WorkspaceID (always present from the
+// request routing). RunWithCancel resolves the conversation ID up front, so
+// ConversationID may already be populated here; it is preserved when present
+// and never a delivery prerequisite.
 func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, message string) {
 	if payload.WorkspaceID == "" {
 		return
@@ -304,15 +305,35 @@ func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, mes
 func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID string, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
 	h.cancelPriorForWorkspace(workspaceID, log)
 
+	// Resolve the conversation ID up front so the running agent can report it
+	// (e.g. to /active-runs for the UI to mark the session as running after a
+	// refresh). NormalizeConversationID is idempotent, so handleAssistant
+	// re-resolving the same value is a no-op.
+	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
+	payload.ConversationID = conversationID
+
 	execCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	h.running.Store(workspaceID, &runningAgent{cancel: cancel, done: done})
+	h.running.Store(workspaceID, &runningAgent{cancel: cancel, done: done, conversationID: conversationID})
 	defer func() {
 		h.running.Delete(workspaceID)
 		cancel()
 		close(done)
 	}()
 	return h.handleAssistant(execCtx, payload, log)
+}
+
+// RunningConversationID reports the conversation ID of the agent currently
+// running for the workspace, or "" when none is running. It backs the
+// /active-runs endpoint so the UI can reconcile per-session running state
+// after a refresh without trusting client-side flags.
+func (h *AssistantMessageHandler) RunningConversationID(workspaceID string) string {
+	if v, ok := h.running.Load(workspaceID); ok {
+		if ra, ok := v.(*runningAgent); ok {
+			return ra.conversationID
+		}
+	}
+	return ""
 }
 
 func (h *AssistantMessageHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
@@ -497,6 +518,23 @@ func (h *AssistantMessageHandler) GuardrailDecisionHandler(w http.ResponseWriter
 		Allow:   req.Allow,
 		Persist: req.Persist,
 	}) {
+		// The approval wait already expired (the agent moved on). Honor an
+		// "allow & remember" decision by persisting the override so future
+		// calls are not re-blocked; the current run's tool stays skipped.
+		payload, found := store.Payload(req.DecisionID)
+		if !found || !req.Allow || !req.Persist {
+			writeJSONError(w, http.StatusNotFound, "decision not found or already resolved")
+			return
+		}
+		if gr := h.svc.GuardrailEngine(); gr != nil && payload.WorkspaceID != "" {
+			if pErr := gr.PersistOverride(payload.WorkspaceID, payload.Category, payload.Tool, payload.Args); pErr != nil {
+				h.svc.Logger().Warn("failed to persist late guardrail override", "error", pErr)
+				writeJSONError(w, http.StatusInternalServerError, "failed to persist guardrail override")
+				return
+			}
+			respondJSON(w, map[string]string{"status": "ok", "late": "true"})
+			return
+		}
 		writeJSONError(w, http.StatusNotFound, "decision not found or already resolved")
 		return
 	}

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -25,6 +26,30 @@ const planGenMaxTokens = 4096 // max tokens for plan generation LLM call
 const (
 	planErrMaxSteps  = "plan exceeds max steps: %d > %d"             // pre-check at executePlan entry
 	planErrStepLimit = "plan aborted: exceeded max steps limit (%d)" // in-loop belt-and-suspenders check
+)
+
+// guardrailDenialReason classifies why a guardrail block became a denial, so
+// the model is told the right guidance (hard policy block vs explicit user deny
+// vs an approval prompt that expired without consent).
+type guardrailDenialReason int
+
+const (
+	denialSecurity guardrailDenialReason = iota // hard policy block; no approval prompt was offered
+	denialUser                                  // user explicitly denied the approval
+	denialTimeout                               // approval prompt expired without a response
+)
+
+const (
+	// guardrailDeniedByPolicy is appended when a security-boundary block is
+	// denied without an approval prompt (path outside workspace, blocked system
+	// file). No user consent was involved — it is a hard policy denial.
+	guardrailDeniedByPolicy = "Action blocked by security policy. Do NOT retry, rephrase, or attempt the same outcome via a different path."
+	// guardrailDeniedByUser is appended when the user explicitly denies an
+	// approval so the model does not retry, rephrase, or route around the block.
+	guardrailDeniedByUser = "Action denied by the user. Do NOT retry, rephrase, or attempt the same outcome via a different path."
+	// guardrailDeniedByTimeout is appended when the approval prompt expired
+	// without a response. Silence is not consent.
+	guardrailDeniedByTimeout = "Action timed out without user response; silence is not consent. Do NOT retry, rephrase, or attempt the same outcome via a different path."
 )
 
 type ExecutionPlan struct {
@@ -43,10 +68,45 @@ type ExecutionPlanStrategy struct {
 	llm    proxy.Client
 	tools  []proxy.Tool
 	logger logging.Logger
+
+	// applyRequest applies per-model request config (temperature + reasoning
+	// wire params) to the plan-generation request so it matches normal turns.
+	applyRequest func(req *proxy.ChatRequest)
+	// onReasoning relays plan-generation reasoning deltas to the UI.
+	onReasoning func(reasoning string)
+	// onLifecycle relays plan-generation liveness events (still_thinking).
+	onLifecycle func(phase string, extra map[string]any)
 }
 
-func NewExecutionPlanStrategy(llm proxy.Client, tools []proxy.Tool, logger logging.Logger) *ExecutionPlanStrategy {
-	return &ExecutionPlanStrategy{llm: llm, tools: tools, logger: logger}
+// ExecutionPlanStrategyOption configures an ExecutionPlanStrategy. The hooks
+// keep the strategy decoupled from Agent internals — session wiring binds them
+// to the shared primitives (Agent.applyRequestConfig, notify).
+type ExecutionPlanStrategyOption func(*ExecutionPlanStrategy)
+
+// withApplyRequest binds the shared per-model request-config application so
+// plan generation sends the same temperature and reasoning wire params as
+// normal turns (single source of truth: Agent.applyRequestConfig).
+func withApplyRequest(fn func(req *proxy.ChatRequest)) ExecutionPlanStrategyOption {
+	return func(s *ExecutionPlanStrategy) { s.applyRequest = fn }
+}
+
+// withOnReasoning binds a reasoning-delta relay (Agent.notify(EventReasoning)).
+func withOnReasoning(fn func(reasoning string)) ExecutionPlanStrategyOption {
+	return func(s *ExecutionPlanStrategy) { s.onReasoning = fn }
+}
+
+// withOnLifecycle binds a lifecycle relay (Agent.notifyLifecycle) used by the
+// plan-gen liveness heartbeat (still_thinking).
+func withOnLifecycle(fn func(phase string, extra map[string]any)) ExecutionPlanStrategyOption {
+	return func(s *ExecutionPlanStrategy) { s.onLifecycle = fn }
+}
+
+func NewExecutionPlanStrategy(llm proxy.Client, tools []proxy.Tool, logger logging.Logger, opts ...ExecutionPlanStrategyOption) *ExecutionPlanStrategy {
+	s := &ExecutionPlanStrategy{llm: llm, tools: tools, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*ExecutionPlan, error) {
@@ -69,19 +129,151 @@ func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*Exe
 		},
 		MaxTokens: planGenMaxTokens,
 	}
+	if s.applyRequest != nil {
+		s.applyRequest(&req)
+	}
 
+	content, err := s.generatePlanContent(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := parsePlanContent(content)
+	if err != nil {
+		s.logger.Info("plan parse failed", "error", err, "raw_length", len(content))
+		return nil, fmt.Errorf("plan parse failed: %w", err)
+	}
+
+	s.logger.Debug("execution plan generated", "steps", len(plan.Steps), "description", plan.Description)
+	return plan, nil
+}
+
+// generatePlanContent runs the plan-generation LLM call, streaming first with a
+// non-streaming Chat fallback when the provider cannot stream (mirrors
+// computeNextResponse's streaming→non-streaming fallback). Returns the raw
+// plan JSON text. Mid-stream errors are returned, not retried — matching
+// processStream semantics.
+func (s *ExecutionPlanStrategy) generatePlanContent(ctx context.Context, req proxy.ChatRequest) (string, error) {
+	ch, streamErr := s.llm.Stream(ctx, req)
+	if streamErr != nil {
+		// User cancel — bail out, do not fall back to a retry path.
+		if isUserCanceled(streamErr) {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+			return "", streamErr
+		}
+		s.logger.Info("plan generation streaming unavailable, falling back to non-streaming", "error", streamErr)
+		return s.planContentViaChat(ctx, req)
+	}
+
+	var content, reasoning strings.Builder
+	streamStart := time.Now()
+
+	// Liveness heartbeat: emits still_thinking only while the plan-gen stream
+	// is silent (no content/reasoning advanced since the last tick), so the UI
+	// never shows a dead bubble during a long planning TTFT. Same emit
+	// semantics as processStream.
+	hb := core.NewHeartbeat()
+	hb.Start(ctx, streamHeartbeatInterval)
+	defer hb.Stop()
+	var lastTickContent, lastTickReasoning int
+
+	// Reasoning relay: full-snapshot + coalesce + dedupe, matching
+	// processStream's notify semantics — the UI replaces the live reasoning
+	// inset, never appends, and the bus stays quiet between coalesce ticks.
+	// The snapshot is only re-taken when the reasoning text actually grew, so
+	// the pure-content phase never re-copies or re-compares the (possibly
+	// large) static reasoning string on every chunk.
+	var pendingReasoning, lastEmittedReasoning string
+	var lastPendingLen int
+	var lastNotifyAt time.Time
+	flushPendingReasoning := func() {
+		if pendingReasoning != "" && pendingReasoning != lastEmittedReasoning && s.onReasoning != nil {
+			s.onReasoning(pendingReasoning)
+			lastEmittedReasoning = pendingReasoning
+		}
+		pendingReasoning = ""
+		lastNotifyAt = time.Now()
+	}
+	defer flushPendingReasoning()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-hb.C:
+			contentLen, reasoningLen := content.Len(), reasoning.Len()
+			if contentLen == lastTickContent && reasoningLen == lastTickReasoning && s.onLifecycle != nil {
+				s.onLifecycle(PhaseStillThinking, map[string]any{
+					"elapsed": time.Since(streamStart).Round(time.Second).String(),
+				})
+			}
+			lastTickContent, lastTickReasoning = contentLen, reasoningLen
+		case resp, ok := <-ch:
+			if !ok {
+				return content.String(), nil
+			}
+			if len(resp.Choices) == 0 {
+				continue
+			}
+			choice := resp.Choices[0]
+			// Resolve content/reasoning with the shared Delta→Message field
+			// semantics (same source as processStream).
+			chunk := resolveStreamChunk(choice)
+
+			if chunk.Content != "" {
+				content.WriteString(chunk.Content)
+			}
+			if chunk.ReasoningContent != "" {
+				reasoning.WriteString(chunk.ReasoningContent)
+			}
+			if chunk.Reasoning != "" {
+				reasoning.WriteString(chunk.Reasoning)
+			}
+			// Join multi-part reasoning details with "\n" like
+			// Message.ExtractReasoning does for the turn loop.
+			for _, d := range chunk.ReasoningDetails {
+				if d.Text == "" {
+					continue
+				}
+				if reasoning.Len() > 0 {
+					reasoning.WriteString("\n")
+				}
+				reasoning.WriteString(d.Text)
+			}
+			if reasoning.Len() > lastPendingLen {
+				lastPendingLen = reasoning.Len()
+				pendingReasoning = reasoning.String()
+			}
+
+			if time.Since(lastNotifyAt) >= streamNotifyCoalesceInterval {
+				flushPendingReasoning()
+			}
+		}
+	}
+}
+
+// planContentViaChat is the non-streaming plan-generation path used when the
+// provider cannot stream (SSE-less providers / stream-start failure).
+func (s *ExecutionPlanStrategy) planContentViaChat(ctx context.Context, req proxy.ChatRequest) (string, error) {
 	resp, err := s.llm.Chat(ctx, req)
 	if err != nil {
 		s.logger.Info("plan generation LLM call failed", "error", err)
-		return nil, fmt.Errorf("plan generation failed: %w", err)
+		return "", fmt.Errorf("plan generation failed: %w", err)
 	}
 
 	if len(resp.Choices) == 0 {
 		s.logger.Info("plan generation returned no choices")
-		return nil, fmt.Errorf("plan generation returned no choices")
+		return "", fmt.Errorf("plan generation returned no choices")
 	}
 
-	content := resp.Choices[0].Message.Content
+	return resp.Choices[0].Message.Content, nil
+}
+
+// parsePlanContent parses the raw plan-generation output into an
+// ExecutionPlan. Shared by the streaming and non-streaming plan paths so the
+// fence-stripping + unmarshal logic exists exactly once.
+func parsePlanContent(content string) (*ExecutionPlan, error) {
 	if strings.HasPrefix(content, "```") {
 		content = strings.TrimPrefix(content, "```json")
 		content = strings.TrimPrefix(content, "```")
@@ -93,16 +285,12 @@ func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*Exe
 
 	var plan ExecutionPlan
 	if err := json.Unmarshal([]byte(content), &plan); err != nil {
-		s.logger.Info("plan parse failed", "error", err, "raw_length", len(content))
-		return nil, fmt.Errorf("plan parse failed: %w", err)
+		return nil, err
 	}
 
 	if len(plan.Steps) == 0 {
-		s.logger.Info("plan generated with zero steps", "description", plan.Description)
 		return nil, fmt.Errorf("plan has no steps")
 	}
-
-	s.logger.Debug("execution plan generated", "steps", len(plan.Steps), "description", plan.Description)
 	return &plan, nil
 }
 
@@ -213,6 +401,10 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex) (approved, stopBatch bool) {
 	grCtx, grCancel := a.guardrailCtxWithTimeout(ctx)
 	defer grCancel()
+	// denial records why the block became a denial. Defaults to an explicit
+	// user denial; set to timeout when the approval prompt expires so the model
+	// is told the block was "no response", never consent.
+	denial := denialUser
 	if err := a.deps.Guardrails.ValidateToolCall(grCtx, tc, a.config.WorkspaceID); err != nil {
 		// A timeout (or other context error) during guardrail evaluation is not a
 		// policy decision. Apply the configured failure behavior instead of
@@ -240,20 +432,49 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		// are denied immediately — no approval dialog.
 		if isGuardrailSecurityBoundary(err) {
 			mu.Lock()
-			a.appendToolResult(history, tc, formatGuardrailError(err))
+			a.appendToolResult(history, tc, formatGuardrailError(err, denialSecurity))
+			mu.Unlock()
+			return false, true
+		}
+
+		// Unattended automation runs have no interactive user to answer an
+		// approval prompt (Constitution II.10: in automation mode the callback
+		// is nil and violations fail immediately). Deny right away with hard
+		// policy guidance so the model adapts instead of stalling the run for
+		// the approval bound — an unanswered prompt previously burned the full
+		// GuardrailApprovalTimeout and pushed the run past its deadline.
+		if a.config.Channel == ChannelAutomation {
+			mu.Lock()
+			a.appendToolResult(history, tc, formatGuardrailError(err, denialSecurity))
 			mu.Unlock()
 			return false, true
 		}
 
 		if a.deps.OnGuardrail != nil {
-			decision, decErr := a.deps.OnGuardrail(ctx, GuardrailBlockedPayload{
-				DecisionID: fmt.Sprintf("gr_%d", time.Now().UnixNano()),
-				Tool:       tc.Function.Name,
-				Args:       tc.Function.Arguments,
-				Reason:     err.Error(),
-				Category:   toolCategory(tc.Function.Name),
+			// The approval wait is bounded (Constitution II.10 / SPEC
+			// guardrails) so an unanswered prompt cannot stall the run
+			// indefinitely. The bound is configurable per-model
+			// (GuardrailApprovalTimeout, default 5 min — Hermes parity; 60s
+			// proved too tight in practice). On expiry the callback returns an
+			// error and the call is treated as denied below — the violation is
+			// recorded and the run continues without the tool.
+			approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
+			defer approvalCancel()
+			decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
+				DecisionID:  fmt.Sprintf("gr_%d", time.Now().UnixNano()),
+				Tool:        tc.Function.Name,
+				Args:        tc.Function.Arguments,
+				Reason:      err.Error(),
+				Category:    toolCategory(tc.Function.Name),
+				WorkspaceID: a.config.WorkspaceID,
 			})
-			if decErr == nil && decision.Allow {
+			if decErr != nil {
+				// No decision arrived before the approval bound — the prompt
+				// expired. Reported as "no response", never as user consent.
+				a.deps.Logger.Warn("guardrail approval wait ended without a decision, treating as denied",
+					"name", tc.Function.Name, "error", decErr)
+				denial = denialTimeout
+			} else if decision.Allow {
 				if decision.Persist {
 					if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
 						a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
@@ -266,7 +487,7 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		}
 
 		mu.Lock()
-		a.appendToolResult(history, tc, formatGuardrailError(err))
+		a.appendToolResult(history, tc, formatGuardrailError(err, denial))
 		mu.Unlock()
 		return false, true
 	}
@@ -279,8 +500,20 @@ func isGuardrailSecurityBoundary(err error) bool {
 		strings.Contains(s, "security violation")
 }
 
-func formatGuardrailError(err error) map[string]string {
-	return map[string]string{"error": "Guardrail violation: " + err.Error()}
+func formatGuardrailError(err error, reason guardrailDenialReason) map[string]string {
+	// Hermes-aligned denial guidance: the model must not silently work around
+	// a block by rephrasing or taking a different path to the same outcome.
+	// A timeout is reported as "no response", never as consent.
+	var guidance string
+	switch reason {
+	case denialTimeout:
+		guidance = guardrailDeniedByTimeout
+	case denialSecurity:
+		guidance = guardrailDeniedByPolicy
+	default:
+		guidance = guardrailDeniedByUser
+	}
+	return map[string]string{"error": fmt.Sprintf("Guardrail violation: %s. %s", err.Error(), guidance)}
 }
 
 func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *ExecutionPlan) (string, []proxy.Message, error) {
@@ -332,7 +565,12 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 			},
 		}
 
-		if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
+		// Enforce the tool manifest schema exactly like the react loop
+		// (processToolCalls → validateToolArgs): required parameters present and
+		// non-empty. Plan steps bypass the react loop, so the name-only check is
+		// not enough — a plan that guesses a parameter name (e.g. file_path vs
+		// path) must fail fast instead of executing a tool with an empty value.
+		if valErr := validateToolArgs(tc, toolsList); valErr != nil {
 			a.deps.Logger.Info("plan step validation failed", "step", i, "tool", step.ToolName, "error", valErr)
 			return "", currentHistory, fmt.Errorf("plan step %d: invalid tool call: %w", i, valErr)
 		}
@@ -345,12 +583,24 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 
 		stopBatch, execErr := a.executeSingleToolStep(planCtx, tc, &currentHistory, &mu)
 		if stopBatch {
-			a.deps.Logger.Warn("plan step guardrail denied", "step", i, "tool", step.ToolName)
-			return "", currentHistory, fmt.Errorf("plan step %d: guardrail denied %s", i, step.ToolName)
+			// Guardrail-denied step: the denial is already recorded as a
+			// tool-result error by resolveGuardrail. Continue with the
+			// remaining plan steps (mirrors processToolCalls) rather than
+			// aborting the whole plan on a single denial.
+			a.deps.Logger.Warn("plan step guardrail denied, continuing", "step", i, "tool", step.ToolName)
+			continue
 		}
 		if execErr != nil {
-			a.deps.Logger.Info("plan step failed", "step", i, "tool", step.ToolName, "error", execErr)
-			return "", currentHistory, fmt.Errorf("plan step %d failed: %w", i, execErr)
+			// A tool execution failure (e.g. a shell command exiting non-zero,
+			// a compile error, a missing file) is a step outcome, not a plan
+			// bug: executeSingleToolStep already appended the error as a tool
+			// result, so the finalization turn can report it. Record and
+			// continue — mirroring the react loop (processToolCalls) so every
+			// strategy tolerates step errors identically and a single failed
+			// step never discards the rest of the run. Only structural plan
+			// errors (marshal, validation, limits, deadline) abort above.
+			a.deps.Logger.Warn("plan step failed, continuing", "step", i, "tool", step.ToolName, "error", execErr)
+			continue
 		}
 	}
 

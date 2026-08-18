@@ -31,6 +31,7 @@ const (
 	EventReasoning            AgentEventType = "reasoning"
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
+	EventUpstream             AgentEventType = "upstream"
 )
 
 // EventChannel isolates event streams by producer so a frontend subscriber
@@ -60,6 +61,20 @@ const (
 	// any response content arrives. It carries NO content — the frontend shows a
 	// neutral "thinking…" status, never fabricated reasoning text.
 	PhaseAgentThinking = "agent_thinking"
+	// PhaseStillThinking is emitted periodically while a call is still running
+	// but has not advanced (silent-stall liveness). It carries NO content — a
+	// payload of {elapsed} only. agent_thinking remains one-shot; this phase
+	// repeats on the heartbeat cadence while the stall persists.
+	PhaseStillThinking = "still_thinking"
+)
+
+// User-facing status message constants. Emitted as EventMessage payloads (Role
+// "system") so the assistant panel shows progress during otherwise-silent
+// phases. Centralized here — the single home for this UI status/emoji copy.
+const (
+	// MsgGeneratingPlan is shown while the plan-and-execute strategy runs its
+	// synchronous pre-loop plan-generation LLM call.
+	MsgGeneratingPlan = "🧠 Generating execution plan…"
 )
 
 type AgentEvent struct {
@@ -74,11 +89,12 @@ type AgentEvent struct {
 // GuardrailBlockedPayload is sent with EventGuardrailBlocked when the agent
 // pauses and waits for user approval.
 type GuardrailBlockedPayload struct {
-	DecisionID string `json:"decision_id"`
-	Tool       string `json:"tool"`
-	Args       string `json:"args"`
-	Reason     string `json:"reason"`
-	Category   string `json:"category"` // "terminal", "filesystem", "network", "search", "communication"
+	DecisionID  string `json:"decision_id"`
+	Tool        string `json:"tool"`
+	Args        string `json:"args"`
+	Reason      string `json:"reason"`
+	Category    string `json:"category"` // "terminal", "filesystem", "network", "search", "communication"
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // GuardrailDecision is the user's response to a guardrail block.
@@ -93,6 +109,20 @@ type GuardrailDecision struct {
 type GuardrailInvalidatedPayload struct {
 	DecisionID string `json:"decision_id"`
 	Reason     string `json:"reason"` // "context_cancelled"
+}
+
+// UpstreamEventPayload describes a transient upstream LLM failure that is being
+// retried. It is observational: the retry/backoff policy is unchanged, and the
+// UI uses this to surface a live "retrying…" notice instead of silent stalls.
+type UpstreamEventPayload struct {
+	Event       string `json:"event"`                // "retry"
+	Reason      string `json:"reason"`               // "transport" | "status"
+	Attempt     int    `json:"attempt"`              // 1-based attempt being retried
+	MaxAttempts int    `json:"max_attempts"`         // total attempts (incl. first)
+	Error       string `json:"error,omitempty"`      // transport error text
+	ErrClass    string `json:"err_class,omitempty"`  // transport error bucket ("connection-closed", "timeout", "tls", ...)
+	Status      int    `json:"status,omitempty"`     // upstream HTTP status
+	ElapsedMs   int64  `json:"elapsed_ms,omitempty"` // time since this LLM call started
 }
 
 // GuardrailDecisionCallback is called by the agent when a guardrail blocks a
@@ -157,6 +187,27 @@ func (a *Agent) notifyGuardrailViolation(tool string, err error) {
 		"tool":  tool,
 		"error": err.Error(),
 	})
+}
+
+// notifyUpstream surfaces a transient upstream retry to the UI. It maps a
+// proxy.RetryInfo to the UpstreamEventPayload wire shape and is invoked from
+// the retry observer wired in Agent.Execute. It never blocks the retry loop.
+func (a *Agent) notifyUpstream(info proxy.RetryInfo) {
+	payload := UpstreamEventPayload{
+		Event:       "retry",
+		Attempt:     info.Attempt,
+		MaxAttempts: info.MaxAttempts,
+		ElapsedMs:   info.ElapsedMs,
+	}
+	if info.Reason == proxy.RetryReasonStatus {
+		payload.Reason = "status"
+		payload.Status = info.Status
+	} else {
+		payload.Reason = "transport"
+		payload.Error = info.Error
+		payload.ErrClass = info.ErrClass
+	}
+	a.notify(EventUpstream, payload)
 }
 
 func (a *Agent) notifyPrefillDisabled() {

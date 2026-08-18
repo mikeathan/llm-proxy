@@ -17,7 +17,7 @@ type SystemServerConfig struct {
 	RunLogging *RunLoggingConfig `json:"run_logging,omitempty"`
 }
 
-// SystemConfig represents the infrastructure-level settings (Tier 1: config.json)
+// SystemConfig represents the infrastructure-level settings (Tier 1: settings.yml)
 type SystemConfig struct {
 	Server SystemServerConfig `json:"server"`
 
@@ -55,12 +55,14 @@ type ModelOverride struct {
 	ICUWeight        float64 `yaml:"icu_weight,omitempty" json:"icu_weight,omitempty"`
 	TimeoutMinutes   int     `yaml:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"`
 
-	ToolTimeoutSeconds           int    `yaml:"tool_timeout_seconds,omitempty" json:"tool_timeout_seconds,omitempty"`
-	FilesystemToolTimeoutSeconds int    `yaml:"filesystem_tool_timeout_seconds,omitempty" json:"filesystem_tool_timeout_seconds,omitempty"`
-	MaxPlanDurationMinutes       int    `yaml:"max_plan_duration_minutes,omitempty" json:"max_plan_duration_minutes,omitempty"`
-	MaxPlanSteps                 int    `yaml:"max_plan_steps,omitempty" json:"max_plan_steps,omitempty"`
-	GuardrailTimeoutSeconds      int    `yaml:"guardrail_timeout_seconds,omitempty" json:"guardrail_timeout_seconds,omitempty"`
-	GuardrailTimeoutBehavior     string `yaml:"guardrail_timeout_behavior,omitempty" json:"guardrail_timeout_behavior,omitempty"`
+	ToolTimeoutSeconds           int          `yaml:"tool_timeout_seconds,omitempty" json:"tool_timeout_seconds,omitempty"`
+	FilesystemToolTimeoutSeconds int          `yaml:"filesystem_tool_timeout_seconds,omitempty" json:"filesystem_tool_timeout_seconds,omitempty"`
+	MaxPlanDurationMinutes       int          `yaml:"max_plan_duration_minutes,omitempty" json:"max_plan_duration_minutes,omitempty"`
+	MaxPlanSteps                 int          `yaml:"max_plan_steps,omitempty" json:"max_plan_steps,omitempty"`
+	GuardrailTimeoutSeconds      int          `yaml:"guardrail_timeout_seconds,omitempty" json:"guardrail_timeout_seconds,omitempty"`
+	GuardrailTimeoutBehavior     string       `yaml:"guardrail_timeout_behavior,omitempty" json:"guardrail_timeout_behavior,omitempty"`
+	GuardrailApprovalTimeoutSecs int          `yaml:"guardrail_approval_timeout_seconds,omitempty" json:"guardrail_approval_timeout_seconds,omitempty"`
+	LoopStrategy                 LoopStrategy `yaml:"loop_strategy,omitempty" json:"loop_strategy,omitempty"`
 }
 
 // UserSettings represents the user-level settings (Tier 2: settings.yml)

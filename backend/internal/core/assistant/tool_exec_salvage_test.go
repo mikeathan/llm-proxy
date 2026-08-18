@@ -577,7 +577,7 @@ func TestTruncateHistory_PreservesFirstUserMessage(t *testing.T) {
 		{Role: proxy.AssistantRole, Content: big},
 		{Role: proxy.ToolRole, Content: "result"},
 	}
-	out := TruncateHistory(history)
+	out := TruncateHistory(history, MaxHistoryChars)
 
 	foundUser := false
 	for _, m := range out {
@@ -587,5 +587,51 @@ func TestTruncateHistory_PreservesFirstUserMessage(t *testing.T) {
 	}
 	if !foundUser {
 		t.Fatalf("first user message dropped by truncation; out=%d msgs", len(out))
+	}
+}
+
+// TestTruncateHistory_PersistedCeilingPreservesToolCalls verifies the Bug 2 fix:
+// the persisted-session ceiling is MaxPersistedHistoryChars (256KB), not the
+// small MaxHistoryChars (12KB). A multi-tool history that exceeds the OLD 12KB
+// bound but stays under the new ceiling must be persisted in full — every tool
+// call/result retained — so a reload shows the complete reasoning trail instead
+// of dropping earlier tool calls.
+func TestTruncateHistory_PersistedCeilingPreservesToolCalls(t *testing.T) {
+	// Total content well above the old 12KB bound but under the 256KB ceiling.
+	reasoning := strings.Repeat("r", 8*1024)
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "system prompt"},
+		{Role: proxy.UserRole, Content: "list all files and report"},
+	}
+	toolCount := 6
+	for i := 0; i < toolCount; i++ {
+		history = append(history,
+			proxy.Message{
+				Role:             proxy.AssistantRole,
+				Content:          "",
+				ReasoningContent: reasoning,
+				ToolCalls: []proxy.ToolCall{{
+					ID:   "tc-1",
+					Type: "function",
+					Function: proxy.FunctionCall{Name: "list_directory", Arguments: `{"path":"/tmp"}`},
+				}},
+			},
+			proxy.Message{Role: proxy.ToolRole, Content: "result", ToolCallID: "tc-1"},
+		)
+	}
+
+	out := TruncateHistory(history, MaxPersistedHistoryChars)
+
+	if len(out) != len(history) {
+		t.Fatalf("persisted history truncated: got %d msgs, want %d (full) — tool calls lost", len(out), len(history))
+	}
+	toolMsgs := 0
+	for _, m := range out {
+		if m.Role == proxy.ToolRole {
+			toolMsgs++
+		}
+	}
+	if toolMsgs != toolCount {
+		t.Errorf("expected %d tool messages preserved, got %d", toolCount, toolMsgs)
 	}
 }

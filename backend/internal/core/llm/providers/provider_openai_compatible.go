@@ -5,9 +5,11 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -41,6 +43,12 @@ const catalogTTL = time.Hour
 // catalogCacheMaxEntries bounds the shared catalog cache so a pathological
 // number of distinct endpoints cannot grow it without bound.
 const catalogCacheMaxEntries = 64
+
+// probeChatTimeout bounds the model-availability probe so an unresponsive
+// upstream (e.g. a model the key is not entitled to whose gateway hangs or
+// resets the connection instead of returning a clean error) cannot stall the
+// registration request indefinitely.
+const probeChatTimeout = 10 * time.Second
 
 func NewOpenAICompatibleProvider(cfg models.ModelConfig, manifest models.ProviderManifest) *OpenAICompatibleProvider {
 	return NewOpenAICompatibleProviderWithDoer(cfg, manifest, nil)
@@ -178,21 +186,63 @@ func (p *OpenAICompatibleProvider) fetchModels(ctx context.Context) ([]models.Pr
 		out = append(out, info)
 	}
 
-	// /slots probe (llama.cpp serving context n_ctx) runs ONLY for effective
-	// local endpoints (§3.4) — never for cloud URLs, preserving the wasted-calls
-	// fix.  For non-.gguf local models (M8), the probe — not providerCtxDefaults
-	// — recovers the real serving n_ctx.
-	if p.isEffectiveLocal(p.effectiveBaseURL()) {
+	// /slots probe (llama.cpp serving context n_ctx) recovers the REAL serving
+	// window for local workloads.  It runs for effective-local endpoints (§3.4)
+	// AND for any listing that serves local llama.cpp workloads — a REMOTE
+	// llama.cpp host (not loopback/modelHost) is still a local workload when the
+	// listing itself carries the llama.cpp fingerprint (owned_by "llamacpp" /
+	// meta.n_ctx_train) or a .gguf artifact id.  Cloud catalogs never match,
+	// preserving the wasted-calls fix.  The probe result OVERRIDES the
+	// training-derived ContextLength (n_ctx_train): /slots n_ctx is the actual
+	// server window the local budget must key on (SPEC-005 priority 1), and it
+	// is carried on Meta.Nctx so discovery forwards the serving context.
+	if p.isEffectiveLocal(p.effectiveBaseURL()) || listingServesLocalWorkload(data.Data) {
 		if slotCtx := p.fetchSlotsContext(ctx, p.effectiveBaseURL()); slotCtx > 0 {
 			for i := range out {
-				if out[i].ContextLength == 0 {
-					out[i].ContextLength = slotCtx
+				out[i].ContextLength = slotCtx
+				if out[i].Meta == nil {
+					out[i].Meta = &models.ModelMeta{}
 				}
+				out[i].Meta.Nctx = slotCtx
 			}
 		}
 	}
 
 	return out, nil
+}
+
+// listingServesLocalWorkload reports whether any model in a /v1/models listing
+// identifies a llama.cpp server serving local GGUF models: owned_by
+// "llamacpp", a meta.n_ctx_train field, or a .gguf artifact id.  Data-driven
+// and host-agnostic — a remote llama.cpp host must still be probed for its
+// serving n_ctx, while cloud catalogs (OpenRouter/NVIDIA/OpenAI) never match
+// and keep the §3.4 wasted-calls fix.
+//
+// This gate is deliberately GENERIC: other local server types (LM Studio,
+// vLLM, …) already match via n_ctx_train / .gguf without code changes.  Only
+// the probe itself is llama.cpp-specific (/slots); a server without that
+// endpoint makes fetchSlotsContext return 0 and nothing changes.  Adding a
+// new server type later = add its probe branch here (e.g. LM Studio
+// /api/v1/models, vLLM /version — §2.10 #4), never touch this gate.
+func listingServesLocalWorkload(nodes []json.RawMessage) bool {
+	for _, raw := range nodes {
+		var node map[string]any
+		if err := json.Unmarshal(raw, &node); err != nil {
+			continue
+		}
+		if owned, _ := node["owned_by"].(string); strings.EqualFold(owned, "llamacpp") {
+			return true
+		}
+		if meta, ok := node["meta"].(map[string]any); ok {
+			if v, ok := meta["n_ctx_train"]; ok && coerceInt(v) > 0 {
+				return true
+			}
+		}
+		if models.HasGGUFArtifact(stringID(node["id"])) {
+			return true
+		}
+	}
+	return false
 }
 
 // effectiveBaseURL returns the provider's base URL (or manifest default).
@@ -321,6 +371,55 @@ func (p *OpenAICompatibleProvider) setAuthHeaders(header http.Header) {
 func (p *OpenAICompatibleProvider) TestConnection(ctx context.Context) error {
 	_, err := p.ListModels(ctx)
 	return err
+}
+
+// ProbeChatModel issues a minimal chat request (max_tokens=1) to verify the
+// given model ID actually resolves on the provider endpoint. Public catalogs
+// list models a key is not entitled to, so a real chat probe is the only
+// reliable way to distinguish "available" from "listed but not callable"
+// (NVIDIA, for example, returns 404 or resets the connection for unprovisioned
+// models). The probe is bounded by probeChatTimeout.
+func (p *OpenAICompatibleProvider) ProbeChatModel(ctx context.Context, modelID string) error {
+	ctx, cancel := context.WithTimeout(ctx, probeChatTimeout)
+	defer cancel()
+
+	endpoint, headers, err := p.GetEndpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("resolve endpoint: %w", err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":      modelID,
+		"messages":   []map[string]string{{"role": "user", "content": "ping"}},
+		"max_tokens": 1,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal probe request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build probe request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, vv := range headers {
+		for _, v := range vv {
+			req.Header.Add(k, v)
+		}
+	}
+
+	resp, err := p.doer.Do(req)
+	if err != nil {
+		return fmt.Errorf("model %q unreachable: %w", modelID, err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		msg := strings.TrimSpace(string(b))
+		if msg == "" {
+			msg = "(no response body)"
+		}
+		return fmt.Errorf("model %q not callable: upstream status %d: %s", modelID, resp.StatusCode, msg)
+	}
+	return nil
 }
 
 func (p *OpenAICompatibleProvider) EnsureReady(ctx context.Context) error {

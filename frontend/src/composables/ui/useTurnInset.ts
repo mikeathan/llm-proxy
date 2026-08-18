@@ -1,7 +1,7 @@
 import { ref, watch, nextTick, type Ref } from 'vue'
 import type { ComputedRef } from 'vue'
-import type { Turn } from '../../utils/message/turnGrouper'
-import type { InsetPhase } from '../../utils/message/messageBuilder'
+import type { Turn } from '../../types/message'
+import { isRunningPhase, type InsetPhase } from '../../types/inset'
 
 // Shared reasoning-inset collapse state + auto behavior for the assistant chat
 // and automation run views (single consumer of useMessageBuilder drives both).
@@ -33,10 +33,17 @@ export function useTurnInset(
     insetCollapsed.value = collapsed
   }
 
+  // resetInsets clears every per-turn collapse flag (all expanded). Used when
+  // switching sessions / starting a new chat so stale collapse state from the
+  // previous turn set cannot carry over to freshly loaded turns.
+  function resetInsets() {
+    insetCollapsed.value = {}
+  }
+
   const lastTurnIdx = () => turns.value.length - 1
 
   watch(phase, async (p, prev) => {
-    const running = p === 'thinking' || p === 'working' || p === 'generating'
+    const running = isRunningPhase(p)
     if (!running && p !== 'done') return
     await nextTick()
     const idx = lastTurnIdx()
@@ -48,5 +55,5 @@ export function useTurnInset(
     }
   })
 
-  return { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets }
+  return { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets, resetInsets }
 }

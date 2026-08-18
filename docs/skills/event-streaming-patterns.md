@@ -94,9 +94,21 @@ Model calls tool → GuardrailEngine blocks → GuardrailDecisionCallback invoke
   ├── Frontend shows GuardrailBanner → user clicks Allow/Deny
   │     └── POST /admin/api/conversation/guardrail-decision {decision_id, allow, persist}
   │           └── DecisionStore.Resolve() → wakes callback
-  ├── Callback returns {Allow, Persist} to processToolCalls
-  └── Guardrail times out after 60s → auto-invalidated → guardrail_invalidated event
+  ├── Callback returns {Allow, Persist} to resolveGuardrail (consumed via
+  │     executeSingleToolStep, shared by processToolCalls and executePlan)
+  └── Callback blocks up to GuardrailApprovalTimeout (default 5m, per-model
+      configurable, Constitution II.10) for a decision; on expiry → guardrail_invalidated
+      (reason "timeout") → treated as denied (violation recorded, run continues). The bound is
+      applied at the call site (resolveGuardrail), not inside the callback —
+      it is distinct from DefaultGuardrailTimeout (5s, the validation bound).
 ```
+
+> **Delivery guarantee:** `guardrail_blocked` / `guardrail_invalidated` / `error` are
+> `criticalEvents` in the EventBus (`automation/broadcast.go`) — they are never dropped
+> when a subscriber's buffer is full (bounded blocking send, 3s), unlike cosmetic events
+> (reasoning/tool_stream). Dropping a `guardrail_blocked` would leave the agent waiting on
+> an approval the UI never shows; the `recent` replay buffer is only the reconnect net, not
+> the primary delivery path.
 
 ### Frontend guardrail state management
 

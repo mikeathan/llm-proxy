@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { ref, nextTick } from 'vue'
 import { useTurnInset } from '../../../composables/ui/useTurnInset'
-import type { Turn } from '../../../utils/message/turnGrouper'
-import type { InsetPhase } from '../../../utils/message/messageBuilder'
+import type { Turn } from '../../../types/message'
+import type { InsetPhase } from '../../../types/inset'
 
 const dummyTurn = (): Turn => ({ userMessage: 'u', finalAnswer: '', segments: [], messages: [] })
 
@@ -77,6 +77,18 @@ describe('useTurnInset', () => {
     collapseAllInsets()
     expect(isInsetCollapsed(0)).toBe(true)
     expect(isInsetCollapsed(1)).toBe(true)
+  })
+
+  it('resetInsets clears every per-turn collapse flag (all expanded)', () => {
+    const { turns, collapseAllInsets, resetInsets, isInsetCollapsed } = setup()
+    turns.value = [dummyTurn(), dummyTurn()]
+    collapseAllInsets()
+    expect(isInsetCollapsed(0)).toBe(true)
+    expect(isInsetCollapsed(1)).toBe(true)
+
+    resetInsets()
+    expect(isInsetCollapsed(0)).toBe(false)
+    expect(isInsetCollapsed(1)).toBe(false)
   })
 
   it('does nothing on phase transitions when there are no turns', async () => {

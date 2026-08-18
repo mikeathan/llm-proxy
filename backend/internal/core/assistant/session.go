@@ -5,7 +5,9 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"llm-proxy/internal/core/assistant/prompts"
@@ -34,6 +36,12 @@ const (
 	// model immediately after a tool result before forcing a tools-disabled
 	// finalization turn. Re-armed on every successful tool turn.
 	postToolNudgeMax = 2
+
+	// maxStopGuardAttempts bounds the number of times a stop guard may nudge the
+	// run past a natural-completion candidate before the guard must allow
+	// finalization. Dedicated counter — never finalizeAttempts (owned by the
+	// empty-turn recovery ladder). A guard must never nag perpetually.
+	maxStopGuardAttempts = 2
 )
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
@@ -65,6 +73,14 @@ type runSession struct {
 	rd                   repetitionDetector
 	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
 	lastContentWithTools string // content saved from a turn that had both text and tool calls
+
+	// Stop guards (evaluator-optimizer, Phase 3). nil for plain react — with no
+	// guards maybeNudge always allows finalization (zero behavior change).
+	// stopGuardAttempts is a dedicated bounded counter (cap maxStopGuardAttempts),
+	// never finalizeAttempts, which handleNoToolCalls owns for its tools-disabled
+	// finalization turn.
+	stopGuards        []StopGuard
+	stopGuardAttempts int
 
 	prefillDisabled bool // runtime override to skip prefill on retry
 	memoryInjected  bool // gates hot-memory injection to first turn only
@@ -183,6 +199,139 @@ func (s *runSession) completeWith(content string) (string, []proxy.Message, erro
 	return content, s.history, nil
 }
 
+// finalizeReport runs the deterministic tools-disabled finalization turn and
+// returns the report text (or the best-available-answer fallback). It is the
+// universal "produce the content" step for strategies that have no natural text
+// completion — the mirror of the generatePlan pre-loop primitive (SPEC-010
+// §IV.2). Shared by every strategy so the completion paths cannot drift:
+// plan-execute calls it after executePlan, and the react recovery ladder
+// delegates handleNoToolCalls step (2) to it. A non-empty prompt override is
+// appended as the finalization instruction (defaults to AutomationFinalizePrompt);
+// the caller seals the run via completeWith.
+func (s *runSession) finalizeReport(ctx context.Context, prompt ...string) (string, error) {
+	finalizePrompt := prompts.AutomationFinalizePrompt
+	if len(prompt) > 0 && prompt[0] != "" {
+		finalizePrompt = prompt[0]
+	}
+
+	s.finalizeAttempts++
+	s.textOnlyNextTurn = true
+	s.history = append(s.history, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: finalizePrompt,
+	})
+	s.agent.deps.Logger.Warn("forcing text-only finalization turn", "step", s.steps)
+
+	turnMsg, parseErr, _, err := s.agent.executeTurn(ctx, &s.history)
+	if err != nil {
+		// A transient LLM failure on the finalization turn must not kill a run
+		// that already did real work: fall back to the best answer available
+		// (assistant text), then to a summary synthesized from the tool
+		// activity, and only surface the error when nothing recoverable exists.
+		if fallback := s.bestAvailableAnswer(); fallback != "" {
+			s.agent.deps.Logger.Warn("finalization turn failed; using best available answer", "error", err)
+			return fallback, nil
+		}
+		if summary := s.synthesizeRunSummary(); summary != "" {
+			s.agent.deps.Logger.Warn("finalization turn failed; using synthesized run summary", "error", err)
+			return summary, nil
+		}
+		return "", fmt.Errorf("finalization turn failed: %w", err)
+	}
+
+	s.history = append(s.history, turnMsg)
+	s.agent.notify(EventMessage, turnMsg)
+
+	report := stripThinkBlocks(turnMsg.Content)
+	if strings.TrimSpace(report) == "" || (parseErr != nil && parseErr.XMLFound) || hasToolCallMarker(report) {
+		if fallback := s.bestAvailableAnswer(); fallback != "" {
+			return fallback, nil
+		}
+		if summary := s.synthesizeRunSummary(); summary != "" {
+			s.agent.deps.Logger.Warn("empty finalization turn; using synthesized run summary")
+			return summary, nil
+		}
+	}
+	return strings.TrimSpace(report), nil
+}
+
+// synthesizeRunSummary builds a degraded-but-real report from the run's actual
+// tool activity when the finalization LLM turn fails (or comes back empty) and
+// no assistant text exists to salvage — the plan_execute shape, where history
+// is pure tool calls. A provider outage on the report turn must not discard
+// completed work. Returns "" when the run did no tool work, so the caller can
+// still fail loudly.
+func (s *runSession) synthesizeRunSummary() string {
+	perTool := make(map[string]int)
+	var failures []string
+	for _, m := range s.history {
+		for _, tc := range m.ToolCalls {
+			if tc.Function.Name == models.ToolSystemError {
+				continue
+			}
+			perTool[tc.Function.Name]++
+		}
+		if m.Role == proxy.ToolRole {
+			if errText := toolResultError(m.Content); errText != "" {
+				failures = append(failures, errText)
+			}
+		}
+	}
+	total := 0
+	for _, n := range perTool {
+		total += n
+	}
+	if total == 0 {
+		return ""
+	}
+
+	names := make([]string, 0, len(perTool))
+	for name := range perTool {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	b.WriteString("Run executed tool work, but the final report generation failed (provider error). Summary synthesized from the run history:\n\n")
+	b.WriteString(fmt.Sprintf("- Tool calls: %d\n", total))
+	for _, name := range names {
+		b.WriteString(fmt.Sprintf("  - %s × %d\n", name, perTool[name]))
+	}
+	if len(failures) > 0 {
+		b.WriteString("- Failures recorded:\n")
+		for _, f := range failures {
+			b.WriteString(fmt.Sprintf("  - %s\n", truncateString(f, sessionSummaryErrorMaxLen)))
+		}
+	}
+	b.WriteString("\nFull tool outputs are in the run recording.")
+	return b.String()
+}
+
+const sessionSummaryErrorMaxLen = 240 // chars per failure line in a synthesized summary
+
+// toolResultError extracts the "error" field from a marshaled tool result JSON
+// (the shape appendToolResult produces for failures). Returns "" when the
+// result is not a JSON object with a non-empty error field.
+func toolResultError(content string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(content), &m); err != nil {
+		return ""
+	}
+	if e, ok := m["error"].(string); ok && strings.TrimSpace(e) != "" {
+		return e
+	}
+	return ""
+}
+
+// truncateString shortens s to max runes with an ellipsis when longer.
+func truncateString(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
+
 func (s *runSession) resetParseErrorState() {
 	s.starvationCount = 0
 	s.parseErrorStreak = 0
@@ -195,6 +344,34 @@ func (s *runSession) resetParseErrorState() {
 	// empty turn trigger a fresh nudge cycle (pre-branch behavior).
 	s.postToolNudgeCount = 0
 	// hardCapTriggered is left untouched — the hard cap is irreversible.
+}
+
+// maybeNudge consults the configured stop guards at the natural-completion
+// branch. Returns ("", false) when finalization should proceed — either no
+// guards are configured (plain react), the guard budget is exhausted, or every
+// guard allows completion. Returns (nudge, true) when a guard refuses to let
+// the run finalize and the caller must inject the nudge and continue the loop.
+// Guards never fire on forced completion, fallback answers, or error/stall
+// paths — the hook only sits on the successful-natural-completion branch.
+func (s *runSession) maybeNudge() (string, bool) {
+	if len(s.stopGuards) == 0 || s.stopGuardAttempts >= maxStopGuardAttempts {
+		return "", false
+	}
+	for _, g := range s.stopGuards {
+		nudge, err := g.Nudge(s)
+		if err != nil {
+			// A failing guard must not corrupt the run: log and allow the
+			// finalization to proceed rather than failing the whole task.
+			s.agent.deps.Logger.Warn("stop guard evaluation failed, allowing finalization", "error", err)
+			continue
+		}
+		if nudge == "" {
+			continue
+		}
+		s.stopGuardAttempts++
+		return nudge, true
+	}
+	return "", false
 }
 
 // trimLargeWriteContent replaces write_file/append_file response content with a stub
@@ -356,7 +533,8 @@ func isAgentControlMessage(m proxy.Message) bool {
 		prompts.AutomationContentTooLongPrompt,
 		prompts.AutomationJSONSyntaxPrompt,
 		prompts.AutomationJSONPlanPrompt,
-		prompts.AutomationXMLModeGuide:
+		prompts.AutomationXMLModeGuide,
+		prompts.EvaluatorReviewPrompt:
 		return true
 	}
 	if strings.HasPrefix(content, prompts.RetrySignal) {
@@ -404,59 +582,39 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 	// Only clear the back-pointer when run() exits (not panics).
 	defer func() { s.agent.runS = nil }()
 
-	for {
-		s.steps++
-		if err := s.ctx.Err(); err != nil {
-			return "", s.history, fmt.Errorf("agent execution halted: %w", err)
-		}
+	// Resolve and dispatch to the configured loop strategy. The runS
+	// back-pointer setup/teardown lives here (exactly once per Execute); a
+	// strategy that internally delegates to another strategy (e.g. plan-execute
+	// falling back to react) does not re-enter this setup.
+	// Emit a one-time "working" signal before any strategy runs so the UI is
+	// never blank at dispatch, even for strategies that begin with a long
+	// synchronous pre-loop LLM call. Carries no content (neutral thinking
+	// indicator); the loop body emits its own per-turn feedback.
+	s.agent.notifyAgentThinking()
 
-		if done, reply, err := s.checkForcedCompletion(); done {
-			return reply, s.history, err
-		}
+	strategy := resolveLoopStrategy(s.agent)
+	return strategy.Run(s.ctx, s)
+}
 
-		if s.steps >= s.agent.config.MaxSteps && !s.warnedAdvisory {
-			s.warnedAdvisory = true
-			s.agent.deps.Logger.Warn("agent exceeded advisory step limit, continuing", "steps", s.steps)
-		}
-
-		s.maybeFlushMemoryBeforeTurn()
-
-		s.agent.notifyStepStart(s.steps)
-		s.agent.notifyThinking()
-
-		turnMsg, parseErr, toolsList, err := s.agent.executeTurn(s.ctx, &s.history)
-		if err != nil {
-			done, reply, turnErr := s.handleTurnError(err)
-			if done {
-				return reply, s.history, turnErr
-			}
-			if turnErr != nil {
-				return "", s.history, turnErr
-			}
-			continue
-		}
-
-		s.sieveStreak = 0
-
-		if len(turnMsg.ToolCalls) > 0 {
-			done, reply, turnErr := s.handleToolTurn(turnMsg, toolsList)
-			if done {
-				return reply, s.history, turnErr
-			}
-			if turnErr != nil {
-				return "", s.history, turnErr
-			}
-			continue
-		}
-
-		done, reply, turnErr := s.handleTextTurn(turnMsg, parseErr, toolsList)
-		if done {
-			return reply, s.history, turnErr
-		}
-		if turnErr != nil {
-			return "", s.history, turnErr
-		}
-	}
+// generatePlan runs plan generation under a bounded per-call timeout and emits
+// a "planning" UI signal first so the assistant panel is never blank during the
+// synchronous pre-loop LLM call. Centralized here so every loop strategy (present
+// or future) that needs a pre-loop plan gets the same timeout + feedback
+// guarantees — strategies compose this primitive, never reimplement it.
+func (s *runSession) generatePlan(ctx context.Context, tools []proxy.Tool, task string) (*ExecutionPlan, error) {
+	s.agent.notifyAgentThinking()
+	s.agent.notify(EventMessage, proxy.Message{
+		Role:    "system",
+		Content: MsgGeneratingPlan,
+	})
+	planCtx, cancel := context.WithTimeout(ctx, AgentTurnTimeout)
+	defer cancel()
+	strategy := NewExecutionPlanStrategy(s.agent.deps.Client, tools, s.agent.deps.Logger,
+		withApplyRequest(s.agent.applyRequestConfig),
+		withOnReasoning(func(reasoning string) { s.agent.notify(EventReasoning, reasoning) }),
+		withOnLifecycle(func(phase string, extra map[string]any) { s.agent.notifyLifecycle(phase, extra) }),
+	)
+	return strategy.Generate(planCtx, task)
 }
 
 // checkForcedCompletion ends the run after MaxSteps*2 using the fallback chain.
@@ -590,6 +748,15 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 		if content, ok := checkTaskCompletion(turnMsg, s.history); ok {
 			s.history = append(s.history, turnMsg)
 			s.agent.notify(EventMessage, turnMsg)
+			// Stop-guard hook (evaluator-optimizer): a guard may refuse to let
+			// the run finalize, injecting a self-review nudge to continue the
+			// loop. Fires only on successful natural completion — never on
+			// forced completion, fallback answers, or error/stall returns.
+			// With no guards configured maybeNudge always allows finalization.
+			if nudge, guardNudged := s.maybeNudge(); guardNudged {
+				s.history = append(s.history, proxy.Message{Role: proxy.UserRole, Content: nudge})
+				return false, "", nil
+			}
 			reply, _, completeErr := s.completeWith(content)
 			return true, reply, completeErr
 		}
@@ -604,7 +771,12 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 		return true, "", err
 	}
 	if shouldExit {
-		return true, reply, nil
+		// Terminal paths return a real deliverable (finalization report,
+		// fallback answer, premature-termination text). Seal via the shared
+		// completion path so the "completed" lifecycle fires exactly once on
+		// success (SPEC-010 §V), matching the natural-completion branch.
+		reply, _, completeErr := s.completeWith(reply)
+		return true, reply, completeErr
 	}
 	return false, "", nil
 }
@@ -756,17 +928,15 @@ func (s *runSession) handleNoToolCalls(
 	}
 
 	// (2) Deterministic finalization: force ONE text-only turn (tools disabled).
-	// finalizeAttempts is exhausted → step (3) terminal. Exactly one
-	// finalization turn — no loop.
+	// Delegated to finalizeReport — the shared primitive plan-execute also uses —
+	// so the two completion paths cannot drift. finalizeAttempts is exhausted →
+	// step (3) terminal. Exactly one finalization turn — no loop.
 	if s.finalizeAttempts < 1 {
-		s.finalizeAttempts++
-		s.textOnlyNextTurn = true
-		s.history = append(s.history, proxy.Message{
-			Role:    proxy.UserRole,
-			Content: prompts.AutomationFinalizePrompt,
-		})
-		s.agent.deps.Logger.Warn("forcing text-only finalization turn", "step", s.steps)
-		return "", false, nil
+		report, err := s.finalizeReport(s.ctx)
+		if err != nil {
+			return "", false, err
+		}
+		return report, true, nil
 	}
 
 	// (3) Terminal: best real answer we have, or an honest empty note.

@@ -1,11 +1,12 @@
-// reasoning_param.go — Single source of truth for provider reasoning-wire
-// knowledge. Consolidates what was previously split across client.go
+// Package reasoning is the single source of truth for provider reasoning-wire
+// knowledge. It consolidates what was previously split across client.go
 // (ReasoningField), agent.go (providerTiers.ReasoningBudget), stream.go
 // (SetReasoningBudget) and budget_squeezer.go into ONE typed table plus ONE
 // resolver strategy. The local override keys on the shared WorkloadClassifier
 // (models.WorkloadClass), the same classifier that drives budget and ICU
-// selection. No per-provider wire logic lives anywhere else.
-package assistant
+// selection. No per-provider wire logic lives anywhere else. This is a leaf
+// package: it depends only on models, never on the assistant package.
+package reasoning
 
 import (
 	"fmt"

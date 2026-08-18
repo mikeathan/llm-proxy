@@ -33,11 +33,6 @@ type conversationService struct {
 	persistence *persistence.WorkspaceManager
 }
 
-// sessionCheckpointInterval throttles mid-run session checkpoint writes. Full
-// history rebuild + persistence on every tool result / message is expensive on
-// long runs; the final state is always persisted at completion regardless.
-const sessionCheckpointInterval = time.Second
-
 func NewConversationService(deps ConversationDeps, persistence *persistence.WorkspaceManager) ConversationService {
 	return &conversationService{deps: deps, persistence: persistence}
 }
@@ -61,11 +56,16 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 		return ExecuteResult{}, fmt.Errorf("init session: %w", err)
 	}
 
-	PublishSessionLifecycle(events, workspaceID, session.ID, message, PhaseSessionStarted)
-
 	// 4. Run setup
 	execCtx, clean := s.setupRun(ctx, session.ID, workspaceID, events)
 	defer clean()
+
+	// Publish session_started AFTER setupRun clears the recent buffer so the
+	// event is retained in `recent` for replay. A refreshed / reopened tab
+	// reconstructs the running turn from the replay, anchored by this
+	// session_started and the user-message snippet it carries — without it the
+	// frontend has no user anchor and cannot render the reconstructed turn.
+	PublishSessionLifecycle(events, workspaceID, session.ID, message, PhaseSessionStarted)
 
 	// Snapshot the session after the user message is appended — used as the
 	// base for mid-execution checkpoint rebuilding.
@@ -75,11 +75,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// 5. Build agent options
 	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, recorder, log)
 
-	if len(excludeTools) > 0 {
-		provider = NewFilteredToolProvider(provider, excludeTools)
-	}
-
-	agent := s.buildAgent(ctx, modelName, workspaceID, session.ID, log, provider, client, engine, observer)
+	agent := s.buildAgent(ctx, modelName, workspaceID, session.ID, log, provider, client, engine, observer, excludeTools)
 
 	// 6. Execute agent
 	llmHistory := FilterCancelledTurns(session.History, session.CancelledIndices)
@@ -91,7 +87,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 			return s.handleCancelResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log, agErr), nil
 		}
 		log.Error("assistant execution failed", "error", agErr)
-		return ExecuteResult{}, fmt.Errorf("assistant execution failed: %w", agErr)
+		return s.handleErrorResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log, agErr)
 	}
 
 	// 9. Persist final history
@@ -155,7 +151,7 @@ func (s *conversationService) initSession(session *models.AssistantSession, work
 		})
 	}
 
-	session.History = TruncateHistory(session.History)
+	session.History = TruncateHistory(session.History, MaxHistoryChars)
 
 	// Persist early so the session appears in the conversation sidebar
 	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {
@@ -179,7 +175,6 @@ func (s *conversationService) setupRun(ctx context.Context, sessionID, workspace
 func (s *conversationService) buildObserver(baseHistory []proxy.Message, session *models.AssistantSession, workspaceID string, events EventPublisher, recorder EventRecorder, log logging.Logger) (Observer, func() []AgentEvent) {
 	var collectedEvents []AgentEvent
 	sessionStep := 0
-	var lastCheckpoint time.Time
 
 	obs := func(ev AgentEvent) {
 		collectedEvents = append(collectedEvents, ev)
@@ -189,19 +184,17 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 				log.Warn("failed to write event to recording", "error", recErr)
 			}
 		}
+		// Checkpoint the session on every completed tool cycle / final message so
+		// a page refresh (or a click on the running session from the sidebar)
+		// returns the latest committed tool calls and results — the documented
+		// contract (session-source-backend-driven.md) is unconditional, no
+		// throttling. The copy is shallow: the original session.History is never
+		// mutated mid-run, so the final success/cancel paths append cleanly.
 		if ev.Type == EventToolResult || ev.Type == EventMessage {
-			// Debounce mid-run checkpoint writes: a full session rebuild +
-			// persistence on every tool result / message is expensive over a
-			// long run. The final state is always persisted by
-			// handleSuccessResult / handleCancelResult, so throttling these
-			// only shrinks crash-recovery granularity, not durability.
-			if time.Since(lastCheckpoint) >= sessionCheckpointInterval {
-				lastCheckpoint = time.Now()
-				cp := *session
-				cp.History = buildPartialHistory(baseHistory, collectedEvents)
-				if err := s.persistence.WriteSession(workspaceID, &cp); err != nil {
-					log.Warn("checkpoint persist failed", "error", err, "session", session.ID)
-				}
+			cp := *session
+			cp.History = buildPartialHistory(baseHistory, collectedEvents)
+			if err := s.persistence.WriteSession(workspaceID, &cp); err != nil {
+				log.Warn("checkpoint persist failed", "error", err, "session", session.ID)
 			}
 		}
 		if ev.Type == EventToolCall {
@@ -213,11 +206,12 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 	return obs, func() []AgentEvent { return collectedEvents }
 }
 
-func (s *conversationService) buildAgent(ctx context.Context, modelName, workspaceID, sessionID string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, observer Observer) *Agent {
+func (s *conversationService) buildAgent(ctx context.Context, modelName, workspaceID, sessionID string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, observer Observer, excludeTools []string) *Agent {
 	builder := NewAgentBuilder(s).
 		WithLogger(log).
 		WithGuardrails().
 		WithWorkspaceID(workspaceID).
+		WithExcludedTools(excludeTools).
 		WithModelName(modelName).
 		WithChannel(ChannelAssistant).
 		WithConversationID(sessionID).
@@ -225,7 +219,7 @@ func (s *conversationService) buildAgent(ctx context.Context, modelName, workspa
 		WithObserver(observer).
 		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer)).
 		WithOrchestrator().
-		WithModelConfig(ctx, modelName, provider, client)
+		WithModelConfig(modelName)
 
 	return builder.Build(client, provider, engine)
 }
@@ -238,6 +232,18 @@ func (s *conversationService) handleCancelResult(session *models.AssistantSessio
 		session.History = append(session.History, cancelNewMessages...)
 	} else {
 		log.Warn("updatedHistory shorter than llmHistory (cancel)", "updated", len(updatedHistory), "llm", len(llmHistory))
+	}
+
+	// Preserve the failure that prompted the cancel (e.g. upstream connection
+	// errors) so a reloaded session shows why the run stopped instead of a bare
+	// "Response interrupted" marker. Mirrors handleErrorResult's error marker;
+	// best-effort no-op when the run saw no failures.
+	if errText := lastRunFailureText(collected); errText != "" {
+		session.History = append(session.History, proxy.Message{
+			Role:    proxy.AssistantRole,
+			Error:   errText,
+			Content: "",
+		})
 	}
 
 	_, canceledUserIdx := ComputeCancelIndices(session.History)
@@ -259,6 +265,29 @@ func (s *conversationService) handleCancelResult(session *models.AssistantSessio
 	}
 }
 
+// lastRunFailureText returns the most recent failure text from the collected
+// run events, or "" when the run saw no failures. It checks terminal error
+// events first, then upstream transport/status retry notices (which carry the
+// provider error text). Used by the cancel path to preserve why the run was
+// interrupted so a reloaded session renders the error instead of a bare
+// "Response interrupted" banner.
+func lastRunFailureText(collected []AgentEvent) string {
+	for i := len(collected) - 1; i >= 0; i-- {
+		ev := collected[i]
+		switch ev.Type {
+		case EventError:
+			if m, ok := ev.Payload.(map[string]string); ok && m["error"] != "" {
+				return m["error"]
+			}
+		case EventUpstream:
+			if p, ok := ev.Payload.(UpstreamEventPayload); ok && p.Error != "" {
+				return p.Error
+			}
+		}
+	}
+	return ""
+}
+
 func (s *conversationService) handleSuccessResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events EventPublisher, collected []AgentEvent, log logging.Logger) ExecuteResult {
 	if len(updatedHistory) >= len(llmHistory) {
 		newMessages := updatedHistory[len(llmHistory):]
@@ -266,7 +295,7 @@ func (s *conversationService) handleSuccessResult(session *models.AssistantSessi
 	} else {
 		log.Warn("updatedHistory shorter than llmHistory", "updated", len(updatedHistory), "llm", len(llmHistory))
 	}
-	session.History = TruncateHistory(session.History)
+	session.History = TruncateHistory(session.History, MaxPersistedHistoryChars)
 
 	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {
 		log.Error("failed to save session", "error", pErr)
@@ -279,6 +308,55 @@ func (s *conversationService) handleSuccessResult(session *models.AssistantSessi
 		WorkspaceID:    session.WorkspaceID,
 		Events:         FormatCollectedEvents(collected),
 	}
+}
+
+// handleErrorResult persists a terminal (non-cancel) run failure and surfaces it
+// to the UI. Unlike the success path, `updatedHistory` may be empty or partial
+// (an upstream failure can occur before any assistant output), so an explicit
+// assistant-role error message is appended to guarantee the failure survives a
+// reload instead of leaving a session that shows only the user prompt. The
+// error event + session_completed lifecycle are still published so a live
+// client sees the failure and the sidebar stops marking the session running.
+func (s *conversationService) handleErrorResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events EventPublisher, collected []AgentEvent, log logging.Logger, runErr error) (ExecuteResult, error) {
+	// Persist any partial assistant output the agent produced before failing.
+	if len(updatedHistory) >= len(llmHistory) {
+		newMessages := updatedHistory[len(llmHistory):]
+		session.History = append(session.History, newMessages...)
+	} else {
+		log.Warn("updatedHistory shorter than llmHistory (error)", "updated", len(updatedHistory), "llm", len(llmHistory))
+	}
+	// Always append an explicit error marker so the failure is visible after a
+	// reload even when the run produced no assistant output at all.
+	session.History = append(session.History, proxy.Message{
+		Role:    proxy.AssistantRole,
+		Error:   runErr.Error(),
+		Content: "",
+	})
+	session.History = TruncateHistory(session.History, MaxPersistedHistoryChars)
+	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {
+		log.Error("failed to save session after error", "error", pErr)
+	}
+
+	// Surface the terminal mid-run failure to the UI: publish an error event
+	// (the frontend renders an error segment and clears loading) and a
+	// session_completed lifecycle so the sidebar stops showing the session as
+	// running. Previously this failure only reached the logs, leaving the
+	// bubble stuck on "thinking".
+	events.Publish(workspaceID, AgentEvent{
+		ID:             fmt.Sprintf("sse_err_%d", time.Now().UnixNano()),
+		Type:           EventError,
+		Channel:        ChannelAssistant,
+		ConversationID: session.ID,
+		Payload:        map[string]string{"error": runErr.Error()},
+		Timestamp:      time.Now(),
+	})
+	PublishSessionLifecycle(events, workspaceID, session.ID, "", PhaseSessionCompleted)
+
+	return ExecuteResult{
+		ConversationID: session.ID,
+		WorkspaceID:    session.WorkspaceID,
+		Events:         FormatCollectedEvents(collected),
+	}, fmt.Errorf("assistant execution failed: %w", runErr)
 }
 
 // compile-time check: ServiceProvider interface is implemented by *conversationService

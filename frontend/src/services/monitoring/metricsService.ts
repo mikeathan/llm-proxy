@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import type { SystemMetrics, ProcessLogs } from '../../types/metrics'
-import type { LogLevel } from '../../constants/api'
+import type { LogLevel } from '../../types/api'
 import { get, put, del } from '../httpClient'
 
 export const MetricsApiService = {

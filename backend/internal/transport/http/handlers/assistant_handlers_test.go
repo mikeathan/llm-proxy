@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -496,6 +497,29 @@ func TestAssistant_CancelAgent_Running(t *testing.T) {
 
 	if handler.CancelAgent("ws-1", "conv-1") {
 		t.Error("CancelAgent should return false after the agent was canceled and removed")
+	}
+}
+
+func TestAssistant_RunningConversationID(t *testing.T) {
+	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
+	handler := NewAssistantMessageHandler(service)
+
+	if got := handler.RunningConversationID("ws-1"); got != "" {
+		t.Errorf("RunningConversationID with no running agent = %q, want \"\"", got)
+	}
+
+	handler.running.Store("ws-1", &runningAgent{
+		cancel:         func() {},
+		done:           make(chan struct{}),
+		conversationID: "conv_123",
+	})
+	if got := handler.RunningConversationID("ws-1"); got != "conv_123" {
+		t.Errorf("RunningConversationID = %q, want %q", got, "conv_123")
+	}
+
+	// A different workspace has no running agent.
+	if got := handler.RunningConversationID("ws-2"); got != "" {
+		t.Errorf("RunningConversationID(ws-2) = %q, want \"\"", got)
 	}
 }
 
@@ -1291,6 +1315,9 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent(t *testing.T) {
 // the regression from the "added a provider but no primary model" scenario: a
 // brand-new conversation has an empty ConversationID, and the error event must
 // still reach the workspace-scoped SSE bus (it must not be silently dropped).
+// The conversation ID is resolved up front in RunWithCancel so the error event
+// carries the same ID the session would use — letting the frontend associate
+// the failure with a concrete session row.
 func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *testing.T) {
 	logger := &noopLogger{}
 	mockClient := &mocks.MockLLMClientProvider{
@@ -1323,9 +1350,10 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *t
 		if ev.Type != assistant.EventError {
 			t.Fatalf("expected EventError on the bus, got %q", ev.Type)
 		}
-		// ConversationID is empty by design; the event must still be delivered.
-		if ev.ConversationID != "" {
-			t.Errorf("event conversation_id = %q, want empty", ev.ConversationID)
+		// RunWithCancel resolves the conversation ID up front, so the error
+		// event is scoped to the resolved conversation instead of empty.
+		if ev.ConversationID == "" {
+			t.Error("event conversation_id should be resolved to a generated id")
 		}
 		payloadErr, _ := ev.Payload.(map[string]any)["error"].(string)
 		if payloadErr == "" {
@@ -1333,5 +1361,109 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *t
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for EventError on the bus (empty conversation_id)")
+	}
+}
+
+// TestGuardrailDecisionHandler_LateOverridePersists proves that when a user
+// submits an "allow & remember" decision AFTER the approval wait already
+// expired (the agent moved on), the override is still persisted so future calls
+// are not re-blocked — the current run's tool stays skipped (SPEC guardrails:
+// persist override, tool skipped).
+func TestGuardrailDecisionHandler_LateOverridePersists(t *testing.T) {
+	service := mocks.NewMockAssistantService(
+		&mocks.MockLLMClientProvider{},
+		&mocks.MockRateLimiter{},
+		assistant.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
+		mocks.NewMockNodeHerder(nil),
+	)
+	service.LoggerRef = &noopLogger{}
+
+	// Real persistence so PersistOverride can write the workspace config.
+	tmp := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+
+	// A store carrying a retained tombstone for an already-timed-out decision.
+	store := assistant.NewGuardrailDecisionStore()
+	store.Retain(assistant.GuardrailBlockedPayload{
+		DecisionID:  "gr_expired",
+		Tool:        "execute_terminal_command",
+		Args:        `{"command":"wc -l f.txt"}`,
+		Category:    "terminal",
+		WorkspaceID: "ws-late",
+	})
+	service.GuardrailStore = store
+
+	// Engine wired to the same persistence, with a no-op readConfig so the
+	// persist path writes without needing a pre-existing config file.
+	service.GuardrailEng = guardrails.NewGuardrailEngine(
+		func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} },
+		storage.NewPathResolver(tmp, tmp, tmp),
+		service.PersistenceMgr,
+		func(workspaceID string) (*models.WorkspaceConfig, error) {
+			return &models.WorkspaceConfig{}, nil
+		},
+	)
+	defer service.GuardrailEng.Stop()
+
+	handler := NewAssistantMessageHandler(service)
+
+	body := `{"decision_id":"gr_expired","allow":true,"persist":true}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/conversation/guardrail-decision", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.GuardrailDecisionHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for late override persist, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"late":"true"`) {
+		t.Errorf("expected late=true in response, got %s", rr.Body.String())
+	}
+}
+
+// TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected proves that a late
+// decision only persists an override when the user both allows AND asks to
+// remember; a deny or non-persist late decision is a 404 (nothing to apply).
+func TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected(t *testing.T) {
+	service := mocks.NewMockAssistantService(
+		&mocks.MockLLMClientProvider{},
+		&mocks.MockRateLimiter{},
+		assistant.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
+		mocks.NewMockNodeHerder(nil),
+	)
+	service.LoggerRef = &noopLogger{}
+	tmp := t.TempDir()
+	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+
+	store := assistant.NewGuardrailDecisionStore()
+	store.Retain(assistant.GuardrailBlockedPayload{
+		DecisionID:  "gr_expired",
+		Tool:        "execute_terminal_command",
+		Args:        `{"command":"wc -l f.txt"}`,
+		Category:    "terminal",
+		WorkspaceID: "ws-late",
+	})
+	service.GuardrailStore = store
+
+	handler := NewAssistantMessageHandler(service)
+
+	for _, tc := range []struct {
+		name   string
+		body   string
+		expect int
+	}{
+		{"deny", `{"decision_id":"gr_expired","allow":false,"persist":true}`, http.StatusNotFound},
+		{"no-persist", `{"decision_id":"gr_expired","allow":true,"persist":false}`, http.StatusNotFound},
+		{"unknown", `{"decision_id":"gr_missing","allow":true,"persist":true}`, http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/admin/api/conversation/guardrail-decision", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			handler.GuardrailDecisionHandler(rr, req)
+			if rr.Code != tc.expect {
+				t.Errorf("expected %d, got %d: %s", tc.expect, rr.Code, rr.Body.String())
+			}
+		})
 	}
 }

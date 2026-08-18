@@ -383,27 +383,28 @@ type ModelConfig struct {
 
 	// Agent tuning — per-model overrides for agent loop behaviour.
 	// Zero values mean "use the global default."
-	MaxSteps            int     `json:"max_steps,omitempty"`
-	ContextBudget       int     `json:"context_budget,omitempty"`
-	MaxTokens           int     `json:"max_tokens,omitempty"`
-	Temperature         float64 `json:"temperature,omitempty"`      // overrides the 0.1 automation default
-	ToolCallFormat      string  `json:"tool_call_format,omitempty"` // "xml" or "native"
-	Prefill             *bool   `json:"prefill,omitempty"`
-	ReasoningEnabled    *bool   `json:"reasoning_enabled,omitempty"` // provider-native reasoning toggle
-	TimeoutMinutes      int     `json:"timeout_minutes,omitempty"`   // per-execution timeout, 0 = use global default (30 min)
-	EnableExecutionPlan bool    `json:"enable_execution_plan,omitempty"`
+	MaxSteps         int          `json:"max_steps,omitempty"`
+	ContextBudget    int          `json:"context_budget,omitempty"`
+	MaxTokens        int          `json:"max_tokens,omitempty"`
+	Temperature      float64      `json:"temperature,omitempty"`      // overrides the 0.1 automation default
+	ToolCallFormat   string       `json:"tool_call_format,omitempty"` // "xml" or "native"
+	Prefill          *bool        `json:"prefill,omitempty"`
+	ReasoningEnabled *bool        `json:"reasoning_enabled,omitempty"` // provider-native reasoning toggle
+	TimeoutMinutes   int          `json:"timeout_minutes,omitempty"`   // per-execution timeout, 0 = use global default (30 min)
+	LoopStrategy     LoopStrategy `json:"loop_strategy,omitempty"`     // agent loop archetype; "" = provider default / react
 
 	// Resource-aware orchestration. Zero values mean "use provider default."
 	ReasoningBudget int `json:"reasoning_budget,omitempty"` // max thinking tokens
 	SlotTimeout     int `json:"slot_timeout,omitempty"`     // seconds to keep llama.cpp slot alive
 
 	// Safety timeouts — per-model overrides. Zero means "use global default."
-	ToolTimeoutSeconds           int    `json:"tool_timeout_seconds,omitempty"`            // default 120 (2 min), 0 = disabled
-	FilesystemToolTimeoutSeconds int    `json:"filesystem_tool_timeout_seconds,omitempty"` // default 30
-	MaxPlanDurationMinutes       int    `json:"max_plan_duration_minutes,omitempty"`       // default 15
-	MaxPlanSteps                 int    `json:"max_plan_steps,omitempty"`                  // default 50
-	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds,omitempty"`       // default 5
-	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior,omitempty"`      // "fail-open" | "fail-closed"
+	ToolTimeoutSeconds           int    `json:"tool_timeout_seconds,omitempty"`               // default 120 (2 min), 0 = disabled
+	FilesystemToolTimeoutSeconds int    `json:"filesystem_tool_timeout_seconds,omitempty"`    // default 30
+	MaxPlanDurationMinutes       int    `json:"max_plan_duration_minutes,omitempty"`          // default 15
+	MaxPlanSteps                 int    `json:"max_plan_steps,omitempty"`                     // default 50
+	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds,omitempty"`          // default 5
+	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior,omitempty"`         // "fail-open" | "fail-closed"
+	GuardrailApprovalTimeoutSecs int    `json:"guardrail_approval_timeout_seconds,omitempty"` // default 300
 }
 
 type ModelMetadata struct {

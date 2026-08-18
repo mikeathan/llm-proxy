@@ -50,6 +50,14 @@ from model metadata, and applies provider-tier tuning defaults.
     3. `defaultLocalContextLength` (8192) — the universal numeric local fallback.
     The local path NEVER consults `providerCtxDefaults` — a local workload can
     never leak into a 128K/1M cloud calculation.
+
+    The serving context probe (`/slots`) is listing-driven, not host-only: it runs
+    for effective-local endpoints **or** any `/v1/models` listing carrying a
+    llama.cpp/local-workload fingerprint (`owned_by "llamacpp"`, `meta.n_ctx_train`,
+    or a `.gguf` artifact id). A **remote** llama.cpp host serving GGUF models is
+    therefore a local workload and resolves its real serving `n_ctx` — never the
+    training `n_ctx_train` — and the probe result overrides any training-derived
+    `ContextLength` (see `docs/PLANS/cross-cutting/cloud-provider-token-budgets.md` §3.4).
   - **Cloud workloads**: `PublishedContextSource` chain
     1. published `context_length` / `top_provider.context_length` from the live catalog.
     2. model `Metadata` context (n_ctx serving, then n_ctx_train).

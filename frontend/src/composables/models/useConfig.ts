@@ -61,6 +61,8 @@ export const DEFAULT_CONFIG: GlobalConfig = {
     max_plan_steps: 50,
     guardrail_timeout_seconds: 5,
     guardrail_timeout_behavior: 'fail-open',
+    guardrail_approval_timeout_seconds: 300,
+    loop_strategy: '',
   },
   run_logging: { enabled: true },
 }

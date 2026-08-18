@@ -1,5 +1,5 @@
 ---
-status: active
+status: complete
 date: 2026-08-07
 related_specs: [SPEC-001]
 ---
@@ -254,3 +254,27 @@ Source/Compilation/Output report (not `app.ts` dump, not preamble).
 - Keep `hardCapTriggered` backstop; the ladder should normally resolve before
   MaxSteps×2.
 - No new dependencies; no config/CI changes (within AGENTS.md boundaries).
+
+---
+
+## 9. Implementation status (marked complete 2026-08-19)
+
+Implemented in `backend/internal/core/assistant/` (session.go ladder,
+recovery_ladder_test.go, agent_test.go bounded-ladder tests; GPU P1 re-measure is
+unblocked). Two deliberate deviations from the §3 pseudocode, both intentional
+and covered by tests:
+
+1. **§3 step (1) nudge gate dropped.** The design gated the re-armed nudge on
+   `lastMeaningfulMessageIsToolResult()` (nudge only when the last meaningful
+   message is a tool result). The implementation nudges on **any** empty turn
+   (`handleNoToolCalls`, `if s.postToolNudgeCount < postToolNudgeMax`), still
+   bounded by `postToolNudgeMax = 2` and re-armed in `resetParseErrorState` on
+   every successful tool turn. `recovery_ladder_test.go` asserts the
+   unconditional march (nudge → nudge → finalize). The helper was never built.
+2. **§3 step (2) delegated to the shared `finalizeReport` primitive** (see
+   `strategy-agnostic-completion-and-tool-schema.md`): instead of appending the
+   finalize prompt and re-entering the loop, `handleNoToolCalls` calls
+   `finalizeReport(s.ctx)` inline (which runs the single tools-disabled
+   `textOnlyNextTurn` itself and returns the report), then the caller seals via
+   `completeWith` — so the "completed" lifecycle fires exactly once and
+   plan-execute's completion path cannot drift from react's.

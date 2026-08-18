@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/core/llm/providers"
+	"llm-proxy/internal/platform/network"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -27,6 +32,14 @@ func newTestResponse(status int, body string) *http.Response {
 		Header:     make(http.Header),
 	}
 }
+
+// timeoutNetError is a net.Error that reports a timeout, used to exercise the
+// transport-error classifier's timeout bucket.
+type timeoutNetError struct{}
+
+func (timeoutNetError) Error() string   { return "i/o timeout" }
+func (timeoutNetError) Timeout() bool   { return true }
+func (timeoutNetError) Temporary() bool { return false }
 
 func TestClientChatSuccess(t *testing.T) {
 	var gotPath string
@@ -281,6 +294,219 @@ func TestLLMClient_Chat_RetryCancelledByContext(t *testing.T) {
 	}
 }
 
+func TestLLMClient_Chat_RetryObserver_NotFiredOnSuccess(t *testing.T) {
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+
+	fired := 0
+	ctx := WithRetryObserver(context.Background(), func(RetryInfo) { fired++ })
+	if _, err := client.Chat(ctx, ChatRequest{Model: "test"}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if fired != 0 {
+		t.Errorf("observer must not fire on success, fired %d times", fired)
+	}
+}
+
+func TestLLMClient_Chat_RetryObserver_NotFiredOnNonRetryable(t *testing.T) {
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusBadRequest, "bad request"), nil
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+
+	fired := 0
+	ctx := WithRetryObserver(context.Background(), func(RetryInfo) { fired++ })
+	if _, err := client.Chat(ctx, ChatRequest{Model: "test"}); err == nil {
+		t.Fatal("expected error")
+	}
+	if fired != 0 {
+		t.Errorf("observer must not fire on non-retryable status, fired %d times", fired)
+	}
+}
+
+func TestLLMClient_Chat_RetryObserver_FiresOnStatusRetry(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				return newTestResponse(http.StatusServiceUnavailable, "busy"), nil
+			}
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+
+	var infos []RetryInfo
+	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { infos = append(infos, info) })
+	if _, err := client.Chat(ctx, ChatRequest{Model: "test"}); err != nil {
+		t.Fatalf("expected success after retry, got %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 retry notification, got %d", len(infos))
+	}
+	got := infos[0]
+	if got.Reason != RetryReasonStatus {
+		t.Errorf("expected Reason=status, got %q", got.Reason)
+	}
+	if got.Attempt != 1 {
+		t.Errorf("expected Attempt=1, got %d", got.Attempt)
+	}
+	if got.MaxAttempts != httpRetryMaxAttempts {
+		t.Errorf("expected MaxAttempts=%d, got %d", httpRetryMaxAttempts, got.MaxAttempts)
+	}
+	if got.Status != http.StatusServiceUnavailable {
+		t.Errorf("expected Status=503, got %d", got.Status)
+	}
+}
+
+func TestLLMClient_Chat_RetryObserver_FiresOnTransportRetry(t *testing.T) {
+	var calls int
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				return nil, errors.New("unexpected EOF")
+			}
+			return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+
+	var infos []RetryInfo
+	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { infos = append(infos, info) })
+	if _, err := client.Chat(ctx, ChatRequest{Model: "test"}); err != nil {
+		t.Fatalf("expected success after retry, got %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 retry notification, got %d", len(infos))
+	}
+	got := infos[0]
+	if got.Reason != RetryReasonTransport {
+		t.Errorf("expected Reason=transport, got %q", got.Reason)
+	}
+	if got.Attempt != 1 {
+		t.Errorf("expected Attempt=1, got %d", got.Attempt)
+	}
+	if !strings.Contains(got.Error, "unexpected EOF") {
+		t.Errorf("expected transport error text in Error, got %q", got.Error)
+	}
+	if got.ErrClass != "connection-closed" {
+		t.Errorf("expected ErrClass=connection-closed, got %q", got.ErrClass)
+	}
+	if got.Status != 0 {
+		t.Errorf("expected Status=0 for transport retry, got %d", got.Status)
+	}
+}
+
+// TestClassifyTransportError locks the stable transport-error buckets so the
+// generic "unexpected EOF" surfacing cannot regress into an undiagnosable error.
+func TestClassifyTransportError(t *testing.T) {
+	resetOpErr := &net.OpError{Op: "read", Err: syscall.ECONNRESET}
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil", nil, ""},
+		{"raw unexpected EOF", io.ErrUnexpectedEOF, "connection-closed"},
+		{"error text unexpected EOF", errors.New("unexpected EOF"), "connection-closed"},
+		{"url wrapped EOF", &url.Error{Op: "Post", URL: "https://x", Err: io.ErrUnexpectedEOF}, "connection-closed"},
+		{"connection reset", syscall.ECONNRESET, "connection-reset"},
+		{"net op connection reset", resetOpErr, "connection-reset"},
+		{"net timeout", timeoutNetError{}, "timeout"},
+		{"url wrapped timeout", &url.Error{Op: "Post", URL: "https://x", Err: timeoutNetError{}}, "timeout"},
+		{"http2 stream", errors.New("http2: stream closed"), "http2"},
+		{"http2 with EOF text", errors.New("http2: stream closed: unexpected EOF"), "http2"},
+		{"tls handshake", errors.New("tls: handshake failure"), "tls"},
+		{"tls with EOF text", errors.New("tls: use of closed connection: EOF"), "tls"},
+		{"unknown", errors.New("boom"), "network"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyTransportError(tt.err); got != tt.want {
+				t.Errorf("classifyTransportError(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestLLMClient_Chat_TransportErrorClassifiedOnExhaustion verifies that when
+// transport retries are exhausted the surfaced error carries the classified
+// category AND the original transport text (via %w) so the caller sees both
+// the diagnostic bucket and the raw error.
+func TestLLMClient_Chat_TransportErrorClassifiedOnExhaustion(t *testing.T) {
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, errors.New("unexpected EOF")
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{"connection-closed", "after 3 attempts", "unexpected EOF"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected %q in error, got %q", want, err.Error())
+		}
+	}
+}
+
+// TestNewLLMClient_URLNormalization guards against the doubled /v1 regression
+// that masked real upstream errors behind a confusing transport failure.
+func TestNewLLMClient_URLNormalization(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		want    string
+	}{
+		{"bare host", "https://api.example.com", "https://api.example.com/v1/chat/completions"},
+		{"trailing slash", "https://api.example.com/", "https://api.example.com/v1/chat/completions"},
+		{"already has /v1", "https://api.example.com/v1", "https://api.example.com/v1/chat/completions"},
+		{"trailing /v1 slash", "https://api.example.com/v1/", "https://api.example.com/v1/chat/completions"},
+		{"full chat endpoint", "https://api.example.com/v1/chat/completions", "https://api.example.com/v1/chat/completions"},
+		{"chat endpoint without v1", "https://api.example.com/chat/completions", "https://api.example.com/chat/completions"},
+		{"nvidia manifest default", "https://integrate.api.nvidia.com/v1", "https://integrate.api.nvidia.com/v1/chat/completions"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewLLMClient(tt.baseURL, "test-model", nil, nil)
+			got := client.(*LLMClient).chatCompletionsURL
+			if got != tt.want {
+				t.Errorf("chatCompletionsURL = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLLMClient_Chat_RetryObserver_NotFiredOnFinalAttempt(t *testing.T) {
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusServiceUnavailable, "busy"), nil
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+
+	var infos []RetryInfo
+	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { infos = append(infos, info) })
+	if _, err := client.Chat(ctx, ChatRequest{Model: "test"}); err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	// With 3 max attempts and every attempt failing, retries happen for attempts
+	// 1 and 2 only; the final (3rd) attempt failure does not trigger a retry.
+	if len(infos) != httpRetryMaxAttempts-1 {
+		t.Errorf("expected %d retry notifications (all but final attempt), got %d", httpRetryMaxAttempts-1, len(infos))
+	}
+}
+
 func TestLLMClient_Stream_RetriesOn503ThenSucceeds(t *testing.T) {
 	var calls int
 	body := "data: {\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}]}\ndata: [DONE]\n"
@@ -364,6 +590,47 @@ func TestClientStreamTimeout(t *testing.T) {
 	}
 	if duration > 150*time.Millisecond {
 		t.Errorf("stream took too long to timeout: %v", duration)
+	}
+}
+
+func TestClientStream_LargeAndCRLF(t *testing.T) {
+	// Large multi-line payload (forces buffered multi-byte reads) plus a
+	// CRLF-terminated line, asserting every chunk arrives intact and in order.
+	// Guards the SSE reader against data loss/truncation across the refactor.
+	large := strings.Repeat("x", 100000)
+	body := "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"" + large + "\"}}]}\r\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"b\"}}]}\n" +
+		"data: [DONE]\n"
+
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return newTestResponse(http.StatusOK, body), nil
+		}),
+	}
+
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	ch, err := client.Stream(context.Background(), ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	var contents []string
+	for resp := range ch {
+		if len(resp.Choices) > 0 {
+			contents = append(contents, resp.Choices[0].Delta.Content)
+		}
+	}
+
+	want := []string{"a", large, "b"}
+	if len(contents) != len(want) {
+		t.Fatalf("expected %d chunks, got %d: %q", len(want), len(contents), contents)
+	}
+	for i := range want {
+		if contents[i] != want[i] {
+			t.Errorf("chunk %d: expected len=%d got len=%d (truncated/corrupt)",
+				i, len(want[i]), len(contents[i]))
+		}
 	}
 }
 
@@ -554,7 +821,6 @@ func TestLLMClient_OutputCap400_TypedError(t *testing.T) {
 	}
 }
 
-
 // do not leak the ctx-done force-close goroutine when the response completes
 // normally (the context is never cancelled). Baseline goroutine count is taken
 // before the call and compared after, with a small retry window to let any
@@ -618,4 +884,115 @@ func TestLLMClient_NoGoroutineLeakOnNormalCompletion(t *testing.T) {
 	}
 }
 
+// TestNewLLMClient_DefaultTransportSelection verifies cloud and local clients
+// pick the matching HTTP/1.1-only pooled transport when no custom httpClient is
+// supplied: cloud gets the 45s response-header timeout (NVIDIA free tier holds
+// saturated requests ~60s then drops the connection), local keeps the long
+// timeout for slow prefill.
+func TestNewLLMClient_DefaultTransportSelection(t *testing.T) {
+	cloud := NewLLMClient("https://api.example.com", "m", nil, nil).(*LLMClient)
+	if cloud.httpClient == nil {
+		t.Fatal("expected cloud client to build a default httpClient")
+	}
+	ctr, ok := cloud.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("cloud transport type = %T, want *http.Transport", cloud.httpClient.Transport)
+	}
+	if ctr != network.CloudLLMChatTransport {
+		t.Error("cloud client must use network.CloudLLMChatTransport")
+	}
 
+	local := NewLLMClientForLocal("http://127.0.0.1:8080", "m", nil, nil).(*LLMClient)
+	if local.httpClient == nil {
+		t.Fatal("expected local client to build a default httpClient")
+	}
+	ltr, ok := local.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("local transport type = %T, want *http.Transport", local.httpClient.Transport)
+	}
+	if ltr != network.LLMChatTransport {
+		t.Error("local client must use network.LLMChatTransport")
+	}
+}
+
+// TestLLMClient_TransportExhaustionReturnsTypedError verifies that when
+// transport retries are exhausted the surfaced error is the typed
+// *TransportError carrying the classified bucket, attempt count, elapsed time,
+// URL, and the wrapped original error — so the UI/logs can explain WHY (e.g.
+// NVIDIA dropping the connection) instead of a bare "unexpected EOF".
+func TestLLMClient_TransportExhaustionReturnsTypedError(t *testing.T) {
+	httpClient := &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, errors.New("unexpected EOF")
+		}),
+	}
+	client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+	start := time.Now()
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var terr *TransportError
+	if !errors.As(err, &terr) {
+		t.Fatalf("expected *TransportError, got %T: %v", err, err)
+	}
+	if terr.Class != "connection-closed" {
+		t.Errorf("Class = %q, want connection-closed", terr.Class)
+	}
+	if terr.Attempts != httpRetryMaxAttempts {
+		t.Errorf("Attempts = %d, want %d", terr.Attempts, httpRetryMaxAttempts)
+	}
+	if terr.Elapsed < time.Duration(0) || time.Since(start)-terr.Elapsed > time.Second {
+		t.Errorf("Elapsed = %v, want ≈ time since call start", terr.Elapsed)
+	}
+	if terr.URL != "http://example.test/v1/chat/completions" {
+		t.Errorf("URL = %q, want chat endpoint", terr.URL)
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) && !strings.Contains(err.Error(), "unexpected EOF") {
+		t.Errorf("expected wrapped original error text, got %q", err.Error())
+	}
+	// Human hint must be present so the surfaced error explains the failure.
+	if !strings.Contains(err.Error(), "closed the connection before responding") {
+		t.Errorf("expected human hint in error, got %q", err.Error())
+	}
+}
+
+// TestLLMClient_CloudHeaderTimeoutClassifiesAsTimeout verifies the cloud
+// transport's shorter ResponseHeaderTimeout turns a provider that accepts the
+// connection but never responds into a clean "timeout" classification instead
+// of an opaque transport failure. The test server accepts then stalls headers.
+func TestLLMClient_CloudHeaderTimeoutClassifiesAsTimeout(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Accept the request and hold the connection open without writing
+		// response headers, so the client's ResponseHeaderTimeout fires.
+		<-release
+	}))
+	// Close order matters: release the handler BEFORE srv.Close() so it does
+	// not wait on a handler that is blocked on the channel.
+	defer func() { close(release); srv.Close() }()
+
+	client := NewLLMClient(srv.URL, "test-model", nil, nil).(*LLMClient)
+	// Override the transport's header timeout to keep the test fast while
+	// still exercising the real timeout classification path. The client
+	// captured the transport pointer at construction, so the mutation is
+	// visible to its requests.
+	orig := network.CloudLLMChatTransport.ResponseHeaderTimeout
+	network.CloudLLMChatTransport.ResponseHeaderTimeout = 100 * time.Millisecond
+	defer func() { network.CloudLLMChatTransport.ResponseHeaderTimeout = orig }()
+
+	_, err := client.Chat(context.Background(), ChatRequest{Model: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var terr *TransportError
+	if !errors.As(err, &terr) {
+		t.Fatalf("expected *TransportError, got %T: %v", err, err)
+	}
+	if terr.Class != "timeout" {
+		t.Errorf("Class = %q, want timeout (got %q)", terr.Class, err.Error())
+	}
+	if !strings.Contains(err.Error(), "did not respond within the client timeout") {
+		t.Errorf("expected timeout hint in error, got %q", err.Error())
+	}
+}

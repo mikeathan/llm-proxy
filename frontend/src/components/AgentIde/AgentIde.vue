@@ -65,6 +65,7 @@ const toast = useToast();
 const {
   runningSessions,
   reconcileRunning,
+  reconcileRunningConversation,
   loadSession,
   currentSessionId,
 } = useAssistant()
@@ -79,8 +80,11 @@ const recordingsEnabled = ref(false);
 
 // Authoritative per-workspace "running" source. Drives the chat-menu glow and
 // heals sticky local running flags when the backend reports nothing running.
-const { assistantRunning } = useRunningActivity(selectedWorkspace)
+const { assistantRunning, assistantConversationId } = useRunningActivity(selectedWorkspace)
 watch(assistantRunning, (running) => reconcileRunning(running))
+// When the backend reports which conversation is running, mark exactly that
+// history row as running so the indicator survives a page refresh.
+watch(assistantConversationId, (id) => reconcileRunningConversation(id))
 
 const { isMobile } = useResponsiveLayout();
 const { workspaceHistory, refreshHistory } = useWorkspaceHistory();

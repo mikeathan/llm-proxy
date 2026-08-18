@@ -3,6 +3,9 @@ package handlers
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/testing/mocks"
@@ -277,6 +280,58 @@ func TestEnrichResolvesContextViaOrchestrator(t *testing.T) {
 				t.Fatalf("Metadata.Nctx = %v, want %d (meta=%+v)", req.Metadata, c.wantNctx, c.meta)
 			}
 		})
+	}
+}
+
+// TestValidateLoopStrategy verifies the boundary validation: empty and known
+// values pass; unknown non-empty values are rejected with a 400 listing the
+// registry-derived valid values.
+func TestValidateLoopStrategy(t *testing.T) {
+	cases := []struct {
+		name       string
+		value      string
+		wantReject bool
+	}{
+		{"empty passes", "", false},
+		{"react passes", "react", false},
+		{"plan_execute passes", "plan_execute", false},
+		{"unknown rejected", "map_reduce", true},
+		{"garbage rejected", "nonsense", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			ok := validateLoopStrategy(rr, tc.value)
+			if tc.wantReject {
+				if ok {
+					t.Fatal("expected rejection, got ok")
+				}
+				if rr.Code != http.StatusBadRequest {
+					t.Errorf("expected 400, got %d", rr.Code)
+				}
+				if !strings.Contains(rr.Body.String(), "react") {
+					t.Errorf("expected valid-values hint listing react, got %q", rr.Body.String())
+				}
+				return
+			}
+			if !ok {
+				t.Fatal("expected acceptance, got rejection")
+			}
+			if rr.Code != http.StatusOK && rr.Code != 0 {
+				t.Errorf("expected no error write, got %d", rr.Code)
+			}
+		})
+	}
+}
+
+// TestHasModelOverrides_LoopStrategy verifies a configured loop_strategy counts
+// as a persisted override (settings.yml round-trip) like the other tuning fields.
+func TestHasModelOverrides_LoopStrategy(t *testing.T) {
+	if !hasModelOverrides(models.ModelConfig{LoopStrategy: models.LoopStrategyReact}) {
+		t.Error("expected loop_strategy override to count as an override")
+	}
+	if hasModelOverrides(models.ModelConfig{}) {
+		t.Error("expected empty config to have no overrides")
 	}
 }
 

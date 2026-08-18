@@ -2,7 +2,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { MetricsApiService } from '../../services/monitoring/metricsService'
 import { DEFAULT_LOG_LEVEL, POLL_INTERVAL_MS } from '../../constants/api'
 import type { SystemMetrics } from '../../types/metrics'
-import type { LogLevel } from '../../constants/api'
+import type { LogLevel } from '../../types/api'
 
 const metrics = ref<SystemMetrics | null>(null)
 const logLevel = ref<LogLevel>(DEFAULT_LOG_LEVEL)

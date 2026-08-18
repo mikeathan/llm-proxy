@@ -2,12 +2,93 @@ package assistant
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
 )
+
+// TestApplyRequestConfig covers the shared per-model request-config helper
+// (temperature + reasoning wire params) used by both the turn loop
+// (buildChatRequest) and plan generation (ExecutionPlanStrategy.Generate).
+// TestResolveStreamChunk covers the shared Delta→Message stream-field
+// resolution used by both processStream and plan-generation streaming.
+func TestResolveStreamChunk(t *testing.T) {
+	t.Run("delta wins when present", func(t *testing.T) {
+		chunk := resolveStreamChunk(proxy.Choice{
+			Delta:   proxy.Message{Content: "delta", ReasoningContent: "dr"},
+			Message: proxy.Message{Content: "message", ReasoningContent: "mr"},
+		})
+		if chunk.Content != "delta" || chunk.ReasoningContent != "dr" {
+			t.Errorf("expected delta fields to win, got %+v", chunk)
+		}
+	})
+	t.Run("message fallback when delta empty", func(t *testing.T) {
+		chunk := resolveStreamChunk(proxy.Choice{
+			Message: proxy.Message{Content: "message", ReasoningContent: "mr", Reasoning: "opaque"},
+		})
+		if chunk.Content != "message" || chunk.ReasoningContent != "mr" || chunk.Reasoning != "opaque" {
+			t.Errorf("expected message fallback, got %+v", chunk)
+		}
+	})
+	t.Run("reasoning details fallback", func(t *testing.T) {
+		chunk := resolveStreamChunk(proxy.Choice{
+			Message: proxy.Message{ReasoningDetails: []models.ReasoningDetail{{Type: "thinking", Text: "detail"}}},
+		})
+		if len(chunk.ReasoningDetails) != 1 || chunk.ReasoningDetails[0].Text != "detail" {
+			t.Errorf("expected message reasoning_details fallback, got %+v", chunk.ReasoningDetails)
+		}
+	})
+	t.Run("empty choice yields empty chunk", func(t *testing.T) {
+		chunk := resolveStreamChunk(proxy.Choice{})
+		if chunk.Content != "" || chunk.ReasoningContent != "" || chunk.Reasoning != "" || len(chunk.ReasoningDetails) != 0 {
+			t.Errorf("expected empty chunk, got %+v", chunk)
+		}
+	})
+}
+
+func TestApplyRequestConfig(t *testing.T) {
+	newAgent := func(temperature float64) *Agent {
+		return &Agent{
+			config: AgentConfig{
+				Temperature:     temperature,
+				ProviderType:    models.ProviderLocal,
+				WorkloadClass:   models.WorkloadLocal,
+				ReasoningSpec:   reasoning.ReasoningSpec{Mode: reasoning.ModeThinkTokens, Effort: reasoning.EffortMedium, Budget: 512},
+				ReasoningBudget: 512,
+			},
+			deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()},
+		}
+	}
+
+	t.Run("applies temperature and reasoning wire params", func(t *testing.T) {
+		req := proxy.ChatRequest{}
+		newAgent(0.7).applyRequestConfig(&req)
+		if req.Temperature != 0.7 {
+			t.Errorf("expected temperature 0.7, got %v", req.Temperature)
+		}
+		if req.ThinkingBudgetTokens != 512 {
+			t.Errorf("expected thinking_budget_tokens 512, got %d", req.ThinkingBudgetTokens)
+		}
+	})
+
+	t.Run("zero temperature leaves field unset", func(t *testing.T) {
+		req := proxy.ChatRequest{}
+		newAgent(0).applyRequestConfig(&req)
+		if req.Temperature != 0 {
+			t.Errorf("expected temperature 0 (unset), got %v", req.Temperature)
+		}
+		// Reasoning params still apply regardless of temperature.
+		if req.ThinkingBudgetTokens != 512 {
+			t.Errorf("expected thinking_budget_tokens 512, got %d", req.ThinkingBudgetTokens)
+		}
+	})
+}
 
 func TestContainsSubstantiveToolCall(t *testing.T) {
 	tests := []struct {
@@ -418,13 +499,17 @@ func assertOrderedSnapshots(t *testing.T, kind string, snapshots []string, want 
 
 func TestProcessStream_NotifyCoalescing(t *testing.T) {
 	const chunks = 200
-	const chunkLen = 11
 	deltas := make([]proxy.Message, chunks)
 	for i := range deltas {
-		deltas[i] = proxy.Message{Content: strings.Repeat("x", chunkLen)}
+		// Distinct content per chunk so the stream is not repetition-dominated
+		// (the repetition guard must not truncate this coalescing test).
+		deltas[i] = proxy.Message{Content: fmt.Sprintf("chunk-%04d-%s", i, strings.Repeat("q", 12))}
 	}
 	_, content, _ := runNotifyCoalescingFeed(t, deltas)
-	want := strings.Repeat("x", chunks*chunkLen)
+	want := ""
+	for _, d := range deltas {
+		want += d.Content
+	}
 	assertOrderedSnapshots(t, "EventToolStream", content, want)
 	if len(content) >= chunks {
 		t.Errorf("notify was not coalesced: got %d events for %d chunks (want < %d)", len(content), chunks, chunks)
@@ -448,17 +533,20 @@ func TestProcessStream_NotifyCoalescing_Reasoning(t *testing.T) {
 
 func TestProcessStream_NotifyCoalescing_ReasoningThenContent(t *testing.T) {
 	const perPhase = 100
-	const chunkLen = 11
 	deltas := make([]proxy.Message, 0, perPhase*2)
 	for i := 0; i < perPhase; i++ {
-		deltas = append(deltas, proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen)})
+		deltas = append(deltas, proxy.Message{ReasoningContent: strings.Repeat("r", 11)})
 	}
 	for i := 0; i < perPhase; i++ {
-		deltas = append(deltas, proxy.Message{Content: strings.Repeat("x", chunkLen)})
+		// Distinct content per chunk so the stream is not repetition-dominated.
+		deltas = append(deltas, proxy.Message{Content: fmt.Sprintf("chunk-%04d-%s", i, strings.Repeat("q", 12))})
 	}
 	reasoning, content, _ := runNotifyCoalescingFeed(t, deltas)
-	wantReasoning := strings.Repeat("r", perPhase*chunkLen)
-	wantContent := strings.Repeat("x", perPhase*chunkLen)
+	wantReasoning := strings.Repeat("r", perPhase*11)
+	wantContent := ""
+	for _, d := range deltas[perPhase:] {
+		wantContent += d.Content
+	}
 	assertOrderedSnapshots(t, "EventReasoning", reasoning, wantReasoning)
 	assertOrderedSnapshots(t, "EventToolStream", content, wantContent)
 	if len(reasoning) >= perPhase {
@@ -493,5 +581,200 @@ func TestProcessStream_NotifyCoalescing_Dedupe(t *testing.T) {
 	}
 	if len(reasoning) >= stall+2 {
 		t.Errorf("dedupe failed: got %d events for %d chunks (want < %d)", len(reasoning), len(deltas), len(deltas))
+	}
+}
+
+func TestIsRepetitionDominated(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty fails open", "", false},
+		{"short input fails open", "hello world", false},
+		{"distinct report not repetition", distinctReportProse(40), false},
+		{"distinct structured lines not repetition", distinctStructuredLines(30), false},
+		{"single-line repeated closing tag is repetition", "intro" + strings.Repeat("</konjll>", 60), true},
+		{"repeated identical line dominates", strings.Repeat("a long repeated line of text that is clearly echoing.\n", 12), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRepetitionDominated(tt.in); got != tt.want {
+				t.Errorf("isRepetitionDominated() = %v, want %v (len=%d)", got, tt.want, len(tt.in))
+			}
+		})
+	}
+}
+
+// distinctReportProse builds varied sentences with no shared 60+ char window.
+func distinctReportProse(n int) string {
+	words := []string{"disk", "uptime", "directory", "file", "cache", "storage", "usage", "report", "system", "health"}
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "The %s value was measured during phase %c at %d units with expected margins.\n",
+			words[i%len(words)], rune('a'+i%26), i*7)
+	}
+	return b.String()
+}
+
+// distinctStructuredLines builds fully distinct lines so no 60+ char window
+// is shared between any two lines.
+func distinctStructuredLines(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "%c%c%02d %s %s %s\n",
+			rune('a'+i%26), rune('A'+i%26), i,
+			strings.Repeat(string(rune('x'+i%26)), 10),
+			strings.Repeat(string(rune('y'+i%26)), 10),
+			strings.Repeat(string(rune('z'+i%26)), 10))
+	}
+	return b.String()
+}
+
+// feedRepeatedContent emits repeated fragments (the degenerate-loop shape)
+// until ctx is done or totalLen is reached, whichever comes first.
+func feedRepeatedContent(ctx context.Context, fragment string, totalLen int) <-chan *proxy.ChatResponse {
+	ch := make(chan *proxy.ChatResponse, 1)
+	go func() {
+		defer close(ch)
+		sent := 0
+		for sent < totalLen {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			chunk := fragment
+			if remaining := totalLen - sent; remaining < len(chunk) {
+				chunk = chunk[:remaining]
+			}
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: chunk}}}}
+			sent += len(chunk)
+		}
+	}()
+	return ch
+}
+
+func newRepetitionTestAgent() *Agent {
+	return &Agent{
+		config: AgentConfig{Channel: "test", MaxTokens: 1_000_000},
+		deps: AgentRuntimeDeps{
+			Logger:   logging.NewNopLogger(),
+			Observer: func(ev AgentEvent) {},
+		},
+	}
+}
+
+func TestProcessStream_RepetitionGuard_TerminatesDegenerateLoop(t *testing.T) {
+	agent := newRepetitionTestAgent()
+	var fullMsg proxy.Message
+	fullMsg.Role = proxy.AssistantRole
+	// ~900 chars of a repeated closing tag with no tool calls: the degenerate
+	// loop shape from the workspace-health-test incident.
+	err := agent.processStream(context.Background(), feedRepeatedContent(context.Background(), "</konjll>", 900), &fullMsg, false, false)
+	if err != nil {
+		t.Fatalf("processStream returned unexpected error: %v", err)
+	}
+	if fullMsg.Content != "" {
+		t.Errorf("repetition guard should discard garbage content, got %d chars", len(fullMsg.Content))
+	}
+	if fullMsg.ReasoningContent != "[stuck]" {
+		t.Errorf("repetition guard should signal [stuck], got %q", fullMsg.ReasoningContent)
+	}
+}
+
+func TestProcessStream_RepetitionGuard_DoesNotTruncateDistinctContent(t *testing.T) {
+	agent := newRepetitionTestAgent()
+	var fullMsg proxy.Message
+	fullMsg.Role = proxy.AssistantRole
+	content := distinctReportProse(60)
+	ch := make(chan *proxy.ChatResponse, 1)
+	go func() {
+		defer close(ch)
+		for i := 0; i < len(content); i += 11 {
+			end := i + 11
+			if end > len(content) {
+				end = len(content)
+			}
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: content[i:end]}}}}
+		}
+	}()
+	err := agent.processStream(context.Background(), ch, &fullMsg, false, false)
+	if err != nil {
+		t.Fatalf("processStream returned unexpected error: %v", err)
+	}
+	if fullMsg.Content != content {
+		t.Errorf("distinct content should not be truncated: got %d chars, want %d", len(fullMsg.Content), len(content))
+	}
+	if fullMsg.ReasoningContent != "" {
+		t.Errorf("distinct content should not be marked stuck, got %q", fullMsg.ReasoningContent)
+	}
+}
+
+func TestProcessStream_RepetitionGuard_PreservesNativeToolCalls(t *testing.T) {
+	agent := newRepetitionTestAgent()
+	var fullMsg proxy.Message
+	fullMsg.Role = proxy.AssistantRole
+	ch := make(chan *proxy.ChatResponse, 1)
+	go func() {
+		defer close(ch)
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{
+			Content:   strings.Repeat("</konjll>", 50),
+			ToolCalls: []proxy.ToolCall{{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: `{"path":"x"}`}}},
+		}}}}
+	}()
+	err := agent.processStream(context.Background(), ch, &fullMsg, false, false)
+	if err != nil {
+		t.Fatalf("processStream returned unexpected error: %v", err)
+	}
+	if len(fullMsg.ToolCalls) != 1 {
+		t.Errorf("real tool calls must survive the repetition guard, got %d", len(fullMsg.ToolCalls))
+	}
+}
+
+func TestProcessStream_DurationCap_TerminatesNoProgressStream(t *testing.T) {
+	oldDuration := streamMaxDuration
+	streamMaxDuration = 50 * time.Millisecond
+	t.Cleanup(func() { streamMaxDuration = oldDuration })
+	oldBeat := streamHeartbeatInterval
+	streamHeartbeatInterval = 20 * time.Millisecond
+	t.Cleanup(func() { streamHeartbeatInterval = oldBeat })
+
+	agent := newRepetitionTestAgent()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var fullMsg proxy.Message
+	fullMsg.Role = proxy.AssistantRole
+	// Distinct, endless content with no tool calls and no natural completion:
+	// only the duration cap can terminate it (the repetition guard must not,
+	// because the content is varied).
+	fragments := strings.Split(distinctReportProse(80), "\n")
+	ch := make(chan *proxy.ChatResponse, 1)
+	go func() {
+		defer close(ch)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: fragments[i%len(fragments)]}}}}
+		}
+	}()
+	err := agent.processStream(ctx, ch, &fullMsg, false, false)
+	if err != nil {
+		t.Fatalf("processStream returned unexpected error: %v", err)
+	}
+	// The duration cap terminates the stream but preserves the accumulated
+	// content (it may be a genuine slow report), so it is not marked [stuck]
+	// and no garbage content was cleared.
+	if fullMsg.ReasoningContent == "[stuck]" {
+		t.Error("duration cap should preserve content, not signal [stuck]")
+	}
+	if fullMsg.Content == "" {
+		t.Error("duration cap should preserve the accumulated content")
+	}
+	if len(fullMsg.ToolCalls) != 0 {
+		t.Errorf("duration cap should only fire with no tool calls, got %d", len(fullMsg.ToolCalls))
 	}
 }

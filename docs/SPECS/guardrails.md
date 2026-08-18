@@ -24,10 +24,24 @@ leaking secrets. Blocked calls pause for user approval via a decision flow.
 Tool calls are validated in order:
 
 1. **Global** — Secret pattern detection (API keys), user-defined blocked patterns (regex).
-2. **Terminal** — Command whitelist, blocked patterns, path jail prevention, timeout enforcement,
-   external path access (workspace-level only).
-3. **Filesystem** — Path validation, extension whitelist, filename blocking, read-only enforcement,
-   path jail.
+2. **Terminal** — Command whitelist, blocked patterns, blocked filenames (inherited from the
+   filesystem `blocked_filenames` list **plus** the internal invariant paths, merged via
+   `effectiveBlockedFilenames`), path jail prevention, timeout enforcement, external path
+   access (workspace-level only). In addition to the input-side denial, terminal **output**
+   is scrubbed of blocked-path references (`redactBlockedPaths`): recursive commands
+   (`find .`, `du -sh .`, `ls -la`, `tree`) emit blocked paths even when no explicit operand
+   was written, so the same invariant is enforced on output before the result reaches the
+   agent.
+3. **Filesystem** — Path validation, extension whitelist, filename blocking (user
+   `blocked_filenames` merged with internal invariant paths), read-only enforcement, path
+   jail. Directory listings hide the same merged blocked set — an internal path (`.sandbox`)
+   must not even appear as an entry.
+
+Internal invariant paths (currently `.sandbox`, the sandbox runtime directory) are defined
+once in `tools/security.go` (`internalBlockedPaths`) and enforced uniformly across every
+surface — filesystem validation, directory listings, terminal input, terminal output — via
+the shared `blockedFilename` / `blockedPathEntry` helpers. Adding a new internal path is a
+one-line list entry; no per-tool code.
 4. **Network** — LAN/Internet boundary, domain blocking, IP blocking.
 5. **Search** — Query length limits, site blocking.
 6. **Communication** — Review requirement, message limits.
@@ -47,10 +61,21 @@ When a tool call is blocked:
 
 1. `ValidateToolCall()` fails → creates `GuardrailBlockedPayload` with `decision_id`.
 2. `onGuardrail` callback registers a channel in `GuardrailDecisionStore` + publishes SSE event.
-3. Agent blocks on channel for up to 60s waiting for user decision.
+3. Agent blocks on channel for up to `GuardrailApprovalTimeout` (default 5 min, per-model configurable via `guardrail_approval_timeout_seconds`) waiting for user decision.
 4. User approves/denies via `POST /admin/api/conversation/guardrail-decision`.
 5. If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
 6. Agent continues or fails based on decision.
+
+**Automation runs never wait for approval** (Constitution II.10): the
+`automation` channel has no interactive user, so non-security guardrail
+violations are denied immediately — the tool result is fed back to the model
+with hard policy guidance ("Action blocked by security policy. Do NOT retry,
+rephrase, or attempt the same outcome via a different path") and the run
+continues. Waiting for an approval prompt in an unattended run previously
+burned the full `GuardrailApprovalTimeout` and aborted the run with a
+misleading `context deadline exceeded` when the run's own deadline expired.
+Security-boundary violations are always synchronous rejections regardless of
+channel.
 
 Synchronous rejections (no approval flow — e.g. path/workspace boundary checks that
 never prompt) publish a `guardrail_violation` lifecycle event with payload `{tool, error}`.
@@ -79,6 +104,20 @@ Each tool manifest (`manifests/*.json`) defines default guardrails:
 
 `TerminalGuardrailsConfig.AllowedExternalPaths` lets a workspace-level override grant the agent
 access to absolute paths outside the workspace jail. Constrained to workspace-level config only.
+
+### 6. Schema/Policy Consistency (Static Tool Availability)
+
+`DisabledToolNames(workspaceID)` returns the tool names whose category has a hard "disabled by
+policy" gate (`Enabled == false`): `notify_user` (Communication), `internet_search` (Search),
+`fetch_url` / `scan_local_network` / `get_network_info` (Network). Workspace overrides are merged
+exactly as `ValidateToolCall` resolves them, and tools with an active in-memory override are
+skipped. Terminal/filesystem categories are allowlist-based (no `Enabled` hard gate) and are not
+covered.
+
+The agent tool schema is derived from this set at one narrow waist (`resolveToolProvider` in
+`NewAgent`), so no strategy or channel can ever observe a tool the policy statically disables.
+`RequireReview`, allowlists, and blocked-domain checks remain execution-time gates — they never
+hide a tool from the schema.
 
 ## III. Error Handling
 

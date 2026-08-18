@@ -1,30 +1,5 @@
 import type { ProviderType, AgentDefaults } from "../../types/admin";
-import type { Model } from "../../types/model";
-
-export interface ModelForm {
-  key: string;
-  id: string;
-  name: string;
-  filename: string;
-  port: number;
-  args: string;
-  max_steps: number;
-  context_budget: number;
-  max_tokens: number;
-  temperature: number;
-  reasoning_budget: number;
-  reasoning_enabled: boolean;
-  timeout_minutes: number;
-  slot_timeout: number;
-  tool_call_format: string;
-  prefill: boolean;
-  tool_timeout_seconds: number;
-  filesystem_tool_timeout_seconds: number;
-  max_plan_duration_minutes: number;
-  max_plan_steps: number;
-  guardrail_timeout_seconds: number;
-  guardrail_timeout_behavior: string;
-}
+import type { LoopStrategy, LoopStrategyOption, LoopStrategyOptionKey, Model, ModelForm, TuningSettings } from "../../types/model";
 
 /**
  * Returns the provider's default prefill flag.  tool_call_format is intentionally
@@ -64,7 +39,7 @@ export function isLocalEndpoint(baseUrl?: string): boolean {
 export function getDefaultModelSettings(
   provider: ProviderType,
   defaults: AgentDefaults,
-): { max_steps: number; context_budget: number; max_tokens: number; temperature: number; reasoning_budget: number; reasoning_enabled: boolean; timeout_minutes: number; tool_call_format: string; prefill: boolean; tool_timeout_seconds: number; filesystem_tool_timeout_seconds: number; max_plan_duration_minutes: number; max_plan_steps: number; guardrail_timeout_seconds: number; guardrail_timeout_behavior: string } {
+): TuningSettings {
   return {
     max_steps: defaults.max_steps,
     context_budget: defaults.context_budget,
@@ -81,7 +56,61 @@ export function getDefaultModelSettings(
     max_plan_steps: defaults.max_plan_steps,
     guardrail_timeout_seconds: defaults.guardrail_timeout_seconds,
     guardrail_timeout_behavior: defaults.guardrail_timeout_behavior,
+    guardrail_approval_timeout_seconds: defaults.guardrail_approval_timeout_seconds,
+    loop_strategy: defaults.loop_strategy ?? "",
   };
+}
+
+/**
+ * Loop-strategy option copy. The option *list* is backend-driven
+ * (`config.loop_strategy_options`, from the strategy registry) so a new strategy
+ * needs no frontend edit; this map only carries the human-facing label/help text
+ * keyed by the known values. Unknown values fall back to the raw value.
+ */
+export const LOOP_STRATEGY_COPY: Record<
+  LoopStrategyOptionKey,
+  { label: string; description: string }
+> = {
+  react: {
+    label: "ReAct (auto)",
+    description:
+      "The model decides each next step and stops when it produces a final report. Simplest and most flexible; best default for most tasks.",
+  },
+  plan_execute: {
+    label: "Plan & Execute",
+    description:
+      "Writes a step-by-step tool plan first, then executes each step in order. Best for multi-step tool tasks; falls back to ReAct if planning fails.",
+  },
+  evaluator_optimizer: {
+    label: "Evaluator-Optimizer",
+    description:
+      "ReAct loop plus a self-review pass before finalizing (up to 2 rounds). Best for code/analysis where verifying the work matters.",
+  },
+};
+
+/**
+ * Builds the loop-strategy option list from the backend-surfaced names. Falls
+ * back to the three known values when the list is empty; unknown values get the
+ * raw value as label with no description.
+ */
+export function loopStrategyOptions(available?: string[]): LoopStrategyOption[] {
+  const names = available && available.length > 0 ? available : Object.keys(LOOP_STRATEGY_COPY);
+  return names.map((value) => {
+    const copy = LOOP_STRATEGY_COPY[value as LoopStrategyOptionKey];
+    return {
+      value,
+      label: copy?.label ?? value,
+      description: copy?.description ?? "",
+    };
+  });
+}
+
+/**
+ * Returns the description for a selected loop-strategy value (empty → react's).
+ */
+export function loopStrategyDescription(value: LoopStrategy): string {
+  const key = (value || "react") as LoopStrategyOptionKey;
+  return LOOP_STRATEGY_COPY[key]?.description ?? "";
 }
 
 /**

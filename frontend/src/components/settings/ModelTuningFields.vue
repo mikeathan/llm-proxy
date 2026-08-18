@@ -7,7 +7,8 @@ import { computed } from "vue";
 // cloud workloads are editable and prefilled from published capabilities.
 import InfoTooltip from "../common/display/InfoTooltip.vue";
 import { useTuningFieldPolicy } from "../../composables/settings/useTuningFieldPolicy";
-import type { TuningFields, WorkloadClass } from "../../types/model";
+import { loopStrategyDescription } from "../../utils/model/modelUtils";
+import type { LoopStrategyOption, TuningFields, WorkloadClass } from "../../types/model";
 import type { ProviderType, ReasoningCapability } from "../../types/admin";
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const props = defineProps<{
   provider: ProviderType;
   workloadClass: WorkloadClass;
   reasoning?: ReasoningCapability;
+  loopStrategyOptions?: LoopStrategyOption[];
 }>();
 
 const policy = useTuningFieldPolicy(props.workloadClass);
@@ -28,6 +30,12 @@ const reasoningTooltip = computed(() => {
   }
   return "Enable provider-native reasoning for this model";
 });
+
+// Helper line under the loop-strategy select: shows the copy for the currently
+// selected value (empty → react's).
+const selectedLoopStrategyDescription = computed(() =>
+  loopStrategyDescription(props.model.loop_strategy ?? ""),
+);
 </script>
 
 <template>
@@ -149,13 +157,25 @@ const reasoningTooltip = computed(() => {
     </div>
     <div class="form-group">
       <label class="form-label">Tool Call Format
-        <InfoTooltip text="How tool calls are formatted in the LLM request (native=JSON, xml=XML text)" />
+        <InfoTooltip text="How tool calls are formatted in the LLM request (native=JSON, xml=XML text). Empty = auto: cloud providers default to native, local llama.cpp/GGUF models default to XML text mode." />
       </label>
       <select v-model="model.tool_call_format" class="form-input">
-        <option value="">Default (native)</option>
+        <option value="">Auto (cloud: native · local: XML)</option>
         <option value="native">Native Tools</option>
         <option value="xml">XML Text</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Loop Strategy
+        <InfoTooltip text="Controls how the agent loops: ReAct (react), plan-first execution, or a self-review (evaluator-optimizer) loop. Empty = provider default (ReAct)." />
+      </label>
+      <select v-model="model.loop_strategy" class="form-input">
+        <option value="">Provider default (ReAct)</option>
+        <option v-for="opt in loopStrategyOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
+      <p class="form-helper">{{ selectedLoopStrategyDescription }}</p>
     </div>
     <div class="form-group">
       <label class="form-label">Prefill
@@ -212,6 +232,12 @@ const reasoningTooltip = computed(() => {
         <option value="fail-closed">Fail Closed (reject)</option>
       </select>
     </div>
+    <div class="form-group">
+      <label class="form-label">Guardrail Approval Timeout (sec)
+        <InfoTooltip text="How long the agent waits for your allow/deny decision after a guardrail block. 0 = use global default (5 min)" />
+      </label>
+      <input v-model.number="model.guardrail_approval_timeout_seconds" type="number" class="form-input" placeholder="300" min="0" max="3600" step="5" />
+    </div>
   </div>
 </template>
 
@@ -230,6 +256,10 @@ const reasoningTooltip = computed(() => {
 
 .form-label {
   @apply block text-xs font-semibold text-gray-400;
+}
+
+.form-helper {
+  @apply text-xs text-gray-500;
 }
 
 .form-input {

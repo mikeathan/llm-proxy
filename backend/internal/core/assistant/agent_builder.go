@@ -1,8 +1,6 @@
 package assistant
 
 import (
-	"context"
-
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
@@ -44,6 +42,21 @@ func (b *AgentBuilder) WithGuardrails() *AgentBuilder {
 
 func (b *AgentBuilder) WithWorkspaceID(ws string) *AgentBuilder {
 	b.opts.WorkspaceID = ws
+	return b
+}
+
+// WithExcludedTools constrains the exposed tool schema for this agent (e.g.
+// channel-scoped exclusions). Combined with guardrail policy in NewAgent.
+func (b *AgentBuilder) WithExcludedTools(tools []string) *AgentBuilder {
+	b.opts.ExcludedTools = tools
+	return b
+}
+
+// WithAllowedTools restricts the exposed tool schema to the given allowlist for
+// this agent (e.g. unattended automation tool sets). Combined with guardrail
+// policy in NewAgent.
+func (b *AgentBuilder) WithAllowedTools(tools []string) *AgentBuilder {
+	b.opts.AllowedTools = tools
 	return b
 }
 
@@ -90,17 +103,12 @@ func (b *AgentBuilder) WithHotMemory(enabled bool) *AgentBuilder {
 	return b
 }
 
-func (b *AgentBuilder) WithModelConfig(ctx context.Context, modelName string, tools ToolProvider, client proxy.Client) *AgentBuilder {
+func (b *AgentBuilder) WithModelConfig(modelName string) *AgentBuilder {
 	cfg, ok := b.svc.ModelConfig(modelName)
 	if !ok {
 		return b
 	}
-	if b.opts.ApplyModelConfig(cfg) {
-		toolList, err := tools.ListTools(ctx)
-		if err == nil && len(toolList) > 0 {
-			b.opts.PlanStrategy = NewExecutionPlanStrategy(client, toolList, b.opts.Logger)
-		}
-	}
+	b.opts.ApplyModelConfig(cfg)
 	return b
 }
 
