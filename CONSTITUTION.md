@@ -51,7 +51,7 @@ This document defines the immutable architectural and security laws of the proje
 10. **Guardrail Decision Flow**: When a tool call is blocked by the guardrail engine, the agent loop must pause and wait for user approval rather than silently failing.
     *   `ValidateToolCall()` fails → creates `GuardrailBlockedPayload` with decision_id.
     *   `onGuardrail` callback registers a channel in `GuardrailDecisionStore` + publishes SSE event to frontend.
-    *   Agent blocks on channel (60s timeout).
+    *   Agent blocks on channel (bounded by the per-model `guardrail_approval_timeout_seconds`, default 5 min).
     *   User approves/denies via `POST /admin/api/conversation/guardrail-decision`.
     *   If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
     *   In automation mode (no user present), the callback is nil and guardrail violations fail immediately.

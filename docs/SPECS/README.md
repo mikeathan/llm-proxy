@@ -16,3 +16,4 @@ modifying or extending the subsystem it describes.
 | SPEC-007 | `automation-dispatcher.md` | Automation Dispatcher | stable |
 | SPEC-008 | `mcp-integration.md` | MCP Integration | stable |
 | SPEC-009 | `communication.md` | Communication Connector System | stable |
+| SPEC-010 | `agent-loop-strategies.md` | Agent Loop Strategies | stable |

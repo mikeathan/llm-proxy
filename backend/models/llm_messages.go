@@ -32,6 +32,11 @@ type Message struct {
 	ReasoningDetails []ReasoningDetail `json:"reasoning_details,omitempty"` // openrouter: structured reasoning parts
 	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
 	ToolCallID       string            `json:"tool_call_id,omitempty"`
+	// Error carries a terminal run failure (e.g. upstream LLM error) as a
+	// persisted, assistant-role message so a reloaded session can render the
+	// failure as an error segment instead of a blank turn. Never sent to the
+	// model as prompt context — it is a UI/observability marker only.
+	Error string `json:"error,omitempty"`
 }
 
 // ReasoningDetail models openrouter-style structured reasoning parts

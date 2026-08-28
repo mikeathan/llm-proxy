@@ -6,8 +6,9 @@ import {
   deriveModelName,
   createEmptyModelForm,
   isLocalEndpoint,
+  loopStrategyOptions as buildLoopStrategyOptions,
 } from '../../utils/model/modelUtils'
-import type { ModelForm } from '../../utils/model/modelUtils'
+import type { ModelForm } from '../../types/model'
 import type { APIKeyItem, ProviderType } from '../../types/admin'
 import type { AvailableModel, Model, ProviderModelInfo, WorkloadClass } from '../../types/model'
 import { DEFAULT_CONFIG } from '../models/useConfig'
@@ -36,6 +37,13 @@ export function useProviderModels(
     if (pd) return pd
     return state.value?.config?.agent_defaults ?? DEFAULT_CONFIG.agent_defaults
   })
+
+  // Backend-driven loop-strategy option list for the tuning dropdown
+  // (config.loop_strategy_options from the strategy registry). Falls back to the
+  // three known values when the backend hasn't surfaced a list.
+  const loopStrategyOptions = computed(() =>
+    buildLoopStrategyOptions(state.value?.config?.loop_strategy_options),
+  )
 
   const providerModels = ref<ProviderModelInfo[]>([])
   const isLoadingModels = ref(false)
@@ -314,6 +322,7 @@ export function useProviderModels(
     filterText,
     lastDerivedName,
     agentDefaults,
+    loopStrategyOptions,
     filteredProviderModels,
     groupsByKey,
     alreadyConfiguredFilenames,

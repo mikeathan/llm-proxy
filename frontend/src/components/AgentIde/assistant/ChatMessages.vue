@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from 'vue'
-import type { Turn } from '../../../utils/message/turnGrouper'
+import type { Turn } from '../../../types/message'
 import type { AssistantMessage } from '../../../types/assistant'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
 import ChatBubble from './ChatBubble.vue'
 import UserMessage from './UserMessage.vue'
 import Icon from '../../icons/Icon.vue'
-import type { InsetPhase } from '../../../utils/message/messageBuilder.ts'
+import type { InsetPhase } from '../../../types/inset'
 
 const props = defineProps<{
   messages: AssistantMessage[]

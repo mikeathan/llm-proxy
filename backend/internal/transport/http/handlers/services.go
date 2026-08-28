@@ -36,6 +36,9 @@ type RuntimeService interface {
 	SetModelHost(string)
 	ListProviderModels(context.Context, string, string) ([]models.ProviderModelInfo, error)
 	TestProviderConnection(ctx context.Context, providerName, apiKey, apiKeyName, baseURL string) error
+	// ProbeModelAvailability verifies a cloud model's ID is callable on its
+	// provider endpoint (warn-only registration-time probe; nil for local models).
+	ProbeModelAvailability(ctx context.Context, cfg models.ModelConfig) error
 	SelectModels() (string, string)
 	ApplyModelOverrides(overrides map[string]models.ModelOverride)
 	// ClassifyModel returns the workload class using the fully-hydrated

@@ -275,6 +275,43 @@ func TestFileSystemTools_WritePermissions(t *testing.T) {
 
 // ── Security path validation tests ──
 
+// TestFileSystemTools_ListDirectory_HidesSandboxRuntime verifies the sandbox
+// runtime directory (.sandbox) never appears in directory listings — the agent
+// must not browse the sandbox runtime (the shared internalBlockedPaths
+// invariant also enforced by the terminal tool).
+func TestFileSystemTools_ListDirectory_HidesSandboxRuntime(t *testing.T) {
+	tmpDir := t.TempDir()
+	wsDir := filepath.Join(tmpDir, "workspace")
+	_ = os.MkdirAll(filepath.Join(wsDir, ".sandbox"), 0755)
+	_ = os.MkdirAll(filepath.Join(wsDir, "docs"), 0755)
+	if err := os.WriteFile(filepath.Join(wsDir, "notes.txt"), []byte("hi"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{
+			Enabled:      true,
+			AllowedPaths: []string{wsDir},
+		}
+	}
+	f := NewFileSystemTools(cfg)
+
+	out, err := f.ListDirectory(context.Background(), ".")
+	if err != nil {
+		t.Fatalf("ListDirectory: %v", err)
+	}
+	joined, ok := out.(string)
+	if !ok {
+		t.Fatalf("expected string listing, got %T", out)
+	}
+	if strings.Contains(joined, ".sandbox") {
+		t.Fatalf("listing must hide sandbox runtime dir, got: %q", joined)
+	}
+	if !strings.Contains(joined, "docs/") || !strings.Contains(joined, "notes.txt") {
+		t.Fatalf("listing must keep ordinary entries, got: %q", joined)
+	}
+}
+
 func TestValidateFileSystemPath_Security(t *testing.T) {
 	tmpDir := t.TempDir()
 	wsDir := filepath.Join(tmpDir, "workspace")

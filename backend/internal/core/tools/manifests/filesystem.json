@@ -111,10 +111,25 @@
     ],
     "blocked_filenames": [
       ".env",
+      ".git-credentials",
+      ".gnupg",
+      ".htpasswd",
+      ".kubeconfig",
+      ".netrc",
+      ".npmrc",
+      ".pgpass",
+      ".pypirc",
+      ".secret",
+      ".ssh",
+      ".aws",
+      "credentials.json",
+      "id_dsa",
+      "id_ecdsa",
       "id_rsa",
       "id_ed25519",
-      ".ssh",
-      "config.json",
+      ".key",
+      ".p12",
+      ".pfx",
       ".pem"
     ]
   }

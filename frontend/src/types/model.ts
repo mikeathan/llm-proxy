@@ -23,6 +23,25 @@ export interface ProviderConfig {
 // editable and prefilled from published capabilities.
 export type WorkloadClass = 'local' | 'cloud' | ''
 
+// The agent loop archetype selector. Values mirror the backend
+// models.LoopStrategy enum; '' = provider default (react). The UI option list is
+// backend-driven (config.loop_strategy_options) and may carry future values not
+// in this union — those are handled as raw values by loopStrategyOptions().
+export type LoopStrategy = 'react' | 'plan_execute' | 'evaluator_optimizer' | ''
+
+// The known, copy-backed loop-strategy values ('' excluded — it maps to react's
+// copy at render time).
+export type LoopStrategyOptionKey = Exclude<LoopStrategy, ''>
+
+// One dropdown option for the loop-strategy select. The option list is built
+// from the backend-surfaced names (config.loop_strategy_options) by
+// loopStrategyOptions(); unknown future values carry the raw value as label.
+export interface LoopStrategyOption {
+  value: string
+  label: string
+  description: string
+}
+
 // The agent-tuning + safety-timeout fields edited by ModelTuningFields.vue.
 // All fields optional so both the add-form ModelForm and the edit
 // Partial<Model> satisfy it; omitted fields mean "use provider default".
@@ -42,6 +61,8 @@ export interface TuningFields {
   max_plan_steps?: number
   guardrail_timeout_seconds?: number
   guardrail_timeout_behavior?: string
+  guardrail_approval_timeout_seconds?: number
+  loop_strategy?: LoopStrategy
 }
 
 export interface Model {
@@ -74,6 +95,8 @@ export interface Model {
   max_plan_steps?: number
   guardrail_timeout_seconds?: number
   guardrail_timeout_behavior?: string
+  guardrail_approval_timeout_seconds?: number
+  loop_strategy?: LoopStrategy
 }
 
 export interface ModelMetadata {
@@ -141,4 +164,81 @@ export interface NewModelForm {
   max_plan_steps?: number
   guardrail_timeout_seconds?: number
   guardrail_timeout_behavior?: string
+  guardrail_approval_timeout_seconds?: number
+  loop_strategy?: LoopStrategy
+}
+
+// TuningSettings is the concrete agent-tuning + safety-timeout set produced by
+// getDefaultModelSettings() (provider defaults, all fields required). It is the
+// tuning slice of ModelForm minus the local-serving/identity fields.
+export interface TuningSettings {
+  max_steps: number
+  context_budget: number
+  max_tokens: number
+  temperature: number
+  reasoning_budget: number
+  reasoning_enabled: boolean
+  timeout_minutes: number
+  tool_call_format: string
+  prefill: boolean
+  tool_timeout_seconds: number
+  filesystem_tool_timeout_seconds: number
+  max_plan_duration_minutes: number
+  max_plan_steps: number
+  guardrail_timeout_seconds: number
+  guardrail_timeout_behavior: string
+  guardrail_approval_timeout_seconds: number
+  loop_strategy: LoopStrategy
+}
+
+// ModelForm is the editable shape for the model add/edit form (ModelFormFields).
+// Mirrors NewModelForm plus local-serving fields; kept as a discrete form type
+// rather than reused request types so UI-only fields (key, port, args) stay
+// explicit. Extends TuningSettings so the tuning/safety fields are defined once
+// and stay in lockstep with getDefaultModelSettings().
+export interface ModelForm extends TuningSettings {
+  key: string
+  id: string
+  name: string
+  filename: string
+  port: number
+  args: string
+  slot_timeout: number
+}
+
+// ModelBanner is the persistent model-config warning surfaced via the app
+// banner. severity uses the shared BannerSeverity union (model banners only
+// ever emit 'critical' | 'notice').
+export interface ModelBanner {
+  severity: import('./ui').BannerSeverity
+  message: string
+  // HTML variant of the message (app-controlled, never user input).
+  html?: string
+  // Action button that deep-links to a Settings tab.
+  action?: { label: string; settingsTab: import('./admin').SettingsTab }
+}
+
+// ProviderManifest describes a provider as discovered/registered by the backend
+// for provider-model selection UI.
+export interface ProviderManifest {
+  id: string
+  name: string
+  default_base_url: string
+  archetype: string
+  icon?: string
+}
+
+// TuningFieldState classifies a tuning field as editable or derived (read-only,
+// server-computed). See composables/settings/useTuningFieldPolicy.ts.
+export type TuningFieldState = 'editable' | 'derived'
+
+// TuningFieldPolicy is the field-policy result for the model tuning form,
+// driven by the server-computed workload_class (single authority).
+export interface TuningFieldPolicy {
+  workload: WorkloadClass
+  maxTokens: TuningFieldState
+  contextBudget: TuningFieldState
+  isLocal: boolean
+  isCloud: boolean
+  isUnresolved: boolean
 }

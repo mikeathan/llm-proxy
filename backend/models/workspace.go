@@ -10,15 +10,15 @@ const (
 	TriggerManual   TriggerType = "manual"
 )
 
-// Workspace File and Directory Constants 
+// Workspace File and Directory Constants
 const (
-	ConfigFilename     = "config.yaml"
-	StateFilename      = "state.json"
-	HeartbeatFilename  = "heartbeat.md"
-	RulesFilename      = "AGENTS.md"
-	InternalDirName    = ".internal"
-	LockFilename       = ".lock"
-	WorkspacesDirName  = "workspaces"
+	ConfigFilename    = "config.yaml"
+	StateFilename     = "state.json"
+	HeartbeatFilename = "heartbeat.md"
+	RulesFilename     = "AGENTS.md"
+	InternalDirName   = ".internal"
+	LockFilename      = ".lock"
+	WorkspacesDirName = "workspaces"
 
 	// System root files
 	SystemConfigFilename = "config.json"
@@ -31,22 +31,23 @@ const (
 	WorkspaceIDParam = "workspace"
 
 	// Sandbox execution paths
-	SandboxTmpDir         = "/tmp"
-	SandboxRunDir         = "/run"
+	SandboxTmpDir = "/tmp"
+	SandboxRunDir = "/run"
 )
 
 // TriggerConfig describes a trigger for an automation.
 type TriggerConfig struct {
 	Type  TriggerType `yaml:"type"  json:"type"`  // "cron" | "interval" | "manual"
-	Value string `yaml:"value" json:"value"` // "*/5 * * * *" | "15m" | ""
+	Value string      `yaml:"value" json:"value"` // "*/5 * * * *" | "15m" | ""
 }
 
 type Automation struct {
 	Name         string        `yaml:"name"          json:"name"`
 	Trigger      TriggerConfig `yaml:"trigger"       json:"trigger"`
 	TaskFile     string        `yaml:"task_file"     json:"task_file"`
-	Strategy     string        `yaml:"strategy"      json:"strategy"` // "isolated" | "persistent"
-	Model        string        `yaml:"model,omitempty"  json:"model,omitempty"` // Model override for this automation
+	Strategy     string        `yaml:"strategy"      json:"strategy"`                          // "isolated" | "persistent"
+	Model        string        `yaml:"model,omitempty"  json:"model,omitempty"`                // Model override for this automation
+	LoopStrategy LoopStrategy  `yaml:"loop_strategy,omitempty" json:"loop_strategy,omitempty"` // per-run loop archetype override; "" = model config default
 	AllowedTools []string      `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"` // restrict tools for unattended runs
 	RecordingRef string        `yaml:"recording_ref,omitempty" json:"recording_ref,omitempty"` // Recording file ID for playback
 }
@@ -77,13 +78,13 @@ type AutomationRun struct {
 	// RunDirName is the last path segment of the on-disk run directory
 	// (data/runs/{workspace}/{model}/{automation}/{RunDirName}), used by the UI
 	// to prune individual run artifacts. Empty when run logging is disabled.
-	RunDirName    string `json:"run_dir_name,omitempty"`
-	Events        []any  `json:"events"` // Full event log for "Live Console" reconstruction
+	RunDirName string `json:"run_dir_name,omitempty"`
+	Events     []any  `json:"events"` // Full event log for "Live Console" reconstruction
 }
 
 // AgentState represents the execution history and state from workspaces/{id}/state.json
 type AgentState struct {
-	NextRunAt  time.Time `json:"next_run_at"`
+	NextRunAt        time.Time `json:"next_run_at"`
 	ActiveAutomation string    `json:"active_automation,omitempty"`
 	LastPulse        time.Time `json:"last_pulse"` // For HEARTBEAT_OK suppression
 

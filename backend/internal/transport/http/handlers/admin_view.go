@@ -13,7 +13,7 @@ import (
 // modelViewTuning computes the effective agent-tuning values for a single model.
 // Zero values from settings.yml overrides are replaced with runtime defaults so
 // the frontend always sees the actual effective value, not a raw zero.
-func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudget, maxTokens int, temperature float64, reasoningBudget, slotTimeout, timeoutMinutes int, toolCallFormat string) {
+func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudget, maxTokens int, temperature float64, reasoningBudget, slotTimeout, timeoutMinutes int, toolCallFormat, loopStrategy string) {
 	prefill = mc.Prefill != nil && *mc.Prefill
 	maxSteps = mc.MaxSteps
 	if maxSteps == 0 {
@@ -41,6 +41,10 @@ func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudg
 		timeoutMinutes = int(assistant.AgentGlobalTimeout.Minutes())
 	}
 	toolCallFormat = mc.ToolCallFormat
+	// loop_strategy defaults to "" (react) — the resolver applies the same
+	// default, so the UI shows the provider-default option, not a fabricated
+	// value.
+	loopStrategy = string(mc.LoopStrategy)
 	return
 }
 
@@ -93,7 +97,7 @@ func getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeN
 			}
 		}
 
-		prefill, maxSteps, contextBudget, maxTokens, temperature, reasoningBudget, slotTimeout, timeoutMinutes, toolCallFormat := modelViewTuning(mc)
+		prefill, maxSteps, contextBudget, maxTokens, temperature, reasoningBudget, slotTimeout, timeoutMinutes, toolCallFormat, loopStrategy := modelViewTuning(mc)
 
 		view := adminModelView{
 			Name:             mc.Name,
@@ -117,6 +121,7 @@ func getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeN
 			SlotTimeout:      slotTimeout,
 			TimeoutMinutes:   timeoutMinutes,
 			ToolCallFormat:   toolCallFormat,
+			LoopStrategy:     loopStrategy,
 		}
 
 		if mc.Port > 0 {

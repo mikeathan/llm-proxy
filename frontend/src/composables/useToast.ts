@@ -1,6 +1,5 @@
 import { ref } from 'vue';
-
-export type ToastType = 'success' | 'error' | 'info' | 'warning';
+import type { ToastType } from '../types/ui';
 
 interface Toast {
   id: string;

@@ -28,6 +28,8 @@ function state(overrides: Partial<AdminState['config']> = {}, models: string[] =
         timeout_minutes: 0, tool_call_format: '', prefill: false, tool_timeout_seconds: 0,
         filesystem_tool_timeout_seconds: 0, max_plan_duration_minutes: 0, max_plan_steps: 0,
         guardrail_timeout_seconds: 0, guardrail_timeout_behavior: '',
+        guardrail_approval_timeout_seconds: 0,
+        loop_strategy: '',
       },
       ...overrides,
     },

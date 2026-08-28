@@ -1,15 +1,8 @@
 import { ref } from "vue";
 import { useSSEConnection } from "../network/useSSEConnection";
 import type { AgentEvent, GuardrailBlockedPayload } from "../../types";
+import type { SessionLifecyclePayload } from "../../types/assistant";
 import { generateId } from "../../utils/crypto";
-
-export interface SessionLifecyclePayload {
-  phase: string
-  conversation_id?: string
-  workspace_id?: string
-  snippet?: string
-  source?: string
-}
 
 export function useAssistantSSE(
   workspaceId: () => string,

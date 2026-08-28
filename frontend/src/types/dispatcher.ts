@@ -1,3 +1,6 @@
+// Global configuration types and automation read models.
+import type { LoopStrategy } from './model'
+
 export interface AutomationRun {
   id: string
   workspace_id?: string
@@ -23,6 +26,7 @@ export interface Automation {
   trigger_value?: string
   trigger_type?: string
   model?: string
+  loop_strategy?: LoopStrategy
   recording_ref?: string
   last_output?: string
   last_error?: string
@@ -68,7 +72,22 @@ export interface TriggerResponse {
   automation: string
 }
 
-export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream' | 'reasoning' | 'lifecycle'
+export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream' | 'reasoning' | 'lifecycle' | 'upstream'
+
+// Lifecycle phase vocabulary (SSOT). These string VALUES are sent verbatim by
+// the Go backend over SSE and MUST stay in sync with the Phase* constants in
+// backend/internal/core/assistant/agent_events.go — never rename a value here,
+// or you break the wire. Prefer LIFECYCLE_PHASES.x over bare string literals.
+export const LIFECYCLE_PHASES = {
+  agentThinking: 'agent_thinking',
+  stillThinking: 'still_thinking',
+  sessionStarted: 'session_started',
+  sessionProgress: 'session_progress',
+  sessionCompleted: 'session_completed',
+  completed: 'completed',
+} as const
+
+export type LifecyclePhase = (typeof LIFECYCLE_PHASES)[keyof typeof LIFECYCLE_PHASES]
 
 export interface AgentStepStartPayload {
   step: number
@@ -110,6 +129,20 @@ export interface GuardrailDecision {
   persist: boolean
 }
 
+// UpstreamEventPayload describes a transient upstream LLM failure that is being
+// retried. Emitted on the 'upstream' AgentEventType. MUST stay in sync with
+// UpstreamEventPayload in backend/internal/core/assistant/agent_events.go.
+export interface UpstreamEventPayload {
+  event: string // "retry"
+  reason: 'transport' | 'status'
+  attempt: number // 1-based attempt being retried
+  max_attempts: number
+  error?: string // transport error text
+  err_class?: string // transport error bucket ("connection-closed", "timeout", "tls", ...)
+  status?: number // upstream HTTP status
+  elapsed_ms?: number
+}
+
 export interface AgentEvent {
   id?: string
   type: AgentEventType
@@ -118,7 +151,7 @@ export interface AgentEvent {
   // per connection so an automation run can never leak into the chat pane.
   channel?: 'assistant' | 'automation'
   conversation_id?: string
-  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | GuardrailBlockedPayload | string
+  payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | GuardrailBlockedPayload | UpstreamEventPayload | string
   timestamp?: string
 }
 

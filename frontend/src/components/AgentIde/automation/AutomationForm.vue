@@ -2,6 +2,7 @@
 import { ref, computed, toRef } from "vue";
 import type { Automation } from "../../../types/dispatcher";
 import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
+import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import CronEditor from "./CronEditor.vue";
 import Icon from "../../icons/Icon.vue";
 
@@ -31,12 +32,20 @@ const {
   selectedProviderKey,
   filteredModels,
   cloudProvidersWithKeys,
+  loopStrategyOptions,
   handleSubmit: validateSubmit,
   resetForm,
 } = useAutomationForm(
   toRef(props, "editAutomation"),
   (ws) => emit("fetch-files", ws),
 );
+
+const loopStrategyHelper = computed(() => {
+  if (!form.value.loopStrategy) {
+    return "Uses the model's configured loop strategy (react by default).";
+  }
+  return loopStrategyDescription(form.value.loopStrategy);
+});
 
 const handleSubmit = () => {
   const data = validateSubmit();
@@ -51,6 +60,7 @@ const handleSubmit = () => {
     task_file: data.taskFile,
     strategy: data.strategy,
     model: data.model,
+    loop_strategy: data.loopStrategy,
   };
 
   if (props.editAutomation) {
@@ -161,6 +171,21 @@ const handleCancel = () => {
                    {{ m.name }}
                  </option>
                </select>
+             </div>
+
+             <!-- Loop Strategy -->
+             <div class="config-field">
+               <label class="field-label-tiny">Loop Strategy</label>
+               <select
+                 v-model="form.loopStrategy"
+                 class="select-input select-input--nested"
+               >
+                 <option value="">Use model's setting (default)</option>
+                 <option v-for="opt in loopStrategyOptions" :key="opt.value" :value="opt.value">
+                   {{ opt.label }}
+                 </option>
+               </select>
+               <p class="form-helper">{{ loopStrategyHelper }}</p>
              </div>
           </div>
         </div>
@@ -290,6 +315,10 @@ const handleCancel = () => {
 
 .field-label-tiny {
   @apply block text-[10px] text-gray-500 font-medium ml-1;
+}
+
+.form-helper {
+  @apply text-xs text-gray-500;
 }
 
 .select-input {

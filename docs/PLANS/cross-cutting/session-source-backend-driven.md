@@ -126,7 +126,18 @@ the initial user message.
   mutated during execution — a shallow copy is used for each checkpoint, so
   the final success/cancellation paths append to pristine history without
   duplication.
-- **Concurrency:** throttle variables are closure-local per `Execute` call —
+- **Concurrency:** checkpoint state is closure-local per `Execute` call —
   independent across concurrent executions, with no shared locks or mutexes.
 - **Tests:** `conversation_helpers_test.go` — `TestBuildPartialHistory` (5
-  cases: empty, single cycle, multi-cycle, unknown types, nil payloads).
+  cases: empty, single cycle, multi-cycle, unknown types, nil payloads);
+  `conversation_service_test.go` — `TestBuildObserver_CheckpointsEveryToolResult`
+  (every tool result checkpoints, no throttling).
+
+> **Note — live in-flight output after refresh:** disk checkpoints persist
+> committed tool cycles only; in-flight streaming/reasoning is intentionally not
+> persisted. To reconstruct the running turn in full after a page refresh, the
+> frontend reconnects the workspace SSE and rebuilds from the `recent` replay
+> buffer (which holds the complete current run). For this to work, `session_started`
+> is published AFTER `setupRun` clears `recent` in `Execute` (conversation_service.go),
+> so the replay carries the session anchor + user snippet. See
+> `docs/skills/lifecycle-events.md` → "Reconstructing a running session after refresh".

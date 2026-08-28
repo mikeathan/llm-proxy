@@ -26,6 +26,55 @@ func IsSecurePath(path string, allowedRoots []string) (string, error) {
 	return "", fmt.Errorf("path access denied: outside of authorized workspaces")
 }
 
+// blockedFilename returns the first blocked-filename entry that matches the
+// given path's basename, or nil when none match. Matching mirrors the
+// filesystem tool's semantics: an entry blocks a basename that equals it or
+// starts with it (so "id_rsa" also blocks "id_rsa.pub").
+func blockedFilename(path string, blocked []string) *string {
+	name := filepath.Base(path)
+	for _, b := range blocked {
+		if name == b || strings.HasPrefix(name, b) {
+			return &b
+		}
+	}
+	return nil
+}
+
+// blockedPathEntry returns the blocked entry that a path targets, or nil.
+// The terminal tool matches explicit path operands (a path, a subpath, or any
+// segment) so "du -sh .sandbox", "find ./.sandbox", and "cat .sandbox/tmp/x"
+// are all rejected without blocking legit directory names.
+func blockedPathEntry(path string, blocked []string) string {
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if match := blockedFilename(seg, blocked); match != nil {
+			return *match
+		}
+	}
+	return ""
+}
+
+// internalBlockedPaths are internal invariant paths agents must never access —
+// currently the sandbox runtime directory (.sandbox).  SINGLE SOURCE OF TRUTH:
+// every guardrail surface (filesystem validation, directory listings, terminal
+// input, terminal output) enforces this list — merged with the user-configured
+// blocked filenames via effectiveBlockedFilenames and matched through the same
+// blockedFilename / blockedPathEntry helpers.  Adding an internal path here
+// covers all tools at once; no per-tool code is ever added for a new invariant.
+var internalBlockedPaths = []string{".sandbox"}
+
+// effectiveBlockedFilenames returns the user-configured blocked filenames plus
+// the internal invariant paths — the single merged list every guardrail
+// surface enforces.
+func effectiveBlockedFilenames(user []string) []string {
+	if len(internalBlockedPaths) == 0 {
+		return user
+	}
+	merged := make([]string, 0, len(user)+len(internalBlockedPaths))
+	merged = append(merged, user...)
+	merged = append(merged, internalBlockedPaths...)
+	return merged
+}
+
 // resolveCanonical resolves as much of the path as possible using EvalSymlinks.
 // For non-existent paths, it recursively resolves parents until an existing directory is found.
 func resolveCanonical(path string) string {

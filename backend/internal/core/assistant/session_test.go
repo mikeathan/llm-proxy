@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -177,7 +178,8 @@ func TestHandleNoToolCalls(t *testing.T) {
 			history:            toolResultHistory,
 			toolsList:          []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "ping"}}},
 			postToolNudgeCount: postToolNudgeMax,
-			wantDone:           false,
+			wantDone:           true,
+			wantReplyContains:  "Final report: task done",
 			wantFinalized:      true,
 		},
 		{
@@ -195,13 +197,24 @@ func TestHandleNoToolCalls(t *testing.T) {
 
 	agent := NewAgent(&MockClient{
 		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-			return nil, context.Canceled
+			return nil, errors.New("streaming not supported")
+		},
+		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			// Finalization turn (ToolChoice=none) returns a real report.
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{
+				Role:    proxy.AssistantRole,
+				Content: "Final report: task done.",
+			}}}}, nil
 		},
 	}, &MockProvider{}, &MockEngine{}, AgentOptions{})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newRunSession(agent, context.Background(), tt.history)
+			// Mirror production: run() wires the runS back-pointer before any
+			// turn runs; executeTurn's tools-disabled flag consumption depends
+			// on it.
+			agent.runS = s
 			s.lastContentWithTools = tt.lastContentWithTools
 			s.postToolNudgeCount = tt.postToolNudgeCount
 			s.finalizeAttempts = tt.finalizeAttempts
@@ -235,12 +248,15 @@ func TestHandleNoToolCalls(t *testing.T) {
 				if s.finalizeAttempts != tt.finalizeAttempts+1 {
 					t.Errorf("finalizeAttempts = %d, want %d", s.finalizeAttempts, tt.finalizeAttempts+1)
 				}
-				if !s.textOnlyNextTurn {
-					t.Error("textOnlyNextTurn should be set for finalization turn")
+				if s.textOnlyNextTurn {
+					t.Error("textOnlyNextTurn should be consumed by the finalization turn")
 				}
-				last := s.history[len(s.history)-1]
-				if last.Role != proxy.UserRole || !strings.Contains(last.Content, "FINAL REPORT") {
-					t.Errorf("expected finalize prompt as last history entry, got role=%v content=%q", last.Role, last.Content[:min(len(last.Content), 40)])
+				if n := len(s.history); n < 2 {
+					t.Fatalf("history too short after finalization: %d", n)
+				}
+				finalizePrompt := s.history[len(s.history)-2]
+				if finalizePrompt.Role != proxy.UserRole || !strings.Contains(finalizePrompt.Content, "FINAL REPORT") {
+					t.Errorf("expected finalize prompt before the finalization turn, got role=%v content=%q", finalizePrompt.Role, finalizePrompt.Content[:min(len(finalizePrompt.Content), 40)])
 				}
 			}
 		})

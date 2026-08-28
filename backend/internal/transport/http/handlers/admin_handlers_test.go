@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"fmt"
 	"llm-proxy/internal/buildinfo"
@@ -23,6 +24,10 @@ import (
 func newProcessHandlers(runtime *mocks.MockManager, admin *mocks.MockAdminService, logger logging.Logger) *handlers.ProcessHandlers {
 	return handlers.NewProcessHandlers(runtime, admin, logger)
 }
+
+// testWaitTimeout bounds async-probe assertions so a regression fails fast
+// instead of hanging the suite.
+const testWaitTimeout = 2 * time.Second
 
 func TestAdminStartHandler_MissingName(t *testing.T) {
 	procHandlers := newProcessHandlers(&mocks.MockManager{}, &mocks.MockAdminService{}, &mocks.MockLogger{})
@@ -372,6 +377,154 @@ func TestAdminAddModelHandler_PersistError(t *testing.T) {
 	}
 }
 
+func TestAdminAddModelHandler_ProbeWarnOnly(t *testing.T) {
+	var probedID *string
+	manager := &mocks.MockManager{
+		ListProviderModelsFunc: func(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error) {
+			return nil, nil
+		},
+		ClassifyModelFunc: func(cfg models.ModelConfig) models.WorkloadClass {
+			return models.WorkloadCloud
+		},
+		AddModelFunc: func(cfg models.ModelConfig) error {
+			return nil
+		},
+		ProbeModelAvailabilityFunc: func(ctx context.Context, cfg models.ModelConfig) error {
+			probedID = &cfg.Filename
+			return errors.New("model not callable: upstream status 404")
+		},
+	}
+	handler := newModelHandlers(manager, &mocks.MockAdminService{})
+	handler.ProbeLauncher = func(fn func()) { fn() }
+
+	body := `{"name":"gpt-oss-120b","provider":"nvidia","model_id":"openai/gpt-oss-120b"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/models", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.AdminAddModelHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite probe failure (warn-only), got %d: %s", rr.Code, rr.Body.String())
+	}
+	if probedID == nil {
+		t.Fatal("expected ProbeModelAvailability to run for a cloud model add")
+	}
+	if *probedID != "openai/gpt-oss-120b" {
+		t.Errorf("expected probe against the added model ID, got %q", *probedID)
+	}
+}
+
+// TestAdminAddModelHandler_ProbeDoesNotBlockResponse verifies the availability
+// probe runs in the background: the handler returns 200 while the probe is
+// still in flight, and the probe runs to completion only after the handler has
+// returned.
+func TestAdminAddModelHandler_ProbeDoesNotBlockResponse(t *testing.T) {
+	launcherCalled := make(chan struct{})
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+
+	manager := &mocks.MockManager{
+		ListProviderModelsFunc: func(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error) {
+			return nil, nil
+		},
+		ClassifyModelFunc: func(cfg models.ModelConfig) models.WorkloadClass {
+			return models.WorkloadCloud
+		},
+		AddModelFunc: func(cfg models.ModelConfig) error {
+			return nil
+		},
+		ProbeModelAvailabilityFunc: func(ctx context.Context, cfg models.ModelConfig) error {
+			close(probeStarted)
+			<-releaseProbe
+			return errors.New("model not callable")
+		},
+	}
+	handler := newModelHandlers(manager, &mocks.MockAdminService{})
+	handler.ProbeLauncher = func(fn func()) {
+		close(launcherCalled)
+		go func() {
+			fn()
+		}()
+	}
+
+	body := `{"name":"gpt-oss","provider":"nvidia","model_id":"openai/gpt-oss"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/models", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handler.AdminAddModelHandler(rr, req)
+	}()
+
+	select {
+	case <-launcherCalled:
+	case <-time.After(testWaitTimeout):
+		t.Fatal("probe launcher not invoked by the handler")
+	}
+	select {
+	case <-probeStarted:
+	case <-time.After(testWaitTimeout):
+		t.Fatal("probe goroutine did not start")
+	}
+
+	// The probe is now blocked inside ProbeModelAvailability (releaseProbe is
+	// not closed). If the handler returned here, it provably did not wait on it.
+	select {
+	case <-done:
+	case <-time.After(testWaitTimeout):
+		t.Fatal("handler blocked on the availability probe; it must run in the background")
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 while probe still in flight, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	close(releaseProbe)
+	<-done
+}
+
+// TestAdminUpdateModelHandler_ProbeWarnOnly verifies an updated cloud model is
+// probed (same warn-only, non-blocking semantics as add).
+func TestAdminUpdateModelHandler_ProbeWarnOnly(t *testing.T) {
+	var probedID *string
+	manager := &mocks.MockManager{
+		ListModelsFunc: func() []models.ModelConfig {
+			return []models.ModelConfig{{Name: "gpt-oss", Provider: "nvidia", Filename: "old-id"}}
+		},
+		ClassifyModelFunc: func(cfg models.ModelConfig) models.WorkloadClass {
+			return models.WorkloadCloud
+		},
+		UpdateModelFunc: func(cfg models.ModelConfig) error {
+			return nil
+		},
+		ProbeModelAvailabilityFunc: func(ctx context.Context, cfg models.ModelConfig) error {
+			probedID = &cfg.Filename
+			return nil
+		},
+	}
+	handler := newModelHandlers(manager, &mocks.MockAdminService{})
+	handler.ProbeLauncher = func(fn func()) { fn() }
+
+	body := `{"name":"gpt-oss","provider":"nvidia","model_id":"openai/gpt-oss-120b"}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/models", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.AdminUpdateModelHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for update despite probe, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if probedID == nil {
+		t.Fatal("expected ProbeModelAvailability to run for a cloud model update")
+	}
+	if *probedID != "openai/gpt-oss-120b" {
+		t.Errorf("expected probe against the updated model ID, got %q", *probedID)
+	}
+}
+
 func TestAdminUpdateModelHandler_MissingName(t *testing.T) {
 	handler := newModelHandlers(&mocks.MockManager{}, &mocks.MockAdminService{})
 
@@ -692,6 +845,44 @@ func TestAdminStateHandler_ReasoningCapability(t *testing.T) {
 		}
 		if pd.SupportsBaseURL != want.supportsBase {
 			t.Errorf("%s: supports_base_url got %v want %v", k, pd.SupportsBaseURL, want.supportsBase)
+		}
+	}
+}
+
+// TestAdminStateHandler_LoopStrategyOptions verifies the backend-driven
+// loop-strategy option list is surfaced from the strategy registry so the
+// frontend dropdown never hardcodes it (adding a strategy = no UI edit).
+func TestAdminStateHandler_LoopStrategyOptions(t *testing.T) {
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{
+		GetGuardrailsFunc: func() models.AgentGuardrailsConfig {
+			return models.AgentGuardrailsConfig{}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/state", nil)
+	rr := httptest.NewRecorder()
+	handler.AdminStateHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Config struct {
+			LoopStrategyOptions []string `json:"loop_strategy_options"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	want := []string{"evaluator_optimizer", "plan_execute", "react"}
+	if len(resp.Config.LoopStrategyOptions) != len(want) {
+		t.Fatalf("expected %d loop_strategy_options, got %v", len(want), resp.Config.LoopStrategyOptions)
+	}
+	for i := range want {
+		if resp.Config.LoopStrategyOptions[i] != want[i] {
+			t.Errorf("loop_strategy_options[%d] = %q, want %q", i, resp.Config.LoopStrategyOptions[i], want[i])
 		}
 	}
 }

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -76,6 +77,7 @@ type RuntimeManager interface {
 	SetModelHost(host string)
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
+	ProbeModelAvailability(ctx context.Context, cfg models.ModelConfig) error
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
 	Sync()
@@ -211,6 +213,27 @@ func (m *LLMRuntimeManager) TestProviderConnection(ctx context.Context, provider
 		return err
 	}
 	return p.TestConnection(ctx)
+}
+
+// ProbeModelAvailability verifies the configured model ID is actually callable
+// on its cloud provider via a minimal chat probe (warn-only at registration
+// time). Public catalogs list models the key is not entitled to, so this is the
+// only way to catch a wrong/not-entitled model ID early instead of surfacing a
+// confusing upstream error on the first request. Local models and providers
+// without a probe path return nil.
+func (m *LLMRuntimeManager) ProbeModelAvailability(ctx context.Context, cfg models.ModelConfig) error {
+	if cfg.Provider == "" || cfg.Provider == "local" {
+		return nil
+	}
+	p, err := m.registrar.Build(cfg)
+	if err != nil {
+		return fmt.Errorf("build provider: %w", err)
+	}
+	op, ok := p.(*providers.OpenAICompatibleProvider)
+	if !ok {
+		return nil
+	}
+	return op.ProbeChatModel(ctx, cfg.Filename)
 }
 
 func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]models.ProviderModelInfo, error) {
@@ -601,6 +624,9 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		}
 		if override.ReasoningEnabled != nil {
 			cfg.ReasoningEnabled = override.ReasoningEnabled
+		}
+		if override.LoopStrategy != "" {
+			cfg.LoopStrategy = override.LoopStrategy
 		}
 		m.models[name] = cfg
 	}

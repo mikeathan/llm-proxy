@@ -3,9 +3,10 @@ import { AssistantService } from '../../services/assistant/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../../utils/message/messageBuilder'
 import { buildSegmentsFromHistory } from '../../utils/message/turnGrouper'
-import type { SessionLifecyclePayload } from './useAssistantSSE'
+import type { SessionLifecyclePayload } from '../../types/assistant'
 import type { AssistantMessage, SessionBrief } from '../../types/assistant'
-import { clearRunningFlags } from '../../utils/assistant/running'
+import { LIFECYCLE_PHASES } from '../../types/dispatcher'
+import { clearRunningFlags, reconcileRunningSessions } from '../../utils/assistant/running'
 import { useAppBanner } from '../ui/useAppBanner'
 
 const { show: showBanner, clear: clearBanner } = useAppBanner()
@@ -19,14 +20,43 @@ const abortController = ref<AbortController | null>(null)
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
 
+// lastRunningConversationId holds the most recent backend-reported running
+// conversation ID for the active workspace. It is applied after every
+// fetchSessions so a page refresh immediately marks the correct session as
+// running, independent of the /active-runs poll cadence.
+let lastRunningConversationId = ''
+
 // reconcileRunning heals sticky `running` flags. When the authoritative
 // backend reports nothing is executing for the workspace, any locally-flagged
 // running session is cleared so the "running" indicator cannot get stuck on
 // after a missed completion event.
 function reconcileRunning(assistantRunning: boolean) {
-  if (!assistantRunning && sessions.value.some((s) => s.running)) {
-    sessions.value = clearRunningFlags(sessions.value)
+  if (!assistantRunning) {
+    // Nothing is running — also forget the last reported running conversation so
+    // a later fetchSessions / poll cannot re-mark a finished session as running.
+    lastRunningConversationId = ''
+    if (sessions.value.some((s) => s.running)) {
+      sessions.value = clearRunningFlags(sessions.value)
+    }
   }
+}
+
+// reconcileRunningConversation applies the backend-reported running
+// conversation (from /active-runs) to the session list. A non-empty id marks
+// exactly that session as running; an empty id (nothing running) clears every
+// running flag AND resets lastRunningConversationId. Previously the stale id was
+// never cleared, so a finished session kept being re-marked running and
+// loadSession took the running branch against an empty `recent` (blank screen).
+function reconcileRunningConversation(conversationId: string) {
+  lastRunningConversationId = conversationId || ''
+  if (!lastRunningConversationId) {
+    if (sessions.value.some((s) => s.running)) {
+      sessions.value = clearRunningFlags(sessions.value)
+    }
+    return
+  }
+  const next = reconcileRunningSessions(sessions.value, lastRunningConversationId)
+  if (next !== sessions.value) sessions.value = next
 }
 
 export function useAssistant() {
@@ -107,6 +137,11 @@ export function useAssistant() {
         ...s,
         running: s.running ?? runningIds.has(s.id)
       }))
+      // Mark the backend-reported running conversation (if any) so a page
+      // refresh immediately shows the correct session as running — the
+      // per-session flag is not persisted, so this restores it from the
+      // authoritative /active-runs source without waiting for the poll.
+      reconcileRunningConversation(lastRunningConversationId)
     } catch (err) {
       showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to fetch sessions' })
       console.error(err)
@@ -117,19 +152,22 @@ export function useAssistant() {
 
   const loadSession = async (workspaceId: string, sessionId: string) => {
     builder.reset()
-    // Running session: read user input from disk for instant display,
-    // then let the existing SSE connection stream live events into the
-    // chat.  Don't reconnect — the workspace-level SSE is already
-    // connected and dropping it would lose events published in the gap.
+    // Running session: reconstruct the live turn from the backend's `recent`
+    // replay rather than the disk snapshot. Disk checkpoints persist committed
+    // tool cycles but NOT in-flight streaming/reasoning, and replaying `recent`
+    // on top of the disk snapshot would duplicate already-committed tool calls.
+    // The backend retains session_started in `recent` (published after setupRun
+    // clears it), so reconnecting replays the full current run — session_started
+    // pushes the user anchor, then tool/reasoning/message/upstream/error events
+    // rebuild the turn — followed by live events. `loading` starts false so the
+    // replayed session_started sets it (and would otherwise skip the anchor);
+    // sse.reset() clears the dedup set so the replayed events are accepted.
     if (sessions.value.find(s => s.id === sessionId)?.running) {
-      loading.value = true
       currentSessionId.value = sessionId
-      const session = await AssistantService.getSession(workspaceId, sessionId)
-      if (session) {
-        messages.value = buildSegmentsFromHistory(session.history || [])
-        builder.reset()
-      }
+      messages.value = []
+      loading.value = false
       sse.reset()
+      connectSSE()
       return
     }
 
@@ -225,7 +263,6 @@ export function useAssistant() {
       })
     }
 
-    let aborted = false
     try {
       // The POST no longer returns the finished answer — the backend starts a
       // detached background run and responds 202 {status:"running"} immediately.
@@ -278,20 +315,21 @@ export function useAssistant() {
       // so the UI reflects the in-flight run.
 
     } catch (err) {
-      if ((err as any)?.name === 'AbortError') {
-        aborted = true
-      } else {
+      // A navigation abort leaves the run alive: keep loading=true and SSE
+      // connected so streaming continues / a refresh can reconnect. Only a real
+      // (non-abort) failure ends the run.
+      if ((err as any)?.name !== 'AbortError') {
         showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to send message' })
         console.error(err)
+        // Clear loading here because no session_completed will arrive.
+        loading.value = false
       }
       sse.disconnect()
       builder.reset()
     } finally {
-      if (!aborted) {
-        // A navigation abort leaves the run alive; keep loading=true and SSE
-        // connected so streaming continues / a refresh can reconnect.
-        loading.value = false
-      }
+      // Keep loading=true on a successful send — the bubble stays alive through
+      // the whole slow phase and is cleared by session_completed in
+      // applySessionUpdate, not here. Only a non-abort error clears loading.
       abortController.value = null
     }
   }
@@ -348,7 +386,7 @@ export function useAssistant() {
     const cid = p.conversation_id
     if (!cid) return
     const idx = sessions.value.findIndex(s => s.id === cid)
-    if (p.phase === "session_started") {
+    if (p.phase === LIFECYCLE_PHASES.sessionStarted) {
       if (currentSessionId.value === null) {
         currentSessionId.value = cid
       }
@@ -376,7 +414,7 @@ export function useAssistant() {
         const existing = sessions.value[idx]
         if (existing) sessions.value[idx] = { ...existing, running: true, snippet: p.snippet ?? existing.snippet, source: p.source ?? existing.source }
       }
-    } else if (p.phase === "session_progress") {
+    } else if (p.phase === LIFECYCLE_PHASES.sessionProgress) {
       if (idx !== -1) {
         const existing = sessions.value[idx]
         // Keep the stable title set on session_started. Progress events
@@ -384,7 +422,10 @@ export function useAssistant() {
         if (existing) sessions.value[idx] = { ...existing, snippet: existing.snippet }
       }
     }
-    else if (p.phase === "session_completed") {
+    else if (p.phase === LIFECYCLE_PHASES.sessionCompleted) {
+      // The run is done — forget the running conversation immediately so a
+      // later fetchSessions / /active-runs poll cannot re-mark it running.
+      lastRunningConversationId = ''
       if (idx !== -1) {
         const existing = sessions.value[idx]
         if (existing) sessions.value[idx] = { ...existing, running: false }
@@ -432,5 +473,6 @@ export function useAssistant() {
     activeWorkspaceId,
     runningSessions,
     reconcileRunning,
+    reconcileRunningConversation,
   }
 }

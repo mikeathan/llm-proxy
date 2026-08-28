@@ -112,6 +112,7 @@ type adminModelView struct {
 	SlotTimeout      int                    `json:"slot_timeout"`
 	TimeoutMinutes   int                    `json:"timeout_minutes"`
 	ToolCallFormat   string                 `json:"tool_call_format"`
+	LoopStrategy     string                 `json:"loop_strategy"`
 }
 
 type adminActiveModel struct {
@@ -159,6 +160,8 @@ type adminTuningDefaults struct {
 	MaxPlanSteps                 int    `json:"max_plan_steps"`
 	GuardrailTimeoutSeconds      int    `json:"guardrail_timeout_seconds"`
 	GuardrailTimeoutBehavior     string `json:"guardrail_timeout_behavior"`
+	GuardrailApprovalTimeoutSecs int    `json:"guardrail_approval_timeout_seconds"`
+	LoopStrategy                 string `json:"loop_strategy"`
 
 	Reasoning       adminReasoningCapability `json:"reasoning"`
 	SupportsBaseURL bool                     `json:"supports_base_url"`
@@ -194,6 +197,7 @@ type adminConfigView struct {
 	Search               models.SearchConfig            `json:"search"`
 	AgentDefaults        adminTuningDefaults            `json:"agent_defaults"`
 	ProviderDefaults     map[string]adminTuningDefaults `json:"provider_defaults"`
+	LoopStrategyOptions  []string                       `json:"loop_strategy_options"`
 	RunLogging           *models.RunLoggingConfig       `json:"run_logging,omitempty"`
 }
 
@@ -330,7 +334,11 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 				return d
 			}(),
 			ProviderDefaults: convertProviderTiers(assistant.ProviderTiers()),
-			RunLogging:       &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
+			// Backend-driven dropdown option list: registered strategies, sorted.
+			// The frontend never hardcodes the list, so a new strategy needs no
+			// UI edit.
+			LoopStrategyOptions: assistant.RegisteredLoopStrategyNames(),
+			RunLogging:          &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}
 
@@ -396,6 +404,7 @@ func baseAdminTuningDefaults() adminTuningDefaults {
 		MaxPlanSteps:                 assistant.DefaultMaxPlanSteps,
 		GuardrailTimeoutSeconds:      int(assistant.DefaultGuardrailTimeout.Seconds()),
 		GuardrailTimeoutBehavior:     assistant.DefaultGuardrailTimeoutBehavior,
+		GuardrailApprovalTimeoutSecs: int(assistant.DefaultGuardrailApprovalTimeout.Seconds()),
 	}
 }
 

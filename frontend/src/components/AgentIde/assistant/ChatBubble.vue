@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, watch, nextTick } from 'vue'
 import MarkdownViewer from '../../common/display/MarkdownViewer.vue'
-import type { Turn } from '../../../utils/message/turnGrouper'
+import type { Turn } from '../../../types/message'
 import Icon from '../../icons/Icon.vue'
 import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
 import { useElapsedTimer } from '../../../composables/useElapsedTimer'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
-import type { InsetPhase } from '../../../utils/message/messageBuilder'
+import { getPhaseLabel } from '../../../constants/labels'
+import { isFinishedPhase, isStreamingPhase, type InsetPhase } from '../../../types/inset'
 
 defineOptions({ inheritAttrs: false })
 
@@ -38,39 +39,50 @@ watch(() => props.loading && props.isLastTurn, (active) => {
 const toolSegments = computed(() =>
   props.turn.segments.filter(s => s.kind === 'tool_call'))
 
-// Reasoning/tool deltas are still arriving — the turn hasn't produced its
-// final answer yet.  Drives both inset visibility and the live-reasoning box.
-const isStreamingPhase = computed(() =>
-  props.phase === 'thinking' || props.phase === 'working')
-
 // The inset holds reasoning segments, the live-reasoning box, and the
 // generating indicator.  Only show it once it actually has something to
 // display — during the initial wait (thinking with no streamed text yet) it
 // would otherwise paint as an empty rounded panel.  The header, animated
 // border and "Thinking" dots already convey activity on their own.
 const insetHasContent = computed(() =>
-  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail' || s.kind === 'error') ||
+  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail' || s.kind === 'error' || s.kind === 'notice') ||
   liveReasoningVisible.value ||
   props.phase === 'generating')
 
 const insetVisible = computed(() =>
-  !props.isInsetCollapsed && insetHasContent.value)
+  !props.isInsetCollapsed && (insetHasContent.value || showWaitingPlaceholder.value))
+
+// showWaitingPlaceholder surfaces a generic "waiting on the model" placeholder
+// during the initial silent phase — the turn is thinking but the upstream has
+// not produced any reasoning/text/segments yet (e.g. a long provider TTFT or a
+// hanging connection before the first retry notice). It reuses the existing
+// phase state; it is intentionally provider/model-agnostic and adds no new
+// heartbeat or event. Once any content or an upstream retry notice arrives, the
+// inset shows real content and this placeholder disappears.
+const showWaitingPlaceholder = computed(() =>
+  props.isLastTurn &&
+  props.loading &&
+  props.phase === 'thinking' &&
+  !insetHasContent.value)
 
 const resultVisible = computed(() =>
-  props.phase === 'generating' || props.phase === 'done')
+  props.phase === 'generating' || isFinishedPhase(props.phase))
 
+// Live reasoning is the in-flight thought of the CURRENT turn. It is a single
+// shared ref streamed into the live bubble only — historical bubbles render
+// committed reasoning segments, never the live text, so a retry/refresh cannot
+// bleed the new run's reasoning into a previous turn's bubble.
 const liveReasoningVisible = computed(() =>
-  !!props.liveReasoning && isStreamingPhase.value)
+  props.isLastTurn && !!props.liveReasoning && isStreamingPhase(props.phase))
 
-const phaseLabel = computed(() => {
-  switch (props.phase) {
-    case 'thinking':   return 'Assistant — thinking...'
-    case 'working':    return `Assistant — working (${toolSegments.value.length} tools)`
-    case 'generating': return 'Assistant — generating answer...'
-    case 'done':       return `Assistant — ${toolSegments.value.length} tools · completed`
-    default:           return 'Assistant'
-  }
-})
+const phaseLabel = computed(() =>
+  getPhaseLabel(props.phase, toolSegments.value.length))
+
+// Show the elapsed timer in the header once the turn is actually running
+// (thinking/working) or finished (done) — i.e. never during the idle wait or
+// the short generating flash. Keeps the inline template condition to one token.
+const showHeaderTime = computed(() =>
+  isStreamingPhase(props.phase) || isFinishedPhase(props.phase))
 
 // The inset is height-capped (max-height + internal scroll). When live reasoning
 // streams past the cap the outer container no longer grows, so the shared outer
@@ -114,7 +126,7 @@ watch(
       >
         <span class="bubble-chevron" :class="{ collapsed: isInsetCollapsed }">▶</span>
         <span class="bubble-phase">{{ phaseLabel }}</span>
-        <span v-if="phase === 'done' && seconds > 0" class="bubble-header-time">· {{ seconds }}s</span>
+        <span v-if="showHeaderTime && seconds > 0" class="bubble-header-time">· {{ seconds }}s</span>
       </button>
 
       <div class="bubble-inset-wrap" :class="{ collapsed: isInsetCollapsed }">
@@ -155,7 +167,24 @@ watch(
               <span class="inset-label inset-label--error">Error</span>
               <span class="inset-error-message">{{ seg.message }}</span>
             </div>
+
+            <div
+              v-else-if="seg.kind === 'notice'"
+              class="inset-notice"
+              :class="{ 'inset-notice--resolved': seg.status === 'resolved' }"
+            >
+              <span class="inset-label inset-label--notice">Upstream</span>
+              <span class="inset-notice-message">{{ seg.message }}</span>
+            </div>
           </template>
+
+          <!-- Generic "waiting on the model" placeholder for the initial silent
+               phase (thinking with no reasoning/content/segments yet). Rendered
+               only while the last live turn is thinking with nothing to show. -->
+          <div v-if="showWaitingPlaceholder" class="inset-waiting">
+            <span class="inset-label">Upstream</span>
+            <span class="inset-waiting-message">Waiting on the model…</span>
+          </div>
 
           <!-- Live (streaming) reasoning — the in-flight thought is always the
                newest event, so it renders at the tail, after committed
@@ -188,7 +217,7 @@ watch(
 
       <div
         class="bubble-paused"
-        :class="{ 'bubble-paused--hidden': !(loading && isLastTurn && paused && phase !== 'generating' && phase !== 'done') }"
+        :class="{ 'bubble-paused--hidden': !(loading && isLastTurn && paused && !resultVisible) }"
       >
         <span class="thinking-gap-dot"></span>
         <span class="thinking-gap-dot"></span>
@@ -269,6 +298,22 @@ watch(
 .inset-label--error { @apply text-red-400/80; }
 .inset-error-message {
   @apply text-[11px] leading-snug text-red-200/90 whitespace-pre-wrap break-words;
+}
+
+.inset-notice {
+  @apply mb-2 pl-2 border-l-2 border-amber-500/70 bg-amber-500/10 rounded-r py-1.5 pr-2;
+}
+.inset-notice--resolved { @apply opacity-60 border-amber-500/40 bg-amber-500/5; }
+.inset-label--notice { @apply text-amber-400/80; }
+.inset-notice-message {
+  @apply text-[11px] leading-snug text-amber-100/90 whitespace-pre-wrap break-words;
+}
+
+.inset-waiting {
+  @apply mb-2 pl-2 border-l-2 border-indigo-500/40 bg-indigo-500/5 rounded-r py-1.5 pr-2;
+}
+.inset-waiting-message {
+  @apply text-[11px] leading-snug text-indigo-200/80;
 }
 
 .inset-generating {

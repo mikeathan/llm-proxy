@@ -14,6 +14,14 @@ const (
 	DuplicateStreakThreshold = 3
 	SpiralStreakThreshold    = 12
 
+	// spiralRecycleLimit is the max distinct argument values a consecutive
+	// same-tool streak may recycle before it counts as a spiral. A burst of
+	// varied-argument calls to one tool (e.g. an audit automation running a
+	// sequence of distinct shell commands) is legitimate batching (Constitution
+	// II.1), not a spiral — identical-argument repeats are caught earlier by
+	// the duplicate detector and the args-aware n-gram detector.
+	spiralRecycleLimit = 4
+
 	alternatingWindowSize      = 20
 	alternatingMinTurns        = 15
 	alternatingUniqueThreshold = 0.3
@@ -30,7 +38,7 @@ const (
 const (
 	errFmtDuplicateLoop      = "infinite loop detected: %s called %d+ times with identical args"
 	errFmtSpiral             = "spiral detected: %s called %d+ consecutive times"
-	errFmtAlternatingSpiral  = "alternating tool spiral detected: %.0f%% unique tools in last %d calls (threshold %.0f%%)"
+	errFmtAlternatingSpiral  = "alternating tool spiral detected: %.0f%% unique tool calls in last %d calls (threshold %.0f%%)"
 	errFmtSequenceRepeat     = "repeating %d-tool cycle detected: %s (%d repeats in last %d calls)"
 	errFmtSameTargetOsc      = "same-target oscillation detected: path %q accessed %d times by different tools in one turn"
 )
@@ -45,11 +53,12 @@ type repetitionDetector struct {
 	duplicateStreak       int
 	lastTool              string
 	consecutiveToolStreak int
+	streakArgs            map[string]struct{} // distinct args in the current consecutive streak
 
-	alternatingWindow []string // last N tool names for oscillation detection
-	alternatingStreak int      // turns with uniqueRatio <= threshold
+	alternatingWindow []toolKey // last N tool calls (name+args) for oscillation detection
+	alternatingStreak int       // turns with uniqueRatio <= threshold
 
-	seqWindow []string // last N tool names for n-gram cycle detection
+	seqWindow []toolKey // last N tool calls (name+args) for n-gram cycle detection
 }
 
 // ---------------------------------------------------------------------------
@@ -74,15 +83,24 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 
 			if tc.Function.Name == rd.lastTool {
 				rd.consecutiveToolStreak++
-				if rd.consecutiveToolStreak >= SpiralStreakThreshold {
+				if rd.streakArgs == nil {
+					rd.streakArgs = make(map[string]struct{})
+				}
+				rd.streakArgs[key.args] = struct{}{}
+				// A spiral is 12+ consecutive calls to the same tool that
+				// recycle a small set of argument values (no exploration).
+				// Varied-argument bursts are legitimate exploration/batching.
+				if rd.consecutiveToolStreak >= SpiralStreakThreshold && len(rd.streakArgs) <= spiralRecycleLimit {
 					rd.consecutiveToolStreak = 0
 					rd.lastTool = ""
 					rd.recentCalls = nil
+					rd.streakArgs = nil
 					return true, "", fmt.Errorf(errFmtSpiral, key.name, SpiralStreakThreshold)
 				}
 			} else {
 				rd.consecutiveToolStreak = 0
 				rd.lastTool = tc.Function.Name
+				rd.streakArgs = map[string]struct{}{key.args: {}}
 			}
 
 			if len(rd.recentCalls) >= DuplicateStreakThreshold {
@@ -94,28 +112,34 @@ func (rd *repetitionDetector) check(logger logging.Logger, toolCalls []proxy.Too
 			if len(rd.alternatingWindow) >= alternatingWindowSize {
 				rd.alternatingWindow = rd.alternatingWindow[1:]
 			}
-			rd.alternatingWindow = append(rd.alternatingWindow, key.name)
+			rd.alternatingWindow = append(rd.alternatingWindow, key)
 
 			if len(rd.seqWindow) >= nGramWindowSize {
 				rd.seqWindow = rd.seqWindow[1:]
 			}
-			rd.seqWindow = append(rd.seqWindow, key.name)
+			rd.seqWindow = append(rd.seqWindow, key)
 		}
 	}
 	return false, "", nil
 }
 
 // ---------------------------------------------------------------------------
-// checkAlternating — tool-name oscillation detection
+// checkAlternating — tool-call oscillation detection
 // ---------------------------------------------------------------------------
 
+// checkAlternating detects 2-tool oscillation: a window in which the same few
+// (tool, args) calls recur turn after turn. Keys are full toolKeys, so a run
+// that legitimately dominates on one tool with varying arguments (an audit
+// automation issuing a series of distinct shell commands) never trips it —
+// each call is a different key. Only genuine recycling (the same calls
+// repeating) drives the unique ratio down.
 func (rd *repetitionDetector) checkAlternating() (bool, error) {
 	if len(rd.alternatingWindow) < alternatingMinTurns {
 		return false, nil
 	}
-	seen := make(map[string]struct{}, len(rd.alternatingWindow))
-	for _, name := range rd.alternatingWindow {
-		seen[name] = struct{}{}
+	seen := make(map[toolKey]struct{}, len(rd.alternatingWindow))
+	for _, k := range rd.alternatingWindow {
+		seen[k] = struct{}{}
 	}
 	uniqueRatio := float64(len(seen)) / float64(len(rd.alternatingWindow))
 	if uniqueRatio <= alternatingUniqueThreshold {
@@ -138,8 +162,13 @@ func (rd *repetitionDetector) checkAlternating() (bool, error) {
 
 // seqKey is a comparable stack-allocated key for n-gram cycle detection.
 // Unused fields are zero-valued; comparison only considers fields up to length.
+// Keys carry the full toolKey (name + arguments): a "cycle" means the same
+// tool sequence recurs with identical arguments. Runs that legitimately use
+// one tool with varying arguments (e.g. a series of distinct shell commands)
+// therefore never form a false cycle — single-tool stagnation is covered by
+// the duplicate-args and 12-consecutive spiral detectors instead.
 type seqKey struct {
-	a, b, c, d, e string
+	a, b, c, d, e toolKey
 	length        uint8
 }
 
@@ -177,13 +206,23 @@ func (rd *repetitionDetector) checkSequenceRepeat() (bool, error) {
 			counts[k]++
 			if counts[k] >= nGramRepeatThreshold {
 				// strings.Join only on detection — not in the hot loop.
-				arrow := strings.Join(rd.seqWindow[i:idx], " → ")
+				arrow := strings.Join(namesOf(rd.seqWindow[i:idx]), " → ")
 				return true, fmt.Errorf(errFmtSequenceRepeat,
 					l, arrow, counts[k], nGramWindowSize)
 			}
 		}
 	}
 	return false, nil
+}
+
+// namesOf extracts the tool names from a window slice for cycle-detection
+// error messages (the arrows show names; arguments are omitted for brevity).
+func namesOf(keys []toolKey) []string {
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		names[i] = k.name
+	}
+	return names
 }
 
 // ---------------------------------------------------------------------------

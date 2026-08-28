@@ -35,6 +35,8 @@ function state(overrides: Partial<AdminState['config']> = {}, models: string[] =
         max_plan_steps: 0,
         guardrail_timeout_seconds: 0,
         guardrail_timeout_behavior: '',
+        guardrail_approval_timeout_seconds: 0,
+        loop_strategy: '',
       },
       ...overrides,
     },

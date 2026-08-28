@@ -1,4 +1,6 @@
 // Global configuration types
+import type { LoopStrategy } from './model'
+
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
 export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication'
 
@@ -135,6 +137,8 @@ export interface AgentDefaults {
   max_plan_steps: number
   guardrail_timeout_seconds: number
   guardrail_timeout_behavior: string
+  guardrail_approval_timeout_seconds: number
+  loop_strategy: LoopStrategy
   reasoning?: ReasoningCapability
   // supports_base_url is surfaced by the backend per provider (provider_defaults);
   // it replaces the previously hardcoded OpenAI-compatible provider list.
@@ -160,6 +164,7 @@ export interface GlobalConfig {
   communication: CommunicationConfig
   agent_defaults: AgentDefaults
   provider_defaults?: Record<string, AgentDefaults>
+  loop_strategy_options?: string[]
   run_logging?: { enabled: boolean }
 }
 

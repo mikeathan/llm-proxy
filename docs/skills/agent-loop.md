@@ -57,6 +57,10 @@ Note: local/GGUF models now auto-derive a think-token budget from `max_tokens` (
 
 **Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
 
+**Content-level repetition guard:** Catches degenerate loops that write visible content with no tool calls and no progress (e.g. a model echoing a malformed tool-call dialect as ~190 repeated closing tags — the deepseek-v4-flash workspace-health-test incident). When `Content` is dominated by verbatim repeats (a single 60+ char window or repeated line covering ≥50% of the text, minimum fragment 400 chars, fail-open) **and** zero native tool calls are parsed, the stream aborts into the same `[stuck]` recovery as char-threshold stuck. Model/provider-agnostic — keys purely off the streamed bytes, independent of grammar/tool format. Real tool calls are never discarded (guard requires zero parsed calls). See `isRepetitionDominated()` (Hermes Agent `repetition_guard` port).
+
+**Per-stream duration cap:** A stream producing no native tool calls and no natural completion beyond `streamMaxDuration` (default 90s, test-shortenable like the heartbeat) is terminated to bound worst-case degenerate-stream runtime well under the 10-minute per-turn timeout. Content is preserved (not cleared) — mirroring char-cap termination — so the partial turn is evaluated/salvaged rather than dropped.
+
 **Progressive sieve recovery:**
 - 1st stuck → reactive sieve (first 2 + last 6 messages) + nag prompt
 - 2nd consecutive stuck → aggressive sieve (first 2 + last 3 messages) + stronger nag
@@ -99,6 +103,14 @@ common pattern where a model delivers its report while calling `write_file`.
 `AutomationNagPrompt` injection. If the next turn is still empty, a fallback
 (fallback content or best-available assistant text) finishes the run — the
 agent does not nag perpetually.
+
+**Finalization-turn failure fallback:** When the tools-disabled `finalizeReport`
+turn fails (LLM/provider error) or returns empty, the fallback chain is
+`bestAvailableAnswer()` (last substantive assistant text) → `synthesizeRunSummary()`
+(a degraded-but-real summary of the run's tool activity: per-tool call counts +
+recorded `{"error": ...}` failures) → error only when the run did no tool work.
+This is what keeps plan_execute runs alive when a provider outage hits the report
+turn — their history is pure tool calls, so there is no assistant text to salvage.
 
 ## Truncated write_file salvage
 
@@ -156,14 +168,27 @@ When native tools stream returns empty:
 | `DefaultStarvationLimit` | 15 | `session.go` | Consecutive no-tool-call turns before stall error |
 | `streamReasoningBudgetDivisor` | 3 | `stream.go` | Divisor for reasoning_budget |
 | `emptyToolCallSpiralLimit` | 3 | `stream.go` | Closed empty `<tool_call>` blocks → early stuck |
+| `streamMaxDuration` | 90s | `stream.go` | Max stream duration with no tool calls → terminate (preserves content) |
+| `minRepetitionFragmentLen` | 400 | `stream.go` | Min content length before repetition guard runs (fail-open) |
 
 ## Repetition/Spiral Detector
 
 `repetitionDetector.check()` in `agent.go`:
 
 1. **Exact duplicate args** — streak ≥ 3 → aborts with "infinite loop"
-2. **Same tool, any args** — 12+ consecutive calls to same tool → aborts with "spiral detected"
+2. **Single-tool spiral** — 12+ consecutive calls to the same tool that **recycle ≤4 distinct argument values** → aborts with "spiral detected". A burst of varied-argument calls to one tool (e.g. an audit automation running a sequence of distinct `execute_terminal_command` calls) is legitimate batching (Constitution II.1), not a spiral — identical-argument repeats are caught earlier by the duplicate detector.
 3. Streak < 3 → injects AutomationDuplicateNagPrompt and continues
+
+**Sequence-repeat (n-gram) detector** — `checkSequenceRepeat()`: catches
+repeating tool-call cycles of length 3–5 in the last 30 calls. Keys are
+**name + args** (full `toolKey`), so a run that legitimately uses one tool
+with varying arguments (e.g. a series of distinct `execute_terminal_command`
+calls in a storage audit) is never flagged as a cycle; true degenerate cycles
+recur with identical arguments and are caught after 3 repeats. Single-tool
+stagnation with varied args is still bounded by the 12-consecutive spiral
+detector. `checkAlternating()` catches 2-tool oscillation (≤30% unique
+(tool, args) calls over 20 calls for 15+ turns), and `checkSameTarget()` catches
+many-tools-one-path oscillation within a turn.
 
 ## Tool Call Data Flow
 
@@ -231,6 +256,8 @@ When the model emits a multi-step plan (legacy `execute_plan` tool), it bypasses
 - **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout`/`FilesystemToolTimeout` as regular tool calls.
 - **Inline check:** after each step, `if i >= MaxPlanSteps → abort`.
 - **Guardrail checks:** each step/tool goes through `resolveGuardrail` with `GuardrailTimeout`.
+- **Step execution failures continue (record-and-continue):** a step whose tool *execution* fails (shell exit code, compile error, missing file, tool timeout) is logged as `plan step failed, continuing` and the next step runs — the failure is already in history as a tool result, so the final report notes it. A single failed step never aborts the run, matching the react loop's `processToolCalls` behavior (model-agnostic: a weak model's mistakes become reported issues, not run-killers). Only structural errors abort: args marshal failure, `validateToolArgs` failure, `MaxPlanSteps` exceeded, plan deadline exceeded.
+- **Guardrail-denied steps continue** (`plan step guardrail denied, continuing`); in unattended automation the denial is immediate (Constitution II.10).
 
 ## Important Gotchas
 

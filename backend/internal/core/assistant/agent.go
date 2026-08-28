@@ -6,10 +6,12 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -46,6 +48,16 @@ const (
 	DefaultMaxPlanSteps             = 50               // max steps per plan
 	DefaultGuardrailTimeout         = 5 * time.Second  // guardrail validation timeout
 	DefaultGuardrailTimeoutBehavior = "fail-open"      // fail-open | fail-closed
+	// DefaultGuardrailApprovalTimeout bounds how long the agent waits for a
+	// human allow/deny decision after a guardrail block (Constitution II.10 and
+	// SPEC guardrails: "Agent blocks on channel for up to 60s"). On expiry the
+	// call is treated as denied and the run continues with the violation
+	// recorded. Distinct from DefaultGuardrailTimeout (the validation bound) —
+	// 5s is far too short for a human to read and answer an approval prompt.
+	// 300s matches Hermes' approval default: 60s proved too tight in practice
+	// (approvals arrive as notifications the user may not see for a couple of
+	// minutes, so the wait failed closed before they answered).
+	DefaultGuardrailApprovalTimeout = 5 * time.Minute
 )
 
 // DefaultReasoningBudget returns the auto-computed reasoning budget for a given
@@ -71,13 +83,13 @@ func DefaultReasoningBudget(maxTokens int) int {
 // tracks the context size the user launched the server with. Derivation is NEVER
 // based on model name (the old name-heuristic gate was removed — it caused
 // false positives/negatives). Explicit configuration always wins.
-func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) ReasoningSpec {
+func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) reasoning.ReasoningSpec {
 	tier, ok := providerTiers[providerType]
 	if !ok {
-		return ReasoningSpec{Mode: ModeEffort, Effort: EffortMedium}
+		return reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}
 	}
 	spec := tier.Reasoning
-	if spec.Mode == ModeThinkTokens {
+	if spec.Mode == reasoning.ModeThinkTokens {
 		if configuredBudget > 0 {
 			spec.Budget = configuredBudget
 		} else if maxTokens > 0 {
@@ -92,21 +104,21 @@ func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) 
 // and workload-driven (not provider-name-driven): local workloads never take
 // the override, and effort-mode providers map a disabled toggle to omitting
 // reasoning_effort rather than sending a concrete effort.
-func applyReasoningEnabledOverride(spec ReasoningSpec, enabled *bool, workload models.WorkloadClass) ReasoningSpec {
+func applyReasoningEnabledOverride(spec reasoning.ReasoningSpec, enabled *bool, workload models.WorkloadClass) reasoning.ReasoningSpec {
 	if workload == models.WorkloadLocal || enabled == nil {
 		return spec
 	}
-	if spec.Mode == ModeThinkTokens { // non-toggleable; guard for safety
+	if spec.Mode == reasoning.ModeThinkTokens { // non-toggleable; guard for safety
 		return spec
 	}
 	switch spec.Mode {
-	case ModeObject, ModeEnableThinking:
+	case reasoning.ModeObject, reasoning.ModeEnableThinking:
 		spec.Enabled = *enabled // today's behaviour
-	case ModeEffort:
+	case reasoning.ModeEffort:
 		if *enabled {
-			spec.Effort = EffortMedium // medium
+			spec.Effort = reasoning.EffortMedium // medium
 		} else {
-			spec.Effort = EffortNone // omit on the wire
+			spec.Effort = reasoning.EffortNone // omit on the wire
 		}
 	}
 	return spec
@@ -128,13 +140,13 @@ type ProviderTuningDefaults struct {
 	// leaf models package (MaxSteps, ContextBudget, MaxTokens, ToolCallFormat,
 	// Prefill, DefaultContext) — embedded to avoid duplicating those fields.
 	models.ProviderTuning
-	Reasoning ReasoningSpec
+	Reasoning reasoning.ReasoningSpec
 }
 
 // providerTiers is the composed per-provider agent-tuning table: numeric
 // defaults come from the leaf models.ProviderTuningDefaults table (single
 // source — see models/tuning.go), reasoning wire from the capability table
-// (providerReasoningCapabilities in reasoning_param.go).
+// (reasoning.ReasoningCapabilityFor).
 // It is allocated once at package init; callers must treat the returned map as
 // read-only (ProviderTiers returns the shared instance, never a copy).
 var providerTiers = composeProviderTiers()
@@ -143,10 +155,7 @@ func composeProviderTiers() map[string]ProviderTuningDefaults {
 	numeric := models.ProviderTuningDefaults()
 	out := make(map[string]ProviderTuningDefaults, len(numeric))
 	for provider, n := range numeric {
-		reasoning, ok := providerReasoningCapabilities[provider]
-		if !ok {
-			reasoning = ReasoningCapability{Mode: ModeEffort, Effort: EffortMedium}
-		}
+		spec := reasoning.ReasoningCapabilityFor(provider).Spec()
 		out[provider] = ProviderTuningDefaults{
 			ProviderTuning: models.ProviderTuning{
 				MaxSteps:       n.MaxSteps,
@@ -156,7 +165,7 @@ func composeProviderTiers() map[string]ProviderTuningDefaults {
 				Prefill:        n.Prefill,
 				DefaultContext: n.DefaultContext,
 			},
-			Reasoning: reasoning.Spec(),
+			Reasoning: spec,
 		}
 	}
 	return out
@@ -167,12 +176,19 @@ func ProviderTiers() map[string]ProviderTuningDefaults {
 	return providerTiers
 }
 
+// ReasoningCapabilityFor re-exports the reasoning capability lookup so
+// transport handlers (which import assistant, not the leaf reasoning package)
+// keep a stable accessor.
+func ReasoningCapabilityFor(providerType string) reasoning.ReasoningCapability {
+	return reasoning.ReasoningCapabilityFor(providerType)
+}
+
 // AgentConfig holds immutable per-agent data from user/model config.
 type AgentConfig struct {
 	MaxSteps        int
 	ContextBudget   int
 	MaxTokens       int
-	ReasoningSpec   ReasoningSpec
+	ReasoningSpec   reasoning.ReasoningSpec
 	ReasoningBudget int // local think-token budget (ModeThinkTokens); 0 for effort/object/enabled modes
 	Temperature     float64
 	ICUWeight       float64
@@ -185,6 +201,9 @@ type AgentConfig struct {
 	WorkloadClass   models.WorkloadClass
 	SkipStuckCheck  bool
 	EnableHotMemory bool
+	// LoopStrategy selects the agent loop archetype. Empty = provider default /
+	// react; the resolver applies the deterministic precedence.
+	LoopStrategy LoopStrategyName
 	// Channel is the event stream this agent publishes to (assistant vs
 	// automation). It is stamped onto every AgentEvent so the EventBus can
 	// route and the SSE handler can serve a single channel per connection.
@@ -198,6 +217,7 @@ type AgentConfig struct {
 	MaxPlanSteps             int
 	GuardrailTimeout         time.Duration
 	GuardrailTimeoutBehavior string
+	GuardrailApprovalTimeout time.Duration
 }
 
 // AgentRuntimeDeps holds shared services injected into every Agent.
@@ -209,7 +229,6 @@ type AgentRuntimeDeps struct {
 	Logger       logging.Logger
 	Observer     Observer
 	Orchestrator *orchestrator.Orchestrator
-	PlanStrategy *ExecutionPlanStrategy
 	MemoryStore  *memory.Store
 
 	OnGuardrail GuardrailDecisionCallback
@@ -277,7 +296,7 @@ type AgentOptions struct {
 	ProviderType             string
 	WorkloadClass            models.WorkloadClass
 	GlobalTimeout            time.Duration
-	PlanStrategy             *ExecutionPlanStrategy
+	LoopStrategy             LoopStrategyName
 	MemoryStore              *memory.Store // nil when memory is disabled
 
 	EnableHotMemory bool // inject hot memory at session start
@@ -287,6 +306,13 @@ type AgentOptions struct {
 	// ConversationID scopes this agent's events to a specific chat session.
 	ConversationID string
 
+	// AllowedTools / ExcludedTools constrain the tool schema this agent can
+	// see. They are combined with the guardrail-derived static exclusions in
+	// NewAgent (resolveToolProvider) — the single narrow waist for tool
+	// availability. allow ∩ exclude ∩ guardrail-disabled.
+	AllowedTools   []string
+	ExcludedTools  []string
+
 	// Safety timeouts — per-model overrides for unattended run hardening.
 	// Zero means "use global default" (set in applyDefaults).
 	ToolTimeout              time.Duration // default 2 min; 0 = disabled
@@ -295,16 +321,28 @@ type AgentOptions struct {
 	MaxPlanSteps             int           // default 50
 	GuardrailTimeout         time.Duration // default 5 sec
 	GuardrailTimeoutBehavior string        // "fail-open" | "fail-closed"
+	GuardrailApprovalTimeout time.Duration // default 5 min
 }
 
 type GuardrailDecisionStore struct {
 	mu      sync.Mutex
 	pending map[string]chan GuardrailDecision
+	// retained keeps the last N blocked payloads (tombstones) after their
+	// approval channel is removed (resolved or timed out). They let a late
+	// "allow & remember" decision persist an override even though the agent's
+	// wait already expired (SPEC guardrails: persist override, current tool
+	// skipped). Bounded so an unbounded stream of blocks cannot leak memory.
+	retained    map[string]GuardrailBlockedPayload
+	retainedOrd []string
 }
+
+const maxRetainedGuardrailDecisions = 100
 
 func NewGuardrailDecisionStore() *GuardrailDecisionStore {
 	return &GuardrailDecisionStore{
-		pending: make(map[string]chan GuardrailDecision),
+		pending:     make(map[string]chan GuardrailDecision),
+		retained:    make(map[string]GuardrailBlockedPayload),
+		retainedOrd: make([]string, 0, maxRetainedGuardrailDecisions),
 	}
 }
 
@@ -312,6 +350,33 @@ func (s *GuardrailDecisionStore) Register(id string, ch chan GuardrailDecision) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pending[id] = ch
+}
+
+// Retain stores a blocked payload tombstone keyed by decision id so a late
+// decision can still persist an override. Keeps the most recent
+// maxRetainedGuardrailDecisions entries to bound memory.
+func (s *GuardrailDecisionStore) Retain(payload GuardrailBlockedPayload) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.retained[payload.DecisionID]; exists {
+		return
+	}
+	if len(s.retainedOrd) >= maxRetainedGuardrailDecisions {
+		oldest := s.retainedOrd[0]
+		s.retainedOrd = s.retainedOrd[1:]
+		delete(s.retained, oldest)
+	}
+	s.retainedOrd = append(s.retainedOrd, payload.DecisionID)
+	s.retained[payload.DecisionID] = payload
+}
+
+// Payload returns the retained blocked payload for a decision id, allowing the
+// handler to persist a late override after the approval channel is gone.
+func (s *GuardrailDecisionStore) Payload(id string) (GuardrailBlockedPayload, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.retained[id]
+	return p, ok
 }
 
 func (s *GuardrailDecisionStore) Resolve(id string, decision GuardrailDecision) bool {
@@ -343,6 +408,9 @@ func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observ
 	return func(ctx context.Context, payload GuardrailBlockedPayload) (GuardrailDecision, error) {
 		ch := make(chan GuardrailDecision, 1)
 		store.Register(payload.DecisionID, ch)
+		// Retain a tombstone so a late decision (after the wait expires) can
+		// still persist an override for future calls.
+		store.Retain(payload)
 
 		if observer != nil {
 			observer(AgentEvent{
@@ -367,12 +435,19 @@ func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observ
 			return decision, nil
 		case <-ctx.Done():
 			store.Remove(payload.DecisionID)
+			// Distinguish a bounded approval-wait timeout (the 60s guardrail
+			// approval bound) from run cancellation so observers/logs can tell
+			// "the user never answered" apart from "the run was cancelled".
+			reason := "context_cancelled"
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				reason = "timeout"
+			}
 			if observer != nil {
 				observer(AgentEvent{
 					Type: EventGuardrailInvalidated,
 					Payload: GuardrailInvalidatedPayload{
 						DecisionID: payload.DecisionID,
-						Reason:     "context_cancelled",
+						Reason:     reason,
 					},
 					Timestamp: time.Now(),
 				})
@@ -422,12 +497,14 @@ func (o *AgentOptions) applyDefaults() {
 	if o.GuardrailTimeoutBehavior == "" {
 		o.GuardrailTimeoutBehavior = DefaultGuardrailTimeoutBehavior
 	}
+	if o.GuardrailApprovalTimeout <= 0 {
+		o.GuardrailApprovalTimeout = DefaultGuardrailApprovalTimeout
+	}
 }
 
 // ApplyModelConfig copies model-level overrides from cfg into the options.
-// Returns true when cfg.EnableExecutionPlan is true and the caller should
-// set opts.PlanStrategy after this call (requires external dependencies).
-func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
+// The loop strategy is parsed here so callers never hold a raw config string.
+func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) {
 	if cfg.Provider != "" {
 		o.ProviderType = cfg.Provider
 	}
@@ -480,7 +557,12 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) bool {
 	if cfg.GuardrailTimeoutBehavior != "" {
 		o.GuardrailTimeoutBehavior = cfg.GuardrailTimeoutBehavior
 	}
-	return cfg.EnableExecutionPlan
+	if cfg.GuardrailApprovalTimeoutSecs > 0 {
+		o.GuardrailApprovalTimeout = time.Duration(cfg.GuardrailApprovalTimeoutSecs) * time.Second
+	}
+	if cfg.LoopStrategy != "" {
+		o.LoopStrategy = ParseLoopStrategy(cfg.LoopStrategy)
+	}
 }
 
 func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts AgentOptions) *Agent {
@@ -509,13 +591,12 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     provider,
+			Provider:     resolveToolProvider(provider, gr, opts.WorkspaceID, opts.AllowedTools, opts.ExcludedTools),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,
 			Observer:     opts.Observer,
 			Orchestrator: opts.Orchestrator,
-			PlanStrategy: opts.PlanStrategy,
 			MemoryStore:  opts.MemoryStore,
 			OnGuardrail:  opts.GuardrailDecisionHandler,
 		},
@@ -534,6 +615,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			ModelName:                opts.ModelName,
 			ProviderType:             opts.ProviderType,
 			WorkloadClass:            opts.WorkloadClass,
+			LoopStrategy:             opts.LoopStrategy,
 			EnableHotMemory:          opts.EnableHotMemory,
 			Channel:                  opts.Channel,
 			ConversationID:           opts.ConversationID,
@@ -543,6 +625,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			MaxPlanSteps:             opts.MaxPlanSteps,
 			GuardrailTimeout:         opts.GuardrailTimeout,
 			GuardrailTimeoutBehavior: opts.GuardrailTimeoutBehavior,
+			GuardrailApprovalTimeout: opts.GuardrailApprovalTimeout,
 		},
 	}
 
@@ -551,7 +634,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	// ReasoningBudgetExceeded stuck-check, interceptor budget) use the derived
 	// value rather than the raw config (which is 0 when auto-derived). The spec
 	// remains the single source of truth; this field is its numeric projection.
-	if a.config.ReasoningSpec.Mode == ModeThinkTokens {
+	if a.config.ReasoningSpec.Mode == reasoning.ModeThinkTokens {
 		a.config.ReasoningBudget = a.config.ReasoningSpec.Budget
 	}
 
@@ -575,28 +658,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	a.startWatchdog(execCtx, cancel)
 
 	execCtx = WithUsageTracker(execCtx)
-
-	// Plan strategy short-circuits: if enabled, generate a plan for the last user
-	// message and execute it step-by-step. Falls back to the agent loop on failure.
-	if a.deps.PlanStrategy != nil {
-		lastUserMsg := ""
-		for i := len(history) - 1; i >= 0; i-- {
-			if history[i].Role == proxy.UserRole {
-				lastUserMsg = history[i].Content
-				break
-			}
-		}
-		if lastUserMsg != "" {
-			tools, err := a.deps.Provider.ListTools(execCtx)
-			if err == nil && len(tools) > 0 {
-				plan, planErr := a.deps.PlanStrategy.Generate(execCtx, lastUserMsg)
-				if planErr == nil {
-					return a.executePlan(execCtx, history, plan)
-				}
-				a.deps.Logger.Warn("plan generation failed, falling back to normal loop", "error", planErr)
-			}
-		}
-	}
+	execCtx = proxy.WithRetryObserver(execCtx, func(info proxy.RetryInfo) { a.notifyUpstream(info) })
 
 	a.rebuildToolCache(execCtx)
 

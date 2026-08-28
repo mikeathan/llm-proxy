@@ -1,16 +1,6 @@
-import type { AdminState, SettingsTab } from '../../types/admin'
+import type { AdminState } from '../../types/admin'
+import type { ModelBanner } from '../../types/model'
 import { escapeHtml } from '../../utils/format/format'
-
-export type BannerSeverity = 'critical' | 'notice'
-
-export interface ModelBanner {
-  severity: BannerSeverity
-  message: string
-  // HTML variant of the message (app-controlled, never user input).
-  html?: string
-  // Action button that deep-links to a Settings tab.
-  action?: { label: string; settingsTab: SettingsTab }
-}
 
 // computeModelBanner derives the global persistent warning banner from admin
 // state. Only the primary model drives banners:

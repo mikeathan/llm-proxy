@@ -14,6 +14,11 @@ supersedes:
 ## I. Intent
 The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented conversations. It orchestrates model inference, tool call parsing, tool execution, and history management. It must be model-agnostic — supporting both local models (via text-based XML tool calls) and cloud models (via native tool schemas) — and resilient to model-specific failures.
 
+> **Loop strategies:** the agent loop archetype is selected per-model via a pluggable
+> loop-strategy engine (react, plan-and-execute, evaluator-optimizer) defined in
+> **SPEC-010** (`docs/SPECS/agent-loop-strategies.md`). All strategies compose the shared
+> turn primitives specified here; selection is deterministic (config), never LLM-chosen.
+
 ## II. Functional Requirements
 
 ### 1. Main Execute Loop
@@ -39,6 +44,10 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Consecutive identical calls increment `duplicateStreak`.
 - At 3 duplicates: hard error ("infinite loop detected").
 - `system_error` tools are exempt.
+- Single-tool spiral: 12+ consecutive calls to the same tool that recycle ≤4 distinct argument values (no exploration) → hard error ("spiral detected"). A burst of varied-argument calls to one tool (e.g. an audit automation running a sequence of distinct shell commands) is legitimate batching (Constitution II.1), not a spiral; identical-argument repeats are caught earlier by the duplicate detector.
+- Sequence-repeat (n-gram): tool-call cycles of length 3–5 repeating ≥3 times in the last 30 calls → hard error ("repeating N-tool cycle detected"). Cycle keys are `(name, args)` pairs, so runs that legitimately use one tool with varying arguments never form a false cycle; single-tool stagnation with varied args remains bounded by the consecutive spiral detector.
+- Alternating oscillation: ≤30% unique (tool, args) calls over the last 20 calls for 15+ turns → hard error ("alternating tool spiral detected"). Keys are full (tool, args) pairs, so a run that dominates on one tool with varying arguments (exploration) never trips it — only genuine recycling of the same calls drives the unique ratio down.
+- Same-target oscillation: one path hit by 6+ distinct tools in a single turn → hard error ("same-target oscillation detected").
 
 ### 5. Exit Heuristics
 
@@ -74,6 +83,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Detection: stream produces only reasoning content (no text, no tool call deltas) exceeding the derived threshold.
 - Empty tool_call spiral: ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks in pure reasoning also triggers stuck (before char threshold). Dangling open tags not counted. Same recovery path as char-threshold stuck — does not fail the run. Lifecycle payload includes `empty_tool_calls` count. See `countEmptyClosedToolCalls()`.
 - Embedded tool call recovery: before declaring stuck, scan reasoning content for `<tool_call>` blocks. If found, extract the tool calls directly into `fullMsg.ToolCalls` — reasoning text stays in `ReasoningContent` and is never promoted to `Content`. The llama.cpp server already separates `reasoning_content` from `content` at the wire level; this function bridges the gap when the model writes tool calls as text inside reasoning instead of using native deltas. See `tryExtractToolCallFromReasoning()`.
+- Content-level repetition guard: when the streamed visible `Content` is dominated by verbatim repeated fragments (a single 60+ char window or repeated line covering ≥50% of the text, minimum fragment 400 chars, fail-open) **and** no native tool calls have been parsed, the stream is aborted and routed into the same `[stuck]` recovery as char-threshold stuck. This catches degenerate loops that write visible content (e.g. a model echoing a malformed tool-call dialect as ~190 closing tags) with no tool calls and no progress — a shape the reasoning-only stuck detector and the tool-call repetition detector both miss. See `isRepetitionDominated()` (Hermes Agent `repetition_guard` port). Real tool calls are never discarded: the guard requires zero parsed calls.
+- Per-stream duration cap: a stream producing no native tool calls and no natural completion beyond `streamMaxDuration` (default 90s, test-shortenable) is terminated to bound worst-case degenerate-stream runtime well under the 10-minute per-turn timeout. Unlike the repetition guard, the accumulated content is preserved (it may be a genuine slow report) — mirroring char-cap termination so the partial turn is evaluated/salvaged rather than dropped.
 - On stuck: stream is aborted, `lifecycle` event (`stuck_detected`) emitted with `reasoning_chars` (and `empty_tool_calls` when spiral).
 - **Token budget enforcement at the stream layer**: when the orchestrator's `StreamInterceptor` signals `ShouldTerminate` (token or reasoning budget exceeded), `processStream` returns nil, ending the stream client-side. Upstream servers do not always enforce `max_tokens`; without this client-side termination the model can generate indefinitely. A char cap of `maxTokens * 4` (via `exceedsContentCharCap`) is a fallback safety net for the case where the token counter underestimates output. The agent loop evaluates the partial turn (e.g. `isPrematureTermination`, `handleEmptyStream`, or normal turn processing) so the response is not silently dropped.
 - Fallback chain (after a stuck stream):
@@ -99,8 +110,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 11. Guardrail Decision Flow (Constitution II.10)
 - When `guardrails.ValidateToolCall()` rejects a tool call, the agent invokes `onGuardrail(ctx, payload)` if set.
-- The payload includes: `DecisionID`, `Tool`, `Args`, `Reason`, `Category` (terminal/filesystem/network/search/communication).
-- The callback blocks until: user approves (`Allow: true`), user rejects (`Allow: false`), timeout fires (60s default), or context is cancelled.
+- The payload includes: `DecisionID`, `Tool`, `Args`, `Reason`, `Category` (terminal/filesystem/network/search/communication), `WorkspaceID`.
+- The callback blocks until: user approves (`Allow: true`), user rejects (`Allow: false`), timeout fires (default 5 min, per-model configurable via `guardrail_approval_timeout_seconds`), or context is cancelled.
 - If approved with `Persist: true`: the guardrail engine saves an override to the workspace config (`config.yaml`) so future matching calls pass without blocking.
 - In automation mode (no user present), the callback is nil and guardrail violations fail immediately with an error tool result.
 - The decision store (`assistant/guardrail_decision.go`) provides concurrent-safe Register/Resolve/Remove operations.
@@ -124,6 +135,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout` / `FilesystemToolTimeout` as regular tool calls. If any step times out, the plan aborts.
 - **Inline step cap:** after each step, `if i >= MaxPlanSteps → abort` catches any discrepancy between pre-check count and actual iterations.
 - **Guardrail checks:** each step runs through `resolveGuardrail` with the configured `GuardrailTimeout` and `GuardrailTimeoutBehavior` (fail-open or fail-closed).
+- **Schema validation:** each step's args are validated against the tool manifest schema exactly like the react loop (`validateToolArgs`): required parameters must be present and non-empty. A step that guesses a parameter name (e.g. `file_path` instead of `path`) fails fast with `plan step N: invalid tool call: …` before any tool executes — it never falls through to an empty-value write.
 - **Config flow:** `MaxPlanSteps` and `MaxPlanDuration` flow through `AgentOptions ← ModelConfig ← adminTuningDefaults` so users can tune every limit per-model.
 
 ## III. Technical Architecture

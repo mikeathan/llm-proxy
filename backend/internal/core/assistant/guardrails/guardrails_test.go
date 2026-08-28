@@ -182,6 +182,71 @@ func TestGuardrailEngine_CommunicationGuardrails(t *testing.T) {
 	}
 }
 
+func TestDisabledToolNames(t *testing.T) {
+	contains := func(names []string, want string) bool {
+		for _, n := range names {
+			if n == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	networkTools := []string{models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo}
+
+	t.Run("all categories disabled by default", func(t *testing.T) {
+		engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, storage.NewPathResolver("", "", ""), nil, nil)
+		disabled := engine.DisabledToolNames("")
+		for _, want := range append([]string{models.ToolNotifyUser, models.ToolInternetSearch}, networkTools...) {
+			if !contains(disabled, want) {
+				t.Errorf("expected %q to be disabled by default", want)
+			}
+		}
+	})
+
+	t.Run("enabled categories are preserved", func(t *testing.T) {
+		cfg := models.AgentGuardrailsConfig{
+			Communication: models.CommunicationGuardrailsConfig{Enabled: true},
+			Search:        models.SearchGuardrailsConfig{Enabled: true},
+			Network:       models.NetworkGuardrailsConfig{Enabled: true},
+		}
+		engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+		if disabled := engine.DisabledToolNames(""); len(disabled) != 0 {
+			t.Errorf("expected no disabled tools when all categories enabled, got %v", disabled)
+		}
+	})
+
+	t.Run("only enabled category excluded from results", func(t *testing.T) {
+		cfg := models.AgentGuardrailsConfig{
+			Communication: models.CommunicationGuardrailsConfig{Enabled: true},
+		}
+		engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+		disabled := engine.DisabledToolNames("")
+		if contains(disabled, models.ToolNotifyUser) {
+			t.Error("notify_user must not be disabled when communication is enabled")
+		}
+		if !contains(disabled, models.ToolInternetSearch) {
+			t.Error("internet_search must be disabled when search is off")
+		}
+	})
+
+	t.Run("workspace override enables a disabled category", func(t *testing.T) {
+		base := models.AgentGuardrailsConfig{} // communication disabled globally
+		readConfig := func(workspaceID string) (*models.WorkspaceConfig, error) {
+			return &models.WorkspaceConfig{
+				Guardrails: &models.AgentGuardrailsConfig{
+					Communication: models.CommunicationGuardrailsConfig{Enabled: true},
+				},
+			}, nil
+		}
+		engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return base }, storage.NewPathResolver("", "", ""), nil, readConfig)
+		disabled := engine.DisabledToolNames("ws-1")
+		if contains(disabled, models.ToolNotifyUser) {
+			t.Error("workspace override enabling communication must remove notify_user from disabled set")
+		}
+	})
+}
+
 func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 	wsDir := "workspaces" // Constant for test env
 
@@ -260,6 +325,43 @@ func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 			err := engine.ValidateToolCall(ctx, call, tt.workspaceID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("%s: ValidateToolCall() error = %v, wantErr %v", tt.name, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGuardrailEngine_TerminalUsesBlockedFilenames(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		wantErr bool
+	}{
+		{"blocks sandbox runtime dir", `{"command": "du -sh .sandbox"}`, true},
+		{"blocks dotenv via terminal", `{"command": "cat .env"}`, true},
+		{"blocks ssh key via terminal", `{"command": "cat .ssh/id_rsa"}`, true},
+		{"allows workspace source glob", `{"command": "du -sh *"}`, false},
+		{"allows git operations", `{"command": "git status"}`, false},
+		{"allows npm install", `{"command": "npm install"}`, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := models.AgentGuardrailsConfig{}
+			cfg.Terminal.Enabled = true
+			cfg.Terminal.AllowedCommands = []string{"du", "cat", "git", "npm"}
+			cfg.FileSystem.BlockedFilenames = []string{".env", ".ssh", "id_rsa", "id_ed25519", ".pem"}
+
+			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+
+			call := proxy.ToolCall{
+				Function: proxy.FunctionCall{
+					Name:      models.ToolTerminalExecute,
+					Arguments: tt.command,
+				},
+			}
+			err := engine.ValidateToolCall(context.Background(), call, "test-ws")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateToolCall() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

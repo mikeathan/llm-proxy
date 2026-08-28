@@ -36,6 +36,11 @@ type GuardrailEngine struct {
 	// Entries are reaped after overrideTTL (PL-5) by the cache's background reaper.
 	// Cleared on server restart (config file is the durable source).
 	overrideCache *core.TTLCache[string, struct{}]
+
+	// reaperInterval is the override-cache reaper cadence. The reaper is started
+	// lazily on the first override write so engines that never persist overrides
+	// (e.g. NewAgent's nil-safety fallback engine) do not leak a goroutine.
+	reaperInterval time.Duration
 }
 
 // defaultOverrideTTL and defaultReaperInterval bound override-cache growth.
@@ -57,9 +62,17 @@ func newGuardrailEngine(provider func() models.AgentGuardrailsConfig, resolver s
 		readConfig:     readConfig,
 		regexCache:     sync.Map{},
 		overrideCache:  core.NewTTLCache[string, struct{}](0, overrideTTL, nil),
+		reaperInterval: reaperInterval,
 	}
-	e.overrideCache.Start(reaperInterval)
 	return e
+}
+
+// ensureReaper starts the override-cache reaper on the first override write.
+// Construction never starts a goroutine: engines that never persist or mark an
+// override (notably NewAgent's nil-safety fallback engine) would otherwise
+// leak one reaper goroutine per instance (Constitution II.14).
+func (e *GuardrailEngine) ensureReaper() {
+	e.overrideCache.Start(e.reaperInterval)
 }
 
 // Stop terminates the override reaper goroutine. Safe to call multiple times.
@@ -93,7 +106,7 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 	// 2. Category-Specific Guardrails
 	switch call.Function.Name {
 	case models.ToolTerminalExecute:
-		return e.validateTerminal(call, cfg.Terminal, workspaceID)
+		return e.validateTerminal(call, cfg.Terminal, workspaceID, cfg.FileSystem.BlockedFilenames)
 	case models.ToolInternetSearch:
 		return e.validateSearch(call, cfg.Search)
 	case models.ToolNotifyUser:
@@ -132,7 +145,7 @@ func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalG
 	return nil
 }
 
-func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.TerminalGuardrailsConfig, workspaceID string) error {
+func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.TerminalGuardrailsConfig, workspaceID string, blockedFilenames []string) error {
 	if strings.TrimSpace(call.Function.Arguments) == "" {
 		return fmt.Errorf("missing tool arguments: 'command' field is required")
 	}
@@ -157,7 +170,7 @@ func (e *GuardrailEngine) validateTerminal(call proxy.ToolCall, cfg models.Termi
 		effectiveCwd = filepath.Join(jailPath, args.Cwd)
 	}
 
-	return tools.ValidateTerminalCommand(args.Command, cfg, &e.regexCache, jailPath, effectiveCwd)
+	return tools.ValidateTerminalCommand(args.Command, cfg, blockedFilenames, &e.regexCache, jailPath, effectiveCwd)
 }
 
 func (e *GuardrailEngine) validateSearch(call proxy.ToolCall, cfg models.SearchGuardrailsConfig) error {
@@ -251,6 +264,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 	if e.persistence == nil || workspaceID == "" {
 		return fmt.Errorf("persistence not available")
 	}
+	e.ensureReaper()
 
 	cfg, err := e.readConfig(workspaceID)
 	if err != nil {
@@ -322,6 +336,39 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 	return e.persistence.WriteConfig(workspaceID, cfg)
 }
 
+// DisabledToolNames returns the tool names whose category is statically
+// disabled by guardrail policy (the Communication/Search/Network `Enabled`
+// gates), with workspace overrides merged exactly as ValidateToolCall resolves
+// them. It mirrors ValidateToolCall's hard "disabled by policy" gates only —
+// RequireReview and the allowlist/blocked-domain categories (terminal,
+// filesystem) are execution-time gates and are intentionally NOT covered. Tools
+// with an active in-memory override are skipped (consistent with the
+// ValidateToolCall fast path). This is the single source the exposed tool
+// schema derives from, so no strategy or channel can observe a tool the policy
+// statically disables.
+func (e *GuardrailEngine) DisabledToolNames(workspaceID string) []string {
+	cfg := e.configProvider()
+	if workspaceID != "" && e.readConfig != nil {
+		if wsCfg, err := e.readConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
+			cfg.MergeWith(wsCfg.Guardrails)
+		}
+	}
+	var disabled []string
+	add := func(name string, disabledByPolicy bool) {
+		// Override skip mirrors ValidateToolCall's fast path exactly:
+		// in-memory overrides only count for a non-empty workspaceID.
+		if disabledByPolicy && (workspaceID == "" || !e.hasOverride(workspaceID, name)) {
+			disabled = append(disabled, name)
+		}
+	}
+	add(models.ToolNotifyUser, !cfg.Communication.Enabled)
+	add(models.ToolInternetSearch, !cfg.Search.Enabled)
+	add(models.ToolNetworkFetch, !cfg.Network.Enabled)
+	add(models.ToolNetworkScan, !cfg.Network.Enabled)
+	add(models.ToolNetworkInfo, !cfg.Network.Enabled)
+	return disabled
+}
+
 // hasOverride checks the in-memory override cache for a (workspaceID, toolName) pair.
 // Uses toolName (e.g. "notify_user") as the key suffix so ValidateToolCall can check
 // without needing to derive the category.
@@ -334,5 +381,6 @@ func (e *GuardrailEngine) hasOverride(workspaceID, toolName string) bool {
 // skip the guardrail check without waiting for the config file write.
 // Uses toolName (not category) to match the key format in hasOverride.
 func (e *GuardrailEngine) MarkOverride(workspaceID, toolName string) {
+	e.ensureReaper()
 	e.overrideCache.Put(workspaceID+"/"+toolName, struct{}{})
 }

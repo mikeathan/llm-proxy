@@ -38,6 +38,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.ActiveRuns = handlers.NewActiveRunsHandler(
 		hs.Assistant.RunningExists,
 		disp.IsAutomationRunning,
+		hs.Assistant.RunningConversationID,
 	)
 	hs.Admin = handlers.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
 	hs.System = handlers.NewSystemHandlers(s.AppCtx, s.Logger(), buildInfo)

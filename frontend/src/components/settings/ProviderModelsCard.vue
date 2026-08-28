@@ -42,6 +42,7 @@ const {
   handleEdit,
   saveEdit,
   handleRemove,
+  loopStrategyOptions,
 } = useProviderModels(props, emit);
 </script>
 
@@ -115,7 +116,7 @@ const {
                 placeholder="--ctx-size 8192 --gpu-layers 32"
               />
             </div>
-            <ModelTuningFields :model="modelForm" provider="local" workload-class="local" :reasoning="agentDefaults?.reasoning" />
+            <ModelTuningFields :model="modelForm" provider="local" workload-class="local" :reasoning="agentDefaults?.reasoning" :loop-strategy-options="loopStrategyOptions" />
           </template>
           <template v-else>
             <div class="form-group">
@@ -199,7 +200,7 @@ const {
                 placeholder="Auto-derived from model ID"
               />
             </div>
-            <ModelTuningFields :model="modelForm" :provider="provider" :workload-class="addFormWorkload" :reasoning="agentDefaults?.reasoning" />
+            <ModelTuningFields :model="modelForm" :provider="provider" :workload-class="addFormWorkload" :reasoning="agentDefaults?.reasoning" :loop-strategy-options="loopStrategyOptions" />
           </template>
         </template>
         <template v-else>
@@ -237,7 +238,7 @@ const {
                 placeholder="--ctx-size 8192 --gpu-layers 32"
               />
             </div>
-            <ModelTuningFields :model="editingModel" provider="local" :workload-class="editingModel.workload_class || 'local'" :reasoning="agentDefaults?.reasoning" />
+            <ModelTuningFields :model="editingModel" provider="local" :workload-class="editingModel.workload_class || 'local'" :reasoning="agentDefaults?.reasoning" :loop-strategy-options="loopStrategyOptions" />
           </template>
           <template v-else>
             <div class="form-group">
@@ -274,7 +275,7 @@ const {
                 </option>
               </select>
             </div>
-            <ModelTuningFields :model="editingModel" :provider="provider" :workload-class="editingModel.workload_class || 'cloud'" :reasoning="agentDefaults?.reasoning" />
+            <ModelTuningFields :model="editingModel" :provider="provider" :workload-class="editingModel.workload_class || 'cloud'" :reasoning="agentDefaults?.reasoning" :loop-strategy-options="loopStrategyOptions" />
           </template>
         </template>
       </div>

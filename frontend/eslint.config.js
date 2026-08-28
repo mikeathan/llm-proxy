@@ -27,6 +27,22 @@ export default [
     },
   },
   {
+    name: "types-must-live-in-src-types",
+    files: ["src/**/*.ts", "src/**/*.vue"],
+    ignores: ["src/types/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "ExportNamedDeclaration > TSInterfaceDeclaration, ExportNamedDeclaration > TSTypeAliasDeclaration, ExportNamedDeclaration:has(TSInterfaceDeclaration), ExportNamedDeclaration:has(TSTypeAliasDeclaration)",
+          message:
+            "Export types/interfaces only from src/types/. Move the declaration to src/types/ and import it with `import type`. (Rule: frontend-vue-engineer.md → TypeScript → 'Export types ONLY from src/types/')",
+        },
+      ],
+    },
+  },
+  {
     name: "ignore-build-output",
     ignores: [
       "dist/**",

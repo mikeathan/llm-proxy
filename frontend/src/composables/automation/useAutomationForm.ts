@@ -3,17 +3,8 @@ import { useModels } from "../models/useModels"
 import type { Model } from "../../types/model"
 import type { ProviderItem } from "../../types/admin"
 import type { Automation } from "../../types/dispatcher"
-
-export type TriggerType = "cron" | "interval" | "manual"
-
-export interface AutomationFormData {
-  name: string
-  triggerType: TriggerType
-  triggerValue: string
-  taskFile: string
-  strategy: string
-  model: string
-}
+import type { AutomationFormData, TriggerType } from "../../types/automation"
+import { loopStrategyOptions as buildLoopStrategyOptions } from "../../utils/model/modelUtils"
 
 export function useAutomationForm(
   editAutomation: Ref<Automation | null>,
@@ -37,6 +28,7 @@ export function useAutomationForm(
       taskFile: "",
       strategy: "persistent",
       model: "",
+      loopStrategy: "",
     }
   }
 
@@ -68,6 +60,13 @@ export function useAutomationForm(
   })
 
   const filteredModels = computed(() => modelsForKey(selectedProviderKey.value))
+
+  // Backend-driven loop-strategy option list (config.loop_strategy_options
+  // from the strategy registry). Falls back to the known values when the
+  // backend hasn't surfaced a list.
+  const loopStrategyOptions = computed(() =>
+    buildLoopStrategyOptions(state.value?.config?.loop_strategy_options),
+  )
 
   const cloudProvidersWithKeys = computed(() => {
     const result: {
@@ -113,6 +112,7 @@ export function useAutomationForm(
         taskFile: target.task_file,
         strategy: target.strategy,
         model: target.model || "",
+        loopStrategy: target.loop_strategy || "",
       }
     },
     { immediate: true },
@@ -143,6 +143,7 @@ export function useAutomationForm(
     selectedProviderKey,
     filteredModels,
     cloudProvidersWithKeys,
+    loopStrategyOptions,
     handleSubmit,
     resetForm,
   }

@@ -14,6 +14,7 @@ export type Segment =
   | { kind: 'tool_call', name: string, args: string, status: 'running' | 'success' | 'error', result?: string, error?: string }
   | { kind: 'guardrail', tool: string, error: string }
   | { kind: 'error', message: string }
+  | { kind: 'notice', message: string, status?: 'pending' | 'resolved' }
 
 export interface AssistantMessage {
   role: AssistantRole
@@ -24,6 +25,9 @@ export interface AssistantMessage {
   toolResult?: { name: string; result: any; error?: string }
   segments?: Segment[]
   canceled?: boolean
+  // error carries a persisted terminal run failure (assistant-role message
+  // written by the backend) and renders as a kind:'error' segment on reload.
+  error?: string
 }
 
 export interface SessionBrief {
@@ -81,4 +85,29 @@ export interface CancelAgentResponse {
 export interface ActiveRunsResponse {
   assistant_running: boolean
   automation_running: boolean
+  // assistant_conversation_id is the conversation ID of the agent currently
+  // running, or "" when none is running. The frontend uses it to mark the
+  // correct history row as running after a refresh.
+  assistant_conversation_id: string
+}
+
+import type { LifecyclePhase } from './dispatcher'
+
+// SessionLifecyclePayload is the parsed payload of a session lifecycle SSE
+// event (session_started / session_progress / session_completed), used to
+// drive UI session state without a full re-fetch.
+export interface SessionLifecyclePayload {
+  phase: LifecyclePhase
+  conversation_id?: string
+  workspace_id?: string
+  snippet?: string
+  source?: string
+}
+
+// SourceSection groups sessions by source (webhook vs manual) for the session
+// list. See utils/assistant/source.ts.
+export interface SourceSection {
+  source: string
+  sessions: SessionBrief[]
+  grouped: boolean
 }

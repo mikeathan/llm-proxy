@@ -15,6 +15,11 @@ const assistantRunning = ref(false)
 const automationRunning = ref(false)
 const loading = ref(false)
 const error = ref<string | null>(null)
+// assistantConversationId is the conversation ID of the assistant run currently
+// executing for the workspace ("" when none). Backed by the authoritative
+// /active-runs response so the UI can mark the correct history row as running
+// after a refresh — the per-session running flag itself is not persisted.
+const assistantConversationId = ref('')
 let timer: ReturnType<typeof setInterval> | null = null
 
 async function refresh(workspaceId: string | null) {
@@ -24,6 +29,7 @@ async function refresh(workspaceId: string | null) {
     const data: ActiveRunsResponse = await AssistantService.getActiveRuns(workspaceId)
     assistantRunning.value = data.assistant_running
     automationRunning.value = data.automation_running
+    assistantConversationId.value = data.assistant_conversation_id || ''
     error.value = null
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load active runs'
@@ -45,5 +51,5 @@ export function useRunningActivity(workspaceId: Ref<string | null>) {
 
   start()
 
-  return { assistantRunning, automationRunning, loading, error }
+  return { assistantRunning, automationRunning, assistantConversationId, loading, error }
 }

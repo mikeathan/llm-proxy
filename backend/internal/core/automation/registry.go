@@ -17,6 +17,7 @@ type AutomationEntry struct {
 	TaskFile     string
 	Strategy     ExecutionStrategy
 	Model        string
+	LoopStrategy models.LoopStrategy // per-run loop archetype override; "" = model config default
 	AllowedTools []string
 	RecordingRef string
 }
@@ -55,6 +56,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		TaskFile:     auto.TaskFile,
 		Strategy:     strategy,
 		Model:        auto.Model,
+		LoopStrategy: auto.LoopStrategy,
 		AllowedTools: auto.AllowedTools,
 		RecordingRef: auto.RecordingRef,
 	}

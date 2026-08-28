@@ -86,11 +86,14 @@ func (t *TerminalTools) resolveWorkspace(ctx context.Context) (string, string) {
 // Validate checks if a command is allowed based on the provided configuration.
 func (t *TerminalTools) Validate(ctx context.Context, command string) error {
 	_, jailPath := t.resolveWorkspace(ctx)
-	return ValidateTerminalCommand(command, t.configProvider(ctx), &t.regexCache, jailPath)
+	// The guardrail engine (validateTerminal) is the live enforcement gate and
+	// supplies the filesystem blocked-filenames list. This wrapper is a
+	// secondary check and intentionally passes none.
+	return ValidateTerminalCommand(command, t.configProvider(ctx), nil, &t.regexCache, jailPath)
 }
 
 // ValidateTerminalCommand is a standalone-like validator that checks a command against guardrails.
-func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig, cache *sync.Map, jailPath string, effectiveCwd ...string) error {
+func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig, blockedFilenames []string, cache *sync.Map, jailPath string, effectiveCwd ...string) error {
 	if !cfg.Enabled {
 		return fmt.Errorf("terminal tools are disabled in configuration")
 	}
@@ -113,7 +116,15 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 		return err
 	}
 
-	// 2. Check Whitelist (on each segment of a chained command)
+	// 2. Check Blocked Paths (explicit path operands targeting sensitive files
+	//    or the sandbox runtime directory). Mirrors the filesystem tool's blocked
+	//    filename list so the terminal cannot read what read_file rejects.
+	if err := checkBlockedPaths(cleanCmd, blockedFilenames, jailPath); err != nil {
+		logging.Debug("guardrail blocked", "rule", "blocked_path", "error", err.Error())
+		return err
+	}
+
+	// 3. Check Whitelist (on each segment of a chained command)
 	if len(cfg.AllowedCommands) > 0 {
 		segments := splitCommandSegments(cleanCmd)
 		if err := assertAllowedCommand(segments, cfg.AllowedCommands); err != nil {
@@ -122,7 +133,7 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 		}
 	}
 
-	// 3. Block Absolute Paths and Parent Traversal (Jail Escape Prevention)
+	// 4. Block Absolute Paths and Parent Traversal (Jail Escape Prevention)
 	if err := checkPathSecurity(cleanCmd, jailPath, cfg.AllowedExternalPaths, cwd); err != nil {
 		logging.Debug("guardrail blocked", "rule", "path_security", "error", err.Error())
 		return err
@@ -280,6 +291,73 @@ func checkBlockedPatterns(command string, patterns []string, cache *sync.Map) er
 		}
 	}
 	return nil
+}
+
+// checkBlockedPaths rejects commands whose explicit path operands target a
+// blocked sensitive file or an internal invariant path (sandbox runtime
+// directory). Only explicit tokens the model writes are inspected —
+// environment-driven resolution (HOME=.../.sandbox, path_extensions) is
+// untouched, so the sandbox runtime and package managers keep working. The
+// error uses the "path access denied" prefix so the guardrail engine
+// classifies it as a silent policy block (no allow/deny prompt), matching the
+// filesystem tool.
+func checkBlockedPaths(command string, blocked []string, jailPath string) error {
+	// The effective list merges user-configured blocked filenames with the
+	// internal invariant paths (.sandbox) — one gate, one source of truth.
+	blocked = effectiveBlockedFilenames(blocked)
+	for _, tok := range strings.Fields(command) {
+		tok = strings.Trim(tok, `"'`)
+		if tok == "" {
+			continue
+		}
+		rel := tok
+		if filepath.IsAbs(rel) && jailPath != "" {
+			if p, err := filepath.Rel(jailPath, rel); err == nil && !strings.HasPrefix(p, "..") {
+				rel = p
+			}
+		}
+		rel = strings.TrimPrefix(rel, "./")
+		if m := blockedPathEntry(rel, blocked); m != "" {
+			return fmt.Errorf("path access denied: access to sensitive file '%s' is blocked", m)
+		}
+	}
+	return nil
+}
+
+// redactBlockedPaths strips lines that reference a blocked path (user-configured
+// sensitive files or internal invariant paths like the sandbox runtime
+// directory) from terminal output.  The input-side guardrail (checkBlockedPaths)
+// already rejects explicit blocked operands, but a recursive traversal ("find .",
+// "du -sh .", "ls -la", "tree") emits blocked paths in its OUTPUT — the same
+// leak, so those lines are removed before the result reaches the agent.
+// Every whitespace-delimited token is checked with the same path-segment
+// semantics as the input gate, so "./.sandbox/...", "du ... .sandbox", and
+// "drwxr-xr-x .sandbox" are all caught.
+func redactBlockedPaths(output string, blocked []string) string {
+	if len(blocked) == 0 || !strings.Contains(output, ".") {
+		return output
+	}
+	lines := strings.Split(output, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if lineReferencesBlockedPath(line, blocked) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// lineReferencesBlockedPath reports whether any whitespace token in the line
+// targets a blocked path segment.
+func lineReferencesBlockedPath(line string, blocked []string) bool {
+	for _, tok := range strings.Fields(line) {
+		tok = strings.Trim(tok, `"'(),;`)
+		if blockedPathEntry(tok, blocked) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // assertAllowedCommand checks that every command segment starts with a base
@@ -530,7 +608,7 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	readAndTee(errStream, "stderr")
 
 	wg.Wait()
-	output := t.truncateOutput(buf.String(), cfg.MaxOutputSize)
+	output := t.truncateOutput(redactBlockedPaths(buf.String(), internalBlockedPaths), cfg.MaxOutputSize)
 	if execErr != nil {
 		logging.Debug("executeShell: error", "output_len", len(output), "error", execErr.Error())
 		return output, fmt.Errorf("shell execution failed: %w", execErr)
@@ -571,7 +649,7 @@ func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd st
 
 	logging.Debug("executeLocal: running", "shell", shell, "command", command, "cwd", cwd)
 	out, err := cmd.CombinedOutput()
-	result := t.truncateOutput(string(out), cfg.MaxOutputSize)
+	result := t.truncateOutput(redactBlockedPaths(string(out), internalBlockedPaths), cfg.MaxOutputSize)
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

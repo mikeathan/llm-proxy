@@ -1,7 +1,7 @@
 {
   "tool_name": "execute_terminal_command",
   "version": "1.1",
-  "description": "Execute a shell command on the host terminal and return the output. The shell session is persistent across calls in the same workspace; variables and directory changes (via 'cd') will persist.",
+  "description": "Execute a shell command on the host terminal and return the output. The shell session persists environment variables and shell state (e.g. installed packages) across calls. Each command runs in the workspace root by default; to work in a subdirectory, chain `cd subdir && ...` in a single command.",
   "parameters": {
     "type": "object",
     "properties": {

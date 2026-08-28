@@ -11,14 +11,15 @@ import (
 
 func TestActiveRunsHandler_AggregatesSubsystems(t *testing.T) {
 	tests := []struct {
-		name              string
-		assistantRunning  bool
-		automationRunning bool
+		name                     string
+		assistantRunning         bool
+		automationRunning        bool
+		assistantConversationID  string
 	}{
-		{"neither running", false, false},
-		{"assistant only", true, false},
-		{"automation only", false, true},
-		{"both running", true, true},
+		{"neither running", false, false, ""},
+		{"assistant only", true, false, "conv_123"},
+		{"automation only", false, true, ""},
+		{"both running", true, true, "conv_456"},
 	}
 
 	for _, tt := range tests {
@@ -26,6 +27,7 @@ func TestActiveRunsHandler_AggregatesSubsystems(t *testing.T) {
 			h := NewActiveRunsHandler(
 				func(string) bool { return tt.assistantRunning },
 				func(string) bool { return tt.automationRunning },
+				func(string) string { return tt.assistantConversationID },
 			)
 
 			req := httptest.NewRequest(http.MethodGet, "/admin/api/workspaces/ws1/active-runs", nil)
@@ -48,6 +50,9 @@ func TestActiveRunsHandler_AggregatesSubsystems(t *testing.T) {
 			if got.AutomationRunning != tt.automationRunning {
 				t.Errorf("AutomationRunning = %v, want %v", got.AutomationRunning, tt.automationRunning)
 			}
+			if got.AssistantConversationID != tt.assistantConversationID {
+				t.Errorf("AssistantConversationID = %q, want %q", got.AssistantConversationID, tt.assistantConversationID)
+			}
 		})
 	}
 }
@@ -56,6 +61,7 @@ func TestActiveRunsHandler_MissingWorkspace(t *testing.T) {
 	h := NewActiveRunsHandler(
 		func(string) bool { return true },
 		func(string) bool { return true },
+		func(string) string { return "conv_123" },
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/workspaces//active-runs", nil)

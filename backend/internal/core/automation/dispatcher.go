@@ -76,8 +76,8 @@ type Dispatcher struct {
 // function and optional shell process group ID for force-termination.
 type activeRun struct {
 	cancel     context.CancelFunc
-	pgid       int                  // negated PGID for syscall.Kill; 0 when no active shell
-	diagCancel context.CancelFunc   // cancels the StopAutomation diagnostic goroutine
+	pgid       int                // negated PGID for syscall.Kill; 0 when no active shell
+	diagCancel context.CancelFunc // cancels the StopAutomation diagnostic goroutine
 }
 
 func NewDispatcher(
@@ -549,6 +549,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		Strategy:       entry.Strategy,
 		State:          state,
 		Model:          entry.Model,
+		LoopStrategy:   string(entry.LoopStrategy),
 		AllowedTools:   entry.AllowedTools,
 		RecordingRef:   recordingRef,
 	}
@@ -559,7 +560,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	if err != nil {
 		state.SetRunning("")
 		d.persistence.WriteState(entry.Workspace, state)
-		
+
 		// Un-hang the UI by publishing the error over the EventBus
 		d.events.Publish(entry.Workspace, assistant.AgentEvent{
 			Type:    assistant.EventError,
@@ -574,7 +575,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		if len(state.History) > 0 {
 			d.RecordActivity(state.History[len(state.History)-1])
 		}
-		
+
 		d.metrics.RecordExecution(false, false, elapsed)
 		return err
 	}

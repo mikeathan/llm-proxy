@@ -1,26 +1,9 @@
 import { ref, type Ref } from 'vue'
 import type { AssistantMessage, Segment } from '../../types/assistant'
-import type { AgentEvent } from '../../types/dispatcher'
+import { LIFECYCLE_PHASES, type AgentEvent, type UpstreamEventPayload } from '../../types/dispatcher'
 import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../dispatcher'
-
-// InsetPhase drives the ChatBubble inset visibility during an agent turn.
-//   idle       — no activity yet
-//   thinking   — reasoning/tool_stream arriving, no tool call dispatched
-//   working    — at least one tool_call dispatched
-//   generating — assistant message with content + no tool calls arrived
-//   done       — turn finalized (finalize called)
-export type InsetPhase = 'idle' | 'thinking' | 'working' | 'generating' | 'done'
-
-export interface MessageBuilderOptions {
-  source?: 'chat' | 'automation'
-  // automation seeds a synthetic leading user message so groupTurns forms a
-  // single clean turn (automation runs have no chat prompt of their own).
-  headerMessage?: AssistantMessage
-  // 'explicit'  → caller invokes finalize(reply) (chat: HTTP response).
-  // 'lifecycle' → builder finalizes on lifecycle{phase:'completed'}
-  //               (automation: Hermes-aligned, loop-announced completion).
-  finalizeOn?: 'explicit' | 'lifecycle'
-}
+import type { InsetPhase } from '../../types/inset'
+import type { MessageBuilderOptions } from '../../types/message'
 
 function stripToolCallXml(text: string): string {
   return text
@@ -199,6 +182,64 @@ export function useMessageBuilder(
     }
   }
 
+  // Mark every pending upstream notice as resolved. Called when the stream
+  // resumes (tool_stream/reasoning) after a retry so a recovered retry reads as
+  // resolved rather than leaving a stale "retrying…" chip. Resolves ALL pending
+  // notices — a turn may stack several sequential retries before recovery.
+  function resolvePendingNotices() {
+    const segments = getSegments()
+    let changed = false
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      if (seg && seg.kind === 'notice' && seg.status === 'pending') {
+        segments[i] = { ...seg, status: 'resolved' }
+        changed = true
+      }
+    }
+    if (changed) forceUpdate()
+  }
+
+  // Surface a transient upstream LLM failure (currently being retried) as an
+  // inline notice so the user sees why the turn is paused instead of a silent
+  // stall. Observational only — the retry is still running, so we deliberately
+  // do NOT touch phase/streaming/thinking flags.
+  function handleUpstreamNotice(p: UpstreamEventPayload) {
+    const attempt = p?.attempt ?? 0
+    const max = p?.max_attempts ?? 0
+    const reason = p?.reason === 'status'
+      ? `status ${p.status ?? ''}`
+      : (p?.err_class ? `${p.err_class}: ${p.error ?? 'transport error'}` : (p?.error ?? 'transport error'))
+    ensureAssistant()
+    const segments = getSegments()
+    const message = `Upstream retrying (${attempt}/${max}) — ${reason}`
+    const last = segments[segments.length - 1]
+    if (last && last.kind === 'notice' && last.status === 'pending') {
+      // Collapse consecutive retries into the existing notice so a long retry
+      // storm doesn't stack an unbounded run of identical chips.
+      segments[segments.length - 1] = { ...last, message }
+      forceUpdate()
+      return
+    }
+    segments.push({ kind: 'notice', message, status: 'pending' })
+    forceUpdate()
+  }
+
+  // Render a terminal run failure as a visible error segment and clear the
+  // transient streaming flags. Terminal: the run ended before any
+  // lifecycle{completed} will fire, so drive the bubble to 'done' and let the
+  // owning composable clear loading.
+  function handleRunError(message: string) {
+    ensureAssistant()
+    getSegments().push({ kind: 'error', message })
+    // A pending upstream retry notice is moot once the run has failed; resolve
+    // it so no stale "retrying…" chip lingers next to the error.
+    resolvePendingNotices()
+    streaming.value = false
+    thinking.value = false
+    setPhase('done')
+    forceUpdate()
+  }
+
   function handleEvent(ev: AgentEvent) {
     switch (ev.type) {
       case 'tool_stream':
@@ -207,6 +248,7 @@ export function useMessageBuilder(
         streaming.value = true
         thinking.value = true
         if (phase.value === 'idle') setPhase('thinking')
+        resolvePendingNotices()
         handleToolStream(ev.payload as string)
         resetPauseTimer()
         return
@@ -216,6 +258,7 @@ export function useMessageBuilder(
         streaming.value = true
         thinking.value = true
         if (phase.value === 'idle') setPhase('thinking')
+        resolvePendingNotices()
         handleToolStream(ev.payload as string)
         resetPauseTimer()
         return
@@ -237,14 +280,10 @@ export function useMessageBuilder(
         return
       case 'error':
         // Early run failures (e.g. no model configured) arrive on the SSE bus before the agent starts; render them as a visible error segment.
-        ensureAssistant()
-        getSegments().push({ kind: 'error', message: String((ev.payload as any)?.error ?? 'Unknown error') })
-        streaming.value = false
-        thinking.value = false
-        // Terminal: the run ended before any lifecycle{completed} will fire, so
-        // drive the bubble to 'done' and let the owning composable clear loading.
-        setPhase('done')
-        forceUpdate()
+        handleRunError(String((ev.payload as any)?.error ?? 'Unknown error'))
+        return
+      case 'upstream':
+        handleUpstreamNotice(ev.payload as UpstreamEventPayload)
         return
       case 'message':
         // A message with content and no tool calls signals the final answer
@@ -265,20 +304,26 @@ export function useMessageBuilder(
         return
       case 'lifecycle': {
         const p = ev.payload as Record<string, any>
-        if (p?.phase === 'agent_thinking') {
-          // Neutral "working" status at the start of an LLM call, before any
-          // response content arrives. Opaque providers (no readable reasoning
-          // stream) rely on this to show a spinner/"thinking…" instead of a blank
-          // gap. Carries no content, so it can never be mistaken for model output.
-          // Idempotent: only flips from idle/done; a later `reasoning` event
-          // fills the inset with real text.
-          if (phase.value === 'idle' || phase.value === 'done') {
+        // Neutral "working" status at the start of an LLM call, before any
+        // response content arrives. Opaque providers (no readable reasoning
+        // stream) rely on this to show a spinner/"thinking…" instead of a blank
+        // gap. Carries no content, so it can never be mistaken for model output.
+        // Idempotent: only flips from idle; a later `reasoning` event fills the
+        // inset with real text.
+        // `still_thinking` is the repeating silent-stall variant (heartbeat). It
+        // is a strict subset of agent_thinking's behaviour EXCEPT it never re-
+        // enters thinking after done — the heartbeat keeps re-emitting, so acting
+        // after done would re-show the spinner on a finished turn.
+        if (p?.phase === LIFECYCLE_PHASES.agentThinking || p?.phase === LIFECYCLE_PHASES.stillThinking) {
+          if (phase.value === 'idle') {
             thinking.value = true
-            if (phase.value === 'idle') setPhase('thinking')
+            setPhase('thinking')
+          } else if (p?.phase === LIFECYCLE_PHASES.agentThinking && phase.value === 'done') {
+            thinking.value = true
           }
           return
         }
-        if (opts.finalizeOn === 'lifecycle' && p?.phase === 'completed' && !finalized) {
+        if (opts.finalizeOn === 'lifecycle' && p?.phase === LIFECYCLE_PHASES.completed && !finalized) {
           finalized = true
           finalize(typeof p.content === 'string' && p.content ? p.content : lastReply)
         }

@@ -157,11 +157,11 @@ Both callers use the same helper. The `continueOnError` parameter controls error
 
 | Leak | Fix | Location |
 |------|-----|----------|
-| PL-1 | Run `TruncateHistory(maxHistoryChars)` on `updatedHistory` before persisting to disk | `conversation_service.go:182` |
+| PL-1 | Bound persisted history with `TruncateHistory(updatedHistory, MaxPersistedHistoryChars)` — a **high last-resort ceiling (256KB)** — so pathological runs (hundreds of tool cycles) cannot write an unbounded session file, while normal runs persist full (untruncated) history and a reload shows the complete tool-call/reasoning trail (Bug 2). The LLM prompt is separately bounded by the sieve/`context_budget`. | `conversation_service.go` (`handleSuccessResult`/`handleErrorResult`) |
 | PL-2 | Wrap webhook registration goroutine with `context.WithTimeout(context.Background(), 30*time.Second)` | `registry.go:221` |
 
 **Acceptance criteria:**
-- PL-1: After agent returns 500 messages, persisted history ≤ `TruncateHistory` bound
+- PL-1: After agent returns 500 messages, persisted history ≤ `MaxPersistedHistoryChars` (256KB); normal histories are persisted full.
 - PL-2: Goroutine cannot outlive 30 seconds
 - `go test ./internal/core/assistant/... ./internal/core/automation/... -count=1` — 100% pass
 

@@ -449,14 +449,20 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}) (any, error) {
-		return "File written successfully", r.FileSystem.WriteFile(ctx, args.Path, args.Content)
+		if err := r.FileSystem.WriteFile(ctx, args.Path, args.Content); err != nil {
+			return "", err
+		}
+		return "File written successfully", nil
 	})
 
 	registerTool(r, "filesystem", models.ToolFileAppend, func(ctx context.Context, args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}) (any, error) {
-		return "Content appended successfully", r.FileSystem.AppendFile(ctx, args.Path, args.Content)
+		if err := r.FileSystem.AppendFile(ctx, args.Path, args.Content); err != nil {
+			return "", err
+		}
+		return "Content appended successfully", nil
 	})
 
 	registerTool(r, "filesystem", models.ToolFileEditBlock, func(ctx context.Context, args struct {

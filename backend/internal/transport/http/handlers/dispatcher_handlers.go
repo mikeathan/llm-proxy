@@ -82,6 +82,10 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 	if !validateID(auto.Name) {
 		return fmt.Errorf("invalid automation name in payload")
 	}
+	if auto.LoopStrategy != "" && !assistant.LoopStrategyName(auto.LoopStrategy).Valid() {
+		return fmt.Errorf("invalid loop_strategy %q: valid values are %s",
+			auto.LoopStrategy, strings.Join(assistant.RegisteredLoopStrategyNames(), ", "))
+	}
 	return nil
 }
 
@@ -94,6 +98,7 @@ type AutomationInfo struct {
 	Trigger      string                 `json:"trigger"`
 	TriggerValue string                 `json:"trigger_value,omitempty"`
 	Model        string                 `json:"model,omitempty"`
+	LoopStrategy string                 `json:"loop_strategy,omitempty"`
 	RecordingRef string                 `json:"recording_ref,omitempty"`
 	LastOutput   string                 `json:"last_output,omitempty"`
 	LastError    string                 `json:"last_error,omitempty"`
@@ -115,6 +120,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			TaskFile:     entry.TaskFile,
 			Strategy:     entry.Strategy.Name(),
 			Model:        entry.Model,
+			LoopStrategy: string(entry.LoopStrategy),
 			RecordingRef: entry.RecordingRef,
 		}
 

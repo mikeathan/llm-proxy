@@ -137,3 +137,10 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
 -   Use `errors.Is` and `errors.As`.
 -   No hardcoded values: strings, ints, floats in logic → named `const` at file top. Errors included.
 -   Prefer standard library first.
+-   **Domain vocabulary with a fixed value set → typed string enum, never a bare `string`:**
+    `type X string` + named constants + a `Valid()` method. Persisted enums live in the
+    leaf `models` package (precedent: `WorkloadClass`, `LoopStrategy`); consumer packages
+    alias (`type Name = models.X`) rather than duplicating the enum or inverting the leaf
+    dependency. Wire structs that cannot reference the enum (import cycle) keep `string`
+    and convert at the boundary — the domain/config layer never holds a raw string where a
+    typed enum is possible.
