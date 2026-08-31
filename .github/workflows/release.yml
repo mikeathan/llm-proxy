@@ -1,11 +1,14 @@
 name: Release
 
 # Version tagging on every merge to `main` (PLAN-CI-001 §3.4, tag job only):
-# - `VERSION` file ≠ latest tag → tag that version verbatim (manual patch/minor/major bump via PR).
-# - `VERSION` file == latest tag → auto-bump the patch version and commit it back to `main`.
+# - `VERSION` file > latest tag → tag that version verbatim (manual minor/major
+#   bump via PR to `main`; the merge itself triggers the release).
+# - `VERSION` file <= latest tag → auto-bump the latest tag's patch version.
+# The VERSION file on `main` is a floor, not a mirror of the latest tag: this
+# workflow NEVER pushes commits to `main` (branch rulesets require PRs and the
+# GITHUB_TOKEN cannot bypass them), so no [skip ci] dance is needed either.
 # Docs-only and every other merge release a patch too — no path filters.
 # No build/deploy artifacts here — the tag and its auto-generated notes are the whole output.
-# The auto-bump commit uses [skip ci] and the GITHUB_TOKEN, so it cannot loop.
 on:
   push:
     branches: [main]
@@ -41,34 +44,28 @@ jobs:
             exit 1
           fi
           LATEST_TAG="$(git tag --sort=-v:refname | head -n1)"
-          if [ "v$FILE_VER" = "$LATEST_TAG" ]; then
-            # File already matches the latest tag → auto-bump the patch segment.
-            MAJOR="${FILE_VER%%.*}"
-            MINOR="${FILE_VER#*.}"; MINOR="${MINOR%%.*}"
-            PATCH="${FILE_VER##*.}"
-            NEW_VER="$MAJOR.$MINOR.$((PATCH + 1))"
-            echo "$NEW_VER" > VERSION
-            echo "bumped=true" >> "$GITHUB_OUTPUT"
-            echo "Auto-bumped patch: $FILE_VER -> $NEW_VER"
-          else
+          LATEST_VER="${LATEST_TAG#v}"
+          # FILE_VER strictly greater than LATEST_VER → manual bump ahead of the
+          # tags: release it verbatim. Otherwise (equal or behind) auto-bump the
+          # latest tag's patch segment.
+          if [ "$FILE_VER" != "$(printf '%s\n%s\n' "$FILE_VER" "$LATEST_VER" | sort -V | head -n1)" ] && [ "$FILE_VER" != "$LATEST_VER" ]; then
             NEW_VER="$FILE_VER"
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
             echo "Using manual version: $NEW_VER (latest tag: $LATEST_TAG)"
+          else
+            MAJOR="${LATEST_VER%%.*}"
+            MINOR="${LATEST_VER#*.}"; MINOR="${MINOR%%.*}"
+            PATCH="${LATEST_VER##*.}"
+            NEW_VER="$MAJOR.$MINOR.$((PATCH + 1))"
+            echo "Auto-bumped patch: $LATEST_VER -> $NEW_VER"
           fi
           {
             echo "version=$NEW_VER"
             echo "tag=v$NEW_VER"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Commit VERSION bump
-        if: steps.ver.outputs.bumped == 'true'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "chore(release): v${{ steps.ver.outputs.version }} [skip ci]"
-          git push origin HEAD:main
+      # No commit step: the workflow never pushes to `main`. The ruleset on the
+      # branch requires pull requests and the GITHUB_TOKEN cannot bypass it
+      # (github-actions[bot] is not a bypass-eligible installed app).
 
       - name: Guard against concurrent tag (race check)
         run: |
