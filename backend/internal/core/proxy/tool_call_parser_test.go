@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"encoding/json"
 	"llm-proxy/internal/core/proxy"
 	"strings"
 	"testing"
@@ -145,7 +146,7 @@ func TestParseContentToolCalls_RawJSONIgnored(t *testing.T) {
 }
 
 func TestParseContentToolCalls_FuzzyCloseTag(t *testing.T) {
-	// Some models omit the slash in the closing tag.
+	// Some models truncate the closing tag (omit the trailing '>').
 	content := `<tool_call>{"tool": "read_file", "args": {"path": "test.txt"}}</tool_call`
 	_, calls, parseErr := proxy.ParseContentToolCalls(content)
 	if parseErr != nil {
@@ -274,5 +275,151 @@ func TestAvailableToolNames(t *testing.T) {
 	names := proxy.AvailableToolNames(tools)
 	if len(names) != 2 {
 		t.Errorf("expected 2 unique names, got %d", len(names))
+	}
+}
+
+func TestParseContentToolCalls_KeylessDialect_KeyValueRest(t *testing.T) {
+	// Observed dialect: {"list_directory", "path": "."} (bare string first,
+	// args as bare key:value members).
+	content := `<tool_call>{"list_directory", "path": "."}</tool_call>`
+	cleaned, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("expected keyless dialect to be salvaged, got error: %v", parseErr)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "list_directory" {
+		t.Errorf("expected tool list_directory, got %q", calls[0].Function.Name)
+	}
+	if calls[0].Function.Arguments != `{"path": "."}` {
+		t.Errorf("expected args {\"path\": \".\"}, got %s", calls[0].Function.Arguments)
+	}
+	if cleaned != "" {
+		t.Errorf("expected content cleaned of the tool call, got %q", cleaned)
+	}
+}
+
+func TestParseContentToolCalls_KeylessDialect_ObjectRest(t *testing.T) {
+	// Variant where the remainder is already an object:
+	// {"list_directory", {"path": "."}}
+	content := `<tool_call>{"list_directory", {"path": "."}}</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("expected keyless dialect to be salvaged, got error: %v", parseErr)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "list_directory" {
+		t.Errorf("expected tool list_directory, got %q", calls[0].Function.Name)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(calls[0].Function.Arguments), &got); err != nil {
+		t.Fatalf("args not valid JSON: %v (%s)", err, calls[0].Function.Arguments)
+	}
+	if got["path"] != "." {
+		t.Errorf("expected args path=., got %v", got)
+	}
+}
+
+func TestParseContentToolCalls_KeylessDialect_MultipleArgs(t *testing.T) {
+	content := `<tool_call>{"write_file", "path": "a.txt", "content": "hi"}</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("expected salvage, got error: %v", parseErr)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "write_file" {
+		t.Errorf("expected tool write_file, got %q", calls[0].Function.Name)
+	}
+	if calls[0].Function.Arguments != `{"path": "a.txt", "content": "hi"}` {
+		t.Errorf("unexpected args: %s", calls[0].Function.Arguments)
+	}
+}
+
+func TestParseContentToolCalls_KeylessDialect_GarbageRestRejected(t *testing.T) {
+	// The remainder must itself be valid JSON; anything else still fails
+	// strict parsing and must NOT be fabricated into a call.
+	content := `<tool_call>{"list_directory", ,,,}</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr == nil {
+		t.Fatal("expected parse error when the keyless remainder is not JSON")
+	}
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls, got %d", len(calls))
+	}
+}
+
+func TestParseContentToolCalls_KeylessDialect_NotTriggeredByValidJSON(t *testing.T) {
+	// {"tool": "...", ...} starts with a string followed by a colon, so the
+	// keyless regex must not match — valid calls go through the strict path.
+	content := `<tool_call>{"tool": "list_directory", "args": {"path": "."}}</tool_call>`
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("unexpected error: %v", parseErr)
+	}
+	if len(calls) != 1 || calls[0].Function.Name != "list_directory" {
+		t.Fatalf("expected list_directory call, got %+v", calls)
+	}
+}
+
+func TestParseContentToolCalls_DoubledOpeningTag(t *testing.T) {
+	// Ornith-1.5-35B emits <tool_call><tool_call>{...}: the XML extraction
+	// starts at the first tag, so the body begins with a stray tag. The inner
+	// JSON is valid — stripping the leading tags must let it parse.
+	content := "<tool_call>\n<tool_call>\n{\n  \"tool\": \"list_directory\",\n  \"args\": {\n    \"path\": \".\"\n  }\n}\n</tool_call>"
+	_, calls, parseErr := proxy.ParseContentToolCalls(content)
+	if parseErr != nil {
+		t.Fatalf("expected doubled opening tag to be tolerated, got error: %v", parseErr)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "list_directory" {
+		t.Errorf("expected tool list_directory, got %q", calls[0].Function.Name)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(calls[0].Function.Arguments), &got); err != nil {
+		t.Fatalf("args not valid JSON: %v (%s)", err, calls[0].Function.Arguments)
+	}
+	if got["path"] != "." {
+		t.Errorf("expected args path=., got %v", got)
+	}
+}
+
+// TestParseNativeToolCalls_InvokeAttributes verifies the <invoke name="…">
+// attributes dialect — emitted by Ornith-1.5 (2026-08-31 smoke-test run) — is
+// parsed with its <parameter name="…"> values, even when wrapped in stray
+// <tool_call> markers.
+func TestParseNativeToolCalls_InvokeAttributes(t *testing.T) {
+	content := `<tool_call>
+<invoke name="execute_terminal_command">
+<parameter name="command">cd dev-test && npx tsc index.ts</parameter>
+</invoke>
+</tool_call>
+<tool_call>
+<tool_call>
+<invoke name="read_file">
+<parameter name="path">dev-test/index.ts</parameter>
+</invoke>
+</tool_call>`
+	_, calls, parseErr := proxy.ParseNativeToolCalls(content)
+	if parseErr != nil || len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d (err %v)", len(calls), parseErr)
+	}
+	if calls[0].Function.Name != "execute_terminal_command" {
+		t.Errorf("call 0 name = %q", calls[0].Function.Name)
+	}
+	if !strings.Contains(calls[0].Function.Arguments, "npx tsc index.ts") {
+		t.Errorf("call 0 args = %q", calls[0].Function.Arguments)
+	}
+	if calls[1].Function.Name != "read_file" {
+		t.Errorf("call 1 name = %q", calls[1].Function.Name)
+	}
+	if !strings.Contains(calls[1].Function.Arguments, "dev-test/index.ts") {
+		t.Errorf("call 1 args = %q", calls[1].Function.Arguments)
 	}
 }

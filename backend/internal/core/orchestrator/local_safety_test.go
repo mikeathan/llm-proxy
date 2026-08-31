@@ -1,11 +1,11 @@
 // local_safety_test.go — §3.2 local-context safety property + §0 local invariant
 // verification for the Phase B+C workload classification.
 //
-//   ∀ cfg: effectiveEndpoint(cfg) is local ⟹ Classify(cfg) == WorkloadLocal
-//                                     ∧ ReasoningWire(cfg) == thinking_budget_tokens
+//	∀ cfg: effectiveEndpoint(cfg) is local ⟹ Classify(cfg) == WorkloadLocal
+//	                                  ∧ ReasoningWire(cfg) == thinking_budget_tokens
 //
-//   ∀ local cfg: context resolution fails ⟹ no cloud provider default is applied
-//             ∧ LocalBudgetPolicy returns the numeric local default.
+//	∀ local cfg: context resolution fails ⟹ no cloud provider default is applied
+//	          ∧ LocalBudgetPolicy returns the numeric local default.
 package orchestrator
 
 import (
@@ -25,8 +25,8 @@ func TestClassifyLocalURLMatrix(t *testing.T) {
 	interfaceIP := ifaces[0].String()
 
 	tests := []struct {
-		name     string
-		baseURL  string
+		name      string
+		baseURL   string
 		modelHost string
 	}{
 		{"localhost", "http://localhost:8080", "127.0.0.1"},
@@ -120,8 +120,9 @@ func TestLocalContextLengthOnly_Priority2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if b.MaxTokens != 2730 || b.ContextBudget != 10924 {
-		t.Fatalf("expected 2730/10924 (golden byte-identical), got %d/%d", b.MaxTokens, b.ContextBudget)
+	wantBudget := int(float64(8192-2730) * localContextCharsPerToken)
+	if b.MaxTokens != 2730 || b.ContextBudget != wantBudget {
+		t.Fatalf("expected 2730/%d (local context math), got %d/%d", wantBudget, b.MaxTokens, b.ContextBudget)
 	}
 }
 
@@ -146,7 +147,7 @@ func TestLocalBogusMaxTokensIgnored(t *testing.T) {
 	if cfg.MaxTokens != 8192/3 {
 		t.Fatalf("expected max_tokens %d (n_ctx math wins), got %d", 8192/3, cfg.MaxTokens)
 	}
-	if cfg.ContextBudget != (8192-8192/3)*2 {
+	if cfg.ContextBudget != int(float64(8192-8192/3)*localContextCharsPerToken) {
 		t.Fatalf("expected local context_budget from n_ctx, got %d", cfg.ContextBudget)
 	}
 }

@@ -139,7 +139,7 @@ const elapsed = (s: SessionBrief): string => formatElapsedSince(s.updated_at, no
 }
 
 .pulse-dot {
-  @apply w-1.5 h-1.5 rounded-full animate-pulse shrink-0;
+  @apply w-1.5 h-1.5 rounded-full shrink-0;
   background: var(--color-live, #22c55e);
 }
 

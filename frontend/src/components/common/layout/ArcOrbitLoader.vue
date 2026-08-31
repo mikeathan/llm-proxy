@@ -3,12 +3,10 @@ withDefaults(defineProps<{
   active: boolean
   radius?: string
   thickness?: number
-  duration?: number
   color?: string
 }>(), {
   radius: '1rem',
   thickness: 1.5,
-  duration: 2.4,
   color: '129, 140, 248',
 })
 </script>
@@ -18,6 +16,13 @@ withDefaults(defineProps<{
 </template>
 
 <style scoped>
+/* Static accent ring — deliberately NO animation. The 2026-08-28 A/B
+   measurement showed the previous per-frame conic-gradient repaint (animated
+   --arc-angle) cost ~11 GPU points during runs (peaks: 21% baseline vs 9.9%
+   with the loader off) — it was the dominant residual. A transform-based spin
+   is impossible without distorting the rounded-rectangle ring (only a circle
+   can rotate without shape change), so the ring is painted once and the
+   thinking-gap dots + label carry the activity affordance. */
 .arc-orbit-loader {
   position: absolute;
   inset: 0;
@@ -35,7 +40,7 @@ withDefaults(defineProps<{
   border-radius: inherit;
   padding: v-bind(thickness + 'px');
   background: conic-gradient(
-    from var(--arc-angle, 0deg),
+    from 0deg,
     transparent 0deg,
     transparent 240deg,
     rgba(v-bind(color), 1) 300deg,
@@ -46,22 +51,5 @@ withDefaults(defineProps<{
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
-}
-.arc-orbit-loader.is-active::before {
-  animation: arc-orbit v-bind(duration + 's') linear infinite;
-}
-@keyframes arc-orbit {
-  to { --arc-angle: 360deg; }
-}
-@property --arc-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-@media (prefers-reduced-motion: reduce) {
-  .arc-orbit-loader.is-active::before {
-    animation: none;
-    background: rgba(v-bind(color), 0.5);
-  }
 }
 </style>

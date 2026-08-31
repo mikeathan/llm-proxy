@@ -104,9 +104,13 @@ func DefaultMemoryConfig() MemoryConfig {
 
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
 type SystemUpdatePayload struct {
-	WorkspacesDir        string                  `json:"workspaces_dir,omitempty"`
-	ModelHost            string                  `json:"model_host,omitempty"`
-	IdleTimeoutSecs      int                     `json:"idle_timeout_seconds,omitempty"`
+	WorkspacesDir string `json:"workspaces_dir,omitempty"`
+	ModelHost     string `json:"model_host,omitempty"`
+	// IdleTimeoutSecs is a pointer so an explicit 0/-1 ("never stop the model
+	// automatically") can be distinguished from "not provided". -1 (or any
+	// value <= 0) means never reap — the only form that survives the
+	// defaults-merge on reload (the merge treats 0 as "unset").
+	IdleTimeoutSecs      *int                    `json:"idle_timeout_seconds,omitempty"`
 	GPUProvider          string                  `json:"gpu_provider,omitempty"`
 	GPUBinary            string                  `json:"gpu_binary,omitempty"`
 	GPUIndex             *int                    `json:"gpu_index,omitempty"`

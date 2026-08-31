@@ -22,10 +22,24 @@ const (
 
 type Options struct {
 	Stdout bool
-	Stderr bool // write to os.Stderr (used for the pre-resolution fallback logger)
+	Stderr bool   // write to os.Stderr (used for the pre-resolution fallback logger)
 	File   string // file path, empty = no file
 	Level  Level
+	// MaxSizeBytes bounds a single log file. When exceeded the file is rotated
+	// to "<path>.1" (previous backup replaced) and a fresh file is started, so
+	// a log path holds at most 2×MaxSizeBytes on disk. 0 = default
+	// (defaultMaxLogBytes); only meaningful when File is set.
+	MaxSizeBytes int64
 }
+
+// defaultMaxLogBytes bounds a single log file for every file-backed logger.
+// Combined with the .1 backup, one log path uses at most 20MB. Without a cap
+// workspace process logs and the app log grow without bound (the GPU/ops
+// review 2026-08-28 finding #2).
+const defaultMaxLogBytes = 10 << 20 // 10 MiB per file, 20 MiB per path with backup
+
+// rotateSuffix is the backup file name for a rotated log.
+const rotateSuffix = ".1"
 
 type FileLogger struct {
 	mu    sync.Mutex
@@ -47,6 +61,12 @@ type FileLogger struct {
 type fileTarget struct {
 	mu   sync.Mutex
 	file *os.File
+	path string
+	// maxSize bounds the file; 0 = no rotation. written tracks bytes appended
+	// since open (reopened files start fresh) so rotation needs no per-line
+	// stat syscall.
+	maxSize int64
+	written int64
 }
 
 var _ io.Writer = (*fileTarget)(nil)
@@ -57,7 +77,39 @@ func (t *fileTarget) Write(p []byte) (int, error) {
 	if t.file == nil {
 		return 0, io.ErrClosedPipe
 	}
-	return t.file.Write(p)
+	if t.maxSize > 0 && t.written+int64(len(p)) > t.maxSize {
+		t.rotateLocked()
+		if t.file == nil {
+			return 0, io.ErrClosedPipe
+		}
+	}
+	n, err := t.file.Write(p)
+	t.written += int64(n)
+	return n, err
+}
+
+// rotateLocked renames the current file to path+".1" (replacing any previous
+// backup) and starts a fresh file, bounding disk usage to 2×maxSize per path.
+// Best-effort: on failure the oversized file is kept and writes continue.
+// Caller must hold t.mu.
+func (t *fileTarget) rotateLocked() {
+	if t.file != nil {
+		_ = t.file.Close()
+		t.file = nil
+	}
+	if t.path == "" {
+		t.written = 0
+		return
+	}
+	_ = os.Remove(t.path + rotateSuffix)
+	// Best-effort rename: the file may have been deleted out from under us
+	// (clear-runtime-data); a fresh file below is still the right outcome.
+	_ = os.Rename(t.path, t.path+rotateSuffix)
+	// Reset the byte counter only when the fresh file opened; on failure the
+	// target stays closed (writes return ErrClosedPipe) so the counter is moot.
+	if err := t.openLocked(t.path); err == nil {
+		t.written = 0
+	}
 }
 
 func (t *fileTarget) Sync() error {
@@ -86,6 +138,13 @@ func (t *fileTarget) Close() error {
 func (t *fileTarget) Reopen(path string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.path = path
+	t.written = 0
+	return t.openLocked(path)
+}
+
+// openLocked opens path and stores the descriptor. Caller must hold t.mu.
+func (t *fileTarget) openLocked(path string) error {
 	if t.file != nil {
 		_ = t.file.Close()
 		t.file = nil
@@ -129,7 +188,11 @@ func NewFileLogger(opts Options) (*FileLogger, error) {
 		if err != nil {
 			return nil, err
 		}
-		t := &fileTarget{}
+		maxSize := opts.MaxSizeBytes
+		if maxSize == 0 {
+			maxSize = defaultMaxLogBytes
+		}
+		t := &fileTarget{maxSize: maxSize}
 		if err := t.Reopen(path); err != nil {
 			return nil, err
 		}

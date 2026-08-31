@@ -418,8 +418,14 @@ func TestParseOutputCapError(t *testing.T) {
 	}{
 		{`{"error":{"message":"max_tokens is greater than the maximum allowed (4096)"}}`, &OutputCapError{Available: 4096}},
 		{"max_completion_tokens 8192 exceeds the maximum allowed value of 2048 tokens", &OutputCapError{Available: 2048}},
-		{"maximum context length is 128000 tokens for this model", &OutputCapError{Available: 128000}},
 		{"The maximum allowed value is 16384", &OutputCapError{Available: 16384}},
+		// A context-length 400 is NOT an output-cap error: it is a
+		// prompt-too-long failure the agent loop's reactive sieve handles
+		// (isContextSizeError). Matching it here produced the bogus
+		// "requested 2730 max_tokens but the model supports at most 8192"
+		// misclassification (llama.cpp context-window 400).
+		{"maximum context length is 128000 tokens for this model", nil},
+		{"context window is 8192 tokens, reduce the prompt length", nil},
 		{`{"error":"bad request"}`, nil},
 		{"", nil},
 	}

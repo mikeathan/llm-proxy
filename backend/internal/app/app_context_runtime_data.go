@@ -61,9 +61,19 @@ func (s *AppContext) refreshMetricsService() {
 		ts = s.metrics.TerminalSource()
 		s.metrics.Stop()
 	}
+	// Build the metrics service from the FULL live system metrics config.
+	// Previously only GPU{...} was passed, silently dropping
+	// GPUSampleIntervalSec + GPUSmoothingAlpha: the documented background
+	// sampler never started (interval 0 → Start() no-ops) and every metrics
+	// snapshot ran an on-demand provider sample (e.g. an ioreg subprocess on
+	// macOS) instead of reading the background cache. See
+	// docs/PLANS/gpu-performance.md P0.
+	sys := s.GetSystem()
 	s.metrics = metrics.NewMetricsService(&models.Config{
 		Metrics: models.MetricsConfig{
-			GPU: s.gpuConfig,
+			GPU:                  s.gpuConfig,
+			GPUSampleIntervalSec: sys.Metrics.GPUSampleIntervalSec,
+			GPUSmoothingAlpha:    sys.Metrics.GPUSmoothingAlpha,
 		},
 	})
 	s.metrics.SetThroughputSource(s.manager)

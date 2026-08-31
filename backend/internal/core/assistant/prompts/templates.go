@@ -276,6 +276,14 @@ const ToolErrorNagPrompt = "SYSTEM: The tool call above failed. Read the error o
 // as a synthetic control message (see isAgentControlMessage).
 const AutomationFinalizePrompt = "SYSTEM: You have completed all tool work for this task. Produce your FINAL REPORT now as a plain-text assistant message. Do NOT call any tools. Summarize the actual results of the work you performed."
 
+// LengthContinuationPrompt is injected after a final answer was cut off by the
+// output-token cap (finish_reason="length"). It mirrors Hermes Agent's
+// _LENGTH_CONTINUATION_OUTPUT_LIMIT (agent/conversation_loop.py): the model is
+// asked to continue exactly where it left off, not restart. Registered as a
+// synthetic control message so completion detection never mistakes it for user
+// text (see isAgentControlMessage).
+const LengthContinuationPrompt = "[System: Your previous response was truncated by the output length limit. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
+
 // EvaluatorReviewPrompt is the evaluator-optimizer stop-guard nudge: before the
 // run finalizes, the model is asked to self-review — verify/fix the work, then
 // summarize. It is a synthetic control message (registered in

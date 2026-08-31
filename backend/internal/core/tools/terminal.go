@@ -98,8 +98,21 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 		return fmt.Errorf("terminal tools are disabled in configuration")
 	}
 
-	// Normalize whitespace: trim and collapse internal spaces to prevent bypasses like "rm  -rf"
-	cleanCmd := strings.Join(strings.Fields(command), " ")
+	// Fail closed on syntactically broken commands: an unterminated quote or
+	// heredoc makes the tail of the command opaque to the whitelist (the
+	// scanner would otherwise swallow it into one segment, letting a
+	// disallowed command — e.g. `rm -rf /` after `cat <<-EOF` — bypass the
+	// allowlist). The segments from this scan are also reused for the
+	// whitelist below so validation and the segment analysis never diverge.
+	segments, balanced := scanCommandSegments(command)
+	if !balanced {
+		return fmt.Errorf("command has an unterminated quote or heredoc")
+	}
+
+	// Normalize whitespace: trim and collapse internal spaces to prevent bypasses like "rm  -rf",
+	// while PRESERVING newlines — multi-line commands are real shell programs (batched commands,
+	// heredocs, scripts) and the guardrail must validate the same command that executes.
+	cleanCmd := collapseWhitespacePreserveNewlines(command)
 	if cleanCmd == "" {
 		return fmt.Errorf("empty command")
 	}
@@ -126,7 +139,6 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 
 	// 3. Check Whitelist (on each segment of a chained command)
 	if len(cfg.AllowedCommands) > 0 {
-		segments := splitCommandSegments(cleanCmd)
 		if err := assertAllowedCommand(segments, cfg.AllowedCommands); err != nil {
 			logging.Debug("guardrail blocked", "rule", "whitelist", "error", err.Error())
 			return err
@@ -162,91 +174,113 @@ func ExtractBaseCommands(command string) []string {
 }
 
 func splitCommandSegments(command string) []string {
-	var segments []string
+	segments, _ := scanCommandSegments(command)
+	return segments
+}
+
+// commandDelimiters are the chain separators splitCommandSegments honors,
+// longest first. Newline is a shell command separator too.
+var commandDelimiters = [][]byte{[]byte("&&"), []byte("||"), []byte(";"), []byte("|"), []byte("\n")}
+
+// scanCommandSegments decomposes a chained bash command into its individual
+// executable parts while respecting shell syntax: quotes, heredocs, and
+// escaped delimiters. It also reports whether the command's shell syntax is
+// balanced at EOF (no unterminated quote or heredoc).
+//
+// Balanced reporting matters because an unterminated heredoc or quote makes
+// the tail of the command opaque to the whitelist: the scanner would swallow
+// it into one segment, and a disallowed command after it (e.g. `rm -rf /`
+// following `cat <<-EOF`) would bypass the allowlist. Callers must treat
+// unbalanced commands as invalid rather than guessing at segment boundaries.
+func scanCommandSegments(command string) (segments []string, balanced bool) {
+	chars := []byte(command)
 	var current strings.Builder
 	inSingleQuote := false
 	inDoubleQuote := false
 	inHeredoc := false
 	heredocMarker := ""
+	heredocStripTabs := false
 
-	chars := []rune(command)
-	for i := 0; i < len(chars); i++ {
+	flush := func() {
+		if current.Len() > 0 {
+			segments = append(segments, strings.TrimSpace(current.String()))
+			current.Reset()
+		}
+	}
+
+	for i := 0; i < len(chars); {
 		c := chars[i]
 
 		// Handle Quotes
 		if c == '\'' && !inDoubleQuote && !inHeredoc {
 			inSingleQuote = !inSingleQuote
-			current.WriteRune(c)
+			current.WriteByte(c)
+			i++
 			continue
 		}
 		if c == '"' && !inSingleQuote && !inHeredoc {
 			inDoubleQuote = !inDoubleQuote
-			current.WriteRune(c)
+			current.WriteByte(c)
+			i++
 			continue
 		}
 
-		// Handle Heredoc Start (e.g., <<EOF or <<'EOF')
-		if !inSingleQuote && !inDoubleQuote && !inHeredoc {
-			if strings.HasPrefix(string(chars[i:]), "<<") {
+		// Handle Heredoc Start (e.g., <<EOF, <<-EOF, <<'EOF', <<"EOF",
+		// <<\EOF). "<<<" is a here-string, not a heredoc — it must not open
+		// heredoc mode, otherwise a `&&` after it would be swallowed and a
+		// disallowed command would slip past the per-segment whitelist. The
+		// char-before check keeps the SECOND '<' of "<<<" from re-triggering
+		// the heredoc branch on the here-string's remaining "<".
+		if !inSingleQuote && !inDoubleQuote && !inHeredoc && c == '<' &&
+			i+1 < len(chars) && chars[i+1] == '<' &&
+			(i == 0 || chars[i-1] != '<') &&
+			(i+2 >= len(chars) || chars[i+2] != '<') {
+			if marker, stripTabs, ok := parseHeredocMarker(chars, i+2); ok {
 				inHeredoc = true
-				// Extract marker
-				markerPart := strings.TrimSpace(string(chars[i+2:]))
-				if strings.HasPrefix(markerPart, "'") {
-					endIdx := strings.Index(markerPart[1:], "'")
-					if endIdx != -1 {
-						heredocMarker = markerPart[1 : endIdx+1]
-					}
-				} else {
-					endIdx := strings.IndexAny(markerPart, " \t\n;&|")
-					if endIdx != -1 {
-						heredocMarker = markerPart[:endIdx]
-					} else {
-						heredocMarker = markerPart
-					}
-				}
+				heredocMarker = marker
+				heredocStripTabs = stripTabs
 			}
 		}
 
-		// Handle Heredoc End
+		// Handle Heredoc End: a newline whose next line is the marker word
+		// (optionally tab-prefixed for <<-). The terminating newline stays in
+		// the segment so the marker line remains attached to the heredoc.
 		if inHeredoc && c == '\n' {
-			remaining := string(chars[i+1:])
-			if strings.HasPrefix(remaining, heredocMarker) {
+			if heredocLineEnds(chars[i+1:], heredocMarker, heredocStripTabs) {
 				inHeredoc = false
 				heredocMarker = ""
+				heredocStripTabs = false
+				current.WriteByte(c)
+				i++
+				continue
 			}
 		}
 
 		// Handle backslash-escaped delimiters (e.g., \; in find -exec)
-	if c == '\\' && i+1 < len(chars) && !inSingleQuote && !inDoubleQuote && !inHeredoc {
-		next := string(chars[i+1])
-		if next == ";" || next == "|" {
-			current.WriteRune(c)
-			current.WriteRune(chars[i+1])
-			i++
-			continue
-		}
-		if i+2 < len(chars) {
-			two := string(chars[i+1]) + string(chars[i+2])
-			if two == "&&" || two == "||" {
-				current.WriteRune(c)
-				current.WriteString(two)
+		if c == '\\' && i+1 < len(chars) && !inSingleQuote && !inDoubleQuote && !inHeredoc {
+			next := chars[i+1]
+			if next == ';' || next == '|' {
+				current.WriteByte(c)
+				current.WriteByte(next)
 				i += 2
 				continue
 			}
+			if i+2 < len(chars) && ((chars[i+1] == '&' && chars[i+2] == '&') || (chars[i+1] == '|' && chars[i+2] == '|')) {
+				current.WriteByte(c)
+				current.WriteByte(chars[i+1])
+				current.WriteByte(chars[i+2])
+				i += 3
+				continue
+			}
 		}
-	}
 
-	// Split on delimiters only if outside quotes/heredocs
+		// Split on delimiters only if outside quotes/heredocs.
 		if !inSingleQuote && !inDoubleQuote && !inHeredoc {
 			isDelim := false
-			// Check longest delimiters first (&&, ||)
-			for _, d := range []string{"&&", "||", ";", "|"} {
-				if strings.HasPrefix(string(chars[i:]), d) {
-					if current.Len() > 0 {
-						segments = append(segments, strings.TrimSpace(current.String()))
-						current.Reset()
-					}
-					i += len(d) - 1
+			for _, d := range commandDelimiters {
+				if bytes.HasPrefix(chars[i:], d) {
+					flush()
+					i += len(d)
 					isDelim = true
 					break
 				}
@@ -256,14 +290,60 @@ func splitCommandSegments(command string) []string {
 			}
 		}
 
-		current.WriteRune(c)
+		current.WriteByte(c)
+		i++
 	}
 
-	if current.Len() > 0 {
-		segments = append(segments, strings.TrimSpace(current.String()))
-	}
+	flush()
+	return segments, !inSingleQuote && !inDoubleQuote && !inHeredoc
+}
 
-	return segments
+// parseHeredocMarker extracts the terminator word from a heredoc opening
+// positioned just after "<<" (start = index of the char following "<<").
+// Handles the tab-strip flag (<<-EOF), quoting (<<'EOF', <<"EOF") and
+// escaping (<<\EOF). Returns ok=false when no marker word is present.
+func parseHeredocMarker(chars []byte, start int) (marker string, stripTabs bool, ok bool) {
+	j := start
+	if j < len(chars) && chars[j] == '-' {
+		stripTabs = true
+		j++
+	}
+	// Quoted or escaped markers: bash strips the quotes/backslash and
+	// terminates on the bare word, so the marker ends at the closing quote.
+	quoted := false
+	if j < len(chars) && (chars[j] == '\'' || chars[j] == '"' || chars[j] == '\\') {
+		quoted = chars[j] != '\\'
+		j++
+	}
+	markerStart := j
+	for j < len(chars) {
+		b := chars[j]
+		if quoted && (b == '\'' || b == '"') {
+			break
+		}
+		if b == ' ' || b == '\t' || b == '\n' || b == ';' || b == '&' || b == '|' {
+			break
+		}
+		j++
+	}
+	if j == markerStart {
+		return "", false, false
+	}
+	return string(chars[markerStart:j]), stripTabs, true
+}
+
+// heredocLineEnds reports whether rest begins with the heredoc terminator
+// marker as its own word (followed by end-of-input or a separator). For
+// tab-stripped heredocs (<<-), leading tabs before the marker are allowed.
+func heredocLineEnds(rest []byte, marker string, stripTabs bool) bool {
+	if stripTabs {
+		rest = bytes.TrimLeft(rest, "\t")
+	}
+	if !bytes.HasPrefix(rest, []byte(marker)) {
+		return false
+	}
+	after := rest[len(marker):]
+	return len(after) == 0 || after[0] == '\n' || after[0] == '\r' || after[0] == ' ' || after[0] == '\t'
 }
 
 func checkBlockedPatterns(command string, patterns []string, cache *sync.Map) error {
@@ -511,9 +591,11 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 		// Use a subshell for the CWD to ensure the command runs in the right place
 		// without permanently moving the persistent terminal's session directory.
 		// We use the absolute finalCwd to avoid relative path accumulation bugs.
+		// The trailing newline before ")" keeps a trailing shell comment (or a
+		// heredoc terminator) from swallowing the closing paren.
 		finalCmd := cleanCmd
 		if finalCwd != "" {
-			finalCmd = fmt.Sprintf("(cd %q && %s)", finalCwd, cleanCmd)
+			finalCmd = fmt.Sprintf("(cd %q && %s\n)", finalCwd, cleanCmd)
 		}
 		logging.Debug("ExecuteCommand: executing via shell pool", "finalCmd", finalCmd)
 		return t.executeShell(execCtx, finalCmd, cfg, wsID, jailPath)
@@ -523,8 +605,11 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 	return t.executeLocal(execCtx, shell, cleanCmd, finalCwd, cfg)
 }
 
-// sanitizeCommand handles path forgiveness and normalization.
-// Guardrail validation is handled by the guardrail engine before execution.
+// sanitizeCommand handles path forgiveness only. The command is NOT
+// whitespace-mangled here: heredoc bodies and string literals are content and
+// must reach the shell verbatim. The guardrail engine validates the command
+// (its own collapsed copy) before execution; structure (lines/segments) is
+// identical between the two because both preserve newlines.
 func (t *TerminalTools) sanitizeCommand(ctx context.Context, command string, cfg models.TerminalGuardrailsConfig, jailPath string) (string, error) {
 	// Path Forgiveness: Strip redundant workspace prefixes.
 	// Replaces the full absolute jail path first, then the relative-from-CWD
@@ -543,10 +628,41 @@ func (t *TerminalTools) sanitizeCommand(ctx context.Context, command string, cfg
 			command = strings.ReplaceAll(command, relPrefix, ".")
 		}
 	}
-	return strings.Join(strings.Fields(command), " "), nil
+	return strings.TrimSpace(command), nil
+}
+
+// collapseWhitespacePreserveNewlines normalizes horizontal whitespace (spaces,
+// tabs) to single spaces within each line while preserving the line structure
+// of the command. Collapsing newlines would merge distinct commands into one
+// ("uname -a\ndate -u" → "uname -a date -u"), breaking both the command and
+// the guardrail's per-segment whitelist checks. Interior blank lines are kept
+// (heredoc bodies depend on them); leading/trailing blank lines are dropped.
+// Used by the VALIDATION side only — the executed command is never collapsed
+// (see sanitizeCommand).
+func collapseWhitespacePreserveNewlines(command string) string {
+	lines := strings.Split(command, "\n")
+	for i, l := range lines {
+		lines[i] = strings.Join(strings.Fields(l), " ")
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg models.TerminalGuardrailsConfig, wsID string, jailPath string) (string, error) {
+	// Fail fast on syntactically broken commands instead of wedging the
+	// persistent shell: an unterminated quote/heredoc would swallow the
+	// completion sentinel and stall until the tool timeout, corrupting the
+	// shared session. This is a defense-in-depth guard — the guardrail engine
+	// already rejects unbalanced commands, but not every execution path is
+	// guaranteed to pass through it.
+	if _, balanced := scanCommandSegments(command); !balanced {
+		return "", fmt.Errorf("command has an unterminated quote or heredoc")
+	}
 	idleTimeout := time.Duration(cfg.SessionIdleTimeoutSeconds) * time.Second
 	ts, err := t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
 	if err != nil {

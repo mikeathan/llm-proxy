@@ -6,6 +6,7 @@ import (
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -53,12 +54,12 @@ func TestRedactBlockedPaths(t *testing.T) {
 
 func TestTerminalTools_Guardrails(t *testing.T) {
 	tests := []struct {
-		name            string
-		config          models.TerminalGuardrailsConfig
+		name             string
+		config           models.TerminalGuardrailsConfig
 		blockedFilenames []string
-		command         string
-		wantErr         bool
-		errContains     string
+		command          string
+		wantErr          bool
+		errContains      string
 	}{
 		{
 			name: "Allowed command works",
@@ -250,6 +251,59 @@ func TestLoadTerminalManifest(t *testing.T) {
 	if len(manifest.BlockedPatterns) == 0 {
 		t.Error("Manifest loaded with zero blocked patterns")
 	}
+	// Shell interpreters must be allowlisted: the smoke-test template runs
+	// scripts via `sh`, and node/python/go are already allowlisted arbitrary-
+	// code interpreters — excluding sh/bash only blocks legit script
+	// execution without adding security.
+	for _, cmd := range []string{"sh", "bash", "printf"} {
+		if !slices.Contains(manifest.AllowedCommands, cmd) {
+			t.Errorf("manifest must allowlist %q", cmd)
+		}
+	}
+	// Read-only inspection utilities used by everyday agent tasks (counting
+	// lines/files, sorting, filtering) must be allowlisted — the 2026-08-31
+	// assistant run was blocked on `wc` mid-command and stalled 5 minutes in
+	// the approval wait for a read-only count.
+	for _, cmd := range []string{"wc", "ls", "find", "sort", "grep", "head", "tail", "cat", "du"} {
+		if !slices.Contains(manifest.AllowedCommands, cmd) {
+			t.Errorf("manifest must allowlist read-only inspection command %q", cmd)
+		}
+	}
+}
+
+// TestValidateTerminalCommand_RunWorkspaceScript verifies the smoke-test's
+// Step 4 works: `sh smoke-test-dir/hello.txt` is allowed once sh is on the
+// allowlist.
+func TestValidateTerminalCommand_RunWorkspaceScript(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"chmod", "sh", "ls"},
+	}
+	if err := ValidateTerminalCommand("chmod +x smoke-test-dir/hello.txt && sh smoke-test-dir/hello.txt", cfg, nil, nil, ""); err != nil {
+		t.Errorf("script execution must validate when sh is allowlisted: %v", err)
+	}
+	if err := ValidateTerminalCommand("sh smoke-test-dir/hello.txt", cfg, nil, nil, ""); err != nil {
+		t.Errorf("`sh smoke-test-dir/hello.txt` must validate: %v", err)
+	}
+}
+
+// TestValidateTerminalCommand_WcInChain verifies a read-only `wc` piped at the
+// end of an inspection chain validates once wc is allowlisted — the exact
+// shape that stalled the 2026-08-31 assistant run in a 5-minute approval wait.
+func TestValidateTerminalCommand_WcInChain(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"echo", "find", "sort", "wc"},
+	}
+	cmd := `echo "=== node_modules file count ===" && find ./node_modules -type f | wc -l`
+	if err := ValidateTerminalCommand(cmd, cfg, nil, nil, ""); err != nil {
+		t.Errorf("read-only wc chain must validate: %v", err)
+	}
+	// wc still denied when NOT allowlisted — the allowlist stays the gate.
+	cfg2 := models.TerminalGuardrailsConfig{Enabled: true, AllowedCommands: []string{"echo", "find"}}
+	if err := ValidateTerminalCommand(cmd, cfg2, nil, nil, ""); err == nil {
+		t.Error("wc chain must be rejected when wc is not allowlisted")
+	}
 }
 
 func TestCheckBlockedPaths_AbsoluteJailPath(t *testing.T) {
@@ -312,13 +366,13 @@ func TestExtractBaseCommands(t *testing.T) {
 
 func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 	tests := []struct {
-		name             string
-		command          string
-		allowedExternal  []string
-		jailPath         string
-		effectiveCwd     string
-		wantErr          bool
-		errContains      string
+		name            string
+		command         string
+		allowedExternal []string
+		jailPath        string
+		effectiveCwd    string
+		wantErr         bool
+		errContains     string
 	}{
 		{
 			name:            "absolute path within allowed external is permitted",
@@ -638,5 +692,228 @@ func TestTerminalTools_ShellPGID_NoShellPool(t *testing.T) {
 	}
 	if pgid != 0 {
 		t.Errorf("expected 0 pgid, got %d", pgid)
+	}
+}
+
+func TestCollapseWhitespacePreserveNewlines(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{
+			name:    "single line collapsed",
+			command: "ls   -la   .",
+			want:    "ls -la .",
+		},
+		{
+			name:    "multi-line preserved",
+			command: "uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\"",
+			want:    "uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\"",
+		},
+		{
+			name:    "multi-line with extra spaces per line",
+			command: "echo   hi\n   uname   -a   ",
+			want:    "echo hi\nuname -a",
+		},
+		{
+			name:    "interior blank lines kept (heredoc body)",
+			command: "cat <<EOF\nline1\n\nline3\nEOF",
+			want:    "cat <<EOF\nline1\n\nline3\nEOF",
+		},
+		{
+			name:    "leading and trailing blank lines dropped",
+			command: "\n\nls -la\n\n",
+			want:    "ls -la",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collapseWhitespacePreserveNewlines(tt.command)
+			if got != tt.want {
+				t.Errorf("collapseWhitespacePreserveNewlines(%q) = %q, want %q", tt.command, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitCommandSegments_MultiLine(t *testing.T) {
+	// A newline is a shell command separator: each line becomes its own
+	// segment so the whitelist is enforced per command, not per blob.
+	got := SplitCommandSegments("uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\"")
+	want := []string{"uname -a", "date -u +%Y-%m-%dT%H:%M:%SZ", `echo "terminal-tool-works"`}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d segments %v, got %d %v", len(want), want, len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("segment %d: expected %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
+func TestSplitCommandSegments_HeredocStaysOneSegment(t *testing.T) {
+	got := SplitCommandSegments("cat <<EOF\nhello\nEOF")
+	if len(got) != 1 {
+		t.Fatalf("heredoc should stay a single segment, got %d: %v", len(got), got)
+	}
+	if got[0] != "cat <<EOF\nhello\nEOF" {
+		t.Errorf("unexpected heredoc segment %q", got[0])
+	}
+}
+
+// TestSplitCommandSegments_HeredocMarkerSyntaxes verifies every heredoc marker
+// form terminates the heredoc so commands after it are scanned as separate
+// segments (a non-terminated heredoc would swallow them and bypass the
+// whitelist).
+func TestSplitCommandSegments_HeredocMarkerSyntaxes(t *testing.T) {
+	cmds := []string{
+		"cat <<EOF\nbody\nEOF\nrm -rf /",
+		"cat <<-EOF\n\tbody\nEOF\nrm -rf /",
+		"cat <<'EOF'\nbody\nEOF\nrm -rf /",
+		"cat <<\"EOF\"\nbody\nEOF\nrm -rf /",
+		"cat <<\\EOF\nbody\nEOF\nrm -rf /",
+	}
+	for _, c := range cmds {
+		got := SplitCommandSegments(c)
+		if len(got) != 2 {
+			t.Errorf("expected 2 segments for %q, got %d: %v", c, len(got), got)
+			continue
+		}
+		if got[1] != "rm -rf /" {
+			t.Errorf("expected trailing command split out for %q, got %q", c, got[1])
+		}
+	}
+}
+
+// TestSplitCommandSegments_HereStringNotHeredoc verifies "<<<" (here-string)
+// does not open heredoc mode, so a chained command after it is still split.
+func TestSplitCommandSegments_HereStringNotHeredoc(t *testing.T) {
+	got := SplitCommandSegments("cat <<<\"hello\" && rm -rf /")
+	if len(got) != 2 || got[1] != "rm -rf /" {
+		t.Fatalf("expected here-string not to swallow the chain, got %v", got)
+	}
+}
+
+// TestScanCommandSegments_Balance verifies unterminated quotes and heredocs
+// are reported as unbalanced (fail-closed for the whitelist).
+func TestScanCommandSegments_Balance(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		balanced bool
+	}{
+		{"plain", "ls -la", true},
+		{"balanced quotes", "echo 'a b' && echo \"c d\"", true},
+		{"unclosed single quote", "echo 'oops", false},
+		{"unclosed double quote", "echo \"oops", false},
+		{"unterminated heredoc", "cat <<EOF\nbody", false},
+		{"terminated heredoc", "cat <<EOF\nbody\nEOF", true},
+		{"here-string", "cat <<<\"x\" && ls", true},
+		{"backslash escaped", "find . -exec ls {} \\;", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, balanced := scanCommandSegments(tt.command)
+			if balanced != tt.balanced {
+				t.Errorf("scanCommandSegments(%q) balanced = %v, want %v", tt.command, balanced, tt.balanced)
+			}
+		})
+	}
+}
+
+// TestValidateTerminalCommand_HeredocBypassClosed verifies the whitelist
+// bypass via non-terminated heredocs is closed: disallowed commands after any
+// heredoc marker form (or a here-string) are blocked, and unterminated
+// heredocs/quotes are rejected outright.
+func TestValidateTerminalCommand_HeredocBypassClosed(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"cat"},
+	}
+	cmds := []string{
+		"cat <<EOF\nbody\nEOF\nrm -rf /",
+		"cat <<-EOF\n\tbody\nEOF\nrm -rf /",
+		"cat <<<\"x\" && rm -rf /",
+		"cat <<EOF\nbody",           // unterminated heredoc itself
+		"cat <<EOF\nbody\nrm -rf /", // missing terminator: rm swallowed before
+		"echo \"oops",               // unterminated quote
+	}
+	for _, c := range cmds {
+		if err := ValidateTerminalCommand(c, cfg, nil, nil, ""); err == nil {
+			t.Errorf("expected validation error for %q", c)
+		}
+	}
+}
+
+// TestValidateTerminalCommand_LegitHeredocAllowed verifies well-formed
+// heredocs still pass validation when every command is allowlisted.
+func TestValidateTerminalCommand_LegitHeredocAllowed(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"cat", "echo"},
+	}
+	cmds := []string{
+		"cat <<EOF\nline one\n  indented line\nEOF",
+		"cat <<-EOF\n\tbody\nEOF\necho done",
+		"cat <<'EOF'\nbody\nEOF",
+	}
+	for _, c := range cmds {
+		if err := ValidateTerminalCommand(c, cfg, nil, nil, ""); err != nil {
+			t.Errorf("expected %q to validate, got %v", c, err)
+		}
+	}
+}
+
+// TestSanitizeCommandPreservesHeredocBody verifies sanitizeCommand no longer
+// whitespace-mangles heredoc bodies or string literals (they are content).
+func TestSanitizeCommandPreservesHeredocBody(t *testing.T) {
+	tools := &TerminalTools{}
+	cmd := "cat <<EOF\n  indented line\nline with  double spaces\nEOF"
+	got, err := tools.sanitizeCommand(context.Background(), cmd, models.TerminalGuardrailsConfig{}, "")
+	if err != nil {
+		t.Fatalf("sanitizeCommand: %v", err)
+	}
+	if got != cmd {
+		t.Errorf("heredoc body must reach the shell verbatim:\n got %q\nwant %q", got, cmd)
+	}
+}
+
+func TestValidateTerminalCommand_MultiLineWhitelist(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		wantErr bool
+	}{
+		{
+			name:    "all lines allowlisted",
+			command: "uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\"",
+			wantErr: false,
+		},
+		{
+			name:    "second line disallowed command is blocked",
+			command: "ls -la\nrm -rf /",
+			wantErr: true,
+		},
+		{
+			name:    "disallowed command merged via && still blocked",
+			command: "ls -la && rm -rf /",
+			wantErr: true,
+		},
+	}
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"ls", "uname", "date", "echo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTerminalCommand(tt.command, cfg, nil, nil, "")
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for %q, got nil", tt.command)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tt.command, err)
+			}
+		})
 	}
 }

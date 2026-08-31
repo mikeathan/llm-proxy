@@ -1,28 +1,37 @@
 import { ref } from "vue";
 import { useSSEConnection } from "../network/useSSEConnection";
+import { createEventIdDeduper } from "../../utils/events/eventIdDedup";
 import type { AgentEvent, GuardrailBlockedPayload } from "../../types";
 import type { SessionLifecyclePayload } from "../../types/assistant";
-import { generateId } from "../../utils/crypto";
+
+// MAX_LIVE_EVENTS bounds the retained event log. Only the newest element is
+// ever read (the inbound-count watcher in AssistantChat), so a long run can
+// drop the oldest events instead of growing the array without bound.
+const MAX_LIVE_EVENTS = 1000;
 
 export function useAssistantSSE(
   workspaceId: () => string,
   onEvent?: (ev: AgentEvent) => void,
   onSessionUpdate?: (payload: SessionLifecyclePayload) => void,
 ) {
-  const streamingContent = ref("");
+  const eventIds = createEventIdDeduper();
   const liveEvents = ref<AgentEvent[]>([]);
   const pendingDecision = ref<GuardrailBlockedPayload | null>(null);
   const handledDecisionIds = new Set<string>();
-  let receivedEventIds = new Set<string>();
+
+  function pushLiveEvent(ev: AgentEvent) {
+    liveEvents.value.push(ev);
+    if (liveEvents.value.length > MAX_LIVE_EVENTS) {
+      liveEvents.value.splice(0, liveEvents.value.length - MAX_LIVE_EVENTS);
+    }
+  }
 
   const handleAgentEvent = (ev: AgentEvent) => {
     // Server-side channel isolation already prevents automation events from
     // reaching this socket, but drop any non-assistant event defensively so a
     // misconfigured or legacy endpoint can't bleed automation output into chat.
     if (ev.channel && ev.channel !== "assistant") return;
-    if (ev.id && receivedEventIds.has(ev.id)) return;
-    if (ev.id) receivedEventIds.add(ev.id);
-    if (!ev.id) (ev as any).id = generateId();
+    if (!eventIds.accept(ev)) return;
 
     if (ev.type === "lifecycle" && onSessionUpdate) {
       const p = ev.payload as any
@@ -39,7 +48,7 @@ export function useAssistantSSE(
 
     if (ev.type === "guardrail_blocked") {
       const payload = ev.payload as GuardrailBlockedPayload;
-      liveEvents.value.push(ev);
+      pushLiveEvent(ev);
       if (!handledDecisionIds.has(payload.decision_id)) {
         pendingDecision.value = payload;
       }
@@ -52,11 +61,11 @@ export function useAssistantSSE(
       if (pendingDecision.value?.decision_id === payload.decision_id) {
         pendingDecision.value = null;
       }
-      liveEvents.value.push(ev);
+      pushLiveEvent(ev);
       return;
     }
 
-    liveEvents.value.push(ev);
+    pushLiveEvent(ev);
   };
 
   const sse = useSSEConnection({
@@ -72,15 +81,13 @@ export function useAssistantSSE(
   };
 
   const reset = () => {
-    streamingContent.value = "";
     liveEvents.value = [];
     pendingDecision.value = null;
-    receivedEventIds = new Set<string>();
+    eventIds.reset();
     handledDecisionIds.clear();
   };
 
   return {
-    streamingContent,
     liveEvents,
     isConnected: sse.isConnected,
     pendingDecision,

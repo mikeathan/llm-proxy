@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -200,4 +201,77 @@ func TestRecoveryLadder_NetworkTruncatedWriteSalvaged(t *testing.T) {
 	if callCount != 1 {
 		t.Errorf("execution-time salvage should complete on the write turn, got %d calls", callCount)
 	}
+}
+
+// TestRecoveryLadder_ToolErrorThenTruncatedThought_NotCompleted is the
+// regression test for the llm-smoke-test failure: the terminal tool returns an
+// error, the model replies with a truncated ReAct scaffold ("Thought: ...
+// Action:" with no tool call), and the loop must NOT record that incomplete
+// turn as the final answer. It must reject the dangling Action delimiter (both
+// in checkTaskCompletion and in the parse-error trust branch) and give the
+// model feedback so it can continue, instead of finalizing an incomplete run
+// as "completed".
+func TestRecoveryLadder_ToolErrorThenTruncatedThought_NotCompleted(t *testing.T) {
+	callCount := 0
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			callCount++
+			switch callCount {
+			case 1:
+				// Model runs the terminal tool (XML text mode — the mode the
+				// failing smoke test ran in) and the tool FAILS.
+				return streamMsg(proxy.Message{
+					Role: "assistant",
+					Content: "Thought: Step 1 done. Now running Step 3 system commands.\n\n<tool_call>\n" +
+						`{"tool": "execute_terminal_command", "args": {"command": "uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\""}}` +
+						"\n</tool_call>",
+				})(ctx, req)
+			case 2:
+				// Truncated retry: Thought + dangling Action marker, no tool call.
+				return streamMsg(proxy.Message{
+					Role:    "assistant",
+					Content: "Thought: `uname -a` isn't supported on this system. I'll report this as-is. Now running the date and echo commands (Step 3).\n\nAction:",
+				})(ctx, req)
+			default:
+				// After feedback the model delivers a real report.
+				return streamMsg(proxy.Message{
+					Role:    "assistant",
+					Content: "# Final Report\nStep 3 completed: all three system commands produced output.",
+				})(ctx, req)
+			}
+		},
+	}
+	provider := &MockProvider{Tools: []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "execute_terminal_command"}},
+	}}
+	// The engine fails the terminal call AND returns raw output — the exact
+	// shape that carries no JSON error field in the recorded tool result.
+	engine := &MockEngine{
+		Result: "usage: uname [-amnoprsv]\n",
+		Err:    errors.New("shell execution failed: exit status 1"),
+	}
+
+	agent := NewAgent(client, provider, engine, AgentOptions{
+		MaxSteps:       10,
+		UseNativeTools: boolPtr(false),
+		// Mirrors the failing model's runtime config: the openai provider tier
+		// has Prefill=false, so no <tool_call>{"tool":" prefill is injected and
+		// the model's XML output arrives clean.
+		ProviderType: "openai",
+	})
+	reply, history, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " run the smoke test steps"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if strings.Contains(reply, "uname -a` isn't supported") {
+		t.Fatalf("truncated retry turn was recorded as the final answer: %q", reply)
+	}
+	if !strings.Contains(reply, "Final Report") {
+		t.Fatalf("expected the real final report, got %q", reply)
+	}
+	// The truncated scaffold is part of the transcript (the model said it) but
+	// must be followed by recovery feedback, not treated as the final answer.
+	_ = history
 }

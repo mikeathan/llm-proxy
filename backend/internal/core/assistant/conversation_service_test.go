@@ -18,25 +18,26 @@ import (
 )
 
 type mockConvDeps struct {
-	modelName  string
-	guardrail  *guardrails.GuardrailEngine
-	store      *GuardrailDecisionStore
-	events     EventPublisher
-	log        logging.Logger
+	modelName string
+	guardrail *guardrails.GuardrailEngine
+	store     *GuardrailDecisionStore
+	events    EventPublisher
+	log       logging.Logger
 }
 
 func (m *mockConvDeps) SelectModels() (string, string) { return m.modelName, "" }
 func (m *mockConvDeps) ModelConfig(string) (models.ModelConfig, bool) {
 	return models.ModelConfig{MaxSteps: 2, MaxTokens: 100}, true
 }
-func (m *mockConvDeps) ProcessLogger(string) logging.Logger { return m.log }
-func (m *mockConvDeps) GuardrailEngine() *guardrails.GuardrailEngine { return m.guardrail }
-func (m *mockConvDeps) GuardrailDecisionStore() *GuardrailDecisionStore { return m.store }
-func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator { return nil }
-func (m *mockConvDeps) MemoryStore() *memory.Store { return nil }
-func (m *mockConvDeps) Events() EventPublisher { return m.events }
-func (m *mockConvDeps) RunLoggingEnabled() bool { return false }
-func (m *mockConvDeps) RootDir() string { return "" }
+func (m *mockConvDeps) EffectiveToolCallFormat(context.Context, string) string { return "" }
+func (m *mockConvDeps) ProcessLogger(string) logging.Logger                    { return m.log }
+func (m *mockConvDeps) GuardrailEngine() *guardrails.GuardrailEngine           { return m.guardrail }
+func (m *mockConvDeps) GuardrailDecisionStore() *GuardrailDecisionStore        { return m.store }
+func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator               { return nil }
+func (m *mockConvDeps) MemoryStore() *memory.Store                             { return nil }
+func (m *mockConvDeps) Events() EventPublisher                                 { return m.events }
+func (m *mockConvDeps) RunLoggingEnabled() bool                                { return false }
+func (m *mockConvDeps) RootDir() string                                        { return "" }
 
 type mockEventPublisher struct {
 	Published []AgentEvent
@@ -327,7 +328,7 @@ func TestConversationService_CancelPersistsFailure(t *testing.T) {
 	collected := []AgentEvent{
 		{Type: EventUpstream, Payload: UpstreamEventPayload{
 			Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3,
-			Error: `Post "http://192.168.50.60:8082/v1/chat/completions": dial tcp: connect: connection refused`,
+			Error:    `Post "http://192.168.50.60:8082/v1/chat/completions": dial tcp: connect: connection refused`,
 			ErrClass: "connection-refused",
 		}},
 	}

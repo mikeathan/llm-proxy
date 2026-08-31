@@ -11,8 +11,8 @@ import (
 // not.
 func TestBudgetOverridesToPersist(t *testing.T) {
 	cases := []struct {
-		name          string
-		b             modelBudgetOverride
+		name             string
+		b                modelBudgetOverride
 		wantMax, wantCtx int
 	}{
 		{
@@ -46,7 +46,7 @@ func TestBudgetOverridesToPersist(t *testing.T) {
 			name: "local never persists even when explicit differs",
 			b: modelBudgetOverride{
 				ExplicitMaxTokens: 999, ExplicitCtxBudget: 999,
-				DerivedMaxTokens: 2730, DerivedCtxBudget: 10924,
+				DerivedMaxTokens: 2730, DerivedCtxBudget: 21848,
 				WorkloadClass: models.WorkloadLocal,
 			},
 			wantMax: 0, wantCtx: 0,

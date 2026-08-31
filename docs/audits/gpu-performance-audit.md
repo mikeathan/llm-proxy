@@ -150,17 +150,96 @@ at idle). Work delivered:
 13. **EMA shows the mean, not the dips.** "Idle used to hit 0" was the raw noise floor; the
     smoothed gauge shows the sustained average. Setting expectations beats chasing the number.
 
-## Current state (as of 2026-08-06)
+### Phase D — residual-driver investigation + fix round (2026-08-28)
+
+Follow-up investigation (branch `task/implement_perfomance_improvements`) into the still-high
+during-run GPU. Full static analysis of the live pipeline (SSE → `messageBuilder` →
+`ChatBubble`/`ChatMessages` → compositing, plus backend notify path + metrics service) was
+performed and reported before any code change. Findings, in priority order:
+
+1. **P0 metrics wiring confirmed live** (plan P0): `refreshMetricsService()` passed only
+   `GPU:{...}` into `NewMetricsService`, dropping `GPUSampleIntervalSec` + `GPUSmoothingAlpha`.
+   `Start()` no-ops at interval 0 → **no background sampler ever ran**; every `/metrics`
+   snapshot triggered an on-demand provider sample (`ioreg` subprocess on macOS). **Fixed**:
+   the rebuild now reads the full metrics config from `System().Get()`; live changes flow
+   through `System().OnChange → SetGPUConfig → refreshMetricsService`. Covered by
+   `TestRefreshMetricsService_WiresGPUMetricsConfig` (constructor + live re-wire).
+2. **`useLiveConsole` O(n²) event dedup** (automation live view only): `liveEvents.value.some(...)`
+   scanned the whole array per SSE event. **Fixed**: both SSE consumers now share the single
+   `createEventIdDeduper()` (`frontend/src/utils/events/eventIdDedup.ts`) — O(1) `Set` dedup,
+   cleared on run/session reset. Clean-code pass also removed dead code in the touched area:
+   `streamingContent` passthrough (useAssistantSSE/useAssistant), `displayEvents`
+   (useLiveConsole), `lastMessageIsUser` prop (ChatMessages/AssistantChat/AutomationDetails),
+   `abortController` + `clearLiveEvents` + unused `streaming`/`sseConnected` return entries
+   (useAssistant), the no-op `render()` (messageBuilder), and the dead `.bubble-reasoning`
+   CSS rule (ChatBubble). `MetricsService` sample+smooth duplication extracted to
+   `sampleAndSmooth()`.
+3. **Per-frame paint animations that survived earlier rounds**: the arc-orbit loader animated a
+   `conic-gradient` via registered `@property --arc-angle` (repaint per frame, worsened by
+   `-webkit-mask`), active on the bubble **and** the input during every `paused` phase (i.e.
+   most of a run); three `animate-pulse` dots (`AssistantActivity`, `AutomationsPanel`,
+   `RecordingsPanel`) still ran 24/7 while visible. **Pulse dots fixed**: static now.
+   **Arc-orbit: transform-rotation attempted, reverted, then the animation REMOVED
+   (2026-08-28, measurement-driven).** `transform: rotate()` on the loader visibly rotates
+   the non-circular rounded-rectangle shape ("rotating in full scale") instead of sweeping
+   the arc — only a circle can rotate without distortion, so no transform-based spin can
+   preserve the ring-on-rounded-rect visual. The A/B measurement then showed the `--arc-angle`
+   animation was the DOMINANT residual: during-run peaks 21% baseline vs **9.9% with the
+   loader off** (≈ idle 8%) — i.e. the per-frame masked-gradient repaint while *active* cost
+   ~11 GPU points, which had confounded every prior during-run measurement (incl. the 29↔41
+   contradiction era). The animation was deleted; the loader is now a **static accent ring**
+   (painted once), and the thinking-gap dots + label carry the activity affordance. A
+   compositor-safe spinning-arc redesign (circular element) remains an option if the spin is
+   wanted back.
+4. **Double-scroll redundancy**: outer pane `maybeScroll` + 320px inset scroll both fired every
+   250ms during streaming. **Fixed**: the inset only scrolls when it genuinely overflows
+   (`scrollHeight > clientHeight`) — under the cap the outer pane's height-growth check covers
+   the follow; `ChatMessages.maybeScroll` now consumes its throttle window before the
+   `scrollHeight` read so the forced sync-layout read runs ≤4x/sec instead of every flush.
+   Pause-on-scroll-up / idle-resume behaviour (useAutoScroll) is unchanged.
+5. **Markdown restored for live reasoning** (user decision — the plain-text experiment was
+   GPU-neutral, and markdown is useful). The live block renders via `MarkdownViewer` again;
+   the adaptive 100–250ms flush cadence bounds the `marked()` re-parse.
+6. **`isolation: isolate` → `z-index: 0`** on `.message-bubble` (same stacking context for
+   the arc-orbit loader containment, removes the isolate property). `box-shadow` kept — its
+   re-raster on a growing element is still measurement-gated (P2 below).
+
+**Deferred (measurement-gated — do NOT ship rendering changes before the P1 trace):**
+- P3 delta emission (`{text, full}` + incremental append) — the O(1) path; re-test after the
+  scroll/layer fixes show their effect.
+- Bubble `box-shadow` removal / cheaper accent — re-check in the trace (P2 suspect #2).
+- `content-visibility: auto` interplay with frequent scrolls — verify in trace.
+- Backend O(n²) micro-opts: `FilterStreamingMarkup` full-buffer scan per chunk,
+  `fullMsg.Content +=` string concat — CPU only, not client GPU; low priority.
+- `liveEvents` unbounded growth (chat + automation) — memory hygiene, P5.
+
+**New follow-up finding:** `MetricsConfig` fields carry only `json` tags, so the yaml store
+persists field-name-derived keys (`gpusampleintervalsec`, `gpusmoothingalpha`,
+`sysfspath`) in `settings.yml` — hand-edited snake_case keys (`gpu_sample_interval_seconds`)
+are NOT read back by the yaml store. The app's own write/read round-trip is consistent, so
+the UI config works; only hand-editing is affected. Optional follow-up: add `yaml` tags +
+a one-time migration — not done (on-disk format change risk).
+
+**Measurement verdict still open:** the residual during-run GPU (≈22–30%) has still not been
+cleanly attributed (plan P1 was never run). The 2026-08-28 fixes target the highest-likelihood
+drivers (scroll/composite redundancy, per-frame paint, layer re-raster scope); the P1 protocol
+must confirm which (if any) moves the needle before further rendering work.
+
+## Current state (as of 2026-08-06, updated 2026-08-28)
 
 **Done and verified:**
 - Idle GPU ~2% under strict conditions (single tab, no DevTools, fixed refresh) — animation
   gating, `backdrop-blur` removal, `content-visibility`, frozen turns, adaptive flush.
 - Backend notify coalescing (50ms) + byte-dedupe — `sse.events` ≤29/2s during fast streams.
 - All always-on/paint-cost animations removed (`animate-ping`, `animate-pulse` dots,
-  box-shadow keyframes); only cheap opacity/transform animations remain during runs.
+  box-shadow keyframes); only cheap transform/opacity animations remain during runs.
+  (The arc-orbit loader's spin was removed 2026-08-28 — measurement showed the active
+  per-frame gradient repaint cost ~11 GPU points; it is now a static accent ring.)
 - `liveEvents` deep-watch and `liveReasoning` fan-out eliminated (O(1), last-turn gated).
 - `?perf=1` telemetry removed (was a measurement confound).
-- Live reasoning rendered as plain text during streaming; committed content keeps markdown.
+- Live reasoning renders with full markdown again (2026-08-28 — the plain-text experiment
+  was GPU-neutral, so the useful formatting was restored; the adaptive flush cadence bounds
+  the `marked()` re-parse). Committed content also keeps markdown.
 - Metrics display: EMA smoothing (default 0.3), mean-of-3 seed, hot-reloadable alpha, UI
   controls, race-free.
 - Frontend Vitest harness added (`textAppend` removed with Round 6; harness stays).

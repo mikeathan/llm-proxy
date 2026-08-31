@@ -52,3 +52,14 @@ func (t *UsageTracker) AddToolCall(name string) {
 	t.ToolCalls++
 	t.UsedTools = append(t.UsedTools, name)
 }
+
+// UsedToolsSnapshot returns a copy of the tool names used this run. Used by
+// the synthesized run summary — the per-execution record survives sieving,
+// whereas scanning the run's (pruned) history under-counts tool activity.
+func (t *UsageTracker) UsedToolsSnapshot() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]string, len(t.UsedTools))
+	copy(out, t.UsedTools)
+	return out
+}

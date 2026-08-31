@@ -79,6 +79,14 @@ type MetricsService struct {
 	gpuMemAvg         float64
 	gpuSeedCount      int
 	stopCh            chan struct{}
+
+	// hostMu serializes host-metric reads and bounds their frequency: several
+	// components poll /metrics on a 10s cadence, and cpu.Percent(0) is a
+	// "since the last call" delta that is not safe under concurrent callers.
+	// hostCached is reused within hostMetricsCacheInterval.
+	hostMu       sync.Mutex
+	hostCached   HostMetrics
+	hostCachedAt time.Time
 }
 
 type memSnapshot struct {

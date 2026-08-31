@@ -217,6 +217,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 
 	// Proxy
 	router.Any("/v1/chat/completions", http.HandlerFunc(hs.Proxy.EnsureModelProxyHandler))
+	// OpenAI-compatible model catalogue for external OpenAI-format clients
+	// pointed at this proxy (metadata discovery; see ProxyHandlers.ModelsListHandler).
+	router.Get("/v1/models", http.HandlerFunc(hs.Proxy.ModelsListHandler), jsonMethodNotAllowed)
 
 	// Conversation API
 	router.Any("/admin/api/conversation/message", hs.Assistant)

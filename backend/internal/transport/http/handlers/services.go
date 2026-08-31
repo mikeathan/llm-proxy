@@ -220,6 +220,9 @@ type AssistantService interface {
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
+	// EffectiveToolCallFormat resolves the model's tool_call_format, probing
+	// local endpoints for native tool support when unset (cached).
+	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	Orchestrator() *orchestrator.Orchestrator
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
@@ -228,5 +231,3 @@ type AssistantService interface {
 	RecordDir() string
 	RunLoggingEnabled() bool
 }
-
-

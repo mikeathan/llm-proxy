@@ -200,7 +200,7 @@ func TestGuardrailApprovalWait_TimeoutDenies(t *testing.T) {
 			Engine:      engine,
 			Guardrails:  newSlowGuardrail(0, true), // fast eval, secret triggers violation
 			Logger:      logging.NewNopLogger(),
-			OnGuardrail: NewGuardrailDecisionCallback(store, func(ev AgentEvent) { events = append(events, ev) }),
+			OnGuardrail: NewGuardrailDecisionCallback(store, func(ev AgentEvent) { events = append(events, ev) }, ChannelAutomation),
 		},
 	}
 

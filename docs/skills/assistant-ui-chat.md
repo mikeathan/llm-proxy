@@ -128,11 +128,11 @@ Call `forceUpdate()` after every mutation that must be reflected in the template
 
 **Streaming renders via the `liveReasoning` ref only; committed turns stay frozen.** `handleToolStream()` buffers streamed text in `pendingText` and flushes `liveReasoning.value` at most once per 100ms (`scheduleFlush()`). The flush does NOT replace the message object — no `forceUpdate()`. This keeps the `turns` computed frozen during text streaming, so historical turns never re-render and their `MarkdownViewer` computeds never re-run (the memoized-list pattern ChatGPT/Gemini use). `forceUpdate()` runs only on segment mutations (`tool_call`/`tool_result`/`commitReasoning`/`guardrail`), where the turn genuinely changes. `clearPendingFlush()` runs in `commitReasoning()`/`finalize()`/`reset()` so committed or finished text is never re-flashed as live.
 
-**Live reasoning is plain text, re-rendered via the `liveReasoning` ref (no MarkdownViewer while streaming).** `ChatBubble.vue` binds `{{ liveReasoning }}` as plain text — the 100ms flush caps the DOM swap of the live block to ~10/sec; because turns are frozen, committed history never re-parses. Committed reasoning segments re-render with full markdown via `MarkdownViewer`. An incremental text-node append experiment (Round 5) was attempted and reverted — it produced no GPU win and caused a rendering regression (content leaking out of the capped inset).
+**Live reasoning renders with full markdown via the `liveReasoning` ref (restored 2026-08-28).** The plain-text experiment (Phase B Round 1) was GPU-neutral — `marked()` is main-thread CPU and the adaptive 100–250ms flush cadence bounds the re-parse — so `ChatBubble.vue` renders the live block through `MarkdownViewer` again, matching committed reasoning. Do NOT re-remove markdown: the GPU residual was never attributed to it. An incremental text-node append experiment (Round 5) was attempted and reverted — it produced no GPU win and caused a rendering regression (content leaking out of the capped inset).
 
 **The inset keeps its 320px cap + internal scroller.** Long reasoning stays bounded inside the bubble and scrolls internally (the inset follows the newest line via the throttled inset auto-scroll, gated to the last turn). Do NOT suspend the cap or set `overflow-y: visible` on `.bubble-inset` — combined with the `grid-template-rows: 1fr/0fr` collapse wrapper and `min-height: 0`, visible overflow lets the streaming text leak outside the panel.
 
-**Auto-scroll is throttled (~250ms) and skips no-op passes.** `ChatMessages.vue` coalesces `scrollIfNearBottom` to ≤1 per 250ms and skips the `scrollTop` mutation entirely when `scrollHeight` didn't grow (while `notifyContent()` still runs for pause/resume bookkeeping). It watches `turns` by reference instead of `deep: true` (no whole-history deep-walk per flush). Do not restore per-flush scrolls or a deep watch on `turns` — they cause full-pane scroll+layout+composite passes during streaming.
+**Auto-scroll is throttled (~250ms), skips no-op passes, and the two scrollers never both scroll.** `ChatMessages.vue` coalesces `scrollIfNearBottom` to ≤1 per 250ms, consumes the throttle window BEFORE the `scrollHeight` read (so the forced sync-layout read runs ≤4x/sec, not every flush), and skips the `scrollTop` mutation when `scrollHeight` didn't grow. `ChatBubble.vue`'s inset watcher only scrolls the inset when it actually overflows (`scrollHeight > clientHeight`) — while reasoning fits under the cap the outer pane's growth check is the single follower; once capped, the inset is the single follower. Pause-on-scroll-up / idle-resume semantics (useAutoScroll) are unchanged on both. It watches `turns` by reference instead of `deep: true` (no whole-history deep-walk per flush). Do not restore per-flush scrolls, remove the overflow guard, or re-add a deep watch on `turns` — they cause redundant scroll+layout+composite passes during streaming.
 
 ## Inactivity Detection with `paused` Timer
 
@@ -214,6 +214,8 @@ type Segment =
 
 The agent completes a task by producing a content-only assistant message (no further tool calls). The frontend handles this as a normal `message` event: `commitReasoning()` moves streamed text to a reasoning segment, and the final answer text becomes `turn.finalAnswer`. There is no special frontend code for completion — the `message` event is treated the same as any other turn boundary.
 
+**Tool-call-markup guard (2026-08-28):** a content-only `message` whose content contains tool-call markup (`<tool_call`, `[TOOL_CALLS]`) is **NOT** treated as the final answer. Malformed/failed `<tool_call>` attempts are streamed as visible text inside the message payload (the backend cuts them from the live stream via `FilterStreamingMarkup`, but the payload carries the full content); finalizing on them rendered raw JSON as the result and suppressed the real answer (observed with Qwen3.6-35B-A3B). The guard lives in `messageBuilder.ts`'s `message` case.
+
 The `message` event is sent after `processToolCalls` returns and must NOT push a tool-call segment — the tool calls are already represented by their own `tool_call`/`tool_result` events.
 
 ## Thinking-Gap Dots Indicator
@@ -241,11 +243,25 @@ forward-looking `docs/PLANS/gpu-performance.md`):**
 - **Never leave a CSS animation running on a hidden/invisible element.** CSS animations run even at `opacity: 0` / `visibility: hidden`. Every animation is gated to its visible state — the arc-orbit animation lives on `.arc-orbit-loader.is-active::before`, and the thinking-gap dots animate only under `.bubble-paused:not(.bubble-paused--hidden)`.
 - **`content-visibility: auto` on non-live turns** (`.message-wrapper--virtualized`, applied when `!(loading && isLastTurn)`) skips paint/composite of offscreen history so a growing session doesn't re-composite the whole pane. `contain-intrinsic-size: auto 120px` keeps scroll heights stable.
 - **Avoid `backdrop-blur` on always-visible elements** — each layer is a constant macOS compositing cost. `RightPane` pulse-container and `MetricsPulse` use solid `bg-gray-900` instead.
-- The live reasoning box is plain text re-rendered via `{{ liveReasoning }}` (throttled 100ms flush / 250ms outer auto-scroll); the inset keeps its 320px cap + internal scroll. Parity check (2026-08-05): same browser, Gemini ≈3% GPU vs llm-proxy ≈30% — the residual is NOT a platform floor, but the Round-5 append/uncap experiment was reverted (no GPU win + rendering regression). Root cause of the residual still open; profile with Chrome DevTools Performance before more changes (`?perf=1` telemetry was removed — its rAF loop was itself a GPU confound).
+- The live reasoning box renders via `MarkdownViewer` (restored 2026-08-28 — GPU-neutral),
+  throttled 100ms flush / 250ms outer auto-scroll; the inset keeps its 320px cap + internal
+  scroll. Parity check (2026-08-05): same browser, Gemini ≈3% GPU vs llm-proxy ≈30% — the
+  residual is NOT a platform floor, but the Round-5 append/uncap experiment was reverted (no
+  GPU win + rendering regression). Root cause of the residual still open; profile with Chrome
+  DevTools Performance before more changes (`?perf=1` telemetry was removed — its rAF loop
+  was itself a GPU confound). 2026-08-28 shipped: double-scroll redundancy removed (the inset
+  scrolls only when overflowing; outer `scrollHeight` read throttled ≤4x/sec), always-on
+  pulse dots removed, `isolation: isolate` → `z-index: 0` on the bubble. **The arc-orbit
+  loader has NO animation** (since 2026-08-28): the `--arc-angle` per-frame gradient repaint
+  measured as the dominant during-run GPU cost (~11 points), and a transform-based spin is
+  impossible without distorting the rounded-rectangle ring (only a circle can rotate without
+  shape change) — so it is a static accent ring and the thinking dots carry the affordance.
+  Do NOT re-add an animated conic-gradient loader without a compositor-safe (circular)
+  design and a re-measurement.
 
 ### Empty inset suppression
 
-The `.bubble-inset` (reasoning/tool panel) is **only rendered when it has content** — at least one reasoning/tool_call/guardrail/notice/error segment, visible live reasoning, or the `generating` phase. During the initial wait (`thinking` with no streamed text yet) it is hidden, so the bubble shows the animated border + "Thinking" dots without an empty rounded panel. `insetVisible` in `ChatBubble.vue` is gated by `insetHasContent`, not just the phase.
+The `.bubble-inset` (reasoning/tool panel) is shown via **`v-show` (kept mounted, `display:none` when hidden)** — never `v-if`. `insetVisible` in `ChatBubble.vue` is gated by `insetHasContent` (plus the waiting placeholder), so during the initial wait (`thinking` with no streamed text yet) it is hidden and never paints an empty rounded panel. Keeping it mounted (not `v-if`) makes **collapse/expand during streaming flicker-free**: a `v-if` inset unmounts on collapse and re-mounts + re-parses markdown on expand, which flashes while a stream is live (user-reported 2026-08-28). The trade-off is that a hidden inset still re-renders its live content on each flush (bounded CPU by the adaptive cadence; zero paint while `display:none`).
 
 **Waiting-on-model placeholder.** One exception: `showWaitingPlaceholder` renders a generic "Waiting on the model…" row inside the inset while the last live turn is in `thinking` with nothing streamed yet. It is provider/model-agnostic and reuses the existing phase state (no new heartbeat or event). It disappears as soon as any reasoning/content/segment/`notice`/`generating` state arrives — the `insetHasContent` gate then takes over. This gives the user feedback during a long provider TTFB or a hanging connection before the first upstream-retry notice appears.
 

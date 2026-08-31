@@ -88,6 +88,16 @@ func (c WorkloadClassifier) ClassifyEndpoint(rawURL string) bool {
 	return false
 }
 
+// ClassifyClient reports whether a client for the given upstream (baseURL +
+// model id) should use the local llama.cpp transport.  It is the
+// client-factory counterpart of Classify(cfg): local when the endpoint is
+// local OR the model id names a local .gguf artifact.  A remote llama.cpp
+// host serving a .gguf model is a local workload (SPEC-005) and must get the
+// 10-minute response-header timeout, not the 45s cloud one.
+func (c WorkloadClassifier) ClassifyClient(baseURL, modelID string) bool {
+	return c.ClassifyEndpoint(baseURL) || HasGGUFArtifact(modelID)
+}
+
 // HasGGUFArtifact reports whether a model identifier string ends in .gguf.
 func HasGGUFArtifact(s string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(s)), ".gguf")

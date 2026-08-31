@@ -71,6 +71,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/ARCHIVE/cross-cutting/universal-agent-completion.md` | Universal Agent Completion Model | complete | 2026-07-21 | SPEC-001, SPEC-002 |
 | `docs/PLANS/cross-cutting/webhook-fresh-sessions.md` | Fresh Webhook Sessions + Source Grouping | complete | 2026-07-09 | SPEC-009 |
 | `docs/PLANS/cross-cutting/post-implementation-cleanup.md` | Post-Implementation Cleanup: Duplication & Dead Code | active | 2026-08-01 | SPEC-005 |
+| `docs/PLANS/cross-cutting/ci-github-actions-and-versioning.md` | CI, GitHub Actions Integration & Versioning Flow (gitleaks, release-please, tag-on-merge; free/no external services) | proposed | 2026-08-30 | — |
 | `docs/PLANS/cross-cutting/xdg-config-data-relocation.md` | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened; **2026-08-11: two-root design superseded by single-root consolidation — all files under one root**) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | `docs/PLANS/cross-cutting/agents-md-layering-guardrails.md` | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
 | `docs/PLANS/cross-cutting/sandbox-runtime-invisibility.md` | Sandbox Runtime Invisibility (`.sandbox` hidden from filesystem listings + terminal output) | complete | 2026-08-25 | SPEC-006, CONSTITUTION II.3 |
@@ -100,6 +101,8 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `docs/audits/agent-stability-report.md` | Agent Stability Audit (13 issues) | complete | 2026-05-28 |
 | `docs/audits/gpu-performance-audit.md` | GPU Performance — consolidated audit (all knowledge + fixes + lessons) | reference | 2026-08-06 |
 | `docs/audits/known-performance-findings.md` | Known Performance Findings — provider TTFT vs local logic, SSE reader fix | reference | 2026-08-18 |
+| `docs/audits/2026-08-28-ops-performance-review.md` | Ops & Backend Performance Review — findings + fixes (log rotation, tail reads, host-metrics cache, EventBus byte budget, compact session marshal) | reference | 2026-08-28 |
+| `docs/audits/2026-08-30-llm-smoke-test-incomplete-run.md` | llm-smoke-test Incomplete Run — terminal newline collapse, premature finalization on truncated ReAct scaffold, local native-tools auto-detection | complete | 2026-08-30 |
 | `docs/audits/ephemeral-turn-context-failed-run.md` | Ephemeral Turn Context — Failed Run Analysis | complete | 2026-06-08 |
 | `docs/audits/memory-injection-investigation.md` | Memory Injection + Automation Limitations | reference | 2026-06-03 |
 | `docs/audits/remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete | 2026-06-03 |

@@ -14,6 +14,8 @@
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*
+coverage-summary.md
+frontend/coverage/
 *.coverprofile
 profile.cov
 
@@ -44,6 +46,7 @@ llm-proxy
 
 # Logs
 llm-proxy.log
+vitest-coverage.log
 .DS_Store
 backend/workspaces/*
 backend/internal/transport/http/frontend_dist/*
@@ -65,3 +68,4 @@ node_modules/
 
 
 .codebase-memory/*
+.gomodcache/*

@@ -43,6 +43,7 @@
       "chmod",
       "env",
       "echo",
+      "printf",
       "node",
       "npm",
       "npx",
@@ -58,8 +59,11 @@
       "ts-node",
       "tsx",
       "sort",
+      "wc",
       "test",
-      "which"
+      "which",
+      "bash",
+      "sh"
     ],
     "allowed_env_vars": [
       "PATH",

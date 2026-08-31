@@ -22,7 +22,7 @@ const emit = defineEmits<{
 const { isMobile } = useResponsiveLayout(640);
 
 const {
-  loading, messages, sessions, currentSessionId, pendingDecision,
+  loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
   thinking, liveReasoning, paused, phase,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
@@ -87,10 +87,6 @@ const turns = computed(() => {
   return groupTurns(messages.value)
 })
 const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets, resetInsets } = useTurnInset(phase, turns);
-const lastMessageIsUser = computed(() => {
-  if (messages.value.length === 0) return false;
-  return messages.value[messages.value.length - 1]?.role === "user";
-});
 
 function isSegExpanded(turnIdx: number, segIdx: number): boolean {
   return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
@@ -246,7 +242,7 @@ const handleDeleteGroup = async (ids: string[]) => {
       </header>
 
       <div v-if="pendingDecision" class="guardrail-banner-wrapper">
-        <GuardrailBanner :decision="pendingDecision" @allow="(..._args: any[]) => {}" @deny="() => {}" />
+        <GuardrailBanner :decision="pendingDecision" @allow="(persist: boolean) => submitDecision(true, persist)" @deny="() => submitDecision(false, false)" />
       </div>
 
       <div v-if="messages.length === 0 && currentSessionRunning && !loading" class="chat-processing-banner">
@@ -261,7 +257,6 @@ const handleDeleteGroup = async (ids: string[]) => {
         :thinking="thinking"
         :live-reasoning="liveReasoning"
         :paused="paused"
-        :last-message-is-user="lastMessageIsUser"
         :workspace-id="workspaceId"
         :turns-collapsed="insetCollapsed"
         :expanded-segments="expandedSegments"

@@ -97,7 +97,11 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 
 	sentinel := fmt.Sprintf("__SHELL_DONE_%d__", time.Now().UnixNano())
 
-	script := fmt.Sprintf("%s; echo '%s'$?\n", command, sentinel)
+	// The sentinel is emitted on its own line (newline-separated, no leading
+	// ";") so a trailing shell comment cannot swallow it: `cmd  # note`
+	// would otherwise comment out the sentinel statement and stall the
+	// reader until the context timeout, wedging the shared session.
+	script := fmt.Sprintf("%s\necho '%s'$?\n", command, sentinel)
 	if _, err := io.WriteString(ps.stdin, script); err != nil {
 		return "", fmt.Errorf("failed to write command to shell: %w", err)
 	}
@@ -187,7 +191,7 @@ type HostShellManager struct {
 // NewHostShellManager initializes a native shell session manager.
 func NewHostShellManager() (*HostShellManager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	hm := &HostShellManager{
 		sessions: make(map[string]*sessionInfo),
 		ctx:      ctx,

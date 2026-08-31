@@ -5,15 +5,15 @@ package models
 // one hand-editable document: server, workspaces_dir, metrics, sandboxing,
 // local, guardrails, model_overrides, memory, run_logging.
 type AppConfig struct {
-	Server         AppServerConfig        `yaml:"server" json:"server"`
-	WorkspacesDir  string                 `yaml:"workspaces_dir" json:"workspaces_dir"`
-	Metrics        MetricsConfig          `yaml:"metrics" json:"metrics"`
-	Sandboxing     HostSandboxingConfig   `yaml:"sandboxing" json:"sandboxing"`
-	Local          LocalSettings          `yaml:"local" json:"local"`
-	Guardrails     *AgentGuardrailsConfig `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
+	Server         AppServerConfig          `yaml:"server" json:"server"`
+	WorkspacesDir  string                   `yaml:"workspaces_dir" json:"workspaces_dir"`
+	Metrics        MetricsConfig            `yaml:"metrics" json:"metrics"`
+	Sandboxing     HostSandboxingConfig     `yaml:"sandboxing" json:"sandboxing"`
+	Local          LocalSettings            `yaml:"local" json:"local"`
+	Guardrails     *AgentGuardrailsConfig   `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
-	Memory         *MemoryConfig          `yaml:"memory,omitempty" json:"memory,omitempty"`
-	RunLogging     *RunLoggingConfig      `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
+	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
+	RunLogging     *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 }
 
 // AppServerConfig is the infrastructure-level server section of AppConfig
@@ -38,7 +38,12 @@ func DefaultAppConfig() AppConfig {
 			ModelHost:       AddrAllInterfaces,
 			IdleTimeoutSecs: 1800,
 		},
-		Metrics:    MetricsConfig{GPU: GPUConfig{Provider: "auto"}},
+		// Metrics defaults are baked in here so the GPU gauge "just works"
+		// without any UI configuration: the background sampler runs at 10s and
+		// the display uses the default EMA smoothing (0.3). The sample-interval
+		// and smoothing UI knobs were removed 2026-08-28; operators can still
+		// override via settings.yml.
+		Metrics:    MetricsConfig{GPU: GPUConfig{Provider: "auto"}, GPUSampleIntervalSec: 10, GPUSmoothingAlpha: 0.3},
 		Sandboxing: DefaultHostSettings().Sandboxing,
 		Memory:     ptr(DefaultMemoryConfig()),
 		RunLogging: ptr(DefaultRunLoggingConfig()),

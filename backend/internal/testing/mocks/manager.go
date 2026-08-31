@@ -9,30 +9,31 @@ import (
 )
 
 type MockManager struct {
-	EnsureModelFunc            func(ctx context.Context, name string) (llm.ModelInstance, error)
-	GetInstanceFunc            func(ctx context.Context, name string) (llm.ModelInstance, error)
-	RecordActivityFunc         func(name string)
-	ListModelsFunc             func() []models.ModelConfig
-	AddModelFunc               func(models.ModelConfig) error
-	UpdateModelFunc            func(models.ModelConfig) error
-	RemoveModelFunc            func(string) error
-	ActiveInfoFunc             func() *llm.ActiveModelInfo
-	ActiveLogsFunc             func() string
-	LastTokensPerSecondFunc    func() (float64, time.Time)
-	StopActiveFunc             func() error
-	ClearLogsFunc              func() error
-	ModelHostFunc              func() string
-	SetBinaryFunc              func(string)
-	SetModelHostFunc           func(string)
-	ListProviderModelsFunc     func(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error)
-	TestProviderConnectionFunc func(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
-	ProbeModelAvailabilityFunc func(ctx context.Context, cfg models.ModelConfig) error
-	SelectModelsFunc           func() (string, string)
-	SetSecretsFunc             func(models.SecretsStore)
-	ShutdownFunc               func()
-	RegistrarFunc              func() *providers.ProviderRegistrar
-	SyncFunc                   func()
-	ClassifyModelFunc          func(models.ModelConfig) models.WorkloadClass
+	EnsureModelFunc             func(ctx context.Context, name string) (llm.ModelInstance, error)
+	GetInstanceFunc             func(ctx context.Context, name string) (llm.ModelInstance, error)
+	RecordActivityFunc          func(name string)
+	ListModelsFunc              func() []models.ModelConfig
+	AddModelFunc                func(models.ModelConfig) error
+	UpdateModelFunc             func(models.ModelConfig) error
+	RemoveModelFunc             func(string) error
+	ActiveInfoFunc              func() *llm.ActiveModelInfo
+	ActiveLogsFunc              func() string
+	LastTokensPerSecondFunc     func() (float64, time.Time)
+	StopActiveFunc              func() error
+	ClearLogsFunc               func() error
+	ModelHostFunc               func() string
+	SetBinaryFunc               func(string)
+	SetModelHostFunc            func(string)
+	ListProviderModelsFunc      func(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error)
+	TestProviderConnectionFunc  func(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
+	ProbeModelAvailabilityFunc  func(ctx context.Context, cfg models.ModelConfig) error
+	EffectiveToolCallFormatFunc func(ctx context.Context, name string) string
+	SelectModelsFunc            func() (string, string)
+	SetSecretsFunc              func(models.SecretsStore)
+	ShutdownFunc                func()
+	RegistrarFunc               func() *providers.ProviderRegistrar
+	SyncFunc                    func()
+	ClassifyModelFunc           func(models.ModelConfig) models.WorkloadClass
 }
 
 func (m *MockManager) Registrar() *providers.ProviderRegistrar {
@@ -85,6 +86,16 @@ func (m *MockManager) ProbeModelAvailability(ctx context.Context, cfg models.Mod
 		return m.ProbeModelAvailabilityFunc(ctx, cfg)
 	}
 	return nil
+}
+
+// EffectiveToolCallFormat defaults to the mock's explicit override function;
+// tests that need a real resolution can point EffectiveToolCallFormatFunc at
+// a stub (e.g. return "native").
+func (m *MockManager) EffectiveToolCallFormat(ctx context.Context, name string) string {
+	if m.EffectiveToolCallFormatFunc != nil {
+		return m.EffectiveToolCallFormatFunc(ctx, name)
+	}
+	return ""
 }
 
 // ClassifyModel defaults to the pure classifier (provider label, GGUF

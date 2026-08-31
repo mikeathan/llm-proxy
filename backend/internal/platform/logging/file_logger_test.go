@@ -275,3 +275,76 @@ func TestFileLogger_ConcurrentSetLevelAndLogging(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestFileLogger_RotatesAtMaxSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+
+	logger, err := logging.NewFileLogger(logging.Options{
+		File:         path,
+		Level:        logging.LevelInfo,
+		MaxSizeBytes: 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+
+	// A padded line so each write advances the byte counter.
+	line := strings.Repeat("x", 300) + "\n"
+
+	// Write enough lines to exceed the 1024-byte cap several times over.
+	// log.Logger writes each record straight to the target (no user-space
+	// buffering), so the file is readable without an explicit flush.
+	for i := 0; i < 12; i++ {
+		logger.Info(strings.TrimSuffix(line, "\n"))
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read current log: %v", err)
+	}
+	backup, err := os.ReadFile(path + ".1")
+	if err != nil {
+		t.Fatalf("read rotated backup: %v", err)
+	}
+	if len(current) > 1024 {
+		t.Fatalf("current log exceeded max size: %d bytes", len(current))
+	}
+	if len(backup) > 1024 {
+		t.Fatalf("rotated backup exceeded max size: %d bytes", len(backup))
+	}
+	if len(current) == 0 {
+		t.Fatal("current log should contain post-rotation lines")
+	}
+	if len(backup) == 0 {
+		t.Fatal("rotated backup should contain pre-rotation lines")
+	}
+	// Disk is bounded at ~2×maxSize per path: the .1 backup is replaced on
+	// every rotation, so only the latest two chunks survive (lines are ~340
+	// bytes with the timestamp prefix, so 12 writes = ~4 rotations).
+	if len(current)+len(backup) > 2*1024+len(line) {
+		t.Fatalf("expected disk bounded near 2×max size, got %d bytes", len(current)+len(backup))
+	}
+}
+
+func TestFileLogger_NoRotationWhenUnderMaxSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+
+	logger, err := logging.NewFileLogger(logging.Options{
+		File:         path,
+		Level:        logging.LevelInfo,
+		MaxSizeBytes: 1 << 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		logger.Info("short line")
+	}
+
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Fatalf("expected no backup file when under max size, stat err=%v", err)
+	}
+}

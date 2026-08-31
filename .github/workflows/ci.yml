@@ -1,0 +1,229 @@
+name: CI
+
+# Triggers: PRs (all branches), merges to main, manual dispatch for re-runs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: CI only reads the repository.
+permissions:
+  contents: read
+
+# One run per PR/branch; a newer push supersedes the in-flight run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The local pre-commit hook only sees staged diffs, so the history-wide
+  # secret scan is gating here.
+  secrets:
+    name: Secrets scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # sha256 of gitleaks_<ver>_linux_x64.tar.gz. Bump both values together,
+      # verifying against the release's gitleaks_<ver>_checksums.txt.
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # full history: scan commits, not just the working tree
+      - name: Install pinned gitleaks (sha256-verified)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+      - name: Scan history
+        run: ./gitleaks detect --source . --config .gitleaks.toml --redact --log-opts=HEAD
+
+  backend:
+    name: Backend (build, vet, complexity, test, coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # Cheap gates first: fail fast before the slow -race suite.
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Complexity gate (<= 12)
+        run: go run ./tools/check-complexity/
+      - name: Test (race + coverage)
+        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+      - name: Coverage report
+        run: |
+          set -euo pipefail
+          TOTAL=$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}')
+          # Per-package coverage, statement-weighted, computed from the raw
+          # profile. Line format: "<import-path>/<file>.go:<ranges> <stmts> <count>"
+          LOW=$(awk 'NR > 1 {
+              file = $1; sub(/:.*/, "", file)
+              pkg  = file; sub(/\/[^\/]*$/, "", pkg)
+              stmts[pkg] += $2; covered[pkg] += ($3 > 0 ? $2 : 0)
+            }
+            END {
+              for (p in stmts) {
+                pct = 100 * covered[p] / stmts[p]
+                if (pct < 50) printf "%5.1f%%  %s\n", pct, p
+              }
+            }' coverage.out | sort -n)
+          {
+            echo "### Go coverage"
+            echo ""
+            echo "Total: **$TOTAL**"
+            echo ""
+            echo "<details><summary>Packages below 50% (statement coverage)</summary>"
+            echo ""
+            echo '```'
+            if [ -n "$LOW" ]; then echo "$LOW"; else echo "None"; fi
+            echo '```'
+            echo ""
+            echo "</details>"
+          } | tee -a "$GITHUB_STEP_SUMMARY" > coverage-summary.md
+          go tool cover -html=coverage.out -o coverage.html
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: backend-coverage
+          path: |
+            backend/coverage.out
+            backend/coverage.html
+            backend/coverage-summary.md
+          retention-days: 14
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend (test, coverage, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Test + coverage
+        run: |
+          set -euo pipefail
+          # pipefail keeps a vitest failure visible through tee.
+          npm test -- --coverage 2>&1 | tee vitest-coverage.log
+      - name: Coverage report
+        run: |
+          # Machine-readable json-summary (coverage/coverage-summary.json) feeds
+          # the PR coverage comment; the text table stays in the step summary.
+          {
+            echo "### Vitest coverage"
+            echo ""
+            echo '```'
+            awk '/Coverage summary/{f=1; next} /^={10,}$/{if(f) exit} f' vitest-coverage.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          node -e '
+            const s = require("./coverage/coverage-summary.json");
+            const t = s.total;
+            const pct = (v) => v.toFixed(2) + "%";
+            const md = [
+              "Total: **" + pct(t.statements.coverage || t.statements.pct) + "** statements, " +
+                pct(t.branches.coverage || t.branches.pct) + " branches, " +
+                pct(t.functions.coverage || t.functions.pct) + " functions, " +
+                pct(t.lines.coverage || t.lines.pct) + " lines",
+            ].join("\n");
+            require("fs").writeFileSync("coverage-summary.md", md + "\n");
+          ' 2>/dev/null || echo 'Coverage summary unavailable' > coverage-summary.md
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: frontend-coverage
+          path: |
+            frontend/coverage/
+            frontend/coverage-summary.md
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Build (eslint + vue-tsc + vite)
+        run: npm run build
+
+  # Posts a single sticky PR comment combining backend + frontend coverage.
+  # Uses the built-in github.token (no external service or PAT); the job-level
+  # pull-requests: write overrides the workflow-wide read-only default.
+  coverage-report:
+    name: Coverage report (PR comment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    needs: [backend, frontend]
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download backend coverage
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: backend-coverage
+          path: coverage-report/backend
+      - name: Download frontend coverage
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: frontend-coverage
+          path: coverage-report/frontend
+      - name: Post / update PR comment
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const read = (f) => fs.existsSync(`coverage-report/${f}`)
+              ? fs.readFileSync(`coverage-report/${f}`, 'utf8').trim()
+              : '_(not available)_';
+            const marker = '<!-- llm-proxy-coverage-report -->';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '## 📊 Test coverage',
+              '',
+              '### Backend (Go)',
+              read('backend/coverage-summary.md'),
+              '',
+              '### Frontend (Vitest)',
+              read('frontend/coverage-summary.md'),
+              '',
+              `_[HTML reports in the artifacts of this workflow run](${runUrl})_`,
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

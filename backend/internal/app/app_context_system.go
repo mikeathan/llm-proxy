@@ -79,8 +79,12 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		if req.ModelHost != "" {
 			sys.Server.ModelHost = req.ModelHost
 		}
-		if req.IdleTimeoutSecs > 0 {
-			sys.Server.IdleTimeoutSecs = req.IdleTimeoutSecs
+		if req.IdleTimeoutSecs != nil {
+			// Pointer field: an explicit 0/-1 ("never stop the model") is a
+			// valid value, not an "unset" sentinel. -1 (or <= 0) means the
+			// model is never reaped (lifecycle.go); only -1 survives the
+			// defaults-merge on reload (0 is treated as "unset" there).
+			sys.Server.IdleTimeoutSecs = *req.IdleTimeoutSecs
 		}
 		if req.Environment != nil {
 			sys.Server.Environment = req.Environment

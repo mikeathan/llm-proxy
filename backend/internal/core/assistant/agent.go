@@ -310,8 +310,8 @@ type AgentOptions struct {
 	// see. They are combined with the guardrail-derived static exclusions in
 	// NewAgent (resolveToolProvider) — the single narrow waist for tool
 	// availability. allow ∩ exclude ∩ guardrail-disabled.
-	AllowedTools   []string
-	ExcludedTools  []string
+	AllowedTools  []string
+	ExcludedTools []string
 
 	// Safety timeouts — per-model overrides for unattended run hardening.
 	// Zero means "use global default" (set in applyDefaults).
@@ -404,7 +404,13 @@ func (s *GuardrailDecisionStore) Remove(id string) {
 	delete(s.pending, id)
 }
 
-func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observer) GuardrailDecisionCallback {
+// NewGuardrailDecisionCallback builds the approval-wait callback wired into
+// agents as OnGuardrail. channel is the producer stream (assistant | automation)
+// stamped on the emitted events — the event bus partitions by channel, so an
+// assistant approval must be published on the assistant channel or the chat
+// SSE never sees it and the wait burns the full GuardrailApprovalTimeout
+// (observed 2026-08-31: `wc` block, no banner, 5-minute stall).
+func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observer, channel EventChannel) GuardrailDecisionCallback {
 	return func(ctx context.Context, payload GuardrailBlockedPayload) (GuardrailDecision, error) {
 		ch := make(chan GuardrailDecision, 1)
 		store.Register(payload.DecisionID, ch)
@@ -415,6 +421,7 @@ func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observ
 		if observer != nil {
 			observer(AgentEvent{
 				Type:      EventGuardrailBlocked,
+				Channel:   channel,
 				Payload:   payload,
 				Timestamp: time.Now(),
 			})
@@ -424,7 +431,8 @@ func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observ
 		case decision := <-ch:
 			if observer != nil {
 				observer(AgentEvent{
-					Type: EventGuardrailInvalidated,
+					Type:    EventGuardrailInvalidated,
+					Channel: channel,
 					Payload: GuardrailInvalidatedPayload{
 						DecisionID: payload.DecisionID,
 						Reason:     "decision_resolved",
@@ -444,7 +452,8 @@ func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observ
 			}
 			if observer != nil {
 				observer(AgentEvent{
-					Type: EventGuardrailInvalidated,
+					Type:    EventGuardrailInvalidated,
+					Channel: channel,
 					Payload: GuardrailInvalidatedPayload{
 						DecisionID: payload.DecisionID,
 						Reason:     reason,

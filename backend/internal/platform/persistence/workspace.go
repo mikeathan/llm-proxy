@@ -535,10 +535,12 @@ func (m *WorkspaceManager) migrateSessionDir(workspaceID, sessionID string) erro
 	return nil
 }
 
-// WriteSession writes an assistant session JSON file atomically.
+// WriteSession writes an assistant session JSON file atomically. Compact
+// (non-indented) encoding keeps per-checkpoint writes small and fast — sessions
+// can grow to MBs over a long run, and checkpoints fire on every tool cycle.
 func (m *WorkspaceManager) WriteSession(workspaceID string, session *models.AssistantSession) error {
 	session.UpdatedAt = time.Now()
-	data, err := json.MarshalIndent(session, "", "  ")
+	data, err := json.Marshal(session)
 	if err != nil {
 		return fmt.Errorf("failed to encode session: %w", err)
 	}

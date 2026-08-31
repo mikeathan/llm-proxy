@@ -82,6 +82,10 @@ func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig
 	return models.ModelConfig{}, false
 }
 
+func (m *MockAssistantService) EffectiveToolCallFormat(ctx context.Context, modelName string) string {
+	return ""
+}
+
 func (m *MockAssistantService) GuardrailEngine() *guardrails.GuardrailEngine {
 	if m.GuardrailEng != nil {
 		return m.GuardrailEng
@@ -160,7 +164,7 @@ func (m *MockAssistantService) Orchestrator() *orchestrator.Orchestrator {
 	return nil
 }
 
-func (m *MockAssistantService) RecordDir() string { return "" }
+func (m *MockAssistantService) RecordDir() string       { return "" }
 func (m *MockAssistantService) RunLoggingEnabled() bool { return true }
 
 func NewMockAssistantService(

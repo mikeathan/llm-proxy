@@ -1,16 +1,17 @@
-import { ref, computed, watch } from "vue";
+import { ref, watch } from "vue";
 import { useSSEConnection } from "../network/useSSEConnection";
 import { getMsgPayload } from "../../utils/dispatcher";
+import { createEventIdDeduper } from "../../utils/events/eventIdDedup";
 import type { AgentEvent, GuardrailBlockedPayload } from "../../types";
-import { generateId } from "../../utils/crypto";
 import { post } from "../../services/httpClient";
 import { useMessageBuilder } from "../../utils/message/messageBuilder";
 import type { AssistantMessage } from "../../types/assistant";
 
 export function useLiveConsole(workspaceId: () => string, _isExecuting: () => boolean | undefined, historyEvents: () => AgentEvent[] | undefined, runName?: string) {
-  const liveEvents = ref<AgentEvent[]>([]);
   const pendingDecision = ref<GuardrailBlockedPayload | null>(null);
   const handledDecisionIds = new Set<string>();
+  // O(1) event-id dedup, shared with the chat channel (useAssistantSSE).
+  const eventIds = createEventIdDeduper();
 
   const messages = ref<AssistantMessage[]>([]);
   const builder = useMessageBuilder(messages, {
@@ -19,19 +20,8 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
     headerMessage: { role: 'user', content: runName ? `Automation run: ${runName}` : 'Automation run' },
   });
 
-  const displayEvents = computed(() => {
-    if (liveEvents.value.length > 0) return liveEvents.value;
-    return historyEvents() || [];
-  });
-
-  // displayMessages IS the builder's live messages ref (single source of truth).
-  const displayMessages = messages;
-
   const handleAgentEvent = (ev: AgentEvent) => {
-    if (ev.id && liveEvents.value.some(e => e.id === ev.id)) return;
-    if (!ev.id) {
-       (ev as any).id = generateId();
-    }
+    if (!eventIds.accept(ev)) return;
     if (
       ev.type === "message" &&
       getMsgPayload(ev).content?.includes("▶ Booting automation:")
@@ -41,7 +31,6 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
     }
     if (ev.type === "guardrail_blocked") {
       const payload = ev.payload as GuardrailBlockedPayload;
-      liveEvents.value.push(ev);
       if (!handledDecisionIds.has(payload.decision_id)) {
         pendingDecision.value = payload;
       }
@@ -53,7 +42,6 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
       if (pendingDecision.value?.decision_id === payload.decision_id) {
         pendingDecision.value = null;
       }
-      liveEvents.value.push(ev);
       return;
     }
     // All other events flow through the shared builder (single consumption path).
@@ -81,12 +69,16 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
     sse.disconnect();
     pendingDecision.value = null;
     handledDecisionIds.clear();
+    eventIds.reset();
   };
 
   function resetRun() {
     builder.reset();
     pendingDecision.value = null;
     handledDecisionIds.clear();
+    // A new run's event ids must be accepted even if a previous run in the
+    // same component instance emitted the same id (matches chat's reset).
+    eventIds.reset();
     messages.value = [{
       role: 'user',
       content: runName ? `Automation run: ${runName}` : 'Automation run',
@@ -120,9 +112,7 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
   };
 
   return {
-    liveEvents,
-    displayEvents,
-    displayMessages,
+    messages,
     thinking: builder.thinking,
     liveReasoning: builder.liveReasoning,
     paused: builder.paused,

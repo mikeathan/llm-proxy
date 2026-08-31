@@ -1118,3 +1118,26 @@ func TestApplySystemUpdate_AcceptsExistingModel(t *testing.T) {
 		t.Fatalf("expected refs set to alpha, got primary=%q fallback=%q", reg.PrimaryModel, reg.FallbackModel)
 	}
 }
+
+func TestApplySystemUpdate_IdleTimeout(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+
+	// -1 = never reap: must persist (and, being non-zero, survives the
+	// defaults-merge on reload — unlike 0 which is treated as "unset").
+	never := -1
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{IdleTimeoutSecs: &never}); err != nil {
+		t.Fatalf("ApplySystemUpdate(-1): %v", err)
+	}
+	if got := srv.GetSystem().Server.IdleTimeoutSecs; got != -1 {
+		t.Fatalf("expected idle timeout -1 (never reap), got %d", got)
+	}
+
+	// A positive value applies too.
+	secs := 3600
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{IdleTimeoutSecs: &secs}); err != nil {
+		t.Fatalf("ApplySystemUpdate(3600): %v", err)
+	}
+	if got := srv.GetSystem().Server.IdleTimeoutSecs; got != 3600 {
+		t.Fatalf("expected idle timeout 3600, got %d", got)
+	}
+}

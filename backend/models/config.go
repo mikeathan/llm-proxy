@@ -432,15 +432,18 @@ type ProviderConfig struct {
 	InternalCreditWeight float64 `json:"internal_credit_weight,omitempty"` // ICU multiplier per token
 }
 
+// MetricsConfig carries the GPU metrics display settings. The yaml tags use the
+// documented snake_case keys (settings.yml); UnmarshalYAML (metrics_config_yaml.go)
+// also accepts the pre-tag field-name-derived keys so existing files keep loading.
 type MetricsConfig struct {
-	GPU                  GPUConfig `json:"gpu"`
-	GPUSampleIntervalSec int       `json:"gpu_sample_interval_seconds,omitempty"`
-	GPUSmoothingAlpha    float64   `json:"gpu_smoothing_alpha,omitempty"`
+	GPU                  GPUConfig `yaml:"gpu" json:"gpu"`
+	GPUSampleIntervalSec int       `yaml:"gpu_sample_interval_seconds" json:"gpu_sample_interval_seconds,omitempty"`
+	GPUSmoothingAlpha    float64   `yaml:"gpu_smoothing_alpha" json:"gpu_smoothing_alpha,omitempty"`
 }
 
 type GPUConfig struct {
-	Provider  string `json:"provider,omitempty"`
-	Binary    string `json:"binary,omitempty"`
-	Index     int    `json:"index,omitempty"`
-	SysfsPath string `json:"sysfs_path,omitempty"`
+	Provider  string `yaml:"provider" json:"provider,omitempty"`
+	Binary    string `yaml:"binary" json:"binary,omitempty"`
+	Index     int    `yaml:"index" json:"index,omitempty"`
+	SysfsPath string `yaml:"sysfs_path" json:"sysfs_path,omitempty"`
 }

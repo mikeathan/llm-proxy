@@ -3,8 +3,13 @@ import { mount } from '@vue/test-utils'
 import ChatBubble from '../../../../components/AgentIde/assistant/ChatBubble.vue'
 import type { Turn } from '../../../../types/message'
 
+const MarkdownViewerStub = {
+  props: ['content'],
+  template: '<div class="md-stub">{{ content }}</div>',
+}
+
 const stubs = {
-  MarkdownViewer: true,
+  MarkdownViewer: MarkdownViewerStub,
   Icon: true,
   ArcOrbitLoader: true,
   ToolCallSegment: true,
@@ -40,10 +45,12 @@ function mountBubble(props: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('ChatBubble live reasoning gating', () => {
-  it('renders live reasoning text in the last (live) turn while streaming', async () => {
+  it('renders live reasoning (via MarkdownViewer) in the last (live) turn while streaming', async () => {
     const wrapper = mountBubble({ liveReasoning: 'new run thinking…', isLastTurn: true, phase: 'thinking' })
     expect(wrapper.find('.inset-reasoning--live').exists()).toBe(true)
-    expect(wrapper.find('.inset-reasoning-text').text()).toContain('new run thinking…')
+    // Live reasoning renders with full markdown again (GPU audit confirmed
+    // markdown is not a GPU driver; the plain-text experiment was reverted).
+    expect(wrapper.find('.inset-reasoning--live .md-stub').text()).toContain('new run thinking…')
   })
 
   it('does NOT render live reasoning text in a historical (non-last) turn, even while a new run streams', async () => {
@@ -55,7 +62,12 @@ describe('ChatBubble live reasoning gating', () => {
       idx: 0,
       phase: 'thinking',
     })
-    expect(wrapper.find('.inset-reasoning--live').exists()).toBe(false)
+    // The inset (and the live block inside it) is kept mounted but hidden via
+    // v-show so collapse/expand mid-stream is flicker-free — assert hidden
+    // (display:none), not absent.
+    const live = wrapper.find('.inset-reasoning--live')
+    expect(live.exists()).toBe(true)
+    expect(live.attributes('style')).toContain('display: none')
   })
 
   it('still renders committed error segments in a historical turn', async () => {
@@ -74,6 +86,6 @@ describe('ChatBubble live reasoning gating', () => {
     expect(live.exists()).toBe(true)
     expect(live.attributes('style')).toContain('display: none')
     // ...and the new run's live text must not be visible in it.
-    expect(wrapper.find('.inset-reasoning-text').text()).toContain('new run thinking…')
+    expect(wrapper.find('.inset-reasoning--live .md-stub').text()).toContain('new run thinking…')
   })
 })

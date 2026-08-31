@@ -22,6 +22,26 @@ type ProcessHandlers struct {
 	logger  logging.Logger
 }
 
+// logTailBytes bounds the bytes served for any log endpoint so a growing log
+// file never turns a 10s frontend poll into a full-file read + transfer (ops
+// review 2026-08-28 finding #3).
+const logTailBytes = 64 * 1024
+
+// readTail returns at most the last maxBytes of f, or the whole file when it is
+// smaller. Shared by the app-log tail and workspace process-log endpoints.
+func readTail(f *os.File, maxBytes int64) ([]byte, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if st.Size() > maxBytes {
+		if _, err := f.Seek(-maxBytes, io.SeekEnd); err != nil {
+			return nil, err
+		}
+	}
+	return io.ReadAll(f)
+}
+
 func NewProcessHandlers(runtime RuntimeService, admin AdminService, logger logging.Logger) *ProcessHandlers {
 	return &ProcessHandlers{runtime: runtime, admin: admin, logger: logger}
 }
@@ -184,21 +204,7 @@ func (h *ProcessHandlers) AdminAppLogsTailHandler(w http.ResponseWriter, r *http
 	}
 	defer f.Close()
 
-	stat, err := f.Stat()
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to stat log: "+err.Error())
-		return
-	}
-
-	const tailSize = 64 * 1024
-	if stat.Size() > tailSize {
-		if _, err := f.Seek(-tailSize, io.SeekEnd); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to seek log: "+err.Error())
-			return
-		}
-	}
-
-	b, err := io.ReadAll(f)
+	b, err := readTail(f, logTailBytes)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to read log: "+err.Error())
 		return
@@ -240,12 +246,19 @@ func (h *ProcessHandlers) AdminWorkspaceProcessLogsHandler(w http.ResponseWriter
 	}
 
 	path := lp.LogPath()
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			w.Write([]byte(""))
 			return
 		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to read process log: "+err.Error())
+		return
+	}
+	defer f.Close()
+
+	data, err := readTail(f, logTailBytes)
+	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to read process log: "+err.Error())
 		return
 	}
