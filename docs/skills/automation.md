@@ -78,7 +78,7 @@ backend/data/runs/workspace-<id>/<task-name>/<model>/<timestamp>_<uuid>/
 | `reasoning_budget` | Model config or max_tokens/3 | 910 |
 | `temperature` | Model config (default 0.1) | 0.1 |
 | `max_steps` | Model config (default 25) | 35 |
-| `context_budget` | Model config (default 8000) | 10924 |
+| `context_budget` | Model config (default 8000, `(ctx−max_tokens)×4` chars/token for local) | 21848 |
 | `timeout_minutes` | Model config (default 30) | 0 (use default) |
 | `tool_call_format` | Model config | "native" or "xml" |
 | `prefill` | Model config | true/false |

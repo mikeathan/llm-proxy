@@ -434,7 +434,8 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	a.deps.Logger.Info("stream completed",
 		"content_len", len(fullMsg.Content),
 		"reasoning_len", reasons,
-		"tool_calls", len(fullMsg.ToolCalls))
+		"tool_calls", len(fullMsg.ToolCalls),
+		"finish_reason", fullMsg.FinishReason)
 
 	if t := GetUsageTracker(ctx); t != nil {
 		t.AddLLMCall(len(prepared), len(fullMsg.Content), len(fullMsg.ReasoningContent))
@@ -663,6 +664,9 @@ func resolveStreamChunk(choice proxy.Choice) proxy.Message {
 	if len(msg.ReasoningDetails) == 0 {
 		msg.ReasoningDetails = choice.Message.ReasoningDetails
 	}
+	// The finish_reason arrives at the choice level on the wire
+	// (Message.FinishReason is json:"-" so it is never populated from JSON).
+	msg.FinishReason = choice.FinishReason
 	return msg
 }
 
@@ -763,6 +767,11 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 				reasoningChunk := chunk.ReasoningContent
 				reasoningStr := chunk.Reasoning
 				reasoningDetails := chunk.ReasoningDetails
+				// The finish_reason arrives on the final chunk — last one wins
+				// (streams may emit empty final chunks before [DONE]).
+				if chunk.FinishReason != "" {
+					fullMsg.FinishReason = chunk.FinishReason
+				}
 
 				if a.deps.Orchestrator != nil && a.deps.Orchestrator.Interceptor != nil {
 					result := a.deps.Orchestrator.Interceptor.InterceptChunk(orchestrator.StreamChunk{
@@ -1024,6 +1033,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	}
 
 	msg := resp.Choices[0].Message
+	msg.FinishReason = resp.Choices[0].FinishReason
 	if prefill != "" {
 		msg.Content = prefill + msg.Content
 	}

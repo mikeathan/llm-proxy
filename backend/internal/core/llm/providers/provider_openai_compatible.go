@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"llm-proxy/internal/core"
@@ -420,6 +421,185 @@ func (p *OpenAICompatibleProvider) ProbeChatModel(ctx context.Context, modelID s
 		return fmt.Errorf("model %q not callable: upstream status %d: %s", modelID, resp.StatusCode, msg)
 	}
 	return nil
+}
+
+// DefaultProbeNativeToolTimeout bounds a single native-tool probe attempt.
+// It rides on the same inference slot as real traffic (llama.cpp serves one
+// slot), so a hung probe would block the agent's first turn. Timeouts are
+// GENERATION-TIME based (not token based) so slow hardware gets the same
+// chance as fast hardware: the deadline bounds how long the server may take
+// to emit a tool call, and the budget bounds how many tokens it may spend
+// thinking first.
+const DefaultProbeNativeToolTimeout = 30 * time.Second
+
+// DefaultProbeNativeToolMaxTimeout is the deadline for the final escalation
+// attempt, reserved for models that were still generating (length-limited or
+// past the first deadline) — generous enough for slow large models on CPU.
+const DefaultProbeNativeToolMaxTimeout = 60 * time.Second
+
+// ProbeNativeToolTimeout allows overriding the per-attempt probe deadline for
+// testing.
+var ProbeNativeToolTimeout = DefaultProbeNativeToolTimeout
+
+// ProbeNativeToolMaxTimeout allows overriding the escalation deadline for
+// testing.
+var ProbeNativeToolMaxTimeout = DefaultProbeNativeToolMaxTimeout
+
+// probeNativeToolBudget is the first-attempt output budget: room for a
+// thinking model to emit its reasoning AND the tool call (~40 thinking + ~30
+// call tokens on the reference model).
+const probeNativeToolBudget = 512
+
+// probeNativeToolMaxBudget is the final-attempt budget: covers models that
+// think substantially before acting before we conclude "no native support".
+const probeNativeToolMaxBudget = 2048
+
+// ProbeNativeTools asks the endpoint whether it can emit native OpenAI tool
+// calls for the given model. The probe sends a minimal chat request carrying a
+// trivial function schema and inspects the response: finish_reason
+// "tool_calls" (or a non-empty message.tool_calls) means the server rendered
+// the model's chat template with tools; a plain-text response means it cannot.
+//
+// The probe must stay correct across every model class that can hit it:
+//
+//   - THINKING models spend tokens on reasoning_content before acting; a
+//     budget too small ends with finish_reason "length" and zero tool calls —
+//     a false "no native support" that silently drops the model into XML text
+//     mode. The budget ladder (512 → 2048) covers verbose thinkers.
+//   - SLOW hardware (big quantized models on CPU) generates few tokens per
+//     second; timeouts are generation-time based (30s → 60s), not token
+//     based, so a slow model gets the same wall-clock chance as a fast one.
+//     A deadline-exceeded first attempt escalates once instead of failing.
+//   - DEAD or refusing servers fail immediately (connection errors are not
+//     escalated) so a down endpoint never stalls the agent for the full
+//     ladder.
+//
+// This is the capability signal that lets local OpenAI-compatible models
+// (llama.cpp --jinja, Ollama, LM Studio, vLLM, ...) use native function calling
+// without a per-model tool_call_format setting. Returns (false, nil) for a
+// healthy endpoint without native tool support; (false, err) for transport or
+// upstream errors so callers can fall back to XML text mode without caching.
+func (p *OpenAICompatibleProvider) ProbeNativeTools(ctx context.Context, modelID string) (bool, error) {
+	endpoint, headers, err := p.GetEndpoint(ctx)
+	if err != nil {
+		return false, fmt.Errorf("resolve endpoint: %w", err)
+	}
+
+	// Attempt 1: reasonable budget and deadline — the fast path.
+	supported, lengthLimited, err := p.probeNativeToolsOnce(ctx, endpoint, headers, modelID, probeNativeToolBudget, ProbeNativeToolTimeout)
+	if err != nil {
+		// A deadline-exceeded first attempt means the server was alive but
+		// slow (still generating when we gave up) — escalate once with the
+		// generous budget/deadline. Any other transport error (connection
+		// refused, reset, non-200) is terminal — fail fast.
+		if errors.Is(err, context.DeadlineExceeded) {
+			supported, _, err = p.probeNativeToolsOnce(ctx, endpoint, headers, modelID, probeNativeToolMaxBudget, ProbeNativeToolMaxTimeout)
+			return supported, err
+		}
+		return false, err
+	}
+	if supported || !lengthLimited {
+		return supported, nil
+	}
+	// Attempt 1 was truncated by the token budget before a tool call — the
+	// model may think longer before acting. Retry with the generous budget
+	// under the longer deadline.
+	supported, _, err = p.probeNativeToolsOnce(ctx, endpoint, headers, modelID, probeNativeToolMaxBudget, ProbeNativeToolMaxTimeout)
+	return supported, err
+}
+
+// probeNativeToolsOnce performs a single native-tool probe request. Returns
+// lengthLimited=true when the response was cut off by the token budget with no
+// tool call (finish_reason "length"), so the caller can decide whether to
+// retry with a larger budget.
+func (p *OpenAICompatibleProvider) probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Header, modelID string, maxTokens int, timeout time.Duration) (supported bool, lengthLimited bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	type probeTool struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Parameters  struct {
+				Type       string         `json:"type"`
+				Properties map[string]any `json:"properties"`
+			} `json:"parameters"`
+		} `json:"function"`
+	}
+	var tool probeTool
+	tool.Type = "function"
+	tool.Function.Name = "list_directory"
+	tool.Function.Description = "List files in a directory"
+	tool.Function.Parameters.Type = "object"
+	tool.Function.Parameters.Properties = map[string]any{
+		"path": map[string]string{"type": "string"},
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"model":       modelID,
+		"messages":    []map[string]string{{"role": "user", "content": "List the current directory using the available tool."}},
+		"tools":       []any{tool},
+		"tool_choice": "auto",
+		"max_tokens":  maxTokens,
+	})
+	if err != nil {
+		return false, false, fmt.Errorf("marshal probe request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return false, false, fmt.Errorf("build probe request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, vv := range headers {
+		for _, v := range vv {
+			req.Header.Add(k, v)
+		}
+	}
+
+	resp, err := p.doer.Do(req)
+	if err != nil {
+		return false, false, fmt.Errorf("native-tools probe unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		// e.g. the deadline fired mid-body on a slow server — escalate like a
+		// request deadline so slow hardware still gets its chance.
+		return false, false, fmt.Errorf("read probe response: %w", readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		msg := strings.TrimSpace(string(b))
+		if msg == "" {
+			msg = "(no response body)"
+		}
+		return false, false, fmt.Errorf("native-tools probe: upstream status %d: %s", resp.StatusCode, msg)
+	}
+
+	var parsed struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				ToolCalls []json.RawMessage `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		return false, false, nil // unrecognizable body — treat as no native support
+	}
+	if len(parsed.Choices) == 0 {
+		return false, false, nil
+	}
+	ch := parsed.Choices[0]
+	if ch.FinishReason == "tool_calls" || len(ch.Message.ToolCalls) > 0 {
+		return true, false, nil
+	}
+	if ch.FinishReason == "length" {
+		// Token budget exhausted before a tool call (thinking models spend
+		// tokens on reasoning first) — inconclusive, retry with more budget.
+		return false, true, nil
+	}
+	return false, false, nil
 }
 
 func (p *OpenAICompatibleProvider) EnsureReady(ctx context.Context) error {

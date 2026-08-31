@@ -17,13 +17,13 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
 	"llm-proxy/internal/core/tools"
-	"llm-proxy/internal/recordings"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/recordings"
 	"llm-proxy/internal/shell"
 	handlers "llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
@@ -88,10 +88,13 @@ func (c *Container) BuildAppServices() *AppServices {
 
 	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
 		var client proxy.Client
-		// Route by the actual upstream destination, not the config provider
-		// slug: a model whose BaseURL points at the local llama.cpp host must
-		// use thinking_budget_tokens even if its slug is "openai".
-		if workloadClassifier.ClassifyEndpoint(baseURL) {
+		// Route by the actual upstream destination AND the model artifact, not
+		// the config provider slug: a model whose BaseURL points at the local
+		// llama.cpp host — or whose id names a .gguf artifact served by a
+		// remote llama.cpp — must use thinking_budget_tokens and the 10-minute
+		// response-header timeout even if its slug is "openai" (SPEC-005: a
+		// remote llama.cpp serving GGUF is a local workload).
+		if workloadClassifier.ClassifyClient(baseURL, model) {
 			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
 		} else {
 			client = proxy.NewLLMClient(baseURL, model, nil, headers)
@@ -162,20 +165,20 @@ func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, 
 }
 
 type AppServices struct {
-	Runtime              llm.RuntimeManager
-	AppCtx               *AppContext
-	nodeHerder           nodeherder.MCPService
-	toolProvider         assistantPkg.ToolProvider
-	clientProvider       proxy.LLMClientProvider
-	engine               assistantPkg.Engine
-	guardrailEngine      *guardrails.GuardrailEngine
-	persistence          *persistence.WorkspaceManager
-	logger               logging.Logger
-	Clock                utils.Clock
-	dispatcher           *automation.Dispatcher
-	limiter              ratelimiter.Limiter
+	Runtime                llm.RuntimeManager
+	AppCtx                 *AppContext
+	nodeHerder             nodeherder.MCPService
+	toolProvider           assistantPkg.ToolProvider
+	clientProvider         proxy.LLMClientProvider
+	engine                 assistantPkg.Engine
+	guardrailEngine        *guardrails.GuardrailEngine
+	persistence            *persistence.WorkspaceManager
+	logger                 logging.Logger
+	Clock                  utils.Clock
+	dispatcher             *automation.Dispatcher
+	limiter                ratelimiter.Limiter
 	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
-	RecordingStore       *recordings.RecordingStore
+	RecordingStore         *recordings.RecordingStore
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {
@@ -238,6 +241,16 @@ func (s AppServices) ModelConfig(modelName string) (models.ModelConfig, bool) {
 		}
 	}
 	return models.ModelConfig{}, false
+}
+
+// EffectiveToolCallFormat resolves the model's tool_call_format, probing local
+// endpoints for native tool support when unset (cached). See
+// LLMRuntimeManager.EffectiveToolCallFormat.
+func (s AppServices) EffectiveToolCallFormat(ctx context.Context, modelName string) string {
+	if s.Runtime == nil {
+		return ""
+	}
+	return s.Runtime.EffectiveToolCallFormat(ctx, modelName)
 }
 
 func (s AppServices) Orchestrator() *orchestrator.Orchestrator {

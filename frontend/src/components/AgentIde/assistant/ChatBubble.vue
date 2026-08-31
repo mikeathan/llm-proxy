@@ -104,8 +104,17 @@ watch(
     nextTick(() => {
       const now = Date.now()
       if (now - lastInsetScrollAt < 250) return
+      // Consume the throttle window BEFORE the overflow check so the
+      // scrollHeight layout read runs at most ~4x/sec, not every flush.
       lastInsetScrollAt = now
-      scrollInsetIfNearBottom(insetEl.value, "instant")
+      const el = insetEl.value
+      // Skip entirely when the inset is not overflowing: a scrollTop write
+      // against a scroll container that fits its content is a pointless
+      // layout+composite pass every flush. Only the capped inset (reasoning
+      // past the 320px cap) needs its own follow-the-newest-line scroll; the
+      // outer pane covers the growth while the inset still fits.
+      if (!el || el.scrollHeight <= el.clientHeight) return
+      scrollInsetIfNearBottom(el, "instant")
     })
   },
 )
@@ -130,7 +139,11 @@ watch(
       </button>
 
       <div class="bubble-inset-wrap" :class="{ collapsed: isInsetCollapsed }">
-        <div v-if="insetVisible" class="bubble-inset" ref="insetEl" @scroll="onInsetScroll(insetEl)">
+        <!-- v-show (not v-if): keeping the inset mounted makes collapse/expand
+             during streaming flicker-free (no re-mount + markdown re-parse on
+             expand). display:none still prevents the empty-panel paint while
+             hidden, so the empty-inset suppression is preserved. -->
+        <div v-show="insetVisible" class="bubble-inset" ref="insetEl" @scroll="onInsetScroll(insetEl)">
           <!-- Committed segments render in chronological order (reasoning and
                tool calls interleaved exactly as they streamed). -->
           <template v-for="(seg, sIdx) in turn.segments" :key="'seg-' + idx + '-' + sIdx">
@@ -190,16 +203,16 @@ watch(
                newest event, so it renders at the tail, after committed
                segments.  v-show (not v-if) so it never unmounts, which avoids
                the panel expand/collapse flicker during fast commits. Rendered
-               as plain text while streaming (no MarkdownViewer) to avoid the
-               O(n^2) marked() re-parse on every flush; the committed reasoning
-               segment re-renders with full markdown via MarkdownViewer at
-               ChatBubble below. -->
+               with full markdown via MarkdownViewer — the flush cadence
+               (100–250ms, adaptive) bounds the marked() re-parse, and the GPU
+               audit confirmed markdown rendering is not a GPU driver, so the
+               live block keeps the same formatting as committed reasoning. -->
           <div
             v-show="liveReasoningVisible"
             class="inset-reasoning inset-reasoning--live"
           >
             <span class="inset-label">Reasoning</span>
-            <div class="inset-reasoning-text">{{ liveReasoning }}</div>
+            <MarkdownViewer :content="liveReasoning" />
           </div>
 
           <div v-if="phase === 'generating'" class="inset-generating">
@@ -238,7 +251,7 @@ watch(
 .message-wrapper--assistant { @apply justify-start; }
 .message-wrapper--virtualized { content-visibility: auto; contain-intrinsic-size: auto 120px; }
 
-.message-bubble { @apply max-w-full sm:max-w-[85%] rounded-2xl p-3 sm:p-4 flex flex-col gap-2 shadow-sm relative break-words; isolation: isolate; }
+.message-bubble { @apply max-w-full sm:max-w-[85%] rounded-2xl p-3 sm:p-4 flex flex-col gap-2 shadow-sm relative break-words z-0; }
 .message-bubble--assistant { @apply bg-gray-800/40 border border-white/5 text-gray-200; min-height: 60px; }
 .message-bubble--assistant > :not(.arc-orbit-loader) { position: relative; z-index: 0; }
 
@@ -275,9 +288,7 @@ watch(
 }
 
 .inset-reasoning { @apply mb-2 pl-2; }
-.inset-reasoning :deep(.bubble-reasoning) { @apply text-[11px] leading-snug text-gray-400 px-0; }
 .inset-reasoning--live { @apply min-h-[1.25rem]; }
-.inset-reasoning-text { @apply text-[11px] leading-snug text-gray-400 whitespace-pre-wrap break-words; }
 .inset-label { @apply text-[10px] uppercase tracking-wider text-indigo-400/60 mb-0.5 block; }
 .inset-label--guardrail { @apply text-red-400/80; }
 

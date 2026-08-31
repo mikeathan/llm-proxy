@@ -17,8 +17,12 @@ import (
 
 // ConversationDeps provides the external dependencies for ConversationService.
 // Implemented by the HTTP handler layer.
-type ConversationDeps interface {	SelectModels() (string, string)
+type ConversationDeps interface {
+	SelectModels() (string, string)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
+	// EffectiveToolCallFormat resolves the model's tool_call_format, probing
+	// local endpoints for native tool support when unset (cached).
+	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	ProcessLogger(workspaceID string) logging.Logger
 	GuardrailEngine() *guardrails.GuardrailEngine
 	GuardrailDecisionStore() *GuardrailDecisionStore
@@ -49,7 +53,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	}
 
 	// 2. Model config
-	modelName, useNativeTools := s.resolveModelConfig(workspaceID, conversationID, message)
+	modelName, useNativeTools := s.resolveModelConfig(ctx, workspaceID, conversationID, message)
 
 	// 3. Build or update history
 	if err := s.initSession(session, workspaceID, conversationID, message, contextVersion, timezone, useNativeTools, log); err != nil {
@@ -126,14 +130,14 @@ func (s *conversationService) resolveSession(workspaceID, conversationID, contex
 	return session, nil
 }
 
-func (s *conversationService) resolveModelConfig(workspaceID, conversationID, message string) (modelName string, useNativeTools bool) {
+func (s *conversationService) resolveModelConfig(ctx context.Context, workspaceID, conversationID, message string) (modelName string, useNativeTools bool) {
 	procLog := s.deps.ProcessLogger(workspaceID)
 	procLog.Info("Assistant request started", "conversation", conversationID, "message", message)
 
 	modelName, _ = s.deps.SelectModels()
-	if cfg, ok := s.deps.ModelConfig(modelName); ok {
-		useNativeTools = cfg.ToolCallFormat == "native"
-	}
+	// Effective format (explicit override / cloud native default / cached
+	// local capability probe) — the same resolution automations use.
+	useNativeTools = s.deps.EffectiveToolCallFormat(ctx, modelName) == "native"
 	return
 }
 
@@ -217,7 +221,7 @@ func (s *conversationService) buildAgent(ctx context.Context, modelName, workspa
 		WithConversationID(sessionID).
 		WithHotMemory(true).
 		WithObserver(observer).
-		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer)).
+		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer, ChannelAssistant)).
 		WithOrchestrator().
 		WithModelConfig(modelName)
 

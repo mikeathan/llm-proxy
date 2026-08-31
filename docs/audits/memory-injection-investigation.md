@@ -3,6 +3,11 @@ status: reference
 date: 2026-06-03
 related_specs: [SPEC-004]
 ---
+> **Resolved (2026-08-30):** the premature-sieve root cause described here was
+> the local `context_budget` using a wrong 2 chars/token (≈10924 chars for an 8192 ctx),
+> which pruned history when the real window was barely a third full. The derivation now
+> uses the real ratio (4 chars/token → ≈21848 chars); see
+> `docs/audits/2026-08-30-llm-smoke-test-incomplete-run.md` §budget.
 # Memory Injection Investigation Report
 
 **Date:** 2026-06-03

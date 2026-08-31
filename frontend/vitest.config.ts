@@ -10,6 +10,16 @@ import vue from '@vitejs/plugin-vue'
 //    Carries the Vue plugin so .vue SFCs compile under the test runner.
 export default defineConfig({
   test: {
+    // Root-level: applies to all projects (not a valid per-project option in Vitest 4).
+    passWithNoTests: true,
+    // Coverage (CI: `npm test -- --coverage`). Local runs are unaffected.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      exclude: ['src/__TESTS__/**', 'src/**/*.d.ts'],
+      reporter: ['text-summary', 'html', 'json-summary'],
+      reportsDirectory: 'coverage',
+    },
     projects: [
       {
         test: {
@@ -17,7 +27,6 @@ export default defineConfig({
           environment: 'node',
           include: ['src/__TESTS__/**/*.test.ts'],
           exclude: ['src/__TESTS__/**/*.component.test.ts'],
-          passWithNoTests: true,
         },
       },
       {
@@ -26,7 +35,6 @@ export default defineConfig({
           name: 'component',
           environment: 'happy-dom',
           include: ['src/__TESTS__/**/*.component.test.ts'],
-          passWithNoTests: true,
         },
       },
     ],

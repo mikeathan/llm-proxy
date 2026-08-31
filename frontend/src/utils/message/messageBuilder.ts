@@ -5,10 +5,27 @@ import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../d
 import type { InsetPhase } from '../../types/inset'
 import type { MessageBuilderOptions } from '../../types/message'
 
+// Tool-call markup patterns, hoisted to module scope: stripToolCallXml runs on
+// every stream event (10–100/sec during a stream) and the finalize guard on
+// every message event, so the regexes are created once instead of per call.
+const EMPTY_TOOL_CALL_RE = /<tool_call>\s*<\/tool_call>/gi
+const EMPTY_TOOL_RESULT_RE = /<tool_result>\s*<\/tool_result>/gi
+const TOOL_CALL_MARKUP_RE = /<tool_call|\[TOOL_CALLS\]/i
+
+// A content-only message whose content is tool-call markup — a malformed or
+// failed <tool_call> attempt streamed as visible text (the backend cuts this
+// from the live stream via FilterStreamingMarkup, but message/lifecycle
+// payloads carry the full content) — is NOT a final answer. Finalizing on it
+// would render raw JSON as the result and suppress the real answer (observed:
+// Qwen3.6-35B-A3B emitting <tool_call>{"list_directory", {"path": "."}}).
+function containsToolCallMarkup(content: string): boolean {
+  return TOOL_CALL_MARKUP_RE.test(content)
+}
+
 function stripToolCallXml(text: string): string {
   return text
-    .replace(/<tool_call>\s*<\/tool_call>/gi, '')
-    .replace(/<tool_result>\s*<\/tool_result>/gi, '')
+    .replace(EMPTY_TOOL_CALL_RE, '')
+    .replace(EMPTY_TOOL_RESULT_RE, '')
     .trim()
 }
 
@@ -168,13 +185,6 @@ export function useMessageBuilder(
     }
   }
 
-  function render() {
-    // Content is set at turn completion by finalize (reply push).
-    // During streaming, liveReasoning carries the visible text; m.content
-    // stays empty so finalAnswer stays empty and the thinking‑gap renders.
-    assistantMessage()
-  }
-
   function forceUpdate() {
     const idx = assistantIdx
     if (idx !== null && idx < messages.value.length) {
@@ -291,7 +301,7 @@ export function useMessageBuilder(
         // the answer itself so completion never depends on a follow-up
         // lifecycle/HTTP signal that may not arrive for some models.
         const msg = ev.payload as AssistantMessage
-        if (msg.role === 'assistant' && msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) {
+        if (msg.role === 'assistant' && msg.content && !containsToolCallMarkup(msg.content) && (!msg.tool_calls || msg.tool_calls.length === 0)) {
           if (!finalized && (phase.value === 'thinking' || phase.value === 'working' || phase.value === 'idle')) {
             setPhase('generating')
           }
@@ -324,8 +334,17 @@ export function useMessageBuilder(
           return
         }
         if (opts.finalizeOn === 'lifecycle' && p?.phase === LIFECYCLE_PHASES.completed && !finalized) {
-          finalized = true
-          finalize(typeof p.content === 'string' && p.content ? p.content : lastReply)
+          // NOTE: do NOT pre-set finalized here — finalize() is idempotent and
+          // sets it itself; pre-setting made finalize() early-return, silently
+          // disabling the lifecycle completion path (the UI would stick on
+          // "thinking" with no finalize ever running).
+          const content = typeof p.content === 'string' && p.content ? p.content : lastReply
+          // Defense-in-depth: a completed lifecycle whose content is tool-call
+          // markup (the backend salvaged a truncated stream, e.g. after an
+          // upstream outage) must never render raw JSON as the answer — fall
+          // back to the last clean reply (which the message path already
+          // guards against markup).
+          finalize(containsToolCallMarkup(content) ? lastReply : content)
         }
         return
       }
@@ -404,7 +423,6 @@ export function useMessageBuilder(
 
     commitReasoning()
     lastClean = ''
-    render()
   }
 
   function finalize(reply: string) {

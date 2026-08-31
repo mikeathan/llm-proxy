@@ -44,14 +44,14 @@ func TestHostShellManager_Execution(t *testing.T) {
 
 	t.Run("Persistence Check", func(t *testing.T) {
 		ts, _ := hm.GetOrCreate(ctx, "test-ws", tmpDir, 0, nil, nil)
-		
+
 		// Set a variable in one command
 		_, _, _ = ts.Execute(ctx, []string{"export MYVAR=antigravity"})
-		
+
 		// Read it in another command
 		stdout, _, _ := ts.Execute(ctx, []string{"echo $MYVAR"})
 		defer stdout.Close()
-		
+
 		data, _ := io.ReadAll(stdout)
 		if strings.TrimSpace(string(data)) != "antigravity" {
 			t.Errorf("expected 'antigravity', got '%s' (persistence failed)", strings.TrimSpace(string(data)))
@@ -74,7 +74,7 @@ func TestHostShellManager_Execution(t *testing.T) {
 		defer os.Unsetenv("TEST_VAR_ANTIGRAVITY")
 
 		ts, _ := hm.GetOrCreate(ctx, "env-ws", tmpDir, 0, []string{"TEST_VAR_ANTIGRAVITY", "HOME", "GOPATH", "TMPDIR"}, nil)
-		
+
 		// 1. Verify inheritance via allowlist
 		stdout, _, err := ts.Execute(ctx, []string{"sh", "-c", "echo $TEST_VAR_ANTIGRAVITY"})
 		if err != nil {
@@ -322,5 +322,41 @@ func TestPrepareShellEnv_PathAugmentation(t *testing.T) {
 	// Host path should be preserved after extensions
 	if !strings.Contains(envMap["PATH"], "/usr/bin") {
 		t.Errorf("expected PATH to still contain host paths, got %s", envMap["PATH"])
+	}
+}
+
+// TestPersistentShell_TrailingCommentDoesNotStall is a regression test for the
+// completion-sentinel fix: a command ending in a shell comment must still emit
+// the sentinel (the sentinel is newline-separated, so the comment cannot
+// swallow it) and return promptly with the correct output — previously the
+// sentinel line was commented out and the reader stalled until the context
+// timeout, wedging the shared session.
+func TestPersistentShell_TrailingCommentDoesNotStall(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tmpDir, _ := os.MkdirTemp("", "shell-cmt-*")
+	defer os.RemoveAll(tmpDir)
+
+	hm, err := NewHostShellManager()
+	if err != nil {
+		t.Fatalf("failed to create HostShellManager: %v", err)
+	}
+	defer hm.Shutdown(context.Background())
+
+	ts, err := hm.GetOrCreate(ctx, "cmt-ws", tmpDir, 0, nil, nil)
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	stdout, _, err := ts.Execute(ctx, []string{"echo hello # trailing comment"})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	defer stdout.Close()
+
+	data, _ := io.ReadAll(stdout)
+	if strings.TrimSpace(string(data)) != "hello" {
+		t.Errorf("expected 'hello', got %q", string(data))
 	}
 }

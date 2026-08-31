@@ -73,14 +73,19 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
 	go func() {
 		_, _ = h.RunWithCancel(r.Context(), payload.WorkspaceID, payload, log)
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
 	respondJSON(w, map[string]any{
-		"status":          "running",
-		"conversation_id": payload.ConversationID,
+		"status": "running",
+		// conversationID is resolved BEFORE the run goroutine starts: the goroutine
+		// mutates payload.ConversationID (RunWithCancel re-resolves it idempotently),
+		// so the response must use this local copy instead of the shared struct field
+		// to stay race-free under -race.
+		"conversation_id": conversationID,
 	})
 }
 

@@ -176,3 +176,65 @@ describe('useMessageBuilder upstream notices', () => {
     expect(notices[0]?.kind === 'notice' ? notices[0].message : undefined).toContain('3/3')
   })
 })
+
+describe('useMessageBuilder tool-call-markup message guard', () => {
+  function markupMessage(content: string): AgentEvent {
+    return {
+      type: 'message',
+      payload: { role: 'assistant', content } as unknown as AgentEvent['payload'],
+    }
+  }
+
+  it('does NOT finalize on a message whose content is a malformed <tool_call> attempt', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(markupMessage('<tool_call>\n{"list_directory", {"path": "."}}\n</tool_call>'))
+
+    // No answer message was pushed and the turn is not done — the raw JSON
+    // must not become the result (regression: content-only message finalize
+    // heuristic treated the failed attempt as the final answer).
+    expect(messages.value.some((m) => m.role === 'assistant' && m.content)).toBe(false)
+    expect(builder.phase.value).not.toBe('done')
+  })
+
+  it('still finalizes on a genuine content-only message', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(markupMessage('The full report is ready.'))
+
+    expect(messages.value.some((m) => m.role === 'assistant' && m.content === 'The full report is ready.')).toBe(true)
+    expect(builder.phase.value).toBe('done')
+  })
+})
+
+describe('useMessageBuilder lifecycle completed markup guard', () => {
+  function completedLifecycle(content: string): AgentEvent {
+    return {
+      type: 'lifecycle',
+      payload: { phase: 'completed', content } as unknown as AgentEvent['payload'],
+    }
+  }
+
+  it('does not finalize with tool-call markup from a completed lifecycle', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages, { finalizeOn: 'lifecycle' })
+
+    builder.handleEvent(completedLifecycle('<tool_call>\n{"tool": "list_directory",\n  "args": {\n    "path": "."\n  }\n</tool_call>'))
+
+    const answers = messages.value.filter((m) => m.role === 'assistant' && m.content)
+    expect(answers.every((a) => !/<tool_call/i.test(a.content))).toBe(true)
+    expect(builder.phase.value).toBe('done')
+  })
+
+  it('still finalizes with a genuine completed-lifecycle report', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages, { finalizeOn: 'lifecycle' })
+
+    builder.handleEvent(completedLifecycle('The report is ready.'))
+
+    expect(messages.value.some((m) => m.role === 'assistant' && m.content === 'The report is ready.')).toBe(true)
+    expect(builder.phase.value).toBe('done')
+  })
+})

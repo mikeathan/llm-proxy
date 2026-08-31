@@ -38,11 +38,17 @@ func (e *OutputCapError) Unwrap() error {
 // outputCapPatterns are the known provider phrasings of an output-cap 400
 // (Hermes model_metadata.py:1427-1547).  Each regex captures the max allowed
 // value.
+//
+// NOTE: "context length/window/size" phrasings are DELIBERATELY not matched
+// here. A context-too-long 400 (prompt + max_tokens exceeding the serving
+// window) is a different failure class — the agent loop's reactive sieve
+// handles it via isContextSizeError. Matching it here misclassifies it as an
+// output-cap problem (e.g. llama.cpp's "...context window is 8192 tokens"
+// would surface as "requested 2730 max_tokens but the model supports at most
+// 8192" — backwards), suppressing the correct recovery.
 var outputCapPatterns = []*regexp.Regexp{
 	// OpenAI / OpenRouter / generic: "...max_completion_tokens is greater than the maximum allowed..."
 	regexp.MustCompile(`(?i)max(_completion)?_tokens[^0-9]{0,60}(?:than|exceeds|greater than)[^0-9]{0,60}(\d+)`),
-	// "...maximum context length is X tokens..." / "...context window is X..."
-	regexp.MustCompile(`(?i)(?:context length|context window|context size)[^0-9]{0,30}(\d+)\s*tokens?`),
 	// "...the maximum allowed value is X..."
 	regexp.MustCompile(`(?i)maximum allowed value[^0-9]{0,20}(\d+)`),
 }

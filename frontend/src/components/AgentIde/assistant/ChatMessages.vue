@@ -15,7 +15,6 @@ const props = defineProps<{
   thinking: boolean
   liveReasoning: string
   paused: boolean
-  lastMessageIsUser: boolean
   workspaceId: string
   turnsCollapsed: Record<number, boolean>
   expandedSegments: Record<string, boolean>
@@ -80,13 +79,17 @@ function maybeScroll() {
   nextTick(() => {
     const now = Date.now()
     if (now - lastScrollAt < 250) return
+    // Consume the throttle window BEFORE the height check: the scrollHeight
+    // read is a forced synchronous layout, so it must not run on every flush
+    // (10x/sec) while content is static (e.g. inset capped at 320px — the
+    // outer pane stops growing and every flush would otherwise re-layout).
+    lastScrollAt = now
     const el = container.value
     if (!el) return
     // Skip the scrollTop mutation entirely when nothing grew since the last
     // pass — a flush that added no content otherwise forces a pointless
     // synchronous layout + composite of the whole pane.
     if (el.scrollHeight === lastScrollHeight) return
-    lastScrollAt = now
     lastScrollHeight = el.scrollHeight
     scrollIfNearBottom(el, "instant")
     atBottom.value = isNearBottom(el)

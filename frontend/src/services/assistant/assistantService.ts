@@ -111,4 +111,16 @@ export class AssistantService {
     }
     return res.json()
   }
+
+  static async submitGuardrailDecision(decisionId: string, allow: boolean, persist: boolean): Promise<void> {
+    const res = await fetch('/admin/api/conversation/guardrail-decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision_id: decisionId, allow, persist }),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Failed to submit guardrail decision: ${res.status} - ${text}`)
+    }
+  }
 }

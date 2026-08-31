@@ -20,6 +20,13 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "Historical scratch utility (hardcoded test master key, rotated) and env-var indirection (no literal secret)"
+paths = [
+  '''backend/scratch/decrypt_secrets\.go''',
+  '''scripts/assistant\.sh''',
+]
+
+[[allowlists]]
 description = "Secret-detection regex patterns defined in agent-sandbox source (meta, not secrets)"
 regexTarget = "line"
 regexes = [

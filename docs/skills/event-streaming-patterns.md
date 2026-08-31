@@ -177,17 +177,24 @@ export function useAssistantSSE(workspaceId) {
 
 SSE reconnects may replay events. The frontend handles this via:
 
-1. **Server-assigned event IDs** — Check `ev.id` against a `receivedEventIds` Set.
-   If already seen, skip processing.
+1. **Server-assigned event IDs** — Check `ev.id` against a seen-id Set.
+   If already seen, skip processing. Both SSE consumers (chat
+   `useAssistantSSE`, automation `useLiveConsole`) share the single
+   `createEventIdDeduper()` implementation in
+   `frontend/src/utils/events/eventIdDedup.ts` — **never hand-roll a second
+   dedup** (the automation variant previously drifted to a
+   `liveEvents.some()` array scan, O(n) per event → O(n²) over a long run).
+   An event without an id always passes and gets one assigned.
 2. **`handledDecisionIds` Set** — Persists across SSE reconnects so guardrail
    decision prompts aren't re-shown.
 3. **HTTP response fill** — Events from the HTTP response fill gaps between
    SSE disconnect and final response. Frontend skips events already seen via SSE.
 
 ```typescript
+const eventIds = createEventIdDeduper()
+
 const handleAgentEvent = (ev: AgentEvent) => {
-    if (ev.id && receivedEventIds.has(ev.id)) return
-    if (ev.id) receivedEventIds.add(ev.id)
+    if (!eventIds.accept(ev)) return
 
     // ... handle event by type ...
 }

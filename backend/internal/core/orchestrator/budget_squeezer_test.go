@@ -301,21 +301,24 @@ func TestApplyMetadataDefaults_AllZero(t *testing.T) {
 }
 
 func TestApplyMetadataDefaults_BudgetReservesResponseSpace(t *testing.T) {
-	// A model with 8192 context and default max_tokens=2048 should get
-	// budget = (8192-2048)*2 = 12288 chars, NOT 8192*2 = 16384.
+	// A model with 8192 context and derived max_tokens=ctx/3 should get
+	// budget = (8192-2730)*4 = 21848 chars — 4 chars/token, the real ratio
+	// (project + Hermes convention; measured 4.75 on a thinking model). The
+	// old 2 chars/token under-provisioned the sieve ~2x.
 	cfg := &models.ModelConfig{
 		Name:     "qwen3.5-4b-instruct-q4_k_m.gguf",
 		Provider: "local",
 		Metadata: &models.ModelMetadata{ContextLength: 8192},
 	}
 	ApplyMetadataDefaults(cfg)
-	expectedBudget := (8192 - cfg.MaxTokens) * 2
+	expectedBudget := int(float64(8192-cfg.MaxTokens) * localContextCharsPerToken)
 	if cfg.ContextBudget != expectedBudget {
 		t.Fatalf("expected context_budget=%d (leaves %d tokens for response), got %d",
 			expectedBudget, cfg.MaxTokens, cfg.ContextBudget)
 	}
-	// Verify the budget would keep prompt + response within 8192 tokens
-	promptTokens := cfg.ContextBudget / 2 // ~2 chars/token
+	// Verify the budget maps to FEWER prompt tokens than the reserve at the
+	// REAL measured chars/token (4.75), leaving room for max_tokens of output.
+	promptTokens := int(float64(cfg.ContextBudget) / 4.75)
 	if promptTokens+cfg.MaxTokens > 8192 {
 		t.Fatalf("budget allows %d prompt tokens + %d response = %d, exceeds 8192 ctx",
 			promptTokens, cfg.MaxTokens, promptTokens+cfg.MaxTokens)
@@ -325,16 +328,16 @@ func TestApplyMetadataDefaults_BudgetReservesResponseSpace(t *testing.T) {
 func TestApplyMetadataDefaults_ExplicitMaxTokensStillReserves(t *testing.T) {
 	// User set max_tokens=512 explicitly, budget should compute from that.
 	cfg := &models.ModelConfig{
-		Name:       "small-context-model",
-		Provider:   "local",
-		MaxTokens:  512,
-		Metadata:   &models.ModelMetadata{ContextLength: 4096},
+		Name:      "small-context-model",
+		Provider:  "local",
+		MaxTokens: 512,
+		Metadata:  &models.ModelMetadata{ContextLength: 4096},
 	}
 	ApplyMetadataDefaults(cfg)
 	if cfg.MaxTokens != 512 {
 		t.Fatalf("explicit max_tokens should not be overwritten, got %d", cfg.MaxTokens)
 	}
-	expectedBudget := (4096 - 512) * 2 // 7168
+	expectedBudget := int(float64(4096-512) * localContextCharsPerToken) // 14336
 	if cfg.ContextBudget != expectedBudget {
 		t.Fatalf("expected context_budget=%d (reserving %d response tokens), got %d",
 			expectedBudget, cfg.MaxTokens, cfg.ContextBudget)
@@ -344,18 +347,18 @@ func TestApplyMetadataDefaults_ExplicitMaxTokensStillReserves(t *testing.T) {
 func TestApplyMetadataDefaults_MaxTokensEqualsContext(t *testing.T) {
 	// Edge case: max_tokens >= ctxLen. Should not produce negative budget.
 	cfg := &models.ModelConfig{
-		Name:       "test",
-		Provider:   "local",
-		MaxTokens:  8192,
-		Metadata:   &models.ModelMetadata{ContextLength: 4096},
+		Name:      "test",
+		Provider:  "local",
+		MaxTokens: 8192,
+		Metadata:  &models.ModelMetadata{ContextLength: 4096},
 	}
 	ApplyMetadataDefaults(cfg)
 	if cfg.ContextBudget <= 0 {
 		t.Fatalf("context_budget should not be negative or zero, got %d", cfg.ContextBudget)
 	}
-	// Fallback should kick in: ctxLen/2 * 2 = ctxLen = 4096
-	if cfg.ContextBudget != 4096 {
-		t.Fatalf("expected fallback budget 4096, got %d", cfg.ContextBudget)
+	// Fallback should kick in: ctxLen/2 * 4 chars/token = 2*ctxLen = 8192.
+	if cfg.ContextBudget != 8192 {
+		t.Fatalf("expected fallback budget 8192, got %d", cfg.ContextBudget)
 	}
 }
 
@@ -400,10 +403,10 @@ func TestApplyMetadataDefaults_NctxOverInflatedContextLength(t *testing.T) {
 
 func TestApplyMetadataDefaults_NoOverwriteExisting(t *testing.T) {
 	cfg := &models.ModelConfig{
-		Name:           "test-model",
-		Provider:       "nvidia",
-		MaxTokens:      4096,
-		ContextBudget:  8192,
+		Name:          "test-model",
+		Provider:      "nvidia",
+		MaxTokens:     4096,
+		ContextBudget: 8192,
 	}
 	ApplyMetadataDefaults(cfg)
 	if cfg.MaxTokens != 4096 {
@@ -450,9 +453,9 @@ func TestClassifyWorkload(t *testing.T) {
 func TestApplyMetadataDefaults_ToolCallFormatMatrix(t *testing.T) {
 	meta := func(n int) *models.ModelMetadata { return &models.ModelMetadata{ContextLength: n} }
 	tests := []struct {
-		name   string
-		cfg    *models.ModelConfig
-		want   string
+		name string
+		cfg  *models.ModelConfig
+		want string
 	}{
 		{
 			name: "local empty stays empty",

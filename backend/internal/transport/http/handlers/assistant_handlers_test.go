@@ -991,17 +991,12 @@ func TestAssistant_RunWithCancel_RegistersInMap(t *testing.T) {
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
-	clientMock := mockClient.Client.(*mocks.MockLLMClient)
-	clientMock.Responses = []proxy.ChatResponse{
-		{
-			Choices: []proxy.Choice{{
-				Message: proxy.Message{
-					Role:    proxy.AssistantRole,
-					Content: "ok",
-				},
-			}},
-		},
-	}
+
+	// Blocking client: keeps the run in-flight so the running-map registration
+	// is deterministically observable (an instant mock can complete the entire
+	// run between two waitForRunning polls, making the registration invisible).
+	release := make(chan struct{})
+	mockClient.Client = &blockingLLMClient{release: release}
 
 	payload := &AssistantMessage{ConversationID: "runc-test", WorkspaceID: "test-ws", Message: "check lamp"}
 
@@ -1038,17 +1033,11 @@ func TestAssistant_RunWithCancel_CanBeCancelled(t *testing.T) {
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
-	clientMock := mockClient.Client.(*mocks.MockLLMClient)
-	clientMock.Responses = []proxy.ChatResponse{
-		{
-			Choices: []proxy.Choice{{
-				Message: proxy.Message{
-					Role:    proxy.AssistantRole,
-					Content: "done",
-				},
-			}},
-		},
-	}
+
+	// Blocking client: keeps the run in-flight so the running-map registration
+	// is deterministically observable (see RegistersInMap).
+	release := make(chan struct{})
+	mockClient.Client = &blockingLLMClient{release: release}
 
 	payload := &AssistantMessage{ConversationID: "cancel-test", WorkspaceID: "test-ws", Message: "hello"}
 
@@ -1218,17 +1207,11 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
-	clientMock := mockClient.Client.(*mocks.MockLLMClient)
-	clientMock.Responses = []proxy.ChatResponse{
-		{
-			Choices: []proxy.Choice{{
-				Message: proxy.Message{
-					Role:    proxy.AssistantRole,
-					Content: "async",
-				},
-			}},
-		},
-	}
+
+	// Blocking client: keeps the detached run in-flight so its registration in
+	// the running map is deterministically observable (see RegistersInMap).
+	release := make(chan struct{})
+	mockClient.Client = &blockingLLMClient{release: release}
 
 	body := `{"workspace_id":"test-ws","conversation_id":"svc-test","message":"hi"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/conversation/message", strings.NewReader(body))
@@ -1255,8 +1238,14 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 		t.Fatal("ServeHTTP did not start a detached run that outlives the request")
 	}
 
-	// Clean up the run.
+	// Clean up the run. Cancel first, then release the blocking client and wait
+	// for the detached goroutine to fully exit — otherwise it may still write to
+	// the TempDir after RemoveAll (flaky "directory not empty" cleanup error).
 	handler.CancelAgent("test-ws", "")
+	if !waitForNotRunning(t, handler, "test-ws", time.Second) {
+		t.Fatal("run did not exit after cancel")
+	}
+	close(release)
 }
 
 // TestHandleAssistant_NoTargetModelPublishesErrorEvent verifies that an early

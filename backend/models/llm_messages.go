@@ -37,6 +37,13 @@ type Message struct {
 	// failure as an error segment instead of a blank turn. Never sent to the
 	// model as prompt context — it is a UI/observability marker only.
 	Error string `json:"error,omitempty"`
+	// FinishReason is the upstream finish_reason of the generation that
+	// produced this message ("stop", "length", "tool_calls", ...). It is an
+	// in-memory stream signal only — never serialized to the wire, because
+	// strict OpenAI-compatible providers (Mistral, Moonshot, ...) reject
+	// unknown message keys when history is replayed (mirrors Hermes's
+	// finish_reason stripping in chat_completion_helpers.py).
+	FinishReason string `json:"-"`
 }
 
 // ReasoningDetail models openrouter-style structured reasoning parts
@@ -173,6 +180,10 @@ type FunctionCall struct {
 type Choice struct {
 	Message Message `json:"message"`
 	Delta   Message `json:"delta,omitempty"`
+	// FinishReason carries the chunk-level finish_reason ("stop", "length",
+	// "tool_calls", ...) surfaced by the upstream on the final stream chunk
+	// or a non-streaming response.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // Chat Response

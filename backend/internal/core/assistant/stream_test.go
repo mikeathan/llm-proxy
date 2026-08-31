@@ -46,8 +46,20 @@ func TestResolveStreamChunk(t *testing.T) {
 	})
 	t.Run("empty choice yields empty chunk", func(t *testing.T) {
 		chunk := resolveStreamChunk(proxy.Choice{})
-		if chunk.Content != "" || chunk.ReasoningContent != "" || chunk.Reasoning != "" || len(chunk.ReasoningDetails) != 0 {
+		if chunk.Content != "" || chunk.ReasoningContent != "" || chunk.Reasoning != "" || len(chunk.ReasoningDetails) != 0 || chunk.FinishReason != "" {
 			t.Errorf("expected empty chunk, got %+v", chunk)
+		}
+	})
+	t.Run("choice-level finish_reason propagates", func(t *testing.T) {
+		// The upstream surfaces finish_reason at the choice level, not inside
+		// delta/message — it must reach the resolved chunk for length-truncation
+		// detection.
+		chunk := resolveStreamChunk(proxy.Choice{
+			Delta:        proxy.Message{Content: "partial report"},
+			FinishReason: "length",
+		})
+		if chunk.FinishReason != "length" {
+			t.Errorf("expected choice finish_reason to propagate, got %q", chunk.FinishReason)
 		}
 	})
 }

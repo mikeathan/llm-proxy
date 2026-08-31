@@ -123,10 +123,11 @@ from model metadata, and applies provider-tier tuning defaults.
 - `ApplyMetadataDefaults()` sets `ToolCallFormat` to `"native"` when empty for **cloud**
   workloads only; local/GGUF workloads stay empty (XML text mode).
 - ¹ The local `MaxTokens` (2048) is a **display-only prefill** for the UI. At runtime the
-  local budget derives from serving context (`LocalBudgetPolicy.Derive` = `ctxLen/3`, ~2730
-  for the 8192 default) and ignores this row. It is intentionally distinct from
-  `assistant.DefaultMaxTokens` (3072), the global agent-loop fallback for an unconfigured
-  model.
+  local budget derives from serving context (`LocalBudgetPolicy.Derive` = `ctxLen/3`;
+  `context_budget = (ctxLen − maxTokens) × 4 chars/token` — the real tokenizer ratio,
+  ≈ 21848 chars for the 8192 default, vs the old `× 2` ≈ 10924 that under-provisioned the
+  sieve ~2×). It is intentionally distinct from `assistant.DefaultMaxTokens` (3072), the
+  global agent-loop fallback for an unconfigured model.
 
 ### 4. Reasoning Budget
 

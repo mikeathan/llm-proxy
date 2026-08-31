@@ -139,7 +139,7 @@ const isAutomationLocked = (auto: Automation, workspaceAutos: Automation[]) => {
 }
 
 .pulse-dot {
-  @apply w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse;
+  @apply w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)];
 }
 
 .row-actions {

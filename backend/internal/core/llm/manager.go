@@ -78,6 +78,11 @@ type RuntimeManager interface {
 	ListProviderModels(ctx context.Context, provider, apiKeyName string) ([]models.ProviderModelInfo, error)
 	TestProviderConnection(ctx context.Context, provider, apiKey, apiKeyName, baseURL string) error
 	ProbeModelAvailability(ctx context.Context, cfg models.ModelConfig) error
+	// EffectiveToolCallFormat resolves the model's tool_call_format, probing
+	// the endpoint for native tool support when the format is unset and the
+	// workload is local (cached per model). Explicit "native"/"xml" overrides
+	// always win.
+	EffectiveToolCallFormat(ctx context.Context, name string) string
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
 	Sync()
@@ -234,6 +239,79 @@ func (m *LLMRuntimeManager) ProbeModelAvailability(ctx context.Context, cfg mode
 		return nil
 	}
 	return op.ProbeChatModel(ctx, cfg.Filename)
+}
+
+// EffectiveToolCallFormat resolves the model's effective tool_call_format:
+//
+//   - Explicit "native"/"xml" configuration always wins (Constitution II.5 —
+//     an explicit "xml" forces XML text mode even when the endpoint supports
+//     native tools).
+//   - Cloud workloads default to "native" (ApplyMetadataDefaults).
+//   - Local workloads with an unset format get a one-time capability probe
+//     against the serving endpoint (cached): "native" when the endpoint can
+//     return native tool calls, "" (XML text mode) otherwise. This removes the
+//     per-model tool_call_format patching that weak XML-format models used to
+//     require — any modern OpenAI-compatible local server (llama.cpp --jinja,
+//     Ollama, LM Studio, vLLM) is detected automatically.
+//
+// Probe failures are NOT cached: a transiently unreachable server falls back
+// to XML for that call and is re-probed on the next resolution. A definitive
+// probe result is persisted onto the stored model config, so every consumer
+// (agent builder, system prompt assembly, history normalization) sees the
+// same effective format.
+func (m *LLMRuntimeManager) EffectiveToolCallFormat(ctx context.Context, name string) string {
+	m.mu.Lock()
+	cfg, ok := m.models[name]
+	m.mu.Unlock()
+	if !ok {
+		return ""
+	}
+	if cfg.ToolCallFormat != "" {
+		return cfg.ToolCallFormat
+	}
+
+	supported, err := m.probeNativeToolSupport(ctx, cfg)
+	if err != nil {
+		logging.Warn("native-tool support probe failed; using XML text mode for this turn",
+			"model", name, "error", err.Error())
+		return ""
+	}
+
+	if supported {
+		cfg.ToolCallFormat = "native"
+	}
+	m.mu.Lock()
+	m.models[name] = cfg
+	m.mu.Unlock()
+	if supported {
+		logging.Info("model supports native tool calling; enabled automatically", "model", name)
+		return "native"
+	}
+	logging.Info("model does not support native tool calling; using XML text mode", "model", name)
+	return ""
+}
+
+// probeNativeToolSupport asks the serving endpoint whether the model can emit
+// native tool calls. Non-OpenAI-compatible providers and non-local workloads
+// report unsupported without a probe (cloud defaults already cover them).
+func (m *LLMRuntimeManager) probeNativeToolSupport(ctx context.Context, cfg models.ModelConfig) (bool, error) {
+	if cfg.WorkloadClass == "" {
+		// Sync hasn't run (or the stored copy predates it) — classify via the
+		// registrar's pure classifier so the local gate is still enforced.
+		cfg.WorkloadClass = m.registrar.Classify(cfg)
+	}
+	if cfg.WorkloadClass != models.WorkloadLocal {
+		return false, nil
+	}
+	p, err := m.registrar.Build(cfg)
+	if err != nil {
+		return false, fmt.Errorf("build provider: %w", err)
+	}
+	op, ok := p.(*providers.OpenAICompatibleProvider)
+	if !ok {
+		return false, nil
+	}
+	return op.ProbeNativeTools(ctx, cfg.Filename)
 }
 
 func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]models.ProviderModelInfo, error) {
@@ -477,7 +555,9 @@ func (m *LLMRuntimeManager) ListModels() []models.ModelConfig {
 	defer m.mu.Unlock()
 	list := make([]models.ModelConfig, 0, len(m.models))
 	for _, mc := range m.models {
-		logging.Info("ListModels returning", "model", mc.Name, "max_tokens", mc.MaxTokens, "context_budget", mc.ContextBudget)
+		// Debug, not Info: ListModels fires on every model-list poll, so Info
+		// spams the app log with N lines per request (ops review 2026-08-28).
+		logging.Debug("ListModels returning", "model", mc.Name, "max_tokens", mc.MaxTokens, "context_budget", mc.ContextBudget)
 		list = append(list, mc)
 	}
 	return list

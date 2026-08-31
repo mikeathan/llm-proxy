@@ -54,7 +54,7 @@ const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_r
 // calls render as proper segments instead of being overwritten into a single
 // assistant message.
 const {
-  displayMessages,
+  messages: displayMessages,
   thinking,
   liveReasoning,
   paused,
@@ -318,7 +318,6 @@ watch(
             :thinking="thinking"
             :live-reasoning="liveReasoning"
             :paused="paused"
-            :last-message-is-user="false"
             :workspace-id="automation.workspace"
             :turns-collapsed="insetCollapsed"
             :expanded-segments="expandedSegments"

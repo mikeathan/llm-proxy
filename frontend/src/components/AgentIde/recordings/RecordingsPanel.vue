@@ -267,7 +267,7 @@ function handleReplayClick(auto: Automation, rec: RecordingMeta) {
 }
 
 .running-dot {
-  @apply inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 shadow-[0_0_6px_rgba(34,197,94,0.6)] animate-pulse;
+  @apply inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 shadow-[0_0_6px_rgba(34,197,94,0.6)];
 }
 
 .btn-playback {

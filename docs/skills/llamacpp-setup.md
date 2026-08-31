@@ -90,5 +90,5 @@ ProtectSystem=full
 ## Important Gotchas
 
 - The server's `--temp` is ignored when our code sends `temperature` in the API request. Server-level penalty flags (`--repeat-penalty`, etc.) still apply because our `ChatRequest` has no fields for them.
-- `--ctx-size 8192` → our `context_budget` of ~10924 chars (~0.75 chars/token ratio). If you increase ctx-size, adjust context_budget in the model config.
+- `--ctx-size 8192` → our `context_budget` ≈ **21848 chars** (derived as `(ctx − max_tokens) × 4` chars/token — the real tokenizer ratio; the old `× 2` ≈ 10924 under-provisioned the sieve ~2×). If you increase ctx-size, the budget auto-derives from the serving context — no manual adjustment needed.
 - The GGUF file's built-in chat template is used. If it's outdated, llama.cpp warns `detected an outdated gemma4 chat template, applying compatibility workarounds`. Update the GGUF if possible.

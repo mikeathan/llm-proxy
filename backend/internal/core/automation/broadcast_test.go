@@ -1,6 +1,8 @@
 package automation
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -323,4 +325,88 @@ func TestBroadcastPublishUnsubscribeNoPanic(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+}
+
+func TestRecentCappedByBytes(t *testing.T) {
+	bus := newEventBus(time.Hour, time.Hour)
+	defer bus.Stop()
+
+	ws := "ws-bytes"
+	// ~100KB string payloads: 40 events ≈ 4MB, which trips the 4MiB byte cap
+	// long before the 1000-event count cap.
+	big := assistant.AgentEvent{
+		Channel: assistant.ChannelAutomation,
+		Type:    assistant.EventReasoning,
+		ID:      "ev-0",
+		Payload: strings.Repeat("r", 100*1024),
+	}
+	for i := 0; i < 60; i++ {
+		ev := big
+		ev.ID = fmt.Sprintf("ev-%d", i)
+		bus.Publish(ws, ev)
+	}
+
+	bus.mu.RLock()
+	recent := bus.recent[ws][assistant.ChannelAutomation]
+	totalBytes := bus.recentBytes[ws][assistant.ChannelAutomation]
+	bus.mu.RUnlock()
+
+	if totalBytes > recentMaxBytesPerChannel {
+		t.Fatalf("recent byte total %d exceeds cap %d", totalBytes, int64(recentMaxBytesPerChannel))
+	}
+	if len(recent) == 60 {
+		t.Fatal("expected byte cap to drop events, but all 60 were retained")
+	}
+	if got, want := len(recent), int(recentMaxBytesPerChannel)/(100*1024)+1; got > want+2 {
+		t.Fatalf("expected roughly %d events retained under byte cap, got %d", want, got)
+	}
+	// The oldest events must be the ones dropped.
+	if recent[0].ID == "ev-0" {
+		t.Fatal("expected the earliest events to be dropped by the byte cap")
+	}
+}
+
+func TestDropWarnRateLimited(t *testing.T) {
+	bus := newEventBus(time.Hour, time.Hour)
+	defer bus.Stop()
+	bus.dropWarnInterval = 10 * time.Millisecond
+
+	ws := "ws-warn"
+	ch, _ := bus.Subscribe(ws, assistant.ChannelAutomation)
+	ev := assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: "x"}
+
+	// Fill the subscriber buffer to capacity (200) so publishes start dropping.
+	for i := 0; i < 200; i++ {
+		bus.Publish(ws, ev)
+	}
+	// Every publish now drops; the warning must be emitted at most once per
+	// dropWarnInterval.
+	for i := 0; i < 10; i++ {
+		bus.Publish(ws, ev)
+	}
+	key := warnKey(ws, assistant.ChannelAutomation)
+	bus.warnMu.Lock()
+	first, warned := bus.lastDropWarn[key]
+	bus.warnMu.Unlock()
+	if !warned {
+		t.Fatal("expected a drop warning to be recorded")
+	}
+
+	time.Sleep(15 * time.Millisecond)
+	bus.Publish(ws, ev)
+	bus.warnMu.Lock()
+	second := bus.lastDropWarn[key]
+	bus.warnMu.Unlock()
+	if second.Before(first.Add(10 * time.Millisecond)) {
+		t.Fatalf("expected the warning throttle to re-arm after the interval, first=%v second=%v", first, second)
+	}
+
+	// Unsubscribe cleans the throttle entry.
+	bus.Unsubscribe(ws, assistant.ChannelAutomation, ch)
+	bus.warnMu.Lock()
+	_, stillWarned := bus.lastDropWarn[key]
+	bus.warnMu.Unlock()
+	if stillWarned {
+		t.Error("drop-warn throttle entry leaked after Unsubscribe")
+	}
 }

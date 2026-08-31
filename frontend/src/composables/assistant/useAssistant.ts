@@ -16,7 +16,6 @@ const currentSessionId = ref<string | null>(null)
 const messages = ref<AssistantMessage[]>([])
 const sessions = ref<SessionBrief[]>([])
 const activeWorkspaceId = ref<string | null>(null)
-const abortController = ref<AbortController | null>(null)
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
 
@@ -79,17 +78,31 @@ export function useAssistant() {
     applySessionUpdate,
   )
 
-  const streamingContent = sse.streamingContent
   const liveEvents = sse.liveEvents
   const pendingDecision = sse.pendingDecision
   const sseConnected = sse.isConnected
-  const clearLiveEvents = sse.reset
   const connectSSE = () => sse.connect()
-  const streaming = builder.streaming
   const thinking = builder.thinking
   const liveReasoning = builder.liveReasoning
   const paused = builder.paused
   const phase = builder.phase
+
+  // submitDecision resolves a pending guardrail approval. The SSE surface only
+  // *reports* the block; the backend waits (bounded by GuardrailApprovalTimeout)
+  // on the decision channel, so without this POST an assistant run stalls until
+  // the timeout instead of continuing when the user answers the banner.
+  // Mirrors automation's useLiveConsole.submitDecision.
+  const submitDecision = async (allow: boolean, persist: boolean) => {
+    if (!pendingDecision.value) return
+    const id = pendingDecision.value.decision_id
+    try {
+      await AssistantService.submitGuardrailDecision(id, allow, persist)
+    } catch (err) {
+      console.error("Failed to submit guardrail decision", err)
+      return
+    }
+    pendingDecision.value = null
+  }
 
   const cancel = async () => {
     const ws = activeWorkspaceId.value
@@ -330,7 +343,6 @@ export function useAssistant() {
       // Keep loading=true on a successful send — the bubble stays alive through
       // the whole slow phase and is cleared by session_completed in
       // applySessionUpdate, not here. Only a non-abort error clears loading.
-      abortController.value = null
     }
   }
 
@@ -449,19 +461,16 @@ export function useAssistant() {
     currentSessionId,
     messages,
     sessions,
-    streamingContent,
     liveEvents,
     pendingDecision,
+    submitDecision,
     sseConnected,
-    clearLiveEvents,
     connectSSE,
-    streaming,
     thinking,
     liveReasoning,
     paused,
     phase,
     cancel,
-    abortController,
     fetchSessions,
     loadSession,
     newSession,

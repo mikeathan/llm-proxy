@@ -20,11 +20,11 @@ import (
 
 // MockClient implements proxy.Client
 type MockClient struct {
-	Response              proxy.ChatResponse
-	Err                   error
-	Calls                 int
-	ChatFunc              func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error)
-	StreamFunc            func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error)
+	Response               proxy.ChatResponse
+	Err                    error
+	Calls                  int
+	ChatFunc               func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error)
+	StreamFunc             func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error)
 	ReasoningFieldOverride string // empty => default (reasoning_budget)
 }
 
@@ -103,10 +103,22 @@ func newCaptureLogger(limit int) *captureLogger {
 	}
 }
 
-func (c *captureLogger) Debug(msg string, args ...any) { c.buf.Debug(msg, args...); c.base.Debug(msg, args...) }
-func (c *captureLogger) Info(msg string, args ...any)  { c.buf.Info(msg, args...); c.base.Info(msg, args...) }
-func (c *captureLogger) Warn(msg string, args ...any)  { c.buf.Warn(msg, args...); c.base.Warn(msg, args...) }
-func (c *captureLogger) Error(msg string, args ...any) { c.buf.Error(msg, args...); c.base.Error(msg, args...) }
+func (c *captureLogger) Debug(msg string, args ...any) {
+	c.buf.Debug(msg, args...)
+	c.base.Debug(msg, args...)
+}
+func (c *captureLogger) Info(msg string, args ...any) {
+	c.buf.Info(msg, args...)
+	c.base.Info(msg, args...)
+}
+func (c *captureLogger) Warn(msg string, args ...any) {
+	c.buf.Warn(msg, args...)
+	c.base.Warn(msg, args...)
+}
+func (c *captureLogger) Error(msg string, args ...any) {
+	c.buf.Error(msg, args...)
+	c.base.Error(msg, args...)
+}
 func (c *captureLogger) With(args ...any) logging.Logger {
 	cl := &captureLogger{buf: c.buf, base: c.base.With(args...)}
 	return cl
@@ -1839,6 +1851,48 @@ func TestCheckTaskCompletion(t *testing.T) {
 		{
 			name:        "unparsed tool_call marker in content => not done",
 			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "<tool_call>{\"tool\":\"read_file\"}</tool_call> maybe also some text here so it's long enough", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "truncated ReAct Action scaffold => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "Thought: `uname -a` isn't supported on this system. I'll report this as-is. Now running the date and echo commands (Step 3).\n\nAction:", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "Action delimiter with trailing whitespace => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "Thought: next step is to run the compile check.\n\nAction:  \n", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    false,
+			wantContent: "",
+		},
+		{
+			name:        "report that mentions an action mid-sentence => done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Final Report\nThe recommended action: verify with the test suite. All checks passed.", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    true,
+			wantContent: "# Final Report\nThe recommended action: verify with the test suite. All checks passed.",
+		},
+		{
+			name:        "report whose final line ends with 'the action:' => done (line match, not word suffix)",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Final Report\nCompilation succeeded. The recommended action:", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    true,
+			wantContent: "# Final Report\nCompilation succeeded. The recommended action:",
+		},
+		{
+			name:        "Action marker mid-content but not the last line => done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "# Final Report\nAction: fix the leak\nAll done.", ToolCalls: nil},
+			history:     []proxy.Message{toolResult},
+			wantDone:    true,
+			wantContent: "# Final Report\nAction: fix the leak\nAll done.",
+		},
+		{
+			name:        "bare Action marker on final line after content => not done",
+			msg:         proxy.Message{Role: proxy.AssistantRole, Content: "The compile check failed.\nAction:", ToolCalls: nil},
 			history:     []proxy.Message{toolResult},
 			wantDone:    false,
 			wantContent: "",
@@ -3676,7 +3730,7 @@ func TestGuardrailDecisionStore_RetainBounded(t *testing.T) {
 
 func TestGuardrailDecisionCallback_RetainsPayloadForLateDecision(t *testing.T) {
 	store := NewGuardrailDecisionStore()
-	callback := NewGuardrailDecisionCallback(store, nil)
+	callback := NewGuardrailDecisionCallback(store, nil, ChannelAutomation)
 
 	payload := GuardrailBlockedPayload{
 		DecisionID:  "gr_late",
@@ -3713,7 +3767,7 @@ func TestGuardrailDecisionCallback_ContextCancelled(t *testing.T) {
 		events = append(events, ev)
 	}
 
-	callback := NewGuardrailDecisionCallback(store, observer)
+	callback := NewGuardrailDecisionCallback(store, observer, ChannelAutomation)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	payload := GuardrailBlockedPayload{
@@ -3803,7 +3857,7 @@ func TestGuardrailDecisionCallback_UserApprovesBeforeCancel(t *testing.T) {
 		events = append(events, ev)
 	}
 
-	callback := NewGuardrailDecisionCallback(store, observer)
+	callback := NewGuardrailDecisionCallback(store, observer, ChannelAutomation)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -3846,9 +3900,63 @@ func TestGuardrailDecisionCallback_UserApprovesBeforeCancel(t *testing.T) {
 	}
 }
 
+// TestGuardrailDecisionCallback_ChannelPropagation verifies the guardrail
+// blocked/invalidated events carry the producer's channel. The event bus
+// partitions by channel (channelOf falls back to automation for empty), so an
+// assistant approval emitted without a channel never reaches the assistant SSE
+// and the run stalls the full approval timeout (2026-08-31 `wc` block: no
+// banner, 5-minute wait).
+func TestGuardrailDecisionCallback_ChannelPropagation(t *testing.T) {
+	store := NewGuardrailDecisionStore()
+	var blocked, invalidated AgentEvent
+	mu := sync.Mutex{}
+	observer := func(ev AgentEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch ev.Type {
+		case EventGuardrailBlocked:
+			blocked = ev
+		case EventGuardrailInvalidated:
+			invalidated = ev
+		}
+	}
+
+	callback := NewGuardrailDecisionCallback(store, observer, ChannelAssistant)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	payload := GuardrailBlockedPayload{
+		DecisionID: "gr_channel_test",
+		Tool:       "execute_terminal_command",
+		Args:       `{"command":"find . | wc -l"}`,
+		Reason:     "command not in whitelist",
+		Category:   "terminal",
+	}
+	done := make(chan struct{})
+	go func() {
+		callback(ctx, payload)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	if !store.Resolve("gr_channel_test", GuardrailDecision{Allow: false, Persist: false}) {
+		t.Fatal("Resolve should succeed")
+	}
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	if blocked.Channel != ChannelAssistant {
+		t.Errorf("guardrail_blocked must carry ChannelAssistant, got %q", blocked.Channel)
+	}
+	if invalidated.Channel != ChannelAssistant {
+		t.Errorf("guardrail_invalidated must carry ChannelAssistant, got %q", invalidated.Channel)
+	}
+}
+
 func TestGuardrailDecisionCallback_NoObserver(t *testing.T) {
 	store := NewGuardrailDecisionStore()
-	callback := NewGuardrailDecisionCallback(store, nil)
+	callback := NewGuardrailDecisionCallback(store, nil, ChannelAutomation)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	payload := GuardrailBlockedPayload{
@@ -3882,7 +3990,7 @@ func TestGuardrailDecisionCallback_WaitsIndefinitely(t *testing.T) {
 		t.Skip("skipping indefinite-wait test in short mode")
 	}
 	store := NewGuardrailDecisionStore()
-	callback := NewGuardrailDecisionCallback(store, nil)
+	callback := NewGuardrailDecisionCallback(store, nil, ChannelAutomation)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -5141,5 +5249,280 @@ func TestAgent_TransportError_SurfacesClassAndHint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unexpected EOF") {
 		t.Errorf("expected raw transport text in error, got %q", err.Error())
+	}
+}
+
+// TestPreparedOverContextBudget verifies the physical sieve's decision uses the
+// PREPARED request size (history + system-prompt enrichment) rather than raw
+// history — the fix for the 2026-08-30 smoke-test run, where the sieve never
+// fired on raw history while the enriched request grew past the serving
+// window and the server 400'd "context too long".
+func TestPreparedOverContextBudget(t *testing.T) {
+	provider := &MockProvider{Tools: []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "read_file", Description: strings.Repeat("d", 80)}},
+	}}
+	agent := NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		return nil, context.Canceled
+	}}, provider, &MockEngine{}, AgentOptions{
+		ContextBudget:  2000,
+		UseNativeTools: boolPtr(false),
+	})
+
+	// Small history: under budget even with the injected tool reference.
+	small := []proxy.Message{{Role: proxy.UserRole, Content: "list the directory"}}
+	if agent.preparedOverContextBudget(small, provider.Tools) {
+		t.Error("small history must be under the prepared budget")
+	}
+	// Raw history comfortably under budget AND prepared stays under.
+	smallish := []proxy.Message{
+		{Role: proxy.UserRole, Content: strings.Repeat("y", 150)},
+		{Role: proxy.AssistantRole, Content: "ok"},
+		{Role: proxy.ToolRole, Content: "result"},
+	}
+	if agent.preparedOverContextBudget(smallish, provider.Tools) {
+		t.Error("expected under budget: raw ~158 + tool manual ~1100 < 2000")
+	}
+	// Raw history under budget, but the ENRICHED (prepared) request exceeds it
+	// — the case a raw-history sieve got wrong: it would not fire, and the
+	// real request would overflow the serving window.
+	enriched := []proxy.Message{
+		{Role: proxy.UserRole, Content: strings.Repeat("x", 1200)},
+		{Role: proxy.AssistantRole, Content: "ok"},
+	}
+	if !agent.preparedOverContextBudget(enriched, provider.Tools) {
+		t.Error("raw ~1203 is under 2000 but prepared (with tool manual) must exceed the budget")
+	}
+	big := []proxy.Message{{Role: proxy.UserRole, Content: strings.Repeat("z", 2500)}}
+	if !agent.preparedOverContextBudget(big, provider.Tools) {
+		t.Error("large history must exceed the prepared budget")
+	}
+}
+
+// TestPreparedOverContextBudget_NativeToolArgs verifies NATIVE-mode tool-call
+// ARGUMENTS count toward the budget. Tool calls ride in
+// ToolCalls[].Function.Arguments (not Content) in native mode, and a
+// write_file/edit_file argument can be thousands of chars — a Content-only
+// measurement missed them and let the prompt overflow the serving window
+// (2026-08-30 run: request hit 8350 tokens while the sieve never fired).
+func TestPreparedOverContextBudget_NativeToolArgs(t *testing.T) {
+	provider := &MockProvider{Tools: []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "write_file", Description: "write a file", Parameters: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}},
+	}}
+	agent := NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		return nil, context.Canceled
+	}}, provider, &MockEngine{}, AgentOptions{
+		ContextBudget:  21848,
+		UseNativeTools: boolPtr(true),
+	})
+	// Small CONTENT but large tool-call arguments: must still exceed the budget.
+	hist := []proxy.Message{{Role: proxy.UserRole, Content: "run the smoke test"}}
+	for i := 0; i < 12; i++ {
+		hist = append(hist, proxy.Message{
+			Role:      proxy.AssistantRole,
+			Content:   "thinking",
+			ToolCalls: []proxy.ToolCall{{ID: "tc", Type: "function", Function: proxy.FunctionCall{Name: "write_file", Arguments: `{"path":"f","content":"` + strings.Repeat("c", 1800) + `"}`}}},
+		})
+		hist = append(hist, proxy.Message{Role: proxy.ToolRole, ToolCallID: "tc", Content: "ok"})
+	}
+	if !agent.preparedOverContextBudget(hist, provider.Tools) {
+		t.Error("native-mode tool-call arguments must count toward the budget")
+	}
+}
+
+// TestHandleContentToolCalls_NativeFormatInXMLMode verifies the native
+// <function=name><parameter>… text format is parsed even when UseNativeTools
+// is false. A native-format model forced into XML text mode (e.g. after a
+// capability-probe failure when the server was still loading) kept writing
+// <function> blocks and every turn died with a parse error (2026-08-31
+// smoke-test run).
+func TestHandleContentToolCalls_NativeFormatInXMLMode(t *testing.T) {
+	agent := NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		return nil, context.Canceled
+	}}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		UseNativeTools: boolPtr(false),
+	})
+	msg := &proxy.Message{
+		Role: proxy.AssistantRole,
+		Content: `<tool_call>
+<function=read_file>
+<parameter=path>
+llm-smoke-test.md
+</parameter>
+</function>
+</tool_call>
+<tool_call>
+<function=execute_terminal_command>
+<parameter=command>
+node --version
+</parameter>
+</function>
+</tool_call>`,
+	}
+	if parseErr := agent.handleContentToolCalls(msg); parseErr != nil {
+		t.Fatalf("expected native calls parsed in XML mode, got parse error: %v", parseErr)
+	}
+	if len(msg.ToolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d", len(msg.ToolCalls))
+	}
+	if msg.ToolCalls[0].Function.Name != "read_file" {
+		t.Errorf("expected read_file, got %q", msg.ToolCalls[0].Function.Name)
+	}
+	if msg.ToolCalls[1].Function.Name != "execute_terminal_command" {
+		t.Errorf("expected execute_terminal_command, got %q", msg.ToolCalls[1].Function.Name)
+	}
+}
+
+// newTextTurnSession builds a runSession with a completed tool result in
+// history — the precondition checkTaskCompletion requires — wired to a fresh
+// agent. Shared by the handleTextTurn continuation tests.
+func newTextTurnSession() *runSession {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	s := newRunSession(agent, context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: "run the smoke test"},
+		{Role: proxy.ToolRole, Content: "ok"},
+	})
+	agent.runS = s
+	return s
+}
+
+// TestHandleTextTurn_LengthTruncationNudgesContinuation verifies that a
+// content-only turn whose stream ended with finish_reason="length" is NOT
+// treated as a natural completion: the partial is kept and a bounded
+// continuation nudge is injected so the model can finish the report.
+func TestHandleTextTurn_LengthTruncationNudgesContinuation(t *testing.T) {
+	s := newTextTurnSession()
+
+	// The model's final answer hit the output cap mid-report.
+	turnMsg := proxy.Message{
+		Role:         proxy.AssistantRole,
+		Content:      "# Report\n## 1. Filesystem\nlisted files...",
+		FinishReason: "length",
+	}
+	done, reply, err := s.handleTextTurn(turnMsg, nil, nil)
+	if err != nil {
+		t.Fatalf("handleTextTurn error: %v", err)
+	}
+	if done {
+		t.Fatalf("length-truncated turn must not complete; got done=true reply=%q", reply)
+	}
+	if s.lengthContinuationCount != 1 {
+		t.Errorf("expected 1 continuation nudge, got %d", s.lengthContinuationCount)
+	}
+	if len(s.truncatedParts) != 1 || s.truncatedParts[0] != turnMsg.Content {
+		t.Errorf("expected the partial to be accumulated, got %+v", s.truncatedParts)
+	}
+	// The partial must be in history followed by the continuation nudge.
+	last := s.history[len(s.history)-1]
+	if last.Role != proxy.UserRole || last.Content != prompts.LengthContinuationPrompt {
+		t.Errorf("expected continuation nudge as last history entry, got %+v", last)
+	}
+	if s.history[len(s.history)-2].Content != turnMsg.Content {
+		t.Errorf("expected the partial report in history before the nudge")
+	}
+}
+
+// TestHandleTextTurn_LengthContinuationBounded verifies the continuation nudge
+// stops after lengthContinuationMax — a model that keeps hitting the output
+// cap cannot push the run past the bound.
+func TestHandleTextTurn_LengthContinuationBounded(t *testing.T) {
+	s := newTextTurnSession()
+	s.lengthContinuationCount = lengthContinuationMax // already exhausted
+
+	turnMsg := proxy.Message{
+		Role:         proxy.AssistantRole,
+		Content:      "still truncated final answer text here",
+		FinishReason: "length",
+	}
+	done, reply, err := s.handleTextTurn(turnMsg, nil, nil)
+	if err != nil {
+		t.Fatalf("handleTextTurn error: %v", err)
+	}
+	if !done {
+		t.Fatalf("expected the bounded partial to be accepted as final, got done=false reply=%q", reply)
+	}
+	if !strings.Contains(reply, "still truncated") {
+		t.Errorf("expected the partial text as the final reply, got %q", reply)
+	}
+}
+
+// TestHandleTextTurn_LengthContinuationStitchesParts verifies the completed
+// answer stitches the accumulated fragments with the final continuation
+// (Hermes _join_truncated_parts): partial report + continuation = full report.
+func TestHandleTextTurn_LengthContinuationStitchesParts(t *testing.T) {
+	s := newTextTurnSession()
+	s.truncatedParts = []string{"# Report\n## 1. Filesystem\nlisted"}
+
+	// The continuation turn completes naturally (finish_reason="stop") and
+	// continues exactly where the truncated fragment stopped.
+	// The continuation must clear the MinAnswerContentLength gate on its own
+	// (20 chars) — it is checked before stitching.
+	turnMsg := proxy.Message{
+		Role:         proxy.AssistantRole,
+		Content:      "files and verified the write succeeded.",
+		FinishReason: "stop",
+	}
+	done, reply, err := s.handleTextTurn(turnMsg, nil, nil)
+	if err != nil {
+		t.Fatalf("handleTextTurn error: %v", err)
+	}
+	if !done {
+		t.Fatalf("expected natural completion, got done=false")
+	}
+	// "listed" (fragment tail) + "files" (continuation head) have no whitespace
+	// at the seam, so the glue inserts a newline — Hermes _join_truncated_parts.
+	want := "# Report\n## 1. Filesystem\nlisted\nfiles and verified the write succeeded."
+	if reply != want {
+		t.Errorf("expected stitched report %q, got %q", want, reply)
+	}
+	if len(s.truncatedParts) != 0 {
+		t.Errorf("expected fragments to be cleared after stitching, got %+v", s.truncatedParts)
+	}
+}
+
+// TestHandleTextTurn_CleanStopUnchanged verifies a normal finish_reason="stop"
+// content-only turn still completes exactly as before (no continuation nudge).
+func TestHandleTextTurn_CleanStopUnchanged(t *testing.T) {
+	s := newTextTurnSession()
+
+	turnMsg := proxy.Message{
+		Role:         proxy.AssistantRole,
+		Content:      "# Report\nAll steps complete. Here is the final report with full details.",
+		FinishReason: "stop",
+	}
+	done, reply, err := s.handleTextTurn(turnMsg, nil, nil)
+	if err != nil {
+		t.Fatalf("handleTextTurn error: %v", err)
+	}
+	if !done {
+		t.Fatalf("expected clean stop to complete, got done=false")
+	}
+	if s.lengthContinuationCount != 0 {
+		t.Errorf("clean stop must not nudge a continuation, got %d", s.lengthContinuationCount)
+	}
+	if !strings.Contains(reply, "All steps complete") {
+		t.Errorf("expected the full report as reply, got %q", reply)
+	}
+}
+
+// TestJoinTruncatedParts verifies the fragment-stitching glue: a newline is
+// added only where two fragments would glue together without whitespace.
+func TestJoinTruncatedParts(t *testing.T) {
+	tests := []struct {
+		name  string
+		parts []string
+		want  string
+	}{
+		{name: "empty", parts: nil, want: ""},
+		{name: "single", parts: []string{"hello"}, want: "hello"},
+		{name: "glue adds newline", parts: []string{"report head", "tail"}, want: "report head\ntail"},
+		{name: "no glue across whitespace", parts: []string{"head\n", "tail"}, want: "head\ntail"},
+		{name: "empty fragment skipped", parts: []string{"a", "", "b"}, want: "a\nb"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := joinTruncatedParts(tt.parts); got != tt.want {
+				t.Errorf("joinTruncatedParts(%+v) = %q, want %q", tt.parts, got, tt.want)
+			}
+		})
 	}
 }

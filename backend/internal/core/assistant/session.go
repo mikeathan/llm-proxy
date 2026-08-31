@@ -37,6 +37,13 @@ const (
 	// finalization turn. Re-armed on every successful tool turn.
 	postToolNudgeMax = 2
 
+	// lengthContinuationMax bounds how many times a finish_reason="length"
+	// final answer is nudged to continue where it left off before the partial
+	// is accepted as-is. Mirrors Hermes's length-continuation (which allows 4);
+	// we keep it tighter to bound total turns while still repairing the common
+	// single-cutoff case (a report truncated once by the output cap).
+	lengthContinuationMax = 2
+
 	// maxStopGuardAttempts bounds the number of times a stop guard may nudge the
 	// run past a natural-completion candidate before the guard must allow
 	// finalization. Dedicated counter — never finalizeAttempts (owned by the
@@ -68,7 +75,15 @@ type runSession struct {
 	hardCapTriggered   bool
 	finalizeAttempts   int  // how many deterministic tools-disabled finalization turns fired
 	textOnlyNextTurn   bool // next executeTurn runs with tools disabled (ToolChoiceNone)
-	syntaxParseStreak  int  // consecutive server-side tool-arg JSON syntax failures
+
+	// lengthContinuationCount tracks finish_reason="length" continuation
+	// nudges injected for a truncated final answer (bounded by
+	// lengthContinuationMax). truncatedParts accumulates the partial report
+	// fragments so the completed answer is the full stitched text, matching
+	// Hermes's _join_truncated_parts behavior.
+	lengthContinuationCount int
+	truncatedParts          []string
+	syntaxParseStreak       int // consecutive server-side tool-arg JSON syntax failures
 
 	rd                   repetitionDetector
 	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
@@ -154,7 +169,11 @@ func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 // bestAvailableAnswer returns the most recent substantive assistant message
 // that is NOT a tool call and NOT a stuck placeholder. Content is stripped of
 // reasoning blocks before length/placeholder checks. Skips control messages so
-// injected nags/recoveries never count as the answer.
+// injected nags/recoveries never count as the answer, and skips tool-call
+// markup content — a truncated/failed <tool_call> attempt streamed as visible
+// text is not an answer, and surfacing it would complete a run with raw JSON
+// (observed after an upstream outage: finalizeReport's fallback returned the
+// markup as the "best available answer").
 func (s *runSession) bestAvailableAnswer() string {
 	for i := len(s.history) - 1; i >= 0; i-- {
 		m := s.history[i]
@@ -165,20 +184,10 @@ func (s *runSession) bestAvailableAnswer() string {
 			continue
 		}
 		if stripped := stripThinkBlocks(m.Content); len(strings.TrimSpace(stripped)) >= MinAnswerContentLength {
-			return stripped
-		}
-	}
-	return ""
-}
-
-// lastNonEmptyAssistantContent returns the newest assistant message with any
-// non-empty body (used as last-resort forced completion).
-func (s *runSession) lastNonEmptyAssistantContent() string {
-	for i := len(s.history) - 1; i >= 0; i-- {
-		if s.history[i].Role == proxy.AssistantRole {
-			if c := strings.TrimSpace(s.history[i].Content); c != "" {
-				return s.history[i].Content
+			if hasToolCallMarker(m.Content) || endsWithBareActionMarker(stripped) {
+				continue
 			}
+			return stripped
 		}
 	}
 	return ""
@@ -186,7 +195,7 @@ func (s *runSession) lastNonEmptyAssistantContent() string {
 
 // resolveFallbackAnswer picks a deliverable when the loop cannot continue
 // (hard-cap backstop only). Returns the last substantive assistant text — a
-// genuine final message the model already wrote. No synthesis, no salvage: the
+// genuine final message the model actually wrote. No synthesis, no salvage: the
 // real report is surfaced only when the model actually emitted it.
 func (s *runSession) resolveFallbackAnswer() string {
 	return s.bestAvailableAnswer()
@@ -222,37 +231,121 @@ func (s *runSession) finalizeReport(ctx context.Context, prompt ...string) (stri
 	})
 	s.agent.deps.Logger.Warn("forcing text-only finalization turn", "step", s.steps)
 
-	turnMsg, parseErr, _, err := s.agent.executeTurn(ctx, &s.history)
+	turnMsg, parseErr, err := s.runFinalizationTurn(ctx)
 	if err != nil {
-		// A transient LLM failure on the finalization turn must not kill a run
-		// that already did real work: fall back to the best answer available
-		// (assistant text), then to a summary synthesized from the tool
-		// activity, and only surface the error when nothing recoverable exists.
-		if fallback := s.bestAvailableAnswer(); fallback != "" {
-			s.agent.deps.Logger.Warn("finalization turn failed; using best available answer", "error", err)
-			return fallback, nil
+		return s.finalizationFallback(err, "finalization turn")
+	}
+
+	// The finalization turn can itself be cut off by the output-token cap
+	// (finish_reason="length") mid-report. Nudge a bounded continuation so the
+	// report is completed instead of persisted truncated — same mechanism as
+	// handleTextTurn, sharing the same counter/fragments so both paths cannot
+	// exceed lengthContinuationMax combined.
+	for s.maybeContinueTruncated(turnMsg, parseErr) {
+		s.textOnlyNextTurn = true
+		turnMsg, parseErr, err = s.runFinalizationTurn(ctx)
+		if err != nil {
+			return s.finalizationFallback(err, "finalization continuation")
 		}
-		if summary := s.synthesizeRunSummary(); summary != "" {
-			s.agent.deps.Logger.Warn("finalization turn failed; using synthesized run summary", "error", err)
-			return summary, nil
-		}
-		return "", fmt.Errorf("finalization turn failed: %w", err)
 	}
 
 	s.history = append(s.history, turnMsg)
 	s.agent.notify(EventMessage, turnMsg)
 
-	report := stripThinkBlocks(turnMsg.Content)
-	if strings.TrimSpace(report) == "" || (parseErr != nil && parseErr.XMLFound) || hasToolCallMarker(report) {
-		if fallback := s.bestAvailableAnswer(); fallback != "" {
-			return fallback, nil
-		}
-		if summary := s.synthesizeRunSummary(); summary != "" {
-			s.agent.deps.Logger.Warn("empty finalization turn; using synthesized run summary")
-			return summary, nil
+	report := s.stitchTruncated(stripThinkBlocks(turnMsg.Content))
+	if strings.TrimSpace(report) == "" || (parseErr != nil && parseErr.XMLFound) || hasToolCallMarker(report) || endsWithBareActionMarker(report) {
+		if fallback, fbErr := s.finalizationFallback(nil, "empty finalization turn"); fallback != "" || fbErr != nil {
+			return fallback, fbErr
 		}
 	}
 	return strings.TrimSpace(report), nil
+}
+
+// runFinalizationTurn runs one LLM turn with the reasoning-stuck check
+// disabled, restoring the prior setting afterwards. A thinking model may
+// reason for a long stretch before writing its final report; the reasoning-
+// stuck abort (designed for degenerate loops, firing at maxTokens chars of
+// pure reasoning) killed finalization turns prematurely — the report never got
+// written. Skip the stuck check here; the per-stream duration cap
+// (streamMaxDuration) still bounds the turn.
+func (s *runSession) runFinalizationTurn(ctx context.Context) (proxy.Message, *proxy.ParseError, error) {
+	savedStuck := s.agent.config.SkipStuckCheck
+	s.agent.config.SkipStuckCheck = true
+	turnMsg, parseErr, _, err := s.agent.executeTurn(ctx, &s.history)
+	s.agent.config.SkipStuckCheck = savedStuck
+	return turnMsg, parseErr, err
+}
+
+// finalizationFallback recovers a deliverable when a finalization LLM turn
+// fails (err != nil) or comes back unusable (empty / tool-markup / scaffold).
+// Order: best available assistant answer, then a summary synthesized from the
+// run's actual tool activity. A transient LLM failure must not discard
+// completed work. Returns the wrapped error only when nothing recoverable
+// exists (nil err → empty deliverable, so the caller can still surface the raw
+// report).
+func (s *runSession) finalizationFallback(err error, what string) (string, error) {
+	if fallback := s.bestAvailableAnswer(); fallback != "" {
+		s.agent.deps.Logger.Warn(what+" failed; using best available answer", "error", err)
+		return fallback, nil
+	}
+	if summary := s.synthesizeRunSummary(); summary != "" {
+		s.agent.deps.Logger.Warn(what+" failed; using synthesized run summary", "error", err)
+		return summary, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s failed: %w", what, err)
+	}
+	return "", nil
+}
+
+// maybeContinueTruncated handles a content-only turn whose stream ended with
+// finish_reason="length" (output-token cap): the model was cut off mid-answer,
+// so this is a truncated final answer, not a completion. When the guard fires
+// it keeps the partial in history, injects the bounded continuation nudge
+// (mirroring Hermes's length-continuation), and returns true so the caller
+// runs the next turn; the fragments are stitched at completion by
+// stitchTruncated. Returns false when the turn is not truncated, attempted a
+// tool call (the parse-error ladder owns that), or the continuation budget is
+// exhausted.
+func (s *runSession) maybeContinueTruncated(turnMsg proxy.Message, parseErr *proxy.ParseError) bool {
+	if turnMsg.FinishReason != "length" || len(turnMsg.ToolCalls) > 0 {
+		return false
+	}
+	if parseErr != nil && parseErr.XMLFound {
+		return false
+	}
+	if s.lengthContinuationCount >= lengthContinuationMax {
+		return false
+	}
+	// Strip once and reuse: the guard needs visible text, and the fragment
+	// stored for stitching must be stripped too so the stitched report never
+	// mixes stripped final content with raw reasoning blocks.
+	content := stripThinkBlocks(turnMsg.Content)
+	if strings.TrimSpace(content) == "" {
+		return false
+	}
+	s.lengthContinuationCount++
+	s.truncatedParts = append(s.truncatedParts, content)
+	s.history = append(s.history, turnMsg)
+	s.agent.notify(EventMessage, turnMsg)
+	s.history = append(s.history, proxy.Message{Role: proxy.UserRole, Content: prompts.LengthContinuationPrompt})
+	s.agent.deps.Logger.Warn("final answer truncated (finish_reason=length), nudging continuation",
+		"content_chars", len(content),
+		"continuation", s.lengthContinuationCount,
+		"max", lengthContinuationMax)
+	return true
+}
+
+// stitchTruncated joins the accumulated length-continuation fragments with
+// content and clears the fragment buffer, so the completed answer is the full
+// stitched text rather than just the last fragment (Hermes _join_truncated_parts).
+func (s *runSession) stitchTruncated(content string) string {
+	if len(s.truncatedParts) == 0 {
+		return content
+	}
+	stitched := joinTruncatedParts(append(s.truncatedParts, content))
+	s.truncatedParts = nil
+	return stitched
 }
 
 // synthesizeRunSummary builds a degraded-but-real report from the run's actual
@@ -264,13 +357,28 @@ func (s *runSession) finalizeReport(ctx context.Context, prompt ...string) (stri
 func (s *runSession) synthesizeRunSummary() string {
 	perTool := make(map[string]int)
 	var failures []string
-	for _, m := range s.history {
-		for _, tc := range m.ToolCalls {
-			if tc.Function.Name == models.ToolSystemError {
+	// Tool calls are counted from the usage tracker — the per-execution record
+	// that survives sieving. Scanning s.history alone under-counts because the
+	// physical sieve prunes history to head+tail (e.g. "2 of 18 tool calls").
+	if t := GetUsageTracker(s.ctx); t != nil {
+		for _, name := range t.UsedToolsSnapshot() {
+			if name == models.ToolSystemError {
 				continue
 			}
-			perTool[tc.Function.Name]++
+			perTool[name]++
 		}
+	} else {
+		// Fallback: count from history directly (unpruned runs only).
+		for _, m := range s.history {
+			for _, tc := range m.ToolCalls {
+				if tc.Function.Name == models.ToolSystemError {
+					continue
+				}
+				perTool[tc.Function.Name]++
+			}
+		}
+	}
+	for _, m := range s.history {
 		if m.Role == proxy.ToolRole {
 			if errText := toolResultError(m.Content); errText != "" {
 				failures = append(failures, errText)
@@ -330,6 +438,34 @@ func truncateString(s string, max int) string {
 		return s
 	}
 	return string(r[:max]) + "…"
+}
+
+// joinTruncatedParts joins length-continuation fragments into the final
+// answer, adding a newline where two fragments would otherwise glue together
+// without whitespace. Port of Hermes Agent's _join_truncated_parts
+// (agent/conversation_loop.py): continuation fragments are written to continue
+// exactly where the previous one stopped, so the seam needs a separator only
+// when neither side already ends/starts with whitespace.
+func joinTruncatedParts(parts []string) string {
+	var b strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if b.Len() > 0 && !isSpaceByte(b.String()[b.Len()-1]) && !isSpaceByte(part[0]) {
+			b.WriteByte('\n')
+		}
+		b.WriteString(part)
+	}
+	return b.String()
+}
+
+func isSpaceByte(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\r', '\v', '\f':
+		return true
+	}
+	return false
 }
 
 func (s *runSession) resetParseErrorState() {
@@ -484,6 +620,15 @@ func checkTaskCompletion(msg proxy.Message, history []proxy.Message) (string, bo
 		return "", false
 	}
 
+	// Guard: a turn whose last line is a bare ReAct Action marker is a
+	// truncated tool-call attempt — the model wrote the marker the format
+	// places before every tool call, then stopped (EOS/stream end) before
+	// emitting the call. That is mid-task narration, not a final answer;
+	// finalizing would record an incomplete run as "completed".
+	if endsWithBareActionMarker(stripped) {
+		return "", false
+	}
+
 	// The run must have produced at least one tool result anywhere
 	// in history (after the system prompt).  This prevents premature
 	// first-turn text from being treated as completion.
@@ -534,7 +679,8 @@ func isAgentControlMessage(m proxy.Message) bool {
 		prompts.AutomationJSONSyntaxPrompt,
 		prompts.AutomationJSONPlanPrompt,
 		prompts.AutomationXMLModeGuide,
-		prompts.EvaluatorReviewPrompt:
+		prompts.EvaluatorReviewPrompt,
+		prompts.LengthContinuationPrompt:
 		return true
 	}
 	if strings.HasPrefix(content, prompts.RetrySignal) {
@@ -742,6 +888,15 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 
 // handleTextTurn handles natural completion or no-tool recovery feedback.
 func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.ParseError, toolsList []proxy.Tool) (done bool, reply string, err error) {
+	// finish_reason="length": the model hit its output-token cap while writing
+	// a content-only turn. This is a truncated final answer, NOT a complete
+	// one — do not let checkTaskCompletion finalize a cut-off report. Nudge a
+	// bounded continuation (mirroring Hermes's length-continuation); the
+	// fragments are stitched at completion by stitchTruncated.
+	if s.maybeContinueTruncated(turnMsg, parseErr) {
+		return false, "", nil
+	}
+
 	// When parseErr has XMLFound, the model attempted a tool call but failed —
 	// do not treat accompanying plan text as a final answer.
 	if parseErr == nil || !parseErr.XMLFound {
@@ -757,7 +912,12 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 				s.history = append(s.history, proxy.Message{Role: proxy.UserRole, Content: nudge})
 				return false, "", nil
 			}
-			reply, _, completeErr := s.completeWith(content)
+			// A truncated final answer was completed by one or more
+			// length-continuation turns — stitch the fragments so the report
+			// is the full text, not just the last fragment (Hermes
+			// _join_truncated_parts). Runs after the guard check so a
+			// guard-nudged continuation keeps the fragments for a later stitch.
+			reply, _, completeErr := s.completeWith(s.stitchTruncated(content))
 			return true, reply, completeErr
 		}
 	}
@@ -793,7 +953,16 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 		return proxy.Message{}, nil, nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	*history = a.applyPhysicalSieve(*history)
+	// The physical sieve must measure the REAL request size — the prepared
+	// messages include the system-prompt enrichment (tool reference/manual,
+	// hot memory) that raw history omits. Measuring only raw history
+	// under-counts the request by several KB, so the sieve could fire too late
+	// and let the prompt overflow the serving context (2026-08-30 smoke-test
+	// run: context grew to ~27.7 KB with the sieve never firing, then the
+	// server 400'd "context too long").
+	if a.preparedOverContextBudget(*history, toolsList) {
+		*history = a.applyPhysicalSieve(*history)
+	}
 
 	// Finalization turn: run ONE turn with tools disabled so the model is
 	// forced to deliver a text report. Reset immediately so it fires once.
@@ -951,7 +1120,11 @@ func (s *runSession) handleNoToolCalls(
 // model's completion. Otherwise, it injects parse-error guidance feedback.
 func (s *runSession) handleParseErrorFeedback(parseErr *proxy.ParseError, toolsList []proxy.Tool, content string) (string, bool) {
 	if !parseErr.XMLFound && strings.TrimSpace(content) != "" {
-		return content, true
+		// A turn ending on a bare ReAct Action marker line is a truncated
+		// tool-call attempt — never trust it as a completion.
+		if !endsWithBareActionMarker(content) {
+			return content, true
+		}
 	}
 	if len(toolsList) == 0 {
 		return "", true
@@ -969,6 +1142,25 @@ func (s *runSession) handleParseErrorFeedback(parseErr *proxy.ParseError, toolsL
 		Content: feedback,
 	})
 	return "", false
+}
+
+// endsWithBareActionMarker reports whether the last non-empty line of content
+// is exactly the ReAct Action delimiter ("Action:"). The system prompt's own
+// Thought -> Action contract places a bare "Action:" line immediately before
+// every tool call; content that ends there means the generation stopped (EOS)
+// before the tool call was emitted — an incomplete turn, never a final report.
+// Matching the full line — not a word suffix — keeps a legitimate final
+// report that merely mentions "...the action:" from being rejected.
+func endsWithBareActionMarker(content string) bool {
+	lines := strings.Split(content, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		return strings.EqualFold(line, "action:")
+	}
+	return false
 }
 
 // hasToolCallMarker checks whether content contains XML-like markers that
@@ -1007,7 +1199,15 @@ func (a *Agent) handleContentToolCalls(msg *proxy.Message) *proxy.ParseError {
 		return nil
 	}
 
-	if a.config.UseNativeTools {
+	// Native-format fallback. Previously gated on UseNativeTools, but a model
+	// that natively emits <function=name><parameter>… text does so REGARDLESS of
+	// mode — e.g. when the capability probe failed (server loading/restarting)
+	// and the run fell back to XML text mode, a native-format model kept
+	// writing <function=…> blocks and every turn died with a parse error
+	// (2026-08-31 smoke-test run). Try the native parser as a fallback in
+	// every mode; it only matches the specific native tags, so it cannot
+	// misfire on conversational text.
+	{
 		nativeCleaned, nativeCalls, nativeErr := proxy.ParseNativeToolCalls(msg.Content)
 		if nativeErr == nil && len(nativeCalls) > 0 {
 			msg.Content = nativeCleaned

@@ -25,9 +25,13 @@ The tool call parser (`proxy/tool_call_parser.go`) extracts structured tool call
 </tool_call>
 ```
 
-**Native format** (fallback when `useNativeTools` is active): used when
+**Native format** (always tried as a fallback after XML parsing): used when
 LLM-native tool calling (e.g. Qwen's Jinja template) streams tool calls as
-text content instead of structured `tool_calls` deltas.
+text content instead of structured `tool_calls` deltas. The native parser runs
+in EVERY mode, not just native mode — a native-format model forced into XML
+text mode (e.g. after a capability-probe failure while the server was still
+loading) keeps writing `<function=…>` blocks, and rejecting them killed every
+turn with a parse error (2026-08-31 smoke-test run).
 ```
 <function=execute_terminal_command>
 <parameter=command>npm init -y</parameter>

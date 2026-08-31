@@ -76,12 +76,12 @@ defineProps<{
         </div>
         <div class="flex justify-between text-[11px]">
           <span class="text-gray-400">Core Utilization</span>
-          <span class="text-white font-bold">{{ metrics.gpu.utilization_percent }}%</span>
+          <span class="text-white font-bold">{{ formatPercent(metrics.gpu.utilization_percent) }}%</span>
         </div>
         <div class="flex justify-between text-[11px]">
           <span class="text-gray-400">Temperature</span>
           <span :class="[gpuTempClass(metrics.gpu.temperature_c), 'font-bold']">
-            {{ metrics.gpu.temperature_c }}°C
+            {{ (metrics.gpu.temperature_c ?? 0).toFixed(1) }}°C
           </span>
         </div>
       </div>

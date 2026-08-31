@@ -27,11 +27,17 @@ Tool calls are validated in order:
 2. **Terminal** — Command whitelist, blocked patterns, blocked filenames (inherited from the
    filesystem `blocked_filenames` list **plus** the internal invariant paths, merged via
    `effectiveBlockedFilenames`), path jail prevention, timeout enforcement, external path
-   access (workspace-level only). In addition to the input-side denial, terminal **output**
-   is scrubbed of blocked-path references (`redactBlockedPaths`): recursive commands
-   (`find .`, `du -sh .`, `ls -la`, `tree`) emit blocked paths even when no explicit operand
-   was written, so the same invariant is enforced on output before the result reaches the
-   agent.
+   access (workspace-level only). The whitelist is enforced **per command segment** — the
+   command is decomposed with shell-syntax awareness (quotes, heredocs in every marker form,
+   here-strings, escaped delimiters, newlines as separators) so a disallowed command cannot
+   ride in on the tail of an allowlisted one. Commands with **unbalanced syntax** (an
+   unterminated quote or heredoc, which would make the tail opaque to the whitelist) are
+   rejected fail-closed; `executeShell` re-checks before touching the persistent shell so a
+   malformed command can never wedge the shared session. In addition to the input-side
+   denial, terminal **output** is scrubbed of blocked-path references
+   (`redactBlockedPaths`): recursive commands (`find .`, `du -sh .`, `ls -la`, `tree`)
+   emit blocked paths even when no explicit operand was written, so the same invariant is
+   enforced on output before the result reaches the agent.
 3. **Filesystem** — Path validation, extension whitelist, filename blocking (user
    `blocked_filenames` merged with internal invariant paths), read-only enforcement, path
    jail. Directory listings hide the same merged blocked set — an internal path (`.sandbox`)
@@ -60,9 +66,9 @@ and merges slices with dedup.
 When a tool call is blocked:
 
 1. `ValidateToolCall()` fails → creates `GuardrailBlockedPayload` with `decision_id`.
-2. `onGuardrail` callback registers a channel in `GuardrailDecisionStore` + publishes SSE event.
+2. `onGuardrail` callback registers a channel in `GuardrailDecisionStore` + publishes SSE event. The event is stamped with the **producer's channel** (`ChannelAssistant` for chat, `ChannelAutomation` for runs): the event bus partitions by channel and defaults empty to `automation`, so an assistant approval without a channel never reaches the assistant SSE and the chat shows no banner while the backend waits the full timeout.
 3. Agent blocks on channel for up to `GuardrailApprovalTimeout` (default 5 min, per-model configurable via `guardrail_approval_timeout_seconds`) waiting for user decision.
-4. User approves/denies via `POST /admin/api/conversation/guardrail-decision`.
+4. User approves/denies via `POST /admin/api/conversation/guardrail-decision` (the `GuardrailBanner` component posts directly; the assistant chat wires `@allow/@deny` to `submitDecision`, mirroring the automation console).
 5. If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
 6. Agent continues or fails based on decision.
 

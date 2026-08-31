@@ -15,6 +15,21 @@ type HistorySieve interface {
 	Name() string
 }
 
+// messageChars approximates a message's contribution to the prompt size:
+// visible content + reasoning + native tool-call payloads. Tool-call
+// ARGUMENTS must be counted — in native mode they ride in
+// ToolCalls[].Function.Arguments (not Content), and a write_file/edit_file
+// argument can be thousands of chars. A sieve that counts Content only
+// under-measures the request and can let the prompt overflow the serving
+// window (2026-08-30 smoke-test runs).
+func messageChars(m proxy.Message) int {
+	n := len(m.Content) + len(m.ReasoningContent)
+	for _, tc := range m.ToolCalls {
+		n += len(tc.Function.Arguments)
+	}
+	return n
+}
+
 type physicalSieve struct {
 	logger        logging.Logger
 	contextBudget int
@@ -25,7 +40,7 @@ func (p *physicalSieve) Name() string { return "physical" }
 func (p *physicalSieve) Sieve(history []proxy.Message) []proxy.Message {
 	totalChars := 0
 	for _, m := range history {
-		totalChars += len(m.Content)
+		totalChars += messageChars(m)
 	}
 	if totalChars <= p.contextBudget {
 		return history
@@ -42,7 +57,7 @@ func (p *physicalSieve) Sieve(history []proxy.Message) []proxy.Message {
 		}
 		totalChars = 0
 		for _, m := range history {
-			totalChars += len(m.Content)
+			totalChars += messageChars(m)
 		}
 		if totalChars <= p.contextBudget {
 			return history
@@ -136,6 +151,37 @@ func truncateLongContent(s string, limit int) string {
 func (a *Agent) applyPhysicalSieve(history []proxy.Message) []proxy.Message {
 	s := &physicalSieve{logger: a.deps.Logger, contextBudget: a.config.ContextBudget}
 	return s.Sieve(history)
+}
+
+// preparedOverContextBudget reports whether the prepared request — history
+// plus the system-prompt enrichment injected at prepare time (tool
+// reference/manual, hot memory, prefill) — exceeds the model's context budget
+// in characters. The physical sieve prunes raw history, but the budget must
+// apply to the request that is actually sent: measuring raw history alone
+// under-counts the prompt (the enriched system message is several KB larger),
+// so the sieve could fire too late and overflow the serving context.
+func (a *Agent) preparedOverContextBudget(history []proxy.Message, tools []proxy.Tool) bool {
+	if a.config.ContextBudget <= 0 {
+		return false
+	}
+	llmTools := tools
+	if !a.config.UseNativeTools {
+		llmTools = nil
+	}
+	// Measure WITHOUT hot-memory injection: the injection is one-shot (a
+	// memoryInjected flag) and belongs to the real request prepared inside
+	// computeNextResponse — consuming it here for the measurement would starve
+	// the actual turn. The memory block is small; skipping it in the estimate
+	// only under-counts by that amount.
+	enabled := a.config.EnableHotMemory
+	a.config.EnableHotMemory = false
+	prepared, _ := a.prepareMessagesForTurn(history, tools, llmTools)
+	a.config.EnableHotMemory = enabled
+	total := 0
+	for _, m := range prepared {
+		total += messageChars(m)
+	}
+	return total > a.config.ContextBudget
 }
 
 func (a *Agent) applyReactiveSieve(history []proxy.Message) []proxy.Message {

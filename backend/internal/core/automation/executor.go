@@ -64,6 +64,7 @@ type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
+	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	Logger() logging.Logger
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
@@ -165,15 +166,27 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
 	var capturedEvents []any
 
+	// Resolve the effective tool-call format (explicit override, cloud native
+	// default, or a cached endpoint capability probe for local models) BEFORE
+	// building the agent, so a newly added local model does not require a
+	// per-model tool_call_format setting to use native function calling.
+	//
+	// Ordering matters: the probe can take seconds against a local endpoint
+	// (it is a real HTTP round-trip), and buildAgentOptions → ApplyModelConfig
+	// locks UseNativeTools from the stored config at agent-build time. Resolving
+	// after NewAgent (as before) meant the FIRST run after a backend restart —
+	// when the probe cache is cold — built the agent in XML text mode, sent no
+	// tools array, and the model's XML tool calls failed to parse (observed
+	// 2026-08-31 14:26 run: 5/15 tool calls, Steps 4-9 unreached). Resolving
+	// first persists "native" onto the manager's stored config, so the agent is
+	// built with native tool calling from turn one.
+	useNativeTools := e.svc.EffectiveToolCallFormat(ctx, req.Model) == "native"
+
 	toolProvider := e.svc.ToolProvider()
 	agentOpts := e.buildAgentOptions(req, procLog, &capturedEvents, eventSink)
 	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
 	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
-	useNativeTools := false
-	if cfg, ok := e.svc.ModelConfig(req.Model); ok {
-		useNativeTools = cfg.ToolCallFormat == "native"
-	}
 	systemPrompt := prompts.AssembleSystemPrompt(agentsFileContent, useNativeTools)
 
 	history := []proxy.Message{
@@ -299,6 +312,7 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 			func(ev assistant.AgentEvent) {
 				e.svc.Events().Publish(req.WorkspaceID, ev)
 			},
+			assistant.ChannelAutomation,
 		),
 		// AllowedTools restricts the exposed tool schema for unattended runs
 		// (allow ∩ guardrail-disabled, resolved in NewAgent).

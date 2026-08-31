@@ -138,6 +138,17 @@ func (s *MetricsService) Snapshot() MetricsSnapshot {
 	return resp
 }
 
+// sampleAndSmooth runs one provider sample and applies the EMA smoothing.
+// Shared by the background sampler (Start) and the on-demand fallback
+// (readGPU); callers guard against a nil provider before calling.
+func (s *MetricsService) sampleAndSmooth() (*GPUMetrics, error) {
+	sample, err := s.gpu.Sample()
+	if err != nil {
+		return nil, err
+	}
+	return s.smoothGPU(sample), nil
+}
+
 func (s *MetricsService) Start() {
 	if s.gpu == nil || s.gpuSampleInterval <= 0 {
 		return
@@ -151,8 +162,7 @@ func (s *MetricsService) Start() {
 	stop := s.stopCh
 	s.gpuMu.Unlock()
 
-	gpu, err := s.gpu.Sample()
-	gpu = s.smoothGPU(gpu)
+	gpu, err := s.sampleAndSmooth()
 	s.gpuMu.Lock()
 	s.gpuCached = gpu
 	s.gpuCachedErr = err
@@ -165,8 +175,7 @@ func (s *MetricsService) Start() {
 		for {
 			select {
 			case <-ticker.C:
-				gpu, err := s.gpu.Sample()
-				gpu = s.smoothGPU(gpu)
+				gpu, err := s.sampleAndSmooth()
 				s.gpuMu.Lock()
 				s.gpuCached = gpu
 				s.gpuCachedErr = err
@@ -199,14 +208,29 @@ func (s *MetricsService) readGPU() (*GPUMetrics, error) {
 	if hasCache {
 		return cached, cachedErr
 	}
-	sample, err := s.gpu.Sample()
-	if err != nil {
-		return nil, err
-	}
-	return s.smoothGPU(sample), nil
+	return s.sampleAndSmooth()
 }
 
+// hostMetricsCacheInterval bounds how often host metrics are re-read. Several
+// frontend components poll /metrics on a 10s cadence; caching also serializes
+// cpu.Percent(0) — a "since the last call" delta that is not safe under
+// concurrent callers (ops review 2026-08-28 finding #3).
+const hostMetricsCacheInterval = 2 * time.Second
+
+// readHostMetrics returns cached host metrics when fresh, otherwise recomputes
+// them under the mutex so concurrent snapshot requests never race cpu.Percent.
 func (s *MetricsService) readHostMetrics() HostMetrics {
+	s.hostMu.Lock()
+	defer s.hostMu.Unlock()
+	if !s.hostCachedAt.IsZero() && s.nowFn().Sub(s.hostCachedAt) < hostMetricsCacheInterval {
+		return s.hostCached
+	}
+	s.hostCached = s.computeHostMetrics()
+	s.hostCachedAt = s.nowFn()
+	return s.hostCached
+}
+
+func (s *MetricsService) computeHostMetrics() HostMetrics {
 	loadAvg, _ := load.Avg()
 	vmem, _ := mem.VirtualMemory()
 	cores := runtime.NumCPU()
@@ -249,6 +273,19 @@ func (s *MetricsService) SetSmoothingAlpha(a float64) {
 
 func (s *MetricsService) GPUProvider() string {
 	return s.gpuProviderName
+}
+
+// SampleInterval returns the configured background GPU sample cadence. 0 means
+// no background sampler is running — sampling is on-demand per Snapshot().
+// Read-only after construction (no lock needed).
+func (s *MetricsService) SampleInterval() time.Duration {
+	return s.gpuSampleInterval
+}
+
+// EffectiveSmoothingAlpha returns the smoothing alpha in effect: the configured
+// value, or the default when unset/invalid.
+func (s *MetricsService) EffectiveSmoothingAlpha() float64 {
+	return s.effectiveSmoothingAlpha()
 }
 
 func (s *MetricsService) TerminalSource() TerminalSource {
