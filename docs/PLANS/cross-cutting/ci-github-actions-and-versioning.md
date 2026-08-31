@@ -127,20 +127,24 @@ itself is retired once the workflow is live).
 **Trigger:** `push` to `main` only.
 
 **DECIDED:** the `VERSION` file always holds the **full `X.Y.Z`** (not just `X.Y`). It is
-the single source of truth; the workflow always tags **exactly** the version the file
-points to. The workflow writes the file back only when it performs an auto patch bump.
+the floor for manual bumps; the workflow **never pushes commits to `main`** (branch
+rulesets require PRs and the `GITHUB_TOKEN` cannot bypass them — `github-actions[bot]`
+is not a bypass-eligible installed app).
+
+> **Revised (post-implementation):** the original design had the workflow commit the
+> auto-bumped version back to `main`. That push was rejected by the repository
+> ruleset on `main`, so the decision logic was changed: auto-bump now derives from
+> the **latest tag** instead of writing back to the file. See below.
 
 **Job `tag` (release job, all shell — no third-party actions):**
 1. Read `VERSION` file → `FILE_VER` (e.g. `0.7.1`).
 2. Read latest tag: `git tag --sort=-v:refname | head -n1` → `v0.7.0`.
-3. Decision:
-   - **`v$FILE_VER` ≠ latest tag** (dev edited the file — a manual **patch, minor, or
-     major** bump, e.g. next PR raising the file to `0.7.1` or `0.8.0`) → tag
-     **`v$FILE_VER` verbatim**. No write-back needed; the file already says it.
-   - **`v$FILE_VER` == latest tag** → **auto-bump patch**: `0.7.1` → `0.7.2`. Write the new
-     version back to the `VERSION` file and commit it to `main`
-     (`chore(release): v0.7.2 [skip ci]`) with the `GITHUB_TOKEN` — pushes by the token do
-     not re-trigger workflows, so no loop.
+3. Decision (revised: no commits to `main`):
+   - **`FILE_VER` > `LATEST_VER`** (dev edited the file — a manual **patch, minor, or
+     major** bump via PR) → tag **`v$FILE_VER` verbatim**.
+   - **`FILE_VER` <= `LATEST_VER`** (equal or stale) → **auto-bump the latest tag's
+     patch**: tag `v0.7.0` → tag `v0.7.1`. The `VERSION` file on `main` is NOT raised;
+     it is only consulted as a manual-bump floor.
 4. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` + push tag.
 5. `gh release create "$TAG" --generate-notes` (auto-generated notes from merged PRs —
    free, no commit-message convention needed).
@@ -162,8 +166,8 @@ single-maintainer repo.
 Workflow `permissions`: `contents: write` only.
 
 **Operator cheat-sheet:**
-- Normal merge to `main` → patch bump, tag, release. Zero action required; the file is
-  auto-raised by the release commit.
+- Normal merge to `main` → patch bump off the latest tag, tag, release. Zero action
+  required; no release commit is created.
 - Want a specific version — patch `0.7.1`, minor `0.8.0`, or breaking `1.0.0` — edit
   `VERSION` in a PR → on merge, that exact version is tagged and released.
 
@@ -181,7 +185,7 @@ Workflow `permissions`: `contents: write` only.
 
 | Phase | Work | Verify |
 |---|---|---|
-| P4 | **Implemented** — root `VERSION` file (`0.7.0`) + `release.yml` tag job (tag-file-verbatim / auto-patch logic per §3.4), tag + release notes only, no artifacts | On next merge to `main`: tag `v0.7.1` appears + GitHub Release with auto-generated notes exists; `VERSION` file auto-raised to `0.7.1` |
+| P4 | **Implemented** — root `VERSION` file (`0.7.0`) + `release.yml` tag job (manual-bump-verbatim / auto-patch off latest tag per revised §3.4), tag + release notes only, no artifacts, no commits to `main` | On next merge to `main`: tag `v0.7.1` appears + GitHub Release with auto-generated notes exists |
 | P5 | Add `build-release` job (ldflags injection, binary attach) | Release contains `llm-proxy-linux-amd64`; binary prints `--version` = `v0.7.1` |
 | P6 | Manual-bump path test: PR editing `VERSION` (e.g. `0.8.0`), merge, confirm tag `v0.8.0` (no extra bump). Retire `scripts/tag_version.sh`; keep `scripts/build.sh` as-is | Merge result + tag correctness |
 
