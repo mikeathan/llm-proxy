@@ -79,6 +79,10 @@ jobs:
       - name: Create and push tag
         run: |
           set -euo pipefail
+          # Annotated tags carry a committer identity; no commit step runs here
+          # anymore, so set it for this step explicitly.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v${{ steps.ver.outputs.version }}" -m "Release v${{ steps.ver.outputs.version }}"
           git push origin "v${{ steps.ver.outputs.version }}"
 
