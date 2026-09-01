@@ -12,6 +12,7 @@ regexes = [
   '''sk-or-v1-reallylongsecretkey''',
   '''AIzasecretdevkey''',
   '''AKIA1234567890123456''',
+  '''AKIAABCDEFGHIJKLMNOP''',
   '''AIza\.\.\.''',
   '''sk-12345678901234567890123456789012''',
   '''sk-abc123abc123abc123abc123abc123abc123''',

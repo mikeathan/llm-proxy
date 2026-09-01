@@ -35,7 +35,7 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 	sys := h.admin.GetSystem()
 	reg := h.admin.GetRegistry()
 	settings := h.admin.GetSettings()
-	id, secret := h.admin.ServiceCredentials()
+	id, _ := h.admin.ServiceCredentials()
 	cfg := adminConfigView{
 		WorkspacesDir:        sys.WorkspacesDir,
 		ModelHost:            sys.Server.ModelHost,
@@ -47,7 +47,9 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 		GPUSmoothingAlpha:    sys.Metrics.GPUSmoothingAlpha,
 		DefaultArgs:          settings.Local.DefaultArgs,
 		ServiceClientID:      id,
-		ServiceClientSecret:  secret,
+		// ServiceClientSecret is deliberately never emitted: the frontend does
+		// not need it (only the ID is shown; a new value is set via PUT) and
+		// returning it verbatim leaked the credential to any client.
 		PrimaryModel:         reg.PrimaryModel,
 		FallbackModel:        reg.FallbackModel,
 		Providers:            getProvidersView(h.admin),

@@ -172,8 +172,10 @@ func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
 	if resp["service_client_id"] != "client-id" {
 		t.Fatalf("expected service_client_id, got %v", resp["service_client_id"])
 	}
-	if resp["service_client_secret"] != "client-secret" {
-		t.Fatalf("expected service_client_secret, got %v", resp["service_client_secret"])
+	// The service secret must never be emitted: it leaked the credential to
+	// any client that could reach the API.
+	if secret, ok := resp["service_client_secret"]; ok && secret != "" {
+		t.Fatalf("service_client_secret must not be returned, got %v", secret)
 	}
 }
 

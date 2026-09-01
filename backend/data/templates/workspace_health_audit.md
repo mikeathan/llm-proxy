@@ -25,7 +25,7 @@ do not run `du -sh .sandbox` or otherwise probe hidden directories.
 
 #### Phase 3: Cleanup Identification
 
-Use `list_directory` to find temporary files or log backups that exceed 10MB. Only consider
+Call the `list_directory` tool with `path: "."` to find temporary files or log backups that exceed 10MB. Only consider
 non-hidden workspace entries; ignore `.sandbox/` and hidden dot-directories.
 
 ### Output Format
@@ -33,3 +33,8 @@ non-hidden workspace entries; ignore `.sandbox/` and hidden dot-directories.
 1. System status (disk free, uptime)
 2. Largest directories (top 3 by size)
 3. Temporary files identified (path and size)
+
+### Result
+
+**PASS** if the report includes system status (from `df -h` and `uptime`), the top 3 largest directories by size, and a list of temporary files over 10MB — or an explicit "no temporary files over 10MB found" statement. The report must NOT include `.sandbox/` or hidden dot-directories. Otherwise **FAIL** and state the reason.
+

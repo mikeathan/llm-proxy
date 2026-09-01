@@ -71,6 +71,9 @@ type RuntimeManager interface {
 	ActiveInfo() *ActiveModelInfo
 	ActiveLogs() string
 	LastTokensPerSecond() (float64, time.Time)
+	// LastModelError returns the most recent local-model startup/runtime
+	// failure message (e.g. a llama-server that crashed on launch), or "".
+	LastModelError() string
 	StopActive() error
 	ClearLogs() error
 	ModelHost() string
@@ -106,6 +109,11 @@ type LLMRuntimeManager struct {
 	idleTimeout       time.Duration
 	stopCh            chan struct{}
 	registrySource    func() models.RegistryData
+
+	// lastModelError records the most recent local-model startup/runtime failure
+	// so it can be surfaced in status/logs even after the dead model is cleared
+	// (e.g. a llama-server that crashed on launch due to bad args).
+	lastModelError string
 }
 
 func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore, regSource func() models.RegistryData) *LLMRuntimeManager {
@@ -374,6 +382,14 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 			}
 
 			if m.activeModel != nil && m.activeModel.Cfg.Name == name {
+				// If the process crashed on launch, surface the failure and
+				// clear the dead model so the next request starts a fresh one
+				// instead of looping on ErrModelStarting forever. Detection and
+				// error recording live in clearCrashedModelLocked (shared with
+				// the reaper).
+				if err := m.clearCrashedModelLocked(name); err != nil {
+					return ModelInstance{}, err
+				}
 				return ModelInstance{}, models.ErrModelStarting
 			}
 

@@ -25,14 +25,6 @@ func (p *GeminiProvider) SetHTTPDoer(doer HTTPDoer) {
 	p.doer = doer
 }
 
-func (p *GeminiProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
-	return nil, fmt.Errorf("gemini provider Chat endpoint is not yet implemented natively; use standard model host proxying")
-}
-
-func (p *GeminiProvider) GetStatus() models.ProviderStatus {
-	return models.ProviderStatusReady
-}
-
 func (p *GeminiProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
 	header := make(http.Header)
 	key := p.cfg.ProviderConfig.APIKey
@@ -88,8 +80,4 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]models.ProviderModel
 func (p *GeminiProvider) TestConnection(ctx context.Context) error {
 	_, err := p.ListModels(ctx)
 	return err
-}
-
-func (p *GeminiProvider) Shutdown() error {
-	return nil
 }

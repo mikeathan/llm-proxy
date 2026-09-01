@@ -369,3 +369,38 @@ func TestStore_AutonomousCleaner(t *testing.T) {
 	}
 }
 
+
+// TestPurgeBalances verifies old per-window balance rows are removed while
+// recent ones are kept (the cleaner previously never purged icu_balances, so
+// one row per workspace per window accumulated forever).
+func TestPurgeBalances(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	recent := time.Now().UTC().Add(-time.Hour)
+	for _, ws := range []string{"ws-1", "ws-2"} {
+		if err := store.UpdateBalance(ctx, ws, old, 10); err != nil {
+			t.Fatalf("update old balance: %v", err)
+		}
+		if err := store.UpdateBalance(ctx, ws, recent, 20); err != nil {
+			t.Fatalf("update recent balance: %v", err)
+		}
+	}
+
+	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+	if err := store.PurgeBalances(ctx, cutoff); err != nil {
+		t.Fatalf("purge balances: %v", err)
+	}
+
+	// Old windows must be gone (GetBalance returns 0 for a missing row),
+	// recent windows kept.
+	for _, ws := range []string{"ws-1", "ws-2"} {
+		if got, err := store.GetBalance(ctx, ws, old); err != nil || got != 0 {
+			t.Errorf("expected old balance for %s to be purged, got %d err %v", ws, got, err)
+		}
+		if got, err := store.GetBalance(ctx, ws, recent); err != nil || got != 20 {
+			t.Errorf("expected recent balance 20 for %s, got %d err %v", ws, got, err)
+		}
+	}
+}

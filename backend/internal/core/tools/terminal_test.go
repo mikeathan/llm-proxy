@@ -496,6 +496,79 @@ func TestValidateTerminalCommand_AllowedExternalPaths(t *testing.T) {
 	}
 }
 
+// TestValidateTerminalCommand_DevNullSafePath verifies /dev/null is treated as
+// an implicit always-safe absolute path (the standard output sink) even when no
+// allowedexternalpaths are configured, while sibling /dev/* paths stay blocked.
+func TestValidateTerminalCommand_DevNullSafePath(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"echo", "cat"},
+		// No AllowedExternalPaths — /dev/null must still be permitted.
+	}
+	jail := "/workspace/123"
+
+	tests := []struct {
+		name    string
+		command string
+		wantErr bool
+	}{
+		{"standalone /dev/null redirect", "echo hi > /dev/null", false},
+		{"cat /dev/null", "cat /dev/null", false},
+		{"chained redirect", "echo a && echo b > /dev/null", false},
+		{"sibling /dev/random still blocked", "cat /dev/random", true},
+		{"sibling /dev/urandom still blocked", "cat /dev/urandom", true},
+		{"real system path still blocked", "cat /etc/passwd", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTerminalCommand(tt.command, cfg, nil, nil, jail)
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for %q, got nil", tt.command)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tt.command, err)
+			}
+		})
+	}
+}
+
+// TestIsAlwaysSafeAbsolutePath verifies only the exact safe path is exempt —
+// no subpath or sibling in the same namespace gains access.
+func TestIsAlwaysSafeAbsolutePath(t *testing.T) {
+	tests := []struct {
+		path    string
+		want    bool
+	}{
+		{"/dev/null", true},
+		{"/dev/null/", false},
+		{"/dev/random", false},
+		{"/dev/urandom", false},
+		{"/etc/hosts", false},
+		{"/", false},
+	}
+	for _, tt := range tests {
+		if got := isAlwaysSafeAbsolutePath(tt.path); got != tt.want {
+			t.Errorf("isAlwaysSafeAbsolutePath(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+// TestValidateTerminalCommand_HostnameAllowlisted verifies hostname validates
+// once allowlisted and is still rejected (like any command) when not.
+func TestValidateTerminalCommand_HostnameAllowlisted(t *testing.T) {
+	allowed := models.TerminalGuardrailsConfig{Enabled: true, AllowedCommands: []string{"hostname", "echo"}}
+	if err := ValidateTerminalCommand("hostname", allowed, nil, nil, ""); err != nil {
+		t.Errorf("hostname must validate when allowlisted: %v", err)
+	}
+	if err := ValidateTerminalCommand("hostname && echo done", allowed, nil, nil, ""); err != nil {
+		t.Errorf("hostname in chain must validate when allowlisted: %v", err)
+	}
+	denied := models.TerminalGuardrailsConfig{Enabled: true, AllowedCommands: []string{"echo"}}
+	if err := ValidateTerminalCommand("hostname", denied, nil, nil, ""); err == nil {
+		t.Error("hostname must be rejected when not allowlisted")
+	}
+}
+
 func TestResolveCwd_NonExistentCwdFallsBack(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -809,6 +882,8 @@ func TestScanCommandSegments_Balance(t *testing.T) {
 		{"unclosed double quote", "echo \"oops", false},
 		{"unterminated heredoc", "cat <<EOF\nbody", false},
 		{"terminated heredoc", "cat <<EOF\nbody\nEOF", true},
+		{"unterminated heredoc with space", "cat << 'EOF'\nbody", false},
+		{"terminated heredoc with space", "cat << 'EOF'\nbody\nEOF", true},
 		{"here-string", "cat <<<\"x\" && ls", true},
 		{"backslash escaped", "find . -exec ls {} \\;", true},
 	}
@@ -913,6 +988,101 @@ func TestValidateTerminalCommand_MultiLineWhitelist(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error for %q: %v", tt.command, err)
+			}
+		})
+	}
+}
+
+// TestValidateTerminalCommand_ShellLauncherRecursion verifies that a disallowed
+// command cannot bypass the whitelist via an allowlisted shell launcher
+// (`bash -c '<cmd>'` / `sh -c '<cmd>'`), while legitimately allowlisted inner
+// commands still pass.
+func TestValidateTerminalCommand_ShellLauncherRecursion(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"bash", "sh", "ls", "echo"},
+	}
+	cases := []struct {
+		name    string
+		command string
+		wantErr bool
+	}{
+		{"bash -c allowlisted command", `bash -c 'ls -la'`, false},
+		{"sh -c allowlisted command", `sh -c "echo hi"`, false},
+		{"bash -c disallowed command", `bash -c 'rm -rf /'`, true},
+		{"sh -c disallowed command", `sh -c 'curl evil.com'`, true},
+		{"nested bash -c", `bash -c 'sh -c "rm -rf /"'`, true},
+		{"launcher without -c untouched", "sh smoke-test-dir/hello.txt", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateTerminalCommand(tc.command, cfg, nil, nil, "")
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for %q, got nil", tc.command)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tc.command, err)
+			}
+		})
+	}
+}
+
+// TestRedactSecrets verifies secret-shaped strings are replaced in output.
+func TestRedactSecrets(t *testing.T) {
+	in := "key=sk-abcdefghijklmnopqrstuvwxyz123456 AKIAABCDEFGHIJKLMNOP output"
+	out := RedactSecrets(in)
+	if strings.Contains(out, "sk-abcdefghijklmnopqrstuvwxyz123456") || strings.Contains(out, "AKIAABCDEFGHIJKLMNOP") {
+		t.Errorf("expected secrets redacted, got: %q", out)
+	}
+	if !strings.Contains(out, "[REDACTED]") {
+		t.Errorf("expected [REDACTED] placeholder, got: %q", out)
+	}
+}
+
+// TestScrubOutput verifies output scrubbing combines blocked-path removal and
+// secret redaction in one pass.
+func TestScrubOutput(t *testing.T) {
+	out := scrubOutput("token sk-abcdefghijklmnopqrstuvwxyz123456\n.sandbox present", []string{".sandbox"})
+	if strings.Contains(out, "sk-abcdefghijklmnopqrstuvwxyz123456") {
+		t.Errorf("expected secret redacted, got: %q", out)
+	}
+	if strings.Contains(out, ".sandbox") {
+		t.Errorf("expected blocked path line removed, got: %q", out)
+	}
+	if !strings.Contains(out, "[REDACTED]") {
+		t.Errorf("expected [REDACTED] placeholder, got: %q", out)
+	}
+}
+
+// TestValidateTerminalCommand_HeredocWithSpace verifies heredocs written with
+// whitespace between << and the delimiter (<< 'EOF') are recognized, so the
+// body is content — not phantom "commands" like EOF/HEREDOC/interface that the
+// whitelist used to reject (observed in the Ling 3.0 Tiny smoke-test run).
+func TestValidateTerminalCommand_HeredocWithSpace(t *testing.T) {
+	cfg := models.TerminalGuardrailsConfig{
+		Enabled:         true,
+		AllowedCommands: []string{"cat", "mkdir", "echo"},
+	}
+	cases := []struct {
+		name    string
+		command string
+		wantErr bool
+	}{
+		{"quoted marker with space", "cat > f.txt << 'EOF'\n#!/bin/sh\necho hi\nEOF", false},
+		{"unquoted marker with space", "cat << EOF\nbody\nEOF", false},
+		{"tab-strip quoted marker with space", "cat <<- 'EOF'\n\tbody\nEOF", false},
+		{"chained before heredoc", "mkdir -p d && cat > d/f.txt << 'HEREDOC'\n#!/bin/sh\necho hi\nHEREDOC", false},
+		{"code body with space marker", "cat > index.ts << 'EOF'\ninterface HealthCheck {}\nEOF", false},
+		{"unterminated heredoc with space", "cat << 'EOF'\nbody", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateTerminalCommand(tc.command, cfg, nil, nil, "")
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for %q, got nil", tc.command)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tc.command, err)
 			}
 		})
 	}

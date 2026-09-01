@@ -58,6 +58,7 @@ func TestValidateAutomation_LoopStrategy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := handlers.validateAutomation(&models.Automation{
 				Name:         "ok-name",
+				TaskFile:     "task.md",
 				LoopStrategy: tc.loopStrategy,
 			})
 			if tc.wantErr && err == nil {
@@ -357,6 +358,56 @@ func TestDeleteWorkspace_RemovesAllLocationsAndStopsRuns(t *testing.T) {
 	} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("expected %s to be removed, err=%v", path, err)
+		}
+	}
+}
+
+func TestValidateAutomation_TaskFile(t *testing.T) {
+	dispatcher := &testDispatcher{}
+	handlers := NewDispatcherHandlers(dispatcher, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	cases := []struct {
+		name     string
+		taskFile string
+		wantErr  bool
+	}{
+		{"valid relative file", "task.md", false},
+		{"empty rejected", "", true},
+		{"absolute path rejected", "/etc/passwd", true},
+		{"parent traversal rejected", "../secret.txt", true},
+		{"nested traversal rejected", "a/../b.md", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{
+				Name:     "ok-name",
+				TaskFile: tc.taskFile,
+			})
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error for invalid task_file")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestIsUnsafeFileParam(t *testing.T) {
+	cases := []struct {
+		value string
+		unsafe bool
+	}{
+		{"task.md", false},
+		{"v1..2.md", false}, // dots inside a name are fine; only traversal is blocked
+		{"", true},
+		{".", true},
+		{"..", true},
+		{"a/../b", true},
+	}
+	for _, tc := range cases {
+		if got := isUnsafeFileParam(tc.value); got != tc.unsafe {
+			t.Errorf("isUnsafeFileParam(%q) = %v, want %v", tc.value, got, tc.unsafe)
 		}
 	}
 }

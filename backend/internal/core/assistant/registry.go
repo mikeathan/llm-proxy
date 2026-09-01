@@ -20,6 +20,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/safe"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
@@ -207,7 +208,7 @@ func scheduleWebhookReregistration(name string, cfg models.ConnectorConfig, conn
 	if !ok {
 		return
 	}
-	go func() {
+	safe.Go("webhook re-registration", func() {
 		regCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := wa.RegisterWebhook(regCtx, cfg.WebhookURL, cfg.Settings["webhook_token"]); err != nil {
@@ -215,7 +216,7 @@ func scheduleWebhookReregistration(name string, cfg models.ConnectorConfig, conn
 		} else {
 			logging.Info("re-registered webhook on startup", "connector", name, "url", cfg.WebhookURL)
 		}
-	}()
+	})
 }
 
 func initNetworkTools(

@@ -26,10 +26,12 @@ var (
 	ErrNoShellPool           = errors.New("shell pool not available")
 )
 
-// maxCapturedEventsPerRun bounds how many agent events are retained in memory
-// per run for the automation result. The complete stream is written to the
-// run-dir events.jsonl; only the tail is kept in RAM.
-const maxCapturedEventsPerRun = 500
+// modelStartWaitTimeout is the total wall-clock budget the executor spends
+// polling a cold local model before failing the run. It mirrors the idle
+// reaper's own 5-minute startup window (lifecycle.go): the reaper kills a
+// model that fails to become ready within 5 minutes, so waiting longer here
+// would just waste the run's timeout on a model that is about to be torn down.
+const modelStartWaitTimeout = 5 * time.Minute
 
 // TaskExecutor executes automations.
 type TaskExecutor interface {
@@ -37,6 +39,10 @@ type TaskExecutor interface {
 	// ShellPGID returns the negated process group ID for a workspace's
 	// active shell session. Returns an error when not available.
 	ShellPGID(ctx context.Context, workspaceID string) (int, error)
+	// ModelTimeout returns the pinned model's timeout_minutes as a duration,
+	// or 0 when the model is unknown or has no explicit timeout — the
+	// dispatcher uses it to let a model's timeout override its own cap.
+	ModelTimeout(modelName string) time.Duration
 }
 
 type ExecuteRequest struct {
@@ -109,6 +115,8 @@ func (e *DefaultTaskExecutor) ShellPGID(ctx context.Context, workspaceID string)
 	return 0, ErrShellPGIDNotAvailable
 }
 
+func (e *DefaultTaskExecutor) ModelTimeout(modelName string) time.Duration { return 0 }
+
 // LLMTaskExecutor is a TaskExecutor that uses an LLM client for execution.
 type LLMTaskExecutor struct {
 	svc       LLMServiceProvider
@@ -138,6 +146,15 @@ func (e *LLMTaskExecutor) ShellPGID(ctx context.Context, workspaceID string) (in
 	return pgid, nil
 }
 
+// ModelTimeout resolves the pinned model's timeout_minutes so the dispatcher
+// can let a model's timeout override its own run cap.
+func (e *LLMTaskExecutor) ModelTimeout(modelName string) time.Duration {
+	if cfg, ok := e.svc.ModelConfig(modelName); ok && cfg.TimeoutMinutes > 0 {
+		return time.Duration(cfg.TimeoutMinutes) * time.Minute
+	}
+	return 0
+}
+
 func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
 	startTime := time.Now()
 	resp := &ExecuteResponse{State: req.State}
@@ -164,7 +181,6 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	execCtx = assistant.WithUsageTracker(execCtx)
 
 	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
-	var capturedEvents []any
 
 	// Resolve the effective tool-call format (explicit override, cloud native
 	// default, or a cached endpoint capability probe for local models) BEFORE
@@ -183,7 +199,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	useNativeTools := e.svc.EffectiveToolCallFormat(ctx, req.Model) == "native"
 
 	toolProvider := e.svc.ToolProvider()
-	agentOpts := e.buildAgentOptions(req, procLog, &capturedEvents, eventSink)
+	agentOpts := e.buildAgentOptions(req, procLog, eventSink)
 	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
 	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
@@ -209,10 +225,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 
 	if agErr != nil {
-		return e.handleAgentError(req, resp, procLog, execCtx, runDir, capturedEvents, startTime, agErr)
+		return e.handleAgentError(req, resp, procLog, execCtx, runDir, startTime, agErr)
 	}
 
-	return e.handleAgentSuccess(req, resp, procLog, execCtx, runDir, capturedEvents, startTime, finalReply, fullHistory)
+	return e.handleAgentSuccess(req, resp, procLog, execCtx, runDir, startTime, finalReply, fullHistory)
 }
 
 func runDirName(runDir *RunDir) string {
@@ -229,7 +245,7 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 		if err != nil {
 			errStr := fmt.Sprintf("failed to load recording %s: %v", req.RecordingRef, err)
 			resp.State.SetRunning("")
-			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil, nil)
+			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
 			return nil, fmt.Errorf("failed to load recording: %w", err)
 		}
 		procLog := e.svc.ProcessLogger(req.WorkspaceID)
@@ -239,18 +255,51 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 
 	var client proxy.Client
 	var err error
+	var get func() (proxy.Client, error)
 	if req.Model != "" {
-		client, err = e.svc.GetClientForModel(ctx, req.Model)
+		name := req.Model
+		get = func() (proxy.Client, error) { return e.svc.GetClientForModel(ctx, name) }
 	} else {
-		client, err = e.svc.ClientProvider().GetClient(ctx)
+		get = func() (proxy.Client, error) { return e.svc.ClientProvider().GetClient(ctx) }
 	}
+	// A cold local model returns ErrModelStarting while llama-server warms up.
+	// Poll (bounded) instead of failing the unattended run on the first try, so
+	// a midnight automation can auto-start the local LLM and wait for it.
+	client, err = waitForModelReady(ctx, get, req.Model, models.ModelStartPollInterval, modelStartWaitTimeout)
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.SetRunning("")
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil, nil)
+		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
 		return nil, fmt.Errorf("failed to get llm client: %w", err)
 	}
 	return client, nil
+}
+
+// waitForModelReady invokes get repeatedly until it returns a client, a
+// non-starting error (failed immediately), or the wait budget is exhausted. It
+// treats models.ErrModelStarting as "still cold-starting" and keeps polling —
+// the one case an unattended run should block on rather than fail. The wait is
+// bounded by waitTimeout and cancelled if ctx is done first.
+func waitForModelReady(ctx context.Context, get func() (proxy.Client, error), modelName string, pollInterval, waitTimeout time.Duration) (proxy.Client, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+
+	for {
+		client, err := get()
+		if err == nil {
+			return client, nil
+		}
+		if !errors.Is(err, models.ErrModelStarting) {
+			return nil, err
+		}
+		// Model is still starting: poll again unless the wait budget or the
+		// caller's context expired first.
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("model %s did not become ready within %v: %w", modelName, waitTimeout, err)
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*RunDir, *EventSink, bool) {
@@ -284,7 +333,7 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 }
 
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
-func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, capturedEvents *[]any, eventSink *EventSink) assistant.AgentOptions {
+func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, eventSink *EventSink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
 		Logger:       procLog,
 		MaxSteps:     assistant.DefaultMaxSteps,
@@ -294,14 +343,8 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 		Orchestrator: e.svc.Orchestrator(),
 		ModelName:    req.Model,
 		Observer: func(ev assistant.AgentEvent) {
-			*capturedEvents = append(*capturedEvents, ev)
-			// Bound in-memory retention: the full event stream already lives in
-			// the run-dir events.jsonl, and recordRun drops the slice. Keeping
-			// every chunk of a long report in RAM for the run's duration is
-			// wasted memory under concurrent long runs.
-			if len(*capturedEvents) > maxCapturedEventsPerRun {
-				*capturedEvents = (*capturedEvents)[len(*capturedEvents)-maxCapturedEventsPerRun:]
-			}
+			// The full event stream already lives in the run-dir events.jsonl;
+			// this observer only fans out to live subscribers and the sink.
 			e.svc.Events().Publish(req.WorkspaceID, ev)
 			if eventSink != nil {
 				eventSink.Write(ev)
@@ -338,7 +381,7 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 }
 
 // handleAgentError writes run-meta and records the failed run.
-func (e *LLMTaskExecutor) handleAgentError(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, capturedEvents []any, startTime time.Time, agErr error) (*ExecuteResponse, error) {
+func (e *LLMTaskExecutor) handleAgentError(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, startTime time.Time, agErr error) (*ExecuteResponse, error) {
 	errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 	if runDir != nil {
 		meta := RunMeta{
@@ -355,12 +398,12 @@ func (e *LLMTaskExecutor) handleAgentError(req ExecuteRequest, resp *ExecuteResp
 		runDir.WriteMeta(meta)
 	}
 	resp.State.SetRunning("")
-	e.recordRun(req, resp.State, "", errStr, time.Since(startTime), capturedEvents, runDir)
+	e.recordRun(req, resp.State, "", errStr, time.Since(startTime), runDir)
 	return resp, fmt.Errorf("agent execution failed: %w", agErr)
 }
 
 // handleAgentSuccess formats output, writes per-run artifacts, and records the run.
-func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, capturedEvents []any, startTime time.Time, finalReply string, fullHistory []proxy.Message) (*ExecuteResponse, error) {
+func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, startTime time.Time, finalReply string, fullHistory []proxy.Message) (*ExecuteResponse, error) {
 	runResult := finalReply
 	var runError string
 
@@ -430,7 +473,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 		runDir.WriteMeta(meta)
 	}
 
-	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), capturedEvents, runDir)
+	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), runDir)
 	return resp, nil
 }
 
@@ -450,7 +493,7 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm %ds", h, m, s)
 }
 
-func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, events []any, runDir *RunDir) {
+func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, runDir *RunDir) {
 	if state == nil {
 		return
 	}
@@ -490,162 +533,6 @@ func generateRunID() string {
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
-// annotateTaskWithMemories scans the task content line by line and appends
-// a proximity annotation below lines that match a memory entry in FTS5 AND
-// share at least one non-stop-word with that entry (word overlap). Capped at
-// maxAnnotations to prevent context bloat — 46 annotations added ~4600 chars
-// to the prompt, triggering the physical sieve and causing repetition loops.
-// Returns the annotated content and the count of annotations added.
-func (e *LLMTaskExecutor) annotateTaskWithMemories(ctx context.Context, wsID, taskContent string) (string, int) {
-	memStore := e.svc.MemoryStore()
-	if memStore == nil {
-		return taskContent, 0
-	}
-
-	const maxAnnotations = 5
-	lines := strings.Split(taskContent, "\n")
-	annotated := make([]string, 0, len(lines))
-	count := 0
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		annotated = append(annotated, line)
-
-		if trimmed == "" || len(trimmed) < 15 || strings.HasPrefix(trimmed, "---") || count >= maxAnnotations {
-			continue
-		}
-
-		entries, err := memStore.Search(ctx, wsID, trimmed, 1)
-		if err != nil || len(entries) == 0 {
-			continue
-		}
-
-		entry := entries[0]
-
-		// Word overlap check: at least one non-stop-word in the task line must
-		// also appear in the memory entry's title or content. This filters out
-		// coincidental FTS5 matches on common words ("Step 1: list directory"
-		// matching a memory about compliance-audit because both happen to
-		// contain "file").
-		if !wordsOverlap(trimmed, entry.Title+" "+entry.Content) {
-			continue
-		}
-
-		preview := entry.Content
-		if len(preview) > 80 {
-			preview = preview[:80] + "..."
-		}
-		annotated = append(annotated, fmt.Sprintf("  ↳ [Memory: %s — %s]", entry.Title, preview))
-		count++
-	}
-
-	return strings.Join(annotated, "\n"), count
-}
-
-var annotationStopWords = map[string]bool{
-	"step": true, "task": true, "run": true, "the": true, "a": true, "an": true,
-	"and": true, "or": true, "to": true, "in": true, "of": true, "for": true,
-	"with": true, "on": true, "by": true, "at": true, "is": true, "be": true,
-	"do": true, "not": true, "are": true, "was": true, "will": true, "can": true,
-}
-
-// wordsOverlap returns true when the two strings share at least one non-stop-
-// word (case-insensitive). Used by annotateTaskWithMemories to filter out
-// coincidental FTS5 matches.
-func wordsOverlap(a, b string) bool {
-	wordsA := extractNonStopWords(a)
-	if len(wordsA) == 0 {
-		return false
-	}
-	set := make(map[string]bool, len(wordsA))
-	for _, w := range wordsA {
-		set[w] = true
-	}
-	for _, w := range extractNonStopWords(b) {
-		if set[w] {
-			return true
-		}
-	}
-	return false
-}
-
-// extractNonStopWords lowercases and splits a string into non-stop-word tokens.
-func extractNonStopWords(s string) []string {
-	var words []string
-	var cur strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			cur.WriteRune(r)
-		} else {
-			if cur.Len() > 0 {
-				w := strings.ToLower(cur.String())
-				if !annotationStopWords[w] {
-					words = append(words, w)
-				}
-				cur.Reset()
-			}
-		}
-	}
-	if cur.Len() > 0 {
-		w := strings.ToLower(cur.String())
-		if !annotationStopWords[w] {
-			words = append(words, w)
-		}
-	}
-	return words
-}
-
-// buildPriorRunSeededHistory extracts tool call and result pairs from the last
-// automation run's event log and converts them to proxy.Message format for
-// injection into the initial history. Seeds from any prior run with events,
-// even if the run had an error — completed tool calls are still valid and the
-// model naturally skips steps already in its conversation history.
-func (e *LLMTaskExecutor) buildPriorRunSeededHistory(req ExecuteRequest) []proxy.Message {
-	if req.State == nil {
-		return nil
-	}
-	lastRun, ok := req.State.LastRuns[req.AutomationName]
-	if !ok || lastRun == nil || len(lastRun.Events) == 0 {
-		return nil
-	}
-
-	var seeded []proxy.Message
-	for _, ev := range lastRun.Events {
-		aev, ok := ev.(assistant.AgentEvent)
-		if !ok {
-			continue
-		}
-		switch aev.Type {
-		case assistant.EventToolCall:
-			tc, ok := aev.Payload.(proxy.ToolCall)
-			if !ok {
-				continue
-			}
-			seeded = append(seeded, proxy.Message{
-				Role:      proxy.AssistantRole,
-				ToolCalls: []proxy.ToolCall{tc},
-			})
-		case assistant.EventToolResult:
-			payload, ok := aev.Payload.(map[string]any)
-			if !ok {
-				continue
-			}
-			id, _ := payload["id"].(string)
-			if id == "" {
-				continue
-			}
-			// The result can be any type (string, number, map). Format it
-			// as a string so the model sees the tool output verbatim.
-			seeded = append(seeded, proxy.Message{
-				Role:       proxy.ToolRole,
-				Content:    fmt.Sprintf("%v", payload["result"]),
-				ToolCallID: id,
-			})
-		}
-	}
-	return seeded
-}
-
 func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) string {
 	return fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
@@ -667,33 +554,4 @@ func ApplyPulseLogic(resp *ExecuteResponse) {
 		resp.Output = ""
 		resp.State.LastPulse = time.Now()
 	}
-}
-
-// pruneEvents strips heavy payloads from the event history before persistence.
-func pruneEvents(events []any) []any {
-	if len(events) == 0 {
-		return events
-	}
-	pruned := make([]any, 0, len(events))
-	for _, ev := range events {
-		// We only keep a lightweight version of events for history.
-		// Detailed payloads (like file contents) are truncated.
-		switch v := ev.(type) {
-		case assistant.AgentEvent:
-			if v.Type == assistant.EventMessage {
-				msg, ok := v.Payload.(proxy.Message)
-				if ok {
-					// Truncate message content to 1KB for history
-					if len(msg.Content) > 1024 {
-						msg.Content = msg.Content[:1024] + "... [truncated for history]"
-					}
-					v.Payload = msg
-				}
-			}
-			pruned = append(pruned, v)
-		default:
-			pruned = append(pruned, ev)
-		}
-	}
-	return pruned
 }

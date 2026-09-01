@@ -111,7 +111,7 @@ defineEmits<{
         <div class="metric-row-margin">
           <span>Core Utilization</span>
           <span class="metric-value"
-            >{{ metrics.gpu.utilization_percent }}%</span
+            >{{ formatPercent(metrics.gpu.utilization_percent) }}%</span
           >
         </div>
         <div class="metric-row-plain">

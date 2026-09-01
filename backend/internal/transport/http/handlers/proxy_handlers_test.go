@@ -30,6 +30,7 @@ func (f *fakeRuntime) RemoveModel(string) error                  { return nil }
 func (f *fakeRuntime) ActiveInfo() *llm.ActiveModelInfo          { return nil }
 func (f *fakeRuntime) ActiveLogs() string                        { return "" }
 func (f *fakeRuntime) LastTokensPerSecond() (float64, time.Time) { return 0, time.Time{} }
+func (f *fakeRuntime) LastModelError() string                    { return "" }
 func (f *fakeRuntime) StopActive() error                         { return nil }
 func (f *fakeRuntime) ClearLogs() error                          { return nil }
 func (f *fakeRuntime) ModelHost() string                         { return "" }

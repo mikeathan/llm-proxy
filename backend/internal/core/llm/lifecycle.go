@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"syscall"
 	"time"
@@ -35,12 +36,13 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 		return nil
 	}
 
-	cmd := m.activeModel.Cmd
-	name := m.activeModel.Cfg.Name
+	model := m.activeModel
+	cmd := model.Cmd
+	name := model.Cfg.Name
 	logging.Info("Signaling stop to local model", "model", name)
 
-	if m.activeModel.Cancel != nil {
-		m.activeModel.Cancel()
+	if model.Cancel != nil {
+		model.Cancel()
 	}
 
 	// Try graceful stop (SIGTERM) to the process group
@@ -57,12 +59,12 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	m.activeCloudConfig = nil
 
 	return func() {
-		done := make(chan struct{})
-		go func() {
-			_ = cmd.Wait()
-			close(done)
-		}()
-
+		// Wait on the exit-watch channel (the sole owner of cmd.Wait) rather
+		// than calling cmd.Wait a second time here.
+		done := model.Done()
+		if done == nil {
+			return
+		}
 		select {
 		case <-done:
 			logging.Info("Local model exited gracefully", "model", name)
@@ -95,11 +97,25 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 			m.mu.Lock()
 
 			if m.activeModel != nil {
+				// 0. The process has exited (crash on launch — bad args, missing
+				// model, etc.). Surface the failure immediately and clear it
+				// instead of waiting out the full 5-minute startup timeout.
+				if m.activeModel.Exited() {
+					name := m.activeModel.Cfg.Name
+					err := m.clearCrashedModelLocked(name)
+					logging.Warn("Local model process exited unexpectedly; cleared",
+						"model", name, "error", err)
+					m.mu.Unlock()
+					continue
+				}
+
 				ready := portReady(m.activeModel.Cfg.Port)
 
 				// 1. If not ready, enforce a startup timeout to prevent zombie processes.
 				if !ready {
 					if time.Since(m.activeModel.Started) > startupTimeout {
+						err := fmt.Errorf("failed to become ready within %v", startupTimeout)
+						m.recordModelErrorLocked(m.activeModel.Cfg.Name, err)
 						log.Printf("Model %s failed to become ready within %v → stopping", m.activeModel.Cfg.Name, startupTimeout)
 						waiter := m.signalStopLocked()
 						m.mu.Unlock()
@@ -153,4 +169,47 @@ func (m *LLMRuntimeManager) LastTokensPerSecond() (float64, time.Time) {
 		return m.activeModel.Throughput.LastTokensPerSecond()
 	}
 	return 0, time.Time{}
+}
+
+// recordModelErrorLocked stores the last local-model startup/runtime failure.
+// Must be called with m.mu held.
+func (m *LLMRuntimeManager) recordModelErrorLocked(model string, err error) {
+	if err == nil {
+		m.lastModelError = fmt.Sprintf("%s: process exited", model)
+		return
+	}
+	m.lastModelError = fmt.Sprintf("%s: %v", model, err)
+}
+
+// clearCrashedModelLocked detects and clears an active local model whose
+// process has exited unexpectedly (crash on launch), recording the failure.
+// It is the single shared place for crash detection so the reaper and
+// GetInstance cannot diverge. Returns nil when the named active model is alive
+// or starting (nothing to clear); otherwise a descriptive error. Must be
+// called with m.mu held.
+func (m *LLMRuntimeManager) clearCrashedModelLocked(name string) error {
+	if m.activeModel == nil || m.activeModel.Cfg.Name != name {
+		return nil
+	}
+	if !m.activeModel.Exited() {
+		return nil
+	}
+	exitErr := m.activeModel.Err()
+	if m.activeModel.Cancel != nil {
+		m.activeModel.Cancel()
+	}
+	m.recordModelErrorLocked(name, exitErr)
+	m.activeModel = nil
+	m.activeProvider = nil
+	if exitErr != nil {
+		return fmt.Errorf("local model failed to start: %w", exitErr)
+	}
+	return fmt.Errorf("local model process exited unexpectedly")
+}
+
+// LastModelError returns the most recent local-model failure message, or "".
+func (m *LLMRuntimeManager) LastModelError() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastModelError
 }

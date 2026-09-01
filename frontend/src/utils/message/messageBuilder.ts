@@ -4,6 +4,7 @@ import { LIFECYCLE_PHASES, type AgentEvent, type UpstreamEventPayload } from '..
 import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../dispatcher'
 import type { InsetPhase } from '../../types/inset'
 import type { MessageBuilderOptions } from '../../types/message'
+import { MODEL_STARTING_NOTICE, TRANSPORT_ERROR_LABEL, UPSTREAM_RETRYING_TEMPLATE } from '../../constants/labels'
 
 // Tool-call markup patterns, hoisted to module scope: stripToolCallXml runs on
 // every stream event (10–100/sec during a stream) and the finalize guard on
@@ -36,6 +37,25 @@ function safeParseArgs(raw: string): string {
   } catch {
     return raw
   }
+}
+
+// upstreamRetryMessage formats the inline "retrying" notice from an upstream
+// retry event. A model still starting upstream is polled (not a bounded
+// retry), so it is explained as such instead of showing a "(1/0)" attempt
+// chip. All copy comes from constants/labels.ts — no inline strings.
+function upstreamRetryMessage(p: UpstreamEventPayload): string {
+  if (p?.reason === 'model_starting') {
+    return MODEL_STARTING_NOTICE
+  }
+  const attempt = p?.attempt ?? 0
+  const max = p?.max_attempts ?? 0
+  const reason = p?.reason === 'status'
+    ? `status ${p.status ?? ''}`
+    : (p?.err_class ? `${p.err_class}: ${p.error ?? TRANSPORT_ERROR_LABEL}` : (p?.error ?? TRANSPORT_ERROR_LABEL))
+  return UPSTREAM_RETRYING_TEMPLATE
+    .replace('{attempt}', String(attempt))
+    .replace('{max}', String(max))
+    .replace('{reason}', reason)
 }
 
 // Adaptive streaming-flush cadence. Each flush re-runs markdown on the ENTIRE
@@ -214,14 +234,9 @@ export function useMessageBuilder(
   // stall. Observational only — the retry is still running, so we deliberately
   // do NOT touch phase/streaming/thinking flags.
   function handleUpstreamNotice(p: UpstreamEventPayload) {
-    const attempt = p?.attempt ?? 0
-    const max = p?.max_attempts ?? 0
-    const reason = p?.reason === 'status'
-      ? `status ${p.status ?? ''}`
-      : (p?.err_class ? `${p.err_class}: ${p.error ?? 'transport error'}` : (p?.error ?? 'transport error'))
     ensureAssistant()
     const segments = getSegments()
-    const message = `Upstream retrying (${attempt}/${max}) — ${reason}`
+    const message = upstreamRetryMessage(p)
     const last = segments[segments.length - 1]
     if (last && last.kind === 'notice' && last.status === 'pending') {
       // Collapse consecutive retries into the existing notice so a long retry

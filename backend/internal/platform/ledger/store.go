@@ -94,6 +94,10 @@ const expireSlotsSQL = `DELETE FROM active_slots WHERE expires_at <= datetime('n
 // purgeTransactionsSQL deletes ledger entries older than the cutoff.
 const purgeTransactionsSQL = `DELETE FROM icu_ledger WHERE created_at < ?`
 
+// purgeBalancesSQL deletes per-window balance rows older than the cutoff
+// (one row per workspace per window would otherwise accumulate forever).
+const purgeBalancesSQL = `DELETE FROM icu_balances WHERE window_start < ?`
+
 // setEntityMetadataSQL upserts a key-value metadata entry for an entity.
 const setEntityMetadataSQL = `INSERT INTO entity_metadata (entity_type, entity_id, key, value, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(entity_type, entity_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')`
 
@@ -253,6 +257,16 @@ func (s *Store) PurgeTransactions(ctx context.Context, before time.Time) error {
 	_, err := s.db.ExecContext(ctx, purgeTransactionsSQL, before.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return fmt.Errorf("purge transactions: %w", err)
+	}
+	return nil
+}
+
+// PurgeBalances deletes per-window balance rows whose window started before
+// the cutoff, keeping only recent windows per workspace.
+func (s *Store) PurgeBalances(ctx context.Context, before time.Time) error {
+	_, err := s.db.ExecContext(ctx, purgeBalancesSQL, before.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return fmt.Errorf("purge balances: %w", err)
 	}
 	return nil
 }

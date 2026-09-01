@@ -18,3 +18,9 @@ export function getPhaseLabel(phase: InsetPhase, toolCount = 0): string {
     default:           return 'Assistant'
   }
 }
+
+// Upstream-retry notice copy — event-driven, surfaced as an inline notice
+// while a transient upstream failure is being retried.
+export const UPSTREAM_RETRYING_TEMPLATE = 'Upstream retrying ({attempt}/{max}) — {reason}'
+export const MODEL_STARTING_NOTICE = 'Model is starting — waiting for it to become ready'
+export const TRANSPORT_ERROR_LABEL = 'transport error'

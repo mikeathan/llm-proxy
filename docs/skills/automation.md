@@ -39,7 +39,15 @@ last_reviewed: 2026-07-11
 - Manages schedules (cron, interval, manual)
 - Emits SSE events for live UI updates
 - Handles run lifecycle (start, cancel, complete)
-- 10-minute timeout (`automationTimeout`) for full automation runs across all trigger paths (cron, webhook, manual)
+- Run timeout = `max(automationTimeout (default 10m), pinned model's timeout_minutes)`, so a slow
+  model configured with a longer timeout is not cut off mid-run (`runContext` in dispatcher.go)
+- Cron jobs register their **real schedule** (`triggerToCron`), so pre-executor failures no longer
+  retry every minute and a new automation does not fire immediately
+- Panic containment: every execution goroutine runs through `safe.Go` and cron jobs through
+  `cron.Recover`; `executeAutomation` recovers panics and clears the run's running state, so a
+  single bad run can never crash the service or leave a workspace stuck marked running
+- `RunReaper` (`runreaper.go`, started in `app.New`) prunes completed run directories older than
+  `DefaultRunRetention` (30 days) so a long-lived service does not fill the disk
 
 ### StopAutomation Behavior
 - `StopAutomation()` cancels the execution context immediately (best-effort).
@@ -54,6 +62,26 @@ last_reviewed: 2026-07-11
 - Builds AgentOptions from model config (max_steps, temperature, reasoning budget, etc.)
 - Creates agent, runs `Execute()`
 - Returns result to dispatcher
+
+### Cold Local-Model Startup
+When an automation targets a local model that is not running (e.g. idle-reaped before a
+scheduled run), the first `GetClientForModel` triggers `llama-server` startup and returns
+`models.ErrModelStarting` while it warms up. `getLLMClient` now **polls** on that sentinel
+(`waitForModelReady`) instead of failing the run immediately, so an unattended run can auto-start
+the local LLM and wait for it. The poll runs every `modelStartPollInterval` (3s) up to
+`modelStartWaitTimeout` (5 min), mirroring the idle reaper's own 5-minute startup window, and
+aborts immediately on any non-starting error or on context cancellation.
+
+### Local Model Failure Detection
+A local model that crashes on launch (bad launch args, missing model) is detected via a shared
+process-exit watch (`internal/platform/procwatch`, reused by both the model lifecycle and the
+persistent shell). `clearCrashedModelLocked` (in `internal/core/llm/lifecycle.go`) is the single
+place that turns an exited model into a failure: it records the error (`LastModelError`, surfaced
+in the admin status / process-logs endpoints) and clears the dead model. Both `GetInstance` (so a
+request surfaces a real error instead of looping on `ErrModelStarting`) and the idle reaper (so a
+crashed model is cleared promptly instead of after the 5-minute startup timeout) call it. The
+automation path additionally fails with a clear `model <name> did not become ready within 5m`
+message via `waitForModelReady` rather than falsely proceeding on a dead model.
 
 ### Agent Loop (`internal/core/assistant/`)
 - `run()` in `session.go` — main loop, handles turn-by-turn execution

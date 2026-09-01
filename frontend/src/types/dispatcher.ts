@@ -134,7 +134,7 @@ export interface GuardrailDecision {
 // UpstreamEventPayload in backend/internal/core/assistant/agent_events.go.
 export interface UpstreamEventPayload {
   event: string // "retry"
-  reason: 'transport' | 'status'
+  reason: 'transport' | 'status' | 'model_starting'
   attempt: number // 1-based attempt being retried
   max_attempts: number
   error?: string // transport error text

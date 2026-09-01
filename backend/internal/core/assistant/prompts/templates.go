@@ -163,6 +163,7 @@ RULES:
      - Put the report DIRECTLY in the final message. Do NOT compose it inside your thinking/reasoning block — the reasoning budget is limited and your report will be truncated.
      - "Deliver the report" means reply with it as text. Only call the write_file tool when the task EXPLICITLY asks to save a file. Do NOT use write_file for the final answer.
   7. BEST PRACTICE: Always start by verifying your environment. If you need to run code, use 'execute_terminal_command' to check for required runtimes (e.g., node, tsc, python) in your first turn.
+  8. NO PROGRESS NARRATION: Never narrate or summarize progress between tool calls (e.g. "First part done, continuing..." — progress updates are not answers). Output ONLY the next tool call. The final report is the ONLY message that should contain explanatory text, and it is produced only after ALL steps are complete.
   `
 
 // DefaultRulesNative is identical to DefaultRules but omits the <tool_call>
@@ -182,6 +183,7 @@ RULES:
      - Put the report DIRECTLY in the final message. Do NOT compose it inside your thinking/reasoning block — the reasoning budget is limited and your report will be truncated.
      - "Deliver the report" means reply with it as text. Only call the write_file tool when the task EXPLICITLY asks to save a file. Do NOT use write_file for the final answer.
   7. BEST PRACTICE: Always start by verifying your environment. If you need to run code, use 'execute_terminal_command' to check for required runtimes (e.g., node, tsc, python) in your first turn.
+  8. NO PROGRESS NARRATION: Never narrate or summarize progress between tool calls (e.g. "First part done, continuing..." — progress updates are not answers). Output ONLY the next tool call. The final report is the ONLY message that should contain explanatory text, and it is produced only after ALL steps are complete.
   `
 
 // AssembleSystemPrompt aggregates the core operational constitution with any workspace-specific rules.

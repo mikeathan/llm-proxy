@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,11 +12,17 @@ import (
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/safe"
 	"llm-proxy/models"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// webhookRateLimitInterval bounds inbound messages per connector so an
+// unauthenticated webhook cannot be used as a resource-exhaustion amplifier.
+const webhookRateLimitInterval = time.Second
 
 // WebhookHandler receives inbound messages from external platforms (Telegram,
 // Slack, etc.) via POST /api/v1/webhooks/{connector_name} and routes them to
@@ -29,6 +36,7 @@ type WebhookHandler struct {
 	Dispatcher  *automation.Dispatcher
 	Assistant   *AssistantMessageHandler
 	Logger      logging.Logger
+	Limiter     ratelimiter.Limiter
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +53,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "connector not found or disabled")
 		return
 	}
+
+	// Per-connector rate limit: the webhook endpoint is public, so without a
+	// bound a flood of messages would spawn unbounded agent runs.
+	if h.Limiter != nil && !h.Limiter.Allow(connectorName, webhookRateLimitInterval) {
+		h.Logger.Warn("webhook: rate limited", "connector", connectorName)
+		writeJSONError(w, http.StatusTooManyRequests, "rate limited")
+		return
+	}
 	h.Logger.Info("webhook received", "connector", connectorName, "type", cfg.Type)
 
 	expectedToken := cfg.Settings["webhook_token"]
@@ -53,7 +69,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if actualToken == "" {
 			actualToken = r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
 		}
-		if actualToken != expectedToken {
+		// Constant-time compare so the token cannot be recovered via timing.
+		if subtle.ConstantTimeCompare([]byte(actualToken), []byte(expectedToken)) != 1 {
 			h.Logger.Warn("webhook: invalid webhook token", "connector", connectorName)
 			writeJSONError(w, http.StatusUnauthorized, "invalid webhook token")
 			return
@@ -100,11 +117,17 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 	}
 
 	ctx := h.execCtx(workspaceID)
-	if err := h.Dispatcher.Trigger(ctx, workspaceID, name, ""); err != nil {
-		h.Logger.Error("automation trigger failed", "name", name, "error", err)
-		h.replyToChat(connectorName, fmt.Sprintf("Failed to trigger '%s': %v", name, err))
-		return
-	}
+
+	// Trigger asynchronously: Dispatcher.Trigger blocks until the run finishes
+	// (up to the automation timeout). Holding the webhook request open that
+	// long would make this endpoint a trivial resource-exhaustion amplifier,
+	// so the trigger runs in a guarded goroutine and the run's progress is
+	// observed by the monitor goroutine below.
+	safe.Go("webhook automation trigger", func() {
+		if err := h.Dispatcher.Trigger(ctx, workspaceID, name, ""); err != nil {
+			h.Logger.Error("automation trigger failed", "name", name, "error", err)
+		}
+	})
 
 	immediateReply := fmt.Sprintf("Running '%s'...", name)
 	h.replyToChat(connectorName, immediateReply)
@@ -112,7 +135,7 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 	resultCh := make(chan string, 1)
 	sub, _ := h.Dispatcher.Events().Subscribe(workspaceID, assistant.ChannelAutomation)
 
-	go func() {
+	safe.Go("webhook automation monitor", func() {
 		defer h.Dispatcher.Events().Unsubscribe(workspaceID, assistant.ChannelAutomation, sub)
 		for {
 			select {
@@ -137,7 +160,7 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 				return
 			}
 		}
-	}()
+	})
 
 	select {
 	case result := <-resultCh:
@@ -169,7 +192,7 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 	// Run agent in a goroutine — the webhook response to Telegram is sent
 	// immediately to avoid timeouts.  The agent's reply is delivered via
 	// the connector's sendMessage API when execution completes.
-	go h.runAgentReply(workspaceID, connectorName, connectorType, chatID, payload)
+	safe.Go("webhook agent reply", func() { h.runAgentReply(workspaceID, connectorName, connectorType, chatID, payload) })
 }
 
 // runAgentReply runs handleAssistant and sends the result back via the connector.

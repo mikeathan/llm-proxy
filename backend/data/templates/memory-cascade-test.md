@@ -23,7 +23,7 @@ There are exactly **7 facts**. Verify all 7 are saved before proceeding to Phase
 
 #### Phase 2: Answer Questions
 
-Use `memory_search` **at most once** to retrieve all stored facts. Then answer each of the following questions from the search result:
+Call the `memory_search` tool **at most once** to retrieve all stored facts. Then answer each of the following questions from the search result:
 
 - "What is Aris Thorne's field of study?"
 - "Where is the Xenolith Institute located, and what is Dr. Thorne's room number there?"
@@ -53,3 +53,10 @@ Produce a single, coherent 3-sentence biography of Dr. Aris Thorne. The biograph
 3. Error summary: which facts were dropped, conflated, or hallucinated (each with ❌ next to it)
 4. Result: **PASS** if all 7 facts retained AND all 5 questions answered correctly. Otherwise ❌ **FAIL** with the reason.
 5. Score: X/7 facts retained, Y/5 questions answered correctly, synthesis passes temporal check (Yes/No)
+
+### Cross-Run Contamination
+
+This test assumes a **clean memory**. If a previous run of this test left the Dr. Aris Thorne facts in memory, the recall
+results will be invalid. Before running, delete any pre-existing "Aris Thorne" / "Xenolith" facts (via the admin UI or a
+memory reset), or note their presence in the report and exclude them from the 7-fact count. Score only the facts saved in
+**this** run.

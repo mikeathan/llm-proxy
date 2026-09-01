@@ -7,9 +7,11 @@ import (
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
 	handlers "llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
+	"llm-proxy/utils"
 )
 
 // HandlerSet bundles all constructed HTTP handler types.
@@ -79,6 +81,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		Dispatcher:  disp,
 		Assistant:   hs.Assistant,
 		Logger:      s.Logger(),
+		Limiter:     ratelimiter.NewLimiter(utils.NewRealClock()),
 	}
 
 	return hs

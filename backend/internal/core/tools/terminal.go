@@ -145,6 +145,15 @@ func ValidateTerminalCommand(command string, cfg models.TerminalGuardrailsConfig
 		}
 	}
 
+	// 3b. Recurse into shell launchers (bash/sh -c): the embedded argument is a
+	// real shell program, so `bash -c '<disallowed>'` would otherwise bypass
+	// the per-segment whitelist. The inner command is validated with the full
+	// pipeline (patterns, paths, whitelist, path security).
+	if err := validateShellLaunchers(segments, cfg, blockedFilenames, cache, jailPath, cwd); err != nil {
+		logging.Debug("guardrail blocked", "rule", "shell_launcher", "error", err.Error())
+		return err
+	}
+
 	// 4. Block Absolute Paths and Parent Traversal (Jail Escape Prevention)
 	if err := checkPathSecurity(cleanCmd, jailPath, cfg.AllowedExternalPaths, cwd); err != nil {
 		logging.Debug("guardrail blocked", "rule", "path_security", "error", err.Error())
@@ -300,12 +309,21 @@ func scanCommandSegments(command string) (segments []string, balanced bool) {
 
 // parseHeredocMarker extracts the terminator word from a heredoc opening
 // positioned just after "<<" (start = index of the char following "<<").
-// Handles the tab-strip flag (<<-EOF), quoting (<<'EOF', <<"EOF") and
-// escaping (<<\EOF). Returns ok=false when no marker word is present.
+// Handles the tab-strip flag (<<-EOF), quoting (<<'EOF', <<"EOF"), escaping
+// (<<\EOF) and whitespace between the operator and the marker (<< EOF,
+// << 'EOF' — bash accepts both). Returns ok=false when no marker word exists.
 func parseHeredocMarker(chars []byte, start int) (marker string, stripTabs bool, ok bool) {
 	j := start
 	if j < len(chars) && chars[j] == '-' {
 		stripTabs = true
+		j++
+	}
+	// Bash allows whitespace between the << operator (and an optional tab-
+	// strip flag) and the delimiter. Without this skip, `<< 'EOF'` was not
+	// recognized as a heredoc, so the body lines were split into fake command
+	// segments and the body's first words (EOF, HEREDOC, interface, ...) were
+	// whitelist-rejected as phantom "commands".
+	for j < len(chars) && (chars[j] == ' ' || chars[j] == '\t') {
 		j++
 	}
 	// Quoted or escaped markers: bash strips the quotes/backslash and
@@ -440,6 +458,14 @@ func lineReferencesBlockedPath(line string, blocked []string) bool {
 	return false
 }
 
+// scrubOutput applies the same invariants the input gate enforces to terminal
+// OUTPUT before it reaches the agent: blocked-path references (recursive
+// traversals emit them even without an explicit operand) and secret-shaped
+// strings (allowlisted commands like `env` can dump them).
+func scrubOutput(output string, blocked []string) string {
+	return RedactSecrets(redactBlockedPaths(output, blocked))
+}
+
 // assertAllowedCommand checks that every command segment starts with a base
 // command in the allowed list. Leading shell comments (# ...) are stripped
 // before checking so model annotations like "# Step 6\ntsc ..." don't block
@@ -476,6 +502,49 @@ func assertAllowedCommand(segments []string, allowed []string) error {
 	return nil
 }
 
+// alwaysSafeAbsolutePaths are literal paths that carry no security or data
+// exposure regardless of the workspace jail, so they are exempt from the
+// absolute-path allowlist. Currently only /dev/null — the universal output
+// sink (writes are discarded, reads return EOF). It has no subpaths, so
+// permitting the literal path does NOT open up /dev/* (/dev/random,
+// /dev/urandom, block devices, etc. remain blocked). This is an implicit
+// always-allowed set (not config): /dev/null redirects are a standard idiom
+// that should never require an allowedexternalpaths entry.
+var alwaysSafeAbsolutePaths = []string{"/dev/null"}
+
+// shellLaunchers are interpreters whose -c argument is itself a shell command.
+// They are allowlisted as commands, so their embedded argument must satisfy the
+// same validation — otherwise `bash -c '<disallowed>'` bypasses the whitelist.
+var shellLaunchers = map[string]bool{"bash": true, "sh": true}
+
+// validateShellLaunchers re-validates the -c argument of allowlisted shell
+// launchers with the full ValidateTerminalCommand pipeline. Nesting is bounded
+// by the command length, and an unterminated embedded command is rejected.
+func validateShellLaunchers(segments []string, cfg models.TerminalGuardrailsConfig, blocked []string, cache *sync.Map, jailPath, cwd string) error {
+	for _, seg := range segments {
+		words := strings.Fields(seg)
+		if len(words) < 3 || !shellLaunchers[words[0]] {
+			continue
+		}
+		for i := 1; i < len(words); i++ {
+			if words[i] != "-c" {
+				continue
+			}
+			inner := strings.Trim(strings.Join(words[i+1:], " "), `"'`)
+			if strings.TrimSpace(inner) == "" {
+				continue
+			}
+			if err := ValidateTerminalCommand(inner, cfg, blocked, cache, jailPath, cwd); err != nil {
+				return fmt.Errorf("shell -c command rejected: %w", err)
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// checkPathSecurity blocks absolute paths outside the jail and parent
+// traversal.
 func checkPathSecurity(command string, jailPath string, allowedExternal []string, effectiveCwd string) error {
 	// 1. Block Absolute Paths unless they're within the workspace jail or explicitly allowed.
 	//    buildAllowedRoots includes jailPath + allowedExternal, ensuring the workspace
@@ -487,6 +556,9 @@ func checkPathSecurity(command string, jailPath string, allowedExternal []string
 			return fmt.Errorf("security violation: absolute paths are not permitted in terminal commands")
 		}
 		for _, absPath := range absPaths {
+			if isAlwaysSafeAbsolutePath(absPath) {
+				continue
+			}
 			if _, err := IsSecurePath(absPath, roots); err != nil {
 				return fmt.Errorf("security violation: absolute path '%s' is outside allowed paths", absPath)
 			}
@@ -541,6 +613,19 @@ func buildAllowedRoots(jailPath string, allowedExternal []string) []string {
 	}
 	roots = append(roots, allowedExternal...)
 	return roots
+}
+
+// isAlwaysSafeAbsolutePath reports whether an absolute path is in the implicit
+// always-allowed set (see alwaysSafeAbsolutePaths). The literal comparison is
+// deliberate: only the exact safe path is exempt, so no subpath or sibling in
+// the same namespace gains access.
+func isAlwaysSafeAbsolutePath(p string) bool {
+	for _, safe := range alwaysSafeAbsolutePaths {
+		if p == safe {
+			return true
+		}
+	}
+	return false
 }
 
 func extractAbsolutePaths(command string) []string {
@@ -724,7 +809,7 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	readAndTee(errStream, "stderr")
 
 	wg.Wait()
-	output := t.truncateOutput(redactBlockedPaths(buf.String(), internalBlockedPaths), cfg.MaxOutputSize)
+	output := t.truncateOutput(scrubOutput(buf.String(), internalBlockedPaths), cfg.MaxOutputSize)
 	if execErr != nil {
 		logging.Debug("executeShell: error", "output_len", len(output), "error", execErr.Error())
 		return output, fmt.Errorf("shell execution failed: %w", execErr)
@@ -765,7 +850,7 @@ func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd st
 
 	logging.Debug("executeLocal: running", "shell", shell, "command", command, "cwd", cwd)
 	out, err := cmd.CombinedOutput()
-	result := t.truncateOutput(redactBlockedPaths(string(out), internalBlockedPaths), cfg.MaxOutputSize)
+	result := t.truncateOutput(scrubOutput(string(out), internalBlockedPaths), cfg.MaxOutputSize)
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
