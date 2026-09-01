@@ -30,6 +30,8 @@ type RuntimeService interface {
 	ActiveInfo() *llm.ActiveModelInfo
 	ActiveLogs() string
 	LastTokensPerSecond() (float64, time.Time)
+	// LastModelError returns the most recent local-model startup/runtime failure.
+	LastModelError() string
 	StopActive() error
 	ClearLogs() error
 	ModelHost() string

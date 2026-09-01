@@ -75,21 +75,6 @@ func (p *LocalProvider) TestConnection(ctx context.Context) error {
 	return nil
 }
 
-func (p *LocalProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
-	return nil, fmt.Errorf("local provider Chat endpoint is not yet implemented natively; use standard model host proxying")
-}
-
-func (p *LocalProvider) GetStatus() models.ProviderStatus {
-	if p.activeModel != nil {
-		if utils.PortReady(p.cfg.Port) {
-			return models.ProviderStatusReady
-		}
-		logging.Debug("Local model port not yet ready", "model", p.cfg.Name, "port", p.cfg.Port)
-		return models.ProviderStatusRunning
-	}
-	return models.ProviderStatusReady
-}
-
 func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
 	if p.activeModel == nil {
 		return "", nil, fmt.Errorf("model not running")
@@ -126,46 +111,6 @@ func freePort(port int) {
 			fmt.Sprintf("lsof -ti :%d | xargs kill -9", port)).Run()
 	}
 	time.Sleep(300 * time.Millisecond)
-}
-
-func (p *LocalProvider) Shutdown() error {
-	if p.activeModel == nil {
-		return nil
-	}
-
-	cmd := p.activeModel.Cmd
-	if p.activeModel.Cancel != nil {
-		p.activeModel.Cancel()
-	}
-
-	if cmd.Process != nil {
-		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
-			_ = syscall.Kill(-pgid, syscall.SIGTERM)
-		} else {
-			_ = cmd.Process.Signal(syscall.SIGTERM)
-		}
-	}
-
-	done := make(chan struct{})
-	go func() {
-		cmd.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		if cmd.Process != nil {
-			if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
-				_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			} else {
-				_ = cmd.Process.Kill()
-			}
-		}
-	}
-
-	p.activeModel = nil
-	return nil
 }
 
 func (p *LocalProvider) StartModel(ctx context.Context) error {
@@ -220,6 +165,9 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 		Logs:       logBuf,
 		Throughput: tokens,
 	}
+	// Watch for an unexpected exit (crash on launch). This goroutine is now the
+	// single owner of cmd.Wait; Shutdown/signalStopLocked wait on Done instead.
+	p.activeModel.StartWatch()
 
 	return nil
 }

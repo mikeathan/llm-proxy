@@ -19,6 +19,7 @@ type MockManager struct {
 	ActiveInfoFunc              func() *llm.ActiveModelInfo
 	ActiveLogsFunc              func() string
 	LastTokensPerSecondFunc     func() (float64, time.Time)
+	LastModelErrorFunc          func() string
 	StopActiveFunc              func() error
 	ClearLogsFunc               func() error
 	ModelHostFunc               func() string
@@ -174,6 +175,13 @@ func (m *MockManager) LastTokensPerSecond() (float64, time.Time) {
 		return m.LastTokensPerSecondFunc()
 	}
 	return 0, time.Time{}
+}
+
+func (m *MockManager) LastModelError() string {
+	if m.LastModelErrorFunc != nil {
+		return m.LastModelErrorFunc()
+	}
+	return ""
 }
 
 func (m *MockManager) StopActive() error {

@@ -3,8 +3,28 @@ package tools
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+// SecretPatterns are regexes for common API-key shapes. They are the single
+// source of truth for both input-side validation (guardrails scan tool
+// arguments) and output-side scrubbing (terminal results are redacted before
+// they reach the agent).
+var SecretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),
+	regexp.MustCompile(`AKIA[a-zA-Z0-9]{16}`),
+	regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),
+}
+
+// RedactSecrets replaces secret-shaped substrings with a placeholder so
+// sensitive values cannot leak out through tool output.
+func RedactSecrets(s string) string {
+	for _, re := range SecretPatterns {
+		s = re.ReplaceAllString(s, "[REDACTED]")
+	}
+	return s
+}
 
 // IsSecurePath checks if a path is within the allowed roots, resolving symlinks to prevent jail escape.
 func IsSecurePath(path string, allowedRoots []string) (string, error) {

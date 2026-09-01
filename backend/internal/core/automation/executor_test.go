@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
@@ -99,6 +100,88 @@ func (m *mockSvc) RootDir() string                { return "" }
 func (m *mockSvc) RunLoggingEnabled() bool        { return false }
 func (m *mockSvc) SelectModels() (string, string) { return "", "" }
 
+// stubClient is a minimal proxy.Client for waitForModelReady tests.
+type stubClient struct{}
+
+func (stubClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) { return nil, nil }
+func (stubClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	return nil, nil
+}
+func (stubClient) ReasoningField() string { return proxy.DefaultReasoningField }
+
+// TestWaitForModelReady_PollsUntilReady verifies that a cold local model start
+// (ErrModelStarting on the first calls) is polled rather than failing the run,
+// and that the poll stops as soon as a client is available.
+func TestWaitForModelReady_PollsUntilReady(t *testing.T) {
+	calls := 0
+	get := func() (proxy.Client, error) {
+		calls++
+		if calls < 3 {
+			return nil, models.ErrModelStarting
+		}
+		return stubClient{}, nil
+	}
+
+	client, err := waitForModelReady(context.Background(), get, "local-gguf", time.Millisecond, time.Second)
+	if err != nil {
+		t.Fatalf("expected ready client, got error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 poll attempts (2 starting + 1 ready), got %d", calls)
+	}
+}
+
+// TestWaitForModelReady_FailsFastOnNonStartingError verifies that an error
+// other than ErrModelStarting aborts immediately without polling.
+func TestWaitForModelReady_FailsFastOnNonStartingError(t *testing.T) {
+	calls := 0
+	get := func() (proxy.Client, error) {
+		calls++
+		return nil, fmt.Errorf("boom")
+	}
+	if _, err := waitForModelReady(context.Background(), get, "m", time.Millisecond, time.Second); err == nil {
+		t.Fatal("expected hard error, got nil")
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly 1 attempt, got %d", calls)
+	}
+}
+
+// TestWaitForModelReady_TimesOut verifies the poll gives up with a clear error
+// when the model never becomes ready within the wait budget.
+func TestWaitForModelReady_TimesOut(t *testing.T) {
+	get := func() (proxy.Client, error) {
+		return nil, models.ErrModelStarting
+	}
+	_, err := waitForModelReady(context.Background(), get, "never-ready", 2*time.Millisecond, 20*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "did not become ready") {
+		t.Errorf("expected 'did not become ready' in error, got: %v", err)
+	}
+}
+
+// TestWaitForModelReady_CancelledContext verifies a cancelled caller context
+// aborts the poll immediately.
+func TestWaitForModelReady_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	get := func() (proxy.Client, error) {
+		return nil, models.ErrModelStarting
+	}
+	start := time.Now()
+	if _, err := waitForModelReady(ctx, get, "m", time.Second, time.Minute); err == nil {
+		t.Fatal("expected error on cancelled context, got nil")
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("cancelled context should abort immediately, took %v", time.Since(start))
+	}
+}
+
 func newTestMemoryStoreAndDB(t *testing.T) (*memory.Store, *sql.DB) {
 	t.Helper()
 	f, err := os.CreateTemp("", "memory-test-*.db")
@@ -147,7 +230,7 @@ func TestBuildAgentOptions_NativeToolFormatPropagates(t *testing.T) {
 		TaskContent:    "do the thing",
 		Model:          cfg.Name,
 	}
-	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), new([]any), nil)
+	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), nil)
 	if opts.UseNativeTools == nil || !*opts.UseNativeTools {
 		t.Fatalf("expected UseNativeTools=true after native format resolution, got %v", opts.UseNativeTools)
 	}
@@ -170,7 +253,7 @@ func TestBuildAgentOptions_ColdCacheDefaultsXML(t *testing.T) {
 	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
 
 	req := ExecuteRequest{WorkspaceID: "test-ws", Model: cfg.Name, TaskContent: "x"}
-	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), new([]any), nil)
+	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), nil)
 	if opts.UseNativeTools != nil && *opts.UseNativeTools {
 		t.Fatalf("expected UseNativeTools unset/false with no format in config, got %v", opts.UseNativeTools)
 	}

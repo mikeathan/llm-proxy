@@ -24,6 +24,8 @@ func (e *mockExecutor) ShellPGID(ctx context.Context, workspaceID string) (int, 
 	return 0, nil
 }
 
+func (e *mockExecutor) ModelTimeout(modelName string) time.Duration { return 0 }
+
 func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 	// 1. Setup temporary test environment
 	tmpRoot, err := os.MkdirTemp("", "dispatcher-test-*")
@@ -97,6 +99,8 @@ func (e *pgidMockExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Ex
 func (e *pgidMockExecutor) ShellPGID(ctx context.Context, workspaceID string) (int, error) {
 	return e.pgid, e.pgidErr
 }
+
+func (e *pgidMockExecutor) ModelTimeout(modelName string) time.Duration { return 0 }
 
 // cancelDiagnostic cancels the StopAutomation diagnostic goroutine for a
 // workspace. StopAutomation leaves that goroutine sleeping until the
@@ -266,3 +270,63 @@ func TestDispatcher_Stop_RespectsContext(t *testing.T) {
 	// Stop must be idempotent and safe to call again.
 	d.Stop(context.Background())
 }
+
+// TestTriggerToCron_RealSchedule verifies triggers register their actual
+// schedule instead of a @every-1m poll (which retried pre-executor failures
+// every minute and fired new automations immediately).
+func TestTriggerToCron_RealSchedule(t *testing.T) {
+	d := &Dispatcher{}
+	cronTr, err := NewCronTrigger("0 0 * * *")
+	if err != nil {
+		t.Fatalf("cron trigger: %v", err)
+	}
+	intervalTr, err := NewIntervalTrigger("2h")
+	if err != nil {
+		t.Fatalf("interval trigger: %v", err)
+	}
+	if got := d.triggerToCron(cronTr); got != "0 0 * * *" {
+		t.Errorf("cron triggerToCron = %q, want real expression", got)
+	}
+	want := "@every " + intervalTr.Value()
+	if got := d.triggerToCron(intervalTr); got != want {
+		t.Errorf("interval triggerToCron = %q, want %q", got, want)
+	}
+}
+
+// TestRunContext_ModelTimeoutWins verifies the effective run bound is
+// max(dispatcher cap, pinned model timeout), so a slow model configured with a
+// longer timeout_minutes is not cut off by the dispatcher cap.
+func TestRunContext_ModelTimeoutWins(t *testing.T) {
+	slowTimeout := 30 * time.Minute
+	d, err := NewDispatcher(nil, &slowModelExecutor{timeout: slowTimeout}, logging.NewNopLogger())
+	if err != nil {
+		t.Fatalf("dispatcher: %v", err)
+	}
+	defer d.Stop(context.Background())
+
+	entry := &AutomationEntry{Name: "a", Model: "slow-model"}
+	ctx, cancel := d.runContext(context.Background(), entry)
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected a deadline on the run context")
+	}
+	if got := time.Until(deadline); got < slowTimeout-time.Second || got > slowTimeout+time.Second {
+		t.Errorf("expected deadline ~%v (model timeout), got %v", slowTimeout, got)
+	}
+
+	// No model override -> dispatcher cap applies.
+	entryNoModel := &AutomationEntry{Name: "b"}
+	ctx2, cancel2 := d.runContext(context.Background(), entryNoModel)
+	defer cancel2()
+	if d2, ok := ctx2.Deadline(); !ok || time.Until(d2) > defaultAutomationTimeout+time.Second {
+		t.Errorf("expected dispatcher cap without model override, got deadline %v", time.Until(d2))
+	}
+}
+
+type slowModelExecutor struct {
+	mockExecutor
+	timeout time.Duration
+}
+
+func (e *slowModelExecutor) ModelTimeout(modelName string) time.Duration { return e.timeout }

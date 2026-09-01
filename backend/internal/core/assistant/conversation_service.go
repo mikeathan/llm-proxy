@@ -165,7 +165,15 @@ func (s *conversationService) initSession(session *models.AssistantSession, work
 }
 
 func (s *conversationService) setupRun(ctx context.Context, sessionID, workspaceID string, events EventPublisher) (execCtx context.Context, clean func()) {
-	runID := GenerateRunID()
+	// Reuse a run ID already threaded into the context (the HTTP handler sets
+	// it so the recorder's SetDirForRun/CloseRun keys match the agent's
+	// recording file). A mismatched ID orphaned the recording file + fd + sync
+	// goroutine forever (the recorder's CloseRun could never find the state
+	// written under the service-generated ID).
+	runID := models.GetRunID(ctx)
+	if runID == "" {
+		runID = GenerateRunID()
+	}
 	execCtx = models.WithTaskName(ctx, sessionID)
 	execCtx = models.WithRunID(execCtx, runID)
 	execCtx = WithUsageTracker(execCtx)

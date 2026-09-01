@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,11 +16,14 @@ import (
 	"llm-proxy/models"
 )
 
-// Fake exec.Command that doesn't spawn a real process.
+// Fake exec.Command that doesn't spawn a real llama-server.
 func fakeCmd() func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 	return func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperFakeProcess")
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		// Isolate into its own process group so that signalStopLocked's
+		// group-kill (-pgid) only ever signals the helper, never the test binary.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		return cmd
 	}
 }
@@ -27,7 +32,29 @@ func TestHelperFakeProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
-	os.Exit(0)
+	// Simulate a long-running model server: stay alive until signalled (or a
+	// bounded fallback if a test forgets to reap it). A real llama-server must
+	// not exit while active, and the exit-watch goroutine treats any exit as a
+	// crash — so a helper that exits immediately would look like a failed model.
+	time.Sleep(60 * time.Second)
+}
+
+// crashCmd returns a fake exec.Command whose helper exits immediately with a
+// non-zero status, simulating a llama-server that fails to launch (bad args).
+func crashCmd() func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	return func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		cmd := exec.Command(os.Args[0], "-test.run=TestHelperCrashProcess")
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		return cmd
+	}
+}
+
+func TestHelperCrashProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	os.Exit(1)
 }
 
 func setupModelFile(t *testing.T, path string) {
@@ -85,6 +112,7 @@ func TestEnsureModel_AssignsPortAndReturnsReadyInstance(t *testing.T) {
 
 	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf"}}, "127.0.0.1", time.Minute)
+	defer manager.Shutdown()
 
 	_, err := manager.EnsureModel(context.Background(), "test")
 	if !errors.Is(err, models.ErrModelStarting) {
@@ -163,6 +191,7 @@ func TestStopActive_CancelsProcessContext(t *testing.T) {
 		captured = ctx
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperFakeProcess")
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		return cmd
 	})
 	defer restoreExec()
@@ -198,6 +227,7 @@ func TestActiveInfo_ReadyReflectsPortState(t *testing.T) {
 
 	setupModelFile(t, "/tmp/model.gguf")
 	manager := llm.New([]models.ModelConfig{{Name: "test", Path: "/tmp/model.gguf", Port: 9001}}, "127.0.0.1", time.Minute)
+	defer manager.Shutdown()
 	_, _ = manager.EnsureModel(context.Background(), "test")
 
 	info := manager.ActiveInfo()
@@ -248,6 +278,7 @@ func TestRuntimeManager_EnsureModel_StartsModel(t *testing.T) {
 	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "/tmp/model.gguf", Args: []string{"--x"}, Port: 9999},
 	}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
 
 	mi, err := m.EnsureModel(context.Background(), "test")
 
@@ -274,6 +305,7 @@ func TestRuntimeManager_EnsureModel_ReturnsInstanceWhenReady(t *testing.T) {
 	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "model.gguf", Port: 7777},
 	}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
 
 	// First call: starting
 	_, _ = m.EnsureModel(context.Background(), "test")
@@ -309,6 +341,7 @@ func TestRuntimeManager_RecordActivity(t *testing.T) {
 	m := llm.New([]models.ModelConfig{
 		{Name: "test", Path: "activity.gguf", Port: 4444},
 	}, "127.0.0.1", time.Millisecond*200)
+	defer m.Shutdown()
 
 	_, _ = m.EnsureModel(context.Background(), "test")
 
@@ -348,5 +381,85 @@ func TestRuntimeManager_IdleReaperStopsModel(t *testing.T) {
 
 	if m.ActiveModel() != nil {
 		t.Fatalf("model should be reaped after idle timeout")
+	}
+}
+
+// TestRuntimeManager_CrashedModel_SurfacesError verifies that a local model
+// whose process dies (bad args, missing model) is detected: GetInstance returns
+// a clear failure (not ErrModelStarting forever) and the dead model is cleared
+// so the next request starts a fresh one.
+func TestRuntimeManager_CrashedModel_SurfacesError(t *testing.T) {
+	restoreExec := utils.SetExecCommandContext(crashCmd())
+	defer restoreExec()
+
+	restorePort := utils.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	setupModelFile(t, "crash.gguf")
+	m := llm.New([]models.ModelConfig{{Name: "test", Path: "crash.gguf", Port: 5555}}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
+
+	_, err := m.EnsureModel(context.Background(), "test")
+	if !errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("first call expected ErrModelStarting, got %v", err)
+	}
+
+	// Wait for the watchdog to observe the process exiting.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if am := m.ActiveModel(); am != nil && am.Exited() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	_, err = m.EnsureModel(context.Background(), "test")
+	if err == nil || errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("expected a start-failure error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "failed to start") {
+		t.Errorf("expected 'failed to start' in error, got: %v", err)
+	}
+	if m.LastModelError() == "" {
+		t.Error("expected LastModelError to be set after a crash")
+	}
+	if m.ActiveModel() != nil {
+		t.Errorf("expected crashed model to be cleared, got activeModel %+v", m.ActiveModel())
+	}
+}
+
+// TestRuntimeManager_CrashedModel_ReapedAndRecorded verifies the idle reaper
+// detects a crashed process and clears it promptly (not after the 5-minute
+// startup timeout), recording the failure for the status/UI.
+func TestRuntimeManager_CrashedModel_ReapedAndRecorded(t *testing.T) {
+	restoreExec := utils.SetExecCommandContext(crashCmd())
+	defer restoreExec()
+
+	restorePort := utils.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	setupModelFile(t, "crash_reap.gguf")
+	m := llm.NewWithReapInterval(
+		[]models.ModelConfig{{Name: "test", Path: "crash_reap.gguf", Port: 3333}},
+		"127.0.0.1",
+		time.Hour,             // idle timeout: not the trigger here
+		time.Millisecond*20,   // reaper tick
+	)
+	defer m.Shutdown()
+
+	_, _ = m.EnsureModel(context.Background(), "test")
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if m.ActiveModel() == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m.ActiveModel() != nil {
+		t.Fatal("expected crashed model to be reaped promptly")
+	}
+	if m.LastModelError() == "" {
+		t.Error("expected LastModelError to be set after crash reaping")
 	}
 }

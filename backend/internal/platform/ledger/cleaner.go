@@ -58,4 +58,7 @@ func (c *Cleaner) clean(ctx context.Context) {
 	if err := c.store.PurgeTransactions(ctx, cutoff); err != nil {
 		logging.Warn("Ledger cleaner: purge transactions failed", "error", err)
 	}
+	if err := c.store.PurgeBalances(ctx, cutoff); err != nil {
+		logging.Warn("Ledger cleaner: purge balances failed", "error", err)
+	}
 }

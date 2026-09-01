@@ -85,10 +85,11 @@ Run each of these commands and capture the output:
 ## Step 8 — Network: Basic Fetch
 
 - Fetch `https://httpbin.org/headers`. Note the HTTP status and the `Content-Type` header. (Headers only, not the full body.)
+- Best-effort: if httpbin.org is unreachable, note the error and continue — this step must not block the rest.
 
 ## Step 9 — Network: Local Info
 
-- Run `get_network_info`. Capture the hostname and the first non-loopback IP address.
+- Capture the host machine's hostname and its first non-loopback IP address.
 
 ## Step 10 — Final Submission
 
@@ -97,5 +98,24 @@ Submit a structured Markdown report with these sections:
 1. **Filesystem** — What was listed, write/read verification result.
 2. **Terminal** — Output from the three system commands, `hello.txt` execution result.
 3. **Dev Work** — `tsc` version, initial `index.ts` output JSON, edited output JSON confirming `"degraded"` and `"load": 0.87`.
-4. **Network** — HTTP status and Content-Type from httpbin, hostname and IP from `get_network_info`.
+4. **Network** — HTTP status and Content-Type from httpbin, plus the captured hostname and IP address.
 5. **Summary** — One sentence: "All X categories passed" or "Y categories passed, Z had issues".
+
+## Step 11 — Cleanup (best-effort)
+
+Remove the artifacts you created, ignoring errors: `smoke-test-output.txt`, `smoke-test-dir/`, `dev-test/`, and — only if they did NOT exist before this run — `package.json`, `package-lock.json`, `node_modules`.
+
+## Result
+
+**PASS** if ALL of the following hold; otherwise **FAIL** and state the failing step:
+
+1. `smoke-test-output.txt` was written and read back successfully (Step 2).
+2. `hello.txt` executed and its output was captured (Step 4).
+3. `npx tsc --version` output was captured (Step 5).
+4. Initial output JSON contains `"status": "ok"` (Step 6).
+5. Edited output JSON contains `"status": "degraded"` and `"load": 0.87` (Step 7).
+6. httpbin status + Content-Type captured, or the failure explicitly noted as best-effort (Step 8).
+7. Hostname and first non-loopback IP captured (Step 9).
+8. Final report contains all 5 required sections (Step 10).
+
+Any step blocked by a guardrail does NOT fail the run by itself — it must be noted in the report and listed in the Summary.

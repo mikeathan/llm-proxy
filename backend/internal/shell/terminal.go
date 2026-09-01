@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/procwatch"
 	"llm-proxy/models"
 	"os"
 	"os/exec"
@@ -32,7 +33,7 @@ type persistentShell struct {
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	mu     sync.Mutex
-	done   chan struct{}
+	watch  *procwatch.Watch
 }
 
 func newPersistentShell(ctx context.Context, hostPath string, env []string) (*persistentShell, error) {
@@ -65,13 +66,8 @@ func newPersistentShell(ctx context.Context, hostPath string, env []string) (*pe
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: bufio.NewReader(stdoutPipe),
-		done:   make(chan struct{}),
+		watch:  procwatch.New(cmd),
 	}
-
-	go func() {
-		_ = cmd.Wait()
-		close(ps.done)
-	}()
 
 	return ps, nil
 }
@@ -90,7 +86,7 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 
 	// If the shell has already exited, don't try to write to its stdin.
 	select {
-	case <-ps.done:
+	case <-ps.watch.Done():
 		return "", fmt.Errorf("shell process exited unexpectedly")
 	default:
 	}
@@ -125,7 +121,7 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 			ctxErr := ctx.Err()
 			ps.killAll()
 			return outputBuf.String(), ctxErr
-		case <-ps.done:
+		case <-ps.watch.Done():
 			return outputBuf.String(), fmt.Errorf("shell process exited unexpectedly")
 		default:
 		}
@@ -361,7 +357,7 @@ func (s *ShellSession) Cleanup(ctx context.Context) error {
 	_ = s.shell.stdin.Close()
 	_ = s.shell.stdin.Close()
 	select {
-	case <-s.shell.done:
+	case <-s.shell.watch.Done():
 	case <-ctx.Done():
 		s.shell.killAll()
 	}

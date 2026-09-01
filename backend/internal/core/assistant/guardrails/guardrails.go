@@ -16,12 +16,6 @@ import (
 	"time"
 )
 
-var secretRegexes = []*regexp.Regexp{
-	regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),
-	regexp.MustCompile(`AKIA[a-zA-Z0-9]{16}`),
-	regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),
-}
-
 // GuardrailEngine evaluates tool calls against configured boundaries.
 type GuardrailEngine struct {
 	configProvider func() models.AgentGuardrailsConfig
@@ -122,7 +116,9 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 
 func (e *GuardrailEngine) validateGlobal(call proxy.ToolCall, cfg models.GlobalGuardrailsConfig) error {
 	if cfg.BlockSecrets {
-		for _, re := range secretRegexes {
+		// Secret patterns live in tools.SecretPatterns — the same source the
+		// terminal tool uses to scrub secret-shaped strings from output.
+		for _, re := range tools.SecretPatterns {
 			if re.Match([]byte(call.Function.Arguments)) {
 				return fmt.Errorf("guardrail violation: sensitive data detected in tool arguments")
 			}

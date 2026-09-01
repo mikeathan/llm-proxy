@@ -17,6 +17,7 @@ import (
 
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/platform/network"
+	"llm-proxy/models"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -994,5 +995,99 @@ func TestLLMClient_CloudHeaderTimeoutClassifiesAsTimeout(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "did not respond within the client timeout") {
 		t.Errorf("expected timeout hint in error, got %q", err.Error())
+	}
+}
+
+// TestIsModelStartingResponse verifies the upstream "model is still loading"
+// classifier (HTTP 202/503 with a {"status":"starting"} body).
+func TestIsModelStartingResponse(t *testing.T) {
+	cases := []struct {
+		status int
+		body   string
+		want   bool
+	}{
+		{http.StatusAccepted, `{"status":"starting"}`, true},
+		{http.StatusServiceUnavailable, `{"status":"starting"}`, true},
+		{http.StatusAccepted, `{"status":"Starting"}`, true},
+		// Raw llama.cpp native loading response.
+		{http.StatusServiceUnavailable, `{"error":{"message":"Loading model","type":"unavailable_error","code":503}}`, true},
+		{http.StatusServiceUnavailable, `{"error":{"message":"loading model","type":"unavailable_error","code":503}}`, true},
+		{http.StatusAccepted, `{"status":"ready"}`, false},
+		{http.StatusAccepted, `not json`, false},
+		{http.StatusOK, `{"status":"starting"}`, false},
+		{http.StatusInternalServerError, `{"status":"starting"}`, false},
+		{http.StatusServiceUnavailable, `{"error":{"message":"model overloaded","type":"unavailable_error","code":503}}`, false},
+	}
+	for _, tc := range cases {
+		if got := isModelStartingResponse(tc.status, tc.body); got != tc.want {
+			t.Errorf("isModelStartingResponse(%d, %q) = %v, want %v", tc.status, tc.body, got, tc.want)
+		}
+	}
+}
+
+// TestLLMClient_PollsModelStarting verifies an upstream "model is starting"
+// response — in either wire form (this proxy's 202 {"status":"starting"} or
+// raw llama.cpp's 503 "Loading model") — is polled until the model is ready
+// instead of failing the run.
+func TestLLMClient_PollsModelStarting(t *testing.T) {
+	restore := models.ModelStartPollInterval
+	models.ModelStartPollInterval = 5 * time.Millisecond
+	defer func() { models.ModelStartPollInterval = restore }()
+
+	startingBodies := []string{
+		`{"status":"starting"}`,
+		`{"error":{"message":"Loading model","type":"unavailable_error","code":503}}`,
+	}
+	for _, startingBody := range startingBodies {
+		status := http.StatusAccepted
+		if startingBody != `{"status":"starting"}` {
+			status = http.StatusServiceUnavailable
+		}
+		t.Run(startingBody, func(t *testing.T) {
+			calls := 0
+			rt := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				if calls < 3 {
+					return newTestResponse(status, startingBody), nil
+				}
+				return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+			})
+
+			client := NewLLMClient("http://example.com", "m", &http.Client{Transport: rt}, nil)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			resp, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+			if err != nil {
+				t.Fatalf("expected success after model start, got %v", err)
+			}
+			if resp == nil || len(resp.Choices) == 0 {
+				t.Fatalf("expected a response, got %+v", resp)
+			}
+			if calls != 3 {
+				t.Errorf("expected 3 upstream calls (2 starting + 1 ready), got %d", calls)
+			}
+		})
+	}
+}
+
+// TestLLMClient_ModelStartingBoundedByContext verifies the poll gives up with
+// the context error when the model never becomes ready.
+func TestLLMClient_ModelStartingBoundedByContext(t *testing.T) {
+	restore := models.ModelStartPollInterval
+	models.ModelStartPollInterval = 5 * time.Millisecond
+	defer func() { models.ModelStartPollInterval = restore }()
+
+	rt := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return newTestResponse(http.StatusAccepted, `{"status":"starting"}`), nil
+	})
+
+	client := NewLLMClient("http://example.com", "m", &http.Client{Transport: rt}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	_, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
 	}
 }

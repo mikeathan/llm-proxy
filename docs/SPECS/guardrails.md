@@ -111,6 +111,12 @@ Each tool manifest (`manifests/*.json`) defines default guardrails:
 `TerminalGuardrailsConfig.AllowedExternalPaths` lets a workspace-level override grant the agent
 access to absolute paths outside the workspace jail. Constrained to workspace-level config only.
 
+A small **implicit always-safe set** is exempt from the absolute-path jail without any
+configuration: currently `/dev/null` (the universal output sink — writes are discarded, reads
+return EOF). It is matched by exact literal only, so permitting it does not open up `/dev/*`
+(`/dev/random`, `/dev/urandom`, block devices, etc. remain blocked). This keeps the standard
+`... > /dev/null` / `2>/dev/null` idiom working without requiring an `allowedexternalpaths` entry.
+
 ### 6. Schema/Policy Consistency (Static Tool Availability)
 
 `DisabledToolNames(workspaceID)` returns the tool names whose category has a hard "disabled by

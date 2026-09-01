@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -170,9 +171,9 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 	mi, err := h.runtime.EnsureModel(r.Context(), model)
 	if err == models.ErrModelStarting {
 		w.Header().Set("Retry-After", "1")
-		w.Header().Set("X-LLM-Status", "starting")
+		w.Header().Set("X-LLM-Status", models.ModelStatusStarting)
 		w.WriteHeader(http.StatusAccepted)
-		w.Write([]byte(`{"status":"starting"}`))
+		w.Write([]byte(fmt.Sprintf(`{"status":%q}`, models.ModelStatusStarting)))
 		return
 	}
 

@@ -10,8 +10,10 @@ import (
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/safe"
 	"llm-proxy/models"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -22,11 +24,12 @@ func validateID(id string) bool {
 	return validIDRegex.MatchString(id)
 }
 
-// isDotOrEmpty reports whether s is an empty string or a "." / ".." path
-// segment. Such values must be rejected before filepath.Join in path
-// resolvers, which would otherwise clean/collapse them into sibling paths.
-func isDotOrEmpty(s string) bool {
-	return s == "" || s == "." || s == ".."
+// isUnsafeFileParam reports whether s is empty, a "." / ".." segment, or
+// normalizes differently under filepath.Clean (traversal or separator tricks).
+// Such values must be rejected before filepath.Join in path resolvers, which
+// would otherwise clean/collapse them into sibling paths.
+func isUnsafeFileParam(s string) bool {
+	return s == "" || s == "." || s == ".." || filepath.Clean(s) != s
 }
 
 type Dispatcher interface {
@@ -81,6 +84,12 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 	}
 	if !validateID(auto.Name) {
 		return fmt.Errorf("invalid automation name in payload")
+	}
+	// task_file is joined into the workspace path and its content becomes the
+	// LLM prompt — reject empty/absolute/traversing values so a crafted
+	// automation cannot read arbitrary files outside the workspace.
+	if auto.TaskFile == "" || filepath.IsAbs(auto.TaskFile) || strings.Contains(auto.TaskFile, "..") {
+		return fmt.Errorf("invalid task_file in payload")
 	}
 	if auto.LoopStrategy != "" && !assistant.LoopStrategyName(auto.LoopStrategy).Valid() {
 		return fmt.Errorf("invalid loop_strategy %q: valid values are %s",
@@ -162,7 +171,7 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 
 	recordingRef := r.URL.Query().Get("recording_ref")
 
-	go func() {
+	safe.Go("automation trigger", func() {
 		if err := h.dispatcher.Trigger(context.Background(), workspaceID, automationName, recordingRef); err != nil {
 			h.logger.Error("Async automation trigger failed",
 				"workspace", workspaceID,
@@ -170,7 +179,7 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 				"recording_ref", recordingRef,
 				"error", err)
 		}
-	}()
+	})
 
 	respondJSON(w, map[string]string{
 		"status":     "triggered",
@@ -252,6 +261,16 @@ func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Validate before persisting: this endpoint historically bypassed
+	// validateAutomation, letting a crafted task_file/name escape the
+	// workspace path and read arbitrary files into the LLM prompt.
+	for _, auto := range cfg.Automations {
+		if err := h.validateAutomation(auto); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	// Acquire lock, read existing, merge, write, release — handled atomically by WorkspaceService.
 	if err := h.workspace.MutateConfig(workspaceID, func(existing *models.WorkspaceConfig) {
 		// Merge logic: If automations aren't in the request, keep the old ones
@@ -265,7 +284,10 @@ func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *htt
 	}
 
 	for _, auto := range cfg.Automations {
-		h.dispatcher.Register(workspaceID, auto)
+		if err := h.dispatcher.Register(workspaceID, auto); err != nil {
+			h.logger.Error("failed to register automation from config",
+				"workspace", workspaceID, "automation", auto.Name, "error", err)
+		}
 	}
 
 	respondJSON(w, map[string]string{"status": "updated"})
@@ -409,7 +431,7 @@ func (h *DispatcherHandlers) ReadWorkspaceFile(w http.ResponseWriter, r *http.Re
 		return
 	}
 	filename := r.PathValue("file")
-	if isDotOrEmpty(filename) {
+	if isUnsafeFileParam(filename) {
 		respondError(w, http.StatusBadRequest, "invalid file path")
 		return
 	}
@@ -428,7 +450,7 @@ func (h *DispatcherHandlers) WriteWorkspaceFile(w http.ResponseWriter, r *http.R
 		return
 	}
 	filename := r.PathValue("file")
-	if isDotOrEmpty(filename) {
+	if isUnsafeFileParam(filename) {
 		respondError(w, http.StatusBadRequest, "invalid file path")
 		return
 	}
@@ -556,7 +578,7 @@ func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.
 		return
 	}
 	filename := r.PathValue("file")
-	if isDotOrEmpty(filename) {
+	if isUnsafeFileParam(filename) {
 		respondError(w, http.StatusBadRequest, "invalid file path")
 		return
 	}
@@ -640,7 +662,7 @@ func (h *DispatcherHandlers) DeleteRun(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	runID := r.PathValue("run")
 
-	if !validateID(workspaceID) || isDotOrEmpty(runID) {
+	if !validateID(workspaceID) || isUnsafeFileParam(runID) {
 		respondError(w, http.StatusBadRequest, "invalid run path")
 		return
 	}

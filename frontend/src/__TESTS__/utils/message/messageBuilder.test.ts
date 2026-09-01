@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ref } from 'vue'
+import { MODEL_STARTING_NOTICE } from '../../../constants/labels'
 import { useMessageBuilder } from '../../../utils/message/messageBuilder'
 import type { AssistantMessage, Segment } from '../../../types/assistant'
 import type { AgentEvent } from '../../../types/dispatcher'
@@ -46,7 +47,7 @@ describe('useMessageBuilder still_thinking lifecycle', () => {
   })
 })
 
-function upstreamEvent(overrides: Partial<{ attempt: number, max_attempts: number, reason: 'transport' | 'status', status: number, error: string, err_class: string }> = {}): AgentEvent {
+function upstreamEvent(overrides: Partial<{ attempt: number, max_attempts: number, reason: 'transport' | 'status' | 'model_starting', status: number, error: string, err_class: string }> = {}): AgentEvent {
   return {
     type: 'upstream',
     payload: {
@@ -174,6 +175,20 @@ describe('useMessageBuilder upstream notices', () => {
     const notices = lastSegments(messages).filter(s => s.kind === 'notice')
     expect(notices.length).toBe(1)
     expect(notices[0]?.kind === 'notice' ? notices[0].message : undefined).toContain('3/3')
+  })
+
+  it('explains a model-starting upstream instead of a retry attempt chip', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(upstreamEvent({ reason: 'model_starting', status: 503, attempt: 1, max_attempts: 0 }))
+
+    const notice = lastSegments(messages)[0]
+    expect(notice?.kind === 'notice' ? notice.message : undefined).toBe(MODEL_STARTING_NOTICE)
+    if (notice?.kind === 'notice') {
+      expect(notice.message).not.toContain('1/0')
+      expect(notice.message).not.toContain('transport')
+    }
   })
 })
 

@@ -43,3 +43,10 @@ Build the following table using the actual search results. Replace `PASS` or `FA
 If any row has `FAIL`, the **Overall** is `FAIL`. If all rows are `PASS`, the **Overall** is `PASS`.
 
 Write the final report with the table above. Include any notes about unexpected results (e.g. leftover entries from previous runs). Do not call any other tools after the report.
+
+### Cross-Run Contamination
+
+The expected counts (1 / 3 / 4) are only valid on a **clean memory**. If a previous run left facts behind, the counts
+will differ — delete existing user/workspace memories before running (admin UI or memory reset), or adjust the expected
+counts in the report to match the pre-existing entries and note them explicitly. Any unexpected result must be explained,
+not silently accepted.

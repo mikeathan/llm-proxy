@@ -13,8 +13,8 @@ import (
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/storage"
-	"llm-proxy/models"
 	"llm-proxy/internal/shell"
+	"llm-proxy/models"
 )
 
 func (s *AppContext) initOrchestrator() {
@@ -109,6 +109,15 @@ func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
 		return logging.GetGlobalLogger()
 	}
 
+	// Cache one FileLogger per workspace: each instance runs a 1-second fsync
+	// goroutine and holds an fd until Close, so creating one per call leaked
+	// unbounded goroutines/fds on a long-lived service.
+	s.procLogMu.Lock()
+	defer s.procLogMu.Unlock()
+	if l, ok := s.procLoggers[workspaceID]; ok {
+		return l
+	}
+
 	logFile := s.resolver.ProcessLog(workspaceID)
 	l, err := logging.NewFileLogger(logging.Options{
 		File:   logFile,
@@ -118,6 +127,7 @@ func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {
 	if err != nil {
 		return logging.GetGlobalLogger()
 	}
+	s.procLoggers[workspaceID] = l
 	return l
 }
 
@@ -242,4 +252,12 @@ func (s *AppContext) Shutdown(ctx context.Context) {
 		logging.Info("Shutting down shared database...")
 		s.dbProvider.DB().Close()
 	}
+	// Close cached workspace process loggers (stops their fsync goroutines and
+	// releases fds).
+	s.procLogMu.Lock()
+	for ws, l := range s.procLoggers {
+		_ = l.Close()
+		delete(s.procLoggers, ws)
+	}
+	s.procLogMu.Unlock()
 }

@@ -140,6 +140,10 @@ type adminStateResponse struct {
 	NextPort  int                   `json:"next_port"`
 	Active    *adminActiveModel     `json:"active,omitempty"`
 	Config    adminConfigView       `json:"config"`
+	// ModelError reports the most recent local-model startup/runtime failure
+	// (e.g. llama-server crashed on launch), even after the dead model is
+	// cleared from Active.
+	ModelError string `json:"model_error,omitempty"`
 }
 
 // adminTuningDefaults exposes the agent loop's runtime defaults to the frontend
@@ -242,6 +246,8 @@ type adminLogsResponse struct {
 	StartedAt time.Time `json:"started_at,omitempty"`
 	Logs      string    `json:"logs"`
 	AppLogOK  bool      `json:"app_log_ok,omitempty"`
+	// Error reports the most recent local-model startup/runtime failure.
+	Error string `json:"error,omitempty"`
 }
 
 type adminLogLevelResponse struct {
@@ -302,12 +308,13 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	nextPort := nextAvailablePort(modelsList, activePort)
 	sys := h.admin.GetSystem()
 	reg := h.admin.GetRegistry()
-	id, secret := h.admin.ServiceCredentials()
+	id, _ := h.admin.ServiceCredentials()
 	state := adminStateResponse{
-		Models:    getModelsView(r.Context(), modelsList, activeName, activeDetails != nil && activeDetails.Ready, h.runtime.ModelHost(), h.admin),
-		Available: available,
-		NextPort:  nextPort,
-		Active:    activeDetails,
+		Models:     getModelsView(r.Context(), modelsList, activeName, activeDetails != nil && activeDetails.Ready, h.runtime.ModelHost(), h.admin),
+		Available:  available,
+		NextPort:   nextPort,
+		Active:     activeDetails,
+		ModelError: h.runtime.LastModelError(),
 		Config: adminConfigView{
 			WorkspacesDir:        sys.WorkspacesDir,
 			ModelHost:            sys.Server.ModelHost,
@@ -319,7 +326,9 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			GPUSmoothingAlpha:    sys.Metrics.GPUSmoothingAlpha,
 			DefaultArgs:          settings.Local.DefaultArgs,
 			ServiceClientID:      id,
-			ServiceClientSecret:  secret,
+			// ServiceClientSecret is deliberately never emitted (see
+			// SystemHandlers.AdminConfigHandler): it leaked the credential to
+			// any client that could reach the API.
 			PrimaryModel:         reg.PrimaryModel,
 			FallbackModel:        reg.FallbackModel,
 			Providers:            getProvidersView(h.admin),

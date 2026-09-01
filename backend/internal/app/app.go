@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"llm-proxy/internal/buildinfo"
@@ -88,6 +89,16 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 	container := bootstrap(dataMgr, logger, recordEnabled, enableRuns)
 	svc := container.BuildAppServices()
 
+	// Run-dir retention: prune completed run directories older than the
+	// retention window so a long-lived scheduled service does not fill the
+	// disk with per-run events/recordings (runs are created for every
+	// automation run and every assistant message).
+	go automation.NewRunReaper(
+		filepath.Join(dataMgr.RootDir(), "runs"),
+		automation.DefaultRunReaperInterval,
+		automation.DefaultRunRetention,
+	).Start(ctx)
+
 	// Tether the watcher restarted after factory reset to the app lifecycle
 	// (Constitution II.2/II.14) instead of an untethered context.
 	svc.AppCtx.SetRootContext(ctx)
@@ -102,7 +113,6 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		// Start dispatcher in background, tethered to app context
 		go disp.Start(ctx)
 	}
-
 
 	router := buildHTTP(svc, container.Dispatcher, buildInfo)
 	bindAddr := ResolveBindAddr(dataMgr)

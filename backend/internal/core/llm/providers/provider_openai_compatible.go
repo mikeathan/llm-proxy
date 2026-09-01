@@ -91,14 +91,6 @@ func (p *OpenAICompatibleProvider) SetWorkloadClassifier(c models.WorkloadClassi
 	p.workloadClassifier = c
 }
 
-func (p *OpenAICompatibleProvider) Generate(ctx context.Context, req models.ChatRequest) (*models.ChatResponse, error) {
-	return nil, fmt.Errorf("%s provider Chat endpoint is not yet implemented natively; use standard model host proxying", p.manifest.Name)
-}
-
-func (p *OpenAICompatibleProvider) GetStatus() models.ProviderStatus {
-	return models.ProviderStatusReady
-}
-
 func (p *OpenAICompatibleProvider) GetEndpoint(ctx context.Context) (string, http.Header, error) {
 	header := make(http.Header)
 	p.setAuthHeaders(header)
@@ -603,9 +595,5 @@ func (p *OpenAICompatibleProvider) probeNativeToolsOnce(ctx context.Context, end
 }
 
 func (p *OpenAICompatibleProvider) EnsureReady(ctx context.Context) error {
-	return nil
-}
-
-func (p *OpenAICompatibleProvider) Shutdown() error {
 	return nil
 }

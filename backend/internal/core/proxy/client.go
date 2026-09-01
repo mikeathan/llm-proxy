@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/network"
+	"llm-proxy/models"
 	"llm-proxy/utils"
 	"math/rand/v2"
 	"net"
@@ -72,6 +73,10 @@ const (
 	RetryReasonTransport RetryReason = "transport"
 	// RetryReasonStatus is a retryable HTTP status (429/502/503/504/529).
 	RetryReasonStatus RetryReason = "status"
+	// RetryReasonModelStarting is an upstream "model is still loading" signal
+	// (HTTP 202/503 with a {"status":"starting"} body) — the proxy polls until
+	// the model is ready instead of failing the run.
+	RetryReasonModelStarting RetryReason = "model_starting"
 )
 
 // RetryInfo describes a single retry that is about to happen. It is
@@ -370,15 +375,43 @@ func (e *TransportError) Error() string {
 
 func (e *TransportError) Unwrap() error { return e.Err }
 
+// upstreamLoadingMarker is the message llama.cpp's native server returns
+// (HTTP 503 with {"error":{"message":"Loading model","type":"unavailable_error"}})
+// while its model is still loading.
+const upstreamLoadingMarker = "loading model"
+
+// isModelStartingResponse reports whether an upstream response is the "model
+// is still loading" signal, in either of the two wire forms in the wild:
+//   - HTTP 202/503 with {"status":"starting"} (this proxy's own response while
+//     a managed model starts), and
+//   - HTTP 503 {"error":{"message":"Loading model",...}} (raw llama.cpp while
+//     its model loads).
+// The proxy polls until the model is ready instead of failing the run.
+func isModelStartingResponse(status int, body string) bool {
+	if status != http.StatusAccepted && status != http.StatusServiceUnavailable {
+		return false
+	}
+	var probe struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal([]byte(body), &probe) == nil && strings.EqualFold(probe.Status, models.ModelStatusStarting) {
+		return true
+	}
+	return status == http.StatusServiceUnavailable && strings.Contains(strings.ToLower(body), upstreamLoadingMarker)
+}
+
 // doRequest issues the HTTP POST with bounded retry + backoff for transient
-// transport errors and retryable 5xx responses. It returns the (not-yet-closed)
-// response on the first 200; the caller owns the body. Each attempt recreates
-// the request body, and the loop bails immediately if ctx is cancelled.
+// transport errors and retryable 5xx responses, and unbounded (context-bound)
+// polling while the upstream model is still starting. It returns the
+// (not-yet-closed) response on the first 200; the caller owns the body. Each
+// attempt recreates the request body, and the loop bails immediately if ctx is
+// cancelled.
 func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers http.Header, body []byte) (*http.Response, error) {
 	var lastErr error
 	start := time.Now()
 	observer := RetryObserverFrom(ctx)
-	for attempt := 0; attempt < httpRetryMaxAttempts; attempt++ {
+	attempt := 0
+	for {
 		if attempt > 0 {
 			timer := time.NewTimer(backoffForRetry(attempt))
 			select {
@@ -421,6 +454,10 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 					ElapsedMs:   time.Since(start).Milliseconds(),
 				})
 			}
+			attempt++
+			if attempt >= httpRetryMaxAttempts {
+				break
+			}
 			continue
 		}
 
@@ -443,6 +480,32 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if isModelStartingResponse(resp.StatusCode, httpErr.Body) {
+			// The upstream model is still loading — wait for it instead of
+			// failing the run. The poll is bounded by ctx (agent turn / run
+			// timeout) and does not count against the transient-retry budget.
+			if attempt == 0 {
+				logging.Info("upstream model is starting, waiting for it to become ready",
+					"model", c.model, "url", url, "kind", kind)
+				if observer != nil {
+					observer(RetryInfo{
+						Reason:    RetryReasonModelStarting,
+						Attempt:   attempt + 1,
+						Status:    resp.StatusCode,
+						ElapsedMs: time.Since(start).Milliseconds(),
+					})
+				}
+			} else {
+				logging.Debug("upstream model still starting",
+					"model", c.model, "url", url, "kind", kind)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(models.ModelStartPollInterval):
+			}
+			continue
+		}
 		if !IsRetryableResponse(resp.StatusCode, httpErr.Body) {
 			logging.Warn("LLM upstream non-retryable error",
 				"model", c.model, "url", url, "kind", kind,
@@ -461,6 +524,10 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 				Status:      resp.StatusCode,
 				ElapsedMs:   time.Since(start).Milliseconds(),
 			})
+		}
+		attempt++
+		if attempt >= httpRetryMaxAttempts {
+			break
 		}
 	}
 
@@ -591,7 +658,16 @@ func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatRe
 					logging.Error("LLM stream unmarshal error", "error", err)
 					continue
 				}
-				ch <- &out
+				// A bare `ch <- &out` would block forever when the consumer
+				// abandons the stream early (stuck detection, char cap,
+				// repetition, budget, duration cap): the producer goroutine and
+				// the HTTP connection would leak. Select on ctx.Done so
+				// cancellation always unblocks the send.
+				select {
+				case ch <- &out:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()

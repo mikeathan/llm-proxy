@@ -68,7 +68,7 @@ func (h *ProcessHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Reque
 	mi, err := h.runtime.EnsureModel(r.Context(), req.Name)
 	if err == models.ErrModelStarting {
 		w.WriteHeader(http.StatusAccepted)
-		respondJSON(w, adminStartResponse{Status: "starting", Model: req.Name})
+		respondJSON(w, adminStartResponse{Status: models.ModelStatusStarting, Model: req.Name})
 		return
 	}
 
@@ -109,6 +109,7 @@ func (h *ProcessHandlers) AdminLogsHandler(w http.ResponseWriter, r *http.Reques
 	resp := adminLogsResponse{
 		Running: active != nil,
 		Logs:    h.runtime.ActiveLogs(),
+		Error:   h.runtime.LastModelError(),
 	}
 	if appLogPath := h.appLogPath(); appLogPath != "" {
 		if _, err := os.Stat(appLogPath); err == nil {

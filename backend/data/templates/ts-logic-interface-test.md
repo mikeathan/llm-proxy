@@ -43,8 +43,21 @@ Wed: ██████░░░░ 22°C
 2. Compilation Status
 3. Generated Output
 
+#### Phase 4: Cleanup (best-effort)
+
+Remove `ts-dashboard/` after the report is written (ignore errors).
+
 ### Analysis Goals
 
 - Verify TypeScript interface usage and strict mode compilation
 - Confirm array operations and string formatting
 - Confirm console output is captured in report
+
+### Result
+
+**PASS** if ALL of the following hold; otherwise **FAIL** and state the failing phase:
+
+1. `ts-dashboard/app.ts` defines the `DayTemp` interface and `formatBar` function and compiles with `--strict` (Phase 2).
+2. The run succeeded and produced output (Phase 2).
+3. The captured output contains all 5 weekdays (Mon–Fri) with a `█`/`░` progress bar and a temperature per line, matching the example format (Phase 3).
+4. The report includes the source code block, compilation status, and generated output (Phase 3).

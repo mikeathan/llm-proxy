@@ -182,6 +182,11 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 	// Set up recording infrastructure (run directory, event sink). The workspace
 	// process log is used directly; no per-run duplicate log is written.
 	runID := assistantPkg.GenerateRunID()
+	// Thread the run ID into the context so the service's setupRun reuses it
+	// instead of generating a second one: a mismatched ID left a recording file
+	// + fd + sync goroutine open forever (CloseRun never found the orphaned
+	// state under the service-generated ID).
+	ctx = models.WithRunID(ctx, runID)
 	eventSink, procLog := h.setupRecording(client, payload.WorkspaceID, conversationID, modelName(payload, h.svc), runID)
 	defer func() {
 		if eventSink != nil {

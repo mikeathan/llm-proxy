@@ -38,6 +38,12 @@ type AppContext struct {
 	// Registered at assembly time (buildHTTP); a nil checker is treated as
 	// "no known active work" for shell-session-only guards.
 	activeWork func() bool
+
+	// procLogMu guards procLoggers: one cached FileLogger per workspace so
+	// process logs don't leak an fd + fsync goroutine per call (each
+	// FileLogger runs a 1s syncLoop until closed).
+	procLogMu   sync.Mutex
+	procLoggers map[string]*logging.FileLogger
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -47,11 +53,12 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 	rootDir := dataMgr.RootDir()
 
 	s := &AppContext{
-		manager:      mgr,
-		dataMgr:      dataMgr,
-		resolver:     storage.NewPathResolver(rootDir, dataMgr.WorkspacesDir(), dataMgr.MetadataDir()),
-		rootDir:      rootDir,
-		gpuConfig:    sys.Metrics.GPU,
+		manager:     mgr,
+		dataMgr:     dataMgr,
+		resolver:    storage.NewPathResolver(rootDir, dataMgr.WorkspacesDir(), dataMgr.MetadataDir()),
+		rootDir:     rootDir,
+		gpuConfig:   sys.Metrics.GPU,
+		procLoggers: make(map[string]*logging.FileLogger),
 	}
 
 	s.initOrchestrator()

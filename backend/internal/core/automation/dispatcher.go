@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/safe"
 	"llm-proxy/models"
 
 	"github.com/fsnotify/fsnotify"
@@ -24,10 +26,11 @@ import (
 
 const MaxHistorySize = 100
 
-// automationTimeout is the maximum time a single automation run can take.
-// It covers the slowest model (Qwen 4B at ~5min for complex tasks) plus
-// error recovery time. The per-turn timeout (AgentTurnTimeout) is 10 min.
-const automationTimeout = 10 * time.Minute
+// defaultAutomationTimeout is the wall-clock cap for a single automation run
+// when the automation pins no model with a longer timeout_minutes. The
+// effective per-run bound is max(defaultAutomationTimeout, model timeout), so
+// a slow model configured with timeout_minutes > 10m is not cut off mid-run.
+const defaultAutomationTimeout = 10 * time.Minute
 
 // shellPGIDPollInterval is the polling frequency for discovering the shell
 // process group ID after an automation starts. The shell session is created
@@ -68,6 +71,10 @@ type Dispatcher struct {
 	// diagnosticDelay is how long StopAutomation waits before force-killing an
 	// unresponsive shell. Zero means the default (defaultDiagnosticDelay).
 	diagnosticDelay time.Duration
+	// automationTimeout is the base wall-clock cap for a single automation run
+	// (overridable via WithAutomationTimeout); the effective bound is max(this,
+	// the pinned model's timeout_minutes).
+	automationTimeout time.Duration
 
 	stopOnce sync.Once
 }
@@ -90,9 +97,15 @@ func NewDispatcher(
 		registry:    NewAutomationRegistry(),
 		persistence: persistence,
 		executor:    executor,
-		cron: cron.New(cron.WithParser(cron.NewParser(
-			cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
-		))),
+		// cron.Recover wraps every scheduled job so a panic inside a run can
+		// never crash the whole service (robfig/cron runs jobs in bare
+		// goroutines with no recovery of its own).
+		cron: cron.New(
+			cron.WithParser(cron.NewParser(
+				cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+			)),
+			cron.WithChain(cron.Recover(cronLogger{logger})),
+		),
 		logger:          logger,
 		workerCount:     1,
 		jobs:            make(map[string]cron.EntryID),
@@ -101,6 +114,7 @@ func NewDispatcher(
 		events:          NewEventBus(),
 		activeRuns:      make(map[string]*activeRun),
 		diagnosticDelay: defaultDiagnosticDelay,
+		automationTimeout: defaultAutomationTimeout,
 	}
 
 	for _, opt := range opts {
@@ -110,12 +124,32 @@ func NewDispatcher(
 	return d, nil
 }
 
+// cronLogger adapts the app logger to robfig/cron's Logger interface so
+// cron.Recover can report panicked jobs through the normal logging pipeline.
+type cronLogger struct{ l logging.Logger }
+
+func (c cronLogger) Info(msg string, kv ...any)  { c.l.Info(msg, kv...) }
+func (c cronLogger) Error(err error, msg string, kv ...any) {
+	c.l.Error(msg, append([]any{"error", err}, kv...)...)
+}
+
 type Option func(*Dispatcher)
 
 func WithWorkerCount(n int) Option {
 	return func(d *Dispatcher) {
 		if n > 0 {
 			d.workerCount = n
+		}
+	}
+}
+
+// WithAutomationTimeout sets the base wall-clock cap for a single automation
+// run. The effective bound is max(this, the pinned model's timeout_minutes),
+// so a slow model configured with a longer timeout is not cut off mid-run.
+func WithAutomationTimeout(t time.Duration) Option {
+	return func(d *Dispatcher) {
+		if t > 0 {
+			d.automationTimeout = t
 		}
 	}
 }
@@ -270,7 +304,9 @@ func (d *Dispatcher) Trigger(ctx context.Context, workspaceID, automationName, r
 		return fmt.Errorf("automation not found: %s/%s", workspaceID, automationName)
 	}
 
-	triggerCtx, cancel := context.WithTimeout(ctx, automationTimeout)
+	// The context is cancellable; the run timeout (max of the dispatcher cap
+	// and the pinned model's timeout_minutes) is applied in executeAutomation.
+	triggerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	return d.executeAutomation(triggerCtx, entry, recordingRef)
@@ -429,7 +465,10 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 			return // Not time to run yet
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), automationTimeout)
+		// The run context is cancellable; the run timeout (max of the
+		// dispatcher cap and the pinned model's timeout_minutes) is applied in
+		// executeAutomation.
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		if err := d.executeAutomation(ctx, entry, ""); err != nil {
@@ -452,28 +491,62 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 	return nil
 }
 
-// triggerToCron converts a Trigger to a cron-compatible schedule string.
+// triggerToCron converts a Trigger to a cron-compatible schedule string. The
+// real expression is registered so jobs fire on their actual schedule — the
+// previous @every-1m poll made a pre-executor failure retry every minute and
+// fired a brand-new automation immediately regardless of its schedule.
 func (d *Dispatcher) triggerToCron(tr Trigger) string {
 	switch tr.Type() {
 	case "cron":
-		// CronTrigger itself has the schedule; return the expression
-		// Note: This is a simplification; the actual cron is embedded in the trigger
-		// We use @every 1m as a poll interval and rely on ShouldRun for actual timing
-		return "@every 1m"
+		return tr.Value()
 	case "interval":
-		// Convert interval duration to @every syntax
-		// The interval trigger stores duration; we approximate with 1m polling
-		return "@every 1m"
+		return "@every " + tr.Value()
 	default:
 		return ""
 	}
 }
 
-func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEntry, recordingRefOverride string) error {
+// runContext derives the per-run execution context. The run is cancellable and
+// bounded by max(automationTimeout, the pinned model's timeout_minutes), so a
+// model configured with timeout_minutes > the dispatcher cap is not cut off
+// mid-run while a run without a model override stays within the dispatcher cap.
+func (d *Dispatcher) runContext(ctx context.Context, entry *AutomationEntry) (context.Context, context.CancelFunc) {
+	timeout := d.automationTimeout
+	if entry.Model != "" {
+		if mt := d.executor.ModelTimeout(entry.Model); mt > timeout {
+			timeout = mt
+		}
+	}
+	if timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEntry, recordingRefOverride string) (retErr error) {
 	start := time.Now()
 
-	// 0. Setup Cancellation
-	execCtx, cancel := context.WithCancel(ctx)
+	// Contain panics so a single bad run can never crash the service. This
+	// also clears the run's "running" state and records the failure so the
+	// workspace is not left marked running after a panic.
+	defer func() {
+		if rec := recover(); rec != nil {
+			d.logger.Error("panic in automation run",
+				"workspace", entry.Workspace, "automation", entry.Name,
+				"error", fmt.Sprintf("%v", rec), "stack", string(debug.Stack()))
+			if state, sErr := d.persistence.ReadState(entry.Workspace); sErr == nil {
+				state.SetRunning("")
+				_ = d.persistence.WriteState(entry.Workspace, state)
+			}
+			d.metrics.RecordExecution(false, false, time.Since(start))
+			retErr = fmt.Errorf("automation panicked: %v", rec)
+		}
+	}()
+
+	// 0. Setup Cancellation — the run is bounded by max(automationTimeout, the
+	// pinned model's timeout_minutes), so a slow model configured with a longer
+	// timeout is not cut off by the dispatcher cap.
+	execCtx, cancel := d.runContext(ctx, entry)
 	defer cancel()
 
 	f, err := d.persistence.TryAcquireLock(entry.Workspace)
@@ -488,7 +561,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	d.runMu.Unlock()
 	// Poll for the shell PGID after the agent starts; the persistent shell
 	// session is created lazily on first terminal_execute call.
-	go d.pollShellPGID(execCtx, entry.Workspace)
+	safe.Go("shell PGID poll", func() { d.pollShellPGID(execCtx, entry.Workspace) })
 	defer func() {
 		d.runMu.Lock()
 		delete(d.activeRuns, entry.Workspace)
@@ -719,7 +792,7 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 	diagCtx, diagCancel := context.WithCancel(context.Background())
 	r.diagCancel = diagCancel
 
-	go func() {
+	safe.Go("automation stop diagnostic", func() {
 		delay := d.diagnosticDelay
 		if delay <= 0 {
 			delay = defaultDiagnosticDelay
@@ -754,7 +827,7 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 			// Previous diagnostic goroutine was cancelled by a subsequent
 			// StopAutomation call — exit cleanly.
 		}
-	}()
+	})
 
 	return nil
 }
