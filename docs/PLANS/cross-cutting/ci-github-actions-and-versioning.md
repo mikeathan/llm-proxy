@@ -34,7 +34,7 @@ Establish a production-ready, zero-cost **CI** flow on GitHub Actions:
 | Aspect | State |
 |---|---|
 | Workflows | **None** — no `.github/` directory exists |
-| Secret scanning | `.gitleaks.toml` present (default ruleset + test-fixture allowlists); pre-commit hook in `.githooks/` (manual opt-in via `./setup.sh`) |
+| Secret scanning | `.gitleaks.toml` present (default ruleset + test-fixture allowlists); pre-commit hook in `.githooks/` (manual opt-in via `./scripts/setup-gitleaks.sh`) |
 | Code analysis | `go vet` available; custom complexity gate `backend/tools/check-complexity/` (≤12); ESLint + `vue-tsc` run inside `npm run build`. **No** staticcheck/gosec/govulncheck; **no** coverage anywhere |
 | Versioning | `backend/main.go` declares `Version/Commit/BuildDate` vars, injectable via `-ldflags "-X main.Version=..."`; `--version` flag prints them. **Manual flow today:** `scripts/tag_version.sh` (hardcoded `VERSION="v0.7.0"`, edited by hand) creates + pushes an annotated tag; `scripts/build.sh` derives the version from the latest `git tag --sort=-v:refname` and injects it via ldflags. No CHANGELOG |
 | Frontend version | `frontend/package.json` → `"version": "0.0.0"` (unused) |

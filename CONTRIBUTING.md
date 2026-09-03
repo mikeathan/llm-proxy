@@ -17,7 +17,7 @@ npm install && npm run dev             # dev (proxies to :4001)
 npm run build                          # production
 
 # One-time: install deps + enable secret-scanning git hook
-./setup.sh                             # installs gitleaks, registers .githooks
+./scripts/setup-gitleaks.sh            # installs gitleaks, registers .githooks
 ```
 
 ## Before You Write Code
@@ -64,11 +64,11 @@ A pre-commit hook blocks commits that contain secrets (API keys, tokens, private
 
 **Dependency:** [gitleaks](https://github.com/gitleaks/gitleaks) — `brew install gitleaks`.
 
-**One-time enable:** from the repo root run `./setup.sh`. It installs the gitleaks
+**One-time enable:** from the repo root run `./scripts/setup-gitleaks.sh`. It installs the gitleaks
 dependency and registers the hook automatically:
 
 ```bash
-./setup.sh        # brew install gitleaks && git config core.hooksPath .githooks
+./scripts/setup-gitleaks.sh  # brew install gitleaks && git config core.hooksPath .githooks
 ```
 
 Hooks are version-controlled under `.githooks/`, but Git does not auto-enable them —
