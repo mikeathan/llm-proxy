@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -74,8 +75,15 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 
 	handler := NewAssistantMessageHandler(service)
 
-	// Mock LLM Response to call tool
-	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+	// Gated client: holds the first Chat open so the detached run stays
+	// registered in the running map while the test observes it (see
+	// gatedLLMClient — an instant mock can finish the run between polls).
+	inner := &mocks.MockLLMClient{}
+	clientMock := inner
+	release := make(chan struct{})
+	mockClient.Client = &gatedLLMClient{inner: inner, release: release}
+	releaseGate := releaseOnce(release)
+	defer releaseGate()
 
 	// 1. First LLM response: Call Tool
 	toolArgs := map[string]any{"target_name": "lamp"}
@@ -129,6 +137,9 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	if !waitForRunning(t, handler, "test-ws", 5*time.Second) {
 		t.Fatal("run did not start within 5s")
 	}
+	// Release the gated client and wait for completion before asserting on
+	// the recorded requests (they are populated only after the gate opens).
+	releaseGate()
 	if !waitForNotRunning(t, handler, "test-ws", 5*time.Second) {
 		t.Fatal("run did not complete within 5s")
 	}
@@ -202,7 +213,15 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	service.PersistenceMgr = mgr
 
 	handler := NewAssistantMessageHandler(service)
-	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+
+	// Gated client: keeps the run observable in the running map (see
+	// gatedLLMClient — instant mocks can complete the run between polls).
+	inner := &mocks.MockLLMClient{}
+	clientMock := inner
+	release := make(chan struct{})
+	mockClient.Client = &gatedLLMClient{inner: inner, release: release}
+	releaseGate := releaseOnce(release)
+	defer releaseGate()
 	clientMock.Responses = []proxy.ChatResponse{
 		{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "# Initial Response\nHello workspace!"}}}},
 	}
@@ -218,10 +237,11 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 		t.Fatalf("expected 202, got %d", w.Code)
 	}
 
-	// Wait for the run to register, then finish, before asserting on effects.
+	// Wait for the detached run to register, then finish, before asserting on effects.
 	if !waitForRunning(t, handler, "test-jail", 5*time.Second) {
 		t.Fatal("run did not start within 5s")
 	}
+	releaseGate()
 	if !waitForNotRunning(t, handler, "test-jail", 5*time.Second) {
 		t.Fatal("run did not complete within 5s")
 	}
@@ -261,7 +281,14 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
-	clientMock := mockClient.Client.(*mocks.MockLLMClient)
+	// Gated client: keeps the run observable in the running map (see
+	// gatedLLMClient — instant mocks can complete the run between polls).
+	inner := &mocks.MockLLMClient{}
+	clientMock := inner
+	release := make(chan struct{})
+	mockClient.Client = &gatedLLMClient{inner: inner, release: release}
+	releaseGate := releaseOnce(release)
+	defer releaseGate()
 	clientMock.Responses = []proxy.ChatResponse{
 		{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "# Response\nThis is a long enough response to avoid premature termination check."}}}},
 	}
@@ -294,10 +321,11 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 		t.Fatalf("expected 202, got %d body: %s", w.Code, w.Body.String())
 	}
 
-	// Wait for the run to register, then finish, before asserting on effects.
+	// Wait for the detached run to register, then finish, before asserting.
 	if !waitForRunning(t, handler, "test-trunc", 5*time.Second) {
 		t.Fatal("run did not start within 5s")
 	}
+	releaseGate()
 	if !waitForNotRunning(t, handler, "test-trunc", 5*time.Second) {
 		t.Fatal("run did not complete within 5s")
 	}
@@ -1172,6 +1200,41 @@ func (c *blockingLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*p
 			Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "ok"}}},
 		}, nil
 	}
+}
+
+// gatedLLMClient blocks each Chat call until the gate is released, then
+// delegates to an inner MockLLMClient. Unlike blockingLLMClient it supports
+// scripted multi-response flows; recording happens only after release, so
+// the test can safely read inner.Requests once the run has completed.
+// Rationale: the run is detached and an instant mock can complete the entire
+// run between two waitForRunning polls on a loaded CI runner, making the
+// running-map registration invisible (2026-09 CI flake,
+// TestHandleAssistant_InitialSystemPrompt).
+type gatedLLMClient struct {
+	inner   *mocks.MockLLMClient
+	release chan struct{}
+}
+
+func (c *gatedLLMClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.release:
+		return c.inner.Chat(ctx, req)
+	}
+}
+
+func (c *gatedLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	return c.inner.Stream(ctx, req)
+}
+
+func (c *gatedLLMClient) ReasoningField() string { return c.inner.ReasoningField() }
+
+// releaseOnce returns an idempotent gate-release func: safe to call both
+// mid-test (to unblock the run) and via defer (for early-fail paths).
+func releaseOnce(release chan struct{}) func() {
+	var once sync.Once
+	return func() { once.Do(func() { close(release) }) }
 }
 
 func (c *blockingLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {

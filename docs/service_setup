@@ -2,9 +2,12 @@
 
 > **Automated:** `sudo ./setup.sh` opens a `dialog`/`whiptail` TUI (classic
 > setup-screen panels; plain-ANSI fallback) with install / register-only /
-> build-only / uninstall / preview options, and is idempotent — safe to re-run;
-> it skips what's already done. Subcommands: `install` `register` `build`
-> `uninstall` `preview`; flags for CI: `--yes` `--build` `--force` `--dry-run`.
+> build-only / uninstall / **full purge** / preview options, and is idempotent —
+> safe to re-run; it skips what's already done. Subcommands: `install`
+> `register` `build` `uninstall` `purge` `preview`; flags for CI: `--yes`
+> `--build` `--force` `--dry-run`. Uninstall keeps data by default; purge
+> erases everything (unit, binary, data root, service user, legacy config)
+> behind a full-screen warning + typed `PURGE` confirmation.
 > The manual steps remain here as reference.
 
 The unit lives at `docs/services/llm-proxy.service` and is hardened for a
