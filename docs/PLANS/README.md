@@ -76,6 +76,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | partial | Memory Improvements | remaining phases (nudge, meter, dedup, search, tagging) |
 | proposed | Automation Edit Form Reactivity | implement derive-don't-sync refactor |
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
+| proposed | Agent OS Sandboxing | Phases 1–6 (rlimits → FS jail → network switch → OS network deny → egress proxy → deployment hardening) |
 | proposed | Assistant Liveness Heartbeat & Package Restructure | heartbeat component + still_thinking + loading fix + package extractions (4.1/4.2) |
 | partial | XDG Config/Data Relocation | Phases 0–7, 9–11 done (paths pkg, storage tests, resolver unification, race/perf/security fixes, AppConfig settings.yml merge, relocation, reset controls, permission hardening); Phase 8 removed; Phase 7 templates embed + Phase 12 docs/.gitignore/untrack remain/finalized |
 

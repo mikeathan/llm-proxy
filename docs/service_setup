@@ -1,13 +1,69 @@
-/etc/systemd/system/
+# systemd Service Setup
 
-sudo cp llm-proxy.service /etc/systemd/system/llm-proxy.service
+> **Automated:** `sudo ./setup.sh` opens a `dialog`/`whiptail` TUI (classic
+> setup-screen panels; plain-ANSI fallback) with install / register-only /
+> build-only / uninstall / preview options, and is idempotent — safe to re-run;
+> it skips what's already done. Subcommands: `install` `register` `build`
+> `uninstall` `preview`; flags for CI: `--yes` `--build` `--force` `--dry-run`.
+> The manual steps remain here as reference.
 
+The unit lives at `docs/services/llm-proxy.service` and is hardened for a
+dedicated unprivileged deployment: the service runs as `llm-proxy` with its
+single root at `/var/lib/llm-proxy` (the app resolves one root via
+`LLM_PROXY_HOME` — config, DB, logs, and workspaces all live under it).
+`ProtectHome=read-only` + `ProtectSystem=strict` keep every other path
+read-only; `ReadWritePaths` grants exactly one writable location.
+
+## 1. Create the service account and root
+
+```bash
+sudo useradd --system --home-dir /var/lib/llm-proxy --shell /usr/sbin/nologin llm-proxy
+sudo install -d -o llm-proxy -g llm-proxy -m 0700 /var/lib/llm-proxy
+```
+
+## 2. Install the binary and unit
+
+```bash
+sudo cp backend/llm-proxy /usr/local/bin/llm-proxy
+sudo cp docs/services/llm-proxy.service /etc/systemd/system/llm-proxy.service
+```
+
+## 3. Point workspaces inside the writable root
+
+In `/var/lib/llm-proxy/settings.yml` set:
+
+```yaml
+workspaces_dir: workspaces   # relative → resolves to /var/lib/llm-proxy/workspaces
+```
+
+Without this, the default workspace location falls back to `$HOME` (see
+`backend/internal/platform/storage/manager.go`), which is read-only under
+`ProtectHome` and will fail on first agent run.
+
+## 4. Migrate existing state (single-root layout)
+
+From a previous `~/.config/llm-proxy` deployment, as root:
+
+```bash
+cp -a /home/<olduser>/.config/llm-proxy/. /var/lib/llm-proxy/
+chown -R llm-proxy:llm-proxy /var/lib/llm-proxy
+```
+
+## 5. Enable and start
+
+```bash
 sudo systemctl daemon-reload
-
-
-sudo systemctl enable llm-proxy.service
-
-sudo systemctl start llm-proxy.service
-
-
+sudo systemctl enable --now llm-proxy.service
 journalctl -u llm-proxy.service -f
+```
+
+## Notes
+
+- `Restart=on-failure` + `StartLimitBurst=5` prevent infinite crash loops; a
+  persistent failure stops the unit after 5 attempts within 5 minutes.
+- `MemoryDenyWriteExecute=true` is safe for the Go binary; remove it only if a
+  future embedded runtime needs executable-mapping memory.
+- The service listens on an unprivileged port (:4001 default), so it needs no
+  capabilities (`CapabilityBoundingSet=` is empty by design).
+- Check effective hardening any time with:
+  `systemd-analyze security llm-proxy.service`

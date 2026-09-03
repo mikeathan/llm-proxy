@@ -1,0 +1,63 @@
+[Unit]
+Description=LLM Proxy Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Dedicated unprivileged account. The backend and every agent-spawned child
+# (shell sessions, workspaces) run as this user; it owns nothing outside the
+# single root below.
+User=llm-proxy
+Group=llm-proxy
+Environment=APP_ENV=production
+# Single root (config, data, logs, DB). See backend/internal/platform/paths.
+# Setting it here keeps the app OFF $HOME so ProtectHome can stay read-only.
+Environment=LLM_PROXY_HOME=/var/lib/llm-proxy
+WorkingDirectory=/var/lib/llm-proxy
+ExecStart=/usr/local/bin/llm-proxy
+# on-failure, not always: a config/permission error (like a read-only root)
+# must trip the start limit instead of crash-looping forever.
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=300
+StartLimitBurst=5
+KillMode=control-group
+TimeoutStopSec=30
+
+# --- Filesystem hardening -------------------------------------------------
+# The ONLY writable location is the app root (ReadWritePaths). Everything the
+# app writes — settings, DB, logs, workspaces/, workspace .sandbox runtime
+# dirs — must live under /var/lib/llm-proxy. Set `workspaces_dir: workspaces`
+# in settings.yml (relative paths resolve against this root).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/llm-proxy
+
+# --- Kernel / capabilities / syscall hardening -----------------------------
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Go binaries are JIT-less; safe to enable. Remove only if a future embedded
+# runtime needs executable-mapping memory.
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# Model loading (llama.cpp server) may need a high fd budget.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
