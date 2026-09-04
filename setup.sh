@@ -86,6 +86,33 @@ fi
 BOLD='\033[1m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
 YELLOW='\033[0;33m'; RED='\033[0;31m'; DIM='\033[2m'; NC='\033[0m'
 
+# --- whiptail theme ---------------------------------------------------------
+# whiptail's stock palette renders as muddy magenta on modern terminal themes.
+# Pin a "midnight slate" look: near-black panels, cyan borders/titles, cyan
+# buttons. Honor NO_COLOR to keep the system palette. (dialog uses dialogrc,
+# not newt, so this only applies to the whiptail backend.)
+if [[ $UI_BACKEND == whiptail && -z "${NO_COLOR:-}" ]]; then
+  export NEWT_COLORS='
+    root=lightgray,black
+    window=lightgray,black
+    border=cyan,black
+    title=cyan,black
+    textbox=lightgray,black
+    button=black,cyan
+    compactbutton=black,cyan
+    actbutton=black,white
+    checkbox=lightgray,black
+    actcheckbox=black,cyan
+    entry=lightgray,black
+    actentry=black,cyan
+    label=lightgray,black
+    listbox=lightgray,black
+    actlistbox=black,cyan
+    helpline=lightgray,black
+    roottext=lightgray,black
+  '
+fi
+
 info()    { echo "  • $1"; }
 success() { echo "  ✓ $1"; }
 warn()    { echo "  ! $1"; }
@@ -260,7 +287,23 @@ install_flow() {
       # Run the build as the invoking user: the toolchain (go, node) lives in
       # that user's login environment, and sudo's reset PATH hides it from
       # root. Login shell (-l) so profile-provided tool paths resolve.
-      sudo -u "$SUDO_USER" bash -lc "cd '$PRJ_ROOT' && ./scripts/build.sh"
+      # Some users keep go on PATH only via their interactive shell config
+      # (e.g. zsh .zshrc), which `bash -l` never reads — locate the binary
+      # explicitly and prepend its directory to PATH.
+      local go_bin go_dir user_home
+      go_bin="$(sudo -u "$SUDO_USER" bash -lc 'command -v go' 2>/dev/null || true)"
+      if [[ -z "$go_bin" ]]; then
+        user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+        for d in /usr/local/go/bin "$user_home/go/bin" "$user_home/.local/bin" /snap/bin /usr/lib/go/bin /opt/go/bin; do
+          if [[ -x "$d/go" ]]; then go_bin="$d/go"; break; fi
+        done
+      fi
+      if [[ -n "$go_bin" ]]; then
+        go_dir="$(dirname "$go_bin")"
+        sudo -u "$SUDO_USER" env PATH="$go_dir:$PATH" bash -lc "cd '$PRJ_ROOT' && ./scripts/build.sh"
+      else
+        sudo -u "$SUDO_USER" bash -lc "cd '$PRJ_ROOT' && ./scripts/build.sh"
+      fi
     else
       bash "$PRJ_ROOT/scripts/build.sh"
     fi

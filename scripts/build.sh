@@ -61,6 +61,18 @@ fi
 
 # --- Backend Compilation ---
 info "Compiling backend binary..."
+
+# Locate go even when PATH comes from a non-bash login environment (e.g. the
+# user's go lives in their zsh .zshrc, invisible to `bash -l`).
+if ! command -v go >/dev/null 2>&1; then
+  for d in /usr/local/go/bin "$HOME/go/bin" "$HOME/.local/bin" /snap/bin /usr/lib/go/bin /opt/go/bin; do
+    if [[ -x "$d/go" ]]; then export PATH="$d:$PATH"; break; fi
+  done
+fi
+if ! command -v go >/dev/null 2>&1; then
+  error "go not found on PATH or in common install locations (/usr/local/go/bin, ~/go/bin, snap)."
+fi
+
 cd backend
 
 # Go Linker flags
