@@ -10,6 +10,7 @@
 #   ./setup.sh register   register systemd only (binary already built)
 #   ./setup.sh build      build binary only
 #   ./setup.sh uninstall  remove service (asks about data)
+#   ./setup.sh purge      uninstall + erase EVERYTHING (typed confirmation)
 #   ./setup.sh preview    dry-run preview of install
 #
 # Flags (for CI / unattended runs; skip the TUI entirely):
@@ -32,13 +33,14 @@ SVC_USER="llm-proxy"
 SVC_ROOT="/var/lib/llm-proxy"
 INSTALL_BIN="/usr/local/bin/${BIN_NAME}"
 
-FORCE=0; DRY_RUN=0; DO_BUILD=0; ASSUME_YES=0; MODE=""
+FORCE=0; DRY_RUN=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; MODE=""
 
 for arg in "$@"; do
   case "$arg" in
     install)     MODE="install" ;;
     register)    MODE="install" ;;
     uninstall)   MODE="uninstall" ;;
+    purge)       MODE="purge" ;;
     build)       MODE="build" ;;
     preview)     MODE="preview"; DRY_RUN=1 ;;
     --install)   MODE="install" ;;
@@ -223,10 +225,15 @@ check_env() {
 # -----------------------------------------------------------------------------
 install_flow() {
   step "Configuration"
+  step "Configuration"
   if [[ $INTERACTIVE == 1 && $DRY_RUN != 1 ]]; then
     SVC_USER="$(ui_input "Service user:" "$SVC_USER")"
     SVC_ROOT="$(ui_input "Data root:" "$SVC_ROOT")"
     INSTALL_BIN="$(ui_input "Binary install path:" "$INSTALL_BIN")"
+    # Refuse values that would corrupt the unit or the filesystem.
+    [[ -n "$SVC_USER" ]] || fail "service user cannot be empty"
+    [[ "$SVC_ROOT" == "/" || -z "$SVC_ROOT" ]] && fail "data root must be a real directory (not / or empty)"
+    [[ -n "$INSTALL_BIN" ]] || fail "binary install path cannot be empty"
   fi
   info "user=$SVC_USER root=$SVC_ROOT bin=$INSTALL_BIN backend=$UI_BACKEND"
   START_NOW=1
@@ -237,7 +244,16 @@ install_flow() {
   step "Binary"
   if [[ $DO_BUILD == 1 ]]; then
     ui_pause "building (scripts/build.sh) — this can take a few minutes..."
-    run bash "$PRJ_ROOT/scripts/build.sh"
+    if [[ $DRY_RUN == 1 ]]; then
+      info "(dry-run) bash $PRJ_ROOT/scripts/build.sh"
+    elif [[ -n "${SUDO_USER:-}" ]]; then
+      # Run the build as the invoking user: the toolchain (go, node) lives in
+      # that user's login environment, and sudo's reset PATH hides it from
+      # root. Login shell (-l) so profile-provided tool paths resolve.
+      sudo -u "$SUDO_USER" bash -lc "cd '$PRJ_ROOT' && ./scripts/build.sh"
+    else
+      bash "$PRJ_ROOT/scripts/build.sh"
+    fi
   fi
   SRC_BIN="$PRJ_ROOT/backend/${BIN_NAME}"
   [[ -x "$SRC_BIN" ]] || fail "$SRC_BIN not found — build it first (scripts/build.sh) or pick 'Install (with build)'."
@@ -258,7 +274,15 @@ install_flow() {
 
   step "Data root (${SVC_ROOT})"
   if [[ -d "$SVC_ROOT" ]]; then
-    success "exists (skipping creation)"
+    # Fix ownership if the dir predates this install or was created by root —
+    # the service runs as SVC_USER and must be able to write here.
+    local owner="$(stat -c '%U' "$SVC_ROOT" 2>/dev/null || stat -f '%Su' "$SVC_ROOT" 2>/dev/null || echo "?")"
+    if [[ "$owner" != "$SVC_USER" ]]; then
+      run chown -R "$SVC_USER":"$SVC_USER" "$SVC_ROOT"
+      success "exists — ownership corrected to ${SVC_USER} (was: ${owner})"
+    else
+      success "exists, owned by ${SVC_USER} (skipping)"
+    fi
   else
     run install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$SVC_ROOT"
     success "created (0700, owned by ${SVC_USER})"
@@ -294,6 +318,11 @@ install_flow() {
   elif grep -q '^workspaces_dir:' "$SETTINGS" 2>/dev/null; then
     success "workspaces_dir already set (skipping)"
   elif confirm "Append 'workspaces_dir: workspaces' to $SETTINGS?"; then
+    # Guard against appending to a file without a trailing newline (would
+    # otherwise merge into the last YAML line).
+    if [[ -s "$SETTINGS" ]] && [[ -n "$(tail -c1 "$SETTINGS")" ]]; then
+      echo >> "$SETTINGS"
+    fi
     echo 'workspaces_dir: workspaces' >> "$SETTINGS"
     success "appended workspaces_dir: workspaces"
   else
@@ -302,12 +331,28 @@ install_flow() {
 
   step "Unit file"
   UNIT="/etc/systemd/system/${BIN_NAME}.service"
-  if [[ -f "$UNIT" ]] && [[ $FORCE != 1 ]] && cmp -s "docs/services/${BIN_NAME}.service" "$UNIT" 2>/dev/null; then
-    success "already installed and identical (skipping)"
+  # Render the unit template with the configured user/root. The template
+  # ships with defaults; the five tokens below are the only host-specific
+  # values. Custom SVC_USER/SVC_ROOT prompts would otherwise produce a unit
+  # that runs the wrong user / wrong data root.
+  local RENDERED="/tmp/${BIN_NAME}.rendered.service"
+  if [[ $DRY_RUN == 1 ]]; then
+    info "(dry-run) render unit (User=$SVC_USER, LLM_PROXY_HOME=$SVC_ROOT) and install to $UNIT"
   else
-    run install -m 0644 "docs/services/${BIN_NAME}.service" "$UNIT"
-    run systemctl daemon-reload
-    success "installed + daemon-reloaded"
+    sed -e "s|^User=.*|User=${SVC_USER}|" \
+        -e "s|^Group=.*|Group=${SVC_USER}|" \
+        -e "s|^Environment=LLM_PROXY_HOME=.*|Environment=LLM_PROXY_HOME=${SVC_ROOT}|" \
+        -e "s|^WorkingDirectory=.*|WorkingDirectory=${SVC_ROOT}|" \
+        -e "s|^ReadWritePaths=.*|ReadWritePaths=${SVC_ROOT}|" \
+        "docs/services/${BIN_NAME}.service" > "$RENDERED"
+    if [[ -f "$UNIT" ]] && [[ $FORCE != 1 ]] && cmp -s "$RENDERED" "$UNIT" 2>/dev/null; then
+      rm -f "$RENDERED"
+      success "already installed and identical (skipping)"
+    else
+      install -m 0644 "$RENDERED" "$UNIT" && rm -f "$RENDERED"
+      systemctl daemon-reload
+      success "installed (User=$SVC_USER, root=$SVC_ROOT) + daemon-reloaded"
+    fi
   fi
 
   if [[ $START_NOW == 1 ]]; then
@@ -315,8 +360,16 @@ install_flow() {
     if [[ $DRY_RUN == 1 ]]; then
       info "(dry-run) systemctl enable --now $BIN_NAME.service"
     else
+      # Clear failed-state / start-limit residue (e.g. a long crash-loop under
+      # the previous unit) so restart is not refused with "start request
+      # repeated too quickly".
+      systemctl reset-failed "$BIN_NAME.service" 2>/dev/null || true
       systemctl enable "$BIN_NAME.service" &>/dev/null
-      systemctl restart "$BIN_NAME.service"
+      if ! systemctl restart "$BIN_NAME.service"; then
+        warn "restart failed — recent logs:"
+        journalctl -u "$BIN_NAME.service" -n 10 --no-pager | sed 's/^/    /' >&2
+        fail "service failed to start — see: journalctl -u ${BIN_NAME}.service -f"
+      fi
       success "service enabled and (re)started"
     fi
 
@@ -349,7 +402,7 @@ Data:  ${SVC_ROOT} (single root: settings, DB, logs, workspaces)"
 }
 
 # -----------------------------------------------------------------------------
-# UNINSTALL
+# UNINSTALL — also serves the purge flow (PURGE=1: no per-item asks, erase all)
 # -----------------------------------------------------------------------------
 uninstall_flow() {
   local UNIT="/etc/systemd/system/${BIN_NAME}.service"
@@ -389,7 +442,7 @@ uninstall_flow() {
   fi
 
   step "Binary"
-  if [[ -f "$INSTALL_BIN" ]] && confirm "Remove $INSTALL_BIN? [y/N]"; then
+  if [[ -f "$INSTALL_BIN" ]] && { [[ $PURGE == 1 ]] || confirm "Remove $INSTALL_BIN? [y/N]"; }; then
     run rm -f "$INSTALL_BIN"
     success "binary removed"
   else
@@ -399,34 +452,39 @@ uninstall_flow() {
   step "Data root (${SVC_ROOT})"
   if [[ ! -d "$SVC_ROOT" ]]; then
     success "not present (skipping)"
-  elif confirm "Keep data at $SVC_ROOT (recommended — DB, secrets, master.key)?"; then
+  elif [[ $PURGE != 1 ]] && confirm "Keep data at $SVC_ROOT (recommended — DB, secrets, master.key)?"; then
     info "data kept — reinstalling later picks it up automatically"
-  else
-    if [[ $DRY_RUN == 1 ]]; then
-      info "(dry-run) would require typing DELETE to proceed"
-    elif confirm "Really delete everything under $SVC_ROOT? IRREVERSIBLE. [y/N]"; then
-      local d=""
-      if [[ $UI_BACKEND == ansi ]]; then
-        read -r -p "  type DELETE to confirm: " d
-      else
-        d="$(ui_input "Type DELETE to confirm:" "")"
-      fi
-      if [[ "$d" == "DELETE" ]]; then
+  elif [[ $PURGE == 1 ]] || confirm "Really delete everything under $SVC_ROOT? IRREVERSIBLE. [y/N]"; then
+      # PURGE mode was already gated by the typed PURGE in purge_flow —
+      # do not ask twice. Plain uninstall types DELETE here.
+      if [[ $DRY_RUN == 1 ]]; then
+        info "(dry-run) would require typing DELETE to proceed"
+      elif [[ $PURGE == 1 ]]; then
         run rm -rf "$SVC_ROOT"
-        success "data root deleted"
+        success "data root erased (purge)"
       else
-        warn "confirmation did not match DELETE — data kept"
+        local d=""
+        if [[ $UI_BACKEND == ansi ]]; then
+          read -r -p "  type DELETE to confirm: " d || true
+        else
+          d="$(ui_input "Type DELETE to confirm:" "")"
+        fi
+        if [[ "$d" == "DELETE" ]]; then
+          run rm -rf "$SVC_ROOT"
+          success "data root deleted"
+        else
+          warn "confirmation did not match DELETE — data kept"
+        fi
       fi
-    else
-      warn "deletion aborted — data kept"
-    fi
+  else
+    warn "deletion aborted — data kept"
   fi
 
   step "Service user (${SVC_USER})"
   if id "$SVC_USER" &>/dev/null; then
     if [[ -d "$SVC_ROOT" ]]; then
       info "kept — user stays (it owns $SVC_ROOT)"
-    elif confirm "Remove system user $SVC_USER? [y/N]"; then
+    elif [[ $PURGE == 1 ]] || confirm "Remove system user $SVC_USER? [y/N]"; then
       run userdel "$SVC_USER"
       success "user removed"
     fi
@@ -434,7 +492,79 @@ uninstall_flow() {
     success "not present (skipping)"
   fi
 
-  ui_msgbox "Uninstall complete."
+  # Purge-only: also erase the legacy pre-relocation config tree.
+  if [[ $PURGE == 1 ]]; then
+    step "Legacy config (~/.config/${BIN_NAME})"
+    LEGACY_HOME=""
+    command -v getent >/dev/null 2>&1 && LEGACY_HOME="$(getent passwd "${SUDO_USER:-}" 2>/dev/null | cut -d: -f6 || true)"
+    local legacy_dir="${LEGACY_HOME:-}/.config/${BIN_NAME}"
+    if [[ -n "$LEGACY_HOME" && -d "$legacy_dir" ]]; then
+      run rm -rf "$legacy_dir"
+      success "legacy config erased: $legacy_dir"
+    else
+      success "not present (skipping)"
+    fi
+  fi
+
+  if [[ $PURGE == 1 ]]; then
+    ui_msgbox "Purge complete. No llm-proxy artifacts remain."
+  else
+    ui_msgbox "Uninstall complete."
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# PURGE — uninstall + erase everything, with a full-screen warning up front
+# -----------------------------------------------------------------------------
+purge_flow() {
+  local UNIT="/etc/systemd/system/${BIN_NAME}.service"
+  # Resolve what's actually installed for the warning listing.
+  if [[ -f "$UNIT" ]]; then
+    local u r
+    u="$(sed -n 's/^User=//p' "$UNIT" 2>/dev/null || true)"
+    r="$(sed -n 's/^Environment=LLM_PROXY_HOME=//p' "$UNIT" 2>/dev/null || true)"
+    [[ -n "$u" ]] && SVC_USER="$u"
+    [[ -n "$r" ]] && SVC_ROOT="$r"
+  fi
+
+  local warning="FULL PURGE — this erases ALL llm-proxy artifacts:
+
+  • service:        stop, disable, remove unit file
+  • binary:         ${INSTALL_BIN}
+  • DATA ROOT:      ${SVC_ROOT}
+    (database, settings, provider secrets, master.key, workspaces)
+  • service user:   ${SVC_USER}
+  • legacy config:  ~/.config/${BIN_NAME} (if present)
+
+This is IRREVERSIBLE. Workspaces are agent files — if any work
+product lives there, it is gone forever.\n\nContinue only if you are certain."
+
+  if [[ $DRY_RUN == 1 ]]; then
+    echo -e "${YELLOW}${BOLD}DRY RUN — full purge preview (nothing erased)${NC}"
+    echo -e "$warning"
+    PURGE=1 uninstall_flow
+    return
+  fi
+
+  # Hard gate 1: explicit warning acceptance.
+  if ! ui_confirm "$warning Continue? [y/N]"; then
+    warn "purge aborted — nothing was erased"
+    return
+  fi
+  # Hard gate 2: typed PURGE (works in both backends).
+  local d=""
+  if [[ $UI_BACKEND == ansi ]]; then
+    read -r -p "  type PURGE to erase everything: " d
+  else
+    d="$(ui_input "Type PURGE to erase everything:" "")"
+  fi
+  if [[ "$d" != "PURGE" ]]; then
+    warn "confirmation did not match PURGE — nothing was erased"
+    return
+  fi
+
+  warn "full purge starting — everything listed above will be erased"
+  PURGE=1 uninstall_flow
 }
 
 # =============================================================================
@@ -467,6 +597,7 @@ main() {
   case "$MODE" in
     install)   install_flow ;;
     uninstall) uninstall_flow ;;
+    purge)     purge_flow ;;
     build)     run bash "$PRJ_ROOT/scripts/build.sh" ;;
     preview)   install_flow ;;
     *)
@@ -475,6 +606,7 @@ main() {
         register          "Register systemd only (binary already built)" \
         build             "Build binary only" \
         uninstall         "Uninstall — remove service (asks about data)" \
+        purge             "Full purge — uninstall + erase EVERYTHING" \
         preview_install   "Preview install (dry-run)" \
         preview_uninstall "Preview uninstall (dry-run)" \
         quit              "Quit")" in
@@ -482,6 +614,7 @@ main() {
         register)          install_flow ;;
         build)             run bash "$PRJ_ROOT/scripts/build.sh" ;;
         uninstall)         if confirm "Uninstall the llm-proxy service? [y/N]"; then uninstall_flow; else warn "aborted"; fi ;;
+        purge)             purge_flow ;;
         preview_install)   DRY_RUN=1; warn "DRY RUN — no changes will be made"; install_flow ;;
         preview_uninstall) DRY_RUN=1; warn "DRY RUN — no changes will be made"; uninstall_flow ;;
         *) exit 0 ;;
