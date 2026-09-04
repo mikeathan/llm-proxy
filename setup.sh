@@ -11,6 +11,9 @@
 #   ./setup.sh build      build binary only
 #   ./setup.sh uninstall  remove service (asks about data)
 #   ./setup.sh purge      uninstall + erase EVERYTHING (typed confirmation)
+#   ./setup.sh access     grant service-user read access to external model/
+#                         binary paths (ACLs; explicit opt-in)
+#   ./setup.sh service     start/stop/restart/status + view service logs
 #   ./setup.sh preview    dry-run preview of install
 #
 # Flags (for CI / unattended runs; skip the TUI entirely):
@@ -42,6 +45,8 @@ for arg in "$@"; do
     uninstall)   MODE="uninstall" ;;
     purge)       MODE="purge" ;;
     build)       MODE="build" ;;
+    service)     MODE="service" ;;
+    access)      MODE="access" ;;
     preview)     MODE="preview"; DRY_RUN=1 ;;
     --install)   MODE="install" ;;
     --uninstall) MODE="uninstall" ;;
@@ -88,28 +93,29 @@ YELLOW='\033[0;33m'; RED='\033[0;31m'; DIM='\033[2m'; NC='\033[0m'
 
 # --- whiptail theme ---------------------------------------------------------
 # whiptail's stock palette renders as muddy magenta on modern terminal themes.
-# Pin a "midnight slate" look: near-black panels, cyan borders/titles, cyan
-# buttons. Honor NO_COLOR to keep the system palette. (dialog uses dialogrc,
+# Pin a "retro phosphor" look: near-black panels, amber borders/titles, green
+# text, and inverted amber/green highlights — classic CRT terminal vibes.
+# Honor NO_COLOR to keep the system palette. (dialog uses dialogrc,
 # not newt, so this only applies to the whiptail backend.)
 if [[ $UI_BACKEND == whiptail && -z "${NO_COLOR:-}" ]]; then
   export NEWT_COLORS='
-    root=lightgray,black
-    window=lightgray,black
-    border=cyan,black
-    title=cyan,black
-    textbox=lightgray,black
-    button=black,cyan
-    compactbutton=black,cyan
-    actbutton=black,white
-    checkbox=lightgray,black
-    actcheckbox=black,cyan
-    entry=lightgray,black
-    actentry=black,cyan
-    label=lightgray,black
-    listbox=lightgray,black
-    actlistbox=black,cyan
-    helpline=lightgray,black
-    roottext=lightgray,black
+    root=green,black
+    window=green,black
+    border=yellow,black
+    title=yellow,black
+    textbox=green,black
+    button=black,yellow
+    compactbutton=black,yellow
+    actbutton=black,green
+    checkbox=green,black
+    actcheckbox=black,green
+    entry=green,black
+    actentry=black,green
+    label=green,black
+    listbox=green,black
+    actlistbox=black,green
+    helpline=yellow,black
+    roottext=yellow,black
   '
 fi
 
@@ -188,8 +194,8 @@ ui_confirm() {
     local ans; read -r -p "  $1 " ans; [[ ! "$ans" =~ ^[Nn] ]]
   else
     case "$UI_BACKEND" in
-      whiptail) whiptail --title "llm-proxy" --yesno "$1" 8 65 ;;
-      dialog)   dialog --clear --title "llm-proxy" --yesno "$1" 8 65 ;;
+      whiptail) whiptail --title "llm-proxy" --yesno "$1" 8 65 3>&1 1>&2 2>&3 ;;
+      dialog)   dialog --clear --title "llm-proxy" --yesno "$1" 8 65 3>&1 1>&2 2>&3 ;;
     esac
   fi
 }
@@ -198,9 +204,27 @@ ui_msgbox() { # $1 text
   if [[ $DRY_RUN == 1 || $INTERACTIVE == 0 || $UI_BACKEND == ansi ]]; then
     echo "  $1"; return
   fi
+  # Same fd swap as ui_menu/ui_input: newt/dialog draw on stdout, so without
+  # the swap the widget renders into a command-substitution pipe (invisible)
+  # and the script appears to hang. 20x70 so longer texts fit comfortably.
   case "$UI_BACKEND" in
-    whiptail) whiptail --title "llm-proxy" --msgbox "$1" 11 65 ;;
-    dialog)   dialog --clear --title "llm-proxy" --msgbox "$1" 11 65 ;;
+    whiptail) whiptail --title "llm-proxy" --msgbox "$1" 20 70 3>&1 1>&2 2>&3 ;;
+    dialog)   dialog --clear --title "llm-proxy" --msgbox "$1" 20 70 3>&1 1>&2 2>&3; clear ;;
+  esac
+}
+
+# Display a file's contents in a scrollable textbox. Used for command output
+# (systemctl status, journalctl) inside service_flow: printing to the
+# terminal would be instantly covered by the next menu redraw.
+ui_textbox() { # $1 = file, $2 = title
+  local file="$1" title="${2:-llm-proxy}"
+  case "$UI_BACKEND" in
+    whiptail) whiptail --title "$title" --textbox "$file" 24 76 3>&1 1>&2 2>&3 ;;
+    dialog)   dialog --clear --title "$title" --textbox "$file" 24 76 3>&1 1>&2 2>&3; clear ;;
+    ansi)
+      cat "$file"
+      read -r -p "  (Enter to continue)" _ || true
+      ;;
   esac
 }
 
@@ -235,7 +259,7 @@ check_env() {
       warn "systemd not found on this host — switching to preview mode (dry-run)"
       DRY_RUN=1
     else
-      fail "systemd not found — this script targets Linux servers (see docs/service_setup)."
+      fail "systemd not found — this script targets Linux servers (see docs/service_setup.md)."
     fi
   fi
   [[ -f "docs/services/${BIN_NAME}.service" ]] || fail "docs/services/${BIN_NAME}.service missing — run from the repo root."
@@ -248,19 +272,205 @@ check_env() {
 }
 
 # -----------------------------------------------------------------------------
+# SERVICE USER CHOICE — dedicated hardened account (default) vs the invoking
+# user's own account. The screen spells out the trade-off before deciding.
+# Returns the chosen username on stdout.
+# -----------------------------------------------------------------------------
+choose_service_user() {
+  local invoking="${SUDO_USER:-$(id -un)}"
+  if [[ $INTERACTIVE != 1 || $DRY_RUN == 1 ]]; then
+    echo "$SVC_USER" # non-interactive: keep the default (llm-proxy)
+    return
+  fi
+  ui_msgbox "Who should run the llm-proxy service?
+
+  DEDICATED USER (recommended — '${SVC_USER}')
+    A locked system account (no password, no login) that owns nothing
+    except the data root. If the proxy is ever compromised, the damage
+    is contained: it cannot read your home directory unless you later
+    grant access to specific model/binary paths (the installer offers
+    that next, via read-only ACLs).
+
+  YOUR OWN ACCOUNT ('${invoking}')
+    No access grants ever needed — model dirs and binaries anywhere in
+    your home just work. But the proxy and every agent session it spawns
+    run with YOUR full identity: they can read everything you can
+    (SSH keys, credentials, git tokens, your whole dev tree). A proxy
+    bug or a runaway agent touches your files, not a sandbox.
+
+  Pick YOUR OWN ACCOUNT only on a personal, single-user machine where
+  the convenience outweighs the exposure."
+  local choice
+  choice="$(ui_menu "Run the service as:" \
+    dedicated "${SVC_USER} — dedicated hardened account (recommended)" \
+    current   "${invoking} — your own account (zero setup, broader exposure)" \
+    custom    "Another username (system account will be created)")"
+  case "$choice" in
+    dedicated) echo "$SVC_USER" ;;
+    current)   echo "$invoking" ;;
+    custom)
+      local u
+      u="$(ui_input "System username:" "$SVC_USER")"
+      [[ -n "$u" ]] || fail "service user cannot be empty"
+      echo "$u"
+      ;;
+  esac
+}
+
+# -----------------------------------------------------------------------------
+# EXTERNAL PATH ACCESS — explicit opt-in (./setup.sh access): let the service
+# user read model dirs / binaries that live outside the data root.
+#
+# The unit keeps ProtectHome=read-only (no widening of the sandbox: read-only
+# everywhere, writable only under the data root), so the only blocker is
+# classic Unix permissions. We grant the service user ACLs:
+#   - rX (read files, read+traverse dirs) recursively on the target path
+#   - x (traverse only) on every parent up to / — reachability WITHOUT
+#     listing rights, so /home/<user> stays private
+# Nothing is copied or moved; the paths stay where the user put them.
+grant_read_access() { # $1 = service user, $2 = path
+  local user="$1" path="$2"
+  if [[ ! -e "$path" ]]; then
+    warn "not found: $path (skipping)"
+    return
+  fi
+  if ! command -v setfacl >/dev/null 2>&1; then
+    warn "setfacl not available — install the 'acl' package and re-run (skipping $path)"
+    return
+  fi
+  run setfacl -R -m "u:${user}:rX" "$path"
+  # Traverse-only on the parent chain: stop at / (root is traversable already).
+  local parent
+  parent="$(dirname "$(realpath "$path")")"
+  while [[ "$parent" != "/" ]]; do
+    if setfacl -m "u:${user}:x" "$parent" 2>/dev/null; then
+      info "  traverse granted on $parent"
+    fi
+    parent="$(dirname "$parent")"
+  done
+  success "${user} can now read $path (parents traverse-only)"
+}
+
+# -----------------------------------------------------------------------------
+# ACCESS — grant the service user read access to external paths (models,
+# llama-server binary). Explicit opt-in, never part of install.
+# -----------------------------------------------------------------------------
+access_flow() {
+  [[ $DRY_RUN == 1 ]] && warn "DRY RUN — nothing will be granted"
+  offer_access_grants
+  info "restart the service afterwards: sudo systemctl restart ${BIN_NAME}.service"
+}
+
+# Prompt for model dir + llama-server binary paths and grant the service user
+# read access via ACLs. Used by install (dedicated/custom user chosen) and by
+# the explicit `access` mode. Saves answers in $SVC_ROOT/.setup-paths (0600)
+# so later runs prefill them. Never runs in dry-run/non-interactive mode.
+offer_access_grants() {
+  local MODEL_DIR_PATH="" LLAMA_BIN_PATH=""
+  local PATHS_FILE="$SVC_ROOT/.setup-paths"
+  # Defaults from a previous run, so re-runs don't retype paths.
+  if [[ -f "$PATHS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$PATHS_FILE"
+  fi
+  if [[ $INTERACTIVE == 1 && $DRY_RUN != 1 ]]; then
+    step "External model & runtime paths"
+    MODEL_DIR_PATH="$(ui_input "Model directory the service should read (blank to skip):" "${MODEL_DIR_PATH:-}")"
+    LLAMA_BIN_PATH="$(ui_input "llama-server binary path (blank to skip):" "${LLAMA_BIN_PATH:-}")"
+    [[ -z "$MODEL_DIR_PATH" && -z "$LLAMA_BIN_PATH" ]] && { info "nothing to do"; return; }
+    [[ -n "$MODEL_DIR_PATH" ]] && grant_read_access "$SVC_USER" "$MODEL_DIR_PATH"
+    [[ -n "$LLAMA_BIN_PATH" ]] && grant_read_access "$SVC_USER" "$LLAMA_BIN_PATH"
+    printf 'MODEL_DIR_PATH=%q\nLLAMA_BIN_PATH=%q\n' "$MODEL_DIR_PATH" "$LLAMA_BIN_PATH" > "$PATHS_FILE"
+    chmod 0600 "$PATHS_FILE"
+    success "saved for next run: $PATHS_FILE"
+  else
+    info "non-interactive — grant manually with:"
+    info "  setfacl -R -m u:${SVC_USER}:rX <path>   (+ traverse on parent dirs)"
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# SERVICE CONTROL — start/stop/restart/status + logs, for visibility when the
+# service has failed. Run with sudo (systemd/journalctl need root).
+# -----------------------------------------------------------------------------
+service_flow() {
+  local UNIT_NAME="${BIN_NAME}.service"
+  if ! command -v systemctl >/dev/null 2>&1; then
+    fail "systemd not found on this host"
+  fi
+  # Every action's output is shown in a scrollable textbox, not printed to
+  # the terminal: the menu redraws after each action and would cover it.
+  local tmp out
+  tmp="$(mktemp)"
+  trap 'rm -f "$tmp"' RETURN
+  while :; do
+    local action
+    action="$(ui_menu "Service control — ${UNIT_NAME}" \
+      start   "Start the service" \
+      stop    "Stop the service" \
+      restart "Restart the service (clears failed-state first)" \
+      status  "Status — active state, PID, enablement" \
+      logs    "Logs — last 100 lines" \
+      follow  "Logs — follow live (Ctrl+C to exit)" \
+      back    "Back")"
+    case "$action" in
+      start | stop | restart)
+        if [[ $DRY_RUN == 1 ]]; then
+          info "(dry-run) systemctl $action $UNIT_NAME"
+          continue
+        fi
+        [[ $action == restart ]] && systemctl reset-failed "$UNIT_NAME" 2>/dev/null || true
+        if out="$(systemctl "$action" "$UNIT_NAME" 2>&1)"; then
+          printf 'service %s: OK\n%s' "$action" "${out:-}" > "$tmp"
+        else
+          printf 'service %s FAILED:\n\n%s\n\nCheck: journalctl -u %s -n 50 --no-pager' \
+            "$action" "$out" "$UNIT_NAME" > "$tmp"
+        fi
+        ui_textbox "$tmp" "Service ${action}"
+        ;;
+      status)
+        if [[ $DRY_RUN == 1 ]]; then
+          info "(dry-run) systemctl status $UNIT_NAME"
+          continue
+        fi
+        systemctl status "$UNIT_NAME" --no-pager >"$tmp" 2>&1 || true
+        ui_textbox "$tmp" "Service status"
+        ;;
+      logs)
+        if [[ $DRY_RUN == 1 ]]; then
+          info "(dry-run) journalctl -u $UNIT_NAME -n 100"
+          continue
+        fi
+        journalctl -u "$UNIT_NAME" -n 100 --no-pager >"$tmp" 2>&1 || true
+        ui_textbox "$tmp" "Last 100 log lines"
+        ;;
+      follow)
+        if [[ $DRY_RUN == 1 ]]; then
+          info "(dry-run) journalctl -u $UNIT_NAME -f"
+          continue
+        fi
+        info "following ${UNIT_NAME} — Ctrl+C to stop (service keeps running)"
+        journalctl -u "$UNIT_NAME" -n 20 -f || true
+        ;;
+      *)
+        return
+        ;;
+    esac
+  done
+}
+
+# -----------------------------------------------------------------------------
 # INSTALL
 # -----------------------------------------------------------------------------
 install_flow() {
   step "Configuration"
-  step "Configuration"
   if [[ $INTERACTIVE == 1 && $DRY_RUN != 1 ]]; then
-    SVC_USER="$(ui_input "Service user:" "$SVC_USER")"
     SVC_ROOT="$(ui_input "Data root:" "$SVC_ROOT")"
     INSTALL_BIN="$(ui_input "Binary install path:" "$INSTALL_BIN")"
     # Refuse values that would corrupt the unit or the filesystem.
-    [[ -n "$SVC_USER" ]] || fail "service user cannot be empty"
     [[ "$SVC_ROOT" == "/" || -z "$SVC_ROOT" ]] && fail "data root must be a real directory (not / or empty)"
     [[ -n "$INSTALL_BIN" ]] || fail "binary install path cannot be empty"
+    SVC_USER="$(choose_service_user)"
   fi
   info "user=$SVC_USER root=$SVC_ROOT bin=$INSTALL_BIN backend=$UI_BACKEND"
   START_NOW=1
@@ -300,12 +510,12 @@ install_flow() {
       fi
       if [[ -n "$go_bin" ]]; then
         go_dir="$(dirname "$go_bin")"
-        sudo -u "$SUDO_USER" env PATH="$go_dir:$PATH" bash -lc "cd '$PRJ_ROOT' && ./scripts/build.sh"
+        sudo -u "$SUDO_USER" env PATH="$go_dir:$PATH" bash -lc "cd '$PRJ_ROOT' && BUILD_INLINE=1 ./scripts/build.sh"
       else
-        sudo -u "$SUDO_USER" bash -lc "cd '$PRJ_ROOT' && ./scripts/build.sh"
+        sudo -u "$SUDO_USER" bash -lc "cd '$PRJ_ROOT' && BUILD_INLINE=1 ./scripts/build.sh"
       fi
     else
-      bash "$PRJ_ROOT/scripts/build.sh"
+      BUILD_INLINE=1 bash "$PRJ_ROOT/scripts/build.sh"
     fi
   fi
   SRC_BIN="$PRJ_ROOT/backend/${BIN_NAME}"
@@ -323,6 +533,16 @@ install_flow() {
   else
     run useradd --system --home-dir "$SVC_ROOT" --shell /usr/sbin/nologin "$SVC_USER"
     success "created system user ${SVC_USER} (no password, nologin — login-locked by design)"
+  fi
+
+  # External paths (models, llama-server binary) only need explicit grants
+  # when the service does NOT run as the invoking user — its own files are
+  # readable by definition.
+  if [[ "$SVC_USER" != "${SUDO_USER:-$(id -un)}" ]]; then
+    offer_access_grants
+  else
+    step "External model & runtime paths"
+    success "service runs as you — model dirs and binaries are readable, no grants needed"
   fi
 
   step "Data root (${SVC_ROOT})"
@@ -448,6 +668,14 @@ install_flow() {
     info "hardening: ${SCORE:-n/a}"
   fi
 
+  # Refresh the dev launcher's env file so ./launch.sh defaults to the same
+  # data root the service uses. Values are defaults only — anything exported
+  # before ./launch.sh wins.
+  if [[ $DRY_RUN != 1 ]]; then
+    printf '# generated by setup.sh — refreshed on every install\nLLM_PROXY_HOME=%q\n' "$SVC_ROOT" > "$PRJ_ROOT/.launch.env"
+    success "dev launcher env refreshed: .launch.env (LLM_PROXY_HOME=$SVC_ROOT)"
+  fi
+
   ui_msgbox "Install complete.
 UI:    http://<host>:4001
 Logs:  journalctl -u ${BIN_NAME}.service -f
@@ -537,6 +765,10 @@ uninstall_flow() {
   if id "$SVC_USER" &>/dev/null; then
     if [[ -d "$SVC_ROOT" ]]; then
       info "kept — user stays (it owns $SVC_ROOT)"
+    elif [[ "$SVC_USER" == "${SUDO_USER:-}" ]]; then
+      # Never delete the invoking user's own account — the service may have
+      # been installed to run as them (self-profile choice).
+      warn "kept — $SVC_USER is the invoking user (refusing to delete)"
     elif [[ $PURGE == 1 ]] || confirm "Remove system user $SVC_USER? [y/N]"; then
       run userdel "$SVC_USER"
       success "user removed"
@@ -652,12 +884,16 @@ main() {
     uninstall) uninstall_flow ;;
     purge)     purge_flow ;;
     build)     run bash "$PRJ_ROOT/scripts/build.sh" ;;
+    service)   service_flow ;;
+    access)    access_flow ;;
     preview)   install_flow ;;
     *)
       case "$(ui_menu "What would you like to do?" \
         install           "Install — build binary + register systemd service" \
         register          "Register systemd only (binary already built)" \
         build             "Build binary only" \
+        service           "Service — start / stop / restart / status / logs" \
+        access            "Access — grant service read access to model/binary paths" \
         uninstall         "Uninstall — remove service (asks about data)" \
         purge             "Full purge — uninstall + erase EVERYTHING" \
         preview_install   "Preview install (dry-run)" \
@@ -666,6 +902,8 @@ main() {
         install)           DO_BUILD=1; install_flow ;;
         register)          install_flow ;;
         build)             run bash "$PRJ_ROOT/scripts/build.sh" ;;
+        service)           service_flow ;;
+        access)            access_flow ;;
         uninstall)         if confirm "Uninstall the llm-proxy service? [y/N]"; then uninstall_flow; else warn "aborted"; fi ;;
         purge)             purge_flow ;;
         preview_install)   DRY_RUN=1; warn "DRY RUN — no changes will be made"; install_flow ;;

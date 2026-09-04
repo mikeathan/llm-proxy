@@ -374,7 +374,7 @@ the resolved policy — so no single function drifts past the complexity gate.
 - **Acceptance:** direct-dial probes fail; proxied egress works; disabled by default.
 
 ### Phase 6 — deployment hardening (docs + service unit, no Go code)
-- `docs/service_setup` + `docs/services/llm-proxy.service`: dedicated unprivileged user,
+- `docs/service_setup.md` + `docs/services/llm-proxy.service`: dedicated unprivileged user,
   `NoNewPrivileges=true`, `ProtectSystem=strict`, `PrivateTmp=true` (systemd covers Linux
   backend-process containment — complements out-of-scope item 1 in §2).
 - Env-secret audit of `prepareShellEnv` allowlist (connector API keys must not leak into
