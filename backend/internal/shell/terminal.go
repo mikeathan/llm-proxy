@@ -128,6 +128,14 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 
 		line, err := ps.stdout.ReadString('\n')
 		if err != nil && err != io.EOF {
+			// Cancellation kills the process group, which closes the stdout
+			// pipe; the blocked read then fails with "file already closed".
+			// The read error is a symptom — surface the context error as the
+			// cause instead of racing the select above (which only observes
+			// ctx.Done between reads).
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return outputBuf.String(), ctxErr
+			}
 			return outputBuf.String(), fmt.Errorf("failed to read shell output: %w", err)
 		}
 

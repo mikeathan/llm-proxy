@@ -1,9 +1,11 @@
 name: CI
 
-# Triggers: PRs (all branches), merges to main, manual dispatch for re-runs.
+# Triggers: PRs (all branches) and manual dispatch for re-runs. Merges to
+# `main` are NOT re-tested here: every commit on main has already been tested
+# as its PR's merge-commit (branch rulesets require PRs), and nothing on merge
+# consumes a CI result (release.yml only tags). Re-add a push trigger if a
+# future deploy or a `main` status badge ever needs one.
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
