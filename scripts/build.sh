@@ -23,6 +23,22 @@ echo -e "${CYAN}${BOLD}==================================================${NC}"
 info "Starting build for ${BOLD}llm-proxy${NC}..."
 echo -e "${CYAN}${BOLD}==================================================${NC}"
 
+# --- Repo ownership guard ---
+# Root-owned files in the tree (typically left behind by an earlier root-run
+# build) make vite/npm fail mid-build with EACCES. Fail fast with the fix,
+# or self-heal when the script itself runs as root.
+if find . -user root -print -quit 2>/dev/null | grep -q .; then
+  if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    info "Repairing root-owned files (from an earlier root-run build)..."
+    chown -R "${SUDO_USER}":"$(id -gn "$SUDO_USER")" "$PRJ_ROOT"
+    success "repo ownership repaired"
+  else
+    echo -e "${RED}${BOLD}error${NC} Found root-owned files in the repo (vite will fail with EACCES)."
+    echo -e "Fix:  ${BOLD}sudo chown -R \"$(id -un)\":\"$(id -gn)\" $PRJ_ROOT${NC}"
+    exit 1
+  fi
+fi
+
 # --- Versioning (Using Git Tags) ---
 info "Retrieving version from Git tags..."
 # Get the most recent tag by version number, or fallback to 'dev' if no tags exist

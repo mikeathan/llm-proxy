@@ -247,6 +247,16 @@ install_flow() {
     if [[ $DRY_RUN == 1 ]]; then
       info "(dry-run) bash $PRJ_ROOT/scripts/build.sh"
     elif [[ -n "${SUDO_USER:-}" ]]; then
+      # Self-heal repo ownership: earlier versions of this script built as
+      # root, leaving root-owned files (frontend_dist etc.) that break user-
+      # run builds with EACCES. Repair before dropping to the invoking user.
+      local root_owned
+      root_owned="$(find "$PRJ_ROOT" -user root -print -quit 2>/dev/null || true)"
+      if [[ -n "$root_owned" ]]; then
+        ui_pause "repairing root-owned files in the repo (from older root-run builds)..."
+        chown -R "$SUDO_USER":"$SUDO_USER" "$PRJ_ROOT"
+        success "repo ownership repaired (was: root)"
+      fi
       # Run the build as the invoking user: the toolchain (go, node) lives in
       # that user's login environment, and sudo's reset PATH hides it from
       # root. Login shell (-l) so profile-provided tool paths resolve.
