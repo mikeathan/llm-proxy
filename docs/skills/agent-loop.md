@@ -130,21 +130,30 @@ No path is invented. See `salvageTruncatedWrite` in `tool_exec.go`.
 
 ## Output Constraint (GBNF Grammar)
 
-When native tools are active in automation (`useNativeTools = true`),
-the agent applies a **GBNF grammar constraint** to prevent malformed JSON in tool call arguments:
+The agent does **not** send a GBNF grammar on native-tools requests to local
+llama.cpp. llama.cpp — the only server that accepted GBNF — rejects a custom
+grammar combined with native `tools` in one request (HTTP 400 "Cannot use
+custom grammar constraints with tools."), and every local llama.cpp is reached
+over the OpenAI-compatible wire. Attaching the grammar made each tool-using
+turn fail before generation (2026-09-05: assistant execution failed on the
+locally-managed llama.cpp path while the same model via an OpenAI-style
+registration worked). Native tool-call arguments are already constrained by the
+server's own tool template, and llm-proxy validates results post-hoc
+(`handleContentToolCalls` + `ValidateToolCall`), so no grammar is attached on
+any path today:
 
-- **Local providers** (llama.cpp): `GBNFConstraint` generates a disjunctive GBNF grammar from
-  all tool schemas and sets `req.Grammar`. This constrains token generation so the model can
-  only produce valid JSON matching one of the available tool schemas.
-- **Cloud providers** (OpenAI, Gemini): Skipped — their native tool API already returns
-  structured valid JSON.
-- **XML text mode**: Skipped — `useNativeTools` is false, so `llmTools` is nil and the
-  constraint code is never reached.
-
-The constraint is optional (never fatal). If `Apply()` returns false (unsupported types,
-empty schema, etc.), the request is sent unchanged and the existing parsing handles it.
-
-See `proxy/tool_constraint.go` `GBNFConstraint` and `stream.go` `buildChatRequest()`.
+- **Native tools (local or cloud):** no grammar — `buildChatRequest` never sets
+  `req.Grammar`; the server returns structured JSON that the parser validates.
+- **XML text mode:** no grammar either — the model writes
+  `<tool_call>{"tool":…}</tool_call>` free-text and parse failures feed the
+  format-error feedback loop (SPEC-002), never a generation-level constraint.
+- The bare-JSON GBNF builder remains available as `proxy.GBNFConstraint`
+  (unit-tested) for a future non-tools/JSON-mode use; it is deliberately not
+  wired to native-tools requests.
+- **Re-enabling grammar is tracked, not forgotten:** an opt-in, llama.cpp-safe
+  re-enablement (envelope-aware grammar for XML text mode, never with native
+  tools, per-model toggle) is planned in
+  `docs/PLANS/cross-cutting/tool-call-grammar-reenable.md`.
 
 ## Fallback Chain
 

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,6 +81,43 @@ func (p *LocalProvider) GetEndpoint(ctx context.Context) (string, http.Header, e
 		return "", nil, fmt.Errorf("model not running")
 	}
 	return network.FormatLocalURL(p.host, p.cfg.Port), nil, nil
+}
+
+// ProbeNativeTools asks the locally-launched llama-server whether the model
+// can emit native OpenAI tool calls. A manager-launched llama.cpp is the same
+// OpenAI-compatible wire the OpenAI-style registrations use — without this
+// probe, provider-local models could never be auto-detected as native and
+// always fell back to XML text mode (where native-tool models mangle the
+// <tool_call> format). Shares the probe ladder with OpenAICompatibleProvider.
+// Returns (false, nil) for a healthy endpoint without native tool support;
+// (false, err) for transport/upstream errors so the caller falls back to XML
+// without caching.
+func (p *LocalProvider) ProbeNativeTools(ctx context.Context, modelID string) (bool, error) {
+	if p.cfg.Port <= 0 {
+		return false, fmt.Errorf("model %q not configured with a port", modelID)
+	}
+	endpoint := network.FormatLocalURL(p.host, p.cfg.Port) + "/v1/chat/completions"
+	doer := &http.Client{Transport: network.LLMChatTransport}
+
+	// Attempt 1: reasonable budget and deadline — the fast path.
+	supported, lengthLimited, err := probeNativeToolsOnce(ctx, endpoint, nil, doer, modelID, probeNativeToolBudget, ProbeNativeToolTimeout)
+	if err != nil {
+		// A deadline-exceeded first attempt means the server was alive but
+		// slow (still generating when we gave up) — escalate once with the
+		// generous budget/deadline. Any other transport error is terminal.
+		if errors.Is(err, context.DeadlineExceeded) {
+			supported, _, err = probeNativeToolsOnce(ctx, endpoint, nil, doer, modelID, probeNativeToolMaxBudget, ProbeNativeToolMaxTimeout)
+			return supported, err
+		}
+		return false, err
+	}
+	if supported || !lengthLimited {
+		return supported, nil
+	}
+	// Attempt 1 was truncated by the token budget before a tool call — the
+	// model may think longer before acting. Retry with the generous budget.
+	supported, _, err = probeNativeToolsOnce(ctx, endpoint, nil, doer, modelID, probeNativeToolMaxBudget, ProbeNativeToolMaxTimeout)
+	return supported, err
 }
 
 func (p *LocalProvider) EnsureReady(ctx context.Context) error {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -634,13 +635,20 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		state.SetRunning("")
 		d.persistence.WriteState(entry.Workspace, state)
 
-		// Un-hang the UI by publishing the error over the EventBus
+		// Un-hang the UI by publishing the error over the EventBus. The
+		// content is the classified summary + hint — the raw error would be an
+		// opaque upstream JSON dump in the run console (full error is logged).
+		fi := failures.ClassifyRunFailure(err)
+		errContent := fi.Error
+		if fi.Hint != "" {
+			errContent = fi.Error + "\n\n" + fi.Hint
+		}
 		d.events.Publish(entry.Workspace, assistant.AgentEvent{
 			Type:    assistant.EventError,
 			Channel: assistant.ChannelAutomation,
 			Payload: proxy.Message{
 				Role:    "system",
-				Content: fmt.Sprintf("Execution Error: %v", err),
+				Content: errContent,
 			},
 		})
 

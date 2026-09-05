@@ -114,6 +114,12 @@ type LLMRuntimeManager struct {
 	// so it can be surfaced in status/logs even after the dead model is cleared
 	// (e.g. a llama-server that crashed on launch due to bad args).
 	lastModelError string
+
+	// servingCtxSynced marks local models whose serving-context metadata has
+	// been reconciled against the running server once per server start
+	// (ReconcileLocalServingContext). Cleared on Sync (registry may have
+	// re-introduced stale metadata) and on model stop.
+	servingCtxSynced map[string]bool
 }
 
 func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore, regSource func() models.RegistryData) *LLMRuntimeManager {
@@ -315,11 +321,16 @@ func (m *LLMRuntimeManager) probeNativeToolSupport(ctx context.Context, cfg mode
 	if err != nil {
 		return false, fmt.Errorf("build provider: %w", err)
 	}
-	op, ok := p.(*providers.OpenAICompatibleProvider)
+	// Any provider that can probe its OWN running endpoint participates —
+	// OpenAI-style registrations AND manager-launched local llama.cpp (which
+	// serves the same OpenAI-compatible wire). Without the local probe,
+	// provider-local models could never be auto-detected as native and always
+	// fell back to XML text mode.
+	prober, ok := p.(nativeToolsProber)
 	if !ok {
 		return false, nil
 	}
-	return op.ProbeNativeTools(ctx, cfg.Filename)
+	return prober.ProbeNativeTools(ctx, cfg.Filename)
 }
 
 func (m *LLMRuntimeManager) ListProviderModels(ctx context.Context, providerName, apiKeyName string) ([]models.ProviderModelInfo, error) {
@@ -378,6 +389,25 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 			cfg = m.syncPortWithActiveLocked(cfg)
 			if inst, ok := m.readyInstanceLocked(name, cfg); ok {
 				inst.ModelID = cfg.Filename
+				// Serving-context reconciliation for manager-launched local
+				// models: the running server's reported window is the
+				// authoritative budget input (SPEC-005). Runs off-lock once per
+				// server start (self-gated inside), before this call returns —
+				// callers build agents/requests after GetInstance, so derived
+				// budgets are correct up front even when stored metadata is
+				// stale.
+				if cfg.Provider == "" || cfg.Provider == models.ProviderLocal {
+					m.mu.Unlock()
+					m.ReconcileLocalServingContext(ctx, name)
+					m.mu.Lock()
+					// The model may have stopped while we probed — re-check
+					// before handing out the instance.
+					if inst2, ok := m.readyInstanceLocked(name, cfg); ok {
+						inst2.ModelID = cfg.Filename
+						return inst2, nil
+					}
+					continue
+				}
 				return inst, nil
 			}
 
@@ -545,6 +575,93 @@ func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelCon
 	return ModelInstance{}, false
 }
 
+// servingCtxReconcileTimeout bounds the metadata probe that refreshes a local
+// model's serving context from its running server (metadata endpoints only).
+const servingCtxReconcileTimeout = 5 * time.Second
+
+// servingContextProber is implemented by providers that can report the serving
+// context window their running server actually serves (llama.cpp /slots, then
+// /v1/models meta).
+type servingContextProber interface {
+	ServingContext(context.Context) int
+}
+
+// nativeToolsProber is implemented by providers that can probe their OWN
+// running endpoint for native tool-call support (OpenAI-style registrations
+// and manager-launched local llama.cpp).
+type nativeToolsProber interface {
+	ProbeNativeTools(context.Context, string) (bool, error)
+}
+
+// ReconcileLocalServingContext refreshes a manager-launched local model's
+// serving-context metadata from its RUNNING server and re-derives the model's
+// budgets from the corrected window.
+//
+// Why: the stored metadata is captured at model save/discovery time and can
+// fall back to the GGUF training window (n_ctx_train) when the server was down
+// — e.g. 262144 stored while the launch serves 16384 — which inflates
+// max_tokens/reasoning budgets and disables reasoning-stuck detection. The
+// running server's reported window is the authoritative input the local budget
+// must key on (SPEC-005). Best-effort: no-op when the model is not local, its
+// server is unreachable, or the metadata already matches. Marked synced on a
+// successful probe so it runs once per server start (flag cleared on Sync and
+// model stop). Runs off-lock.
+func (m *LLMRuntimeManager) ReconcileLocalServingContext(ctx context.Context, name string) {
+	m.mu.Lock()
+	cfg, ok := m.models[name]
+	synced := m.servingCtxSynced != nil && m.servingCtxSynced[name]
+	m.mu.Unlock()
+	if !ok || synced || (cfg.Provider != "" && cfg.Provider != models.ProviderLocal) {
+		return
+	}
+
+	p, err := m.registrar.Build(cfg)
+	if err != nil {
+		return
+	}
+	prober, ok := p.(servingContextProber)
+	if !ok {
+		return
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, servingCtxReconcileTimeout)
+	defer cancel()
+	serving := prober.ServingContext(probeCtx)
+	if serving <= 0 {
+		return // server not answering yet — retried on the next GetInstance
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.servingCtxSynced == nil {
+		m.servingCtxSynced = make(map[string]bool)
+	}
+	m.servingCtxSynced[name] = true
+
+	cur, ok := m.models[name]
+	if !ok {
+		return
+	}
+	if cur.Metadata != nil && cur.Metadata.Nctx == serving {
+		return // already in sync
+	}
+	if cur.Metadata == nil {
+		cur.Metadata = &models.ModelMetadata{}
+	}
+	cur.Metadata.Nctx = serving
+	cur.Metadata.ContextLength = serving
+	cur.MaxTokens = 0
+	cur.ContextBudget = 0
+	cur.ReasoningBudget = 0
+	if cur.WorkloadClass == "" {
+		cur.WorkloadClass = models.WorkloadLocal
+	}
+	orchestrator.ApplyMetadataDefaults(&cur)
+	m.models[name] = cur
+	logging.Warn("reconciled local model serving context from running server (stale metadata corrected)",
+		"model", name, "serving_ctx", serving, "max_tokens", cur.MaxTokens, "context_budget", cur.ContextBudget)
+}
+
 func (m *LLMRuntimeManager) activePortLocked() int {
 	if m.activeModel != nil {
 		return m.activeModel.Cfg.Port
@@ -657,6 +774,13 @@ func (m *LLMRuntimeManager) Sync() {
 		// resolver accesses the registrar/secrets only and never re-enters
 		// manager locks (S3).  The computed field is non-persistent.
 		cfg.WorkloadClass = m.registrar.Classify(cfg)
+		// A Sync may re-introduce a stale serving-context metadata snapshot
+		// (registry entries are the source of truth here). Clear the
+		// reconcile-once-per-start flag so the next GetInstance refreshes it
+		// from the running server before budgets are consumed.
+		if m.servingCtxSynced != nil {
+			delete(m.servingCtxSynced, name)
+		}
 		orchestrator.ApplyMetadataDefaults(&cfg)
 		logging.Info("Sync: model metadata applied", "model", name, "max_tokens", cfg.MaxTokens, "context_budget", cfg.ContextBudget, "reasoning_budget", cfg.ReasoningBudget, "provider", cfg.Provider, "workload", cfg.WorkloadClass)
 		m.models[name] = cfg

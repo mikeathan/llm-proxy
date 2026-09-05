@@ -4,6 +4,7 @@ package assistant
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -75,6 +76,9 @@ const (
 	// MsgGeneratingPlan is shown while the plan-and-execute strategy runs its
 	// synchronous pre-loop plan-generation LLM call.
 	MsgGeneratingPlan = "🧠 Generating execution plan…"
+	// MsgGuardrailLoopBlocked is shown when the guardrail-blocked tool loop
+	// guard stops a model from hammering a denied tool (tool name is %s).
+	MsgGuardrailLoopBlocked = "⚠️ %s keeps being blocked. Stopping retries — switch tools or finalize."
 )
 
 type AgentEvent struct {
@@ -251,5 +255,14 @@ func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {
 	a.notify(EventMessage, proxy.Message{
 		Role:    "system",
 		Content: "⚠️ The model is not generating valid tool calls after multiple attempts. Try setting `tool_call_format: \"" + suggest + "\"` for this model.",
+	})
+}
+
+// notifyGuardrailLoopBlocked surfaces the guardrail-blocked tool loop guard to
+// the UI (status copy centralized in this file's const block).
+func (a *Agent) notifyGuardrailLoopBlocked(tool string) {
+	a.notify(EventMessage, proxy.Message{
+		Role:    "system",
+		Content: fmt.Sprintf(MsgGuardrailLoopBlocked, tool),
 	})
 }

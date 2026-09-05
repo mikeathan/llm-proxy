@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -168,5 +170,48 @@ func TestEffectiveToolCallFormat_UnknownModel(t *testing.T) {
 	m := newProbeManager(t)
 	if got := m.EffectiveToolCallFormat(context.Background(), "nope"); got != "" {
 		t.Fatalf("expected empty for unknown model, got %q", got)
+	}
+}
+
+// TestEffectiveToolCallFormat_LocalManagedModelAutoNative verifies that a
+// manager-launched LOCAL llama.cpp model (provider "local") with an unset
+// tool_call_format is auto-detected as native via the local probe — the same
+// signal OpenAI-style registrations get — instead of always falling back to
+// XML text mode. Regression: local models previously could never be probed
+// (Build returned LocalProvider, not the OpenAI-compatible provider), so
+// native-tool models mangled the XML format.
+func TestEffectiveToolCallFormat_LocalManagedModelAutoNative(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/slots" {
+			w.Write([]byte(`[{"id":0,"n_ctx":16384}]`))
+			return
+		}
+		w.Write([]byte(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"list_directory","arguments":"{\"path\":\".\"}"}}]}}]}`))
+	}))
+	defer server.Close()
+
+	port, err := strconv.Atoi(strings.TrimPrefix(server.URL, "http://127.0.0.1:"))
+	if err != nil {
+		t.Fatalf("parse httptest port: %v", err)
+	}
+
+	m := newProbeManager(t)
+	if err := m.AddModel(models.ModelConfig{
+		Name:     "qwen-local",
+		Provider: models.ProviderLocal,
+		Filename: "Qwen_Qwen3.5-35B-A3B-Q4_K_M.gguf",
+		Path:     "/models/Qwen_Qwen3.5-35B-A3B-Q4_K_M.gguf",
+		Port:     port,
+		Metadata: &models.ModelMetadata{Nctx: 262144, ContextLength: 262144},
+	}); err != nil {
+		t.Fatalf("AddModel: %v", err)
+	}
+
+	if got := m.EffectiveToolCallFormat(context.Background(), "qwen-local"); got != "native" {
+		t.Fatalf("EffectiveToolCallFormat = %q, want native (auto-detected for local llama.cpp)", got)
+	}
+	if cfg := findModel(t, m, "qwen-local"); cfg.ToolCallFormat != "native" {
+		t.Errorf("tool_call_format not cached on model config: %q", cfg.ToolCallFormat)
 	}
 }

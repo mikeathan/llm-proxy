@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
@@ -266,7 +267,7 @@ func (s *conversationService) handleCancelResult(session *models.AssistantSessio
 	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {
 		log.Error("failed to save session after cancel", "error", pErr)
 	}
-	PublishSessionLifecycle(events, workspaceID, session.ID, "", PhaseSessionCompleted)
+	endAssistantRun(events, workspaceID, session.ID)
 
 	return ExecuteResult{
 		Reply:          reply,
@@ -312,7 +313,7 @@ func (s *conversationService) handleSuccessResult(session *models.AssistantSessi
 	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {
 		log.Error("failed to save session", "error", pErr)
 	}
-	PublishSessionLifecycle(events, workspaceID, session.ID, "", PhaseSessionCompleted)
+	endAssistantRun(events, workspaceID, session.ID)
 
 	return ExecuteResult{
 		Reply:          reply,
@@ -338,10 +339,17 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 		log.Warn("updatedHistory shorter than llmHistory (error)", "updated", len(updatedHistory), "llm", len(llmHistory))
 	}
 	// Always append an explicit error marker so the failure is visible after a
-	// reload even when the run produced no assistant output at all.
+	// reload even when the run produced no assistant output at all. The text is
+	// the classified summary + hint — a raw upstream error body would be an
+	// opaque JSON dump in the chat (the full error is in the logs).
+	fi := failures.ClassifyRunFailure(runErr)
+	errText := fi.Error
+	if fi.Hint != "" {
+		errText = fi.Error + "\n\n" + fi.Hint
+	}
 	session.History = append(session.History, proxy.Message{
 		Role:    proxy.AssistantRole,
-		Error:   runErr.Error(),
+		Error:   errText,
 		Content: "",
 	})
 	session.History = TruncateHistory(session.History, MaxPersistedHistoryChars)
@@ -353,22 +361,40 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 	// (the frontend renders an error segment and clears loading) and a
 	// session_completed lifecycle so the sidebar stops showing the session as
 	// running. Previously this failure only reached the logs, leaving the
-	// bubble stuck on "thinking".
+	// bubble stuck on "thinking". The payload carries the classified summary +
+	// optional hint (bounded, human-actionable) instead of the raw error.
+	payload := map[string]string{"error": fi.Error}
+	if fi.Hint != "" {
+		payload["hint"] = fi.Hint
+	}
 	events.Publish(workspaceID, AgentEvent{
 		ID:             fmt.Sprintf("sse_err_%d", time.Now().UnixNano()),
 		Type:           EventError,
 		Channel:        ChannelAssistant,
 		ConversationID: session.ID,
-		Payload:        map[string]string{"error": runErr.Error()},
+		Payload:        payload,
 		Timestamp:      time.Now(),
 	})
-	PublishSessionLifecycle(events, workspaceID, session.ID, "", PhaseSessionCompleted)
+	endAssistantRun(events, workspaceID, session.ID)
 
 	return ExecuteResult{
 		ConversationID: session.ID,
 		WorkspaceID:    session.WorkspaceID,
 		Events:         FormatCollectedEvents(collected),
 	}, fmt.Errorf("assistant execution failed: %w", runErr)
+}
+
+// endAssistantRun seals a finished assistant run: it publishes the completed
+// lifecycle (so the sidebar stops marking the session running) AND clears the
+// channel's recent-event buffer. `recent` only needs to survive mid-run
+// refreshes (a reloading client rebuilds the live turn from it); once the run
+// is finished its history lives on disk. Clearing at the end — instead of only
+// at the next run's setupRun — stops a finished run's events (stale "model is
+// starting" notices, assistant messages) from replaying into a fresh/empty
+// conversation view after a reconnect or new send.
+func endAssistantRun(events EventPublisher, workspaceID, sessionID string) {
+	PublishSessionLifecycle(events, workspaceID, sessionID, "", PhaseSessionCompleted)
+	events.Clear(workspaceID, ChannelAssistant)
 }
 
 // compile-time check: ServiceProvider interface is implemented by *conversationService
