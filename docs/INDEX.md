@@ -135,7 +135,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | File | Title | Notes |
 |------|-------|-------|
 | `docs/services/llm-proxy.service` | systemd service unit (hardened: dedicated user, single root `/var/lib/llm-proxy`, strict lockdown) | Operational |
-| `docs/service_setup` | Service installation instructions | Setup |
+| `docs/service_setup.md` | Service installation instructions | Setup |
 | `docs/data-layout.md` | Data Layout — root resolution, meta/ vs runs/ split, cleanup surfaces | Reference |
 | `docs/SPEC-change-management.md` | SPEC Lifecycle & Change Management | Reference |
 | `docs/SPECS/README.md` | Subdirectory catalog for all SPEC files | Index |

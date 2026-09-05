@@ -17,11 +17,19 @@ info() { echo -e "${BLUE}${BOLD}info${NC} $1"; }
 success() { echo -e "${GREEN}${BOLD}success${NC} $1"; }
 error() { echo -e "${RED}${BOLD}error${NC} $1"; exit 1; }
 
+# Inline mode: callers that have their own UI (setup.sh, launch.sh) set
+# BUILD_INLINE=1 to get lean output — no banner, no success sparkles, no
+# systemd-advice footer (the caller says what happens next). Standalone runs
+# keep the full decorated output.
+INLINE=${BUILD_INLINE:-0}
+
 # --- Initialization ---
 cd "$PRJ_ROOT"
-echo -e "${CYAN}${BOLD}==================================================${NC}"
-info "Starting build for ${BOLD}llm-proxy${NC}..."
-echo -e "${CYAN}${BOLD}==================================================${NC}"
+if [[ $INLINE != 1 ]]; then
+  echo -e "${CYAN}${BOLD}==================================================${NC}"
+  info "Starting build for ${BOLD}llm-proxy${NC}..."
+  echo -e "${CYAN}${BOLD}==================================================${NC}"
+fi
 
 # --- Repo ownership guard ---
 # Root-owned files in the tree (typically left behind by an earlier root-run
@@ -88,6 +96,11 @@ fi
 
 # --- Success Summary ---
 cd "$PRJ_ROOT"
+if [[ $INLINE == 1 ]]; then
+  ls -lh "backend/${BIN_NAME}"
+  exit 0
+fi
+
 echo -e "\n${GREEN}${BOLD}✨ Build process complete! ✨${NC}"
 ls -lh "backend/${BIN_NAME}"
 
