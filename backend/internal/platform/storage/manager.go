@@ -385,9 +385,10 @@ func (m *DataManager) WorkspacesDir() string {
 	if base := defaultWorkspacesBaseDir(); base != "" {
 		return filepath.Join(base, models.WorkspacesDirName)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, "llm-proxy", models.WorkspacesDirName)
-	}
+	// No repo root (packaged/systemd deployment from an unrelated cwd): anchor
+	// to the data root — the one guaranteed-writable location. Never fall back
+	// to $HOME: under the hardened unit (ProtectHome=read-only,
+	// ReadWritePaths=data root) a home path fails with EROFS on first write.
 	return filepath.Join(m.paths.DataDir, models.WorkspacesDirName)
 }
 
