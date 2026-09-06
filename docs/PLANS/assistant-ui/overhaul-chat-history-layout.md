@@ -1,13 +1,14 @@
 ---
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-09-05
 ---
 
 # Assistant UI Overhaul — Chat, History & Layout
 
-**Status:** active  
+**Status:** active — re-validated against code 2026-09-05 (plan-hygiene review); Phases 4–5 items below still open
 **Date:** 2026-06-25  
-**Phases:** 1 ✅ | 2 ✅ | 3 ✅ | 4 ⬜ (3/7) | 5 ☐
+**Phases:** 1 ✅ | 2 ✅ | 3 ✅ | 4 ⬜ (3/7) | 5 ☐  
+**Absorbed:** the deferred backend SSE-bleed follow-up from `cancel-stale-turn-bleed.md` (archived 2026-09-05) now lives in Phase 5 below — implement it here, not in the archived plan.
 **Related:** `simple-three-bubble.md`, `consolidated-streaming-bubbles.md` (predecessor — complete)
 
 ## Problem
@@ -75,6 +76,7 @@ Changes:
 - [x] "Agent is thinking..." with consistent animation
 
 ### Phase 5: Stop Button & Refresh Resilience
+- **Backend SSE bleed on cancel** (absorbed from `ARCHIVE/assistant-ui/cancel-stale-turn-bleed.md`): after cancelling a turn mid-stream, the backend may continue emitting SSE events from the cancelled run (stale reasoning/segments) — ensure the cancel path terminates the event stream so no cancelled-turn events reach a newly started turn. Frontend guards for this were fixed 2026-06-26 (`messageBuilder.reset()` clearing `liveReasoning`, `turnGrouper` taking segments from `last`); the backend half is still open.
 - **Stop button** — ensure backend agent cancels when user clicks stop:
   - Investigate if `AbortController.abort()` properly cancels the HTTP request
   - Verify `r.Context()` cancellation propagates to `agent.Execute` during streaming

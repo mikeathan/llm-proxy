@@ -7,8 +7,8 @@ last_reviewed: 2026-08-01
 
 **Status:** 🚧 Draft plan — derived from the audit of the
 `cloud-provider-token-budgets` implementation (see
-`docs/PLANS/cross-cutting/cloud-provider-token-budgets.md`).
-**Related:** `cloud-provider-token-budgets.md`, SPEC-005.
+`docs/PLANS/ARCHIVE/cross-cutting/cloud-provider-token-budgets.md`, complete).
+**Related:** `cloud-provider-token-budgets.md` (archived complete), SPEC-005.
 **Rules:** `.agents/rules/go-staff-engineer.md`, `.agents/rules/frontend-vue-engineer.md`
 **Constitution:** I.1 (no `http.DefaultClient`), III.5 (settings persistence).
 

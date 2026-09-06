@@ -1,11 +1,12 @@
 ---
-status: active
-last_reviewed: 2026-07-11
+status: complete
+last_reviewed: 2026-09-05
 ---
 
 # Knight rider arc on assistant bubble
 
 **Date**: 2026-06-26
+**Status**: ✅ Complete — arc implemented and extracted to the shared `ArcOrbitLoader.vue` (`frontend/src/components/common/layout/ArcOrbitLoader.vue`), now consumed by `ChatBubble.vue` and `ChatInput.vue` (the plan's remaining "extraction to input/header" scope). Closed 2026-09-05 during plan-hygiene review.
 **Subsystem**: assistant-ui
 **File**: `frontend/src/components/AgentIde/assistant/ChatBubble.vue`
 
@@ -89,6 +90,7 @@ Promoted the inline arc orbit CSS into a reusable `<ArcOrbitLoader>` component, 
 # Fix: unify bubble corners to `rounded-2xl` for clean arc traversal
 
 **Date**: 2026-06-26
+**Status**: ✅ Complete — arc implemented and extracted to the shared `ArcOrbitLoader.vue` (`frontend/src/components/common/layout/ArcOrbitLoader.vue`), now consumed by `ChatBubble.vue` and `ChatInput.vue` (the plan's remaining "extraction to input/header" scope). Closed 2026-09-05 during plan-hygiene review.
 **Subsystem**: assistant-ui
 **File**: `frontend/src/components/AgentIde/assistant/ChatBubble.vue`
 
@@ -159,6 +161,7 @@ First-pass input looked chunky and over-attention-grabbing. Per-site props are t
 # Fix: unify bubble corners to `rounded-2xl` for clean arc traversal
 
 **Date**: 2026-06-26
+**Status**: ✅ Complete — arc implemented and extracted to the shared `ArcOrbitLoader.vue` (`frontend/src/components/common/layout/ArcOrbitLoader.vue`), now consumed by `ChatBubble.vue` and `ChatInput.vue` (the plan's remaining "extraction to input/header" scope). Closed 2026-09-05 during plan-hygiene review.
 **Subsystem**: assistant-ui
 **File**: `frontend/src/components/AgentIde/assistant/ChatBubble.vue`
 

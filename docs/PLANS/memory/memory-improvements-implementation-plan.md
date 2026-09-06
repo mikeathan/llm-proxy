@@ -4,6 +4,15 @@ related_specs: [SPEC-004]
 ---
 # Memory Improvements — Detailed Implementation Plan
 
+> **Status summary (2026-09-05, plan-hygiene review):**
+> - ✅ Done: Phase 1 (nudge, usage meter, dedup); "Week 3" memory-tool improvements
+>   (replace-by-substring, user profile + UI).
+> - ⬜ **Open:** the Session Search tool (FTS5 `session_search`) — heading below says
+>   "Phase 2 — Week 2" but was never started; and the Skill System (procedural memory).
+> - ⚠️ The plan contains two sections both numbered "Phase 2" (Week 2 = session search,
+>   Week 3 = tool improvements). The Week-3 one is relabelled **Phase 2b** below; internal
+>   task IDs (2.1–2.4) are unchanged.
+
 Based on the Hermes Agent comparison analysis (`docs/hermes-memory-comparison.md`).
 Each phase is an independent, fully-testable unit of work.
 
@@ -274,7 +283,7 @@ go test ./internal/core/tools/ -run TestSessionSearch -v
 
 ---
 
-## Phase 2 — Week 3: Memory Tool Improvements ✅ DONE
+## Phase 2b — Week 3: Memory Tool Improvements ✅ DONE
 
 ---
 

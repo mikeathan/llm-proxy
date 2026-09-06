@@ -57,7 +57,7 @@ from model metadata, and applies provider-tier tuning defaults.
     or a `.gguf` artifact id). A **remote** llama.cpp host serving GGUF models is
     therefore a local workload and resolves its real serving `n_ctx` — never the
     training `n_ctx_train` — and the probe result overrides any training-derived
-    `ContextLength` (see `docs/PLANS/cross-cutting/cloud-provider-token-budgets.md` §3.4).
+    `ContextLength` (see `docs/PLANS/ARCHIVE/cross-cutting/cloud-provider-token-budgets.md` §3.4).
   - **Cloud workloads**: `PublishedContextSource` chain
     1. published `context_length` / `top_provider.context_length` from the live catalog.
     2. model `Metadata` context (n_ctx serving, then n_ctx_train).

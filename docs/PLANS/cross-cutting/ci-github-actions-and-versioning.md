@@ -1,6 +1,6 @@
 ---
 id: PLAN-CI-001
-status: proposed
+status: partial
 created: 2026-08-30
 owner: mikeathan
 related: CONTRIBUTING.md, CONSTITUTION.md, .gitleaks.toml, backend/main.go (buildinfo)

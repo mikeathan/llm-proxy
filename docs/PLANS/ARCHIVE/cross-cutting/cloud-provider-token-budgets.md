@@ -1,11 +1,11 @@
 ---
-status: active
-last_reviewed: 2026-08-01
+status: complete
+last_reviewed: 2026-09-05
 ---
 
 # Cloud Provider Token Budgets + Provider Set Reduction
 
-**Status:** 🚧 Active — Phases A, 0, B+C, 2, 3, 4, 5 implemented 2026-08-01; Phase 6 docs updated
+**Status:** ✅ Complete — Phases A, 0, B+C, 2, 3, 4, 5 implemented 2026-08-01; Phase 6 docs updated; Phase 7 (reasoning enable, merged from `provider-agnostic-reasoning-enable.md`) implemented; M8 local-server probe (`/v1/props` / `/slots` context resolution) implemented in `backend/internal/core/orchestrator/context_resolution.go`. Verified complete 2026-09-05 during plan-hygiene review.
 **Related SPECs:** SPEC-005 (Orchestrator / Budget), SPEC-003 (Discovery Panel UI)
 **Constitution:** I.1–I.2 (network clients), II.11 (per-model config flow), III.5 (two-tier model persistence), VI (budget)
 **Rules:** `.agents/rules/go-staff-engineer.md`, `.agents/rules/frontend-vue-engineer.md`

@@ -1,9 +1,11 @@
 ---
-status: active
-last_reviewed: 2026-07-11
+status: superseded
+last_reviewed: 2026-09-05
 ---
 
 # Fix: stale turn bleed on cancel + new message
+
+**Status:** ✅ Both frontend fixes below are implemented. The one remaining item — the deferred backend SSE bleed follow-up — is now homed in [`overhaul-chat-history-layout.md`](../../assistant-ui/overhaul-chat-history-layout.md) **Phase 5** (per the 2026-08-06 consolidation map, Cluster C). This plan is retained for historical reference only; do not track new work here.
 
 **Date**: 2026-06-26
 **Subsystem**: assistant-ui
