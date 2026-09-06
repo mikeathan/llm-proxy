@@ -67,6 +67,16 @@ export function useAssistant() {
   const sse = useAssistantSSE(
     () => activeWorkspaceId.value || '',
     (ev) => {
+      // Conversation scoping: the workspace SSE socket is shared, so events
+      // from a PREVIOUS run (stale "model is starting" notices, assistant
+      // messages — e.g. replayed after a reconnect) must never render into the
+      // active conversation. Drop content events that carry a conversation_id
+      // different from the one we are showing; while no conversation is open
+      // yet (fresh chat before the POST returns), keep only lifecycle events —
+      // session_started for the new run arrives first and establishes the id.
+      const cid = (ev as { conversation_id?: string }).conversation_id
+      if (cid && currentSessionId.value && cid !== currentSessionId.value) return
+      if (cid && !currentSessionId.value && ev.type !== 'lifecycle') return
       // An early run failure (e.g. no model configured) is terminal on the SSE
       // bus — no lifecycle{completed} will follow, so clear the loading state
       // that sendMessage() set, otherwise the UI hangs on a spinner forever.

@@ -251,6 +251,13 @@ const AutomationXMLModeGuide = "SYSTEM: Respond with ONLY a tool call in this ex
 // valid tool name and arguments.
 const AutomationPrefline = "<tool_call>\n{\"tool\":\""
 
+// GuardrailBlockedNagPrompt is injected when a model keeps re-calling a tool
+// the guardrail engine denies (each attempt with new arguments). Tool name is
+// %s. Matches the Hermes denial guidance: never work around a block.
+const GuardrailBlockedNagPrompt = "SYSTEM: %s is blocked by the security policy (the tool results say so). " +
+	"Do NOT call it again and do NOT try to achieve the same outcome via a different path. " +
+	"Use a different available tool or deliver your final answer now."
+
 // AutomationReadFileNagPrompt is injected when the model reads the same file
 // multiple times. The model already has the content — it needs to decide what
 // to do next (compile, overwrite, or edit), not re-read.

@@ -790,3 +790,136 @@ func TestProcessStream_DurationCap_TerminatesNoProgressStream(t *testing.T) {
 		t.Errorf("duration cap should only fire with no tool calls, got %d", len(fullMsg.ToolCalls))
 	}
 }
+
+// TestBuildChatRequestSkipsGrammarWithNativeTools guards against re-attaching
+// the GBNF output constraint to requests that carry native `tools`.
+// llama.cpp — the only provider that maps to a GBNF constraint — rejects a
+// custom grammar combined with tools in one request with HTTP 400 ("Cannot
+// use custom grammar constraints with tools."), so a local managed model in
+// native mode would fail every tool-using turn before generation starts
+// (observed 2026-09-05: assistant execution failed on the local llama.cpp
+// path while the same model via an OpenAI-style registration worked).
+func TestBuildChatRequestSkipsGrammarWithNativeTools(t *testing.T) {
+	newAgent := func(useNativeTools bool) *Agent {
+		return &Agent{
+			config: AgentConfig{
+				UseNativeTools:  useNativeTools,
+				ProviderType:    models.ProviderLocal,
+				WorkloadClass:   models.WorkloadLocal,
+				ReasoningSpec:   reasoning.ReasoningSpec{Mode: reasoning.ModeThinkTokens, Effort: reasoning.EffortMedium, Budget: 512},
+				ReasoningBudget: 512,
+			},
+			deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()},
+		}
+	}
+
+	tools := []proxy.Tool{{
+		Type: "function",
+		Function: proxy.FunctionSchema{
+			Name: "list_directory",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{"type": "string"},
+				},
+				"required": []any{"path"},
+			},
+		},
+	}}
+
+	t.Run("native tools never carry a grammar", func(t *testing.T) {
+		req := newAgent(true).buildChatRequest(nil, tools)
+		if len(req.Tools) != len(tools) {
+			t.Fatalf("expected %d native tools on request, got %d", len(tools), len(req.Tools))
+		}
+		if req.Grammar != nil {
+			t.Fatal("native-tools request must not attach a GBNF grammar: llama.cpp rejects grammar+tools with 400")
+		}
+	})
+
+	t.Run("xml text mode request stays grammar-free", func(t *testing.T) {
+		req := newAgent(false).buildChatRequest(nil, nil)
+		if req.Grammar != nil {
+			t.Fatal("xml text-mode request must not attach a GBNF grammar")
+		}
+	})
+}
+
+// TestApplyRequestConfig_RecoveryTempEscalation verifies the recovery
+// temperature escalation: a run that is breaking a rut (guardrail-blocked tool
+// streak) raises its per-turn temperature up to maxRecoveryTemp, and runs
+// without an explicit temperature never start sending one.
+func TestApplyRequestConfig_RecoveryTempEscalation(t *testing.T) {
+	newAgent := func(temperature float64, escalation float64) *Agent {
+		a := &Agent{
+			config: AgentConfig{
+				Temperature:     temperature,
+				ProviderType:    models.ProviderLocal,
+				WorkloadClass:   models.WorkloadLocal,
+				ReasoningSpec:   reasoning.ReasoningSpec{Mode: reasoning.ModeThinkTokens, Effort: reasoning.EffortMedium, Budget: 512},
+				ReasoningBudget: 512,
+			},
+			deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()},
+		}
+		if escalation > 0 {
+			a.runS = &runSession{recoveryTempEscalation: escalation}
+		}
+		return a
+	}
+
+	t.Run("escalation raises explicit temperature", func(t *testing.T) {
+		req := proxy.ChatRequest{}
+		newAgent(0.1, 0.3).applyRequestConfig(&req)
+		if req.Temperature != 0.4 {
+			t.Errorf("temperature = %v, want 0.4 (0.1 + 0.3)", req.Temperature)
+		}
+	})
+
+	t.Run("escalation capped at maxRecoveryTemp", func(t *testing.T) {
+		req := proxy.ChatRequest{}
+		newAgent(0.9, 0.3).applyRequestConfig(&req)
+		if req.Temperature != maxRecoveryTemp {
+			t.Errorf("temperature = %v, want capped %v", req.Temperature, maxRecoveryTemp)
+		}
+	})
+
+	t.Run("no escalation without a base temperature", func(t *testing.T) {
+		req := proxy.ChatRequest{}
+		newAgent(0, 0.3).applyRequestConfig(&req)
+		if req.Temperature != 0 {
+			t.Errorf("temperature = %v, want 0 (server default kept)", req.Temperature)
+		}
+	})
+
+	t.Run("no escalation without a recovery event", func(t *testing.T) {
+		req := proxy.ChatRequest{}
+		newAgent(0.1, 0).applyRequestConfig(&req)
+		if req.Temperature != 0.1 {
+			t.Errorf("temperature = %v, want 0.1 unchanged", req.Temperature)
+		}
+	})
+}
+
+// TestIsGuardrailDenialResult covers the denial-text classifier used by the
+// guardrail-blocked tool loop guard.
+func TestIsGuardrailDenialResult(t *testing.T) {
+	tests := []struct {
+		name   string
+		result string
+		want   bool
+	}{
+		{"policy block", `{"error":"Guardrail violation: pattern denied. Action blocked by security policy. Do NOT retry, rephrase, or attempt the same outcome via a different path."}`, true},
+		{"user denial", `{"error":"Guardrail violation: user denied. Action denied by the user. Do NOT retry, rephrase, or attempt the same outcome via a different path."}`, true},
+		{"case-insensitive", `Action BLOCKED BY SECURITY POLICY.`, true},
+		{"normal result", `{"output":"ok"}`, false},
+		{"tool error", `{"error":"command failed: exit status 1"}`, false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isGuardrailDenialResult(tt.result); got != tt.want {
+				t.Errorf("isGuardrailDenialResult() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

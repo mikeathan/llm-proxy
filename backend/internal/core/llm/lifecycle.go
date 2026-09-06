@@ -41,6 +41,10 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	name := model.Cfg.Name
 	logging.Info("Signaling stop to local model", "model", name)
 
+	// A new server process will start next time — its serving context must be
+	// reconciled again (the flag is otherwise cleared by Sync).
+	delete(m.servingCtxSynced, name)
+
 	if model.Cancel != nil {
 		model.Cancel()
 	}

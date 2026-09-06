@@ -3,10 +3,14 @@ package llm_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -461,5 +465,74 @@ func TestRuntimeManager_CrashedModel_ReapedAndRecorded(t *testing.T) {
 	}
 	if m.LastModelError() == "" {
 		t.Error("expected LastModelError to be set after crash reaping")
+	}
+}
+
+// TestSync_ReconcilesLocalServingContextFromLaunchArgs verifies that Sync
+// reconciles a manager-launched local model's serving-context metadata with
+// the -c/--ctx-size it will actually be launched with, so a stale GGUF
+// n_ctx_train snapshot cannot inflate the derived budgets (observed: model
+// saved while llama-server was down kept n_ctx 262144 while the launch used
+// --ctx-size 16384, yielding max_tokens 87381 and a ~28-minute reasoning
+// budget).
+
+// TestReconcileLocalServingContext verifies the runtime refreshes a local
+// model's serving-context metadata from its RUNNING server and re-derives
+// budgets from the corrected window — so a stale GGUF n_ctx_train snapshot
+// (262144 stored while the launch serves 16384) cannot inflate max_tokens /
+// reasoning budgets.
+func TestReconcileLocalServingContext(t *testing.T) {
+	var slotsHits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/slots":
+			atomic.AddInt32(&slotsHits, 1)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`[{"id":0,"n_ctx":16384}]`))
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"object":"list","data":[{"id":"Qwen_Qwen3.5-35B-A3B-Q4_K_M.gguf","object":"model","owned_by":"llamacpp","meta":{"n_ctx":16384,"n_ctx_train":262144}}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	port, err := strconv.Atoi(strings.TrimPrefix(server.URL, "http://127.0.0.1:"))
+	if err != nil {
+		t.Fatalf("parse httptest port: %v", err)
+	}
+
+	m := llm.NewWithReapInterval(nil, "127.0.0.1", time.Minute, time.Hour)
+	if err := m.AddModel(models.ModelConfig{
+		Name:     "qwen",
+		Provider: models.ProviderLocal,
+		Filename: "Qwen_Qwen3.5-35B-A3B-Q4_K_M.gguf",
+		Path:     "/models/Qwen_Qwen3.5-35B-A3B-Q4_K_M.gguf",
+		Port:     port,
+		Metadata: &models.ModelMetadata{Nctx: 262144, ContextLength: 262144},
+	}); err != nil {
+		t.Fatalf("AddModel: %v", err)
+	}
+
+	m.ReconcileLocalServingContext(context.Background(), "qwen")
+
+	cfg := findModel(t, m, "qwen")
+	if cfg.Metadata == nil || cfg.Metadata.Nctx != 16384 {
+		t.Fatalf("metadata n_ctx = %+v, want 16384 (running server window)", cfg.Metadata)
+	}
+	if want := 16384 / 3; cfg.MaxTokens != want {
+		t.Errorf("max_tokens = %d, want %d (derived from serving ctx 16384)", cfg.MaxTokens, want)
+	}
+
+	// A second call must not re-probe (once per server start) and must not
+	// change the reconciled metadata.
+	before := atomic.LoadInt32(&slotsHits)
+	m.ReconcileLocalServingContext(context.Background(), "qwen")
+	if got := atomic.LoadInt32(&slotsHits); got != before {
+		t.Errorf("reconcile ran again after success: /slots hits %d -> %d", before, got)
+	}
+	if cfg2 := findModel(t, m, "qwen"); cfg2.Metadata.Nctx != 16384 || cfg2.MaxTokens != 16384/3 {
+		t.Errorf("metadata drifted on second reconcile: n_ctx=%d max_tokens=%d", cfg2.Metadata.Nctx, cfg2.MaxTokens)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core"
+	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/orchestrator"
@@ -73,13 +74,20 @@ var (
 		regexp.MustCompile(`(?s)\[?\s*\{\s*['"]type['"]\s*:\s*['"]text['"]\s*,\s*['"]text['"]\s*:\s*['"]([^'"]*)`),
 	}
 
-	// providerConstraints maps provider types to output constraint implementations.
-	// Only local providers use GBNF grammar for tool call argument enforcement.
-	// OpenAI-compatible endpoints (including local llama.cpp) cannot combine
-	// grammar with tools in the same request — llama.cpp returns 400.
-	providerConstraints = map[string]proxy.RequestConstraint{
-		"local": &proxy.GBNFConstraint{},
-	}
+	// NOTE: no provider output-constraint (GBNF grammar) map lives here any
+	// more. llama.cpp — the only server that accepted a GBNF grammar — refuses
+	// a custom grammar combined with native `tools` in the same request (HTTP
+	// 400 "Cannot use custom grammar constraints with tools."), and local
+	// llama.cpp is always reached over the OpenAI-compatible wire (provider
+	// "local" included). Attaching the grammar made every tool-using turn fail
+	// before generation started (observed 2026-09-05: assistant execution
+	// failed on the locally-managed llama.cpp path while the same model via an
+	// OpenAI-style registration worked). Native tool-call arguments are already
+	// constrained by the server's own tool template; llm-proxy validates the
+	// result post-hoc (handleContentToolCalls + ValidateToolCall). The bare
+	// JSON GBNF builder lives on in proxy.GBNFConstraint for future
+	// non-tools/JSON-mode use; it is deliberately not wired to native-tools
+	// requests.
 )
 
 func (a *Agent) buildChatRequest(
@@ -92,24 +100,11 @@ func (a *Agent) buildChatRequest(
 		MaxTokens: a.config.MaxTokens,
 	}
 	a.applyRequestConfig(&req)
-	// Apply provider-specific output constraint when native tools are active.
-	// Local providers get GBNF grammar to prevent invalid JSON in tool call
-	// arguments at the token generation level.  Cloud providers are skipped —
-	// their native tool API already returns structured, valid JSON.
-	if a.config.UseNativeTools && len(llmTools) > 0 {
-		if constraint, ok := providerConstraints[a.config.ProviderType]; ok {
-			if constraint.Apply(&req, llmTools) {
-				a.deps.Logger.Debug("GBNF grammar applied for tool call constraint",
-					"provider", a.config.ProviderType,
-					"tools", len(llmTools))
-			} else {
-				a.deps.Logger.Warn("GBNF grammar could not be built (empty grammar)")
-			}
-		} else {
-			a.deps.Logger.Debug("no output constraint for provider type",
-				"provider", a.config.ProviderType)
-		}
-	}
+	// No GBNF grammar is attached to native-tools requests: llama.cpp rejects
+	// grammar + tools in one request with HTTP 400 (see the providerConstraints
+	// note above). Native tool-call arguments are server-constrained and
+	// validated post-hoc, so skipping the grammar costs nothing and removes the
+	// guaranteed upstream rejection.
 	return req
 }
 
@@ -120,6 +115,17 @@ func (a *Agent) buildChatRequest(
 func (a *Agent) applyRequestConfig(req *proxy.ChatRequest) {
 	if a.config.Temperature > 0 {
 		req.Temperature = a.config.Temperature
+		// Recovery escalation: when the loop is breaking a rut (e.g. a
+		// guardrail-blocked tool streak) the run raises its per-turn
+		// temperature so the next sample is more exploratory. One shared flow
+		// for every provider — only runs that already send an explicit
+		// temperature escalate, capped at maxRecoveryTemp.
+		if a.runS != nil && a.runS.recoveryTempEscalation > 0 {
+			req.Temperature = a.config.Temperature + a.runS.recoveryTempEscalation
+			if req.Temperature > maxRecoveryTemp {
+				req.Temperature = maxRecoveryTemp
+			}
+		}
 	}
 	// Single source of truth for reasoning wire params. The resolver is chosen
 	// by workload class + provider type; applyRequestConfig knows nothing about
@@ -386,7 +392,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		if isUserCanceled(streamErr) {
 			return proxy.Message{}, streamErr
 		}
-		if prefill != "" && isPrefillThinkingError(streamErr) {
+		if prefill != "" && failures.IsPrefillThinkingError(streamErr) {
 			a.deps.Logger.Info("prefill rejected by server, retrying without prefill")
 			ch, streamErr = a.handlePrefillRejection(ctx, history, tools)
 			prefill = ""
@@ -996,7 +1002,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	}
 
 	resp, err := wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
-	if err != nil && prefill != "" && isPrefillThinkingError(err) {
+	if err != nil && prefill != "" && failures.IsPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
 		a.setPrefillDisabled(true)
 		a.notifyPrefillDisabled()
@@ -1013,12 +1019,12 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		}
 		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
 	}
-	if err != nil && isToolSupportError(err) {
+	if err != nil && failures.IsToolSupportError(err) {
 		a.deps.Logger.Warn("model does not support tools, retrying without them", "error", err)
 		a.notifyFallbackWarning(err)
 		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.retryWithoutTools(ctx, history) })
 	}
-	if err != nil && isUnsupportedParameterError(err) {
+	if err != nil && failures.IsUnsupportedParameterError(err) {
 		a.deps.Logger.Warn("provider rejected unsupported parameter, retrying without reasoning params", "error", err)
 		proxy.ClearReasoningParams(&req)
 		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
@@ -1069,7 +1075,7 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 
 	ch, err := a.deps.Client.Stream(ctx, req)
 
-	if err != nil && prefill != "" && isPrefillThinkingError(err) {
+	if err != nil && prefill != "" && failures.IsPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying stream without prefill")
 		a.setPrefillDisabled(true)
 		a.notifyPrefillDisabled()

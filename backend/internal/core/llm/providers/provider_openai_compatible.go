@@ -505,6 +505,15 @@ func (p *OpenAICompatibleProvider) ProbeNativeTools(ctx context.Context, modelID
 // tool call (finish_reason "length"), so the caller can decide whether to
 // retry with a larger budget.
 func (p *OpenAICompatibleProvider) probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Header, modelID string, maxTokens int, timeout time.Duration) (supported bool, lengthLimited bool, err error) {
+	return probeNativeToolsOnce(ctx, endpoint, headers, p.doer, modelID, maxTokens, timeout)
+}
+
+// probeNativeToolsOnce is the shared single-attempt native-tool probe used by
+// every provider that can run one against its own endpoint: OpenAI-style
+// registrations (above) and manager-launched local llama.cpp (LocalProvider).
+// doer carries the HTTP client; headers are the endpoint's auth headers (nil
+// for the local no-key server).
+func probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Header, doer HTTPDoer, modelID string, maxTokens int, timeout time.Duration) (supported bool, lengthLimited bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -549,7 +558,7 @@ func (p *OpenAICompatibleProvider) probeNativeToolsOnce(ctx context.Context, end
 		}
 	}
 
-	resp, err := p.doer.Do(req)
+	resp, err := doer.Do(req)
 	if err != nil {
 		return false, false, fmt.Errorf("native-tools probe unreachable: %w", err)
 	}

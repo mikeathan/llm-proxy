@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core"
+	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -377,7 +378,7 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 				return report, nil
 			}
 			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
-			if isTruncationError(err.Error()) {
+			if failures.IsTruncationError(err.Error()) {
 				errMsg = prompts.AutomationContentTooLongPrompt
 			}
 			mu.Lock()
@@ -927,7 +928,7 @@ func sanitizeToolArgs(raw string, originalErr error) string {
 	if raw == "" {
 		return ""
 	}
-	if isTruncationError(originalErr.Error()) {
+	if failures.IsTruncationError(originalErr.Error()) {
 		return ""
 	}
 
@@ -1024,5 +1025,59 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 		Content:    strContent,
 		ToolCallID: tc.ID,
 	})
+	a.trackGuardrailOutcome(tc, strContent)
 	return strContent
+}
+
+// guardrailBlockStreakLimit is the number of CONSECUTIVE guardrail-denied tool
+// calls before the loop stops the model from hammering a blocked tool.
+const guardrailBlockStreakLimit = 6
+
+// Recovery temperature escalation: each time the loop breaks a blocked-tool
+// streak it raises the per-turn sampling temperature by recoveryTempStep, up to
+// maxRecoveryTemp, so the next sample is more exploratory (a stuck model at
+// low temperature keeps re-rolling the same plan). Applies only to runs that
+// already send an explicit temperature; zero-temperature runs keep the server
+// default. Applied in applyRequestConfig — one flow, no new layers.
+const (
+	recoveryTempStep = 0.3
+	maxRecoveryTemp  = 1.0
+)
+
+// trackGuardrailOutcome maintains the consecutive-denial streak on the run
+// session. It keys off the result text (the guardrail denial guidance is a
+// fixed phrase), so every append path is covered and an allowed call resets
+// the streak and re-arms the nag.
+func (a *Agent) trackGuardrailOutcome(tc proxy.ToolCall, result string) {
+	if a.runS == nil {
+		return
+	}
+	if isGuardrailDenialResult(result) {
+		a.runS.guardrailBlockStreak++
+		a.runS.guardrailBlockedTool = tc.Function.Name
+		return
+	}
+	a.runS.guardrailBlockStreak = 0
+	a.runS.guardrailBlockedTool = ""
+	a.runS.guardrailNagSent = false
+}
+
+// isGuardrailDenialResult reports whether a tool result is a guardrail denial
+// (policy block or user denial). It matches the leading clause of the
+// canonical denial guidance constants in this file (formatGuardrailError) —
+// never re-typed literals.
+func isGuardrailDenialResult(result string) bool {
+	low := strings.ToLower(result)
+	return denialGuidancePhrase(low, guardrailDeniedByPolicy) ||
+		denialGuidancePhrase(low, guardrailDeniedByUser)
+}
+
+// denialGuidancePhrase matches the leading clause ("Action blocked by security
+// policy") of a canonical denial-guidance sentence, so prefix-only or case-
+// variant results still classify as denials.
+func denialGuidancePhrase(lowResult, guidance string) bool {
+	if i := strings.Index(guidance, "."); i > 0 {
+		guidance = guidance[:i]
+	}
+	return strings.Contains(lowResult, strings.ToLower(guidance))
 }

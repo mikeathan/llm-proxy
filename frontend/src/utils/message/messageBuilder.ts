@@ -303,10 +303,18 @@ export function useMessageBuilder(
         streaming.value = false
         thinking.value = false
         return
-      case 'error':
-        // Early run failures (e.g. no model configured) arrive on the SSE bus before the agent starts; render them as a visible error segment.
-        handleRunError(String((ev.payload as any)?.error ?? 'Unknown error'))
+      case 'error': {
+        // Early run failures (e.g. no model configured) arrive on the SSE bus
+        // before the agent starts; render them as a visible error segment. The
+        // backend payload is {error: <classified summary>, hint?: <next step>}
+        // — show the hint under the summary so the user gets an actionable
+        // message instead of a raw upstream error dump.
+        const p = ev.payload as { error?: string; hint?: string } | undefined
+        const summary = p?.error ?? 'Unknown error'
+        const hint = p?.hint
+        handleRunError(hint ? `${summary}\n\n${hint}` : summary)
         return
+      }
       case 'upstream':
         handleUpstreamNotice(ev.payload as UpstreamEventPayload)
         return

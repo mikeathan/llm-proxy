@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/models"
@@ -76,6 +77,17 @@ type runSession struct {
 	finalizeAttempts   int  // how many deterministic tools-disabled finalization turns fired
 	textOnlyNextTurn   bool // next executeTurn runs with tools disabled (ToolChoiceNone)
 
+	// Guardrail-blocked tool loop guard: consecutive tool calls denied by the
+	// guardrail engine (policy block or user denial). A model that keeps
+	// retrying a blocked tool with NEW arguments is invisible to the
+	// args-keyed spiral detector, so the streak is tracked on the result text
+	// (appendToolResult); past guardrailBlockStreakLimit the next turn injects
+	// a targeted nag and raises the sampling temperature to break the rut.
+	guardrailBlockStreak   int
+	guardrailBlockedTool   string
+	guardrailNagSent       bool
+	recoveryTempEscalation float64
+
 	// lengthContinuationCount tracks finish_reason="length" continuation
 	// nudges injected for a truncated final answer (bounded by
 	// lengthContinuationMax). truncatedParts accumulates the partial report
@@ -140,7 +152,7 @@ func (s *runSession) handleContextSizeError() error {
 // syntax streak) — caller exits with best available answer or stall error.
 func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 	switch {
-	case isJSONSyntaxError(err):
+	case failures.IsJSONSyntaxError(err):
 		s.syntaxParseStreak++
 		s.agent.deps.Logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint",
 			"error", err, "streak", s.syntaxParseStreak)
@@ -786,13 +798,13 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 	if s.starvationCount >= DefaultStarvationLimit {
 		return true, "", fmt.Errorf("agent stalled: %w", err)
 	}
-	if isContextSizeError(err) {
+	if failures.IsContextSizeError(err) {
 		if sieveErr := s.handleContextSizeError(); sieveErr != nil {
 			return true, "", sieveErr
 		}
 		return false, "", nil // continue loop
 	}
-	if isToolCallParseError(err) {
+	if failures.IsToolCallParseError(err) {
 		if !s.handleToolCallParseError(err) {
 			return false, "", nil // continue loop with recovery prompt
 		}
@@ -945,6 +957,33 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 // them, and deduplicates.  A non-nil parseErr means the model produced
 // malformed XML/native tool calls — the caller decides whether to escalate.
 func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (proxy.Message, *proxy.ParseError, []proxy.Tool, error) {
+	// Guardrail-blocked tool loop guard: a model that keeps re-calling a
+	// blocked tool (each attempt with new arguments) never triggers the
+	// args-keyed spiral detector. Once the denial streak crosses the limit,
+	// inject a targeted "stop using this tool" nag and raise the sampling
+	// temperature for this turn to break the rut. One-shot per streak (re-armed
+	// on any allowed tool call); skipped on the tools-disabled finalization
+	// turn where no tools run.
+	if a.runS != nil && !a.runS.textOnlyNextTurn && !a.runS.guardrailNagSent &&
+		a.runS.guardrailBlockStreak >= guardrailBlockStreakLimit {
+		a.runS.guardrailNagSent = true
+		a.runS.recoveryTempEscalation += recoveryTempStep
+		if a.runS.recoveryTempEscalation > maxRecoveryTemp {
+			a.runS.recoveryTempEscalation = maxRecoveryTemp
+		}
+		tool := a.runS.guardrailBlockedTool
+		if tool == "" {
+			tool = "that tool"
+		}
+		*history = append(*history, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: fmt.Sprintf(prompts.GuardrailBlockedNagPrompt, tool),
+		})
+		a.notifyGuardrailLoopBlocked(tool)
+		a.deps.Logger.Warn("guardrail-blocked tool loop: nagging model to switch tools",
+			"tool", tool, "streak", a.runS.guardrailBlockStreak, "temp", a.runS.recoveryTempEscalation)
+	}
+
 	turnCtx, turnCancel := context.WithTimeout(ctx, AgentTurnTimeout)
 	defer turnCancel()
 
@@ -1020,7 +1059,7 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 		if parseErr != nil {
 			parseErr.XMLFound = true
 			turnMsg.ToolCalls = nil
-			if len(turnMsg.Content) > sessionTruncationFeedbackLen && isTruncationError(parseErr.JSONError) {
+			if len(turnMsg.Content) > sessionTruncationFeedbackLen && failures.IsTruncationError(parseErr.JSONError) {
 				turnMsg.Content = "[Large response truncated — see next message for guidance.]"
 			}
 			return turnMsg, parseErr, toolsList, nil
