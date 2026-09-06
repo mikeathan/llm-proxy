@@ -136,6 +136,26 @@ func TestDataManager_WorkspacesDirResolution(t *testing.T) {
 	}
 }
 
+// TestDataManager_WorkspacesDirNoRepoRoot verifies that with no configured
+// workspaces_dir and no discoverable repo root (packaged/systemd deployment
+// from an unrelated cwd), the default anchors to the data root — never $HOME.
+// Under the hardened unit (ProtectHome=read-only) a $HOME path is guaranteed
+// unwritable, which surfaced as EROFS on first workspace save.
+func TestDataManager_WorkspacesDirNoRepoRoot(t *testing.T) {
+	p := seededPathsForTest(t)
+	mgr, _ := NewDataManager(p)
+	mgr.LoadAll()
+
+	// Leave the repo: no ancestor of a fresh temp dir contains backend/go.mod.
+	t.Chdir(t.TempDir())
+
+	got := mgr.WorkspacesDir()
+	want := filepath.Join(p.DataDir, models.WorkspacesDirName)
+	if got != want {
+		t.Errorf("WorkspacesDir with no repo root = %q, want %q (must not fall back to $HOME)", got, want)
+	}
+}
+
 // TestFindRepoRoot verifies the repo-root walker anchors to the nearest
 // ancestor containing backend/go.mod, independent of how deep the process
 // working directory is inside the repo.

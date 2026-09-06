@@ -588,7 +588,10 @@ install_flow() {
       chown "$SVC_USER":"$SVC_USER" "$SETTINGS"; chmod 0600 "$SETTINGS"
       success "created settings.yml with workspaces_dir: workspaces"
     fi
-  elif grep -q '^workspaces_dir:' "$SETTINGS" 2>/dev/null; then
+  # A present-but-EMPTY value (workspaces_dir: "") is treated as unset by the
+  # backend and falls through to the default, so require a non-empty value
+  # before declaring the setting done.
+  elif grep -Eq '^workspaces_dir:[[:space:]]*[^[:space:]#]+' "$SETTINGS" 2>/dev/null; then
     success "workspaces_dir already set (skipping)"
   elif confirm "Append 'workspaces_dir: workspaces' to $SETTINGS?"; then
     # Guard against appending to a file without a trailing newline (would

@@ -153,8 +153,10 @@ function handleRestart() {
       <div class="form-group">
         <label class="form-label">Workspaces Directory</label>
         <div class="form-helper">
-          Where agent workspace files are stored. When empty, defaults to
-          ./workspaces relative to the running binary (or the launch directory).
+          Where agent workspace files are stored. When empty, workspaces go to
+          the workspaces/ directory in the repository root during development,
+          or in the data root (LLM_PROXY_HOME / --data) when no repository is
+          found. Relative paths resolve against the data root.
         </div>
         <input
           v-model="cfg.workspaces_dir"
