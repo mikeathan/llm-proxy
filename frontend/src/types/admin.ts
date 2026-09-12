@@ -1,5 +1,5 @@
 // Global configuration types
-import type { LoopStrategy } from './model'
+import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
 export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication'
@@ -197,9 +197,69 @@ export interface ProcessKillResponse {
 }
 
 export interface AdminState {
-	models: import('./model').Model[]
-	available: import('./model').AvailableModel[]
+	models: Model[]
+	available: AvailableModel[]
 	next_port: number
-	active?: import('./model').ActiveModel
+	active?: ActiveModel
 	config: GlobalConfig
 }
+
+// Host sandboxing (backend models.HostSandboxingConfig, host-settings GET/PUT).
+// filesystem/network are optional booleans: absent (undefined) = undecided —
+// filesystem undecided means ON (jail active), network undecided means ALLOWED
+// (legacy) and drives the migration banner. egress_proxy is 0 (off) or a port.
+export interface SandboxingConfig {
+  enabled: boolean
+  functional: boolean
+  max_memory_mb: number
+  max_storage_gb: number
+  filesystem?: boolean
+  network?: boolean
+  egress_proxy: number
+  egress_allow_domains?: string[]
+  egress_deny_domains?: string[]
+}
+
+export interface HostSettings {
+  sandboxing: SandboxingConfig
+  // Runtime projection of what this host ACTUALLY enforces (backend
+  // models.SandboxEffective, SPEC-006 §II.7.4). Optional — older backends (or
+  // the moment before the provider is wired) omit it. Never persisted; a PUT
+  // must not send it back.
+  effective?: SandboxEffective
+}
+
+// Backend models.SandboxEffective — mechanism per surface plus the reason when
+// the requested enforcement is not available on this host ("downgrade never
+// silent"). Mechanism values: 'none' | 'landlock' | 'seatbelt' | 'bwrap' (or a
+// future OS mechanism).
+export interface SandboxEffective {
+  filesystem: SandboxSurface
+  network: SandboxSurface
+  provider: string
+}
+
+export interface SandboxSurface {
+  mechanism: string
+  reason?: string
+}
+
+// Terminal session view (backend models.TerminalSessionView, GET
+// /admin/api/terminals/sessions). A workspace can hold up to two pooled
+// sessions (network on/off, plan D8) — network_on disambiguates the pool key.
+export interface TerminalSessionView {
+  workspace_id: string
+  last_used: string
+  host_path: string
+  network_on: boolean
+}
+
+// Per-automation network grant (backend models.NetworkScope): '' = inherit the
+// workspace scope; 'none' | 'lan' | 'internet_only' | 'internet' override it for
+// that run. 'lan' = local network only; 'internet_only' = internet with the
+// local network blocked; 'internet' = local network + internet.
+export type NetworkGrant = '' | 'none' | 'lan' | 'internet_only' | 'internet'
+
+// Host network master-switch state as read for run-grant warnings: 'on'/'off'
+// once the host settings respond, 'unknown' before/if they do not.
+export type HostNetworkState = 'on' | 'off' | 'unknown'

@@ -7,6 +7,10 @@ last_reviewed: 2026-07-11
 
 **Source docs:** AGENTS.md (Coding Rules, Engineering Patterns, File Change Checklist)
 
+> Language-agnostic principles (naming, functions, comments, dependency boundaries,
+> the smells checklist) live in [`clean-code.md`](clean-code.md); this file covers
+> the repo/Go/Vue mechanics that build on them.
+
 ---
 
 ## Go Coding Rules

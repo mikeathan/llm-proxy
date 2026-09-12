@@ -4,6 +4,10 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
 
 # Staff Go Backend & Agentic Engineering Constitution
 
+> Language-agnostic clean-code principles (naming, functions, comments, smells,
+> SOLID, emergent design) live in [`docs/skills/clean-code.md`](../../docs/skills/clean-code.md);
+> this file is the mandatory Go-specific layer on top.
+
 ## Core Principles
 
 -   Correctness before cleverness.
@@ -111,6 +115,13 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
 -   Contract tests.
 -   Chaos and timeout tests.
 -   Benchmarks for hot paths.
+-   **Test files mirror the source file they test.** `foo.go` → `foo_test.go`; a
+    platform-specific source keeps its suffix (`foo_linux.go` → `foo_linux_test.go`,
+    `foo_other.go` → `foo_other_test.go`; a cross-platform test for a
+    `darwin || linux` source mirrors the source name and repeats its build tag). Do
+    NOT create `<feature>_test.go` files with no matching source file — merge the
+    tests into the file that mirrors the source. Test-only seams belong in the
+    `_test.go` that mirrors the source they support, never in production files.
 
 ## Security
 
@@ -137,6 +148,19 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
 -   Use `errors.Is` and `errors.As`.
 -   No hardcoded values: strings, ints, floats in logic → named `const` at file top. Errors included.
 -   Prefer standard library first.
+-   **Write modern Go for the go.mod toolchain (not version-pinned advice):** target the Go
+    version declared in `backend/go.mod` and use the newest stdlib idioms that version
+    supports — `any` over `interface{}`, `slices`/`maps` stdlib packages, builtin `min`/`max`,
+    `clear`, `errors.Join`, per-iteration loop variables (Go ≥1.22) — instead of hand-rolled
+    helpers. When unsure what the installed toolchain offers, check it directly (`go doc
+    builtin`, `go doc slices`, `go doc maps`) rather than trusting remembered release notes;
+    never hard-pin a rule to one minor Go release.
+-   **Pointer to a value:** need a pointer to the **zero value** → `new(T)` (stdlib; never a
+    local `ptr(x)`-style wrapper for zero targets — editors/linters flag it). Need a pointer
+    to a **non-zero** literal → one generic helper per package tree
+    (`func ptr[T any](v T) *T { return &v }`; precedent: `models.ptr`), called only with
+    non-zero values. (`new` has no initializer form in any released Go — do not reach for
+    one.)
 -   **Domain vocabulary with a fixed value set → typed string enum, never a bare `string`:**
     `type X string` + named constants + a `Valid()` method. Persisted enums live in the
     leaf `models` package (precedent: `WorkloadClass`, `LoopStrategy`); consumer packages
@@ -144,3 +168,22 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
     dependency. Wire structs that cannot reference the enum (import cycle) keep `string`
     and convert at the boundary — the domain/config layer never holds a raw string where a
     typed enum is possible.
+-   **Keep function signatures small — 0–3 parameters is the ideal, 4 is the review ceiling,
+    and anything past 4 must take a parameter/options struct.** Long positional lists are
+    order-sensitive, unreadable at call sites, and a signal that the inputs are one cohesive
+    unit (Clean Code: prefer niladic, then monadic, then dyadic; triadic where unavoidable;
+    polyadic needs justification). When a call needs four or more values that travel
+    together, group them into a named struct (`Options`, `Config`, `Deps`, `WorkspaceView`,
+    `Policy`) and pass the struct — never grow a signature one argument at a time. The rule
+    counts boolean/mode flags and `nil`-able sentinels too; those are the first candidates
+    for an options struct. Precedents in this repo: `shell.WorkspacePolicy`,
+    `assistant.AgentOptions`, `sandbox.WorkspaceView`, `egress.HostListPolicy`,
+    `assistant.AgentStackDeps`. Enforced in code review; prefer the struct up front because
+    no linter reliably catches signature bloat.
+-   **One home for shared utilities — never re-derive the same conversion or
+    constant in two packages.** If two call sites need the same arithmetic, name it
+    once in the package that owns the concept and import it (precedent:
+    `platform/units` for KiB/MiB/GiB → bytes, used by storage accounting, sandbox
+    rlimits and fetch limits). Inline `1024`/`<<20`/`<<30` arithmetic at call sites
+    is a bug farm; the same goes for duplicated small helpers that already exist in
+    a shared package.

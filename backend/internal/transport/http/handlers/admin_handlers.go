@@ -329,12 +329,12 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			// ServiceClientSecret is deliberately never emitted (see
 			// SystemHandlers.AdminConfigHandler): it leaked the credential to
 			// any client that could reach the API.
-			PrimaryModel:         reg.PrimaryModel,
-			FallbackModel:        reg.FallbackModel,
-			Providers:            getProvidersView(h.admin),
-			Guardrails:           h.admin.GetGuardrails(),
-			Communication:        reg.Communication,
-			Search:               reg.Search,
+			PrimaryModel:  reg.PrimaryModel,
+			FallbackModel: reg.FallbackModel,
+			Providers:     getProvidersView(h.admin),
+			Guardrails:    h.admin.GetGuardrails(),
+			Communication: reg.Communication,
+			Search:        reg.Search,
 			AgentDefaults: func() adminTuningDefaults {
 				d := baseAdminTuningDefaults()
 				d.MaxSteps = assistant.DefaultMaxSteps
@@ -504,7 +504,10 @@ func (h *AdminHandlers) AdminConnectorWebhookHandler(w http.ResponseWriter, r *h
 
 	chatID := cfg.Settings["chat_id"]
 	webhookSecret := cfg.Settings["webhook_token"]
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Operator/admin Telegram webhook actions are infrastructure (Constitution
+	// I.2 carve-out), not agent egress: ride the shared pooled transport rather
+	// than a raw client (I.1). No agent-tool guardrails apply here.
+	client := &http.Client{Transport: network.SharedTransport, Timeout: 15 * time.Second}
 	tg := notifiers.NewTelegramNotifier(token, chatID, client)
 
 	ctx := r.Context()

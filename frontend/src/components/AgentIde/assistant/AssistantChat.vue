@@ -10,6 +10,7 @@ import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
 import Icon from "../../../components/icons/Icon.vue";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
+import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 
 const props = defineProps<{
   workspaceId: string;
@@ -81,21 +82,12 @@ function toggleSidebar() {
   inboundCount.value = 0
 }
 
-const expandedSegments = ref<Record<string, boolean>>({});
 
 const turns = computed(() => {
   return groupTurns(messages.value)
 })
 const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets, resetInsets } = useTurnInset(phase, turns);
-
-function isSegExpanded(turnIdx: number, segIdx: number): boolean {
-  return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
-}
-
-function toggleSegment(turnIdx: number, segIdx: number) {
-  const key = `${turnIdx}-${segIdx}`;
-  expandedSegments.value = { ...expandedSegments.value, [key]: !expandedSegments.value[key] };
-}
+const { expandedSegments, isSegExpanded, toggleSegment } = useExpandedSegments();
 
 onMounted(() => { if (props.workspaceId) initWorkspace(); });
 watch(() => props.workspaceId, () => initWorkspace());

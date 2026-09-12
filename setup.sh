@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # setup.sh — interactive installer/uninstaller for the llm-proxy systemd
-# service (host provisioning).
+# service (host provisioning). LINUX ONLY (systemd). macOS production
+# deployment uses the dedicated-user launchd daemon instead —
+# docs/services/llm-proxy.launchd.plist (+ docs/service_setup.md → macOS); this
+# script's preview mode still works on macOS for dry-run inspection.
 #
 # UI: native `dialog`/`whiptail` panels (classic blue setup-screen look) when
 # available; falls back to a plain-ANSI TUI otherwise. Zero required deps.
@@ -258,6 +261,8 @@ check_env() {
       # instead of refusing outright.
       warn "systemd not found on this host — switching to preview mode (dry-run)"
       DRY_RUN=1
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      fail "macOS deployment is NOT covered by setup.sh (Linux/systemd only) — see docs/service_setup.md → macOS: dedicated-user launchd daemon via docs/services/llm-proxy.launchd.plist."
     else
       fail "systemd not found — this script targets Linux servers (see docs/service_setup.md)."
     fi
@@ -690,14 +695,16 @@ Data:  ${SVC_ROOT} (single root: settings, DB, logs, workspaces)"
 # -----------------------------------------------------------------------------
 uninstall_flow() {
   local UNIT="/etc/systemd/system/${BIN_NAME}.service"
-  # Read the actually-installed user/root so we tear down what was installed,
-  # not today's defaults.
+  # Read the actually-installed user/root/binary so we tear down what was
+  # installed, not today's defaults (a custom binary path survives this way).
   if [[ -f "$UNIT" ]]; then
-    local u r
+    local u r b
     u="$(sed -n 's/^User=//p' "$UNIT" 2>/dev/null || true)"
     r="$(sed -n 's/^Environment=LLM_PROXY_HOME=//p' "$UNIT" 2>/dev/null || true)"
+    b="$(sed -n 's/^ExecStart=//p' "$UNIT" 2>/dev/null || true)"
     [[ -n "$u" ]] && SVC_USER="$u"
     [[ -n "$r" ]] && SVC_ROOT="$r"
+    [[ -n "$b" ]] && INSTALL_BIN="$b"
   fi
 
   step "Artifacts found"
@@ -808,11 +815,13 @@ purge_flow() {
   local UNIT="/etc/systemd/system/${BIN_NAME}.service"
   # Resolve what's actually installed for the warning listing.
   if [[ -f "$UNIT" ]]; then
-    local u r
+    local u r b
     u="$(sed -n 's/^User=//p' "$UNIT" 2>/dev/null || true)"
     r="$(sed -n 's/^Environment=LLM_PROXY_HOME=//p' "$UNIT" 2>/dev/null || true)"
+    b="$(sed -n 's/^ExecStart=//p' "$UNIT" 2>/dev/null || true)"
     [[ -n "$u" ]] && SVC_USER="$u"
     [[ -n "$r" ]] && SVC_ROOT="$r"
+    [[ -n "$b" ]] && INSTALL_BIN="$b"
   fi
 
   local warning="FULL PURGE — this erases ALL llm-proxy artifacts:

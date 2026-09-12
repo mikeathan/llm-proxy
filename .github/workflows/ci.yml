@@ -110,6 +110,46 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # OS-sandbox conformance matrix (plan §9 T2): the Landlock/Effective probes
+  # must RUN and match the host's real capability — a silent downgrade fails the
+  # job. Both Linux images now ship kernels >= 6.7 (the ubuntu-22.04 image moved
+  # to a 6.8 HWE kernel), so they exercise the ABI v4+ TCP-deny path; macOS
+  # exercises the no-mechanism downgrade. The ABI < v4 filesystem-only network
+  # downgrade is not runnable on hosted runners — it is covered by the unit
+  # tests in landlock_linux_test.go / provider selection. If a runner label is
+  # retired, move the entry — do not drop the coverage.
+  sandbox-conformance:
+    name: Sandbox conformance (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            expect_fs: landlock
+            expect_net_deny: "1"
+          - os: ubuntu-22.04
+            expect_fs: landlock
+            expect_net_deny: "1"
+          - os: macos-14
+            expect_fs: none
+            expect_net_deny: "0"
+    env:
+      LLMPROXY_EXPECT_FS: ${{ matrix.expect_fs }}
+      LLMPROXY_EXPECT_NET_DENY: ${{ matrix.expect_net_deny }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Sandbox probes (Effective must match this host)
+        run: go test ./internal/platform/sandbox/... -v
+
   frontend:
     name: Frontend (test, coverage, build)
     runs-on: ubuntu-latest

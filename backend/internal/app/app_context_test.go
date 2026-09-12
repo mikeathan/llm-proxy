@@ -40,7 +40,7 @@ type mockShellProvider struct {
 	shutdownCalled bool
 }
 
-func (m *mockShellProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string, idleTimeout time.Duration, allowedEnvVars []string, pathExtensions []string) (shell.Terminal, error) {
+func (m *mockShellProvider) GetOrCreate(ctx context.Context, workspaceID string, hostPath string, policy shell.WorkspacePolicy) (shell.Terminal, error) {
 	return nil, nil
 }
 

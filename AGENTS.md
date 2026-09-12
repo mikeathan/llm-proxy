@@ -59,6 +59,7 @@ On conflict, follow in this order: `CONSTITUTION.md` → this `AGENTS.md` → lo
 ## Reference (load on demand)
 - `docs/architecture.md` — directory map, contracts, checklists, pitfalls
 - `docs/skills/README.md` — quick "when to load which skill" map
+- Writing or reviewing code? → `docs/skills/clean-code.md` (language-agnostic clean-code practices)
 - `docs/INDEX.md` — full doc catalog
 - After any change: `docs/skills/documentation-stewardship.md`
 - Adding frontend settings tab? → `docs/architecture.md#adding-a-frontend-settings-tab-checklist`

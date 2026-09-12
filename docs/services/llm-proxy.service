@@ -56,7 +56,16 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
 
-# Model loading (llama.cpp server) may need a high fd budget.
+# --- Memory / process limits (real cgroup v2 enforcement, plan Phase 3) -----
+# MemoryMax bounds the whole service scope: backend + every agent-spawned
+# shell/toolchain child. Calibrated high enough for parallel go build / npm
+# install (Phase-3 acceptance re-checks node/go/npm under it). MemoryMax is the
+# OOM-kill ceiling; MemoryHigh throttles (memory reclaim) first. TasksMax caps
+# fork-bombs per service WITHOUT the per-uid blast radius of RLIMIT_NPROC.
+MemoryMax=8G
+MemoryHigh=6G
+TasksMax=512
+
 LimitNOFILE=65536
 
 [Install]

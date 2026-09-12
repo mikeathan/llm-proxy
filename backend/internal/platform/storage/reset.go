@@ -14,7 +14,7 @@ import (
 // ResetResult reports what factory-reset did, including whether the master key
 // was regenerated (false in environment-managed key mode).
 type ResetResult struct {
-	KeyRegenerated bool `json:"key_regenerated"`
+	KeyRegenerated       bool `json:"key_regenerated"`
 	KeyExternallyManaged bool `json:"key_externally_managed"`
 }
 

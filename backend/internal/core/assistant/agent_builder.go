@@ -72,6 +72,14 @@ func (b *AgentBuilder) WithChannel(ch EventChannel) *AgentBuilder {
 	return b
 }
 
+// WithRunNetworkScope sets the RESOLVED per-run network scope (automation
+// grant). Empty/inherit leaves schema, validation, and tools on the workspace
+// guardrail tier.
+func (b *AgentBuilder) WithRunNetworkScope(scope models.NetworkScope) *AgentBuilder {
+	b.opts.RunNetworkScope = scope
+	return b
+}
+
 // WithConversationID scopes this agent's events to a specific chat session.
 func (b *AgentBuilder) WithConversationID(id string) *AgentBuilder {
 	b.opts.ConversationID = id

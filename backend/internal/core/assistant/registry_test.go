@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
@@ -34,13 +35,15 @@ func TestLocalToolRegistry_Discovery(t *testing.T) {
 }
 
 func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
-	term := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-		return models.TerminalGuardrailsConfig{
-			Enabled:         true,
-			AllowedCommands: []string{"echo"},
-			TimeoutSeconds:  10,
-		}
-	}, nil)
+	term := tools.NewTerminalTools(tools.TerminalToolsDeps{
+		ConfigProvider: func(ctx context.Context) models.TerminalGuardrailsConfig {
+			return models.TerminalGuardrailsConfig{
+				Enabled:         true,
+				AllowedCommands: []string{"echo"},
+				TimeoutSeconds:  10,
+			}
+		},
+	})
 
 	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		return models.FileSystemGuardrailsConfig{}
@@ -121,7 +124,7 @@ func TestLocalToolRegistry_WriteErrorIsTruthful(t *testing.T) {
 
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
-	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, nil, nil, nil, nil)
+	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, assistant.AgentStackDeps{})
 
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")
@@ -140,7 +143,7 @@ func TestInitializeAgentStack_FileSystemIsolation(t *testing.T) {
 	}
 
 	// 1. Initialize the stack
-	provider, _, _ := 	assistant.InitializeAgentStack(appCtx, nil, nil, nil, nil, nil)
+	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, assistant.AgentStackDeps{})
 
 	// 2. Access the MultiToolProvider
 	multiProvider := provider.(*assistant.MultiToolProvider)
@@ -198,7 +201,7 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 
 	// 3. Initialize the Agent Stack
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, manager, nil, nil, nil, nil)
+	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, assistant.AgentStackDeps{Persistence: manager})
 
 	// Access the internal registry
 	multiProvider := provider.(*assistant.MultiToolProvider)
@@ -280,7 +283,7 @@ func TestInitializeAgentStack_NetworkGuardrails(t *testing.T) {
 	manager.WriteConfig(wsID, &wsCfg)
 
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, manager, nil, nil, nil, nil)
+	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, assistant.AgentStackDeps{Persistence: manager})
 	multiProvider := provider.(*assistant.MultiToolProvider)
 	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
 
@@ -318,7 +321,15 @@ func (m *mockAppContext) Resolver() storage.Resolver {
 func (m *mockAppContext) Secrets() models.SecretsStore {
 	return &mocks.MockSecretsStore{}
 }
-func (m *mockAppContext) MemoryStore() *memory.Store { return nil }
+func (m *mockAppContext) MemoryStore() *memory.Store          { return nil }
+func (m *mockAppContext) SetSandboxProvider(sandbox.Provider) {}
+
+// HostSettings returns the LEGACY posture (sandboxing section zero → network
+// undecided → allowed) so registry wiring tests behave like a pre-change
+// install and the host gate stays inert.
+func (m *mockAppContext) HostSettings() models.HostSettings {
+	return models.HostSettings{}
+}
 
 type mockAppContextWithDirs struct {
 	workspacesDir string
@@ -326,13 +337,21 @@ type mockAppContextWithDirs struct {
 
 func (m *mockAppContextWithDirs) GetSystem() models.SystemConfig   { return models.SystemConfig{} }
 func (m *mockAppContextWithDirs) GetRegistry() models.RegistryData { return models.RegistryData{} }
-func (m *mockAppContextWithDirs) GetGuardrails() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }
-func (m *mockAppContextWithDirs) RootDir() string                  { return "" }
-func (m *mockAppContextWithDirs) Secrets() models.SecretsStore     { return &mocks.MockSecretsStore{} }
+func (m *mockAppContextWithDirs) GetGuardrails() models.AgentGuardrailsConfig {
+	return models.AgentGuardrailsConfig{}
+}
+func (m *mockAppContextWithDirs) RootDir() string              { return "" }
+func (m *mockAppContextWithDirs) Secrets() models.SecretsStore { return &mocks.MockSecretsStore{} }
 func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
 }
-func (m *mockAppContextWithDirs) MemoryStore() *memory.Store { return nil }
+func (m *mockAppContextWithDirs) MemoryStore() *memory.Store          { return nil }
+func (m *mockAppContextWithDirs) SetSandboxProvider(sandbox.Provider) {}
+
+// HostSettings: legacy posture (network undecided → allowed); host gate inert.
+func (m *mockAppContextWithDirs) HostSettings() models.HostSettings {
+	return models.HostSettings{}
+}
 
 func TestSystemPrompt_IncludesMemoryNudge(t *testing.T) {
 	fsTools := tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {

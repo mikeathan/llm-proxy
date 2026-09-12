@@ -48,6 +48,7 @@ function typeLabel(t: string): string {
     case 'long_term': return 'Permanent'
     case 'daily': return 'Daily'
     case 'session': return 'Session'
+    case 'user_profile': return 'User Profile'
     default: return t
   }
 }

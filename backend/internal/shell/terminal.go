@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/process"
 	"llm-proxy/internal/platform/procwatch"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/models"
 	"os"
 	"os/exec"
@@ -36,14 +38,23 @@ type persistentShell struct {
 	watch  *procwatch.Watch
 }
 
-func newPersistentShell(ctx context.Context, hostPath string, env []string) (*persistentShell, error) {
-	cmd := exec.CommandContext(ctx, "bash", "--norc", "--noprofile", "-s")
+func newPersistentShell(ctx context.Context, hostPath string, env []string, policy WorkspacePolicy) (*persistentShell, error) {
+	cmd := process.AgentCommand(ctx, "bash", "--norc", "--noprofile", "-s")
 	cmd.Dir = hostPath
 	cmd.Env = env
 
-	// Isolate into a separate process group so that killing the group
-	// terminates the shell AND any running child commands (not just bash).
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Apply the OS confinement provider before Start: Landlock on Linux
+	// kernels >= 5.13 (FS jail; TCP deny for network-off shells on ABI v4+),
+	// no-op elsewhere (plan Phase 2).
+	if policy.Sandbox != nil {
+		if err := policy.Sandbox.Wrap(cmd, sandbox.WorkspaceView{
+			RootPath:  hostPath,
+			NetworkOn: policy.NetworkOn,
+			Epoch:     policy.Epoch,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to sandbox persistent shell: %w", err)
+		}
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -163,8 +174,9 @@ func (ps *persistentShell) killAll() {
 	if ps.cmd == nil || ps.cmd.Process == nil {
 		return
 	}
-	// Negative PID signals the process group (set via Setpgid above).
-	_ = syscall.Kill(-ps.cmd.Process.Pid, syscall.SIGTERM)
+	// Negative PID signals the process group (set via Setpgid in
+	// process.AgentCommand).
+	_ = process.KillGroup(ps.cmd, syscall.SIGTERM)
 }
 
 // PGID returns a negated process group ID suitable for syscall.Kill.
@@ -176,11 +188,23 @@ func (ps *persistentShell) PGID() int {
 	return -ps.cmd.Process.Pid
 }
 
+// sessionInfo is one pooled shell session. workspaceID/networkOn/epoch mirror
+// the map key and policy so iteration (reap, ListSessions, PGID) can group by
+// workspace and detect stale-policy shells (plan D8).
 type sessionInfo struct {
 	sb          Terminal
 	lastUsed    time.Time
 	hostPath    string
 	idleTimeout time.Duration
+	workspaceID string
+	networkOn   bool
+	epoch       int64
+}
+
+// sessionKey returns the composite pool key: (workspaceID, networkOn). A
+// workspace holds at most two sessions (network on/off) — plan D8.
+func sessionKey(workspaceID string, networkOn bool) string {
+	return workspaceID + "\x00" + strconv.FormatBool(networkOn)
 }
 
 // HostShellManager manages multiple native shell sessions across workspaces.
@@ -228,31 +252,44 @@ func (hm *HostShellManager) reap() {
 	defer hm.mu.Unlock()
 
 	now := time.Now()
-	for id, s := range hm.sessions {
+	for key, s := range hm.sessions {
 		if s.idleTimeout > 0 && now.Sub(s.lastUsed) > s.idleTimeout {
-			logging.Info("Reaping idle shell session", "workspace_id", id, "idle_time", now.Sub(s.lastUsed))
+			logging.Info("Reaping idle shell session", "workspace_id", s.workspaceID, "network_on", s.networkOn, "idle_time", now.Sub(s.lastUsed))
 			_ = s.sb.Cleanup(context.Background())
-			delete(hm.sessions, id)
+			delete(hm.sessions, key)
 		}
 	}
 }
 
-func (hm *HostShellManager) GetOrCreate(ctx context.Context, workspaceID string, hostPath string, idleTimeout time.Duration, allowedEnvVars []string, pathExtensions []string) (Terminal, error) {
+func (hm *HostShellManager) GetOrCreate(ctx context.Context, workspaceID string, hostPath string, policy WorkspacePolicy) (Terminal, error) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
-	if s, ok := hm.sessions[workspaceID]; ok {
-		s.lastUsed = time.Now()
-		s.idleTimeout = idleTimeout
-		return s.sb, nil
+	key := sessionKey(workspaceID, policy.NetworkOn)
+	if s, ok := hm.sessions[key]; ok {
+		if s.epoch != policy.Epoch {
+			// Same-key shell created under an older policy epoch: recycle it so a
+			// long-lived shell never enforces a stale policy (plan risk R6).
+			logging.Info("Recycling shell on policy epoch change", "workspace_id", workspaceID, "old_epoch", s.epoch, "new_epoch", policy.Epoch)
+			_ = s.sb.Cleanup(context.Background())
+			delete(hm.sessions, key)
+		} else {
+			s.lastUsed = time.Now()
+			s.idleTimeout = policy.IdleTimeout
+			return s.sb, nil
+		}
 	}
 
-	logging.Info("Creating new host shell session", "workspace_id", workspaceID, "path", hostPath)
+	logging.Info("Creating new host shell session", "workspace_id", workspaceID, "network_on", policy.NetworkOn, "path", hostPath)
 
 	// Prepare a sanitized environment
-	finalEnv := prepareShellEnv(hostPath, allowedEnvVars, pathExtensions)
+	finalEnv := prepareShellEnv(hostPath, policy.AllowedEnvVars, policy.PathExtensions)
+	// Host egress-proxy vars (HTTP(S)_PROXY/NO_PROXY) override the env floor.
+	if len(policy.ProxyEnv) > 0 {
+		finalEnv = mergeEnv(finalEnv, policy.ProxyEnv)
+	}
 
-	ps, err := newPersistentShell(hm.ctx, hostPath, finalEnv)
+	ps, err := newPersistentShell(hm.ctx, hostPath, finalEnv, policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start persistent shell for workspace %s: %w", workspaceID, err)
 	}
@@ -263,11 +300,14 @@ func (hm *HostShellManager) GetOrCreate(ctx context.Context, workspaceID string,
 		shell:       ps,
 	}
 
-	hm.sessions[workspaceID] = &sessionInfo{
+	hm.sessions[key] = &sessionInfo{
 		sb:          sb,
 		lastUsed:    time.Now(),
 		hostPath:    hostPath,
-		idleTimeout: idleTimeout,
+		idleTimeout: policy.IdleTimeout,
+		workspaceID: workspaceID,
+		networkOn:   policy.NetworkOn,
+		epoch:       policy.Epoch,
 	}
 
 	return sb, nil
@@ -277,9 +317,13 @@ func (hm *HostShellManager) Recycle(ctx context.Context, workspaceID string) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
-	if s, ok := hm.sessions[workspaceID]; ok {
-		_ = s.sb.Cleanup(ctx)
-		delete(hm.sessions, workspaceID)
+	// Drop every scope's session for the workspace (keys are wsID+"\x00"+net).
+	prefix := workspaceID + "\x00"
+	for key, s := range hm.sessions {
+		if strings.HasPrefix(key, prefix) {
+			_ = s.sb.Cleanup(ctx)
+			delete(hm.sessions, key)
+		}
 	}
 }
 
@@ -288,11 +332,12 @@ func (hm *HostShellManager) ListSessions() []models.TerminalSessionView {
 	defer hm.mu.Unlock()
 
 	out := make([]models.TerminalSessionView, 0, len(hm.sessions))
-	for wid, s := range hm.sessions {
+	for _, s := range hm.sessions {
 		out = append(out, models.TerminalSessionView{
-			WorkspaceID: wid,
+			WorkspaceID: s.workspaceID,
 			LastUsed:    s.lastUsed,
 			HostPath:    s.hostPath,
+			NetworkOn:   s.networkOn,
 		})
 	}
 	return out
@@ -304,16 +349,25 @@ func (hm *HostShellManager) HealthCheck() (idle, active int) {
 	return 0, len(hm.sessions) // For now, all sessions are counted as active
 }
 
-// PGID returns the negated process group ID for a workspace's active shell
-// session. ok=false when no active session exists for workspaceID.
+// PGID returns the negated process group ID of the workspace's most recently
+// used shell session (when a workspace has both network-on and network-off
+// sessions, D8, there is no single PGID; the most recent is the best-effort
+// target for kill-group/StopAutomation). ok=false when no session exists.
 func (hm *HostShellManager) PGID(workspaceID string) (int, bool) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
-	si, ok := hm.sessions[workspaceID]
-	if !ok {
+
+	var best *sessionInfo
+	prefix := workspaceID + "\x00"
+	for key, s := range hm.sessions {
+		if strings.HasPrefix(key, prefix) && (best == nil || s.lastUsed.After(best.lastUsed)) {
+			best = s
+		}
+	}
+	if best == nil {
 		return 0, false
 	}
-	pgid := si.sb.PGID()
+	pgid := best.sb.PGID()
 	if pgid == 0 {
 		return 0, false
 	}
@@ -392,7 +446,32 @@ var workspaceEnvTemplates = []string{
 }
 
 // prepareShellEnv filters the host environment and applies workspace-specific overrides.
+// BuildSandboxEnv is the exported entry point for the agent child env floor
+// (HOME/.sandbox redirects, curated PATH, env allowlist). The pooled shell
+// factory and executeLocal one-shots share it so no spawn path diverges (plan
+// Risk 4). It is exactly prepareShellEnv.
+func BuildSandboxEnv(hostPath string, allowedEnvVars []string, pathExtensions []string) []string {
+	return prepareShellEnv(hostPath, allowedEnvVars, pathExtensions)
+}
+
+// defaultShellEnvAllowlist is applied when no env allowlist is configured
+// (empty). Previously an empty allowlist passed the ENTIRE host environment
+// into every agent shell — including service credentials, SSH_AUTH_SOCK, and
+// connector keys (plan Phase-4 env-secret audit). This curated default carries
+// locale/terminal/toolchain-hint variables only; operators extend it via
+// terminal.allowed_env_vars in settings.yml. PATH and the .sandbox floor vars
+// are added separately below and are never subject to this list.
+var defaultShellEnvAllowlist = []string{
+	"LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_NUMERIC", "LC_TIME",
+	"TZ", "TERM", "COLORTERM", "NVM_DIR", "NVM_BIN", "PNPM_HOME",
+	"PYENV_ROOT", "PYTHONPATH", "POETRY_HOME", "GOROOT", "GOCACHE",
+	"JAVA_HOME", "JDK_HOME", "RUBY_ROOT", "GEM_HOME", "CGO_ENABLED",
+}
+
 func prepareShellEnv(hostPath string, allowedEnvVars []string, pathExtensions []string) []string {
+	if len(allowedEnvVars) == 0 {
+		allowedEnvVars = defaultShellEnvAllowlist
+	}
 	rawHostEnv := os.Environ()
 	var hostEnv []string
 

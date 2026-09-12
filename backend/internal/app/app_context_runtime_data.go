@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
@@ -102,6 +103,13 @@ func (s *AppContext) SetTerminalSource(src metrics.TerminalSource) {
 
 func (s *AppContext) SetShellProvider(tp shell.ShellProvider) {
 	s.terminal = tp
+}
+
+// SetSandboxProvider installs the OS-confinement provider that backs the
+// Effective runtime projection on host-settings GETs (SPEC-006 §II.7.4). Called
+// once at bootstrap before the server serves.
+func (s *AppContext) SetSandboxProvider(p sandbox.Provider) {
+	s.sandboxProv = p
 }
 
 func (s *AppContext) ProcessLogger(workspaceID string) logging.Logger {

@@ -71,7 +71,7 @@ func TestMethodEnforcement(t *testing.T) {
 
 func minimalTestDataManager(t *testing.T) *storage.DataManager {
 	dir := t.TempDir()
-	
+
 	cfg := &models.Config{
 		Server: models.ServerConfig{
 			Bind:            ":0",

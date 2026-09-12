@@ -24,6 +24,8 @@ This document contains architectural reference material extracted from the agent
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
 - `internal/core/automation/` — Scheduled task dispatch and execution, EventBus (SSE broadcasting to frontend)
 - `internal/core/automation/broadcast.go` — `EventBus.Subscribe` / `Publish` / `Unsubscribe`, keyed by `(workspace, channel)`, fans out agent events to SSE-connected clients. `channel` is `EventChannel` (`assistant` | `automation`) — see Pitfall #6.
+- `internal/core/egress/` — loopback-only agent egress proxy (host domain allow/deny policy; absolute-form + CONNECT). Sandboxing plan D2/Phase 1.
+- Sandboxing enforcement lives in `platform/sandbox` (Provider/Effective) + `platform/process` (spawn) + `platform/sizewatch` (disk accounting). To add a NEW enforcement mechanism (e.g. a future executor): see `docs/PLANS/cross-cutting/agent-os-sandboxing.md` §4.3/§9 — add a build-tagged adapter + capability detection at `sandbox.New` + an `Effective` label + UI badge; the spawn seam and downgrade contract are already wired.
 - `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory, communication)
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
 - `internal/core/orchestrator/` — Token budget management, context length resolution, slot scheduling, stream interleaving, reasoning budget normalization. See SPEC-005.
@@ -40,6 +42,11 @@ This document contains architectural reference material extracted from the agent
 ### Infrastructure
 
 - `internal/platform/storage/` — Generic atomic JSON/YAML stores with change callbacks
+- `internal/platform/network/` — Shared/guarded HTTP transports + Constitution I.2 infrastructure doer (plus the single-stream audit-invariant test)
+- `internal/platform/process/` — Central agent child spawn (R1: Setpgid, kill-group) + rlimit application (Darwin/Linux, measured matrix)
+- `internal/platform/sandbox/` — OS confinement Provider seam + `Effective` downgrade reporting; Linux Landlock mechanism + self-exec runner; grant profile model
+- `internal/platform/sizewatch/` — TTL-cached workspace disk accounting (`max_storage_gb`, best-effort)
+- `internal/platform/units/` — binary size conversions (KiB/MiB/GiB → bytes) shared by storage accounting, sandbox rlimits and fetch limits (single home; no inline `1024`/`<<30` arithmetic)
 - `internal/platform/logging/` — Structured logging (global + per-workspace process logs)
 - `internal/app/` — Bootstrap, AppContext (central state manager), service wiring
 - `internal/transport/http/` — Router, middleware, frontend embed

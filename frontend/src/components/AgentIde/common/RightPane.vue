@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { AutomationRun, DispatcherMetrics } from "../../../types/dispatcher"
+import type { Automation, AutomationRun, DispatcherMetrics } from "../../../types/dispatcher"
+import type { SystemMetrics } from "../../../types/metrics"
 import type { ActiveModel } from "../../../types/model"
 import type { SessionBrief } from "../../../types/assistant"
 import MetricsPulse from "../../common/display/MetricsPulse.vue"
@@ -9,9 +10,9 @@ import SystemMetricsPanel from "../system/SystemMetricsPanel.vue"
 import AssistantActivity from "../assistant/AssistantActivity.vue"
 
 defineProps<{
-  systemMetrics: any
+  systemMetrics: SystemMetrics | null
   activeModel: ActiveModel | null
-  selectedAutomation: any
+  selectedAutomation: Automation | null
   anyRunningInSelectedWorkspace: boolean
   triggering: boolean
   workspaceHistory: AutomationRun[]

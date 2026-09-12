@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,10 +33,10 @@ This is a test content.
 		if err != nil {
 			t.Fatalf("List failed: %v", err)
 		}
-		// The 8 shipped templates are extracted on first run alongside the
+		// The 9 shipped templates are extracted on first run alongside the
 		// custom one (Phase 7 extract-on-first-run; never overwrite existing).
-		if len(list) != 9 {
-			t.Errorf("expected 9 templates (8 shipped + 1 custom), got %d", len(list))
+		if len(list) != 10 {
+			t.Errorf("expected 10 templates (9 shipped + 1 custom), got %d", len(list))
 		}
 		found := false
 		for _, tmpl := range list {
@@ -73,4 +74,51 @@ This is a test content.
 			t.Errorf("expected error for non-existent template")
 		}
 	})
+}
+
+// The sandbox conformance-probe template is part of the shipped library (go:embed)
+// and must stay discoverable: List/Get parse its metadata and content. Guards the
+// embed + metadata contract so edits cannot silently drop it from the UI picker.
+func TestShippedSandboxProbeTemplate(t *testing.T) {
+	store := NewTemplateStore(t.TempDir()) // extractShipped copies the embedded set
+
+	list, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, tmpl := range list {
+		if tmpl.ID == "sandbox-conformance-probe" {
+			found = true
+			if tmpl.Name != "Sandbox Conformance Probe" {
+				t.Errorf("expected Name 'Sandbox Conformance Probe', got %q", tmpl.Name)
+			}
+			if tmpl.Category != "security" {
+				t.Errorf("expected Category 'security', got %q", tmpl.Category)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("sandbox-conformance-probe template missing from the shipped set")
+	}
+
+	tmpl, err := store.Get("sandbox-conformance-probe")
+	if err != nil {
+		t.Fatalf("Get(sandbox-conformance-probe): %v", err)
+	}
+	for _, want := range []string{
+		"Surface A", "Surface B", "Surface C", "Observed posture",
+		// Guards the app-layer vs OS-layer split and the per-grant expectation
+		// matrix (otherwise a PASS can be printed while the kernel jail is absent).
+		"Expected results by grant", "OS-layer enforcement",
+		// Guards the evidence-bound verdict: a skipped probe must not be reported as
+		// an observed anomaly, and an unverified grant must not PASS.
+		"Evidence rule", "Required probes", "INCOMPLETE",
+		// Guards the four independent scopes and the private/LAN fetch probe.
+		"internet_only", "LAN_HOST",
+	} {
+		if !strings.Contains(tmpl.Content, want) {
+			t.Errorf("template content missing %q", want)
+		}
+	}
 }

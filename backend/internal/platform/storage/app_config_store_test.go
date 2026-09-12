@@ -2,6 +2,7 @@ package storage
 
 import (
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -227,6 +228,143 @@ func TestRunLoggingDefaultAndBackfill(t *testing.T) {
 		}
 		if sys := mgr.System().Get(); sys.Server.RunLogging == nil || sys.Server.RunLogging.Enabled {
 			t.Errorf("explicit run_logging.enabled=false clobbered by default merge: %+v", sys.Server.RunLogging)
+		}
+	})
+}
+
+func TestSandboxingNewFieldsDefaultAndBackfill(t *testing.T) {
+	t.Run("legacy file keeps jail on and network undecided-allowed", func(t *testing.T) {
+		mgr, p := resetTestManager(t)
+		// Simulate an upgrade: overwrite with a settings.yml that predates the
+		// filesystem/network keys (the D6 additive-config hazard).
+		legacy := "server:\n  bind: \"127.0.0.1:9000\"\nsandboxing:\n  enabled: true\n  maxstoragegb: 2\n  maxmemorymb: 256\n  functional: false\n"
+		if err := os.WriteFile(p.ConfigFile(), []byte(legacy), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.LoadAll(); err != nil {
+			t.Fatal(err)
+		}
+
+		hs := mgr.HostSettings().Get().Sandboxing
+		if !hs.Enabled {
+			t.Error("legacy enabled:true lost by merge")
+		}
+		if hs.Filesystem != nil {
+			t.Errorf("filesystem must stay undecided (nil) for legacy files, got %+v", hs.Filesystem)
+		}
+		if hs.Network != nil {
+			t.Errorf("network must stay undecided (nil) for legacy files — an explicit false would silently flip existing installs off, got %+v", hs.Network)
+		}
+		if !hs.FilesystemEnabled() {
+			t.Error("effective filesystem jail must be ON for legacy files")
+		}
+		if !hs.NetworkAllowed() {
+			t.Error("effective network must be ALLOWED for legacy files until the operator decides")
+		}
+		if hs.NetworkDecided() {
+			t.Error("legacy network must report undecided (migration banner state)")
+		}
+
+		// The merge must NOT have rewritten the file with a network key.
+		raw, err := os.ReadFile(p.ConfigFile())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "network:") {
+			t.Errorf("legacy file was rewritten with a network key:\n%s", raw)
+		}
+	})
+
+	t.Run("fresh install persists explicit defaults", func(t *testing.T) {
+		mgr, p := resetTestManager(t) // empty dir → LoadAll writes merged defaults
+		hs := mgr.HostSettings().Get().Sandboxing
+		if !hs.FilesystemEnabled() {
+			t.Error("fresh install must default filesystem jail ON")
+		}
+		if hs.NetworkAllowed() {
+			t.Error("fresh install must default agent network OFF (D1)")
+		}
+		raw, err := os.ReadFile(p.ConfigFile())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "network: false") {
+			t.Errorf("fresh settings.yml must persist explicit network:false (D1 default-off):\n%s", raw)
+		}
+		if strings.Contains(string(raw), "filesystem:") {
+			t.Errorf("fresh settings.yml needs no filesystem key (nil resolves to ON):\n%s", raw)
+		}
+	})
+
+	t.Run("explicit persisted value never clobbered", func(t *testing.T) {
+		mgr, p := resetTestManager(t)
+		fsOn, netOff := true, false
+		if err := mgr.HostSettings().Update(func(hs *models.HostSettings) error {
+			hs.Sandboxing.Filesystem = &fsOn
+			hs.Sandboxing.Network = &netOff
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.LoadAll(); err != nil { // reload from disk
+			t.Fatal(err)
+		}
+		hs := mgr.HostSettings().Get().Sandboxing
+		if hs.Filesystem == nil || !*hs.Filesystem {
+			t.Error("explicit filesystem:true clobbered by default merge")
+		}
+		if hs.Network == nil || *hs.Network {
+			t.Error("explicit network:false clobbered by default merge")
+		}
+		raw, err := os.ReadFile(p.ConfigFile())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "network: false") {
+			t.Errorf("explicit network:false not persisted:\n%s", raw)
+		}
+	})
+}
+
+func TestSandboxingSectionPresenceSemantics(t *testing.T) {
+	t.Run("explicit enabled:false survives reload with numeric backfill", func(t *testing.T) {
+		mgr, p := resetTestManager(t)
+		// Section present but only the master switch set: this must NOT be
+		// merged back to defaults (which would silently re-enable terminals).
+		explicit := "sandboxing:\n  enabled: false\n"
+		if err := os.WriteFile(p.ConfigFile(), []byte(explicit), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.LoadAll(); err != nil {
+			t.Fatal(err)
+		}
+		hs := mgr.HostSettings().Get().Sandboxing
+		if hs.Enabled {
+			t.Error("explicit enabled:false was clobbered by the defaults merge")
+		}
+		if hs.MaxStorageGB != 2 || hs.MaxMemoryMB != 2048 {
+			t.Errorf("per-key numeric backfill missing: storage=%d memory=%d", hs.MaxStorageGB, hs.MaxMemoryMB)
+		}
+		if hs.Network != nil || hs.Filesystem != nil {
+			t.Errorf("undecided *bool keys must stay nil, got net=%v fs=%v", hs.Network, hs.Filesystem)
+		}
+	})
+
+	t.Run("absent sandboxing section takes defaults", func(t *testing.T) {
+		mgr, p := resetTestManager(t)
+		noSection := "server:\n  bind: \"127.0.0.1:9000\"\n"
+		if err := os.WriteFile(p.ConfigFile(), []byte(noSection), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.LoadAll(); err != nil {
+			t.Fatal(err)
+		}
+		hs := mgr.HostSettings().Get().Sandboxing
+		if !hs.Enabled {
+			t.Error("absent section must resolve to the default enabled master")
+		}
+		if hs.MaxStorageGB != 2 || hs.MaxMemoryMB != 2048 {
+			t.Errorf("absent section must take numeric defaults, got storage=%d memory=%d", hs.MaxStorageGB, hs.MaxMemoryMB)
 		}
 	})
 }

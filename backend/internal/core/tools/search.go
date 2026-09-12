@@ -29,14 +29,15 @@ func (t *TavilyProvider) Search(ctx context.Context, query string) ([]SearchResu
 	if t.APIKey == "" {
 		return nil, fmt.Errorf("tavily api key missing")
 	}
-
-	client := t.Client
-	if client == nil {
-		client = http.DefaultClient
+	if t.Client == nil {
+		// The client is injected at construction (registry wires the guarded
+		// NetworkTools client). A nil client is a programming error — never fall
+		// back to http.DefaultClient (Constitution I.1).
+		return nil, fmt.Errorf("search client not configured")
 	}
 
 	const searchURL = "https://api.tavily.com/search"
-	
+
 	payload := map[string]any{
 		"api_key":      t.APIKey,
 		"query":        query,
@@ -55,7 +56,7 @@ func (t *TavilyProvider) Search(ctx context.Context, query string) ([]SearchResu
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
+	resp, err := t.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("search request failed: %w", err)
 	}

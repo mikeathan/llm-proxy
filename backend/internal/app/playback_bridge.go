@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	defaultReplayDelay    = 500 * time.Millisecond
-	defaultChunkInterval  = 5 * time.Millisecond
+	defaultReplayDelay   = 500 * time.Millisecond
+	defaultChunkInterval = 5 * time.Millisecond
 )
 
 type PlaybackBridge struct {

@@ -20,7 +20,7 @@ interface ProviderMeta {
 // Single aggregated metadata record. Replaces the previously separate
 // PROVIDER_ICONS / PROVIDER_LABELS / PROVIDER_STYLES maps so a provider's
 // display data lives in exactly one place.
-export const PROVIDER_META: Record<SettingsTab, ProviderMeta> = {
+const PROVIDER_META: Record<SettingsTab, ProviderMeta> = {
   local: { icon: "💻", label: "Local Engine", style: "bg-blue-900/30 text-blue-400 border-blue-500/30" },
   "local-models": { icon: "🤖", label: "Local Models", style: "bg-blue-900/30 text-blue-400 border-blue-500/30" },
   security: { icon: "📟", label: "Host Terminal", style: "bg-gray-900/30 text-gray-400 border-gray-500/30" },
@@ -46,5 +46,3 @@ export const PROVIDER_LABELS: Record<SettingsTab, string> = Object.fromEntries(
 export const PROVIDER_STYLES: Record<string, string> = Object.fromEntries(
   Object.entries(PROVIDER_META).map(([k, v]) => [k, v.style]),
 );
-
-export const DEFAULT_PROVIDER_STYLE = "bg-gray-900/30 text-gray-400 border-gray-500/30";

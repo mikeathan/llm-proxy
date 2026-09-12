@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/boot"
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/platform/sandbox"
 )
 
 var (
@@ -19,6 +20,13 @@ var (
 )
 
 func main() {
+	// Sandbox-runner self-exec path (plan Phase 2b): when this process was
+	// spawned as a sandboxed child it applies the OS confinement (Landlock on
+	// Linux) and execs the real command — it must run before ANY other logic.
+	if sandbox.RunChildIfRequested() {
+		return
+	}
+
 	opts := boot.ParseFlags()
 
 	if opts.Version {

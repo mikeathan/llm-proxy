@@ -1,7 +1,9 @@
 // LLM Model related types
+import type { ProviderType, SettingsTab } from './admin'
+import type { BannerSeverity } from './ui'
 export interface ActiveModel {
   name: string
-  provider: import('./admin').ProviderType
+  provider: ProviderType
   endpoint: string
   port: number
   ready: boolean
@@ -67,7 +69,7 @@ export interface TuningFields {
 
 export interface Model {
   name: string
-  provider: import('./admin').ProviderType
+  provider: ProviderType
   workload_class?: WorkloadClass
   model_id?: string
   filename?: string
@@ -139,35 +141,6 @@ export interface ProviderModelInfo {
   meta?: ModelMeta
 }
 
-export interface NewModelForm {
-  name: string
-  provider: import('./admin').ProviderType
-  model_id?: string
-  filename?: string
-  port?: number
-  args?: string
-  provider_config?: ProviderConfig
-  metadata?: ModelMetadata
-  prefill?: boolean
-  reasoning_enabled?: boolean
-  max_steps?: number
-  context_budget?: number
-  max_tokens?: number
-  temperature?: number
-  reasoning_budget?: number
-  slot_timeout?: number
-  timeout_minutes?: number
-  tool_call_format?: string
-  tool_timeout_seconds?: number
-  filesystem_tool_timeout_seconds?: number
-  max_plan_duration_minutes?: number
-  max_plan_steps?: number
-  guardrail_timeout_seconds?: number
-  guardrail_timeout_behavior?: string
-  guardrail_approval_timeout_seconds?: number
-  loop_strategy?: LoopStrategy
-}
-
 // TuningSettings is the concrete agent-tuning + safety-timeout set produced by
 // getDefaultModelSettings() (provider defaults, all fields required). It is the
 // tuning slice of ModelForm minus the local-serving/identity fields.
@@ -192,7 +165,8 @@ export interface TuningSettings {
 }
 
 // ModelForm is the editable shape for the model add/edit form (ModelFormFields).
-// Mirrors NewModelForm plus local-serving fields; kept as a discrete form type
+// Mirrors the model create/update payload (see Model/ModelForm) plus local-serving fields;
+// kept as a discrete form type
 // rather than reused request types so UI-only fields (key, port, args) stay
 // explicit. Extends TuningSettings so the tuning/safety fields are defined once
 // and stay in lockstep with getDefaultModelSettings().
@@ -210,12 +184,12 @@ export interface ModelForm extends TuningSettings {
 // banner. severity uses the shared BannerSeverity union (model banners only
 // ever emit 'critical' | 'notice').
 export interface ModelBanner {
-  severity: import('./ui').BannerSeverity
+  severity: BannerSeverity
   message: string
   // HTML variant of the message (app-controlled, never user input).
   html?: string
   // Action button that deep-links to a Settings tab.
-  action?: { label: string; settingsTab: import('./admin').SettingsTab }
+  action?: { label: string; settingsTab: SettingsTab }
 }
 
 // ProviderManifest describes a provider as discovered/registered by the backend

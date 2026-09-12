@@ -16,6 +16,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/units"
 	"llm-proxy/models"
 )
 
@@ -24,6 +25,12 @@ type NetworkTools struct {
 	configProvider func(ctx context.Context) models.NetworkGuardrailsConfig
 	httpClient     *http.Client
 	logger         logging.Logger
+	// proxyAddr is the configured egress-proxy "host:port" ("" = direct). The
+	// guarded DialContext must allow dialing THIS address (loopback) even
+	// though loopback is otherwise blocked for agents — the policy applies to
+	// the proxied target, not to the proxy itself. Set once at construction
+	// (composition root) before the client serves any request.
+	proxyAddr string
 }
 
 func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrailsConfig, logger logging.Logger) *NetworkTools {
@@ -40,6 +47,15 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 	// Custom transport with DialContext for DNS rebinding protection and connection pooling
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Dialing the configured egress proxy itself is permitted by
+			// construction: it is the single loopback exception, and the
+			// guardrail checks below apply to the proxied target. Requests
+			// that do not ride the proxy (no SetProxy) still go through the
+			// full validation.
+			if addr == n.proxyAddr {
+				return dialer.DialContext(ctx, network, addr)
+			}
+
 			cfg := n.configProvider(ctx)
 
 			host, port, err := net.SplitHostPort(addr)
@@ -47,9 +63,9 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 				return nil, fmt.Errorf("invalid address format: %w", err)
 			}
 
-	// Use pure-Go resolver (PreferGo) scoped to network tool; respects
-		// context cancellation where the default cgo resolver does not.
-		ips, err := (&net.Resolver{PreferGo: true}).LookupIP(ctx, "ip", host)
+			// Use pure-Go resolver (PreferGo) scoped to network tool; respects
+			// context cancellation where the default cgo resolver does not.
+			ips, err := (&net.Resolver{PreferGo: true}).LookupIP(ctx, "ip", host)
 			if err != nil {
 				return nil, fmt.Errorf("DNS lookup failed: %w", err)
 			}
@@ -116,20 +132,20 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 	}
 	req.Header.Set("User-Agent", "LLM-Proxy-Agent/1.0")
 
-		resp, err := n.httpClient.Do(req)
-		if err != nil {
-			n.logger.Error("Network fetch failed", "url", targetURL, "error", err)
-			return "", fmt.Errorf("failed to fetch content from '%s': %s", targetURL, err.Error())
-		}
+	resp, err := n.httpClient.Do(req)
+	if err != nil {
+		n.logger.Error("Network fetch failed", "url", targetURL, "error", err)
+		return "", fmt.Errorf("failed to fetch content from '%s': %s", targetURL, err.Error())
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("server returned unexpected status: %s", resp.Status)
 	}
 
-	limit := int64(cfg.MaxFetchSizeKB) * 1024
+	limit := units.KiB(cfg.MaxFetchSizeKB)
 	if limit <= 0 {
-		limit = 1024 * 1024 // 1MB default
+		limit = units.MiB(1) // 1 MiB default
 	}
 
 	lr := &io.LimitedReader{R: resp.Body, N: limit}
@@ -525,6 +541,25 @@ func ExtractHost(address string) string {
 // HTTPClient returns the underlying guarded http.Client.
 func (n *NetworkTools) HTTPClient() *http.Client {
 	return n.httpClient
+}
+
+// SetProxy routes this client's outbound traffic through an HTTP forward proxy
+// (egress proxy, sandboxing plan D2). The guarded DialContext remains the
+// transport dialer — it now dials the loopback proxy (the single permitted
+// loopback exception, see the DialContext above), which resolves and forwards
+// per its policy. Agent tool-level guardrails (blocked domains, allow flags,
+// scope) still run before the request is sent. Must be called before the
+// client serves requests; setting a nil proxyURL is a no-op.
+func (n *NetworkTools) SetProxy(proxyURL *url.URL) {
+	if proxyURL == nil {
+		return
+	}
+	tr, ok := n.httpClient.Transport.(*http.Transport)
+	if !ok {
+		return
+	}
+	n.proxyAddr = proxyURL.Host
+	tr.Proxy = http.ProxyURL(proxyURL)
 }
 
 // DialContext returns a guarded dial function compatible with http.Transport.DialContext.

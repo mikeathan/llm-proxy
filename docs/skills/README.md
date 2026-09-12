@@ -14,6 +14,7 @@ For the full catalog with line counts and cross-references, see [`../INDEX.md`](
 | Add a new communication connector (Telegram, Slack, etc.) | [`connector-patterns.md`](connector-patterns.md) |
 | Post-change doc updates — what to update after any code change | [`documentation-stewardship.md`](documentation-stewardship.md) |
 | Go patterns, error handling, code style, file checklists, icon conventions | [`engineering-practices.md`](engineering-practices.md) |
+| Write or review code — naming, functions, comments, tests, SOLID, smells checklist (language-agnostic) | [`clean-code.md`](clean-code.md) |
 | SSE composables, observer chaining, guardrail flow, dedup, heartbeat | [`event-streaming-patterns.md`](event-streaming-patterns.md) |
 | Session lifecycle phases, SSE contract, frontend handler, testing | [`lifecycle-events.md`](lifecycle-events.md) |
 | Set up local llama.cpp server — args, GPU tuning, systemd | [`llamacpp-setup.md`](llamacpp-setup.md) |

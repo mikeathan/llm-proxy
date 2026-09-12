@@ -29,6 +29,7 @@ export function useAutomationForm(
       strategy: "persistent",
       model: "",
       loopStrategy: "",
+      networkGrant: "",
     }
   }
 
@@ -113,6 +114,7 @@ export function useAutomationForm(
         strategy: target.strategy,
         model: target.model || "",
         loopStrategy: target.loop_strategy || "",
+        networkGrant: target.network_grant || "",
       }
     },
     { immediate: true },

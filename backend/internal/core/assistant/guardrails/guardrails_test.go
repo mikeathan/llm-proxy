@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"context"
+	"errors"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
@@ -47,9 +48,9 @@ func TestGuardrailEngine_GlobalGuardrails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{}
 			cfg.Global.BlockSecrets = tt.blockSecrets
-			
+
 			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
-			
+
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
 					Name:      "test_tool",
@@ -112,7 +113,7 @@ func TestGuardrailEngine_SearchGuardrails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{Search: tt.config}
 			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
-			
+
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
 					Name:      models.ToolInternetSearch,
@@ -164,7 +165,7 @@ func TestGuardrailEngine_CommunicationGuardrails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := models.AgentGuardrailsConfig{Communication: tt.config}
 			engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
-			
+
 			call := proxy.ToolCall{
 				Function: proxy.FunctionCall{
 					Name: models.ToolNotifyUser,
@@ -365,4 +366,311 @@ func TestGuardrailEngine_TerminalUsesBlockedFilenames(t *testing.T) {
 			}
 		})
 	}
+}
+
+// enabledNetworkCfg returns a guardrail config whose network/search/
+// communication categories are all enabled, so any schema/denial in the host
+// gate tests is attributable to the host network switch, not the guardrail tier.
+func enabledNetworkCfg() models.AgentGuardrailsConfig {
+	cfg := models.AgentGuardrailsConfig{}
+	cfg.Network.Enabled = true
+	cfg.Network.AllowLanAccess = true
+	cfg.Network.AllowInternetAccess = true
+	cfg.Search.Enabled = true
+	cfg.Communication.Enabled = true
+	return cfg
+}
+
+// Host-level network gate (plan D1/R4): schema-hiding and hard denial when
+// sandboxing.network is explicitly OFF. Overrides must never re-enable it.
+func TestHostNetworkGate_DisabledToolNames(t *testing.T) {
+	cfg := enabledNetworkCfg()
+	callNames := func(disabled []string) map[string]bool {
+		m := make(map[string]bool, len(disabled))
+		for _, n := range disabled {
+			m[n] = true
+		}
+		return m
+	}
+
+	t.Run("no host provider leaves tools visible", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+		disabled := callNames(e.DisabledToolNames(""))
+		for _, name := range hostNetworkGatedTools {
+			if disabled[name] {
+				t.Errorf("tool %q disabled without a host gate", name)
+			}
+		}
+	})
+
+	t.Run("host network ON keeps tools visible", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		disabled := callNames(e.DisabledToolNames(""))
+		for _, name := range hostNetworkGatedTools {
+			if disabled[name] {
+				t.Errorf("tool %q disabled while host network allowed", name)
+			}
+		}
+	})
+
+	t.Run("host network OFF hides every network-gated tool", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return false })
+		disabled := callNames(e.DisabledToolNames(""))
+		for _, name := range hostNetworkGatedTools {
+			if !disabled[name] {
+				t.Errorf("host network off must schema-hide %q", name)
+			}
+		}
+	})
+
+	t.Run("override cannot keep a host-gated tool visible", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return cfg }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return false })
+		e.MarkOverride("ws1", models.ToolNetworkFetch) // in-memory approval must NOT win
+		disabled := callNames(e.DisabledToolNames("ws1"))
+		if !disabled[models.ToolNetworkFetch] {
+			t.Error("host gate must ignore in-memory overrides (plan R4)")
+		}
+	})
+}
+
+func TestHostNetworkGate_ValidateToolCallHardDenial(t *testing.T) {
+	fetch := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkFetch, Arguments: `{"url":"https://example.com"}`}}
+
+	t.Run("host OFF denies fetch with the sentinel", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return enabledNetworkCfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return false })
+		err := e.ValidateToolCall(context.Background(), fetch, "")
+		if err == nil {
+			t.Fatal("expected denial when host network is off")
+		}
+		if !errors.Is(err, ErrNetworkDisabled) {
+			t.Errorf("expected ErrNetworkDisabled (errors.Is), got %v", err)
+		}
+	})
+
+	t.Run("override cannot bypass the host gate", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return enabledNetworkCfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return false })
+		e.MarkOverride("ws1", models.ToolNetworkFetch)
+		err := e.ValidateToolCall(context.Background(), fetch, "ws1")
+		if err == nil || !errors.Is(err, ErrNetworkDisabled) {
+			t.Errorf("host gate must fire before the override fast path, got %v", err)
+		}
+	})
+
+	t.Run("host ON validates through to category rules", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return enabledNetworkCfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		if err := e.ValidateToolCall(context.Background(), fetch, ""); err != nil {
+			t.Errorf("fetch_url should pass category rules when host network is on: %v", err)
+		}
+	})
+
+	t.Run("non-network tool unaffected by host gate", func(t *testing.T) {
+		e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return enabledNetworkCfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return false })
+		terminal := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolTerminalExecute, Arguments: `{"command":"ls"}`}}
+		if err := e.ValidateToolCall(context.Background(), terminal, ""); err != nil && errors.Is(err, ErrNetworkDisabled) {
+			t.Error("host network gate must not reject non-network tools")
+		}
+	})
+}
+
+// Run-scope grant model (plan §4.4): ResolveRunScope folds host (L0) + merged
+// workspace guardrails (L1) + the automation grant (L2).
+func TestGuardrailEngine_ResolveRunScope(t *testing.T) {
+	wsInternet := func() models.AgentGuardrailsConfig {
+		c := models.AgentGuardrailsConfig{}
+		c.Network.Enabled = true
+		c.Network.AllowLanAccess = true
+		c.Network.AllowInternetAccess = true
+		return c
+	}
+	wsOff := func() models.AgentGuardrailsConfig {
+		c := models.AgentGuardrailsConfig{}
+		c.Network.Enabled = false
+		return c
+	}
+
+	tests := []struct {
+		name  string
+		host  *bool // nil = no host provider (allowed)
+		cfg   func() models.AgentGuardrailsConfig
+		grant models.NetworkScope
+		want  models.NetworkScope
+	}{
+		{"host off beats internet grant", boolp(false), wsInternet, models.NetworkScopeInternet, models.NetworkScopeNone},
+		{"grant none tightens internet ws", boolp(true), wsInternet, models.NetworkScopeNone, models.NetworkScopeNone},
+		{"grant lan loosens offline ws", boolp(true), wsOff, models.NetworkScopeLan, models.NetworkScopeLan},
+		{"inherit follows ws internet", boolp(true), wsInternet, models.NetworkScopeInherit, models.NetworkScopeInternet},
+		{"inherit with ws off is none", boolp(true), wsOff, models.NetworkScopeInherit, models.NetworkScopeNone},
+		{"no host provider defaults allowed", nil, wsInternet, models.NetworkScopeInherit, models.NetworkScopeInternet},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return tt.cfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+			if tt.host != nil {
+				e.SetHostNetworkAllowed(func() bool { return *tt.host })
+			}
+			if got := e.ResolveRunScope("", tt.grant); got != tt.want {
+				t.Errorf("ResolveRunScope(grant=%q) = %q, want %q", tt.grant, got, tt.want)
+			}
+		})
+	}
+}
+
+func boolp(b bool) *bool { return &b }
+
+func TestGuardrailEngine_ScopeAwareSchemaAndDenial(t *testing.T) {
+	wsOffCfg := func() models.AgentGuardrailsConfig {
+		c := models.AgentGuardrailsConfig{}
+		c.Network.Enabled = false // workspace L1 network disabled
+		c.Search.Enabled = true
+		c.Communication.Enabled = true
+		return c
+	}
+
+	t.Run("scope none hides every egress tool regardless of ws tier", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		disabled := e.DisabledToolNamesForScope("", models.NetworkScopeNone)
+		for _, name := range hostNetworkGatedTools {
+			if !containsString(disabled, name) {
+				t.Errorf("scope none must hide %q", name)
+			}
+		}
+	})
+
+	t.Run("scope lan shows core network tools in an offline ws (L2 loosens)", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		disabled := mapSlice(e.DisabledToolNamesForScope("", models.NetworkScopeLan))
+		for _, name := range []string{models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo} {
+			if disabled[name] {
+				t.Errorf("scope lan must expose %q in an offline workspace (L2 loosening)", name)
+			}
+		}
+		// LAN is not internet: search and connector sends (internet-only egress)
+		// must stay hidden even though their L1 tiers are enabled.
+		for _, name := range []string{models.ToolInternetSearch, models.ToolNotifyUser} {
+			if !disabled[name] {
+				t.Errorf("scope lan must hide internet-only %q", name)
+			}
+		}
+	})
+
+	t.Run("scope lan hard-gates internet-only tools despite overrides", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		e.MarkOverride("ws1", models.ToolInternetSearch)
+		e.MarkOverride("ws1", models.ToolNotifyUser)
+		disabled := mapSlice(e.DisabledToolNamesForScope("ws1", models.NetworkScopeLan))
+		if !disabled[models.ToolInternetSearch] || !disabled[models.ToolNotifyUser] {
+			t.Errorf("lan-scope overrides must not re-expose internet-only tools: %+v", disabled)
+		}
+	})
+
+	t.Run("ctx scope lan denies search and notify with the security sentinel", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		ctx := models.WithRunNetworkScope(context.Background(), models.NetworkScopeLan)
+		for _, name := range []string{models.ToolInternetSearch, models.ToolNotifyUser} {
+			err := e.ValidateToolCall(ctx, proxy.ToolCall{Function: proxy.FunctionCall{Name: name, Arguments: "{}"}}, "")
+			if !errors.Is(err, ErrNetworkDisabled) {
+				t.Errorf("scope lan must hard-deny %q (internet-only), got %v", name, err)
+			}
+		}
+	})
+
+	t.Run("scope internet re-exposes internet-only tools when their tier is on", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		disabled := mapSlice(e.DisabledToolNamesForScope("", models.NetworkScopeInternet))
+		for _, name := range []string{models.ToolNetworkFetch, models.ToolInternetSearch, models.ToolNotifyUser} {
+			if disabled[name] {
+				t.Errorf("scope internet must expose %q when its L1 tier is enabled", name)
+			}
+		}
+	})
+
+	t.Run("ctx scope none denies even with host allowed", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		ctx := models.WithRunNetworkScope(context.Background(), models.NetworkScopeNone)
+		fetch := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkFetch, Arguments: `{"url":"https://example.com"}`}}
+		err := e.ValidateToolCall(ctx, fetch, "")
+		if !errors.Is(err, ErrNetworkDisabled) {
+			t.Errorf("scope none must hard-deny network tools, got %v", err)
+		}
+	})
+
+	t.Run("ctx scope internet validates through in an offline ws", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		ctx := models.WithRunNetworkScope(context.Background(), models.NetworkScopeInternet)
+		fetch := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkFetch, Arguments: `{"url":"https://example.com"}`}}
+		if err := e.ValidateToolCall(ctx, fetch, ""); err != nil {
+			t.Errorf("scope internet must allow fetch through to category checks in offline ws, got %v", err)
+		}
+	})
+
+	t.Run("scope internet_only hides local-network tools but keeps internet egress", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		disabled := mapSlice(e.DisabledToolNamesForScope("", models.NetworkScopeInternetOnly))
+		for _, name := range []string{models.ToolNetworkScan, models.ToolNetworkInfo} {
+			if !disabled[name] {
+				t.Errorf("scope internet_only must hide local-network tool %q", name)
+			}
+		}
+		for _, name := range []string{models.ToolNetworkFetch, models.ToolInternetSearch, models.ToolNotifyUser} {
+			if disabled[name] {
+				t.Errorf("scope internet_only must keep %q visible", name)
+			}
+		}
+	})
+
+	t.Run("scope internet_only hard-gates local-network tools despite overrides", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		e.MarkOverride("ws1", models.ToolNetworkScan)
+		e.MarkOverride("ws1", models.ToolNetworkInfo)
+		disabled := mapSlice(e.DisabledToolNamesForScope("ws1", models.NetworkScopeInternetOnly))
+		if !disabled[models.ToolNetworkScan] || !disabled[models.ToolNetworkInfo] {
+			t.Errorf("internet_only overrides must not re-expose local-network tools: %+v", disabled)
+		}
+	})
+
+	t.Run("ctx scope internet_only denies local-network tools with the security sentinel", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		ctx := models.WithRunNetworkScope(context.Background(), models.NetworkScopeInternetOnly)
+		for _, name := range []string{models.ToolNetworkScan, models.ToolNetworkInfo} {
+			err := e.ValidateToolCall(ctx, proxy.ToolCall{Function: proxy.FunctionCall{Name: name, Arguments: "{}"}}, "")
+			if !errors.Is(err, ErrNetworkDisabled) {
+				t.Errorf("scope internet_only must hard-deny %q (local network), got %v", name, err)
+			}
+		}
+	})
+
+	t.Run("ctx scope internet_only allows internet fetch through", func(t *testing.T) {
+		e := NewGuardrailEngine(wsOffCfg, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		ctx := models.WithRunNetworkScope(context.Background(), models.NetworkScopeInternetOnly)
+		fetch := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkFetch, Arguments: `{"url":"https://example.com"}`}}
+		if err := e.ValidateToolCall(ctx, fetch, ""); err != nil {
+			t.Errorf("scope internet_only must allow internet fetch through, got %v", err)
+		}
+	})
+}
+
+func mapSlice(in []string) map[string]bool {
+	m := make(map[string]bool, len(in))
+	for _, s := range in {
+		m[s] = true
+	}
+	return m
 }

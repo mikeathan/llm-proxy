@@ -196,6 +196,17 @@ Unit-test the `banner` computed: both unset -> critical; primary unset + fallbac
 ok -> notice; primary ok -> null; primary set-but-not-in-catalogue (should not
 happen post auto-clear, but guard) -> treated per primaryOk=false.
 
+### 7. Client-side dangling-ref reconcile (added)
+The backend auto-clear (Backend step 4) only fixes the **fetched** registry; the
+Settings form model (`useConfig().config`) could still hold a stale
+`primary_model`/`fallback_model` after a model is removed, and `GlobalSettings`
+would silently submit it. `useConfig.ts` now exports a pure
+`reconcileModelRefs(modelNames)` helper (also returned by `useConfig()`) that
+clears non-empty primary/fallback values absent from the catalogue;
+`useModels.refresh()` calls it with the freshly fetched model names, so every
+model add/remove/start/stop (all of which call `refresh()`) reconciles the form
+state before it can be saved. Test: `reconcileModelRefs.test.ts`.
+
 ---
 
 ## Verification (per AGENTS.md workflow)

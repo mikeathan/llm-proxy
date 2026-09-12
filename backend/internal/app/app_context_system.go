@@ -45,10 +45,33 @@ func (s *AppContext) HostSettings() models.HostSettings {
 	settings := s.dataMgr.HostSettings().Get()
 	// Inject runtime functional state
 	settings.Sandboxing.Functional = (s.terminal != nil)
+	// Decode-only presence marker: never part of the API surface.
+	settings.Sandboxing.SectionPresent = false
+	// Inject the read-time Effective projection of OS enforcement (SPEC-006
+	// §II.7.4): what the host actually applies, never persisted.
+	if s.sandboxProv != nil {
+		eff := s.sandboxProv.Effective()
+		settings.Effective = &models.SandboxEffective{
+			Filesystem: models.SandboxSurface{
+				Mechanism: string(eff.Filesystem.Mechanism),
+				Reason:    eff.Filesystem.Reason,
+			},
+			Network: models.SandboxSurface{
+				Mechanism: string(eff.Network.Mechanism),
+				Reason:    eff.Network.Reason,
+			},
+			Provider: eff.Provider,
+		}
+	}
 	return settings
 }
 
 func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {
+	// Functional + Effective are runtime projections — never persist a read echo
+	// of them (the PUT body may round-trip the GET shape verbatim). Both are
+	// recomputed on every GET from live runtime state.
+	settings.Sandboxing.Functional = false
+	settings.Effective = nil
 	return s.dataMgr.HostSettings().Update(func(hs *models.HostSettings) error {
 		*hs = settings
 		return nil

@@ -1,4 +1,4 @@
-export type MemoryType = 'long_term' | 'daily' | 'session'
+export type MemoryType = 'long_term' | 'daily' | 'session' | 'user_profile'
 
 export interface MemoryEntry {
   id: number

@@ -204,6 +204,12 @@ type AgentConfig struct {
 	// LoopStrategy selects the agent loop archetype. Empty = provider default /
 	// react; the resolver applies the deterministic precedence.
 	LoopStrategy LoopStrategyName
+	// RunNetworkScope is the RESOLVED per-run network scope (automation grant,
+	// plan §4.4). Empty/inherit = the workspace guardrail tier governs (chat and
+	// default automations) — preserved pre-grant behavior. It drives the schema
+	// (NewAgent), is stamped onto the run context (Execute) for the guardrail
+	// engine and network tools, and yields the shell pool's networkOn key (D8).
+	RunNetworkScope models.NetworkScope
 	// Channel is the event stream this agent publishes to (assistant vs
 	// automation). It is stamped onto every AgentEvent so the EventBus can
 	// route and the SSE handler can serve a single channel per connection.
@@ -312,6 +318,11 @@ type AgentOptions struct {
 	// availability. allow ∩ exclude ∩ guardrail-disabled.
 	AllowedTools  []string
 	ExcludedTools []string
+
+	// RunNetworkScope is the RESOLVED per-run network scope (automation grant).
+	// Zero/inherit leaves schema and validation to the workspace guardrail tier;
+	// set by the automation executor from GuardrailEngine.ResolveRunScope.
+	RunNetworkScope models.NetworkScope
 
 	// Safety timeouts — per-model overrides for unattended run hardening.
 	// Zero means "use global default" (set in applyDefaults).
@@ -600,7 +611,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     resolveToolProvider(provider, gr, opts.WorkspaceID, opts.AllowedTools, opts.ExcludedTools),
+			Provider:     resolveToolProviderForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.ExcludedTools),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,
@@ -621,6 +632,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			UseNativeTools:           useNative,
 			UsePrefill:               usePrefill,
 			WorkspaceID:              opts.WorkspaceID,
+			RunNetworkScope:          opts.RunNetworkScope,
 			ModelName:                opts.ModelName,
 			ProviderType:             opts.ProviderType,
 			WorkloadClass:            opts.WorkloadClass,
@@ -668,6 +680,13 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 	execCtx = WithUsageTracker(execCtx)
 	execCtx = proxy.WithRetryObserver(execCtx, func(info proxy.RetryInfo) { a.notifyUpstream(info) })
+
+	// Stamp the resolved run network scope so the guardrail engine, network
+	// tools, and (via derived tool ctx) the shell pool key all observe the same
+	// per-run scope (plan §4.4/D8). Absent/inherit runs (chat) are untouched.
+	if scope := a.config.RunNetworkScope; scope != models.NetworkScopeInherit {
+		execCtx = models.WithRunNetworkScope(execCtx, scope)
+	}
 
 	a.rebuildToolCache(execCtx)
 

@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import Icon from '../../icons/Icon.vue';
 
 const props = defineProps<{
-  text: any; // Text or object to copy
+  text: unknown; // Text or object to copy
   title?: string; // HTML title attribute
   iconSize?: 'sm' | 'md' | 'lg'; // Size of the SVG icon
 }>();

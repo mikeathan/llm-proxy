@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { TemplateService } from '../../../services/template/templateService';
 import type { Template, TemplateMetadata } from '../../../types/templates';
 import Icon from '../../icons/Icon.vue';
@@ -54,38 +54,57 @@ const handleAction = async (id: string, mode: 'append' | 'create') => {
   }
 };
 
-onMounted(fetchTemplates);
+// Escape closes the panel while it is open.
+const onGlobalKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && props.show) emit('close');
+};
+
+// Lock background scroll behind the panel.
+watch(() => props.show, (visible) => {
+  document.body.style.overflow = visible ? 'hidden' : '';
+});
+
+onMounted(() => {
+  document.addEventListener('keydown', onGlobalKeydown);
+  fetchTemplates();
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onGlobalKeydown);
+  document.body.style.overflow = '';
+});
 </script>
 
 <template>
   <div v-if="show" class="drawer-overlay" @click.self="emit('close')">
-    <div class="drawer-panel shadow-2xl">
+    <div class="drawer-panel shadow-2xl" role="dialog" aria-modal="true" aria-label="Task Playbooks">
       <div class="drawer-header">
-        <div class="flex items-center justify-between">
+        <div class="flex items-start justify-between gap-4">
           <div>
-            <h2 class="text-xl font-bold text-white">Task Playbooks</h2>
+            <h2 class="text-lg sm:text-xl font-bold text-white">Task Playbooks</h2>
             <p class="text-xs text-gray-400 mt-1 italic">Inject expert-crafted automation steps</p>
           </div>
-          <button @click="emit('close')" class="close-btn group">
+          <button @click="emit('close')" class="close-btn group" aria-label="Close playbooks">
             <Icon name="close" size="sm" />
           </button>
         </div>
 
         <!-- Search & Filter -->
-        <div class="mt-6 flex flex-col gap-4">
+        <div class="mt-4 flex flex-col gap-3">
           <div class="relative">
-            <input 
+            <input
               v-model="searchQuery"
-              type="text" 
-              placeholder="Search playbooks..." 
+              type="text"
+              placeholder="Search playbooks..."
               class="search-input"
+              aria-label="Search playbooks"
             />
-            <Icon name="search" size="xs" class="absolute left-3 top-3 text-gray-500" />
+            <Icon name="search" size="xs" class="absolute left-3 top-2.5 text-gray-500" />
           </div>
 
-          <div class="flex flex-wrap gap-2">
-            <button 
-              v-for="cat in categories" 
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="cat in categories"
               :key="cat"
               @click="selectedCategory = cat"
               :class="['filter-pill', selectedCategory === cat ? 'filter-pill--active' : '']"
@@ -106,43 +125,43 @@ onMounted(fetchTemplates);
           <p>No playbooks found matching your criteria.</p>
         </div>
 
-        <div v-else class="grid grid-cols-1 gap-3 p-1">
-            <div 
-              v-for="t in filteredTemplates" 
-              :key="t.id"
-              class="template-card group"
-            >
-              <div class="card-content">
-                <div class="flex flex-col gap-1 flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="category-tag">{{ t.category }}</span>
-                    <span class="text-[9px] font-mono text-gray-600">{{ t.id }}</span>
-                  </div>
-                  <h3 class="template-name truncate">{{ t.name }}</h3>
+        <div v-else class="templates-grid grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            v-for="t in filteredTemplates"
+            :key="t.id"
+            class="template-card group"
+          >
+            <div class="card-content">
+              <div class="flex flex-col gap-1.5 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="category-tag">{{ t.category }}</span>
+                  <span class="text-[9px] font-mono text-gray-600">{{ t.id }}</span>
                 </div>
-                
-                <div class="template-actions">
-                  <BaseButton 
-                    variant="secondary" 
-                    size="sm" 
-                    icon="plus" 
-                    className="!py-1.5"
-                    @click="handleAction(t.id, 'append')"
-                  >
-                    Append
-                  </BaseButton>
-                  <BaseButton 
-                    variant="primary" 
-                    size="sm" 
-                    icon="document" 
-                    className="!py-1.5 !bg-emerald-600/20 !text-emerald-400 !border-emerald-500/20 hover:!bg-emerald-600"
-                    @click="handleAction(t.id, 'create')"
-                  >
-                    New
-                  </BaseButton>
-                </div>
+                <h3 class="template-name">{{ t.name }}</h3>
+              </div>
+
+              <div class="template-actions">
+                <BaseButton
+                  variant="secondary"
+                  size="sm"
+                  icon="plus"
+                  className="!py-1.5"
+                  @click="handleAction(t.id, 'append')"
+                >
+                  Append
+                </BaseButton>
+                <BaseButton
+                  variant="primary"
+                  size="sm"
+                  icon="document"
+                  className="!py-1.5 !bg-emerald-600/20 !text-emerald-400 !border-emerald-500/20 hover:!bg-emerald-600"
+                  @click="handleAction(t.id, 'create')"
+                >
+                  New
+                </BaseButton>
               </div>
             </div>
+          </div>
         </div>
       </div>
     </div>
@@ -150,16 +169,21 @@ onMounted(fetchTemplates);
 </template>
 
 <style scoped lang="postcss">
+/*
+ * Responsive panel: full-screen on mobile, centered modal on sm+.
+ * Two-column card grid on sm+ keeps the list compact instead of a
+ * tall single column.
+ */
 .drawer-overlay {
-  @apply fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex justify-end animate-in fade-in duration-300;
+  @apply fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-6 animate-in fade-in duration-300;
 }
 
 .drawer-panel {
-  @apply w-full max-w-md h-full bg-gray-900 border-l border-white/10 flex flex-col animate-in slide-in-from-right duration-500;
+  @apply w-full sm:max-w-2xl h-full sm:h-auto sm:max-h-[85vh] bg-gray-900 border border-white/10 sm:rounded-2xl flex flex-col animate-in fade-in slide-in-from-bottom-4 sm:slide-in-from-bottom-8 duration-300;
 }
 
 .drawer-header {
-  @apply p-8 border-b border-gray-800/50 bg-gray-900/50;
+  @apply p-4 sm:p-5 border-b border-gray-800/50 bg-gray-900/50;
 }
 
 .close-btn {
@@ -179,15 +203,19 @@ onMounted(fetchTemplates);
 }
 
 .drawer-content {
-  @apply flex-1 overflow-y-auto p-8;
+  @apply flex-1 overflow-y-auto p-4 sm:p-5;
 }
 
 .template-card {
-  @apply relative p-4 bg-gray-900/40 border border-white/5 rounded-xl transition-all hover:bg-gray-800/60 overflow-hidden;
+  @apply relative p-3.5 bg-gray-900/40 border border-white/5 rounded-xl transition-all hover:bg-gray-800/60 overflow-hidden;
 }
 
+/*
+ * Card stacks vertically: full-width title first (readable on any
+ * breakpoint), actions on their own row below.
+ */
 .card-content {
-  @apply flex items-center justify-between gap-4;
+  @apply flex flex-col gap-2;
 }
 
 .category-tag {
@@ -195,22 +223,14 @@ onMounted(fetchTemplates);
 }
 
 .template-name {
-  @apply text-sm font-bold text-gray-400 group-hover:text-gray-100 transition-colors;
+  @apply text-sm font-bold text-gray-400 group-hover:text-gray-100 transition-colors break-words;
 }
 
+/*
+ * Actions are always visible so they are reachable on touch devices;
+ * hover emphasis is a desktop-only progressive enhancement.
+ */
 .template-actions {
-  @apply flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200;
-}
-
-.mini-action-btn {
-  @apply flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[9px] font-black uppercase tracking-tighter transition-all hover:scale-105 active:scale-95;
-}
-
-.append-btn {
-  @apply bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20;
-}
-
-.create-btn {
-  @apply bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20;
+  @apply flex gap-1.5 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity duration-200;
 }
 </style>

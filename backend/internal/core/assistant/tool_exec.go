@@ -16,6 +16,7 @@ import (
 
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/failures"
+	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -496,6 +497,10 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 }
 
 func isGuardrailSecurityBoundary(err error) bool {
+	// Host-level network gate (plan D1/R4): synchronous, non-approvable.
+	if errors.Is(err, guardrails.ErrNetworkDisabled) {
+		return true
+	}
 	s := err.Error()
 	return strings.Contains(s, "path access denied") ||
 		strings.Contains(s, "security violation")

@@ -1,6 +1,15 @@
 import { API_ENDPOINTS } from '../../constants/api'
-import type { AdminState, APIKeyItem, GlobalConfig, ProcessListResponse, ProcessKillResponse, WebhookInfo } from '../../types/admin'
-import type { Model, ProviderModelInfo } from '../../types/model'
+import type {
+  AdminState,
+  APIKeyItem,
+  GlobalConfig,
+  HostSettings,
+  ProcessListResponse,
+  ProcessKillResponse,
+  TerminalSessionView,
+  WebhookInfo,
+} from '../../types/admin'
+import type { Model, ProviderManifest, ProviderModelInfo } from '../../types/model'
 import { get, post, put, del } from '../httpClient'
 
 export const AdminApiService = {
@@ -31,8 +40,8 @@ export const AdminApiService = {
   fetchProviderModels: (provider: string, apiKeyName?: string): Promise<ProviderModelInfo[]> =>
     get<ProviderModelInfo[]>(`${API_ENDPOINTS.providerModels}?${new URLSearchParams({ provider, ...(apiKeyName ? { api_key_name: apiKeyName } : {}) })}`),
 
-  fetchProviderManifests: (): Promise<any[]> =>
-    get<any[]>(API_ENDPOINTS.providerManifests),
+  fetchProviderManifests: (): Promise<ProviderManifest[]> =>
+    get<ProviderManifest[]>(API_ENDPOINTS.providerManifests),
 
   testConnection: (provider: string, apiKey?: string, apiKeyName?: string, baseURL?: string): Promise<{ status: string; message: string }> =>
     get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${new URLSearchParams({ provider, ...(apiKey ? { api_key: apiKey } : {}), ...(apiKeyName ? { api_key_name: apiKeyName } : {}), ...(baseURL ? { base_url: baseURL } : {}) })}`),
@@ -80,17 +89,17 @@ export const AdminApiService = {
   wipeout: (): Promise<{ root_dir: string; workspaces_dir: string }> =>
     post<{ root_dir: string; workspaces_dir: string }>(API_ENDPOINTS.wipeout),
     
-  fetchHostSettings: (): Promise<any> =>
-    get<any>(API_ENDPOINTS.hostSettings),
+  fetchHostSettings: (): Promise<HostSettings> =>
+    get<HostSettings>(API_ENDPOINTS.hostSettings),
 
-  updateHostSettings: (payload: any): Promise<any> =>
-    put<any>(API_ENDPOINTS.hostSettings, payload),
+  updateHostSettings: (payload: HostSettings): Promise<HostSettings> =>
+    put<HostSettings>(API_ENDPOINTS.hostSettings, payload),
 
   resetTerminalSession: (workspaceID: string): Promise<void> =>
     post<void>(`${API_ENDPOINTS.terminalReset}?workspaceID=${encodeURIComponent(workspaceID)}`),
 
-  fetchTerminalSessions: (): Promise<any[]> =>
-    get<any[]>(API_ENDPOINTS.terminalSessions),
+  fetchTerminalSessions: (): Promise<TerminalSessionView[]> =>
+    get<TerminalSessionView[]>(API_ENDPOINTS.terminalSessions),
 
   fetchProcesses: (): Promise<ProcessListResponse> =>
     get<ProcessListResponse>(API_ENDPOINTS.processes),

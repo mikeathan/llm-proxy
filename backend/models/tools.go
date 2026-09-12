@@ -12,12 +12,12 @@ const (
 	ToolNotifyUser = "notify_user"
 
 	// FileSystem
-	ToolFileRead       = "read_file"
-	ToolFileWrite      = "write_file"
-	ToolFileAppend     = "append_file"
-	ToolFileEditBlock  = "edit_file_block"
-	ToolDirectoryList  = "list_directory"
-	
+	ToolFileRead      = "read_file"
+	ToolFileWrite     = "write_file"
+	ToolFileAppend    = "append_file"
+	ToolFileEditBlock = "edit_file_block"
+	ToolDirectoryList = "list_directory"
+
 	// Network
 	ToolNetworkFetch = "fetch_url"
 	ToolNetworkScan  = "scan_local_network"

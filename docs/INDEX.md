@@ -21,6 +21,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/skills/assistant-ui-chat.md` | Assistant UI Chat Architecture | Event handlers, segment system, inactivity timer, SSE timing, scroll behavior, common pitfalls |
 | `docs/skills/assistant-ui-patterns.md` | Assistant UI Patterns | Sidebar states, SSE event flow, tool rendering, mobile breakpoints, common gotchas |
 | `docs/skills/automation.md` | Automation System | Dispatcher, executor, run lifecycle, templates |
+| `docs/skills/clean-code.md` | Clean Code — Language-Agnostic Practices | Naming, functions, comments, formatting, objects/boundaries, error handling, tests, SOLID, emergent design, concurrency, smells & heuristics checklist |
 | `docs/skills/connector-patterns.md` | Connector Implementation Guide | Outbound connector steps, inbound webhook, CONSTITUTION checklist, common errors |
 | `docs/skills/documentation-stewardship.md` | Documentation Stewardship | Post-completion checklist for doc updates |
 | `docs/skills/engineering-practices.md` | Engineering Practices | Go patterns, code style, frontend icon conventions, file checklists |
@@ -40,7 +41,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | SPEC-003 | `docs/SPECS/discovery-panel.md` | Discovery Panel UI | stable | — |
 | SPEC-004 | `docs/SPECS/memory.md` | Memory System | stable | II.12 |
 | SPEC-005 | `docs/SPECS/orchestrator.md` | Orchestrator / Budget | stable | VI |
-| SPEC-006 | `docs/SPECS/guardrails.md` | Guardrail Engine | stable | I.5 |
+| SPEC-006 | `docs/SPECS/guardrails.md` | Guardrail Engine | stable | II.3 |
 | SPEC-007 | `docs/SPECS/automation-dispatcher.md` | Automation Dispatcher | stable | — |
 | SPEC-008 | `docs/SPECS/mcp-integration.md` | MCP Integration | stable | — |
 | SPEC-009 | `docs/SPECS/communication.md` | Communication Connector System | stable | II.4, II.5, V |
@@ -75,7 +76,7 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/cross-cutting/xdg-config-data-relocation.md` | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened; **2026-08-11: two-root design superseded by single-root consolidation — all files under one root**) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | `docs/PLANS/cross-cutting/agents-md-layering-guardrails.md` | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
 | `docs/PLANS/cross-cutting/tool-call-grammar-reenable.md` | Re-enable Tool-Call Grammar Constraint (opt-in, llama.cpp-safe) | proposed | 2026-09-05 | SPEC-001, SPEC-002 |
-| `docs/PLANS/cross-cutting/agent-os-sandboxing.md` | Agent OS Sandboxing (Landlock/Seatbelt FS+network jail, rlimits, network switch, 6 phases; threat model + Docker/profiles rejected-decisions record) | proposed | 2026-08-31 | SPEC-006 |
+| `docs/PLANS/cross-cutting/agent-os-sandboxing.md` | Agent OS Sandboxing (rev 2 — network-first, uid-first; one action pipeline with OS jail + egress proxy as execution backends, dedicated-user deployment, per-run network grants; decisions D1–D8, measured platform facts; Phases 0–4 implemented + post-review hardening pass) | complete — pending Linux-CI runtime confirmation of the Landlock probes + optional macOS Seatbelt on framework-capable hardware | 2026-09-06 | SPEC-006, SPEC-009 |
 | `docs/PLANS/cross-cutting/sandbox-runtime-invisibility.md` | Sandbox Runtime Invisibility (`.sandbox` hidden from filesystem listings + terminal output) | complete | 2026-08-25 | SPEC-006, CONSTITUTION II.3 |
 | `docs/PLANS/cross-cutting/persist-assistant-run-state-for-reload.md` | Persist assistant run state (errors/cancels/running) for reliable reload | complete | 2026-08-20 | SPEC-001, SPEC-003 |
 | `docs/PLANS/cross-cutting/sqlite-session-storage.md` | SQLite session storage (future work, proposed) | proposed | 2026-08-20 | SPEC-001 |
