@@ -18,6 +18,8 @@ import (
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/toolpolicy"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -53,6 +55,15 @@ const (
 	// without a response. Silence is not consent.
 	guardrailDeniedByTimeout = "Action timed out without user response; silence is not consent. Do NOT retry, rephrase, or attempt the same outcome via a different path."
 )
+
+// toolFailureStreakLimit bounds consecutive errored tool calls (any tool) before
+// the loop stops flailing: automation fails the run; chat suppresses further
+// tool calls and lets the model finalize.
+const toolFailureStreakLimit = 3
+
+// errToolFailureLimit marks a run that exceeded the consecutive tool-failure
+// bound. (Terminal tool errors carry models.ErrToolUnavailable instead.)
+var errToolFailureLimit = errors.New("too many consecutive tool failures")
 
 type ExecutionPlan struct {
 	Description string          `json:"description"`
@@ -296,6 +307,106 @@ func parsePlanContent(content string) (*ExecutionPlan, error) {
 	return &plan, nil
 }
 
+// toolFailureState is the per-run state of the terminal tool-failure policy
+// (tool-error-classification): tools disabled after an operator-actionable
+// failure, the consecutive-failure streak, the suppression flag, and the
+// non-fatal delivery warnings. One cohesive owner keeps these fields out of
+// Agent/runSession and gives the policy a single mutation point.
+type toolFailureState struct {
+	disabled   map[string]struct{}
+	streak     int
+	suppressed bool
+	warnings   []string
+}
+
+// reset clears the state for a new run.
+func (s *toolFailureState) reset() { *s = toolFailureState{} }
+
+// shortCircuit returns a directive (and true) when a call must not execute:
+// tool execution is suppressed, or the tool was disabled earlier in this run.
+func (s *toolFailureState) shortCircuit(tool string) (string, bool) {
+	if s.suppressed {
+		return prompts.ToolCallsSuppressedPrompt, true
+	}
+	if _, disabled := s.disabled[tool]; disabled {
+		return fmt.Sprintf(prompts.ToolUnavailablePrompt, tool,
+			"it failed earlier this run and is disabled until its configuration is fixed"), true
+	}
+	return "", false
+}
+
+// disable marks a tool disabled for the remainder of the run.
+func (s *toolFailureState) disable(tool string) {
+	if s.disabled == nil {
+		s.disabled = make(map[string]struct{})
+	}
+	s.disabled[tool] = struct{}{}
+}
+
+// addWarning records a non-fatal (delivery) failure for the run report.
+func (s *toolFailureState) addWarning(warning string) { s.warnings = append(s.warnings, warning) }
+
+// noteFailure increments the consecutive-failure streak and reports whether the
+// bound tripped (which suppresses all further tool execution).
+func (s *toolFailureState) noteFailure() (suppressed bool) {
+	s.streak++
+	if s.streak < toolFailureStreakLimit {
+		return false
+	}
+	s.suppressed = true
+	return true
+}
+
+// noteSuccess resets the consecutive-failure streak.
+func (s *toolFailureState) noteSuccess() { s.streak = 0 }
+
+// warningsSnapshot returns a copy of the delivery warnings.
+func (s *toolFailureState) warningsSnapshot() []string {
+	out := make([]string, len(s.warnings))
+	copy(out, s.warnings)
+	return out
+}
+
+// toolErrorResult builds the tool result for a failed execution: an actionable
+// directive for a terminal (operator-actionable) failure, otherwise a
+// non-empty string result if the tool supplied one alongside the error, else
+// the raw error map (transient/input — model-actionable).
+func toolErrorResult(tool string, err error, result any) any {
+	if errors.Is(err, models.ErrToolUnavailable) {
+		reason := err.Error()
+		if toolpolicy.FailurePolicyFor(tool) == toolpolicy.WarnOnTerminalError {
+			return fmt.Sprintf(prompts.DeliveryFailedPrompt, tool, reason)
+		}
+		return fmt.Sprintf(prompts.ToolUnavailablePrompt, tool, reason)
+	}
+	if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
+		return str
+	}
+	return map[string]string{"error": err.Error()}
+}
+
+// noteTerminalToolFailure disables the tool for the rest of the run and, for a
+// delivery tool, records a non-fatal warning instead of a run failure.
+func (a *Agent) noteTerminalToolFailure(tool, reason string) {
+	a.toolFailure.disable(tool)
+	if toolpolicy.FailurePolicyFor(tool) == toolpolicy.WarnOnTerminalError {
+		a.toolFailure.addWarning(fmt.Sprintf("%s: %s", tool, reason))
+		a.notifyToolWarning(tool, reason)
+		a.deps.Logger.Warn("delivery tool failed (non-fatal)", "name", tool, "error", reason)
+	}
+}
+
+// toolFailureIsRunFatal reports whether a tool failure must end the run. Only
+// unattended (automation) runs fail: no user can fix configuration, and a
+// terminal or runaway failure makes the result untrustworthy. Delivery tools
+// never reach here (executeSingleToolStep returns nil for them).
+func (a *Agent) toolFailureIsRunFatal(err error) bool {
+	if a.config.Channel != ChannelAutomation {
+		return false
+	}
+	return errors.Is(err, models.ErrToolUnavailable) || errors.Is(err, errToolFailureLimit)
+}
+
 // executeSingleToolStep resolves guardrails, executes one tool, appends
 // the result to history, and fires notifications.
 // Returns stopBatch (guardrail denied) and execErr (execution failed).
@@ -305,6 +416,15 @@ func (a *Agent) executeSingleToolStep(
 	history *[]proxy.Message,
 	mu *sync.Mutex,
 ) (stopBatch bool, execErr error) {
+	if directive, blocked := a.toolFailure.shortCircuit(tc.Function.Name); blocked {
+		mu.Lock()
+		a.appendToolResult(history, tc, directive)
+		a.notifyToolResult(tc.ID, tc.Function.Name, directive)
+		mu.Unlock()
+		a.deps.Logger.Warn("tool call short-circuited", "name", tc.Function.Name, "reason", directive)
+		return false, nil
+	}
+
 	approved, stopBatch := a.resolveGuardrail(ctx, tc, history, mu)
 	if stopBatch {
 		return true, nil
@@ -324,26 +444,33 @@ func (a *Agent) executeSingleToolStep(
 	mu.Lock()
 	var finalResult any
 	if err != nil {
-		if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
-			finalResult = str
-		} else {
-			finalResult = map[string]string{"error": err.Error()}
-		}
+		finalResult = toolErrorResult(tc.Function.Name, err, result)
 	} else {
 		finalResult = result
 	}
 	resultStr := a.appendToolResult(history, tc, finalResult)
 	a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", resultStr)
 	a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-	if t := GetUsageTracker(ctx); t != nil {
+	if t := usage.FromContext(ctx); t != nil {
 		t.AddToolCall(tc.Function.Name)
 	}
 	mu.Unlock()
 
-	if err != nil {
+	if err == nil {
+		a.toolFailure.noteSuccess()
+		return false, nil
+	}
+	if errors.Is(err, models.ErrToolUnavailable) {
+		a.noteTerminalToolFailure(tc.Function.Name, err.Error())
+		if toolpolicy.FailurePolicyFor(tc.Function.Name) == toolpolicy.WarnOnTerminalError {
+			return false, nil // delivery failure: recorded as a warning, run continues
+		}
 		return false, err
 	}
-	return false, nil
+	if a.toolFailure.noteFailure() {
+		return false, fmt.Errorf("%w: %s", errToolFailureLimit, err)
+	}
+	return false, err
 }
 
 // processToolCalls validates tool args, resolves guardrails, and executes
@@ -393,6 +520,9 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		if stopBatch || execErr != nil {
 			if execErr != nil {
 				a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
+				if a.toolFailureIsRunFatal(execErr) {
+					return "", execErr
+				}
 			}
 			return "", nil
 		}
@@ -597,6 +727,11 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 			continue
 		}
 		if execErr != nil {
+			if a.toolFailureIsRunFatal(execErr) {
+				// Terminal (operator-actionable) failure of an essential tool in an
+				// unattended run: abort — the plan's result cannot be trusted.
+				return "", currentHistory, execErr
+			}
 			// A tool execution failure (e.g. a shell command exiting non-zero,
 			// a compile error, a missing file) is a step outcome, not a plan
 			// bug: executeSingleToolStep already appended the error as a tool
@@ -747,7 +882,7 @@ func (a *Agent) persistSalvagedWrite(ctx context.Context, tc proxy.ToolCall, pat
 	if execErr != nil {
 		return execErr
 	}
-	if t := GetUsageTracker(ctx); t != nil {
+	if t := usage.FromContext(ctx); t != nil {
 		t.AddToolCall(tc.Function.Name)
 	}
 	return nil

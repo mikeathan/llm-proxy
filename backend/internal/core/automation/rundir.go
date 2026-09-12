@@ -34,6 +34,9 @@ type RunMeta struct {
 	Error         string `json:"error,omitempty"`
 	Result        string `json:"result,omitempty"`
 	RecordingPath string `json:"recording_path,omitempty"`
+	// Warnings records non-fatal tool failures (e.g. a delivery connector being
+	// down). Populated on success; a run can complete with warnings and no error.
+	Warnings []string `json:"warnings,omitempty"`
 	// NetworkScope is the resolved per-run network scope ('' = inherit/none/
 	// lan/internet) — sandboxing plan §4.4 audit trail.
 	NetworkScope string `json:"network_scope,omitempty"`

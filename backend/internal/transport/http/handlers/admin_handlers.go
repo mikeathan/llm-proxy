@@ -202,6 +202,7 @@ type adminConfigView struct {
 	AgentDefaults        adminTuningDefaults            `json:"agent_defaults"`
 	ProviderDefaults     map[string]adminTuningDefaults `json:"provider_defaults"`
 	LoopStrategyOptions  []string                       `json:"loop_strategy_options"`
+	SearchProviders      []string                       `json:"search_providers"`
 	RunLogging           *models.RunLoggingConfig       `json:"run_logging,omitempty"`
 }
 
@@ -347,7 +348,9 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			// The frontend never hardcodes the list, so a new strategy needs no
 			// UI edit.
 			LoopStrategyOptions: assistant.RegisteredLoopStrategyNames(),
-			RunLogging:          &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
+			// Backend-driven search-provider option list (canonical enum order).
+			SearchProviders: searchProviderOptions(),
+			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}
 
@@ -440,6 +443,17 @@ func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[st
 		}
 		d.SupportsBaseURL = models.SupportsBaseURL(k)
 		out[k] = d
+	}
+	return out
+}
+
+// searchProviderOptions converts the canonical search-provider enum into the
+// string list the frontend dropdown consumes, so the UI never hardcodes it.
+func searchProviderOptions() []string {
+	ids := models.SearchProviderIDs()
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = string(id)
 	}
 	return out
 }

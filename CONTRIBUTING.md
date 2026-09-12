@@ -81,4 +81,4 @@ per clone).
 - Ignored secret files (`secrets.json`, `config.json`, `.env*`) are enforced via `.gitignore`.
 
 ## Documentation
-After any change: follow `docs/skills/documentation-stewardship.md`.
+After any change: follow `.agents/skills/documentation-stewardship/SKILL.md`.

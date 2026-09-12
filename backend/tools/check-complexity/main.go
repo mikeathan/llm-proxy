@@ -45,7 +45,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/core/assistant/guardrails/guardrails.go:PersistOverride":                           true,
 	"internal/core/assistant/prompts/templates.go:formatToolParameters":                          true,
 	"internal/core/assistant/react_strategy.go:Run":                                              true,
-	"internal/core/assistant/repetition_detector.go:check":                                       true,
 	"internal/core/assistant/session.go:executeTurn":                                             true,
 	"internal/core/assistant/session.go:finalizeReport":                                          true,
 	"internal/core/assistant/session.go:handleNoToolCalls":                                       true,

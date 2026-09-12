@@ -26,7 +26,7 @@ This document contains architectural reference material extracted from the agent
 - `internal/core/automation/broadcast.go` — `EventBus.Subscribe` / `Publish` / `Unsubscribe`, keyed by `(workspace, channel)`, fans out agent events to SSE-connected clients. `channel` is `EventChannel` (`assistant` | `automation`) — see Pitfall #6.
 - `internal/core/egress/` — loopback-only agent egress proxy (host domain allow/deny policy; absolute-form + CONNECT). Sandboxing plan D2/Phase 1.
 - Sandboxing enforcement lives in `platform/sandbox` (Provider/Effective) + `platform/process` (spawn) + `platform/sizewatch` (disk accounting). To add a NEW enforcement mechanism (e.g. a future executor): see `docs/PLANS/cross-cutting/agent-os-sandboxing.md` §4.3/§9 — add a build-tagged adapter + capability detection at `sandbox.New` + an `Effective` label + UI badge; the spawn seam and downgrade contract are already wired.
-- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory, communication)
+- `internal/core/tools/` — Tool implementations (terminal, filesystem, network, search, memory, communication). Multi-implementation families live in subpackages: `tools/searchproviders/` (search backends) and `tools/notifiers/` (connectors).
 - `internal/core/mcp/` — MCP client (SSE transport, tool mirroring)
 - `internal/core/orchestrator/` — Token budget management, context length resolution, slot scheduling, stream interleaving, reasoning budget normalization. See SPEC-005.
   - `slot_manager.go` — Manages concurrent inference slots (per-model capacity, queueing, timeout).
@@ -79,7 +79,7 @@ When a tool call is blocked:
 
 ## Test Patterns
 
-See `docs/skills/testing-guide.md` for the full test patterns guide (smoke tests, record-replay, run analysis).
+See `.agents/skills/testing-guide/SKILL.md` for the full test patterns guide (smoke tests, record-replay, run analysis).
 
 - Mock the LLM client, use real tool providers where possible
 - Agent tests at `internal/core/assistant/agent_test.go`
@@ -213,6 +213,8 @@ When adding a communication connector:
 3. `internal/core/tools/notifiers/` — add a self-registering `init()` calling `tools.RegisterConnectorFactory("your_type", factory)`. See `telegram.go` for a reference implementation. Do NOT edit `initCommunicationTools` or `registry.go` — the registry handles it dynamically.
 4. Frontend `CommunicationSettings.vue` — add `<option value="your_type">` dropdown entry
 
+When adding an internet-search provider: see the recipe in `.agents/skills/engineering-practices/SKILL.md` ("When adding a search provider"). The contract + `InternetTools` stay in `internal/core/tools/search.go`; providers and the explicit registration table live in `internal/core/tools/searchproviders/`.
+
 When adding a prompt:
 
 1. `internal/core/assistant/prompts/templates.go` — ONLY location for prompt text
@@ -299,11 +301,11 @@ When adding a prompt:
     emitted by the backend (`models.SupportsBaseURL`), never re-listed in the UI — the
     old `new Set(['openai','openrouter','nvidia'])` in `Settings.vue` is gone.
 
-9. **Memory system — see `docs/skills/memory-system.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
+9. **Memory system — see `.agents/skills/memory-system/SKILL.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
 
-20. **Agent loop mechanics — see `docs/skills/agent-loop.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
+20. **Agent loop mechanics — see `.agents/skills/agent-loop/SKILL.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
 
-21. **Testing — see `docs/skills/testing-guide.md`** for: running smoke tests, analysing run output, record-replay testing, MockClient patterns, common pitfalls.
+21. **Testing — see `.agents/skills/testing-guide/SKILL.md`** for: running smoke tests, analysing run output, record-replay testing, MockClient patterns, common pitfalls.
 
 22. **`maxLength` removed from `filesystem.json` manifest** — The `maxLength` properties were removed because servers enforce it as a grammar constraint, silently truncating content. See `docs/audits/write-file-truncation-cycles.md` for full root-cause analysis.
 

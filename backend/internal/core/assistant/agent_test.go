@@ -2230,271 +2230,6 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	}
 }
 
-func TestRepetitionDetector_StreakReset(t *testing.T) {
-	logger := logging.NewNopLogger()
-	rd := repetitionDetector{}
-
-	// Call tool A
-	toolCallsA := []proxy.ToolCall{
-		{
-			ID:   "1",
-			Type: "function",
-			Function: proxy.FunctionCall{
-				Name:      "toolA",
-				Arguments: `{"arg": 1}`,
-			},
-		},
-	}
-	isDup, nag, err := rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if isDup {
-		t.Error("expected first call to tool A not to be duplicate")
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
-	}
-
-	// Call tool A again -> duplicate
-	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !isDup {
-		t.Error("expected second consecutive call to tool A to be duplicate")
-	}
-	if nag != prompts.AutomationDuplicateNagPrompt {
-		t.Errorf("expected nag prompt, got %q", nag)
-	}
-	if rd.duplicateStreak != 1 {
-		t.Errorf("expected duplicateStreak to be 1, got %d", rd.duplicateStreak)
-	}
-
-	// Call tool B -> resets streak
-	toolCallsB := []proxy.ToolCall{
-		{
-			ID:   "2",
-			Type: "function",
-			Function: proxy.FunctionCall{
-				Name:      "toolB",
-				Arguments: `{"arg": 2}`,
-			},
-		},
-	}
-	isDup, nag, err = rd.check(logger, toolCallsB)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if isDup {
-		t.Error("expected call to tool B not to be duplicate")
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to reset to 0, got %d", rd.duplicateStreak)
-	}
-
-	// Call tool A again -> found but NOT consecutive (B is last), allowed to execute
-	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if isDup {
-		t.Error("expected tool A call after tool B to be allowed (non-consecutive)")
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
-	}
-	if nag != "" {
-		t.Errorf("expected empty nag on non-consecutive duplicate, got %q", nag)
-	}
-
-	// Call tool A again -> consecutive duplicate (last key is A), streak = 1
-	isDup, _, _ = rd.check(logger, toolCallsA)
-	if !isDup || rd.duplicateStreak != 1 {
-		t.Errorf("expected consecutive duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
-	}
-
-	// Call tool A again -> consecutive duplicate, streak = 2
-	isDup, _, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !isDup || rd.duplicateStreak != 2 {
-		t.Errorf("expected duplicate on second consecutive, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
-	}
-
-	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal error)
-	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err == nil {
-		t.Fatal("expected error on third consecutive duplicate, got nil")
-	}
-	if !strings.Contains(err.Error(), "infinite loop") {
-		t.Errorf("expected infinite loop error, got: %v", err)
-	}
-	if !isDup {
-		t.Error("expected third consecutive duplicate to be detected")
-	}
-	if nag != "" {
-		t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
-	}
-	if rd.recentCalls != nil {
-		t.Errorf("expected recentCalls cleared after skip, got %v", rd.recentCalls)
-	}
-}
-
-func TestRepetitionDetector_SlidingWindow(t *testing.T) {
-	logger := logging.NewNopLogger()
-
-	makeCall := func(name, args string) proxy.ToolCall {
-		return proxy.ToolCall{
-			ID: fmt.Sprintf("id-%s", name), Type: "function",
-			Function: proxy.FunctionCall{Name: name, Arguments: args},
-		}
-	}
-
-	// Scenario 1: Consecutive duplicate detection
-	// The detector only checks if the current call matches the immediately
-	// previous call (consecutive duplicate).  Non-consecutive duplicates
-	// reset the streak.  A→A→A hits streak=2 on the 3rd call and
-	// A→A→A→A hits streak=3 → fatal on the 4th call.
-	t.Run("consecutive detection", func(t *testing.T) {
-		rd := repetitionDetector{}
-
-		// First A: not a duplicate
-		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if isDup {
-			t.Error("expected first A not duplicate")
-		}
-
-		// Second A: consecutive duplicate, streak=1
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !isDup {
-			t.Error("expected second A to be duplicate (consecutive)")
-		}
-		if rd.duplicateStreak != 1 {
-			t.Errorf("expected streak=1 after second A, got %d", rd.duplicateStreak)
-		}
-
-		// Third A: consecutive duplicate, streak=2 (still nag, not fatal)
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !isDup {
-			t.Error("expected third A to be duplicate")
-		}
-		if rd.duplicateStreak != 2 {
-			t.Errorf("expected streak=2 after third A, got %d", rd.duplicateStreak)
-		}
-
-		// Fourth A: consecutive duplicate, streak=3 → fatal error
-		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err == nil {
-			t.Fatal("expected error on 4th consecutive duplicate, got nil")
-		}
-		if !strings.Contains(err.Error(), "infinite loop") {
-			t.Errorf("expected infinite loop error, got: %v", err)
-		}
-		if !isDup {
-			t.Error("expected 4th consecutive duplicate to be detected")
-		}
-		if nag != "" {
-			t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
-		}
-		if rd.duplicateStreak != 0 {
-			t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
-		}
-	})
-
-	// Scenario 2: Legitimate iteration — scanning different targets
-	t.Run("legitimate iteration", func(t *testing.T) {
-		rd := repetitionDetector{}
-		targets := []string{
-			`{"mode":"fast"}`,
-			`{"mode":"deep","target":"192.168.50.10"}`,
-			`{"mode":"deep","target":"192.168.50.1"}`,
-			`{"mode":"deep","target":"192.168.50.60"}`,
-			`{"mode":"deep","target":"192.168.50.63"}`,
-			`{"mode":"deep","target":"192.168.50.125"}`,
-			`{"mode":"deep","target":"192.168.50.241"}`,
-		}
-		for i, args := range targets {
-			_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network", args)})
-			if err != nil {
-				t.Fatalf("unexpected error at scan %d (%s): %v", i, args, err)
-			}
-		}
-	})
-
-	// Scenario 3: Consecutive same call is detected as duplicate
-	t.Run("consecutive same call", func(t *testing.T) {
-		rd := repetitionDetector{}
-
-		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
-			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
-		if err != nil {
-			t.Fatalf("unexpected error on first call: %v", err)
-		}
-
-		// Same command repeated consecutively — detected as duplicate
-		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
-			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
-		if err != nil {
-			t.Fatalf("unexpected error on second call: %v", err)
-		}
-		if !isDup {
-			t.Error("expected duplicate on consecutive identical call")
-		}
-		if nag == "" {
-			t.Error("expected non-empty nag prompt")
-		}
-	})
-
-	// Scenario 4: Different targets are NOT duplicates
-	t.Run("different args not duplicate", func(t *testing.T) {
-		rd := repetitionDetector{}
-
-		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network",
-			`{"mode":"fast"}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// Different target — should NOT be duplicate
-		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network",
-			`{"mode":"deep","target":"192.168.50.10"}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if isDup {
-			t.Error("expected different scan targets not to be duplicates")
-		}
-	})
-
-	// Scenario 5: system_error excluded from tracking (no-op bookkeeping tool)
-	t.Run("system_error excluded", func(t *testing.T) {
-		rd := repetitionDetector{}
-		for range 6 {
-			_, _, err := rd.check(logger, []proxy.ToolCall{{
-				ID: "sys", Type: "function",
-				Function: proxy.FunctionCall{Name: models.ToolSystemError, Arguments: `{}`},
-			}})
-			if err != nil {
-				t.Fatalf("system_error should never trigger loop: %v", err)
-			}
-		}
-	})
-}
-
 func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
@@ -5332,5 +5067,120 @@ func TestJoinTruncatedParts(t *testing.T) {
 				t.Errorf("joinTruncatedParts(%+v) = %q, want %q", tt.parts, got, tt.want)
 			}
 		})
+	}
+}
+
+func toolNames(tools []proxy.Tool) map[string]bool {
+	out := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		out[t.Function.Name] = true
+	}
+	return out
+}
+
+// TestPlanExecute_NotifyUserSchemaFollowsGuardrail pins the plan-execute
+// regression: a statically-disabled tool (notify_user with communication off)
+// must never be exposed to the plan generator; enabling communication restores
+// it. Exercises the NewAgent narrow waist (toolpolicy.ResolveForScope).
+func TestPlanExecute_NotifyUserSchemaFollowsGuardrail(t *testing.T) {
+	client := &MockClient{}
+	baseTools := []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolNotifyUser}},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	grDisabled := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{Communication: models.CommunicationGuardrailsConfig{Enabled: false}}
+	}, storage.NewPathResolver("", "", ""), nil, nil)
+	agentDisabled := NewAgent(client, &MockProvider{Tools: baseTools}, engine, AgentOptions{
+		MaxSteps:    5,
+		WorkspaceID: "ws-1",
+		Guardrails:  grDisabled,
+	})
+	tools, err := agentDisabled.deps.Provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools failed: %v", err)
+	}
+	names := toolNames(tools)
+	if names[models.ToolNotifyUser] {
+		t.Error("plan tool set must exclude notify_user when communication is disabled")
+	}
+	if !names["test_tool"] {
+		t.Error("non-gated tools must remain in the plan tool set")
+	}
+
+	grEnabled := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{Communication: models.CommunicationGuardrailsConfig{Enabled: true}}
+	}, storage.NewPathResolver("", "", ""), nil, nil)
+	agentEnabled := NewAgent(client, &MockProvider{Tools: baseTools}, engine, AgentOptions{
+		MaxSteps:    5,
+		WorkspaceID: "ws-1",
+		Guardrails:  grEnabled,
+	})
+	tools, err = agentEnabled.deps.Provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools failed: %v", err)
+	}
+	if !toolNames(tools)[models.ToolNotifyUser] {
+		t.Error("plan tool set must include notify_user when communication is enabled")
+	}
+}
+
+// TestReasoningEnabledOverrideIsProviderSpecific covers agent.go's
+// applyReasoningEnabledOverride: toggleable modes honour the override; the
+// local think-tokens mode ignores it.
+func TestReasoningEnabledOverrideIsProviderSpecific(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode reasoning.ReasoningMode
+	}{
+		{name: "nvidia", mode: reasoning.ModeEnableThinking},
+		{name: "openrouter", mode: reasoning.ModeObject},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			disabled := false
+			spec := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: tc.mode, Enabled: true}, &disabled, models.WorkloadCloud)
+			if spec.Enabled {
+				t.Fatal("expected provider reasoning to be disabled")
+			}
+		})
+	}
+	local := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeThinkTokens, Budget: 1024}, boolPtr(false), models.WorkloadLocal)
+	if local.Budget != 1024 {
+		t.Fatal("local reasoning budget should remain unchanged")
+	}
+}
+
+// TestApplyReasoningEnabledOverride_Effort verifies effort-mode mapping:
+// enabled -> medium, disabled -> EffortNone (omitted wire), nil -> untouched.
+func TestApplyReasoningEnabledOverride_Effort(t *testing.T) {
+	enabled := true
+	disabled := false
+
+	on := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortNone}, &enabled, models.WorkloadCloud)
+	if on.Effort != reasoning.EffortMedium {
+		t.Errorf("enabled effort should map to medium, got %v", on.Effort)
+	}
+
+	off := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}, &disabled, models.WorkloadCloud)
+	if off.Effort != reasoning.EffortNone {
+		t.Errorf("disabled effort should map to EffortNone, got %v", off.Effort)
+	}
+
+	nilOverride := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortHigh}, nil, models.WorkloadCloud)
+	if nilOverride.Effort != reasoning.EffortHigh {
+		t.Errorf("nil override must leave effort untouched, got %v", nilOverride.Effort)
+	}
+}
+
+// TestApplyReasoningEnabledOverride_LocalLoopbackOpenaiSlug: a WorkloadLocal
+// openai slug must be byte-identical to input regardless of enabled flag.
+func TestApplyReasoningEnabledOverride_LocalLoopbackOpenaiSlug(t *testing.T) {
+	disabled := false
+	in := reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}
+	out := applyReasoningEnabledOverride(in, &disabled, models.WorkloadLocal)
+	if out != in {
+		t.Errorf("local workload override must not mutate spec: in %+v out %+v", in, out)
 	}
 }

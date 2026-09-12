@@ -1067,3 +1067,173 @@ func TestTruncateHistory_PersistedCeilingPreservesToolCalls(t *testing.T) {
 		t.Errorf("expected %d tool messages preserved, got %d", toolCount, toolMsgs)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Terminal tool-failure policy (tool-error-classification)
+// ---------------------------------------------------------------------------
+
+// newToolPolicyAgent builds a minimal agent for the terminal-failure policy
+// tests: a tool-name-agnostic guardrail engine that allows everything, the given
+// channel, and a fresh run session so disabled/streak state is exercisable.
+func newToolPolicyAgent(channel EventChannel, engine Engine) *Agent {
+	a := &Agent{
+		config: AgentConfig{WorkspaceID: "ws1", Channel: channel},
+		deps: AgentRuntimeDeps{
+			Engine: engine,
+			Guardrails: guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+				return models.AgentGuardrailsConfig{
+					Search:        models.SearchGuardrailsConfig{Enabled: true},
+					Communication: models.CommunicationGuardrailsConfig{Enabled: true},
+				}
+			}, storage.NewPathResolver("", "", ""), nil, nil),
+			Logger: logging.NewNopLogger(),
+		},
+	}
+	a.runS = newRunSession(a, context.Background(), nil)
+	return a
+}
+
+func policyToolCall(name string) proxy.ToolCall {
+	return proxy.ToolCall{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: name, Arguments: `{}`}}
+}
+
+func lastToolContent(history []proxy.Message) string {
+	return history[len(history)-1].Content
+}
+
+func TestToolPolicy_TerminalEssentialAutomationFails(t *testing.T) {
+	engine := &MockEngine{Err: fmt.Errorf("auth: %w", models.ErrToolUnavailable)}
+	agent := newToolPolicyAgent(ChannelAutomation, engine)
+
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	stopBatch, execErr := agent.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+
+	if stopBatch {
+		t.Fatal("terminal tool failure is not a guardrail denial")
+	}
+	if !agent.toolFailureIsRunFatal(execErr) {
+		t.Fatalf("automation must treat a terminal essential failure as run-fatal, got %v", execErr)
+	}
+	if _, disabled := agent.toolFailure.disabled["test_tool"]; !disabled {
+		t.Error("terminal tool must be disabled for the rest of the run")
+	}
+	if !strings.Contains(lastToolContent(history), "TOOL UNAVAILABLE") {
+		t.Errorf("expected the actionable directive as the tool result, got %q", lastToolContent(history))
+	}
+}
+
+func TestToolPolicy_TerminalEssentialChatDisablesAndContinues(t *testing.T) {
+	engine := &MockEngine{Err: fmt.Errorf("auth: %w", models.ErrToolUnavailable)}
+	agent := newToolPolicyAgent(ChannelAssistant, engine)
+
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	_, execErr := agent.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+	if execErr == nil {
+		t.Fatal("expected the terminal error to be returned to the caller")
+	}
+	if agent.toolFailureIsRunFatal(execErr) {
+		t.Error("chat must never treat a terminal failure as run-fatal")
+	}
+
+	// A second call to the disabled tool short-circuits: no engine hit, clean result.
+	before := engine.Calls
+	stopBatch, err2 := agent.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+	if stopBatch || err2 != nil {
+		t.Fatalf("short-circuit must be a clean recorded result, got stop=%v err=%v", stopBatch, err2)
+	}
+	if engine.Calls != before {
+		t.Error("a disabled tool must not reach the engine again")
+	}
+	if !strings.Contains(lastToolContent(history), "TOOL UNAVAILABLE") {
+		t.Errorf("expected the unavailable directive on short-circuit, got %q", lastToolContent(history))
+	}
+}
+
+func TestToolPolicy_DeliveryFailureWarnsAndNeverFails(t *testing.T) {
+	for _, channel := range []EventChannel{ChannelAssistant, ChannelAutomation} {
+		engine := &MockEngine{Err: fmt.Errorf("auth: %w", models.ErrToolUnavailable)}
+		agent := newToolPolicyAgent(channel, engine)
+
+		history := []proxy.Message{}
+		var mu sync.Mutex
+		stopBatch, execErr := agent.executeSingleToolStep(context.Background(), policyToolCall(models.ToolNotifyUser), &history, &mu)
+
+		if stopBatch || execErr != nil {
+			t.Fatalf("channel %q: delivery failure must not error, got stop=%v err=%v", channel, stopBatch, execErr)
+		}
+		if len(agent.ToolWarnings()) != 1 {
+			t.Fatalf("channel %q: expected 1 delivery warning, got %v", channel, agent.ToolWarnings())
+		}
+		if !strings.Contains(lastToolContent(history), "DELIVERY FAILED") {
+			t.Errorf("channel %q: expected the delivery directive, got %q", channel, lastToolContent(history))
+		}
+	}
+}
+
+func TestToolPolicy_UnclassifiedErrorContinues(t *testing.T) {
+	engine := &MockEngine{Err: errors.New("server returned unexpected status: 404 Not Found")}
+	agent := newToolPolicyAgent(ChannelAssistant, engine)
+
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	_, execErr := agent.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+	if execErr == nil {
+		t.Fatal("expected an error for a failed tool")
+	}
+	if agent.toolFailureIsRunFatal(execErr) {
+		t.Error("an unclassified (input/transient) error must not be run-fatal")
+	}
+	if agent.toolFailure.streak != 1 {
+		t.Errorf("toolFailure streak = %d, want 1", agent.toolFailure.streak)
+	}
+	if strings.Contains(lastToolContent(history), "TOOL UNAVAILABLE") {
+		t.Errorf("unclassified errors keep the raw error result, got %q", lastToolContent(history))
+	}
+}
+
+func TestToolPolicy_FailureStreakSuppressesTools(t *testing.T) {
+	engine := &MockEngine{Err: errors.New("boom")}
+	agent := newToolPolicyAgent(ChannelAssistant, engine)
+
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	var lastErr error
+	for i := 0; i < toolFailureStreakLimit; i++ {
+		_, lastErr = agent.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+	}
+	if !errors.Is(lastErr, errToolFailureLimit) {
+		t.Fatalf("expected errToolFailureLimit after %d failures, got %v", toolFailureStreakLimit, lastErr)
+	}
+	if !agent.toolFailure.suppressed {
+		t.Error("expected suppression once the failure bound trips")
+	}
+
+	before := engine.Calls
+	_, err := agent.executeSingleToolStep(context.Background(), policyToolCall("other_tool"), &history, &mu)
+	if err != nil {
+		t.Fatalf("suppressed tools must short-circuit cleanly, got %v", err)
+	}
+	if engine.Calls != before {
+		t.Error("no tool should reach the engine once tools are suppressed")
+	}
+	if !strings.Contains(lastToolContent(history), "Too many consecutive tool failures") {
+		t.Errorf("expected the suppression directive, got %q", lastToolContent(history))
+	}
+}
+
+func TestToolPolicy_SuccessResetsFailureStreak(t *testing.T) {
+	engine := &MockEngine{Result: "ok"}
+	agent := newToolPolicyAgent(ChannelAssistant, engine)
+	agent.toolFailure.streak = 2
+
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	if _, err := agent.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if agent.toolFailure.streak != 0 {
+		t.Errorf("toolFailure streak = %d, want 0 after a successful call", agent.toolFailure.streak)
+	}
+}

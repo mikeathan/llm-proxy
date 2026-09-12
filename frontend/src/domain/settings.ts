@@ -8,7 +8,7 @@ import type { SettingsTab } from "../types/admin";
  * Checks if a tab is a provider-specific tab.
  */
 export const isProviderTab = (tab: SettingsTab): boolean => {
-  return tab !== "local" && tab !== "local-models" && tab !== "mcp" && tab !== "guardrails" && tab !== "security" && tab !== "processes" && tab !== "communication";
+  return tab !== "local" && tab !== "local-models" && tab !== "mcp" && tab !== "guardrails" && tab !== "security" && tab !== "processes" && tab !== "communication" && tab !== "search";
 };
 
 /**
@@ -29,7 +29,7 @@ export const getSettingsGroups = (tabs: SettingsTab[]) => {
     },
     {
       name: "Extensions",
-      tabs: tabs.filter(t => t === 'mcp' || t === 'communication')
+      tabs: tabs.filter(t => t === 'mcp' || t === 'communication' || t === 'search')
     }
   ];
 };

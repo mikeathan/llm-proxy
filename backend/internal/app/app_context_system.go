@@ -90,6 +90,14 @@ func (s *AppContext) Environment() map[string]string {
 // single transactionally-fenced sequence. It is the authoritative admin entry
 // point for infrastructure configuration changes.
 func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpdatePayload) error {
+	// Validate boundary input once, before either registry-update branch, so an
+	// invalid search config is rejected before any persistence happens.
+	if req.Search != nil {
+		if err := req.Search.Validate(); err != nil {
+			return err
+		}
+	}
+
 	// 1. Update Infrastructure (SystemConfig)
 	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
 		if req.Bind != "" {

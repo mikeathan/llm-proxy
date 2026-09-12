@@ -32,6 +32,7 @@ const PROVIDER_META: Record<SettingsTab, ProviderMeta> = {
   nvidia: { icon: "🟢", label: "NVIDIA NIM", style: "bg-emerald-900/30 text-emerald-400 border-emerald-500/30" },
   mcp: { icon: "🔌", label: "MCP Servers", style: "bg-gray-900/30 text-gray-400 border-gray-500/30" },
   communication: { icon: "📡", label: "Communication", style: "bg-gray-900/30 text-gray-400 border-gray-500/30" },
+  search: { icon: "🔍", label: "Search", style: "bg-gray-900/30 text-gray-400 border-gray-500/30" },
 };
 
 // Thin derived re-exports for any caller still referencing the old names.

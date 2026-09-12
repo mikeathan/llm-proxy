@@ -186,6 +186,15 @@ func (a *Agent) notifyToolResult(id, name string, result any) {
 	a.notify(EventToolResult, map[string]any{"id": id, "name": name, "result": result})
 }
 
+// notifyToolWarning surfaces a non-fatal tool failure (e.g. a delivery connector
+// being down) as a system message. The run continues; the work product stands.
+func (a *Agent) notifyToolWarning(tool, reason string) {
+	a.notify(EventMessage, proxy.Message{
+		Role:    "system",
+		Content: "⚠️ TOOL WARNING: " + tool + " failed: " + reason + " (run continues).",
+	})
+}
+
 func (a *Agent) notifyGuardrailViolation(tool string, err error) {
 	a.notify(EventGuardrailViolation, map[string]string{
 		"tool":  tool,

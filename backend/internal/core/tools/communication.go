@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -104,7 +105,9 @@ func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, conn
 		return fmt.Errorf("no connector found for type '%s' — available types: %s", connectorType, c.listTypes())
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("some notifications failed: %v", errs)
+		// errors.Join preserves each connector's chain (%v flattened it), so a
+		// typed terminal marker (models.ErrToolUnavailable) survives for the loop.
+		return fmt.Errorf("some notifications failed: %w", errors.Join(errs...))
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -141,5 +142,107 @@ func TestWorkspaceConfigNetworkPresenceDecoded(t *testing.T) {
 	}
 	if !cfg.Guardrails.Network.present {
 		t.Fatal("network block presence not recorded on decode")
+	}
+}
+
+// TestSearchProviderValid pins the enum contract: the zero value is valid
+// (unset → default), every registered ID is valid, and anything else is not.
+func TestSearchProviderValid(t *testing.T) {
+	tests := []struct {
+		provider SearchProvider
+		valid    bool
+	}{
+		{"", true},
+		{SearchProviderTavily, true},
+		{SearchProviderBrave, true},
+		{SearchProviderSerpAPI, true},
+		{"bogus", false},
+		{"TAVILY", false},
+	}
+	for _, tt := range tests {
+		if got := tt.provider.Valid(); got != tt.valid {
+			t.Errorf("%q.Valid() = %v, want %v", tt.provider, got, tt.valid)
+		}
+	}
+}
+
+// TestSearchProviderIDsIsOrderedAndComplete guards the canonical ordered list
+// the backend surfaces to the frontend (Tavily first) and that every entry is a
+// valid provider with no duplicates.
+func TestSearchProviderIDsIsOrderedAndComplete(t *testing.T) {
+	ids := SearchProviderIDs()
+	want := []SearchProvider{SearchProviderTavily, SearchProviderBrave, SearchProviderSerpAPI}
+	if len(ids) != len(want) {
+		t.Fatalf("SearchProviderIDs() = %v, want %v", ids, want)
+	}
+	seen := make(map[SearchProvider]bool, len(ids))
+	for i, id := range ids {
+		if id != want[i] {
+			t.Errorf("SearchProviderIDs()[%d] = %q, want %q", i, id, want[i])
+		}
+		if !id.Valid() || id == "" {
+			t.Errorf("SearchProviderIDs()[%d] = %q is not a valid concrete provider", i, id)
+		}
+		if seen[id] {
+			t.Errorf("SearchProviderIDs() contains duplicate %q", id)
+		}
+		seen[id] = true
+	}
+}
+
+// TestSearchConfigValidate covers the save-boundary contract: an unset provider
+// and zero max_results are valid (defaults apply); an unknown provider and an
+// out-of-range max_results are rejected. Both failures are classified by
+// IsSearchConfigError so the transport layer can map them to 400 in one check.
+func TestSearchConfigValidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      SearchConfig
+		wantErr  error
+		classify bool
+	}{
+		{name: "empty config is valid", cfg: SearchConfig{}},
+		{name: "default provider with no max is valid", cfg: SearchConfig{Provider: SearchProviderTavily}},
+		{name: "explicit max results is valid", cfg: SearchConfig{Provider: SearchProviderBrave, MaxResults: 10}},
+		{name: "max results at ceiling is valid", cfg: SearchConfig{Provider: SearchProviderSerpAPI, MaxResults: MaxSearchMaxResults}},
+		{name: "unknown provider rejected", cfg: SearchConfig{Provider: "bogus"}, wantErr: ErrInvalidSearchProvider, classify: true},
+		{name: "negative max results rejected", cfg: SearchConfig{Provider: SearchProviderTavily, MaxResults: -1}, wantErr: ErrSearchMaxResultsOutOfRange, classify: true},
+		{name: "max results above ceiling rejected", cfg: SearchConfig{Provider: SearchProviderTavily, MaxResults: MaxSearchMaxResults + 1}, wantErr: ErrSearchMaxResultsOutOfRange, classify: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate() = %v, want errors.Is(%v)", err, tt.wantErr)
+			}
+			if got := IsSearchConfigError(err); got != tt.classify {
+				t.Errorf("IsSearchConfigError(%v) = %v, want %v", err, got, tt.classify)
+			}
+		})
+	}
+
+	if IsSearchConfigError(nil) {
+		t.Error("IsSearchConfigError(nil) = true, want false")
+	}
+}
+
+// TestDefaultSearchConfig pins the default the lazy resolver falls back to when
+// the operator has not chosen a provider.
+func TestDefaultSearchConfig(t *testing.T) {
+	got := DefaultSearchConfig()
+	if got.Provider != SearchProviderTavily {
+		t.Errorf("DefaultSearchConfig().Provider = %q, want %q", got.Provider, SearchProviderTavily)
+	}
+	if got.MaxResults != DefaultSearchMaxResults {
+		t.Errorf("DefaultSearchConfig().MaxResults = %d, want %d", got.MaxResults, DefaultSearchMaxResults)
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("DefaultSearchConfig().Validate() = %v, want nil", err)
 	}
 }

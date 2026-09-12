@@ -130,6 +130,11 @@ failed step never aborts the run, regardless of which model produced the plan. O
 those mean the plan itself is malformed, not that a step's outcome failed. Guardrail-denied
 steps also continue (`plan step guardrail denied, continuing`); in unattended automation
 the denial is immediate (Constitution II.10, `resolveGuardrail` automation channel).
+**Exception — terminal tool failures:** a step whose tool fails for an operator-actionable
+reason (`models.ErrToolUnavailable`) is run-fatal in automation (the plan aborts, since the
+result cannot be trusted and nobody can fix it) and, in chat, the tool is disabled for the
+run and the loop continues with a directive — per SPEC-001 §II.6's tool-error classification.
+Every strategy shares this via `executeSingleToolStep`/`toolFailureIsRunFatal`.
 
 ### 3. EvaluatorOptimizerStrategy (Phase 3)
 

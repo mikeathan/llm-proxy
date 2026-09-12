@@ -74,6 +74,13 @@ type GuardrailEngine struct {
 	// it reports false, network-gated tools are schema-hidden and hard-denied
 	// regardless of workspace overrides or persisted approvals (plan D1/R4).
 	hostNetworkAllowed func() bool
+
+	// searchAvailable reports whether an internet-search provider is usable
+	// (provider registered and its key present). nil ⇒ no gate (search
+	// availability governed purely by the Search.Enabled tier), so engines built
+	// without this predicate keep their previous behaviour. When it reports
+	// false, internet_search is hidden from the schema.
+	searchAvailable func() bool
 }
 
 // SetHostNetworkAllowed installs the host-level network allowance provider
@@ -82,6 +89,26 @@ type GuardrailEngine struct {
 // the composition root.
 func (e *GuardrailEngine) SetHostNetworkAllowed(allowed func() bool) {
 	e.hostNetworkAllowed = allowed
+}
+
+// SetSearchAvailable installs the live internet-search availability provider
+// (a closure over AppContext config + secrets, returned by initSearchTools). A
+// nil provider leaves the gate inert — call from the composition root.
+func (e *GuardrailEngine) SetSearchAvailable(available func() bool) {
+	e.searchAvailable = available
+}
+
+// searchUnavailable reports an explicit "no provider configured" state. A nil
+// predicate leaves the gate inert (existing behaviour unchanged).
+func (e *GuardrailEngine) searchUnavailable() bool {
+	return e.searchAvailable != nil && !e.searchAvailable()
+}
+
+// searchDisabled reports whether internet_search cannot run: its guardrail tier
+// is disabled or no usable provider is configured. One helper feeds every schema
+// surface so availability and policy cannot drift.
+func (e *GuardrailEngine) searchDisabled(cfg models.AgentGuardrailsConfig) bool {
+	return !cfg.Search.Enabled || e.searchUnavailable()
 }
 
 // hostNetworkOff reports an explicit host-level network denial. Undecided host
@@ -472,7 +499,7 @@ func (e *GuardrailEngine) DisabledToolNames(workspaceID string) []string {
 		}
 	}
 	add(models.ToolNotifyUser, !cfg.Communication.Enabled)
-	add(models.ToolInternetSearch, !cfg.Search.Enabled)
+	add(models.ToolInternetSearch, e.searchDisabled(cfg))
 	add(models.ToolNetworkFetch, !cfg.Network.Enabled)
 	add(models.ToolNetworkScan, !cfg.Network.Enabled)
 	add(models.ToolNetworkInfo, !cfg.Network.Enabled)
@@ -532,7 +559,7 @@ func (e *GuardrailEngine) scopeTierDisabled(workspaceID string, scope models.Net
 			disabled = append(disabled, name)
 		}
 	}
-	add(models.ToolInternetSearch, lanScope || !cfg.Search.Enabled)
+	add(models.ToolInternetSearch, lanScope || e.searchDisabled(cfg))
 	add(models.ToolNotifyUser, lanScope || !cfg.Communication.Enabled)
 	return disabled
 }

@@ -22,7 +22,7 @@ cd backend && go run main.go                    # :4001 (omit --data for XDG/hom
 - **Backend changes:** run `go build ./...` from `backend/` after each meaningful edit.
 - **Frontend changes:** run `npm run build` from `frontend/` after each meaningful edit.
 - **Before finishing:** backend changes require `go test ./...` + `go run ./tools/check-complexity/` from `backend/`; frontend changes require `npm test` + `npm run build` from `frontend/`. Then run Pre-Completion Review (end of file).
-- **TDD required** for features/fixes — backend (`go test ./...`) and frontend (`npm test`) alike. Red→Green→Refactor. Details: `docs/skills/tdd-guide.md`.
+- **TDD required** for features/fixes — backend (`go test ./...`) and frontend (`npm test`) alike. Red→Green→Refactor. Details: `.agents/skills/tdd-guide/SKILL.md`.
 
 ## Execution Protocol
 For non-trivial work follow: **inspect → plan → implement → verify → review → report**.
@@ -47,21 +47,27 @@ Prefer a short, searchable summary with `file:line` pointers and verbatim values
 - **Secrets / telemetry / network:** governed by `CONSTITUTION.md` — comply.
 - **Heavy deps / CI changes:** ask before adding or modifying.
 
+## Skills (load on demand — never all at once)
+`.agents/skills/<name>/SKILL.md` are Agent Skills the harness surfaces automatically; load by phase:
+- **Design / plan** → `clean-code`, `engineering-practices`, + the affected subsystem skill (`agent-loop`, `connector-patterns`, `assistant-ui-*`, `memory-system`, `automation`, `event-streaming-patterns`, `lifecycle-events`)
+- **Implement** → `tdd-guide` (+ `clean-code`, `engineering-practices`)
+- **Verify / debug** → `testing-guide`; `tool-failure-investigation` for a failing tool call
+- **After the change** → `documentation-stewardship` · **Ops / config** → `llamacpp-setup`
+
 ## Before coding
 1. Read `CONSTITUTION.md` (6 sections — the law).
 2. Read the relevant SPEC (`docs/INDEX.md` → SPEC-001..009) for the affected subsystem only.
 3. Load `.agents/rules/go-staff-engineer.md` for backend, `.agents/rules/frontend-vue-engineer.md` for frontend. Mandatory.
-4. Run the relevant baseline: backend `cd backend && go build ./... && go test ./...` for backend work; frontend `cd frontend && npm test && npm run build` for frontend work (run `npm ci`/`npm install` only if `node_modules` is missing); docs/tests tasks skip build.
+4. Load the matching skill(s) for this phase (see Skills above).
+5. Run the relevant baseline: backend `cd backend && go build ./... && go test ./...` for backend work; frontend `cd frontend && npm test && npm run build` for frontend work (run `npm ci`/`npm install` only if `node_modules` is missing); docs/tests tasks skip build.
 
 ## Instruction Authority
 On conflict, follow in this order: `CONSTITUTION.md` → this `AGENTS.md` → loaded rule file → relevant SPEC/architecture doc → existing code conventions. Ask only when the conflict cannot be resolved safely.
 
 ## Reference (load on demand)
 - `docs/architecture.md` — directory map, contracts, checklists, pitfalls
-- `docs/skills/README.md` — quick "when to load which skill" map
-- Writing or reviewing code? → `docs/skills/clean-code.md` (language-agnostic clean-code practices)
+- `.agents/skills/` — repo Agent Skills (auto-discovered by Command Code, Pi, opencode, dsh); phase router above, catalog in `docs/INDEX.md`
 - `docs/INDEX.md` — full doc catalog
-- After any change: `docs/skills/documentation-stewardship.md`
 - Adding frontend settings tab? → `docs/architecture.md#adding-a-frontend-settings-tab-checklist`
 
 ## Pre-Completion Review (Mandatory Gate)

@@ -674,3 +674,51 @@ func mapSlice(in []string) map[string]bool {
 	}
 	return m
 }
+
+// Search availability gate: internet_search is schema-hidden when no provider is
+// configured (the live availability predicate), in addition to the
+// Search.Enabled policy gate. A nil predicate leaves the old behaviour intact.
+func TestSearchAvailabilityGate(t *testing.T) {
+	enabled := func() models.AgentGuardrailsConfig {
+		c := models.AgentGuardrailsConfig{}
+		c.Search.Enabled = true
+		return c
+	}
+	disabled := func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{}
+	}
+
+	tests := []struct {
+		name       string
+		cfg        func() models.AgentGuardrailsConfig
+		available  *bool // nil = no predicate installed
+		wantHidden bool
+	}{
+		{name: "no predicate keeps enabled search visible", cfg: enabled, available: nil, wantHidden: false},
+		{name: "available keeps enabled search visible", cfg: enabled, available: boolp(true), wantHidden: false},
+		{name: "unavailable hides enabled search", cfg: enabled, available: boolp(false), wantHidden: true},
+		{name: "policy-disabled stays hidden even when available", cfg: disabled, available: boolp(true), wantHidden: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := NewGuardrailEngine(tt.cfg, storage.NewPathResolver("", "", ""), nil, nil)
+			if tt.available != nil {
+				e.SetSearchAvailable(func() bool { return *tt.available })
+			}
+			got := mapSlice(e.DisabledToolNames(""))[models.ToolInternetSearch]
+			if got != tt.wantHidden {
+				t.Errorf("internet_search hidden = %v, want %v", got, tt.wantHidden)
+			}
+		})
+	}
+
+	t.Run("scope internet hides search when no provider is configured", func(t *testing.T) {
+		e := NewGuardrailEngine(enabled, storage.NewPathResolver("", "", ""), nil, nil)
+		e.SetHostNetworkAllowed(func() bool { return true })
+		e.SetSearchAvailable(func() bool { return false })
+		got := mapSlice(e.DisabledToolNamesForScope("", models.NetworkScopeInternet))[models.ToolInternetSearch]
+		if !got {
+			t.Error("unconfigured internet_search must be hidden even at internet scope")
+		}
+	})
+}

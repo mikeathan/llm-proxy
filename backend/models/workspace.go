@@ -120,6 +120,10 @@ type AutomationRun struct {
 	// to prune individual run artifacts. Empty when run logging is disabled.
 	RunDirName string `json:"run_dir_name,omitempty"`
 	Events     []any  `json:"events"` // Full event log for "Live Console" reconstruction
+	// Warnings records non-fatal tool failures (e.g. a delivery connector being
+	// down). A run with warnings but an empty Error is still a success — the
+	// work product exists, only delivery was impaired (tool-error-classification).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // AgentState represents the execution history and state from workspaces/{id}/state.json

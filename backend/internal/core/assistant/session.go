@@ -12,6 +12,8 @@ import (
 
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/repetition"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/models"
 )
@@ -97,7 +99,7 @@ type runSession struct {
 	truncatedParts          []string
 	syntaxParseStreak       int // consecutive server-side tool-arg JSON syntax failures
 
-	rd                   repetitionDetector
+	rd                   repetition.Detector
 	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
 	lastContentWithTools string // content saved from a turn that had both text and tool calls
 
@@ -372,7 +374,7 @@ func (s *runSession) synthesizeRunSummary() string {
 	// Tool calls are counted from the usage tracker — the per-execution record
 	// that survives sieving. Scanning s.history alone under-counts because the
 	// physical sieve prunes history to head+tail (e.g. "2 of 18 tool calls").
-	if t := GetUsageTracker(s.ctx); t != nil {
+	if t := usage.FromContext(s.ctx); t != nil {
 		for _, name := range t.UsedToolsSnapshot() {
 			if name == models.ToolSystemError {
 				continue
@@ -825,7 +827,7 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Tool) (done bool, reply string, err error) {
 	s.resetParseErrorState()
 
-	isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.deps.Logger, turnMsg.ToolCalls)
+	isDuplicate, nagPrompt, dupErr := s.rd.Check(s.agent.deps.Logger, turnMsg.ToolCalls)
 	if dupErr != nil {
 		return true, "", dupErr
 	}
@@ -843,13 +845,13 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 		return false, "", nil
 	}
 
-	if isAlternating, altErr := s.rd.checkAlternating(); isAlternating {
+	if isAlternating, altErr := s.rd.CheckAlternating(); isAlternating {
 		return true, "", altErr
 	}
-	if isCycle, cycleErr := s.rd.checkSequenceRepeat(); isCycle {
+	if isCycle, cycleErr := s.rd.CheckSequenceRepeat(); isCycle {
 		return true, "", cycleErr
 	}
-	if isSameTarget, tgtErr := s.rd.checkSameTarget(turnMsg.ToolCalls); isSameTarget {
+	if isSameTarget, tgtErr := s.rd.CheckSameTarget(turnMsg.ToolCalls); isSameTarget {
 		return true, "", tgtErr
 	}
 

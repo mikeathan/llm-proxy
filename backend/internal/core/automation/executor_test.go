@@ -258,3 +258,33 @@ func TestBuildAgentOptions_ColdCacheDefaultsXML(t *testing.T) {
 		t.Fatalf("expected UseNativeTools unset/false with no format in config, got %v", opts.UseNativeTools)
 	}
 }
+
+// TestRecordRun_PersistsWarnings pins the run-ledger side of the tool-error
+// classification: non-fatal tool failures (delivery channels down) are recorded
+// as warnings on the run entry while Error stays empty — a warning-only run is
+// still a success.
+func TestRecordRun_PersistsWarnings(t *testing.T) {
+	executor := &LLMTaskExecutor{}
+	state := &models.AgentState{}
+	outcome := runOutcome{
+		req:      ExecuteRequest{WorkspaceID: "ws1", AutomationName: "nightly"},
+		resp:     &ExecuteResponse{State: state},
+		warnings: []string{"notify_user: telegram API error: status 401"},
+	}
+
+	executor.recordRun(outcome, "report body", "", 0)
+
+	if len(state.History) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(state.History))
+	}
+	run := state.History[0]
+	if run.Error != "" {
+		t.Errorf("warning-only run must not be an error, got %q", run.Error)
+	}
+	if len(run.Warnings) != 1 || run.Warnings[0] != "notify_user: telegram API error: status 401" {
+		t.Fatalf("warnings not persisted on the run entry: %+v", run.Warnings)
+	}
+	if state.LastRuns["nightly"] == nil || len(state.LastRuns["nightly"].Warnings) != 1 {
+		t.Fatalf("warnings not persisted on LastRuns: %+v", state.LastRuns["nightly"])
+	}
+}

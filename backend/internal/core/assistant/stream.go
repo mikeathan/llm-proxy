@@ -18,6 +18,7 @@ import (
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/memory"
@@ -443,7 +444,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		"tool_calls", len(fullMsg.ToolCalls),
 		"finish_reason", fullMsg.FinishReason)
 
-	if t := GetUsageTracker(ctx); t != nil {
+	if t := usage.FromContext(ctx); t != nil {
 		t.AddLLMCall(len(prepared), len(fullMsg.Content), len(fullMsg.ReasoningContent))
 	}
 
@@ -1043,7 +1044,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	if prefill != "" {
 		msg.Content = prefill + msg.Content
 	}
-	if t := GetUsageTracker(ctx); t != nil {
+	if t := usage.FromContext(ctx); t != nil {
 		inputTokens := 0
 		for _, m := range preparedHistory {
 			inputTokens += len(m.Content)

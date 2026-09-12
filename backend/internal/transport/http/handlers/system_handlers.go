@@ -50,13 +50,13 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 		// ServiceClientSecret is deliberately never emitted: the frontend does
 		// not need it (only the ID is shown; a new value is set via PUT) and
 		// returning it verbatim leaked the credential to any client.
-		PrimaryModel:         reg.PrimaryModel,
-		FallbackModel:        reg.FallbackModel,
-		Providers:            getProvidersView(h.admin),
-		Guardrails:           h.admin.GetGuardrails(),
-		Communication:        reg.Communication,
-		Search:               reg.Search,
-		RunLogging:           &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
+		PrimaryModel:  reg.PrimaryModel,
+		FallbackModel: reg.FallbackModel,
+		Providers:     getProvidersView(h.admin),
+		Guardrails:    h.admin.GetGuardrails(),
+		Communication: reg.Communication,
+		Search:        reg.Search,
+		RunLogging:    &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 	}
 	respondJSON(w, cfg)
 }
@@ -107,6 +107,10 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 		var notFound *models.ModelNotFoundError
 		if errors.As(err2, &notFound) {
 			writeJSONError(w, http.StatusBadRequest, notFound.Error())
+			return
+		}
+		if models.IsSearchConfigError(err2) {
+			writeJSONError(w, http.StatusBadRequest, err2.Error())
 			return
 		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err2.Error())

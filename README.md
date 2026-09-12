@@ -79,10 +79,10 @@ Full dev workflow and AI-agent rules: see [`AGENTS.md`](AGENTS.md).
 | 📚 API reference | [docs/api-reference.md](docs/api-reference.md) | All endpoints |
 | 🏗️ Architecture | [docs/architecture.md](docs/architecture.md) | Directory map, contracts, checklists |
 | 🛡️ Constitution | [CONSTITUTION.md](CONSTITUTION.md) | Immutable laws (6 sections) |
-| 🧪 Testing | [docs/skills/testing-guide.md](docs/skills/testing-guide.md) | Patterns, record-replay |
-| 🤖 Agent loop | [docs/skills/agent-loop.md](docs/skills/agent-loop.md) | Spec + implementation guide |
+| 🧪 Testing | [.agents/skills/testing-guide/SKILL.md](.agents/skills/testing-guide/SKILL.md) | Patterns, record-replay |
+| 🤖 Agent loop | [.agents/skills/agent-loop/SKILL.md](.agents/skills/agent-loop/SKILL.md) | Spec + implementation guide |
 | 📇 Full catalog | [docs/INDEX.md](docs/INDEX.md) | All docs indexed |
-| 🗺️ Skill map | [docs/skills/README.md](docs/skills/README.md) | When to load which skill |
+| 🗺️ Skills | [.agents/skills/](.agents/skills/) | Agent Skills (auto-discovered) |
 
 ## Contributing
 

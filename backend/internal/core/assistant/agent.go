@@ -12,6 +12,8 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
+	"llm-proxy/internal/core/assistant/toolpolicy"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -250,6 +252,11 @@ type Agent struct {
 	cachedToolManual    string // cached BuildToolManual output
 	cachedToolReference string // cached BuildNativeToolReference output
 	toolsHash           uint64 // fingerprint of tool set used to build cache
+
+	// toolFailure is the per-run state of the terminal tool-failure policy
+	// (tool-error-classification). Grouped as one cohesive value rather than
+	// loose fields; reset at the start of each Execute.
+	toolFailure toolFailureState
 }
 
 // prefillDisabled returns whether prefill has been disabled at runtime.
@@ -611,7 +618,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     resolveToolProviderForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.ExcludedTools),
+			Provider:     toolpolicy.ResolveForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.ExcludedTools),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,
@@ -678,7 +685,8 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	// once the run completes normally, so it never leaks.
 	a.startWatchdog(execCtx, cancel)
 
-	execCtx = WithUsageTracker(execCtx)
+	execCtx = usage.WithTracker(execCtx)
+	a.toolFailure.reset()
 	execCtx = proxy.WithRetryObserver(execCtx, func(info proxy.RetryInfo) { a.notifyUpstream(info) })
 
 	// Stamp the resolved run network scope so the guardrail engine, network
@@ -692,6 +700,13 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 	s := newRunSession(a, execCtx, history)
 	return s.run()
+}
+
+// ToolWarnings returns the non-fatal tool failures recorded during the last
+// Execute (e.g. a delivery connector being down). The automation executor reads
+// it after Execute to persist them in the run meta.
+func (a *Agent) ToolWarnings() []string {
+	return a.toolFailure.warningsSnapshot()
 }
 
 // startWatchdog launches a goroutine that force-cancels the run if it outlives

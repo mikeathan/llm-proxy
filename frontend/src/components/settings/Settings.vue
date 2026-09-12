@@ -8,6 +8,7 @@ import GuardrailSettings from "./GuardrailSettings.vue";
 import ProviderModelsCard from "./ProviderModelsCard.vue";
 import InfrastructurePanel from "../infrastructure/InfrastructurePanel.vue";
 import CommunicationSettings from "./CommunicationSettings.vue";
+import SearchSettings from "./SearchSettings.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
 import { useConfig } from "../../composables/models/useConfig";
 import { useMcpServers } from "../../composables/system/useMcpServers";
@@ -264,6 +265,15 @@ const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value));
         <!-- Communication -->
         <div v-show="activeTab === 'communication'">
           <CommunicationSettings
+            :editConfig="config"
+            @update:editConfig="(val: any) => config = val"
+            @updateConfig="handleSaveConfig"
+          />
+        </div>
+
+        <!-- Internet Search -->
+        <div v-show="activeTab === 'search'">
+          <SearchSettings
             :editConfig="config"
             @update:editConfig="(val: any) => config = val"
             @updateConfig="handleSaveConfig"
