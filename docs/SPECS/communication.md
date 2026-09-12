@@ -1,15 +1,30 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.0"
+version: "1.1"
 status: stable
-last_updated: 2026-06-28
+last_updated: 2026-09-06
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
 ---
 
 # SPEC: Communication Connector System
+
+## Changelog
+
+- **1.1 (2026-09-06)** — Connector SEND gating under host network policy
+  (SPEC-006 §II.7). Agent-initiated sends — the `notify_user` tool (including
+  auto-reply and triggered messages issued *through the tool loop*) — are agent
+  egress: when the effective network scope is none (host `sandboxing.network`
+  off, or an automation grant of none), `notify_user` is hidden from the schema
+  and denied synchronously, never routed to the approval flow. Inbound webhook
+  receipt is server-side and unaffected (Constitution I.4); replies delivered to
+  the *initiating* chat by the webhook handler (auto-reply to the inbound
+  message, `/run` result replies) ride the guarded connector client as part of
+  the inbound conversation flow and are exempt — the destination is the operator
+  who initiated the message. A per-run `lan`/`internet` grant re-enables
+  `notify_user` within the host ceiling.
 
 ## I. Intent
 

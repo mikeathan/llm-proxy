@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  llm-proxy launchd daemon (macOS production mirror of the Linux systemd unit —
+  agent-os-sandboxing plan D3/D4). Runs the backend as a DEDICATED unprivileged
+  user owning nothing outside the single data root, so agent-spawned children
+  cannot read operator secrets by construction (uid-first containment; the OS
+  FS jail is only needed for dev/desktop runs as the operator).
+
+  Install (see docs/service_setup.md → macOS):
+    1. create the user + root (below), build the binary
+    2. place this file at /Library/LaunchDaemons/llm-proxy.plist
+       (adjust the <key>UserName</key> and ProgramArguments paths as needed)
+    3. sudo launchctl bootstrap system /Library/LaunchDaemons/llm-proxy.plist
+    4. logs: see <key>StandardOutPath</key>/<key>StandardErrorPath</key>
+
+  Notes:
+  - Cloud-provider credentials are at rest as encrypted secrets.json under the
+    data root (Constitution III.6 — master.key co-located 0700/0600). No
+    Keychain dependency.
+  - The macOS sandbox (Seatbelt) is NOT relied on here: the dedicated user IS
+    the containment (workspace files owned by the service user). Seatbelt's
+    per-workspace seatbelt layer is a dev-mode/desktop concern only.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.llm-proxy.daemon</string>
+
+    <key>UserName</key>
+    <string>llm-proxy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/llm-proxy</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>APP_ENV</key>
+        <string>production</string>
+        <key>LLM_PROXY_HOME</key>
+        <string>/var/lib/llm-proxy</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/var/lib/llm-proxy</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/var/lib/llm-proxy/logs/daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/lib/llm-proxy/logs/daemon.err.log</string>
+</dict>
+</plist>

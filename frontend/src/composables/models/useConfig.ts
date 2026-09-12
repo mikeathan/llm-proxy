@@ -110,6 +110,20 @@ const updateConfig = async (payload?: GlobalConfig): Promise<void> => {
 }
 
 /**
+ * Clears primary/fallback references that are no longer present in the model
+ * catalogue, so a removed model can never be saved back as a dangling selection.
+ */
+export const reconcileModelRefs = (modelNames: string[]): void => {
+  const names = new Set(modelNames)
+  if (config.value.primary_model && !names.has(config.value.primary_model)) {
+    config.value.primary_model = ''
+  }
+  if (config.value.fallback_model && !names.has(config.value.fallback_model)) {
+    config.value.fallback_model = ''
+  }
+}
+
+/**
  * Helper to ensure a specific provider exists in the config.
  */
 const ensureProvider = (type: string) => {
@@ -128,6 +142,7 @@ export function useConfig() {
     error,
     fetchConfig,
     updateConfig,
+    reconcileModelRefs,
     ensureProvider
   }
 }

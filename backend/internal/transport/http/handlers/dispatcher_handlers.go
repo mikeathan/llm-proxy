@@ -95,6 +95,11 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 		return fmt.Errorf("invalid loop_strategy %q: valid values are %s",
 			auto.LoopStrategy, strings.Join(assistant.RegisteredLoopStrategyNames(), ", "))
 	}
+	// network_grant is an explicit per-run scope override; empty = inherit the
+	// workspace scope. Reject unknown values fail-fast (sandboxing plan §4.4).
+	if auto.NetworkGrant != "" && !auto.NetworkGrant.Valid() {
+		return fmt.Errorf("invalid network_grant %q: valid values are none, lan, internet_only, internet (empty = inherit)", auto.NetworkGrant)
+	}
 	return nil
 }
 
@@ -109,6 +114,7 @@ type AutomationInfo struct {
 	Model        string                 `json:"model,omitempty"`
 	LoopStrategy string                 `json:"loop_strategy,omitempty"`
 	RecordingRef string                 `json:"recording_ref,omitempty"`
+	NetworkGrant string                 `json:"network_grant,omitempty"` // '' = inherit workspace scope
 	LastOutput   string                 `json:"last_output,omitempty"`
 	LastError    string                 `json:"last_error,omitempty"`
 	IsRunning    bool                   `json:"is_running"`
@@ -131,6 +137,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			Model:        entry.Model,
 			LoopStrategy: string(entry.LoopStrategy),
 			RecordingRef: entry.RecordingRef,
+			NetworkGrant: string(entry.NetworkGrant),
 		}
 
 		if state, err := h.workspace.GetState(entry.Workspace); err == nil {

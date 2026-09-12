@@ -103,18 +103,18 @@ func NewDispatcher(
 		// goroutines with no recovery of its own).
 		cron: cron.New(
 			cron.WithParser(cron.NewParser(
-				cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+				cron.SecondOptional|cron.Minute|cron.Hour|cron.Dom|cron.Month|cron.Dow|cron.Descriptor,
 			)),
 			cron.WithChain(cron.Recover(cronLogger{logger})),
 		),
-		logger:          logger,
-		workerCount:     1,
-		jobs:            make(map[string]cron.EntryID),
-		stopCh:          make(chan struct{}),
-		metrics:         &DispatcherMetrics{},
-		events:          NewEventBus(),
-		activeRuns:      make(map[string]*activeRun),
-		diagnosticDelay: defaultDiagnosticDelay,
+		logger:            logger,
+		workerCount:       1,
+		jobs:              make(map[string]cron.EntryID),
+		stopCh:            make(chan struct{}),
+		metrics:           &DispatcherMetrics{},
+		events:            NewEventBus(),
+		activeRuns:        make(map[string]*activeRun),
+		diagnosticDelay:   defaultDiagnosticDelay,
 		automationTimeout: defaultAutomationTimeout,
 	}
 
@@ -129,7 +129,7 @@ func NewDispatcher(
 // cron.Recover can report panicked jobs through the normal logging pipeline.
 type cronLogger struct{ l logging.Logger }
 
-func (c cronLogger) Info(msg string, kv ...any)  { c.l.Info(msg, kv...) }
+func (c cronLogger) Info(msg string, kv ...any) { c.l.Info(msg, kv...) }
 func (c cronLogger) Error(err error, msg string, kv ...any) {
 	c.l.Error(msg, append([]any{"error", err}, kv...)...)
 }
@@ -626,6 +626,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		LoopStrategy:   string(entry.LoopStrategy),
 		AllowedTools:   entry.AllowedTools,
 		RecordingRef:   recordingRef,
+		NetworkGrant:   entry.NetworkGrant,
 	}
 
 	resp, err := d.executor.Execute(stratCtx, req)

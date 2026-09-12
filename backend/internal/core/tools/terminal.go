@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/process"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
@@ -32,28 +34,74 @@ type TerminalTools struct {
 	pathResolver   func(workspaceID string) string
 	shellPool      shell.ShellProvider
 	observer       StreamObserver
-	regexCache     sync.Map
+	// networkOn reports the run's OS network state for the shell pool key (plan
+	// D8). nil ⇒ true (pre-change behavior). Wired from host settings (chat
+	// runs) and overridden per-run by the stamped network scope (automation
+	// grants, Phase 0.4).
+	networkOn func() bool
+	// egressEnv returns HTTP(S)_PROXY/NO_PROXY entries when the host egress
+	// proxy is enabled (nil = proxy off). Applied to network-on shells only.
+	egressEnv func() []string
+	// sandboxProv is the OS confinement provider applied at spawn: Landlock on
+	// Linux kernels ≥5.13 (FS jail; TCP deny for network-off children on ABI
+	// v4+), no-op elsewhere (plan Phase 2).
+	sandboxProv sandbox.Provider
+	// storageOver reports whether a workspace exceeds its max_storage_gb
+	// accounting boundary (best-effort, TTL-cached). nil = check disabled.
+	storageOver func(workspaceID, workspaceRoot string) bool
+	regexCache  sync.Map
 }
 
 // StreamObserver is a callback to broadcast raw terminal output streams to the UI
 type StreamObserver func(streamType string, chunk []byte)
 
-// NewTerminalTools initializes a Terminal executable tool.
-func NewTerminalTools(
-	provider func(ctx context.Context) models.TerminalGuardrailsConfig,
-	pathResolver func(workspaceID string) string,
-) *TerminalTools {
+// TerminalToolsDeps are the collaborators TerminalTools is wired from at the
+// composition root. Required fields must be provided; the optional seams stay
+// nil to preserve the pre-sandboxing behavior (network on, no proxy env, no OS
+// confinement, no storage boundary). Grouping them keeps construction atomic —
+// a TerminalTools can no longer be left half-configured by a forgotten setter.
+type TerminalToolsDeps struct {
+	ConfigProvider func(ctx context.Context) models.TerminalGuardrailsConfig
+	PathResolver   func(workspaceID string) string
+
+	ShellPool shell.ShellProvider // nil ⇒ executeLocal fallback only
+	Observer  StreamObserver
+	// NetworkOn reports the run's OS network state for the shell pool key (D8).
+	// nil ⇒ true (pre-change behavior).
+	NetworkOn func() bool
+	// EgressEnv returns HTTP(S)_PROXY/NO_PROXY entries when the host egress
+	// proxy is enabled (nil = proxy off). Applied to network-on shells only.
+	EgressEnv func() []string
+	// Sandbox is the OS confinement provider applied at spawn (Landlock on
+	// Linux; nil = no OS confinement).
+	Sandbox sandbox.Provider
+	// StorageOver reports whether a workspace exceeds its max_storage_gb
+	// accounting boundary (best-effort, TTL-cached). nil = check disabled.
+	StorageOver func(workspaceID, workspaceRoot string) bool
+}
+
+// NewTerminalTools initializes a Terminal executable tool from its deps.
+func NewTerminalTools(deps TerminalToolsDeps) *TerminalTools {
 	return &TerminalTools{
-		configProvider: provider,
-		pathResolver:   pathResolver,
+		configProvider: deps.ConfigProvider,
+		pathResolver:   deps.PathResolver,
+		shellPool:      deps.ShellPool,
+		observer:       deps.Observer,
+		networkOn:      deps.NetworkOn,
+		egressEnv:      deps.EgressEnv,
+		sandboxProv:    deps.Sandbox,
+		storageOver:    deps.StorageOver,
 		regexCache:     sync.Map{},
 	}
 }
 
-// SetShellProvider injects the Orchestrator for terminal execution
-func (t *TerminalTools) SetShellProvider(pool shell.ShellProvider, observer StreamObserver) {
-	t.shellPool = pool
-	t.observer = observer
+// networkOnValue resolves the effective network state for this run, defaulting
+// to on (nil provider) to preserve pre-plan behavior.
+func (t *TerminalTools) networkOnValue() bool {
+	if t.networkOn != nil {
+		return t.networkOn()
+	}
+	return true
 }
 
 // ShellPGID returns the negated process group ID for the active shell
@@ -643,6 +691,12 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 	cfg := t.configProvider(ctx)
 	wsID, jailPath := t.resolveWorkspace(ctx)
 
+	// Workspace disk accounting (max_storage_gb, best-effort). Blocked BEFORE
+	// any spawn; message labels it as accounting, never a hard quota.
+	if wsID != "" && t.storageOver != nil && t.storageOver(wsID, jailPath) {
+		return "", fmt.Errorf("workspace storage accounting limit exceeded (max_storage_gb); free space and retry")
+	}
+
 	logging.Debug("ExecuteCommand: start", "command", command, "cwd", cwd, "jailPath", jailPath)
 
 	// 1. Resolve CWD first — the effective execution directory is needed by
@@ -662,7 +716,7 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 		return "", err
 	}
 	logging.Debug("ExecuteCommand: command sanitized", "cleanCmd", cleanCmd)
-	shell := t.resolveShell(cfg)
+	shellName := t.resolveShell(cfg)
 
 	// 3. Apply hard timeout
 	execCtx := ctx
@@ -686,8 +740,8 @@ func (t *TerminalTools) ExecuteCommand(ctx context.Context, command string, cwd 
 		return t.executeShell(execCtx, finalCmd, cfg, wsID, jailPath)
 	}
 
-	logging.Debug("ExecuteCommand: executing locally", "shell", shell, "command", cleanCmd, "cwd", finalCwd)
-	return t.executeLocal(execCtx, shell, cleanCmd, finalCwd, cfg)
+	logging.Debug("ExecuteCommand: executing locally", "shell", shellName, "command", cleanCmd, "cwd", finalCwd)
+	return t.executeLocal(execCtx, shellName, cleanCmd, finalCwd, cfg, jailPath)
 }
 
 // sanitizeCommand handles path forgiveness only. The command is NOT
@@ -748,8 +802,26 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	if _, balanced := scanCommandSegments(command); !balanced {
 		return "", fmt.Errorf("command has an unterminated quote or heredoc")
 	}
-	idleTimeout := time.Duration(cfg.SessionIdleTimeoutSeconds) * time.Second
-	ts, err := t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
+	policy := shell.WorkspacePolicy{
+		AllowedEnvVars: cfg.AllowedEnvVars,
+		PathExtensions: cfg.PathExtensions,
+		NetworkOn:      t.networkOnValue(),
+		IdleTimeout:    time.Duration(cfg.SessionIdleTimeoutSeconds) * time.Second,
+	}
+	// A stamped run scope (automation grant, D8) is authoritative for the shell
+	// pool key; absent (chat) falls back to the configured provider (host).
+	if s, ok := models.RunNetworkScopeFrom(ctx); ok {
+		policy.NetworkOn = s.NetworkOn()
+	}
+	// Egress-proxy env applies only to network-on shells (off shells have no
+	// network to proxy).
+	if policy.NetworkOn && t.egressEnv != nil {
+		if vars := t.egressEnv(); len(vars) > 0 {
+			policy.ProxyEnv = vars
+		}
+	}
+	policy.Sandbox = t.sandboxProv
+	ts, err := t.shellPool.GetOrCreate(ctx, wsID, jailPath, policy)
 	if err != nil {
 		return "", fmt.Errorf("failed to get/create shell session for workspace %s: %w", wsID, err)
 	}
@@ -769,7 +841,7 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 			defer recycleCancel()
 			t.shellPool.Recycle(recycleCtx, wsID)
 			var getErr error
-			ts, getErr = t.shellPool.GetOrCreate(ctx, wsID, jailPath, idleTimeout, cfg.AllowedEnvVars, cfg.PathExtensions)
+			ts, getErr = t.shellPool.GetOrCreate(ctx, wsID, jailPath, policy)
 			if getErr != nil {
 				return "", fmt.Errorf("failed to recreate shell session: %w", getErr)
 			}
@@ -822,33 +894,46 @@ func (t *TerminalTools) executeShell(ctx context.Context, command string, cfg mo
 	return output, nil
 }
 
-// newCommand creates an exec.Cmd with process group isolation (Setpgid)
-// already applied. Separated for testability of the isolation behavior.
+// newCommand creates an exec.Cmd via the shared process.AgentCommand helper
+// (Setpgid isolation is centralized there — plan R1).
 func (t *TerminalTools) newCommand(ctx context.Context, shell, command, cwd string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, shell, "-c", command)
+	cmd := process.AgentCommand(ctx, shell, "-c", command)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd
 }
 
-func (t *TerminalTools) executeLocal(ctx context.Context, shell, command, cwd string, cfg models.TerminalGuardrailsConfig) (string, error) {
-	cmd := t.newCommand(ctx, shell, command, cwd)
+// executeLocal runs a one-shot command without the pooled shell (used when no
+// shell provider is configured or as the fallback path). Since R1 it receives
+// the workspace root so the child gets the SAME env floor as pooled shells
+// (plan Risk 4 — previously it inherited the backend env, leaking real HOME
+// when filesystem confinement was off). workspaceRoot == "" (no workspace)
+// keeps the historical inherit-backend-env behavior.
+func (t *TerminalTools) executeLocal(ctx context.Context, shellName, command, cwd string, cfg models.TerminalGuardrailsConfig, workspaceRoot string) (string, error) {
+	cmd := t.newCommand(ctx, shellName, command, cwd)
+	if workspaceRoot != "" {
+		cmd.Env = shell.BuildSandboxEnv(workspaceRoot, cfg.AllowedEnvVars, cfg.PathExtensions)
+	}
+	// OS confinement for one-shots: Landlock on Linux (workspace-rooted
+	// one-shots); no-op elsewhere or for rootless one-shots.
+	if t.sandboxProv != nil {
+		if err := t.sandboxProv.Wrap(cmd, sandbox.WorkspaceView{RootPath: workspaceRoot, NetworkOn: t.networkOnValue()}); err != nil {
+			return "", fmt.Errorf("failed to sandbox local command: %w", err)
+		}
+	}
 
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
 		select {
 		case <-ctx.Done():
-			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
+			_ = process.KillGroup(cmd, syscall.SIGKILL)
 		case <-done:
 		}
 	}()
 
-	logging.Debug("executeLocal: running", "shell", shell, "command", command, "cwd", cwd)
+	logging.Debug("executeLocal: running", "shell", shellName, "command", command, "cwd", cwd)
 	out, err := cmd.CombinedOutput()
 	result := t.truncateOutput(scrubOutput(string(out), internalBlockedPaths), cfg.MaxOutputSize)
 

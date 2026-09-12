@@ -271,8 +271,6 @@ func (s *Store) PurgeBalances(ctx context.Context, before time.Time) error {
 	return nil
 }
 
-
-
 func (s *Store) SetEntityMetadata(ctx context.Context, entityType, entityID, key string, value []byte) error {
 	_, err := s.db.ExecContext(ctx, setEntityMetadataSQL, entityType, entityID, key, value)
 	if err != nil {

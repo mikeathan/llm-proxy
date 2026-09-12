@@ -41,6 +41,41 @@ type TriggerConfig struct {
 	Value string      `yaml:"value" json:"value"` // "*/5 * * * *" | "15m" | ""
 }
 
+// NetworkScope is the per-run agent network scope (plan D1/D8 grant model).
+// The zero value "" means inherit — the run follows the workspace (L1) scope
+// instead of overriding it. Explicit values name the reachable network:
+// none (off), lan (LAN only), internet_only (internet, no LAN), internet (LAN
+// + internet). The host (L0) sandboxing.network switch remains the ceiling above
+// all of them.
+type NetworkScope string
+
+const (
+	NetworkScopeInherit      NetworkScope = ""              // default: follow the workspace L1 scope
+	NetworkScopeNone         NetworkScope = "none"          // no agent egress
+	NetworkScopeLan          NetworkScope = "lan"           // local network only
+	NetworkScopeInternet     NetworkScope = "internet"      // local network + internet
+	NetworkScopeInternetOnly NetworkScope = "internet_only" // internet, local network blocked
+)
+
+// Valid reports whether s is a known scope value (empty = inherit is valid).
+func (s NetworkScope) Valid() bool {
+	switch s {
+	case NetworkScopeInherit, NetworkScopeNone, NetworkScopeLan, NetworkScopeInternet, NetworkScopeInternetOnly:
+		return true
+	}
+	return false
+}
+
+// NetworkOn reports whether a RESOLVED scope permits any agent egress. It is
+// fail-safe: only explicit lan/internet/internet_only return true; none AND
+// unresolved inherit/unknown return false, so an accidentally-unresolved grant
+// can never open the network. The OS shell pool key in the plan (D8) derives
+// from this. Note the shell cannot split LAN from internet (D8) — internet_only
+// blocks the in-process LAN tools, not shell sockets.
+func (s NetworkScope) NetworkOn() bool {
+	return s == NetworkScopeLan || s == NetworkScopeInternet || s == NetworkScopeInternetOnly
+}
+
 type Automation struct {
 	Name         string        `yaml:"name"          json:"name"`
 	Trigger      TriggerConfig `yaml:"trigger"       json:"trigger"`
@@ -50,6 +85,11 @@ type Automation struct {
 	LoopStrategy LoopStrategy  `yaml:"loop_strategy,omitempty" json:"loop_strategy,omitempty"` // per-run loop archetype override; "" = model config default
 	AllowedTools []string      `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"` // restrict tools for unattended runs
 	RecordingRef string        `yaml:"recording_ref,omitempty" json:"recording_ref,omitempty"` // Recording file ID for playback
+	// NetworkGrant overrides the workspace network scope for THIS automation's
+	// runs only. Empty (default) = inherit the workspace L1 scope; explicit
+	// none/lan/internet_only/internet tighten or loosen for this automation. The
+	// host L0 switch remains the ceiling (plan §4.4 grant model).
+	NetworkGrant NetworkScope `yaml:"network_grant,omitempty" json:"network_grant,omitempty"`
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml
@@ -116,4 +156,5 @@ type TerminalSessionView struct {
 	WorkspaceID string    `json:"workspace_id"`
 	LastUsed    time.Time `json:"last_used"`
 	HostPath    string    `json:"host_path"`
+	NetworkOn   bool      `json:"network_on"` // D8: which pool key this session serves
 }

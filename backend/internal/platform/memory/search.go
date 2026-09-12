@@ -10,6 +10,7 @@ import (
 // injected at session start. Two branches cover both scopes:
 //   - workspace_id = 'global' → user-scope facts (applies to all projects)
 //   - workspace_id = ?        → workspace-scope facts (this project only)
+//
 // Uses json_each for exact tag matching (not FTS5). Ordered by recency so the
 // most recently saved facts appear first in the prompt.
 const searchHotSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content,

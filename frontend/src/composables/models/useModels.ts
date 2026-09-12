@@ -1,8 +1,9 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import { useToast } from '../useToast'
-import { DEFAULT_CONFIG } from './useConfig'
+import { DEFAULT_CONFIG, reconcileModelRefs } from './useConfig'
 import type { AdminState, AgentDefaults } from '../../types/admin'
+import type { Model, ProviderModelInfo } from '../../types/model'
 
 const { error: toastError, success: toastSuccess } = useToast()
 
@@ -18,6 +19,7 @@ const agentDefaults = computed<AgentDefaults>(() => state.value?.config?.agent_d
 const refresh = async (): Promise<void> => {
   try {
     state.value = await AdminApiService.fetchState()
+    reconcileModelRefs((state.value?.models ?? []).map((m) => m.name))
   } catch (e: any) {
     console.error('[useModels] fetch state failed:', e.message)
   }
@@ -45,7 +47,7 @@ const stopModel = async (): Promise<void> => {
   }
 }
 
-const addModel = async (payload: any): Promise<void> => {
+const addModel = async (payload: Partial<Model>): Promise<void> => {
   try {
     await AdminApiService.addModel(payload)
     toastSuccess(`Model ${payload.name} added`)
@@ -56,7 +58,7 @@ const addModel = async (payload: any): Promise<void> => {
   }
 }
 
-const updateModel = async (payload: any): Promise<void> => {
+const updateModel = async (payload: Partial<Model>): Promise<void> => {
   try {
     await AdminApiService.updateModel(payload)
     toastSuccess(`Model ${payload.name} updated`)
@@ -89,7 +91,7 @@ const removeAllModels = async (provider: string): Promise<void> => {
   }
 }
 
-const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<import('../../types/model').ProviderModelInfo[]> => {
+const fetchProviderModels = async (provider: string, apiKeyName?: string): Promise<ProviderModelInfo[]> => {
   try {
     return await AdminApiService.fetchProviderModels(provider, apiKeyName) || []
   } catch (e: any) {

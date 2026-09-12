@@ -369,7 +369,6 @@ func TestStore_AutonomousCleaner(t *testing.T) {
 	}
 }
 
-
 // TestPurgeBalances verifies old per-window balance rows are removed while
 // recent ones are kept (the cleaner previously never purged icu_balances, so
 // one row per workspace per window accumulated forever).

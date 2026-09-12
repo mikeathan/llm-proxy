@@ -2,11 +2,16 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"time"
+
+	"llm-proxy/internal/core/egress"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
@@ -116,17 +121,103 @@ func (c *Container) BuildAppServices() *AppServices {
 	// Initialize Shell/Terminal Subsystem
 	shellManager, streamObserver := c.initShellOrchestrator(s)
 
-	// Initialize unified tool providers and engines (Local Registry + Remote MCP)
+	// Agent egress proxy (plan D2 / Phase 1): when sandboxing.egress_proxy > 0,
+	// run the loopback-only forward proxy and route agent tool + shell egress
+	// through it. Domain policy (egress_allow/deny_domains) is built inside
+	// startEgressProxy from host settings — absent lists = allow-all. Started/
+	// stopped here — the single composition root.
+	egressProxyURL, egressEnv, err := startEgressProxy(s)
+	if err != nil {
+		logging.Warn("agent egress proxy disabled", "error", err.Error())
+	}
+
+	// Initialize unified tool providers and engines (Local Registry + Remote
+	// MCP). Services travel together in one deps struct (rule: ≤3 params).
 	s.toolProvider, s.engine, s.guardrailEngine = assistantPkg.InitializeAgentStack(
 		s.AppCtx,
-		s.persistence,
 		s.nodeHerder,
-		s.logger,
-		shellManager,
-		streamObserver,
+		assistantPkg.AgentStackDeps{
+			Persistence:  s.persistence,
+			Logger:       s.logger,
+			ShellManager: shellManager,
+			Observer:     streamObserver,
+			EgressProxy:  egressProxyURL,
+			EgressEnv:    egressEnv,
+		},
 	)
 
 	return s
+}
+
+// egressProxyUser is the Basic-auth username the agent credentials use; the
+// secret half is the per-process token.
+const egressProxyUser = "agent"
+
+// newEgressToken returns a 128-bit hex shared secret for the loopback egress
+// proxy (never logged; delivered to agent transports/shells only).
+func newEgressToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// startEgressProxy enables the agent egress proxy when sandboxing.egress_proxy
+// is a valid port, returning its proxy URL and the env vars shells need. The
+// returned cancel func is invoked by AppServices.Shutdown.
+func startEgressProxy(s *AppServices) (*url.URL, func() []string, error) {
+	port := s.AppCtx.HostSettings().Sandboxing.EgressProxy
+	if port <= 0 {
+		return nil, nil, nil // disabled
+	}
+	if port > 65535 {
+		return nil, nil, fmt.Errorf("invalid egress_proxy port %d", port)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.egressCancel = cancel
+
+	sb := s.AppCtx.HostSettings().Sandboxing
+	// Operator domain policy (plan §4.5/1d): allow list non-empty ⇒ default
+	// deny (only listed hosts); deny always wins.
+	allow, deny, defaultDeny := sb.EgressPolicy()
+	policy := egress.HostListPolicy{Allow: allow, Deny: deny, DefaultDeny: defaultDeny}
+	srv := egress.New(policy)
+
+	// Local-abuse hardening (plan §9 T5): a per-process shared secret. Only the
+	// agent's own transports and shells receive it, so other local processes
+	// cannot ride the proxy. Per-RUN scoping remains a documented follow-up (the
+	// proxy transport is pooled per process).
+	token, tokenErr := newEgressToken()
+	if tokenErr != nil {
+		return nil, nil, fmt.Errorf("egress proxy token: %w", tokenErr)
+	}
+	srv.SetToken(token)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	safeGo := func() {
+		if err := srv.Serve(ctx, addr); err != nil && ctx.Err() == nil {
+			logging.Error("agent egress proxy stopped unexpectedly", "addr", addr, "error", err.Error())
+		}
+	}
+	// safe.Go lives in platform/safe; bootstrap uses a plain goroutine tethered
+	// to ctx (cancelled in Shutdown) — Constitution II.14 termination path.
+	go safeGo()
+
+	proxyURL := &url.URL{Scheme: "http", Host: addr, User: url.UserPassword(egressProxyUser, token)}
+	host := proxyURL.Host
+	authHost := egressProxyUser + ":" + token + "@" + host
+	noProxy := "127.0.0.1,localhost,::1"
+	env := func() []string {
+		return []string{
+			"HTTP_PROXY=http://" + authHost, "http_proxy=http://" + authHost,
+			"HTTPS_PROXY=http://" + authHost, "https_proxy=http://" + authHost,
+			"NO_PROXY=" + noProxy, "no_proxy=" + noProxy,
+		}
+	}
+	logging.Info("Agent egress proxy enabled", "addr", addr)
+	return proxyURL, env, nil
 }
 
 // initShellOrchestrator spins up the background persistent shell manager
@@ -136,7 +227,13 @@ func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, 
 
 	settings := s.AppCtx.HostSettings()
 	if !settings.Sandboxing.Enabled {
-		log.Fatal("[SECURITY] Terminal execution is required for agentic execution. Set sandboxing.enabled = true in host settings.")
+		// Plan §4.1 decision: the master switch no longer bricks the service.
+		// With persistent terminals disabled agents fall back to one-shot
+		// executeLocal commands (no session state); host-level containment
+		// switches still apply. Historically this was log.Fatal — the loud
+		// warning is the documented replacement.
+		logging.Warn("[SECURITY] sandboxing.enabled is false — persistent terminals are disabled; agent commands run one-shot (no session state). Set sandboxing.enabled = true for full agentic execution.")
+		return nil, nil
 	}
 
 	if sm, err := shell.NewHostShellManager(); err == nil {
@@ -179,9 +276,14 @@ type AppServices struct {
 	limiter                ratelimiter.Limiter
 	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
 	RecordingStore         *recordings.RecordingStore
+	egressCancel           context.CancelFunc // stops the agent egress proxy (Phase 1c)
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {
+	if s.egressCancel != nil {
+		logging.Info("Stopping agent egress proxy...")
+		s.egressCancel()
+	}
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")
 		s.Runtime.Shutdown()

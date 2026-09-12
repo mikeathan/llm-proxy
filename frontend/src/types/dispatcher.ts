@@ -1,5 +1,6 @@
 // Global configuration types and automation read models.
 import type { LoopStrategy } from './model'
+import type { NetworkGrant } from './admin'
 
 export interface AutomationRun {
   id: string
@@ -32,6 +33,7 @@ export interface Automation {
   last_error?: string
   is_running?: boolean
   history?: AutomationRun[]
+  network_grant?: NetworkGrant
 }
 
 export interface RecordingMeta {
@@ -122,11 +124,6 @@ export interface GuardrailBlockedPayload {
   args: string
   reason: string
   category: string
-}
-
-export interface GuardrailDecision {
-  allow: boolean
-  persist: boolean
 }
 
 // UpstreamEventPayload describes a transient upstream LLM failure that is being

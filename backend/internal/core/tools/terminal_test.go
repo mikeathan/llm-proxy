@@ -536,8 +536,8 @@ func TestValidateTerminalCommand_DevNullSafePath(t *testing.T) {
 // no subpath or sibling in the same namespace gains access.
 func TestIsAlwaysSafeAbsolutePath(t *testing.T) {
 	tests := []struct {
-		path    string
-		want    bool
+		path string
+		want bool
 	}{
 		{"/dev/null", true},
 		{"/dev/null/", false},
@@ -1085,5 +1085,66 @@ func TestValidateTerminalCommand_HeredocWithSpace(t *testing.T) {
 				t.Errorf("unexpected error for %q: %v", tc.command, err)
 			}
 		})
+	}
+}
+
+// Risk-4 parity: executeLocal one-shots must receive the SAME env floor as
+// pooled shells when a workspace root is known (HOME redirected into .sandbox),
+// instead of inheriting the backend env. Verified by side effect: a write to
+// "$HOME" must land under root/.sandbox — direct output of the path would be
+// redacted by the .sandbox invisibility layer, so we assert on the filesystem.
+func TestExecuteLocal_AppliesEnvFloor(t *testing.T) {
+	root, err := os.MkdirTemp("", "exec-local-env-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+
+	tt := &TerminalTools{}
+	if _, err := tt.executeLocal(context.Background(), "sh", `mkdir -p "$HOME" && touch "$HOME/probe.txt"`, "", models.TerminalGuardrailsConfig{}, root); err != nil {
+		t.Fatalf("executeLocal: %v", err)
+	}
+
+	sandboxed := filepath.Join(root, ".sandbox", "probe.txt")
+	if _, err := os.Stat(sandboxed); err != nil {
+		t.Errorf("one-shot $HOME was not the env floor: expected %s (%v)", sandboxed, err)
+	}
+	realHome, err := os.UserHomeDir()
+	if err == nil {
+		if _, err := os.Stat(filepath.Join(realHome, "probe.txt")); err == nil {
+			t.Error("one-shot wrote into the REAL home — env floor not applied")
+			_ = os.Remove(filepath.Join(realHome, "probe.txt"))
+		}
+	}
+
+	// No workspace root: legacy inherit-backend-env behavior must not error.
+	if _, err := tt.executeLocal(context.Background(), "sh", "exit 0", "", models.TerminalGuardrailsConfig{}, ""); err != nil {
+		t.Fatalf("executeLocal without root: %v", err)
+	}
+}
+
+// Phase 3: max_storage_gb accounting blocks shell execution BEFORE any spawn
+// and is labeled as accounting, never a hard quota. Enabled only when a
+// workspace root is known (one-shot/pooled paths alike).
+func TestExecuteCommand_StorageAccountingBlock(t *testing.T) {
+	root := t.TempDir()
+	newTools := func(over func(wsID, wsRoot string) bool) *TerminalTools {
+		return NewTerminalTools(TerminalToolsDeps{
+			ConfigProvider: func(context.Context) models.TerminalGuardrailsConfig {
+				return models.TerminalGuardrailsConfig{SessionIdleTimeoutSeconds: 60}
+			},
+			PathResolver: func(workspaceID string) string { return root },
+			StorageOver:  over,
+		})
+	}
+	ctx := models.WithWorkspaceID(context.Background(), "ws-block")
+
+	if _, err := newTools(func(wsID, wsRoot string) bool { return wsRoot == root }).ExecuteCommand(ctx, "echo hi", ""); err == nil || !strings.Contains(err.Error(), "storage accounting limit exceeded") {
+		t.Fatalf("over-limit spawn must be blocked with an accounting-labeled error, got %v", err)
+	}
+
+	// Under the limit the command runs (limiter reports false).
+	if _, err := newTools(func(wsID, wsRoot string) bool { return false }).ExecuteCommand(ctx, "exit 0", ""); err != nil {
+		t.Fatalf("under-limit command must run, got %v", err)
 	}
 }

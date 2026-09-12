@@ -56,6 +56,10 @@ type ExecuteRequest struct {
 	LoopStrategy   string   // Optional per-run loop archetype override; "" = model config default
 	AllowedTools   []string // restrict tools for unattended runs
 	RecordingRef   string   // Recording file ID for playback (empty = live LLM)
+	// NetworkGrant is the automation's per-run network scope override (L2).
+	// Empty = inherit the workspace scope. Resolved against host (L0) + merged
+	// workspace guardrails (L1) in Execute via GuardrailEngine.ResolveRunScope.
+	NetworkGrant models.NetworkScope
 }
 
 type ExecuteResponse struct {
@@ -200,6 +204,21 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 
 	toolProvider := e.svc.ToolProvider()
 	agentOpts := e.buildAgentOptions(req, procLog, eventSink)
+	// Resolve the per-run network scope ONCE (host ceiling ∩ workspace L1,
+	// overridden by the automation's L2 grant) and reuse it everywhere for this
+	// run — agent schema, run ctx stamp, shell pool key, and the run-meta audit
+	// trail — so no two consumers can resolve different scopes. Chat runs never
+	// set this (inherit).
+	runScope := e.runNetworkScope(req)
+	agentOpts.RunNetworkScope = runScope
+	procLog.Info("Resolved run network scope", "workspace", req.WorkspaceID, "network_scope", runScope, "grant", req.NetworkGrant)
+	outcome := runOutcome{
+		req:       req,
+		resp:      resp,
+		runDir:    runDir,
+		startTime: startTime,
+		runScope:  runScope,
+	}
 	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
 	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
@@ -225,10 +244,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 
 	if agErr != nil {
-		return e.handleAgentError(req, resp, procLog, execCtx, runDir, startTime, agErr)
+		return e.handleAgentError(execCtx, outcome, agErr)
 	}
 
-	return e.handleAgentSuccess(req, resp, procLog, execCtx, runDir, startTime, finalReply, fullHistory)
+	return e.handleAgentSuccess(execCtx, outcome, finalReply, fullHistory)
 }
 
 func runDirName(runDir *RunDir) string {
@@ -332,6 +351,13 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 	return runDir, eventSink, hasRecording
 }
 
+// runNetworkScope resolves the effective per-run network scope (host ∩ merged
+// workspace L1, overridden by the automation's L2 grant). Idempotent and cheap;
+// used for the agent schema/ctx stamp and the run-meta audit trail.
+func (e *LLMTaskExecutor) runNetworkScope(req ExecuteRequest) models.NetworkScope {
+	return e.svc.GuardrailEngine().ResolveRunScope(req.WorkspaceID, req.NetworkGrant)
+}
+
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
 func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, eventSink *EventSink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
@@ -380,30 +406,43 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 	return opts
 }
 
+// runOutcome is the per-run state the terminal writers (error/success) need.
+// Grouped into one struct so the writers take ≤3 parameters — the previous
+// 9-positional-argument signatures were order-sensitive and unreadable (rule:
+// function params ≤4, else an options/deps struct).
+type runOutcome struct {
+	req       ExecuteRequest
+	resp      *ExecuteResponse
+	runDir    *RunDir
+	startTime time.Time
+	runScope  models.NetworkScope
+}
+
 // handleAgentError writes run-meta and records the failed run.
-func (e *LLMTaskExecutor) handleAgentError(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, startTime time.Time, agErr error) (*ExecuteResponse, error) {
+func (e *LLMTaskExecutor) handleAgentError(ctx context.Context, outcome runOutcome, agErr error) (*ExecuteResponse, error) {
 	errStr := fmt.Sprintf("agent execution failed: %v", agErr)
-	if runDir != nil {
+	if outcome.runDir != nil {
 		meta := RunMeta{
-			Model:      req.Model,
-			Task:       req.AutomationName,
-			DurationMs: time.Since(startTime).Milliseconds(),
-			Error:      errStr,
+			Model:        outcome.req.Model,
+			Task:         outcome.req.AutomationName,
+			DurationMs:   time.Since(outcome.startTime).Milliseconds(),
+			Error:        errStr,
+			NetworkScope: string(outcome.runScope),
 		}
-		if t := assistant.GetUsageTracker(execCtx); t != nil {
+		if t := assistant.GetUsageTracker(ctx); t != nil {
 			meta.LLMCalls = t.LLMCalls
 			meta.ToolCalls = t.ToolCalls
 		}
-		meta.RecordingPath = runDir.RecordingRelPath(e.svc.RecordDir())
-		runDir.WriteMeta(meta)
+		meta.RecordingPath = outcome.runDir.RecordingRelPath(e.svc.RecordDir())
+		outcome.runDir.WriteMeta(meta)
 	}
-	resp.State.SetRunning("")
-	e.recordRun(req, resp.State, "", errStr, time.Since(startTime), runDir)
-	return resp, fmt.Errorf("agent execution failed: %w", agErr)
+	outcome.resp.State.SetRunning("")
+	e.recordRun(outcome.req, outcome.resp.State, "", errStr, time.Since(outcome.startTime), outcome.runDir)
+	return outcome.resp, fmt.Errorf("agent execution failed: %w", agErr)
 }
 
 // handleAgentSuccess formats output, writes per-run artifacts, and records the run.
-func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteResponse, procLog logging.Logger, execCtx context.Context, runDir *RunDir, startTime time.Time, finalReply string, fullHistory []proxy.Message) (*ExecuteResponse, error) {
+func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOutcome, finalReply string, fullHistory []proxy.Message) (*ExecuteResponse, error) {
 	runResult := finalReply
 	var runError string
 
@@ -422,7 +461,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 	// Prepare formatted output
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	header := fmt.Sprintf("[%s] ▶ Executing automation `%s` in workspace `%s`...\nReading task file: `%s`\n\n",
-		timestamp, req.AutomationName, req.WorkspaceID, req.TaskFile)
+		timestamp, outcome.req.AutomationName, outcome.req.WorkspaceID, outcome.req.TaskFile)
 
 	output := strings.TrimSpace(runResult)
 
@@ -437,14 +476,14 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 		}
 	}
 
-	elapsed := time.Since(startTime)
+	elapsed := time.Since(outcome.startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
-	resp.Output = fullOutput
+	outcome.resp.Output = fullOutput
 	runResult = fullOutput
-	resp.State.SetRunning("")
+	outcome.resp.State.SetRunning("")
 
 	// Push a concluding message to the UI stream to clear "thinking..."
-	e.svc.Events().Publish(req.WorkspaceID, assistant.AgentEvent{
+	e.svc.Events().Publish(outcome.req.WorkspaceID, assistant.AgentEvent{
 		Type:    assistant.EventMessage,
 		Channel: assistant.ChannelAutomation,
 		Payload: proxy.Message{
@@ -453,28 +492,29 @@ func (e *LLMTaskExecutor) handleAgentSuccess(req ExecuteRequest, resp *ExecuteRe
 		},
 	})
 
-	if runDir != nil {
-		runDir.WriteFinalReport(output)
+	if outcome.runDir != nil {
+		outcome.runDir.WriteFinalReport(output)
 		resultPreview := output
 		if len(resultPreview) > 120 {
 			resultPreview = resultPreview[:120] + "..."
 		}
 		meta := RunMeta{
-			Model:         req.Model,
-			Task:          req.AutomationName,
-			DurationMs:    time.Since(startTime).Milliseconds(),
+			Model:         outcome.req.Model,
+			Task:          outcome.req.AutomationName,
+			DurationMs:    time.Since(outcome.startTime).Milliseconds(),
 			Result:        resultPreview,
-			RecordingPath: runDir.RecordingRelPath(e.svc.RecordDir()),
+			RecordingPath: outcome.runDir.RecordingRelPath(e.svc.RecordDir()),
+			NetworkScope:  string(outcome.runScope),
 		}
-		if t := assistant.GetUsageTracker(execCtx); t != nil {
+		if t := assistant.GetUsageTracker(ctx); t != nil {
 			meta.LLMCalls = t.LLMCalls
 			meta.ToolCalls = t.ToolCalls
 		}
-		runDir.WriteMeta(meta)
+		outcome.runDir.WriteMeta(meta)
 	}
 
-	e.recordRun(req, resp.State, runResult, runError, time.Since(startTime), runDir)
-	return resp, nil
+	e.recordRun(outcome.req, outcome.resp.State, runResult, runError, time.Since(outcome.startTime), outcome.runDir)
+	return outcome.resp, nil
 }
 
 func formatDuration(d time.Duration) string {

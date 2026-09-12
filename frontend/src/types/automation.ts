@@ -1,4 +1,5 @@
 import type { LoopStrategy } from './model'
+import type { NetworkGrant } from './admin'
 
 // TriggerType is the automation trigger kind (cron / interval / manual).
 export type TriggerType = 'cron' | 'interval' | 'manual'
@@ -13,4 +14,5 @@ export interface AutomationFormData {
   strategy: string
   model: string
   loopStrategy: LoopStrategy
+  networkGrant: NetworkGrant
 }

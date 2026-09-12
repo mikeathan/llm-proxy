@@ -6,6 +6,8 @@ package models
 
 import (
 	"context"
+
+	"gopkg.in/yaml.v3"
 )
 
 type contextKey string
@@ -15,6 +17,7 @@ const (
 	GuardrailApprovedKey contextKey = "guardrail_approved"
 	TaskNameKey          contextKey = "task_name"
 	RunIDKey             contextKey = "run_id"
+	RunNetworkScopeKey   contextKey = "run_network_scope"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -33,9 +36,29 @@ func WithWorkspaceID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, WorkspaceIDKey, id)
 }
 
-// GetGuardrailApproved returns true if the context carries a guardrail-
-// approval marker, signalling that the caller has already validated the
-// tool call through the user-facing guardrail decision flow.
+// WithRunNetworkScope stamps the RESOLVED network scope for an agent run onto
+// the context (plan §4.4). Consumers: the guardrail engine (schema + hard
+// denial), the network tool config provider (runtime enable/scope), and the
+// shell pool key (networkOn). Undecided/absent = the workspace guardrail tier
+// governs, preserving pre-grant behavior.
+func WithRunNetworkScope(ctx context.Context, scope NetworkScope) context.Context {
+	return context.WithValue(ctx, RunNetworkScopeKey, scope)
+}
+
+// RunNetworkScopeFrom returns the resolved run scope and whether one was
+// explicitly stamped. ok=false (or scope == NetworkScopeInherit) means the
+// caller should fall back to the workspace guardrail tier.
+func RunNetworkScopeFrom(ctx context.Context) (NetworkScope, bool) {
+	if ctx == nil {
+		return NetworkScopeInherit, false
+	}
+	s, ok := ctx.Value(RunNetworkScopeKey).(NetworkScope)
+	if !ok || !s.Valid() {
+		return NetworkScopeInherit, false
+	}
+	return s, s != NetworkScopeInherit
+}
+
 func GetGuardrailApproved(ctx context.Context) bool {
 	if ctx == nil {
 		return false
@@ -153,10 +176,97 @@ type NetworkGuardrailsConfig struct {
 	BlockedIPs          []string `json:"blocked_ips,omitempty" yaml:"blockedips"`
 	MaxFetchSizeKB      int      `json:"max_fetch_size_kb" yaml:"maxfetchsizekb"`
 	TimeoutSeconds      int      `json:"timeout_seconds" yaml:"timeoutseconds"`
+
+	// present records that the decoded document explicitly contained a network
+	// block. It is the override-stack presence signal (SPEC-006 §II.2): a layer
+	// that configured the block — including an explicit `false` — replaces the
+	// inherited allow flags, while an absent block inherits the baseline.
+	// Unset on programmatic construction and never persisted (unexported, so
+	// both yaml and json codecs ignore it).
+	present bool
+}
+
+// UnmarshalYAML records explicit presence of the network block so MergeWith can
+// tell "this layer set Internet = false" apart from "this layer said nothing"
+// (both decode the boolean as false). Programmatic configs are not overrides and
+// correctly leave present unset.
+func (c *NetworkGuardrailsConfig) UnmarshalYAML(value *yaml.Node) error {
+	// plain drops the method set so value.Decode does not recurse into this
+	// unmarshaler.
+	type plain NetworkGuardrailsConfig
+	var decoded plain
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	*c = NetworkGuardrailsConfig(decoded)
+	c.present = true
+	return nil
 }
 
 func (c TerminalGuardrailsConfig) IsActive() bool {
 	return c.Enabled || len(c.AllowedCommands) > 0
+}
+
+// WithRunScope restricts a copy of this network config to an EXPLICITLY resolved
+// run scope (plan §4.4, L2 automation grant): none disables the category; lan /
+// internet_only / internet set that exact reachability, overriding the workspace
+// L1 allow flags within the host ceiling. `internet` grants LAN + internet;
+// `internet_only` grants internet while blocking the in-process LAN tools
+// (scan/info) and private-address fetches. The scope-to-config mapping lives
+// here (single source) so the guardrail engine, the network tools' runtime
+// config, and any future consumer cannot drift. ok=false (inherit/unknown
+// scope) returns the config unchanged.
+func (c NetworkGuardrailsConfig) WithRunScope(scope NetworkScope) (NetworkGuardrailsConfig, bool) {
+	switch scope {
+	case NetworkScopeNone:
+		c.Enabled = false
+		return c, true
+	case NetworkScopeLan:
+		c.Enabled = true
+		c.AllowLanAccess = true
+		c.AllowInternetAccess = false
+		return c, true
+	case NetworkScopeInternetOnly:
+		c.Enabled = true
+		c.AllowLanAccess = false
+		c.AllowInternetAccess = true
+		return c, true
+	case NetworkScopeInternet:
+		c.Enabled = true
+		c.AllowLanAccess = true
+		c.AllowInternetAccess = true
+		return c, true
+	default:
+		return c, false
+	}
+}
+
+// EffectiveScope resolves this workspace (L1) guardrail network policy against
+// the host ceiling (L0) and an optional per-run (L2) automation grant (plan
+// §4.4 grant model). Host off ⇒ none regardless of everything else; an explicit
+// grant wins over L1; an empty/unknown grant inherits L1 (Enabled + allow
+// flags). The two L1 flags are independent: internet-only when internet is on
+// and LAN is off. LAN-vs-internet is an app-layer distinction; the OS shell key
+// (D8) only needs NetworkOn (scope != none).
+func (c NetworkGuardrailsConfig) EffectiveScope(hostAllowed bool, grant NetworkScope) NetworkScope {
+	if !hostAllowed {
+		return NetworkScopeNone
+	}
+	switch grant {
+	case NetworkScopeNone, NetworkScopeLan, NetworkScopeInternet, NetworkScopeInternetOnly:
+		return grant
+	}
+	// inherit (or unknown grant) → workspace guardrail L1 scope
+	switch {
+	case c.Enabled && c.AllowInternetAccess && c.AllowLanAccess:
+		return NetworkScopeInternet
+	case c.Enabled && c.AllowInternetAccess:
+		return NetworkScopeInternetOnly
+	case c.Enabled && c.AllowLanAccess:
+		return NetworkScopeLan
+	default:
+		return NetworkScopeNone
+	}
 }
 
 func (c TerminalGuardrailsConfig) HasExternalAccess() bool {
@@ -266,14 +376,14 @@ func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	}
 
 	// 6. Network
-	if other.Network.Enabled {
-		c.Network.Enabled = true
-	}
-	if other.Network.AllowLanAccess {
-		c.Network.AllowLanAccess = true
-	}
-	if other.Network.AllowInternetAccess {
-		c.Network.AllowInternetAccess = true
+	// Presence-aware override (SPEC-006 §II.2): a layer that explicitly
+	// configured the network block replaces the inherited allow flags, so a
+	// workspace can restrict with an explicit `false` as well as loosen. An
+	// absent block inherits the baseline. Ints/slices still merge additively.
+	if other.Network.present {
+		c.Network.Enabled = other.Network.Enabled
+		c.Network.AllowLanAccess = other.Network.AllowLanAccess
+		c.Network.AllowInternetAccess = other.Network.AllowInternetAccess
 	}
 	if other.Network.MaxFetchSizeKB > 0 {
 		c.Network.MaxFetchSizeKB = other.Network.MaxFetchSizeKB

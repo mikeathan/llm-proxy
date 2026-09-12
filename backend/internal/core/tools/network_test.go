@@ -2,11 +2,15 @@ package tools
 
 import (
 	"context"
-	"net"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 type mockLogger struct{}
@@ -273,5 +277,84 @@ func TestValidateScanTargets(t *testing.T) {
 				t.Errorf("ValidateScanTargets() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// Phase 1c: SetProxy routes the guarded client's outbound traffic through the
+// egress proxy (transport.Proxy returns the configured URL for any request).
+func TestNetworkToolsSetProxy(t *testing.T) {
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{Enabled: true}
+	}, logging.NewNopLogger())
+
+	u, err := url.Parse("http://127.0.0.1:4002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.SetProxy(u)
+	n.SetProxy(nil) // nil is a no-op
+
+	tr, ok := n.HTTPClient().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", n.HTTPClient().Transport)
+	}
+	req, _ := http.NewRequest("GET", "http://example.com/x", nil)
+	pu, err := tr.Proxy(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pu == nil || pu.Host != "127.0.0.1:4002" {
+		t.Fatalf("transport proxy = %v, want 127.0.0.1:4002", pu)
+	}
+	// The guarded DialContext must remain the transport dialer (proxy is dialed
+	// via the same validation path).
+	if tr.DialContext == nil {
+		t.Error("guarded DialContext must stay wired")
+	}
+}
+
+// TestNetworkToolsProxyRoundTrip proves an actual request flows through the
+// configured proxy. This guards the loopback-guard regression: the guarded
+// DialContext used to refuse to dial the loopback proxy, so every proxied
+// fetch died before reaching it. A proxy double answers directly (no upstream),
+// and the target is a public IP literal so no DNS is needed.
+func TestNetworkToolsProxyRoundTrip(t *testing.T) {
+	sawRequest := make(chan string, 1)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawRequest <- r.URL.Host // the absolute-form authority the client asked to proxy
+		_, _ = w.Write([]byte("VIA_PROXY_OK"))
+	}))
+	defer proxy.Close()
+
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	}, logging.NewNopLogger())
+
+	pu, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.SetProxy(pu)
+
+	body, err := n.FetchURL(context.Background(), "http://1.2.3.4/hello")
+	if err != nil {
+		t.Fatalf("fetch through proxy failed: %v", err)
+	}
+	if body != "VIA_PROXY_OK" {
+		t.Fatalf("fetch through proxy = %q, want VIA_PROXY_OK", body)
+	}
+	select {
+	case host := <-sawRequest:
+		if host != "1.2.3.4" {
+			t.Errorf("proxy received authority %q, want 1.2.3.4", host)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy never saw the proxied request")
+	}
+
+	// Loopback destinations remain blocked by the tool layer even with a proxy
+	// configured (the proxy dial is the only loopback exception).
+	if _, err := n.FetchURL(context.Background(), "http://127.0.0.1:9999/x"); err == nil {
+		t.Error("fetch to loopback must still be denied by the tool guard")
 	}
 }

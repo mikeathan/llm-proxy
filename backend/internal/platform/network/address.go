@@ -14,7 +14,7 @@ func ResolveHost(host string) string {
 	return host
 }
 
-// GetReachableHost attempts to convert a listener address (like 0.0.0.0) into 
+// GetReachableHost attempts to convert a listener address (like 0.0.0.0) into
 // an address that is reachable from the network (the primary LAN IP).
 func GetReachableHost(host string) string {
 	if host == "" || host == models.AddrLocalhost {

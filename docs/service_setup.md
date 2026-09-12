@@ -125,3 +125,43 @@ journalctl -u llm-proxy.service -f
   capabilities (`CapabilityBoundingSet=` is empty by design).
 - Check effective hardening any time with:
   `systemd-analyze security llm-proxy.service`
+
+## macOS (launchd daemon, dedicated user)
+
+The Linux service model (dedicated unprivileged user owning only the data root)
+applies to macOS production via a launchd daemon — this is the PRIMARY macOS
+containment (agent-os-sandboxing plan D4: uid-first; Seatbelt is a dev-mode
+concern only).
+
+```bash
+# 1. Dedicated user + data root (no login, owns nothing outside the root)
+sudo dscl . -create /Users/llm-proxy
+sudo dscl . -create /Users/llm-proxy UserShell /usr/bin/false
+sudo dscl . -create /Users/llm-proxy UniqueID 410
+sudo mkdir -p /var/lib/llm-proxy/logs
+sudo chown -R llm-proxy:staff /var/lib/llm-proxy
+sudo chmod 700 /var/lib/llm-proxy
+
+# 2. Install the binary + plist (template: docs/services/llm-proxy.launchd.plist)
+sudo cp backend/llm-proxy /usr/local/bin/llm-proxy
+sudo cp docs/services/llm-proxy.launchd.plist /Library/LaunchDaemons/llm-proxy.plist
+# (edit UserName / LLM_PROXY_HOME in the plist if you customized them)
+
+# 3. Start
+sudo launchctl bootstrap system /Library/LaunchDaemons/llm-proxy.plist
+tail -f /var/lib/llm-proxy/logs/daemon.err.log
+```
+
+Credentials are already at rest as encrypted `secrets.json` under the data root
+(Constitution III.6) — no Keychain dependency. Workspaces live under the root
+(`workspaces_dir: workspaces`), owned by the service user, so agent children
+cannot read the operator's home by construction.
+
+## Linux service — resource limits (cgroup v2)
+
+`docs/services/llm-proxy.service` now sets `MemoryMax=8G` / `MemoryHigh=6G` and
+`TasksMax=512` (agent-os-sandboxing plan Phase 3): the whole service scope —
+backend plus every agent-spawned shell/toolchain child — is bounded by real
+cgroup v2 limits; `TasksMax` caps fork-bombs per service without the per-uid
+blast radius of `RLIMIT_NPROC`. Re-verify with `systemd-analyze security` and
+the Phase-3 acceptance (`node -e`, `go build`, `npm install` under the limits).

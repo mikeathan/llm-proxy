@@ -31,7 +31,7 @@ Organized by subsystem:
 |------|-------|--------|------|---------------|
 | [`unattended-run-safety-hardening.md`](unattended-run-safety-hardening.md) | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | approved | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
 | [`gpu-performance.md`](gpu-performance.md) | GPU Performance (consolidated: completed + next steps) | active | 2026-08-06 | — |
-| [`agent-loop/agent-improvements.md`](agent-loop/agent-improvements.md) | Agent Improvements (7-phase) | partial | — | SPEC-001 |
+| [`agent-loop/agent-improvements.md`](agent-loop/agent-improvements.md) | Agent Improvements (7-phase; re-scoped 2026-09-05 — Phases 3/6 superseded by SPEC-010, Phase 4/5/7-remainder open) | partial | — | SPEC-001 |
 | [`agent-loop/agent-loop-strategies.md`](agent-loop/agent-loop-strategies.md) | Agent Loop Strategies (pluggable loop-strategy engine) | complete | 2026-08-16 | SPEC-001, SPEC-010 |
 | [`agent-loop/strategy-agnostic-completion-and-tool-schema.md`](agent-loop/strategy-agnostic-completion-and-tool-schema.md) | Strategy-Agnostic Completion + Tool-Schema/Policy Consistency | complete | 2026-08-18 | SPEC-010, SPEC-006, SPEC-001 |
 | [`agent-loop/surface-planning-reasoning.md`](agent-loop/surface-planning-reasoning.md) | Surface Plan-Generation Reasoning (stream the planner) | complete | 2026-08-18 | SPEC-010, SPEC-001, SPEC-003 |
@@ -39,9 +39,7 @@ Organized by subsystem:
 | [`assistant-ui/overhaul-chat-history-layout.md`](assistant-ui/overhaul-chat-history-layout.md) | Assistant UI Overhaul | active | 2026-06-25 | SPEC-003 |
 | [`assistant-ui/automation-renderer-unify-consumption.md`](assistant-ui/automation-renderer-unify-consumption.md) | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
 | [`assistant-ui/automation-edit-form-reactivity.md`](assistant-ui/automation-edit-form-reactivity.md) | Fix Automation Edit Form — reactive populate | proposed | 2026-08-01 | SPEC-003, SPEC-007 |
-| [`assistant-ui/knight-rider-arc-bubble.md`](assistant-ui/knight-rider-arc-bubble.md) | Knight Rider Arc Bubble | active | 2026-06-26 | SPEC-003 |
-| [`assistant-ui/cancel-stale-turn-bleed.md`](assistant-ui/cancel-stale-turn-bleed.md) | Cancel Stale Turn Bleed | active | 2026-06-26 | SPEC-003 |
-| [`cross-cutting/cloud-provider-token-budgets.md`](cross-cutting/cloud-provider-token-budgets.md) | Cloud Provider Token Budgets + Provider Set Reduction | active | 2026-08-01 | SPEC-005, SPEC-003 |
+| [`cross-cutting/ci-github-actions-and-versioning.md`](cross-cutting/ci-github-actions-and-versioning.md) | CI, GitHub Actions Integration & Versioning Flow (P1 CI + P4 tag implemented; P2/P3 + P6 pending, P5 parked) | partial | 2026-08-30 | — |
 | [`cross-cutting/connector-inbound-webhook.md`](cross-cutting/connector-inbound-webhook.md) | Communication Connector Inbound Webhook | complete | 2026-06-28 | SPEC-009 |
 | [`cross-cutting/connector-auto-reply.md`](cross-cutting/connector-auto-reply.md) | Communication Connector Auto-Reply & Automation Trigger | active | 2026-06-28 | SPEC-009 |
 | [`cross-cutting/webhook-fresh-sessions.md`](cross-cutting/webhook-fresh-sessions.md) | Fresh Webhook Sessions + Source Grouping | complete | 2026-07-09 | SPEC-009 |
@@ -65,20 +63,21 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| approved | Unattended Run Safety Hardening | Steps 6+ (post-refactor safety fixes, optimizations) |
-| active | GPU Performance | P0–P4 rendering/metrics; P5 blocked on fix-final-report-realignment |
-| active | Assistant UI Overhaul | Phases 4–5 (refresh resilience, deferred backend SSE bleed) |
-| active | Knight Rider Arc Bubble | extraction to `ArcOrbitLoader` (input/header) |
-| active | Cancel Stale Turn Bleed | deferred backend SSE bleed follow-up |
-| active | Cloud Provider Token Budgets | Phase 7 reasoning enable (merged); remaining budget phases |
+| approved | Unattended Run Safety Hardening | Steps 6–9 (context-aware I/O hardening, unattended tool restriction & spiral detection, perf optimizations, docs sync) |
+| active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
+| active | Assistant UI Overhaul | Phases 4–5 (streaming progress, mobile layout, refresh resilience; now home for the backend SSE-bleed fix absorbed from the archived cancel-stale-turn-bleed plan) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |
-| partial | Agent Improvements | remaining of 7 phases |
-| partial | Memory Improvements | remaining phases (nudge, meter, dedup, search, tagging) |
+| partial | CI & Versioning | P2/P3 hygiene work + P6 (verify tag flow on a real merge); P5 build-release deliberately parked |
+| partial | Agent Improvements | re-scoped 2026-09-05: only Phase 4 (tool dedup), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent wrap) still valid — see re-scope note in plan |
+| partial | Memory Improvements | Session Search tool (FTS5 `session_search`) + Skill System (procedural memory) — everything else done |
+| partial | Assistant Liveness Heartbeat & Package Restructure | §4.3/§4.4 package extractions deferred (§2, §3, §4.1 done; §4.2 rejected) |
 | proposed | Automation Edit Form Reactivity | implement derive-don't-sync refactor |
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
 | proposed | Agent OS Sandboxing | Phases 1–6 (rlimits → FS jail → network switch → OS network deny → egress proxy → deployment hardening) |
-| proposed | Assistant Liveness Heartbeat & Package Restructure | heartbeat component + still_thinking + loading fix + package extractions (4.1/4.2) |
-| partial | XDG Config/Data Relocation | Phases 0–7, 9–11 done (paths pkg, storage tests, resolver unification, race/perf/security fixes, AppConfig settings.yml merge, relocation, reset controls, permission hardening); Phase 8 removed; Phase 7 templates embed + Phase 12 docs/.gitignore/untrack remain/finalized |
+| proposed | Tool-Call Grammar Re-enable | envelope-aware GBNF + opt-in per-model toggle, XML path only |
+| proposed | SQLite Session Storage | JSON → SQLite migration (deliberately deferred, future work) |
+
+> **2026-09-05 hygiene pass:** archived as complete — `knight-rider-arc-bubble.md` (extraction to `ArcOrbitLoader` verified in code), `cloud-provider-token-budgets.md` (all phases incl. merged Phase 7 + M8 probe verified). Archived as merged — `cancel-stale-turn-bleed.md` (backend SSE bleed now homed in overhaul Phase 5). `xdg-config-data-relocation.md` removed from this table (already complete, row was stale).
 
 See [`docs/INDEX.md`](../INDEX.md) for the full catalog with IDs and cross-references.

@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, toRef } from "vue";
+import { ref, computed, toRef, onMounted } from "vue";
 import type { Automation } from "../../../types/dispatcher";
 import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
+import { useHostNetworkState } from "../../../composables/settings/useHostNetworkState";
 import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import CronEditor from "./CronEditor.vue";
 import Icon from "../../icons/Icon.vue";
+
+// Host-level network state (sandboxing.network). When the host switch is
+// explicitly OFF every grant below resolves to "none" (models.EffectiveScope:
+// host off ⇒ none regardless of grant) — the select stays enabled so operators
+// can pre-configure a grant for when the host is re-enabled, with an honest
+// inline notice. Shown only once the state is known (never guessed).
+const { hostNetworkOff, hostNetworkKnown, load: loadHostNetwork } = useHostNetworkState();
+onMounted(loadHostNetwork);
 
 const props = defineProps<{
   workspaces: { id: string }[];
@@ -61,6 +70,7 @@ const handleSubmit = () => {
     strategy: data.strategy,
     model: data.model,
     loop_strategy: data.loopStrategy,
+    network_grant: data.networkGrant,
   };
 
   if (props.editAutomation) {
@@ -187,10 +197,31 @@ const handleCancel = () => {
                </select>
                <p class="form-helper">{{ loopStrategyHelper }}</p>
              </div>
+             <!-- Network access (per-run scope override, sandboxing plan) -->
+             <div class="config-field">
+               <label class="field-label-tiny">Network access</label>
+               <p v-if="hostNetworkKnown && hostNetworkOff" class="form-helper form-helper-warn">
+                 Host network is OFF (Settings → Security &amp; Sandboxing): this run will resolve to "none" until the host switch is enabled. The grant is kept for when it is.
+               </p>
+               <select
+                 v-model="form.networkGrant"
+                 class="select-input select-input--nested"
+               >
+                 <option value="">Inherit workspace settings (default)</option>
+                 <option value="none">No network — block every network tool</option>
+                 <option value="lan">Local network only — no internet</option>
+                 <option value="internet_only">Internet only — no local network</option>
+                 <option value="internet">Local network + Internet</option>
+               </select>
+               <p class="form-helper">
+                 Overrides this automation's network scope for its runs only. Inherit = use the
+                 workspace's network settings. An explicit grant may tighten or loosen within the
+                 host ceiling. This controls the agent's network tools (fetch, scan, search,
+                 connectors); terminal commands keep direct network access once any network is allowed.
+               </p>
+             </div>
           </div>
         </div>
-
-        <!-- Task File -->
         <div class="field-group">
           <label class="field-label">Task File</label>
           <select 
@@ -319,6 +350,10 @@ const handleCancel = () => {
 
 .form-helper {
   @apply text-xs text-gray-500;
+}
+
+.form-helper-warn {
+  @apply text-amber-400;
 }
 
 .select-input {

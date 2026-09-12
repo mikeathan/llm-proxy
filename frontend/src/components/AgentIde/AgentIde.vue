@@ -224,7 +224,7 @@ const refreshExternalAccess = async () => {
   }
 };
 
-let historyInterval: any = null;
+let historyInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
   fetchAutomations();

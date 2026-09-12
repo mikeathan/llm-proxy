@@ -11,6 +11,7 @@ import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import GuardrailBanner from "../../common/chat/GuardrailBanner.vue";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
+import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 
 const props = defineProps<{
   automation: Automation;
@@ -74,16 +75,8 @@ const {
 
 const automationTurns = computed(() => groupTurns(displayMessages.value));
 
-const expandedSegments = ref<Record<string, boolean>>({});
 const { insetCollapsed, isInsetCollapsed, toggleInset } = useTurnInset(phase, automationTurns);
-
-function isSegExpanded(turnIdx: number, segIdx: number): boolean {
-  return !!expandedSegments.value[`${turnIdx}-${segIdx}`];
-}
-function toggleSegment(turnIdx: number, segIdx: number) {
-  const key = `${turnIdx}-${segIdx}`;
-  expandedSegments.value = { ...expandedSegments.value, [key]: !expandedSegments.value[key] };
-}
+const { expandedSegments, isSegExpanded, toggleSegment } = useExpandedSegments();
 
 onMounted(() => {
   connect();

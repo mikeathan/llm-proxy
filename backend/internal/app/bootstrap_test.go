@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/platform/storage"
-	"llm-proxy/internal/platform/paths"
-	"llm-proxy/internal/testing/mocks"
+	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/paths"
+	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 	realutils "llm-proxy/utils"
-	"llm-proxy/internal/buildinfo"
 )
 
 func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
@@ -34,7 +34,7 @@ func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 
 func minimalDataManager(t *testing.T) *storage.DataManager {
 	dir := t.TempDir()
-	
+
 	// Pre-create config.json so NewDataManager doesn't fail if it expects it
 	cfg := &models.Config{
 		Server: models.ServerConfig{
@@ -42,9 +42,9 @@ func minimalDataManager(t *testing.T) *storage.DataManager {
 			ModelHost:       "http://localhost",
 			IdleTimeoutSecs: 10,
 		},
-		Models:   []models.ModelConfig{},
+		Models: []models.ModelConfig{},
 	}
-	
+
 	data, _ := json.Marshal(cfg)
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
 
@@ -54,12 +54,12 @@ func minimalDataManager(t *testing.T) *storage.DataManager {
 	}
 
 	if err := mgr.LoadAll(); err != nil {
-		// If files don't exist, LoadAll might fail, but NewDataManager should have created them 
+		// If files don't exist, LoadAll might fail, but NewDataManager should have created them
 		// if they follow the "create if not exist" pattern.
 		// Actually, storage.Store.Load() usually returns error if file not found.
 		t.Logf("LoadAll failed (expected if empty): %v", err)
 	}
-	
+
 	return mgr
 }
 
@@ -89,7 +89,7 @@ func TestLimiter_IsSingleton(t *testing.T) {
 	settings := appCtx.HostSettings()
 	settings.Sandboxing.Enabled = true
 	_ = appCtx.UpdateHostSettings(settings)
-	
+
 	c := &Container{
 		Core: Core{
 			AppCtx: appCtx,
@@ -118,7 +118,7 @@ func TestApp_ServerTimeouts(t *testing.T) {
 	utils.SetRequiredEnv(t)
 
 	dataMgr := minimalDataManager(t)
-	
+
 	// Enable sandboxing for bootstrap
 	appCtx := NewServer(nil, dataMgr)
 	settings := appCtx.HostSettings()

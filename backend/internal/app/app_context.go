@@ -10,22 +10,27 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
 
 type AppContext struct {
-	manager       llm.RuntimeManager
-	orch          *orchestrator.Orchestrator
-	dbProvider    db.Provider   // shared SQLite connection for ledger + memory
-	memoryStore   *memory.Store // agent memory, nil when disabled
-	dataMgr       *storage.DataManager
-	resolver      *storage.PathResolver
-	rootDir       string
-	gpuConfig     models.GPUConfig
-	metrics       *metrics.MetricsService
-	terminal      shell.ShellProvider
+	manager     llm.RuntimeManager
+	orch        *orchestrator.Orchestrator
+	dbProvider  db.Provider   // shared SQLite connection for ledger + memory
+	memoryStore *memory.Store // agent memory, nil when disabled
+	dataMgr     *storage.DataManager
+	resolver    *storage.PathResolver
+	rootDir     string
+	gpuConfig   models.GPUConfig
+	metrics     *metrics.MetricsService
+	terminal    shell.ShellProvider
+	// sandboxProv is the OS-confinement provider selected at bootstrap; it
+	// backs the Effective runtime projection on host-settings GETs. nil until
+	// BuildAppServices wires it (SPEC-006 §II.7.4 downgrade reporting).
+	sandboxProv   sandbox.Provider
 	configMu      sync.RWMutex
 	cliEnableRuns bool
 

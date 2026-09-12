@@ -4,6 +4,17 @@ related_specs: [SPEC-001]
 ---
 # Agent Improvements Plan
 
+> **Re-scope note (2026-09-05, plan-hygiene review):** this plan predates the SPEC-010
+> loop-strategy engine and much of its surviving scope has been overtaken by it:
+> - Phase 3 (fallback retry w/ context injection) — **superseded** by the SPEC-001 fallback
+>   chain + sieve recovery that shipped with the loop-strategy work.
+> - Phase 6 (execution plan strategy) — **shipped** as the plan-and-execute strategy in
+>   SPEC-010 (`agent-loop/agent-loop-strategies.md`, complete).
+> - **Still potentially valid:** Phase 4 (tool deduplication for MCP re-listing — revisit
+>   against SPEC-008), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent auto-wrap).
+> Re-validate each against current code before implementing; do not treat the sketches
+> below as current-state descriptions.
+
 Merged findings from [OpenClaw](https://github.com/openclaw/openclaw) and [agent-sdk-go](https://github.com/Ingenimax/agent-sdk-go) into 7 independent, testable, non-breaking phases.
 
 ---

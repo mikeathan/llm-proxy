@@ -24,11 +24,18 @@ import (
 // sampling parameters.  The cache key includes temperature, top_p, and
 // presence_penalty to prevent KV-cache state corruption.
 type SlotManager struct {
-	store *ledger.Store
+	store      *ledger.Store
+	httpClient *http.Client
 }
 
 func NewSlotManager(store *ledger.Store) *SlotManager {
-	return &SlotManager{store: store}
+	// Constitution I.2: infrastructure local probes (/slots) ride the dedicated
+	// shared pooled transport — never http.DefaultClient (I.1). No agent-tool
+	// guardrails apply to this infra traffic class.
+	return &SlotManager{
+		store:      store,
+		httpClient: &http.Client{Transport: network.SharedTransport},
+	}
 }
 
 type SlotParams struct {
@@ -59,7 +66,7 @@ func (m *SlotManager) doSlotRequest(ctx context.Context, method, url string) (*h
 	if err != nil {
 		return nil, fmt.Errorf("slot request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("slot do: %w", err)
 	}

@@ -20,6 +20,7 @@ type AutomationEntry struct {
 	LoopStrategy models.LoopStrategy // per-run loop archetype override; "" = model config default
 	AllowedTools []string
 	RecordingRef string
+	NetworkGrant models.NetworkScope // per-run network scope override (plan §4.4)
 }
 
 // AutomationRegistry manages registered automations.
@@ -59,6 +60,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		LoopStrategy: auto.LoopStrategy,
 		AllowedTools: auto.AllowedTools,
 		RecordingRef: auto.RecordingRef,
+		NetworkGrant: auto.NetworkGrant,
 	}
 
 	r.mu.Lock()

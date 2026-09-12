@@ -51,5 +51,8 @@ LLM-proxy is a high-performance LLM proxy and agentic automation platform. It is
 
 ## V. Future Roadmap
 *   **Discovery Panel Implementation**: Visualizing the 3-tier environment.
-*   **Advanced Sandboxing**: Migrating more tools to the Wazero-based WASM sandbox.
+*   ~~**Advanced Sandboxing**: Migrating more tools to the Wazero-based WASM sandbox.~~
+    (SUPERSEDED — see `docs/PLANS/cross-cutting/agent-os-sandboxing.md` rev 2: a WASM sandbox
+    cannot confine the host binaries that are the agent's hot path; OS-native Landlock/Seatbelt
+    + dedicated-user containment replaced it.)
 *   **Federated Agents**: Allowing multiple agents to collaborate across different MCP nodes.

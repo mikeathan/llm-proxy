@@ -2,7 +2,7 @@
  * Converts megabytes to a formatted GB string.
  * @example mbToGb(1536) → "1.5"
  */
-export function mbToGb(mb: number): string {
+function mbToGb(mb: number): string {
   return (mb / 1024).toFixed(1)
 }
 
@@ -70,6 +70,13 @@ export function formatParameters(params: number): string {
   return params.toString();
 }
 
+
+/**
+ * Clamps a percentage into 0..100 (progress-bar safety).
+ */
+export function clampPercent(v: number): number {
+  return Math.min(Math.max(v, 0), 100)
+}
 /**
  * Formats a timestamp string into a full locale-aware date+time string.
  * @example formatTS("2026-05-24T16:29:39Z") → "5/24/2026, 4:29:39 PM"

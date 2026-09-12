@@ -264,9 +264,9 @@ func (p Paths) WriteSecretsWithKey(key []byte, data map[string][]models.SecretEn
 		return fmt.Errorf("encrypt secrets: %w", err)
 	}
 	payload, err := json.MarshalIndent(models.EncryptedSecretData{
-		Version:   models.SecretVersionCurrent,
+		Version:    models.SecretVersionCurrent,
 		Ciphertext: cipher,
-		Nonce:     nonce,
+		Nonce:      nonce,
 	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal secrets payload: %w", err)

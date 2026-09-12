@@ -62,3 +62,43 @@ func TestNewRunDir_NonEmptyTask(t *testing.T) {
 		t.Fatalf("run dir rel path = %q, want task segment %q", rel, "automation-a")
 	}
 }
+
+// TestRunMetaNetworkScopeAudit verifies the resolved per-run network scope is
+// recorded in run-meta.json on both the success and the error writer path
+// (sandboxing plan §4.4 audit trail — an unattended run that lost network is
+// explainable at a glance).
+func TestRunMetaNetworkScopeAudit(t *testing.T) {
+	parent := t.TempDir()
+	rd, err := NewRunDir(parent, "ws-1", "auto", "model-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rd.WriteMeta(RunMeta{
+		Model:        "model-x",
+		Task:         "auto",
+		DurationMs:   12,
+		NetworkScope: "lan",
+	}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	data, err := os.ReadFile(rd.MetaPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"network_scope": "lan"`) {
+		t.Errorf("run-meta.json must record the resolved network scope:\n%s", data)
+	}
+
+	// Error-path writer records it too, and an inherit run omits the key
+	// (empty = inherit, matching the omitempty contract).
+	if err := rd.WriteMeta(RunMeta{Model: "m", Task: "t", NetworkScope: ""}); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(rd.MetaPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "network_scope") {
+		t.Errorf("inherit (empty) scope must be omitted from run-meta.json:\n%s", data)
+	}
+}

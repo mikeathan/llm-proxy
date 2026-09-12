@@ -600,5 +600,3 @@ func TestSanitiseFTSQuery_Empty(t *testing.T) {
 		t.Errorf("expected 0 entries for empty query, got %d", len(entries))
 	}
 }
-
-

@@ -116,7 +116,7 @@ export function loopStrategyDescription(value: LoopStrategy): string {
 /**
  * Calculates the next available port for a local model.
  */
-export function getNextLocalPort(models: Model[]): number {
+function getNextLocalPort(models: Model[]): number {
   const localModels = models.filter((m) => m.provider === "local");
   let port = 8081;
   for (const m of localModels) {

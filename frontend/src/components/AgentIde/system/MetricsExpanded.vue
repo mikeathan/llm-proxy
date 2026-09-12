@@ -5,11 +5,10 @@ import {
   memPercent,
   formatTokenRate,
   gpuTempClass,
+  clampPercent,
 } from "../../../utils/format/formatters";
 import type { SystemMetrics } from "../../../types/metrics";
 import type { ActiveModel } from "../../../types/model";
-
-const clampPercent = (v: number) => Math.min(Math.max(v, 0), 100);
 
 defineProps<{
   activeModel: ActiveModel | undefined | null;

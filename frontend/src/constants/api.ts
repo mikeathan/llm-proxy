@@ -1,5 +1,5 @@
 // API endpoint constants for the admin panel
-export const API_BASE = '/admin/api'
+const API_BASE = '/admin/api'
 
 export const API_ENDPOINTS = {
   state: `${API_BASE}/state`,

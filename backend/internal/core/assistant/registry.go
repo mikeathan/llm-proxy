@@ -7,6 +7,7 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -21,7 +22,10 @@ import (
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/safe"
+	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/sizewatch"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/platform/units"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
@@ -141,30 +145,52 @@ func NewLocalToolRegistry(
 // ToolHandler is a function that executes a local tool.
 type ToolHandler func(ctx context.Context, rawArgs string) (any, error)
 
-func initTerminalTools(
-	resolver storage.Resolver,
-	persistence *persistence.WorkspaceManager,
-	readConfig readConfigFunc,
-	defaultGuardrails models.AgentGuardrailsConfig,
-	shellManager shell.ShellProvider,
-	observer tools.StreamObserver,
-) *tools.TerminalTools {
-	terminal := tools.NewTerminalTools(func(ctx context.Context) models.TerminalGuardrailsConfig {
-		return getEffectiveConfig(ctx, readConfig, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
-			return c.Terminal
-		})
-	}, func(workspaceID string) string {
-		if workspaceID == "" || persistence == nil {
-			return ""
-		}
-		return resolver.WorkspaceDir(workspaceID)
-	})
-	if shellManager != nil {
-		terminal.SetShellProvider(shellManager, observer)
-	}
-	return terminal
+// AgentStackDeps bundles the services InitializeAgentStack is wired from at
+// bootstrap. Grouping keeps the stack constructor at ≤3 parameters (repo rule:
+// 0–3 ideal, 4 ceiling, anything beyond 4 must be a struct) — the predecessor
+// took 8 positional arguments that were order-sensitive at the call site.
+type AgentStackDeps struct {
+	Persistence  *persistence.WorkspaceManager
+	Logger       logging.Logger
+	ShellManager shell.ShellProvider
+	Observer     tools.StreamObserver
+	EgressProxy  *url.URL
+	EgressEnv    func() []string
 }
 
+// stackCtx is the shared wiring for the tool-provider constructors, built once
+// in InitializeAgentStack so each init* helper takes exactly one argument.
+type stackCtx struct {
+	deps          AgentStackDeps
+	resolver      storage.Resolver
+	readConfig    readConfigFunc
+	defaults      models.AgentGuardrailsConfig
+	hostNetworkOn func() bool
+	sandbox       sandbox.Provider
+	storageOver   func(workspaceID, workspaceRoot string) bool
+}
+
+func initTerminalTools(s stackCtx) *tools.TerminalTools {
+	return tools.NewTerminalTools(tools.TerminalToolsDeps{
+		ConfigProvider: func(ctx context.Context) models.TerminalGuardrailsConfig {
+			return getEffectiveConfig(ctx, s.readConfig, s.defaults, func(c *models.AgentGuardrailsConfig) models.TerminalGuardrailsConfig {
+				return c.Terminal
+			})
+		},
+		PathResolver: func(workspaceID string) string {
+			if workspaceID == "" || s.deps.Persistence == nil {
+				return ""
+			}
+			return s.resolver.WorkspaceDir(workspaceID)
+		},
+		ShellPool:   s.deps.ShellManager,
+		Observer:    s.deps.Observer,
+		NetworkOn:   s.hostNetworkOn,
+		EgressEnv:   s.deps.EgressEnv,
+		Sandbox:     s.sandbox,
+		StorageOver: s.storageOver,
+	})
+}
 func initCommunicationTools(appCtx interface {
 	GetRegistry() models.RegistryData
 	Secrets() models.SecretsStore
@@ -219,19 +245,29 @@ func scheduleWebhookReregistration(name string, cfg models.ConnectorConfig, conn
 	})
 }
 
-func initNetworkTools(
-	persistence *persistence.WorkspaceManager,
-	readConfig readConfigFunc,
-	defaultGuardrails models.AgentGuardrailsConfig,
-	logger logging.Logger,
-) *tools.NetworkTools {
-	return tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
-		return getEffectiveConfig(ctx, readConfig, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
+func initNetworkTools(s stackCtx) *tools.NetworkTools {
+	netTools := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
+		cfg := getEffectiveConfig(ctx, s.readConfig, s.defaults, func(c *models.AgentGuardrailsConfig) models.NetworkGuardrailsConfig {
 			return c.Network
 		})
-	}, logger)
+		// An explicitly stamped run scope (automation grant) overrides the
+		// workspace L1 flags for this run's tool calls. The scope→config
+		// mapping is centralized in models.WithRunScope (same source the
+		// guardrail engine uses), so the runtime tools and the validator can
+		// never disagree about what a scope means. Absent scope (chat) keeps
+		// the merged workspace policy untouched.
+		if scope, ok := models.RunNetworkScopeFrom(ctx); ok {
+			if scoped, changed := cfg.WithRunScope(scope); changed {
+				cfg = scoped
+			}
+		}
+		return cfg
+	}, s.deps.Logger)
+	if s.deps.EgressProxy != nil {
+		netTools.SetProxy(s.deps.EgressProxy)
+	}
+	return netTools
 }
-
 func initSearchTools(appCtx interface {
 	Secrets() models.SecretsStore
 }, network *tools.NetworkTools) *tools.InternetTools {
@@ -252,19 +288,14 @@ func initMemoryTools(store *memory.Store) *tools.MemoryToolProvider {
 	return tools.NewMemoryToolProvider(store)
 }
 
-func initFileSystemTools(
-	resolver storage.Resolver,
-	persistence *persistence.WorkspaceManager,
-	readConfig readConfigFunc,
-	defaultGuardrails models.AgentGuardrailsConfig,
-) *tools.FileSystemTools {
+func initFileSystemTools(s stackCtx) *tools.FileSystemTools {
 	return tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
-		cfg := getEffectiveConfig(ctx, readConfig, defaultGuardrails, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
+		cfg := getEffectiveConfig(ctx, s.readConfig, s.defaults, func(c *models.AgentGuardrailsConfig) models.FileSystemGuardrailsConfig {
 			return c.FileSystem
 		})
 		allowed := make([]string, 0, len(cfg.AllowedPaths)+1)
 		if wsID := models.GetWorkspaceID(ctx); wsID != "" {
-			wsPath := resolver.WorkspaceDir(wsID)
+			wsPath := s.resolver.WorkspaceDir(wsID)
 			allowed = append(allowed, wsPath)
 		}
 		allowed = append(allowed, cfg.AllowedPaths...)
@@ -272,7 +303,6 @@ func initFileSystemTools(
 		return cfg
 	})
 }
-
 func InitializeAgentStack(
 	appCtx interface {
 		GetSystem() models.SystemConfig
@@ -281,30 +311,69 @@ func InitializeAgentStack(
 		Secrets() models.SecretsStore
 		GetGuardrails() models.AgentGuardrailsConfig
 		MemoryStore() *memory.Store
+		HostSettings() models.HostSettings
+		SetSandboxProvider(p sandbox.Provider)
 	},
-	persistence *persistence.WorkspaceManager,
 	mcp nodeherder.MCPService,
-	logger logging.Logger,
-	shellManager shell.ShellProvider,
-	observer tools.StreamObserver,
+	deps AgentStackDeps,
 ) (ToolProvider, Engine, *guardrails.GuardrailEngine) {
 	resolver := appCtx.Resolver()
 	defaultGuardrails := appCtx.GetGuardrails()
 
-	readConfig := newCachedConfigReader(persistence, resolver)
-	terminal := initTerminalTools(resolver, persistence, readConfig, defaultGuardrails, shellManager, observer)
+	readConfig := newCachedConfigReader(deps.Persistence, resolver)
+	// Host-level network state keys the shell pool (D8). Resolved live so a
+	// sandboxing.network toggle splits/merges shells on the next command; an
+	// automation run scope overrides it at the run level (Phase 0, executor
+	// ResolveRunScope → ctx stamp → executeShell).
+	hostNetworkOn := func() bool { return appCtx.HostSettings().Sandboxing.NetworkAllowed() }
+	// OS confinement provider for agent children, built here at the single
+	// composition root and shared by every spawn site (pooled shell +
+	// executeLocal). The provider is snapshotted from the requested config at
+	// boot — toggling sandboxing.filesystem applies on restart.
+	sandboxProvider := sandbox.New(sandbox.Config{
+		Filesystem:   appCtx.HostSettings().Sandboxing.FilesystemEnabled(),
+		MaxStorageGB: appCtx.HostSettings().Sandboxing.MaxStorageGB,
+	})
+	// Downgrade-never-bypass: make what is actually enforced visible at startup
+	// and on the host-settings surface (SPEC-006 §II.7.4).
+	appCtx.SetSandboxProvider(sandboxProvider)
+	logging.Info("sandbox effective state", "state", sandboxProvider.Effective().String())
+	// Workspace disk accounting (max_storage_gb, plan Phase 3): best-effort,
+	// TTL-cached size checks that block shell spawns past the boundary. Honest
+	// labeling: accounting, not a kernel-enforced quota (TOCTOU window exists).
+	// max_storage_gb is read live so a settings edit applies on the next spawn.
+	sizeCache := sizewatch.NewCache(0) // default 60s TTL
+	storageOver := func(workspaceID, workspaceRoot string) bool {
+		limitGB := appCtx.HostSettings().Sandboxing.MaxStorageGB
+		if limitGB <= 0 || workspaceRoot == "" {
+			return false
+		}
+		return sizeCache.Bytes(workspaceRoot, time.Now()) > units.GiB(limitGB)
+	}
+	stack := stackCtx{
+		deps: deps, resolver: resolver, readConfig: readConfig, defaults: defaultGuardrails,
+		hostNetworkOn: hostNetworkOn, sandbox: sandboxProvider, storageOver: storageOver,
+	}
+	terminal := initTerminalTools(stack)
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
-	}, resolver, persistence, func(workspaceID string) (*models.WorkspaceConfig, error) { return readConfig(workspaceID) })
-	network := initNetworkTools(persistence, readConfig, defaultGuardrails, logger)
+	}, stack.resolver, stack.deps.Persistence, func(workspaceID string) (*models.WorkspaceConfig, error) { return stack.readConfig(workspaceID) })
+	// Host-level network hard gate (plan D1/R4): resolved live from host settings so
+	// toggling sandboxing.network takes effect on the next validation/schema pass.
+	// NetworkAllowed() treats an absent (legacy) key as allowed — only an explicit
+	// false trips the gate.
+	grEngine.SetHostNetworkAllowed(func() bool {
+		return appCtx.HostSettings().Sandboxing.NetworkAllowed()
+	})
+	network := initNetworkTools(stack)
 	comm := initCommunicationTools(appCtx, network)
 	search := initSearchTools(appCtx, network)
-	fsTools := initFileSystemTools(resolver, persistence, readConfig, defaultGuardrails)
+	fsTools := initFileSystemTools(stack)
 	memTools := initMemoryTools(appCtx.MemoryStore())
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network, memTools)
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
-	mcpEngine := NewEngine(mcp, logger)
+	mcpEngine := NewEngine(mcp, deps.Logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
 
 	return provider, engine, grEngine

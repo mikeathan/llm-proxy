@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/proxy"
@@ -15,6 +16,37 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrNetworkDisabled is the security-boundary denial raised when agent network
+// is OFF for the current context: the host switch is explicitly OFF, or the
+// run's resolved scope (automation grant) is none (plan D1/R4). Consumers must
+// treat it as synchronous and non-approvable (never the approval flow) and
+// overrides must never re-enable past it. Classified via errors.Is in the agent
+// loop (isGuardrailSecurityBoundary).
+var ErrNetworkDisabled = errors.New("agent network is denied by security policy")
+
+// hostNetworkGatedTools are the agent tools whose execution requires agent
+// egress. When the host network switch is off they are hidden from the schema
+// (DisabledToolNames) and hard-denied (ValidateToolCall) regardless of workspace
+// overrides or persisted approvals. notify_user (connector sends) and
+// internet_search are agent egress and are included; inbound webhook receipt is
+// server-side and unaffected.
+var hostNetworkGatedTools = []string{
+	models.ToolNetworkFetch,
+	models.ToolNetworkScan,
+	models.ToolNetworkInfo,
+	models.ToolInternetSearch,
+	models.ToolNotifyUser,
+}
+
+// hostNetworkGatedSet mirrors hostNetworkGatedTools for O(1) lookup.
+var hostNetworkGatedSet = func() map[string]bool {
+	set := make(map[string]bool, len(hostNetworkGatedTools))
+	for _, n := range hostNetworkGatedTools {
+		set[n] = true
+	}
+	return set
+}()
 
 // GuardrailEngine evaluates tool calls against configured boundaries.
 type GuardrailEngine struct {
@@ -35,6 +67,60 @@ type GuardrailEngine struct {
 	// lazily on the first override write so engines that never persist overrides
 	// (e.g. NewAgent's nil-safety fallback engine) do not leak a goroutine.
 	reaperInterval time.Duration
+
+	// hostNetworkAllowed reports whether the host sandboxing.network switch
+	// permits agent network. nil ⇒ no host gate (network governed purely by the
+	// guardrail tier). The gate sits OUTSIDE the MergeWith override stack: when
+	// it reports false, network-gated tools are schema-hidden and hard-denied
+	// regardless of workspace overrides or persisted approvals (plan D1/R4).
+	hostNetworkAllowed func() bool
+}
+
+// SetHostNetworkAllowed installs the host-level network allowance provider
+// (e.g. a closure over AppContext host settings). A nil provider leaves the
+// host gate inert — call with func() bool { return cfg.NetworkAllowed() } from
+// the composition root.
+func (e *GuardrailEngine) SetHostNetworkAllowed(allowed func() bool) {
+	e.hostNetworkAllowed = allowed
+}
+
+// hostNetworkOff reports an explicit host-level network denial. Undecided host
+// config (nil pointer ⇒ legacy allowed) is NOT off — only an explicit false
+// trips the gate (models.HostSandboxingConfig.NetworkAllowed semantics).
+func (e *GuardrailEngine) hostNetworkOff() bool {
+	return e.hostNetworkAllowed != nil && !e.hostNetworkAllowed()
+}
+
+// networkDenied reports whether agent network is denied for the current run
+// context: an explicitly stamped run scope of none (automation grant) wins over
+// the host switch; otherwise the host switch decides.
+func (e *GuardrailEngine) networkDenied(ctx context.Context) bool {
+	if s, ok := models.RunNetworkScopeFrom(ctx); ok {
+		return s == models.NetworkScopeNone
+	}
+	return e.hostNetworkOff()
+}
+
+// mergedCfg returns the guardrail config with the workspace override stack
+// merged (settings default + {workspace}/config.yaml overrides). Single source
+// for validation, schema resolution, and run-scope resolution so they never
+// diverge.
+func (e *GuardrailEngine) mergedCfg(workspaceID string) models.AgentGuardrailsConfig {
+	cfg := e.configProvider()
+	if workspaceID != "" && e.readConfig != nil {
+		if wsCfg, err := e.readConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
+			cfg.MergeWith(wsCfg.Guardrails)
+		}
+	}
+	return cfg
+}
+
+// ResolveRunScope resolves the effective per-run network scope for an agent
+// run: host ceiling (L0) ∩ workspace guardrails (L1) overridden by an explicit
+// automation grant (L2). Used by the executor to stamp the run context.
+func (e *GuardrailEngine) ResolveRunScope(workspaceID string, grant models.NetworkScope) models.NetworkScope {
+	hostAllowed := !e.hostNetworkOff()
+	return e.mergedCfg(workspaceID).Network.EffectiveScope(hostAllowed, grant)
 }
 
 // defaultOverrideTTL and defaultReaperInterval bound override-cache growth.
@@ -76,28 +162,51 @@ func (e *GuardrailEngine) Stop() {
 
 // ValidateToolCall checks a tool call against global and category-specific safety rules.
 func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolCall, workspaceID string) error {
+	// Security hard gate FIRST — before the override fast path and the MergeWith
+	// stack: overrides must never re-enable a network-gated tool when the run
+	// scope or the host switch denies network (plan D1/R4).
+	if err := e.securityHardGates(ctx, call); err != nil {
+		return err
+	}
+
 	// Fast path: check in-memory override cache first — avoids the file I/O race
 	// between PersistOverride writing and this function reading the updated config.
 	if workspaceID != "" && e.hasOverride(workspaceID, call.Function.Name) {
 		return nil
 	}
 
-	cfg := e.configProvider()
-
-	// Load and merge workspace-specific overrides.
-	// Uses the cached reader (O3) to avoid file I/O on every tool call.
-	if workspaceID != "" && e.readConfig != nil {
-		if wsCfg, err := e.readConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
-			cfg.MergeWith(wsCfg.Guardrails)
-		}
-	}
-
+	cfg := e.mergedCfg(workspaceID)
 	// 1. Global Guardrails (Sensitive Data)
 	if err := e.validateGlobal(call, cfg.Global); err != nil {
 		return err
 	}
 
 	// 2. Category-Specific Guardrails
+	return e.validateCategory(ctx, call, cfg, workspaceID)
+}
+
+// securityHardGates holds the non-approvable, override-proof denials that must
+// fire before any config merge: the host/run network ceiling (D1/R4) and the
+// scope-forbidden egress tools (lan ⇔ internet-only, internet_only ⇔ local
+// network). The forbidden sets come from scopeForbiddenTools — the same source
+// the schema uses — so availability and denial can never drift.
+func (e *GuardrailEngine) securityHardGates(ctx context.Context, call proxy.ToolCall) error {
+	if e.networkDenied(ctx) && hostNetworkGatedSet[call.Function.Name] {
+		return ErrNetworkDisabled
+	}
+	if scope, ok := models.RunNetworkScopeFrom(ctx); ok {
+		for _, forbidden := range scopeForbiddenTools(scope) {
+			if forbidden == call.Function.Name {
+				return fmt.Errorf("%w: %s is not permitted at this run's network scope (%s)", ErrNetworkDisabled, call.Function.Name, scope)
+			}
+		}
+	}
+	return nil
+}
+
+// validateCategory dispatches a call to its category validator against the
+// merged (workspace-tier) config.
+func (e *GuardrailEngine) validateCategory(ctx context.Context, call proxy.ToolCall, cfg models.AgentGuardrailsConfig, workspaceID string) error {
 	switch call.Function.Name {
 	case models.ToolTerminalExecute:
 		return e.validateTerminal(call, cfg.Terminal, workspaceID, cfg.FileSystem.BlockedFilenames)
@@ -108,9 +217,19 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
 	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
+		// An explicitly stamped run scope (automation grant) replaces the
+		// workspace L1 net flags for this run: it may loosen (grant in a
+		// none-workspace) within the host ceiling. Scope mapping is centralized
+		// in models.WithRunScope — scope none is already hard-denied above
+		// (securityHardGates), lan/internet validate against the scope-derived
+		// config so lan cannot reach the internet.
+		if s, ok := models.RunNetworkScopeFrom(ctx); ok {
+			if vcfg, scoped := cfg.Network.WithRunScope(s); scoped {
+				return e.validateNetwork(call, vcfg)
+			}
+		}
 		return e.validateNetwork(call, cfg.Network)
 	}
-
 	return nil
 }
 
@@ -343,12 +462,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 // schema derives from, so no strategy or channel can observe a tool the policy
 // statically disables.
 func (e *GuardrailEngine) DisabledToolNames(workspaceID string) []string {
-	cfg := e.configProvider()
-	if workspaceID != "" && e.readConfig != nil {
-		if wsCfg, err := e.readConfig(workspaceID); err == nil && wsCfg.Guardrails != nil {
-			cfg.MergeWith(wsCfg.Guardrails)
-		}
-	}
+	cfg := e.mergedCfg(workspaceID)
 	var disabled []string
 	add := func(name string, disabledByPolicy bool) {
 		// Override skip mirrors ValidateToolCall's fast path exactly:
@@ -362,7 +476,92 @@ func (e *GuardrailEngine) DisabledToolNames(workspaceID string) []string {
 	add(models.ToolNetworkFetch, !cfg.Network.Enabled)
 	add(models.ToolNetworkScan, !cfg.Network.Enabled)
 	add(models.ToolNetworkInfo, !cfg.Network.Enabled)
+	if e.hostNetworkOff() {
+		// Host-level hard gate OUTSIDE the override stack: unlike the policy adds
+		// above, an in-memory/persisted override must NOT keep the tool visible
+		// when the host switch is off (plan D1/R4). Append unconditionally.
+		for _, name := range hostNetworkGatedTools {
+			if !containsString(disabled, name) {
+				disabled = append(disabled, name)
+			}
+		}
+	}
 	return disabled
+}
+
+// DisabledToolNamesForScope resolves schema availability for a run with an
+// explicitly resolved scope (automation grant, plan §4.4). Scope none hides
+// every egress tool unconditionally (overrides cannot win). A lan scope shows
+// the core LAN-able tools (fetch/scan/info) regardless of the workspace L1
+// network gate (loosening within the host ceiling) but hides the internet-only
+// tools (internet_search, notify_user — connector sends are internet egress);
+// an internet scope additionally exposes those when their L1 tier is enabled.
+// Scope-forbidden tools are hard-gated: overrides never re-expose them.
+// Inherit/unknown delegates to DisabledToolNames.
+func (e *GuardrailEngine) DisabledToolNamesForScope(workspaceID string, scope models.NetworkScope) []string {
+	if scope == models.NetworkScopeInherit || !scope.Valid() {
+		return e.DisabledToolNames(workspaceID)
+	}
+	if scope == models.NetworkScopeNone {
+		// Every egress tool is hidden and overrides can never re-expose them
+		// (return a copy — callers must not mutate the shared list).
+		return append([]string(nil), hostNetworkGatedTools...)
+	}
+	cfg := e.mergedCfg(workspaceID)
+	disabled := e.scopeTierDisabled(workspaceID, scope, cfg)
+	// Hard gate: an override must not keep a scope-forbidden egress tool
+	// visible (scope lan forbids the internet-only tools).
+	for _, name := range scopeForbiddenTools(scope) {
+		if !containsString(disabled, name) {
+			disabled = append(disabled, name)
+		}
+	}
+	return disabled
+}
+
+// scopeTierDisabled applies the L1-tier hides for a lan/internet scope,
+// honoring in-memory overrides: a lan scope hides the internet-only egress
+// tools (search + connector send) unless the operator's workspace tier already
+// disables them. The LAN-only tools are hidden by scopeForbiddenTools for an
+// internet_only scope instead.
+func (e *GuardrailEngine) scopeTierDisabled(workspaceID string, scope models.NetworkScope, cfg models.AgentGuardrailsConfig) []string {
+	lanScope := scope == models.NetworkScopeLan // LAN scope must not expose internet-only egress
+	var disabled []string
+	add := func(name string, disabledByPolicy bool) {
+		if disabledByPolicy && (workspaceID == "" || !e.hasOverride(workspaceID, name)) {
+			disabled = append(disabled, name)
+		}
+	}
+	add(models.ToolInternetSearch, lanScope || !cfg.Search.Enabled)
+	add(models.ToolNotifyUser, lanScope || !cfg.Communication.Enabled)
+	return disabled
+}
+
+// scopeForbiddenTools returns the egress tools a resolved scope must never
+// expose — even with an override: none forbids every network-gated tool, lan
+// forbids the internet-only ones (search + connector send), internet_only
+// forbids the local-network ones (scan + network info); internet forbids none
+// (its ceiling is the host switch + L1 tiers).
+func scopeForbiddenTools(scope models.NetworkScope) []string {
+	switch scope {
+	case models.NetworkScopeLan:
+		return []string{models.ToolInternetSearch, models.ToolNotifyUser}
+	case models.NetworkScopeInternetOnly:
+		return []string{models.ToolNetworkScan, models.ToolNetworkInfo}
+	case models.NetworkScopeNone:
+		return hostNetworkGatedTools
+	default:
+		return nil
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // hasOverride checks the in-memory override cache for a (workspaceID, toolName) pair.

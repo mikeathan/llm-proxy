@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { McpServer, NewMcpServerForm } from "../../types/mcp";
 
 const props = defineProps<{
-  mcpServers: any[];
-  newMcpServer: any;
+  mcpServers: McpServer[];
+  newMcpServer: NewMcpServerForm;
 }>();
 
 const emit = defineEmits<{
-  (e: "update:newMcpServer", server: any): void;
+  (e: "update:newMcpServer", server: NewMcpServerForm): void;
   (e: "addMCPServer"): void;
-  (e: "toggleMCPServer", server: any): void;
+  (e: "toggleMCPServer", server: McpServer): void;
   (e: "removeMCPServer", name: string): void;
 }>();
 

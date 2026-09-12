@@ -11,28 +11,14 @@
 // Adding a new icon:
 //   1. Add the constant here with a descriptive name.
 //   2. Import it where needed (never inline the raw character).
-//   3. If the icon is an emoji used in multiple contexts, add a helper
-//      function here (e.g. getEventIcon).
-//
-// Adding a new SVG icon:
-//   1. Add the SVG file to assets/svg/ and register it in assets/svg/index.ts.
-//   2. If the icon needs dynamic sizing or theming, add a case to UIIcon.vue. 
-//   3. If it's consumed by two or more components, add a named constant here.
 
-// ── Tool event emojis for plain-text formatting (dispatcher.ts text export) ──
-// These are NOT used in Vue templates — UI tool calls/results use SVG icons
-// from assets/svg/ via Icon.vue.  These are only referenced by getEventIcon()
-// for plain-text copy/paste output.
-export const TEXT_EVENT_TOOL_CALL = "🛠️"
+// ── Tool event emojis for plain-text formatting ──
+// Only the two still rendered as text remain; the per-event `getEventIcon`
+// mapper was removed with its only consumer (the plain-text event log export).
 export const TEXT_EVENT_TOOL_RESULT = "✅"
 export const TEXT_EVENT_GUARDRAIL_BLOCKED = "🛑"
 
 // ── Common UI icons ──
-export const CHAT_ICON = "💬"
-export const SEARCH_ICON = "🔍"
-export const WARNING_ICON = "⚠️"   // with variation selector-16
-export const ERROR_ICON = "❌"
-export const CHECK_ICON = "✅"
 export const FOLDER_ICON = "📁"
 
 // ── Toast notification symbols (Unicode text, not emoji) ──
@@ -41,15 +27,3 @@ export const TOAST_ERROR = "✕"
 export const TOAST_WARNING = "⚠"    // without variation selector — cleaner in toast
 export const TOAST_INFO = "ℹ"
 export const TOAST_CLOSE = "×"
-
-// ── Event-to-icon mapping used by text formatters ──
-export const getEventIcon = (type: string): string => {
-  switch (type) {
-    case "tool_call": return TEXT_EVENT_TOOL_CALL
-    case "tool_result": return TEXT_EVENT_TOOL_RESULT
-    case "guardrail_violation": return TEXT_EVENT_GUARDRAIL_BLOCKED
-    case "guardrail_blocked": return TEXT_EVENT_GUARDRAIL_BLOCKED
-    case "lifecycle": return ""
-    default: return ""
-  }
-}

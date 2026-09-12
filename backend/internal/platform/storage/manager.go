@@ -319,8 +319,26 @@ func mergeAppConfigDefaults(d, c models.AppConfig) models.AppConfig {
 	if c.Metrics.GPUSmoothingAlpha == 0 {
 		c.Metrics.GPUSmoothingAlpha = d.Metrics.GPUSmoothingAlpha
 	}
-	if !c.Sandboxing.Enabled && c.Sandboxing == (models.HostSandboxingConfig{}) {
+	// Section is "absent" only when the document had no sandboxing block AND no
+	// field carries a value (a programmatically built config counts as present).
+	if !c.Sandboxing.SectionPresent && reflect.DeepEqual(c.Sandboxing, models.HostSandboxingConfig{}) {
+		// Section absent (legacy file without a sandboxing block): take the
+		// defaults wholesale. The *bool fields (Filesystem/Network) stay
+		// nil = undecided, and the accessors resolve them (plan D6). An
+		// explicit `enabled: false` section takes the per-key branch below and
+		// survives the reload.
 		c.Sandboxing = d.Sandboxing
+	} else {
+		// Per-key backfill mirroring Metrics: an absent/zero numeric must not
+		// force the whole section to defaults (which would also discard an
+		// explicit `enabled: false`). 0 is "unset" for these two by design;
+		// EgressProxy 0 means off, so it needs no default.
+		if c.Sandboxing.MaxStorageGB == 0 {
+			c.Sandboxing.MaxStorageGB = d.Sandboxing.MaxStorageGB
+		}
+		if c.Sandboxing.MaxMemoryMB == 0 {
+			c.Sandboxing.MaxMemoryMB = d.Sandboxing.MaxMemoryMB
+		}
 	}
 	if c.Memory == nil {
 		c.Memory = d.Memory
@@ -331,8 +349,8 @@ func mergeAppConfigDefaults(d, c models.AppConfig) models.AppConfig {
 	return c
 }
 
-func (m *DataManager) System() *SystemConfigView     { return m.systemView }
-func (m *DataManager) Settings() *UserSettingsView   { return m.settingsView }
+func (m *DataManager) System() *SystemConfigView       { return m.systemView }
+func (m *DataManager) Settings() *UserSettingsView     { return m.settingsView }
 func (m *DataManager) HostSettings() *hostSettingsView { return m.hostView }
 
 func (m *DataManager) Secrets() models.SecretsStore {

@@ -10,11 +10,12 @@ import {
   stringToEnvMap,
 } from "../../utils/config";
 import type { GlobalConfig } from "../../types/admin";
+import type { Model } from "../../types/model";
 
 const props = defineProps<{
   editConfig: GlobalConfig;
   logLevel: string;
-  models: any[];
+  models: Model[];
 }>();
 
 const emit = defineEmits<{

@@ -4,9 +4,9 @@ import (
 	"context"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
-	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"net/http"
 	"net/http/httptest"
@@ -22,10 +22,10 @@ type testDispatcher struct {
 	stopCalled map[string]bool
 }
 
-func (t *testDispatcher) Persistence() *persistence.WorkspaceManager { return t.mgr }
-func (t *testDispatcher) Register(ws string, a *models.Automation) error { return nil }
-func (t *testDispatcher) Unregister(ws, name string) error { return nil }
-func (t *testDispatcher) ListAll() []*automation.AutomationEntry { return nil }
+func (t *testDispatcher) Persistence() *persistence.WorkspaceManager            { return t.mgr }
+func (t *testDispatcher) Register(ws string, a *models.Automation) error        { return nil }
+func (t *testDispatcher) Unregister(ws, name string) error                      { return nil }
+func (t *testDispatcher) ListAll() []*automation.AutomationEntry                { return nil }
 func (t *testDispatcher) Trigger(ctx context.Context, ws, name, _ string) error { return nil }
 func (t *testDispatcher) StopAutomation(ws string) error {
 	if t.stopCalled != nil {
@@ -33,20 +33,22 @@ func (t *testDispatcher) StopAutomation(ws string) error {
 	}
 	return nil
 }
-func (t *testDispatcher) Metrics() *automation.DispatcherMetrics { return &automation.DispatcherMetrics{} }
-func (t *testDispatcher) Events() *automation.EventBus { return nil }
+func (t *testDispatcher) Metrics() *automation.DispatcherMetrics {
+	return &automation.DispatcherMetrics{}
+}
+func (t *testDispatcher) Events() *automation.EventBus           { return nil }
 func (t *testDispatcher) GlobalActivity() []models.AutomationRun { return nil }
-func (t *testDispatcher) UnregisterWorkspace(ws string) {}
-func (t *testDispatcher) ClearWorkspaceHistory(ws string) {}
+func (t *testDispatcher) UnregisterWorkspace(ws string)          {}
+func (t *testDispatcher) ClearWorkspaceHistory(ws string)        {}
 
 func TestValidateAutomation_LoopStrategy(t *testing.T) {
 	dispatcher := &testDispatcher{}
 	handlers := NewDispatcherHandlers(dispatcher, NewWorkspaceService(nil), logging.NewNopLogger())
 
 	cases := []struct {
-		name       string
+		name         string
 		loopStrategy models.LoopStrategy
-		wantErr    bool
+		wantErr      bool
 	}{
 		{"empty passes (model config default)", "", false},
 		{"react passes", models.LoopStrategyReact, false},
@@ -74,11 +76,12 @@ func TestValidateAutomation_LoopStrategy(t *testing.T) {
 	}
 }
 
-func TestCreateWorkspace_Isolation(t *testing.T) {	tmpWorkspaces := t.TempDir()
+func TestCreateWorkspace_Isolation(t *testing.T) {
+	tmpWorkspaces := t.TempDir()
 	tmpMetadata := t.TempDir()
 	resolver := storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpMetadata)
 	mgr := persistence.NewWorkspaceManager(resolver)
-	
+
 	dispatcher := &testDispatcher{mgr: mgr}
 	wsSvc := NewWorkspaceService(mgr)
 	handlers := NewDispatcherHandlers(dispatcher, wsSvc, logging.NewNopLogger())
@@ -95,7 +98,7 @@ func TestCreateWorkspace_Isolation(t *testing.T) {	tmpWorkspaces := t.TempDir()
 	}
 
 	// VERIFY ISOLATION
-	
+
 	// 1. Config MUST NOT exist in root
 	rootConfig := filepath.Join(tmpWorkspaces, workspaceID, models.ConfigFilename)
 	if _, err := os.Stat(rootConfig); err == nil {
@@ -199,7 +202,7 @@ func TestDispatcherHandlers_Validation(t *testing.T) {
 			if tt.automationName != "" {
 				req.SetPathValue("automation", tt.automationName)
 			}
-			
+
 			rr := httptest.NewRecorder()
 
 			if tt.automationName != "" {
@@ -395,7 +398,7 @@ func TestValidateAutomation_TaskFile(t *testing.T) {
 
 func TestIsUnsafeFileParam(t *testing.T) {
 	cases := []struct {
-		value string
+		value  string
 		unsafe bool
 	}{
 		{"task.md", false},
@@ -409,5 +412,42 @@ func TestIsUnsafeFileParam(t *testing.T) {
 		if got := isUnsafeFileParam(tc.value); got != tc.unsafe {
 			t.Errorf("isUnsafeFileParam(%q) = %v, want %v", tc.value, got, tc.unsafe)
 		}
+	}
+}
+
+// network_grant (per-run scope override, sandboxing plan §4.4) is fail-fast
+// validated: empty = inherit passes; explicit none/lan/internet pass; anything
+// else is rejected with the valid-values hint.
+func TestValidateAutomation_NetworkGrant(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	cases := []struct {
+		name    string
+		grant   models.NetworkScope
+		wantErr bool
+	}{
+		{"empty passes (inherit workspace scope)", "", false},
+		{"none passes", models.NetworkScopeNone, false},
+		{"lan passes", models.NetworkScopeLan, false},
+		{"internet passes", models.NetworkScopeInternet, false},
+		{"unknown rejected", "wifi", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{
+				Name:         "ok-name",
+				TaskFile:     "task.md",
+				NetworkGrant: tc.grant,
+			})
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error for invalid network_grant")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "network_grant") {
+				t.Errorf("expected network_grant hint, got %q", err.Error())
+			}
+		})
 	}
 }

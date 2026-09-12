@@ -1,8 +1,15 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { AgentGuardrailsConfig } from "../../../types/admin";
 import { useGuardrailEditor } from "../../../composables/useGuardrailEditor";
 import GuardrailSection from "./GuardrailSection.vue";
 import BaseToggle from "../../common/buttons/BaseToggle.vue";
+import {
+  NETWORK_INTERNET_HELP,
+  NETWORK_LAN_HELP,
+  NETWORK_SHELL_CAVEAT,
+  networkPostureLabel,
+} from "../../../utils/network";
 
 const props = defineProps<{
   modelValue: AgentGuardrailsConfig;
@@ -30,6 +37,16 @@ const {
 } = useGuardrailEditor(props.modelValue);
 
 setupRawWatchers((val) => emit("update:modelValue", val));
+
+// Live summary of what the two network toggles actually permit, so the
+// independent LAN/Internet switches cannot be mistaken for one another.
+const networkPosture = computed(() =>
+  networkPostureLabel(
+    !!local.value.network?.allow_lan_access,
+    !!local.value.network?.allow_internet_access,
+    !!local.value.network?.enabled,
+  ),
+);
 </script>
 
 <template>
@@ -221,20 +238,36 @@ setupRawWatchers((val) => emit("update:modelValue", val));
 
       <!-- Network Guardrails -->
       <GuardrailSection
-        :title="'Network Tool (Native)'"
+        :title="'Agent Network Access'"
         :enabled="!!local.network?.enabled"
         @toggle="local.network!.enabled = $event"
       >
+        <p class="text-[11px] leading-relaxed text-gray-500">
+          Choose what the agent's network tools may reach. The two switches are
+          independent: Internet does <strong>not</strong> imply local network access.
+        </p>
         <div class="grid grid-cols-2 gap-4">
-          <BaseToggle
-            v-model="local.network!.allow_lan_access"
-            label="LAN Access"
-          />
-          <BaseToggle
-            v-model="local.network!.allow_internet_access"
-            label="Internet"
-          />
+          <div class="space-y-1">
+            <BaseToggle
+              v-model="local.network!.allow_lan_access"
+              label="Local network (LAN)"
+            />
+            <p class="text-[10px] leading-snug text-gray-500">{{ NETWORK_LAN_HELP }}</p>
+          </div>
+          <div class="space-y-1">
+            <BaseToggle
+              v-model="local.network!.allow_internet_access"
+              label="Internet"
+            />
+            <p class="text-[10px] leading-snug text-gray-500">{{ NETWORK_INTERNET_HELP }}</p>
+          </div>
         </div>
+        <p class="text-[11px] font-semibold text-gray-300">
+          Agent tools can reach: <span class="text-blue-300">{{ networkPosture }}</span>
+        </p>
+        <p class="text-[10px] leading-snug text-gray-500">
+          {{ NETWORK_SHELL_CAVEAT }}
+        </p>
         <div class="form-group">
           <label class="form-label">Blocked Domains</label>
           <textarea
