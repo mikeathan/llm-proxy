@@ -279,11 +279,25 @@ const ToolErrorNagPrompt = "SYSTEM: The tool call above failed. Read the error o
 	"Respond with ONLY a tool call. Nothing else.\n\n" +
 	automationNagFormatExample
 
+// ToolUnavailablePrefix marks a tool result as a terminal (operator-actionable)
+// failure. Exporting it keeps the producer and the replay-time detector of this
+// wire format on one definition, so the prefix cannot drift.
+const ToolUnavailablePrefix = "TOOL UNAVAILABLE: "
+
 // ToolUnavailablePrompt is the tool result for a terminal (operator-actionable)
 // failure — a missing or rejected credential. Args: tool name, reason. It tells
 // the model not to retry the tool or route around it (see
 // docs/PLANS/cross-cutting/tool-error-classification.md).
-const ToolUnavailablePrompt = "TOOL UNAVAILABLE: %s — %s. Do NOT retry it or route around it. If the task depends on this capability, report the failure; otherwise continue with the remaining work and note the gap."
+const ToolUnavailablePrompt = ToolUnavailablePrefix + "%s — %s. Do NOT retry it or route around it. If the task depends on this capability, report the failure; otherwise continue with the remaining work and note the gap."
+
+// ToolUnavailableRetryPrompt replaces ToolUnavailablePrompt in replayed history
+// once the tool is no longer unavailable. The original says "Do NOT retry",
+// which is right for the run that hit the failure but wrong afterwards: a
+// run-scoped credential failure is replayed into later runs, and the model obeys
+// the stale instruction instead of calling a tool that may now work. The wording
+// claims only that the notice is out of date — presence of a credential is not
+// proof the tool works, so the model must retry to find out. Args: tool name.
+const ToolUnavailableRetryPrompt = "NOTE: the TOOL UNAVAILABLE result above was recorded earlier in this conversation and is out of date — %s's configuration has changed since. That notice does not describe the current state, so do not rely on it: call %s again if the task needs it, and read the fresh result."
 
 // DeliveryFailedPrompt is the tool result for a terminal failure of a
 // delivery/side-effect tool (e.g. a notification connector). Args: tool name,

@@ -494,7 +494,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		Channel: assistant.ChannelAutomation,
 		Payload: proxy.Message{
 			Role:    "system",
-			Content: "✔ Execution complete.",
+			Content: assistant.MsgExecutionComplete,
 		},
 	})
 

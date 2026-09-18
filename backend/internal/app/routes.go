@@ -180,6 +180,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	// Secrets — tool secrets (search, communication, etc.)
 	router.Get("/admin/api/secrets/tools", hs.Secrets.AdminToolSecretHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/secrets/tools", hs.Secrets.AdminToolSecretPutHandler, jsonMethodNotAllowed)
+	router.Delete("/admin/api/secrets/tools", hs.Secrets.AdminToolSecretDeleteHandler, jsonMethodNotAllowed)
 
 	// Recordings
 	if hs.Recordings != nil {

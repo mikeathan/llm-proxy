@@ -58,7 +58,7 @@ func TestReactStrategy_RunTurnSequence(t *testing.T) {
 		t.Errorf("expected 2 LLM calls (tool turn + completion), got %d", callCount)
 	}
 
-	// Step notifications must fire per turn (notifyStepStart/notifyThinking).
+	// Step notifications must fire per turn (notifyStepStart/notifySystem).
 	stepStarts := 0
 	completions := 0
 	for _, ev := range events {

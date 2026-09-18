@@ -150,8 +150,13 @@ of finishing prematurely. Prompt-based self-critique only; no verification-evide
   shared `completeWith` path. `executePlan`'s `"[Plan execution complete]"` return is a
   completion marker only — the strategy discards it and produces the real report via
   `finalizeReport` before sealing with `completeWith` (the literal never reaches the user).
-- Stop-guards use a dedicated `stopGuardAttempts` counter (cap 2), never
-  `finalizeAttempts` (owned by `handleNoToolCalls`'s tools-disabled finalization turn).
+- Stop-guards use a dedicated `stopGuardState.attempts` counter (cap 2), never
+  `finalizeState.finalizeAttempts` (owned by `handleNoToolCalls`'s tools-disabled
+  finalization turn). `runSession.hardCapTriggered` stays flat outside every
+  resettable cluster — it is irreversible and no reset may clear it.
+- User-facing assistant status copy lives in the `Msg*` const block in
+  `agent_events.go` and is emitted through `notifySystem` (plain) or
+  `notifySystemf` (a `Msg*` const plus arguments). Never inline a status string.
 - Evaluator nudge messages are registered in `isAgentControlMessage` so completion
   detection never mistakes them for user text.
 

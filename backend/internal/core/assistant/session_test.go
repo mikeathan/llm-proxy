@@ -215,9 +215,9 @@ func TestHandleNoToolCalls(t *testing.T) {
 			// turn runs; executeTurn's tools-disabled flag consumption depends
 			// on it.
 			agent.runS = s
-			s.lastContentWithTools = tt.lastContentWithTools
-			s.postToolNudgeCount = tt.postToolNudgeCount
-			s.finalizeAttempts = tt.finalizeAttempts
+			s.prompt.lastContentWithTools = tt.lastContentWithTools
+			s.recovery.postToolNudgeCount = tt.postToolNudgeCount
+			s.finalize.finalizeAttempts = tt.finalizeAttempts
 
 			turnMsg := proxy.Message{
 				Role:             proxy.AssistantRole,
@@ -236,8 +236,8 @@ func TestHandleNoToolCalls(t *testing.T) {
 				t.Errorf("reply = %q, expected to contain %q", reply, tt.wantReplyContains)
 			}
 			if tt.wantNudged {
-				if s.postToolNudgeCount != tt.postToolNudgeCount+1 {
-					t.Errorf("postToolNudgeCount = %d, want %d", s.postToolNudgeCount, tt.postToolNudgeCount+1)
+				if s.recovery.postToolNudgeCount != tt.postToolNudgeCount+1 {
+					t.Errorf("postToolNudgeCount = %d, want %d", s.recovery.postToolNudgeCount, tt.postToolNudgeCount+1)
 				}
 				last := s.history[len(s.history)-1]
 				if last.Role != proxy.UserRole || !strings.Contains(last.Content, "SYSTEM: Continue") {
@@ -245,10 +245,10 @@ func TestHandleNoToolCalls(t *testing.T) {
 				}
 			}
 			if tt.wantFinalized {
-				if s.finalizeAttempts != tt.finalizeAttempts+1 {
-					t.Errorf("finalizeAttempts = %d, want %d", s.finalizeAttempts, tt.finalizeAttempts+1)
+				if s.finalize.finalizeAttempts != tt.finalizeAttempts+1 {
+					t.Errorf("finalizeAttempts = %d, want %d", s.finalize.finalizeAttempts, tt.finalizeAttempts+1)
 				}
-				if s.textOnlyNextTurn {
+				if s.finalize.textOnlyNextTurn {
 					t.Error("textOnlyNextTurn should be consumed by the finalization turn")
 				}
 				if n := len(s.history); n < 2 {
@@ -268,8 +268,8 @@ func TestHandleNoToolCalls(t *testing.T) {
 func TestFlagSplit_NagDoesNotDisableHardCap(t *testing.T) {
 	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5})
 	s := newRunSession(agent, context.Background(), nil)
-	s.postToolNudgeCount = postToolNudgeMax // nudges already exhausted
-	s.steps = agent.config.MaxSteps * 2     // at the hard-cap threshold
+	s.recovery.postToolNudgeCount = postToolNudgeMax // nudges already exhausted
+	s.steps = agent.config.MaxSteps * 2              // at the hard-cap threshold
 
 	stopped, _, _ := s.checkForcedCompletion()
 	if !stopped {
@@ -293,5 +293,14 @@ func TestFlagSplit_HardCapIndependent(t *testing.T) {
 	// Second call must be a no-op (already triggered), not a re-fire.
 	if stopped, _, _ := s.checkForcedCompletion(); stopped {
 		t.Error("hard cap should not re-fire once hardCapTriggered is set")
+	}
+	// The recovery reset must never clear the irreversible cap: clearing it
+	// would re-arm forced completion past MaxSteps*2.
+	s.resetParseErrorState()
+	if !s.hardCapTriggered {
+		t.Error("resetParseErrorState must not clear hardCapTriggered")
+	}
+	if stopped, _, _ := s.checkForcedCompletion(); stopped {
+		t.Error("hard cap should stay latched after the recovery reset")
 	}
 }

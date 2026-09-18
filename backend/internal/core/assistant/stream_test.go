@@ -862,7 +862,7 @@ func TestApplyRequestConfig_RecoveryTempEscalation(t *testing.T) {
 			deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()},
 		}
 		if escalation > 0 {
-			a.runS = &runSession{recoveryTempEscalation: escalation}
+			a.runS = &runSession{guardrail: guardrailState{tempEscalation: escalation}}
 		}
 		return a
 	}

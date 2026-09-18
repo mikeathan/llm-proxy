@@ -8,6 +8,7 @@ vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: {
     fetchToolSecret: vi.fn(),
     saveToolSecret: vi.fn(),
+    deleteToolSecret: vi.fn(),
   },
 }))
 
@@ -85,7 +86,7 @@ describe('SearchSettings', () => {
   })
 
   it('saves the key for the selected provider and signals the config update', async () => {
-    vi.mocked(AdminApiService.saveToolSecret).mockResolvedValue(undefined)
+    vi.mocked(AdminApiService.saveToolSecret).mockResolvedValue('mock...mask')
     const { wrapper, onConfig } = mountSettings()
     await flushPromises()
 
@@ -95,6 +96,37 @@ describe('SearchSettings', () => {
 
     expect(AdminApiService.saveToolSecret).toHaveBeenCalledWith('search', 'tavily', 'my-tavily-key')
     expect(onConfig).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the stored key for the selected provider after confirmation', async () => {
+    vi.mocked(AdminApiService.fetchToolSecret).mockResolvedValue('tvly...9f2c')
+    vi.mocked(AdminApiService.deleteToolSecret).mockResolvedValue('')
+    const confirmSpy = vi.fn().mockReturnValue(true)
+    window.confirm = confirmSpy
+    const { wrapper, onConfig } = mountSettings()
+    await flushPromises()
+
+    await wrapper.get('.clear-search-key').trigger('click')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(AdminApiService.deleteToolSecret).toHaveBeenCalledWith('search', 'tavily')
+    expect(wrapper.find('.key-mask').exists()).toBe(false)
+    expect(wrapper.find('#search-key').exists()).toBe(true)
+    expect(onConfig).toHaveBeenCalled()
+  })
+
+  it('does not delete the key when the confirmation is dismissed', async () => {
+    vi.mocked(AdminApiService.fetchToolSecret).mockResolvedValue('tvly...9f2c')
+    window.confirm = vi.fn().mockReturnValue(false)
+    const { wrapper } = mountSettings()
+    await flushPromises()
+
+    await wrapper.get('.clear-search-key').trigger('click')
+    await flushPromises()
+
+    expect(AdminApiService.deleteToolSecret).not.toHaveBeenCalled()
+    expect(wrapper.get('.key-mask').text()).toBe('••••••••9f2c')
   })
 
   it('emits a config update carrying the new provider when the selection changes', async () => {
@@ -141,23 +173,55 @@ describe('SearchSettings', () => {
     expect(wrapper.text()).toContain('Failed to save token')
   })
 
-  it('shows the stored key masked (bullets + last 4) and can reveal the mask', async () => {
+  it('shows a stored key in the standard masked form, not as editable text', async () => {
     vi.mocked(AdminApiService.fetchToolSecret).mockResolvedValue('tvly...abcd')
     const { wrapper } = mountSettings()
     await flushPromises()
 
-    expect(wrapper.get('.key-preview').text()).toBe('••••••••abcd')
-    expect((wrapper.get('#search-key').element as HTMLInputElement).type).toBe('password')
-
-    await wrapper.get('button[title="Toggle Visibility"]').trigger('click')
-    expect((wrapper.get('#search-key').element as HTMLInputElement).type).toBe('text')
+    // Same shape as every other provider key: bullets + last 4.
+    expect(wrapper.get('.key-mask').text()).toBe('••••••••abcd')
+    // The mask must not be an editable input carrying the raw backend value.
+    expect(wrapper.find('#search-key').exists()).toBe(false)
   })
 
-  it('shows no masked preview when no key is stored', async () => {
+  it('shows no mask for an unconfigured provider and allows entering a key', async () => {
     vi.mocked(AdminApiService.fetchToolSecret).mockResolvedValue('')
     const { wrapper } = mountSettings()
     await flushPromises()
 
-    expect(wrapper.find('.key-preview').exists()).toBe(false)
+    expect(wrapper.find('.key-mask').exists()).toBe(false)
+    expect(wrapper.find('#search-key').exists()).toBe(true)
+  })
+
+  it('replaces a stored key from a blank field so the mask is never resubmitted', async () => {
+    vi.mocked(AdminApiService.fetchToolSecret).mockResolvedValue('tvly...abcd')
+    vi.mocked(AdminApiService.saveToolSecret).mockResolvedValue('tvly...wxyz')
+    const { wrapper } = mountSettings()
+    await flushPromises()
+
+    await wrapper.get('.replace-search-key').trigger('click')
+    // Field starts empty — the mask is not pre-filled.
+    expect((wrapper.get('#search-key').element as HTMLInputElement).value).toBe('')
+
+    await wrapper.get('#search-key').setValue('tvly-dev-NEWKEYwxyz')
+    await wrapper.get('.save-search').trigger('click')
+    await flushPromises()
+
+    expect(AdminApiService.saveToolSecret).toHaveBeenCalledWith('search', 'tavily', 'tvly-dev-NEWKEYwxyz')
+    expect(wrapper.get('.key-mask').text()).toBe('••••••••wxyz')
+  })
+
+  it('restores the mask when a replacement is cancelled', async () => {
+    vi.mocked(AdminApiService.fetchToolSecret).mockResolvedValue('tvly...abcd')
+    const { wrapper } = mountSettings()
+    await flushPromises()
+
+    await wrapper.get('.replace-search-key').trigger('click')
+    await wrapper.get('#search-key').setValue('typed-but-abandoned')
+    await wrapper.get('.cancel-search-key').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.key-mask').text()).toBe('••••••••abcd')
+    expect(AdminApiService.saveToolSecret).not.toHaveBeenCalled()
   })
 })
