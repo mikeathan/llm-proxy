@@ -167,6 +167,92 @@ func TestSecretStore_ToolSecrets(t *testing.T) {
 	}
 }
 
+// A masked-shaped tool secret means the caller sent back a redacted display
+// value instead of a real credential. That must be rejected loudly: silently
+// keeping the old key hides the bug, and a fabricated mask (e.g. "tvly...")
+// would otherwise be persisted as the live key and 401 on every use.
+func TestSecretStore_ToolSecretRejectsMaskedInput(t *testing.T) {
+	ss, _, _ := newTestSecretStore(t)
+	if err := ss.SetSecret("search", "tavily", "tvly-real-key-value"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, masked := range []string{
+		MaskKey("tvly-real-key-value"),
+		"tvly...",
+		"abcd...wxyz",
+		"***",
+	} {
+		if err := ss.SetSecret("search", "tavily", masked); err == nil {
+			t.Errorf("SetSecret(%q) should have been rejected as masked", masked)
+		}
+	}
+	if got := ss.GetSecret("search", "tavily"); got != "tvly-real-key-value" {
+		t.Errorf("rejected masked write must not alter the stored key, got %q", got)
+	}
+}
+
+// Deleting a tool secret must remove the credential so the dependent tool
+// reports unconfigured, and must leave sibling providers untouched.
+func TestSecretStore_DeleteSecret(t *testing.T) {
+	ss, _, _ := newTestSecretStore(t)
+	if err := ss.SetSecret("search", "tavily", "tvly-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.SetSecret("search", "brave", "brave-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ss.DeleteSecret("search", "tavily"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ss.GetSecret("search", "tavily"); got != "" {
+		t.Errorf("deleted secret still resolves: %q", got)
+	}
+	if got := ss.MaskedSecret("search", "tavily"); got != "" {
+		t.Errorf("deleted secret still masks as %q", got)
+	}
+	if got := ss.GetSecret("search", "brave"); got != "brave-key" {
+		t.Errorf("sibling secret was disturbed: %q", got)
+	}
+
+	// Re-setting after delete must store the new value, not resurrect the old.
+	if err := ss.SetSecret("search", "tavily", "tvly-second"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ss.GetSecret("search", "tavily"); got != "tvly-second" {
+		t.Errorf("re-set after delete = %q, want tvly-second", got)
+	}
+}
+
+// Deleting an absent secret is a no-op, not an error: callers treat delete as
+// idempotent cleanup.
+func TestSecretStore_DeleteSecretAbsentIsNoOp(t *testing.T) {
+	ss, _, _ := newTestSecretStore(t)
+	if err := ss.DeleteSecret("search", "nope"); err != nil {
+		t.Errorf("deleting an absent secret returned %v, want nil", err)
+	}
+}
+
+// An empty write is not a credential: it would wipe a working key, so it must
+// fail loudly and leave the stored value intact. Clearing goes through
+// DeleteSecret instead.
+func TestSecretStore_ToolSecretRejectsEmpty(t *testing.T) {
+	ss, _, _ := newTestSecretStore(t)
+	if err := ss.SetSecret("search", "tavily", "tvly-real-key-value"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, empty := range []string{"", "   "} {
+		if err := ss.SetSecret("search", "tavily", empty); err == nil {
+			t.Errorf("SetSecret(%q) should have been rejected as empty", empty)
+		}
+	}
+	if got := ss.GetSecret("search", "tavily"); got != "tvly-real-key-value" {
+		t.Errorf("rejected empty write must not alter the stored key, got %q", got)
+	}
+}
+
 func TestSecretStore_GetResolvedProviderKey(t *testing.T) {
 	ss, _, _ := newTestSecretStore(t)
 	if err := ss.SetProviderKeys("openai", []models.APIKeyItem{

@@ -50,7 +50,7 @@ describe('ChatBubble live reasoning gating', () => {
     expect(wrapper.find('.inset-reasoning--live').exists()).toBe(true)
     // Live reasoning renders with full markdown again (GPU audit confirmed
     // markdown is not a GPU driver; the plain-text experiment was reverted).
-    expect(wrapper.find('.inset-reasoning--live .md-stub').text()).toContain('new run thinking…')
+    expect(wrapper.find('.inset-reasoning--live').text()).toContain('new run thinking…')
   })
 
   it('does NOT render live reasoning text in a historical (non-last) turn, even while a new run streams', async () => {
@@ -86,6 +86,6 @@ describe('ChatBubble live reasoning gating', () => {
     expect(live.exists()).toBe(true)
     expect(live.attributes('style')).toContain('display: none')
     // ...and the new run's live text must not be visible in it.
-    expect(wrapper.find('.inset-reasoning--live .md-stub').text()).toContain('new run thinking…')
+    expect(wrapper.find('.inset-reasoning--live').text()).toContain('new run thinking…')
   })
 })

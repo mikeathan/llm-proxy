@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"llm-proxy/models"
 )
@@ -179,9 +180,34 @@ func (h *SecretsHandlers) AdminToolSecretPutHandler(w http.ResponseWriter, r *ht
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
+	// An empty secret is not a credential. Accepting it would silently wipe a
+	// working key; clearing is the DELETE endpoint's job.
+	if strings.TrimSpace(req.Secret) == "" {
+		writeJSONError(w, http.StatusBadRequest, "secret must not be empty; use DELETE to remove a stored secret")
+		return
+	}
 
 	if err := h.admin.Secrets().SetSecret(category, provider, req.Secret); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save secret: "+err.Error())
+		return
+	}
+
+	respondJSON(w, map[string]string{"secret": h.admin.Secrets().MaskedSecret(category, provider)})
+}
+
+// AdminToolSecretDeleteHandler clears a tool secret so the dependent tool
+// reports unconfigured. Idempotent: deleting an absent secret succeeds, and the
+// response carries the resulting (empty) mask so callers can update in place.
+func (h *SecretsHandlers) AdminToolSecretDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	category := r.URL.Query().Get("category")
+	provider := r.URL.Query().Get("provider")
+	if category == "" || provider == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing category or provider")
+		return
+	}
+
+	if err := h.admin.Secrets().DeleteSecret(category, provider); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete secret: "+err.Error())
 		return
 	}
 

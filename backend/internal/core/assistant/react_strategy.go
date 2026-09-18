@@ -27,7 +27,7 @@ func (r *ReactStrategy) Name() LoopStrategyName { return LoopReact }
 func (r *ReactStrategy) Run(ctx context.Context, s *runSession) (string, []proxy.Message, error) {
 	// Wire the strategy's stop guards into the session so the handleTextTurn
 	// completion hook consults them. Nil for plain react — zero behavior change.
-	s.stopGuards = r.stopGuards
+	s.stopGuard.guards = r.stopGuards
 
 	for {
 		s.steps++
@@ -39,15 +39,15 @@ func (r *ReactStrategy) Run(ctx context.Context, s *runSession) (string, []proxy
 			return reply, s.history, err
 		}
 
-		if s.steps >= s.agent.config.MaxSteps && !s.warnedAdvisory {
-			s.warnedAdvisory = true
+		if s.steps >= s.agent.config.MaxSteps && !s.sieve.warnedAdvisory {
+			s.sieve.warnedAdvisory = true
 			s.agent.deps.Logger.Warn("agent exceeded advisory step limit, continuing", "steps", s.steps)
 		}
 
 		s.maybeFlushMemoryBeforeTurn()
 
 		s.agent.notifyStepStart(s.steps)
-		s.agent.notifyThinking()
+		s.agent.notifySystem(MsgAgentThinking)
 
 		turnMsg, parseErr, toolsList, err := s.agent.executeTurn(s.ctx, &s.history)
 		if err != nil {
@@ -61,7 +61,7 @@ func (r *ReactStrategy) Run(ctx context.Context, s *runSession) (string, []proxy
 			continue
 		}
 
-		s.sieveStreak = 0
+		s.sieve.sieveStreak = 0
 
 		if len(turnMsg.ToolCalls) > 0 {
 			done, reply, turnErr := s.handleToolTurn(turnMsg, toolsList)

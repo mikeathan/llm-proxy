@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import WorkspaceExplorer from '../../../../components/AgentIde/workspace/WorkspaceExplorer.vue'
 
@@ -8,7 +8,9 @@ const stubs = {
   NotificationDot: true,
 }
 
-function mountExplorer() {
+// VTU's emitted() does not record script-setup emits in this harness, so these
+// tests assert the listener callbacks directly — the component's public contract.
+function mountExplorer(attrs: Record<string, unknown> = {}) {
   return mount(WorkspaceExplorer, {
     props: {
       workspaces: [],
@@ -17,13 +19,15 @@ function mountExplorer() {
       selectedFile: null,
       loading: false,
     },
+    attrs,
     global: { stubs },
   })
 }
 
 describe('WorkspaceExplorer', () => {
   it('keeps the New-workspace panel open when focus moves to the Add button, so the click creates the workspace', async () => {
-    const wrapper = mountExplorer()
+    const onCreateWorkspace = vi.fn()
+    const wrapper = mountExplorer({ onCreateWorkspace })
 
     // Open the collapsible "New workspace" input panel and type a name.
     await wrapper.get('button[title="New workspace"]').trigger('click')
@@ -47,8 +51,7 @@ describe('WorkspaceExplorer', () => {
 
     await addButton.trigger('click')
 
-    expect(wrapper.emitted('create-workspace')).toBeTruthy()
-    expect(wrapper.emitted('create-workspace')![0]).toEqual(['my-workspace'])
+    expect(onCreateWorkspace).toHaveBeenCalledWith('my-workspace')
   })
 
   it('closes the New-workspace panel when focus moves outside it', async () => {
@@ -62,8 +65,11 @@ describe('WorkspaceExplorer', () => {
     // Focus leaving the panel entirely (relatedTarget outside the bar) closes it.
     const blur = new FocusEvent('blur', { relatedTarget: document.body })
     input.element.dispatchEvent(blur)
-    await wrapper.vm.$nextTick()
 
-    expect(wrapper.find('button[title="Create Workspace"]').exists()).toBe(false)
+    // The panel is wrapped in a <Transition>, so its leave completes on the next
+    // animation frames instead of synchronously.
+    await vi.waitFor(() => {
+      expect(wrapper.find('button[title="Create Workspace"]').exists()).toBe(false)
+    })
   })
 })

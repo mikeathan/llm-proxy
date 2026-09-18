@@ -35,7 +35,7 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `compliance_check_internal.md` | Security compliance audit |
 | `network_recon_unprivileged.md` | Unprivileged network reconnaissance |
 | `workspace_health_audit.md` | Workspace health check |
-| `web_discovery_fast.md` | Fast web discovery |
+| `web_discovery_fast.md` | Fast AI/LLM news discovery — token-efficient search digest |
 
 ## Running a Smoke Test
 

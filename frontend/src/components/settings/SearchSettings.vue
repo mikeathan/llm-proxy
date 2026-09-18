@@ -23,13 +23,21 @@ const emit = defineEmits<{
 const secrets = useToolSecrets("search")
 const saveError = ref("")
 const loading = ref(true)
+// keyValue holds the backend mask (e.g. "tvly-...9f2c") for a stored key, or the
+// text being typed while replacing one.
 const keyValue = ref("")
 const showKey = ref(false)
+const replacing = ref(false)
+
+// hasKey mirrors the other provider key cards: a stored credential is shown as
+// bullets + last 4, never as an editable field.
+const hasKey = computed<boolean>(() => keyValue.value !== "" && !replacing.value)
 
 // Masked preview in the same shape cloud provider keys use: bullets + last 4.
 // keyValue is already the backend mask ("abcd...wxyz"), so its tail identifies
 // the stored key without revealing it.
 const keyTail = computed<string>(() => (keyValue.value.length > 4 ? keyValue.value.slice(-4) : ""))
+const keyMask = computed<string>(() => (keyTail.value ? `••••••••${keyTail.value}` : ""))
 
 // Backend-driven option list, with the local typed set as an offline fallback.
 const providerOptions = computed<string[]>(() => {
@@ -66,12 +74,32 @@ async function loadKey(name: string) {
     return
   }
   loading.value = true
+  replacing.value = false
   try {
     await secrets.load(name)
     keyValue.value = secrets.tokens.value[name]?.masked ?? ""
   } finally {
     loading.value = false
   }
+}
+
+// Replace mode starts from a blank field: the stored mask is never editable
+// text, so it can never be submitted back as the credential.
+function startReplace() {
+  replacing.value = true
+  showKey.value = false
+  keyValue.value = ""
+  const name = provider.value
+  if (name) {
+    secrets.ensureTracked(name)
+    secrets.tokens.value[name]!.dirty = null
+  }
+}
+
+function cancelReplace() {
+  replacing.value = false
+  const name = provider.value
+  keyValue.value = name ? (secrets.tokens.value[name]?.masked ?? "") : ""
 }
 
 // Load the selected provider's masked key whenever the selection changes.
@@ -82,17 +110,35 @@ function onKeyInput(value: string) {
   const name = provider.value
   if (!name) return
   secrets.ensureTracked(name)
-  const entry = secrets.tokens.value[name]!
-  entry.dirty = value && value !== entry.masked ? value : null
+  // Only typed text is dirty — never the stored mask, which is not editable.
+  secrets.tokens.value[name]!.dirty = value !== "" ? value : null
 }
 
 async function save() {
   saveError.value = ""
   if (await secrets.saveDirty(saveError)) {
     const name = provider.value
+    replacing.value = false
     keyValue.value = name ? (secrets.tokens.value[name]?.masked ?? keyValue.value) : keyValue.value
     emit("updateConfig")
   }
+}
+
+// Remove the stored key for the selected provider. Destructive, so confirm
+// first; the tool reverts to unconfigured (and is hidden from the agent).
+async function clearKey() {
+  const name = provider.value
+  if (!name) return
+  if (!window.confirm(`Remove the stored ${searchProviderLabel(name)} API key?`)) return
+  saveError.value = ""
+  const err = await secrets.clear(name)
+  if (err) {
+    saveError.value = err
+    return
+  }
+  replacing.value = false
+  keyValue.value = secrets.tokens.value[name]?.masked ?? ""
+  emit("updateConfig")
 }
 </script>
 
@@ -124,25 +170,62 @@ async function save() {
 
       <div class="form-group">
         <label class="form-label" for="search-key">API key</label>
-        <div class="form-helper">Stored encrypted. Leave unchanged to keep the existing key.</div>
-        <div v-if="keyTail" class="key-preview">••••••••{{ keyTail }}</div>
+        <div class="form-helper">Stored encrypted. Changes apply to the next run — no restart needed.</div>
         <div class="input-row">
+          <!-- Stored key: shown exactly like every other provider key (bullets +
+               last 4). The mask is never editable text, so it can never be
+               sent back as the credential. -->
+          <span v-if="hasKey" id="search-key-mask" class="key-mask">{{ keyMask }}</span>
           <input
+            v-else
             id="search-key"
             :value="keyValue"
             :type="showKey ? 'text' : 'password'"
             autocomplete="off"
             class="form-input"
-            :placeholder="keyValue ? 'Leave blank to keep the existing key' : 'Enter API key'"
+            :placeholder="replacing ? 'Enter new API key' : 'Enter API key'"
             @input="onKeyInput(($event.target as HTMLInputElement).value)"
           />
           <BaseButton
+            v-if="!hasKey"
             variant="secondary"
             size="sm"
             :icon="showKey ? 'spinner' : 'document'"
             iconOnly
             title="Toggle Visibility"
             @click="showKey = !showKey"
+          />
+          <BaseButton
+            v-if="hasKey"
+            variant="secondary"
+            size="sm"
+            icon="document"
+            className="replace-search-key"
+            title="Replace key"
+            @click="startReplace"
+          >
+            Replace
+          </BaseButton>
+          <BaseButton
+            v-if="replacing"
+            variant="secondary"
+            size="sm"
+            icon="close"
+            className="cancel-search-key"
+            title="Cancel"
+            @click="cancelReplace"
+          >
+            Cancel
+          </BaseButton>
+          <BaseButton
+            v-if="hasKey || replacing"
+            variant="danger"
+            size="sm"
+            icon="trash"
+            iconOnly
+            className="clear-search-key"
+            title="Remove stored key"
+            @click="clearKey"
           />
         </div>
       </div>
@@ -203,8 +286,8 @@ async function save() {
 .input-row .form-input {
   @apply flex-1;
 }
-.key-preview {
-  @apply text-[10px] text-gray-500 font-mono mb-1;
+.key-mask {
+  @apply flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-gray-400;
 }
 .save-bar {
   @apply pt-4 border-t border-gray-700 flex justify-end items-center gap-3;

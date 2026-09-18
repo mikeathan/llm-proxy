@@ -327,6 +327,7 @@ func (f *fakeSecrets) GetSecret(category, provider string) string {
 	return f.creds[category+":"+provider]
 }
 func (f *fakeSecrets) SetSecret(category, provider, value string) error                { return nil }
+func (f *fakeSecrets) DeleteSecret(category, provider string) error                    { return nil }
 func (f *fakeSecrets) MaskedSecret(category, provider string) string                   { return "" }
 func (f *fakeSecrets) GetProviderKeys(provider string) []models.APIKeyItem             { return nil }
 func (f *fakeSecrets) SetProviderKeys(provider string, keys []models.APIKeyItem) error { return nil }

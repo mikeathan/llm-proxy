@@ -630,7 +630,7 @@ func TestAgent_ComputeNextResponse_EmptyFinalizationSkipsNonStream(t *testing.T)
 	// Reproduce the state AFTER the ladder armed and fired the text-only
 	// finalization turn: finalizeAttempts already 1, this call IS the
 	// finalization turn (tools disabled).
-	agent.runS = &runSession{finalizeAttempts: 1}
+	agent.runS = &runSession{finalize: finalizeState{finalizeAttempts: 1}}
 
 	msg, err := agent.computeNextResponse(context.Background(),
 		[]proxy.Message{{Role: proxy.UserRole, Content: "summarize the files"}},
@@ -1386,13 +1386,17 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 	}
 }
 
-func TestNotifyPrefillDisabled(t *testing.T) {
-	agent := &Agent{}
+func TestDisablePrefill(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	agent.runS = newRunSession(agent, context.Background(), nil)
 	var events []AgentEvent
 	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 
-	agent.notifyPrefillDisabled()
+	agent.disablePrefill()
 
+	if !agent.prefillDisabled() {
+		t.Error("disablePrefill must persist the override for the rest of the run")
+	}
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -2383,35 +2387,6 @@ func TestInjectToolInstructions_EmptyTools(t *testing.T) {
 	}
 }
 
-func TestNotifyPrematureTerminationNag(t *testing.T) {
-	var events []AgentEvent
-	agent := &Agent{
-		deps: AgentRuntimeDeps{
-			Observer: func(ev AgentEvent) { events = append(events, ev) },
-		},
-	}
-	history := []proxy.Message{
-		{Role: proxy.UserRole, Content: "do something"},
-	}
-	agent.notifyPrematureTerminationNag(&history)
-
-	if len(history) != 2 {
-		t.Errorf("expected history length 2, got %d", len(history))
-	}
-	if history[1].Role != "user" {
-		t.Errorf("expected nag message role 'user', got %q", history[1].Role)
-	}
-	if !strings.Contains(history[1].Content, "incomplete response") {
-		t.Errorf("expected nag message to mention incomplete response, got %q", history[1].Content)
-	}
-	if len(events) != 1 {
-		t.Errorf("expected 1 event, got %d", len(events))
-	}
-	if events[0].Type != EventMessage {
-		t.Errorf("expected EventMessage event type, got %v", events[0].Type)
-	}
-}
-
 func TestAgent_ExecutePlan_Success(t *testing.T) {
 	callCount := 0
 	client := &MockClient{
@@ -2504,6 +2479,60 @@ func TestComputeNextResponseStreamXML_PrefillThinkingError(t *testing.T) {
 	}
 	if streamCalls != 2 {
 		t.Errorf("expected 2 stream calls (1 error + 1 success), got %d", streamCalls)
+	}
+}
+
+// TestComputeNextResponseStreamXML_SendsBareRequest locks the XML fallback tier
+// to a bare request: no tools, no tool_choice, and none of the native-tools
+// request config (reasoning wire params or recovery temperature escalation).
+// That tier only runs after the provider already rejected tools or the prefill,
+// so re-applying that config would re-trigger the rejection.
+func TestComputeNextResponseStreamXML_SendsBareRequest(t *testing.T) {
+	var gotReq proxy.ChatRequest
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			gotReq = req
+			ch := make(chan *proxy.ChatResponse, 2)
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+				Delta: proxy.Message{Content: "Hello world"},
+			}}}
+			close(ch)
+			return ch, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		},
+	}
+
+	agent := NewAgent(client, provider, &MockEngine{}, AgentOptions{
+		MaxSteps:       5,
+		UseNativeTools: boolPtr(false),
+		Temperature:    0.7,
+	})
+	// A pending recovery escalation must not leak into the XML request.
+	agent.runS = &runSession{guardrail: guardrailState{tempEscalation: recoveryTempStep}}
+
+	// Only the streamed request shape is under test — downstream content
+	// handling (empty-stream fallback) belongs to other tests.
+	if _, err := agent.computeNextResponseStreamXML(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	}, provider.Tools, proxy.ToolChoiceAuto); err != nil {
+		t.Fatalf("computeNextResponseStreamXML failed: %v", err)
+	}
+	if len(gotReq.Tools) != 0 {
+		t.Errorf("XML fallback must send no tools, got %d", len(gotReq.Tools))
+	}
+	if gotReq.ToolChoice != "" {
+		t.Errorf("XML fallback must send no tool_choice, got %q", gotReq.ToolChoice)
+	}
+	if gotReq.Temperature != 0.7 {
+		t.Errorf("XML fallback must use the base temperature, got %v", gotReq.Temperature)
+	}
+	if gotReq.ReasoningBudget != 0 || gotReq.ThinkingBudgetTokens != 0 || gotReq.ReasoningEffort != "" {
+		t.Errorf("XML fallback must not carry reasoning params, got budget=%d thinking=%d effort=%q",
+			gotReq.ReasoningBudget, gotReq.ThinkingBudgetTokens, gotReq.ReasoningEffort)
 	}
 }
 
@@ -4948,11 +4977,11 @@ func TestHandleTextTurn_LengthTruncationNudgesContinuation(t *testing.T) {
 	if done {
 		t.Fatalf("length-truncated turn must not complete; got done=true reply=%q", reply)
 	}
-	if s.lengthContinuationCount != 1 {
-		t.Errorf("expected 1 continuation nudge, got %d", s.lengthContinuationCount)
+	if s.finalize.lengthContinuationCount != 1 {
+		t.Errorf("expected 1 continuation nudge, got %d", s.finalize.lengthContinuationCount)
 	}
-	if len(s.truncatedParts) != 1 || s.truncatedParts[0] != turnMsg.Content {
-		t.Errorf("expected the partial to be accumulated, got %+v", s.truncatedParts)
+	if len(s.finalize.truncatedParts) != 1 || s.finalize.truncatedParts[0] != turnMsg.Content {
+		t.Errorf("expected the partial to be accumulated, got %+v", s.finalize.truncatedParts)
 	}
 	// The partial must be in history followed by the continuation nudge.
 	last := s.history[len(s.history)-1]
@@ -4969,7 +4998,7 @@ func TestHandleTextTurn_LengthTruncationNudgesContinuation(t *testing.T) {
 // cap cannot push the run past the bound.
 func TestHandleTextTurn_LengthContinuationBounded(t *testing.T) {
 	s := newTextTurnSession()
-	s.lengthContinuationCount = lengthContinuationMax // already exhausted
+	s.finalize.lengthContinuationCount = lengthContinuationMax // already exhausted
 
 	turnMsg := proxy.Message{
 		Role:         proxy.AssistantRole,
@@ -4993,7 +5022,7 @@ func TestHandleTextTurn_LengthContinuationBounded(t *testing.T) {
 // (Hermes _join_truncated_parts): partial report + continuation = full report.
 func TestHandleTextTurn_LengthContinuationStitchesParts(t *testing.T) {
 	s := newTextTurnSession()
-	s.truncatedParts = []string{"# Report\n## 1. Filesystem\nlisted"}
+	s.finalize.truncatedParts = []string{"# Report\n## 1. Filesystem\nlisted"}
 
 	// The continuation turn completes naturally (finish_reason="stop") and
 	// continues exactly where the truncated fragment stopped.
@@ -5017,8 +5046,8 @@ func TestHandleTextTurn_LengthContinuationStitchesParts(t *testing.T) {
 	if reply != want {
 		t.Errorf("expected stitched report %q, got %q", want, reply)
 	}
-	if len(s.truncatedParts) != 0 {
-		t.Errorf("expected fragments to be cleared after stitching, got %+v", s.truncatedParts)
+	if len(s.finalize.truncatedParts) != 0 {
+		t.Errorf("expected fragments to be cleared after stitching, got %+v", s.finalize.truncatedParts)
 	}
 }
 
@@ -5039,8 +5068,8 @@ func TestHandleTextTurn_CleanStopUnchanged(t *testing.T) {
 	if !done {
 		t.Fatalf("expected clean stop to complete, got done=false")
 	}
-	if s.lengthContinuationCount != 0 {
-		t.Errorf("clean stop must not nudge a continuation, got %d", s.lengthContinuationCount)
+	if s.finalize.lengthContinuationCount != 0 {
+		t.Errorf("clean stop must not nudge a continuation, got %d", s.finalize.lengthContinuationCount)
 	}
 	if !strings.Contains(reply, "All steps complete") {
 		t.Errorf("expected the full report as reply, got %q", reply)

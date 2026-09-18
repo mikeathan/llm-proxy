@@ -125,14 +125,7 @@ func NewExecutionPlanStrategy(llm proxy.Client, tools []proxy.Tool, logger loggi
 func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*ExecutionPlan, error) {
 	s.logger.Debug("generating execution plan", "tools", len(s.tools), "task_len", len(task))
 
-	toolInfos := make([]prompts.ToolInfo, len(s.tools))
-	for i, t := range s.tools {
-		toolInfos[i] = prompts.ToolInfo{
-			Name:        t.Function.Name,
-			Description: t.Function.Description,
-			Parameters:  t.Function.Parameters,
-		}
-	}
+	toolInfos := toolInfosFromTools(s.tools)
 	userPrompt := prompts.BuildExecutionPlanPrompt(toolInfos, task)
 
 	req := proxy.ChatRequest{
@@ -391,7 +384,7 @@ func (a *Agent) noteTerminalToolFailure(tool, reason string) {
 	a.toolFailure.disable(tool)
 	if toolpolicy.FailurePolicyFor(tool) == toolpolicy.WarnOnTerminalError {
 		a.toolFailure.addWarning(fmt.Sprintf("%s: %s", tool, reason))
-		a.notifyToolWarning(tool, reason)
+		a.notifySystemf(MsgToolWarning, tool, reason)
 		a.deps.Logger.Warn("delivery tool failed (non-fatal)", "name", tool, "error", reason)
 	}
 }
@@ -563,9 +556,7 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		// Security boundary violations (path outside workspace, blocked system files)
 		// are denied immediately — no approval dialog.
 		if isGuardrailSecurityBoundary(err) {
-			mu.Lock()
-			a.appendToolResult(history, tc, formatGuardrailError(err, denialSecurity))
-			mu.Unlock()
+			a.appendGuardrailDenial(history, mu, tc, err, denialSecurity)
 			return false, true
 		}
 
@@ -576,54 +567,69 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		// the approval bound — an unanswered prompt previously burned the full
 		// GuardrailApprovalTimeout and pushed the run past its deadline.
 		if a.config.Channel == ChannelAutomation {
-			mu.Lock()
-			a.appendToolResult(history, tc, formatGuardrailError(err, denialSecurity))
-			mu.Unlock()
+			a.appendGuardrailDenial(history, mu, tc, err, denialSecurity)
 			return false, true
 		}
 
+		// The approval wait, the timeout classification and the returned
+		// decision are the callback's concern; only a hard denial falls through.
 		if a.deps.OnGuardrail != nil {
-			// The approval wait is bounded (Constitution II.10 / SPEC
-			// guardrails) so an unanswered prompt cannot stall the run
-			// indefinitely. The bound is configurable per-model
-			// (GuardrailApprovalTimeout, default 5 min — Hermes parity; 60s
-			// proved too tight in practice). On expiry the callback returns an
-			// error and the call is treated as denied below — the violation is
-			// recorded and the run continues without the tool.
-			approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
-			defer approvalCancel()
-			decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
-				DecisionID:  fmt.Sprintf("gr_%d", time.Now().UnixNano()),
-				Tool:        tc.Function.Name,
-				Args:        tc.Function.Arguments,
-				Reason:      err.Error(),
-				Category:    toolCategory(tc.Function.Name),
-				WorkspaceID: a.config.WorkspaceID,
-			})
-			if decErr != nil {
-				// No decision arrived before the approval bound — the prompt
-				// expired. Reported as "no response", never as user consent.
-				a.deps.Logger.Warn("guardrail approval wait ended without a decision, treating as denied",
-					"name", tc.Function.Name, "error", decErr)
-				denial = denialTimeout
-			} else if decision.Allow {
-				if decision.Persist {
-					if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
-						a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
-					}
-				} else {
-					a.deps.Guardrails.MarkOverride(a.config.WorkspaceID, tc.Function.Name)
-				}
-				return true, false
+			approved, stopBatch, decided := a.awaitGuardrailApproval(ctx, tc, err, &denial)
+			if decided {
+				return approved, stopBatch
 			}
 		}
 
-		mu.Lock()
-		a.appendToolResult(history, tc, formatGuardrailError(err, denial))
-		mu.Unlock()
+		a.appendGuardrailDenial(history, mu, tc, err, denial)
 		return false, true
 	}
 	return false, false
+}
+
+// awaitGuardrailApproval asks the interactive callback for a decision, bounded
+// by GuardrailApprovalTimeout (Constitution II.10 / SPEC guardrails) so an
+// unanswered prompt cannot stall the run indefinitely. decided=false means the
+// caller should fall through to its default denial; an expired prompt sets
+// *denial to denialTimeout, never user consent.
+func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, err error, denial *guardrailDenialReason) (approved, stopBatch, decided bool) {
+	approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
+	defer approvalCancel()
+	decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
+		DecisionID:  fmt.Sprintf("gr_%d", time.Now().UnixNano()),
+		Tool:        tc.Function.Name,
+		Args:        tc.Function.Arguments,
+		Reason:      err.Error(),
+		Category:    toolCategory(tc.Function.Name),
+		WorkspaceID: a.config.WorkspaceID,
+	})
+	if decErr != nil {
+		// No decision arrived before the approval bound — the prompt expired.
+		// Reported as "no response", never as user consent.
+		a.deps.Logger.Warn("guardrail approval wait ended without a decision, treating as denied",
+			"name", tc.Function.Name, "error", decErr)
+		*denial = denialTimeout
+		return false, false, false
+	}
+	if !decision.Allow {
+		return false, false, false
+	}
+	if decision.Persist {
+		if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
+			a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
+		}
+	} else {
+		a.deps.Guardrails.MarkOverride(a.config.WorkspaceID, tc.Function.Name)
+	}
+	return true, false, true
+}
+
+// appendGuardrailDenial records a denied tool call on the shared history under
+// the caller's lock, so every denial path reports the outcome the same way and
+// the run continues without the tool.
+func (a *Agent) appendGuardrailDenial(history *[]proxy.Message, mu *sync.Mutex, tc proxy.ToolCall, err error, reason guardrailDenialReason) {
+	mu.Lock()
+	a.appendToolResult(history, tc, formatGuardrailError(err, reason))
+	mu.Unlock()
 }
 
 func isGuardrailSecurityBoundary(err error) bool {
@@ -1193,13 +1199,13 @@ func (a *Agent) trackGuardrailOutcome(tc proxy.ToolCall, result string) {
 		return
 	}
 	if isGuardrailDenialResult(result) {
-		a.runS.guardrailBlockStreak++
-		a.runS.guardrailBlockedTool = tc.Function.Name
+		a.runS.guardrail.blockStreak++
+		a.runS.guardrail.blockedTool = tc.Function.Name
 		return
 	}
-	a.runS.guardrailBlockStreak = 0
-	a.runS.guardrailBlockedTool = ""
-	a.runS.guardrailNagSent = false
+	a.runS.guardrail.blockStreak = 0
+	a.runS.guardrail.blockedTool = ""
+	a.runS.guardrail.nagSent = false
 }
 
 // isGuardrailDenialResult reports whether a tool result is a guardrail denial

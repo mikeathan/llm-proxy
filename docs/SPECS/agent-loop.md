@@ -116,7 +116,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - The heartbeat in `computeNextResponseNonStreaming` now uses `lifecycle` (`fallback_waiting`) with elapsed time instead of `tool_stream`.
 
 ### 10. Goroutine Lifecycle in processStream
-- A `streamDone` channel (closed via `defer`) ensures the 30-second heartbeat goroutine exits when `processStream` returns for ANY reason — not just `ctx.Done()`. This prevents misleading "stream still generating" log lines after stuck detection or stream EOF.
+- The heartbeat is a `core.Heartbeat` owned by `processStream`: `hb := core.NewHeartbeat(); hb.Start(ctx, streamHeartbeatInterval)` with `defer hb.Stop()`. The ticker goroutine exits on `ctx.Done()` or `Stop()`, so `defer hb.Stop()` guarantees it ends when `processStream` returns for ANY reason — not just `ctx.Done()`.
+- Ticks are consumed by `streamRun.handleTick`, which only emits `still_thinking` while content/reasoning length is unchanged since the previous tick. That silent-stall gate keeps "stream still generating" logging from firing after stuck detection or stream EOF.
 
 ### 11. Guardrail Decision Flow (Constitution II.10)
 - When `guardrails.ValidateToolCall()` rejects a tool call, the agent invokes `onGuardrail(ctx, payload)` if set.

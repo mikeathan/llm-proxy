@@ -7,6 +7,7 @@ vi.mock('../../services/admin/adminService', () => ({
   AdminApiService: {
     fetchToolSecret: vi.fn(),
     saveToolSecret: vi.fn(),
+    deleteToolSecret: vi.fn(),
   },
 }))
 
@@ -35,8 +36,8 @@ describe('useToolSecrets', () => {
     expect(mgr.tokens.value['telegram']).toEqual({ masked: '', dirty: null })
   })
 
-  it('persists dirty tokens under the category and masks them', async () => {
-    vi.mocked(AdminApiService.saveToolSecret).mockResolvedValue(undefined)
+  it('persists dirty tokens under the category and adopts the server mask', async () => {
+    vi.mocked(AdminApiService.saveToolSecret).mockResolvedValue('secr...-key')
     const mgr = useToolSecrets('search')
     mgr.ensureTracked('brave')
     mgr.tokens.value['brave']!.dirty = 'secret-key'
@@ -47,8 +48,24 @@ describe('useToolSecrets', () => {
     expect(ok).toBe(true)
     expect(AdminApiService.saveToolSecret).toHaveBeenCalledWith('search', 'brave', 'secret-key')
     expect(mgr.tokens.value['brave']!.dirty).toBeNull()
-    expect(mgr.tokens.value['brave']!.masked).toBe('secr...')
+    expect(mgr.tokens.value['brave']!.masked).toBe('secr...-key')
     expect(err.value).toBe('')
+  })
+
+  it('never fabricates a shortened mask that could be re-saved as the key', async () => {
+    // Regression: the composable used to set masked = dirty.slice(0, 4) + "...".
+    // Because the input is bound to `masked`, clicking Save again sent that
+    // truncated string back as the real credential, clobbering the stored key
+    // (a 5-char "illy " got persisted as the Tavily key and 401'd).
+    vi.mocked(AdminApiService.saveToolSecret).mockResolvedValue('tvly...9f2c')
+    const mgr = useToolSecrets('search')
+    mgr.ensureTracked('tavily')
+    mgr.tokens.value['tavily']!.dirty = 'tvly-dev-REALKEYVALUE9f2c'
+
+    await mgr.saveDirty(ref(''))
+
+    expect(mgr.tokens.value['tavily']!.masked).toBe('tvly...9f2c')
+    expect(mgr.tokens.value['tavily']!.masked).not.toBe('tvly...')
   })
 
   it('reports the failure and keeps dirty state when a save fails', async () => {
@@ -74,5 +91,45 @@ describe('useToolSecrets', () => {
 
     expect(ok).toBe(true)
     expect(AdminApiService.saveToolSecret).not.toHaveBeenCalled()
+  })
+
+  it('clears a token server-side and drops the local mask', async () => {
+    vi.mocked(AdminApiService.deleteToolSecret).mockResolvedValue('')
+    const mgr = useToolSecrets('search')
+    mgr.ensureTracked('tavily')
+    mgr.tokens.value['tavily'] = { masked: 'tvly...9f2c', dirty: null }
+
+    const err = await mgr.clear('tavily')
+
+    expect(err).toBe('')
+    expect(AdminApiService.deleteToolSecret).toHaveBeenCalledWith('search', 'tavily')
+    expect(mgr.tokens.value['tavily']).toEqual({ masked: '', dirty: null })
+  })
+
+  it('discards a pending dirty value when clearing', async () => {
+    // A queued dirty edit must not survive the clear, or the next save would
+    // write the secret straight back.
+    vi.mocked(AdminApiService.deleteToolSecret).mockResolvedValue('')
+    const mgr = useToolSecrets('search')
+    mgr.ensureTracked('tavily')
+    mgr.tokens.value['tavily']!.dirty = 'tvly-pending'
+
+    await mgr.clear('tavily')
+    await mgr.saveDirty(ref(''))
+
+    expect(mgr.tokens.value['tavily']!.dirty).toBeNull()
+    expect(AdminApiService.saveToolSecret).not.toHaveBeenCalled()
+  })
+
+  it('reports the failure and keeps the mask when clearing fails', async () => {
+    vi.mocked(AdminApiService.deleteToolSecret).mockRejectedValue(new Error('boom'))
+    const mgr = useToolSecrets('search')
+    mgr.ensureTracked('tavily')
+    mgr.tokens.value['tavily'] = { masked: 'tvly...9f2c', dirty: null }
+
+    const err = await mgr.clear('tavily')
+
+    expect(err).toContain('tavily')
+    expect(mgr.tokens.value['tavily']!.masked).toBe('tvly...9f2c')
   })
 })

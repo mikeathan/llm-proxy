@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"llm-proxy/internal/platform/logging"
@@ -238,7 +239,18 @@ func (b *SecretStore) GetSecret(category, provider string) string {
 	return ""
 }
 
+// SetSecret stores a tool secret (search/connector/…). Masked-shaped or empty
+// input is rejected rather than silently ignored: the value here is always a
+// real credential, so a redacted display string or an empty body means the
+// caller sent the wrong thing, and persisting it would replace a working key
+// with an unusable one.
 func (b *SecretStore) SetSecret(category, provider, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("refusing to store an empty %s:%s secret; delete it instead", category, provider)
+	}
+	if IsMasked(value) {
+		return fmt.Errorf("refusing to store a masked value as the %s:%s secret: re-enter the full key", category, provider)
+	}
 	key := category + ":" + provider
 	return b.updateEncrypted(func(data *models.SecretData) {
 		if data.ProviderKeys == nil {
@@ -248,9 +260,6 @@ func (b *SecretStore) SetSecret(category, provider, value string) error {
 		for p, entries := range data.ProviderKeys {
 			for i, e := range entries {
 				if e.ID == key {
-					if IsMasked(value) {
-						value = e.Key
-					}
 					data.ProviderKeys[p][i].Key = value
 					return
 				}
@@ -262,6 +271,29 @@ func (b *SecretStore) SetSecret(category, provider, value string) error {
 			Name: key,
 			Key:  value,
 		})
+	})
+}
+
+// DeleteSecret removes a tool secret (search/connector/…). Deleting an absent
+// entry is a no-op so callers can treat it as idempotent cleanup. The provider
+// group is dropped when it becomes empty, keeping the store free of dead
+// entries that would otherwise mask a later "not configured" state.
+func (b *SecretStore) DeleteSecret(category, provider string) error {
+	key := category + ":" + provider
+	return b.updateEncrypted(func(data *models.SecretData) {
+		for group, entries := range data.ProviderKeys {
+			kept := entries[:0]
+			for _, e := range entries {
+				if e.ID != key {
+					kept = append(kept, e)
+				}
+			}
+			if len(kept) == 0 {
+				delete(data.ProviderKeys, group)
+				continue
+			}
+			data.ProviderKeys[group] = kept
+		}
 	})
 }
 

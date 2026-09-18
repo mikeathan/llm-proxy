@@ -29,6 +29,7 @@ type SecretsStore interface {
 
 	GetSecret(category, provider string) string
 	SetSecret(category, provider, value string) error
+	DeleteSecret(category, provider string) error
 	MaskedSecret(category, provider string) string
 
 	GetResolvedProviderKey(provider, name string) (string, error)

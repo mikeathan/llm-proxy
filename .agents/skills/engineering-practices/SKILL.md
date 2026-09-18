@@ -46,6 +46,19 @@ last_reviewed: 2026-07-11
 ### Constants over Magic Values
 Every hardcoded string, int, or float in logic files must be a named `const`. Group related constants at the top of the file. Exceptions: `0`, `1`, `""`, `nil` in zero-value initialisation or loop counters.
 
+### Centralized UI Status Copy
+Backend user-facing assistant status copy — including any emoji — lives in the `Msg*`
+const block in `internal/core/assistant/agent_events.go` (the single documented home).
+Never inline a status string or emoji in a notify method or handler: add a named const
+and reference it from the producer and any matcher (e.g. `assistant.MsgExecutionComplete`
+is published by the automation executor and matched by the webhook handler).
+
+Emit through the two shared helpers — `a.notifySystem(MsgFoo)` for a verbatim const and
+`a.notifySystemf(MsgFoo, args...)` when the const carries `%s` placeholders. Do not add a
+per-message `notify<Thing>` wrapper that only renders one const: call the helper at the
+site instead, and keep a wrapper only when it derives arguments (e.g. choosing which
+`tool_call_format` to suggest) or emits a non-message event type.
+
 ### Strategy Pattern for Branching
 When a `switch` or `if-else` chain grows with new cases over time, replace with a strategy map. New cases become registrations, not new branches.
 

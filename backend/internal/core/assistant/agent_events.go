@@ -21,10 +21,10 @@ var eventIDCounter atomic.Uint64
 type AgentEventType string
 
 const (
-	EventStepStart          AgentEventType = "step_start"
-	EventMessage            AgentEventType = "message"
-	EventToolCall           AgentEventType = "tool_call"
-	EventToolResult         AgentEventType = "tool_result"
+	EventStepStart            AgentEventType = "step_start"
+	EventMessage              AgentEventType = "message"
+	EventToolCall             AgentEventType = "tool_call"
+	EventToolResult           AgentEventType = "tool_result"
 	EventGuardrailViolation   AgentEventType = "guardrail_violation"
 	EventGuardrailBlocked     AgentEventType = "guardrail_blocked"
 	EventGuardrailInvalidated AgentEventType = "guardrail_invalidated"
@@ -52,8 +52,8 @@ const (
 // Lifecycle phase constants for the AgentEvent lifecycle payload.
 // Used to communicate session state changes to the frontend via SSE.
 const (
-	PhaseSessionStarted   = "session_started"
-	PhaseSessionProgress  = "session_progress"
+	PhaseSessionStarted  = "session_started"
+	PhaseSessionProgress = "session_progress"
 	// PhaseSessionCompleted fires when a task completes — the model responds to
 	// a tool result with a final assistant message and stops calling tools.
 	PhaseSessionCompleted = "session_completed"
@@ -79,6 +79,24 @@ const (
 	// MsgGuardrailLoopBlocked is shown when the guardrail-blocked tool loop
 	// guard stops a model from hammering a denied tool (tool name is %s).
 	MsgGuardrailLoopBlocked = "⚠️ %s keeps being blocked. Stopping retries — switch tools or finalize."
+	// MsgAgentThinking is the liveness status shown before the first token of a
+	// call arrives.
+	MsgAgentThinking = "🤖 Agent is thinking..."
+	// MsgFallbackWarning is shown when the selected model cannot call tools and
+	// the run drops to fallback mode (%s = the underlying error).
+	MsgFallbackWarning = "⚠️ WARNING: The selected model does not support tool calling. Fallback mode engaged (tools disabled). %s"
+	// MsgToolWarning is a non-fatal tool failure (e.g. a delivery connector
+	// being down): %s = tool name, %s = reason. The run continues.
+	MsgToolWarning = "⚠️ TOOL WARNING: %s failed: %s (run continues)."
+	// MsgPrefillDisabled is shown once when the server rejects the assistant
+	// prefill because thinking mode is active.
+	MsgPrefillDisabled = "⚙️ Response prefill was disabled — the model rejected the prefill (thinking mode active on the server). For faster execution, set `prefill: false` on this model."
+	// MsgModelCompatWarning is shown when the model keeps emitting invalid tool
+	// calls (%s = the alternative `tool_call_format` value to suggest).
+	MsgModelCompatWarning = "⚠️ The model is not generating valid tool calls after multiple attempts. Try setting `tool_call_format: \"%s\"` for this model."
+	// MsgExecutionComplete is published when an automation run finishes; the
+	// webhook monitor matches on it to fetch the run output.
+	MsgExecutionComplete = "✔ Execution complete."
 )
 
 type AgentEvent struct {
@@ -151,31 +169,20 @@ func (a *Agent) notify(t AgentEventType, payload any) {
 
 // Named Notification Wrappers
 
-func (a *Agent) notifyThinking() {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "🤖 Agent is thinking...",
-	})
+// notifySystem emits a plain system-role message event — the shared shape of
+// the informational notifications below.
+func (a *Agent) notifySystem(content string) {
+	a.notify(EventMessage, proxy.Message{Role: "system", Content: content})
+}
+
+// notifySystemf renders a Msg* copy constant with its arguments and emits it as
+// a system-role message. Callers pass a Msg* const as format, never a literal.
+func (a *Agent) notifySystemf(format string, args ...any) {
+	a.notifySystem(fmt.Sprintf(format, args...))
 }
 
 func (a *Agent) notifyStepStart(step int) {
 	a.notify(EventStepStart, map[string]int{"step": step})
-}
-
-func (a *Agent) notifyFallbackWarning(err error) {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "⚠️ WARNING: The selected model does not support tool calling. Fallback mode engaged (tools disabled). " + err.Error(),
-	})
-}
-
-func (a *Agent) notifyPrematureTerminationNag(history *[]proxy.Message) {
-	nagMsg := proxy.Message{
-		Role:    "user",
-		Content: "You returned an incomplete response. You MUST continue using tools or reply with the final comprehensive Markdown report as requested.",
-	}
-	*history = append(*history, nagMsg)
-	a.notify(EventMessage, nagMsg)
 }
 
 func (a *Agent) notifyToolCall(tc proxy.ToolCall) {
@@ -184,15 +191,6 @@ func (a *Agent) notifyToolCall(tc proxy.ToolCall) {
 
 func (a *Agent) notifyToolResult(id, name string, result any) {
 	a.notify(EventToolResult, map[string]any{"id": id, "name": name, "result": result})
-}
-
-// notifyToolWarning surfaces a non-fatal tool failure (e.g. a delivery connector
-// being down) as a system message. The run continues; the work product stands.
-func (a *Agent) notifyToolWarning(tool, reason string) {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "⚠️ TOOL WARNING: " + tool + " failed: " + reason + " (run continues).",
-	})
 }
 
 func (a *Agent) notifyGuardrailViolation(tool string, err error) {
@@ -229,13 +227,6 @@ func (a *Agent) notifyUpstream(info proxy.RetryInfo) {
 	a.notify(EventUpstream, payload)
 }
 
-func (a *Agent) notifyPrefillDisabled() {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "⚙️ Response prefill was disabled — the model rejected the prefill (thinking mode active on the server). For faster execution, set `prefill: false` on this model.",
-	})
-}
-
 // notifyLifecycle emits a structured lifecycle event to the UI so the user
 // sees what phase the agent is in: thinking, stuck_detected, fallback_started,
 // fallback_waiting, fallback_completed, etc.
@@ -261,17 +252,11 @@ func (a *Agent) notifyModelCompatWarning(useNativeTools bool) {
 	if !useNativeTools {
 		suggest = "native"
 	}
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: "⚠️ The model is not generating valid tool calls after multiple attempts. Try setting `tool_call_format: \"" + suggest + "\"` for this model.",
-	})
+	a.notifySystemf(MsgModelCompatWarning, suggest)
 }
 
 // notifyGuardrailLoopBlocked surfaces the guardrail-blocked tool loop guard to
 // the UI (status copy centralized in this file's const block).
 func (a *Agent) notifyGuardrailLoopBlocked(tool string) {
-	a.notify(EventMessage, proxy.Message{
-		Role:    "system",
-		Content: fmt.Sprintf(MsgGuardrailLoopBlocked, tool),
-	})
+	a.notifySystemf(MsgGuardrailLoopBlocked, tool)
 }

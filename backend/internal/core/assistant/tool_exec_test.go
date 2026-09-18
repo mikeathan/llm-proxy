@@ -787,8 +787,8 @@ func TestHandleToolCallParseError_CapsSyntaxStreak(t *testing.T) {
 	if !s.handleToolCallParseError(err) {
 		t.Fatal("should give up after sessionMaxSyntaxParseRetries")
 	}
-	if s.syntaxParseStreak != sessionMaxSyntaxParseRetries {
-		t.Fatalf("streak=%d want %d", s.syntaxParseStreak, sessionMaxSyntaxParseRetries)
+	if s.recovery.syntaxParseStreak != sessionMaxSyntaxParseRetries {
+		t.Fatalf("streak=%d want %d", s.recovery.syntaxParseStreak, sessionMaxSyntaxParseRetries)
 	}
 }
 
@@ -805,10 +805,10 @@ func TestHandleToolCallParseError_NonSyntaxDoesNotCapSameWay(t *testing.T) {
 			t.Fatalf("non-syntax path must not give up via syntax cap (i=%d)", i)
 		}
 	}
-	if s.syntaxParseStreak != 0 {
-		t.Fatalf("syntax streak should stay 0, got %d", s.syntaxParseStreak)
+	if s.recovery.syntaxParseStreak != 0 {
+		t.Fatalf("syntax streak should stay 0, got %d", s.recovery.syntaxParseStreak)
 	}
-	if s.totalErrorStreak == 0 {
+	if s.recovery.totalErrorStreak == 0 {
 		t.Fatal("totalErrorStreak should increase on non-syntax path")
 	}
 }
@@ -818,12 +818,12 @@ func TestResetParseErrorState_ClearsSyntaxStreak(t *testing.T) {
 	s := newRunSession(agent, nil, nil)
 	err := fmt.Errorf(`Failed to parse tool call arguments as JSON: missing closing quote`)
 	_ = s.handleToolCallParseError(err)
-	if s.syntaxParseStreak == 0 {
+	if s.recovery.syntaxParseStreak == 0 {
 		t.Fatal("expected streak > 0")
 	}
 	s.resetParseErrorState()
-	if s.syntaxParseStreak != 0 {
-		t.Fatalf("reset should clear syntaxParseStreak, got %d", s.syntaxParseStreak)
+	if s.recovery.syntaxParseStreak != 0 {
+		t.Fatalf("reset should clear syntaxParseStreak, got %d", s.recovery.syntaxParseStreak)
 	}
 }
 
@@ -922,8 +922,8 @@ func TestHandleTurnError_GiveUpWhenNoFallback(t *testing.T) {
 			}},
 		},
 	})
-	s.syntaxParseStreak = sessionMaxSyntaxParseRetries - 1
-	s.starvationCount = 0
+	s.recovery.syntaxParseStreak = sessionMaxSyntaxParseRetries - 1
+	s.sieve.starvationCount = 0
 	err := fmt.Errorf(`llm completion failed: Failed to parse tool call arguments as JSON: missing closing quote`)
 
 	done, reply, outErr := s.handleTurnError(err)

@@ -2,7 +2,7 @@
 // Before the run finalizes it returns a bounded self-review nudge so the model
 // verifies/fixes its work instead of finishing prematurely. Prompt-based
 // self-critique only — no verification-evidence ledger (deferred, §12 of the
-// plan). The nudge is capped by runSession.stopGuardAttempts (never perpetual).
+// plan). The nudge is capped by runSession.stopGuard.attempts (never perpetual).
 package assistant
 
 import "llm-proxy/internal/core/assistant/prompts"

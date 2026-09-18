@@ -23,14 +23,14 @@ export function useToolSecrets(category: string) {
     }
   }
 
-  // Persists dirty tokens and masks them. Returns false on first API error —
-  // the caller uses this to skip the emit when persistence fails.
+  // Persists dirty tokens and records the server's authoritative mask. Returns
+  // false on first API error — the caller uses this to skip the emit when
+  // persistence fails.
   async function saveDirty(saveError: Ref<string>): Promise<boolean> {
     for (const [name, tok] of Object.entries(tokens.value)) {
       if (tok?.dirty) {
         try {
-          await AdminApiService.saveToolSecret(category, name, tok.dirty)
-          tok.masked = tok.dirty.slice(0, 4) + "..."
+          tok.masked = await AdminApiService.saveToolSecret(category, name, tok.dirty)
           tok.dirty = null
         } catch (err) {
           saveError.value = `Failed to save token for "${name}": ${err}`
@@ -41,5 +41,18 @@ export function useToolSecrets(category: string) {
     return true
   }
 
-  return { tokens, load, ensureTracked, saveDirty }
+  // Clears a tracked token server-side and locally. Any pending edit is
+  // discarded, so a queued dirty value cannot resurrect a deleted secret on the
+  // next save. Returns an error message, or "" on success.
+  async function clear(name: string): Promise<string> {
+    try {
+      const masked = await AdminApiService.deleteToolSecret(category, name)
+      tokens.value[name] = { masked, dirty: null }
+      return ""
+    } catch (err) {
+      return `Failed to clear token for "${name}": ${err}`
+    }
+  }
+
+  return { tokens, load, ensureTracked, saveDirty, clear }
 }

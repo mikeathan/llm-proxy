@@ -461,6 +461,7 @@ type stubSearchSecrets struct{ key string }
 
 func (s stubSearchSecrets) GetSecret(string, string) string                 { return s.key }
 func (stubSearchSecrets) SetSecret(string, string, string) error            { return nil }
+func (stubSearchSecrets) DeleteSecret(string, string) error                 { return nil }
 func (stubSearchSecrets) MaskedSecret(string, string) string                { return "" }
 func (stubSearchSecrets) GetProviderKeys(string) []models.APIKeyItem        { return nil }
 func (stubSearchSecrets) SetProviderKeys(string, []models.APIKeyItem) error { return nil }

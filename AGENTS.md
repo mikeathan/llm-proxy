@@ -42,7 +42,9 @@ Save quietly at task conclusion; never block the user, never claim memory was wr
 Prefer a short, searchable summary with `file:line` pointers and verbatim values.
 
 ## Boundaries
-- **Git:** read-only inspection (`git diff`, `git status`, `git log`) is allowed; never commit, push, add, stash, reset, or checkout without explicit user approval.
+- **Git: read-only, always.** Run only `status`, `diff`, `log`, `show`, `blame`, `rev-parse`, `ls-files`. Never `add`, `commit`, `push`, `reset`, `restore`, `checkout`/`switch`, `stash`, `rm`, `mv`, `clean`, `apply`, `rebase`, `merge`, `tag`, `config` — nor anything else touching index, worktree, or history — without explicit approval.
+  - The index and history are the user's. Never stage/unstage/stash/reset to *tidy*, *repair*, or *diagnose* — including stashing for a baseline or bisect. A wrong repair is worse than an untouched tree: **report state, never fix it.**
+  - Staged files are expected (the harness stages on file writes). Never claim a git state you did not just verify with `git status` / `git diff --cached`.
 - **Comments:** never remove comments unless factually incorrect — then correct the error, do not delete.
 - **Secrets / telemetry / network:** governed by `CONSTITUTION.md` — comply.
 - **Heavy deps / CI changes:** ask before adding or modifying.
@@ -73,7 +75,7 @@ On conflict, follow in this order: `CONSTITUTION.md` → this `AGENTS.md` → lo
 ## Pre-Completion Review (Mandatory Gate)
 Before marking done, pass every check; fix or report failures.
 1. Run relevant build, tests, and complexity checks (Workflow → Before finishing).
-2. Review own diff (`git diff`) line by line.
+2. Review own diff line by line with `git diff HEAD` — plain `git diff` hides harness-staged changes and silently skips most of it.
 3. Check `CONSTITUTION.md`, this file, and loaded rule file: security/input validation, network guardrails, output escaping, secrets, `ctx`, `%w`, prompts, and untrusted/LLM output.
 4. Check leaks: goroutines/contexts, files/conns/rows, subscriptions/listeners, timers, queues, and unbounded growth.
 5. Check bugs/perf: error paths, edge cases, nil/zero values, redundant work. Run `-race` only when concurrency/lifecycle code changed; inspect perf-sensitive paths without speculative caching or unmeasured optimization.

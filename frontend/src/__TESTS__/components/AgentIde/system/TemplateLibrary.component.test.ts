@@ -15,9 +15,15 @@ const templates = [
   { id: 'pb-report', name: 'Write Report', category: 'Docs' },
 ]
 
-function mountLibrary(props: Partial<{ show: boolean }> = {}) {
+// VTU's emitted() does not record script-setup emits in this harness, so these
+// tests assert the listener callbacks directly — the component's public contract.
+function mountLibrary(
+  props: Partial<{ show: boolean }> = {},
+  attrs: Record<string, unknown> = {},
+) {
   return mount(TemplateLibrary, {
     props: { show: true, ...props },
+    attrs,
     global: {
       stubs: { Icon: true, BaseButton: { props: ['icon'], template: '<button><slot /></button>' } },
     },
@@ -30,17 +36,19 @@ beforeEach(() => {
 
 describe('TemplateLibrary panel behavior', () => {
   it('emits close when Escape is pressed while shown', async () => {
-    const wrapper = mountLibrary()
+    const onClose = vi.fn()
+    const wrapper = mountLibrary({}, { onClose })
     await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await wrapper.vm.$nextTick()
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('does not emit close on Escape when hidden', async () => {
-    const wrapper = mountLibrary({ show: false })
+    const onClose = vi.fn()
+    const wrapper = mountLibrary({ show: false }, { onClose })
     await document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await wrapper.vm.$nextTick()
-    expect(wrapper.emitted('close')).toBeFalsy()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('renders action buttons without hover (touch-friendly)', async () => {
@@ -69,8 +77,9 @@ describe('TemplateLibrary panel behavior', () => {
   })
 
   it('closes the overlay when clicking the backdrop', async () => {
-    const wrapper = mountLibrary()
+    const onClose = vi.fn()
+    const wrapper = mountLibrary({}, { onClose })
     await wrapper.find('.drawer-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(onClose).toHaveBeenCalled()
   })
 })

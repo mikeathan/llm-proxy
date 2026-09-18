@@ -33,10 +33,10 @@ This is a test content.
 		if err != nil {
 			t.Fatalf("List failed: %v", err)
 		}
-		// The 9 shipped templates are extracted on first run alongside the
+		// The 10 shipped templates are extracted on first run alongside the
 		// custom one (Phase 7 extract-on-first-run; never overwrite existing).
-		if len(list) != 10 {
-			t.Errorf("expected 10 templates (9 shipped + 1 custom), got %d", len(list))
+		if len(list) != 11 {
+			t.Errorf("expected 11 templates (10 shipped + 1 custom), got %d", len(list))
 		}
 		found := false
 		for _, tmpl := range list {

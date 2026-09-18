@@ -141,7 +141,7 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 			select {
 			case ev := <-sub:
 				if ev.Type == assistant.EventMessage {
-					if msg, ok := ev.Payload.(proxy.Message); ok && msg.Content == "✔ Execution complete." {
+					if msg, ok := ev.Payload.(proxy.Message); ok && msg.Content == assistant.MsgExecutionComplete {
 						state, err := h.Persistence.ReadState(workspaceID)
 						if err == nil {
 							if run, ok := state.LastRuns[name]; ok && run.Output != "" {
