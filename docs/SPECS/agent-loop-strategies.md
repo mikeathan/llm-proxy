@@ -130,6 +130,11 @@ failed step never aborts the run, regardless of which model produced the plan. O
 those mean the plan itself is malformed, not that a step's outcome failed. Guardrail-denied
 steps also continue (`plan step guardrail denied, continuing`); in unattended automation
 the denial is immediate (Constitution II.10, `resolveGuardrail` automation channel).
+**Exception — terminal tool failures:** a step whose tool fails for an operator-actionable
+reason (`models.ErrToolUnavailable`) is run-fatal in automation (the plan aborts, since the
+result cannot be trusted and nobody can fix it) and, in chat, the tool is disabled for the
+run and the loop continues with a directive — per SPEC-001 §II.6's tool-error classification.
+Every strategy shares this via `executeSingleToolStep`/`toolFailureIsRunFatal`.
 
 ### 3. EvaluatorOptimizerStrategy (Phase 3)
 
@@ -145,8 +150,13 @@ of finishing prematurely. Prompt-based self-critique only; no verification-evide
   shared `completeWith` path. `executePlan`'s `"[Plan execution complete]"` return is a
   completion marker only — the strategy discards it and produces the real report via
   `finalizeReport` before sealing with `completeWith` (the literal never reaches the user).
-- Stop-guards use a dedicated `stopGuardAttempts` counter (cap 2), never
-  `finalizeAttempts` (owned by `handleNoToolCalls`'s tools-disabled finalization turn).
+- Stop-guards use a dedicated `stopGuardState.attempts` counter (cap 2), never
+  `finalizeState.finalizeAttempts` (owned by `handleNoToolCalls`'s tools-disabled
+  finalization turn). `runSession.hardCapTriggered` stays flat outside every
+  resettable cluster — it is irreversible and no reset may clear it.
+- User-facing assistant status copy lives in the `Msg*` const block in
+  `agent_events.go` and is emitted through `notifySystem` (plain) or
+  `notifySystemf` (a `Msg*` const plus arguments). Never inline a status string.
 - Evaluator nudge messages are registered in `isAgentControlMessage` so completion
   detection never mistakes them for user text.
 

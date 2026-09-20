@@ -2,6 +2,7 @@ package notifiers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,6 +106,10 @@ func TestTelegramNotifier_Send_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Fatalf("expected 401 in error, got: %v", err)
+	}
+	// A rejected bot token is operator-actionable → classified terminal.
+	if !errors.Is(err, models.ErrToolUnavailable) {
+		t.Fatalf("401 must carry models.ErrToolUnavailable for loop classification, got %v", err)
 	}
 }
 
@@ -321,14 +326,15 @@ type fakeSecrets struct {
 func (f *fakeSecrets) GetSecret(category, provider string) string {
 	return f.creds[category+":"+provider]
 }
-func (f *fakeSecrets) SetSecret(category, provider, value string) error       { return nil }
-func (f *fakeSecrets) MaskedSecret(category, provider string) string           { return "" }
-func (f *fakeSecrets) GetProviderKeys(provider string) []models.APIKeyItem     { return nil }
+func (f *fakeSecrets) SetSecret(category, provider, value string) error                { return nil }
+func (f *fakeSecrets) DeleteSecret(category, provider string) error                    { return nil }
+func (f *fakeSecrets) MaskedSecret(category, provider string) string                   { return "" }
+func (f *fakeSecrets) GetProviderKeys(provider string) []models.APIKeyItem             { return nil }
 func (f *fakeSecrets) SetProviderKeys(provider string, keys []models.APIKeyItem) error { return nil }
-func (f *fakeSecrets) DeleteProviderKey(provider, keyID string) error         { return nil }
-func (f *fakeSecrets) DeleteAllProviderKeys(provider string) error            { return nil }
-func (f *fakeSecrets) MaskedProviderKeys(provider string) []models.APIKeyItem { return nil }
-func (f *fakeSecrets) GetResolvedProviderKey(provider, name string) (string, error) { return "", nil }
+func (f *fakeSecrets) DeleteProviderKey(provider, keyID string) error                  { return nil }
+func (f *fakeSecrets) DeleteAllProviderKeys(provider string) error                     { return nil }
+func (f *fakeSecrets) MaskedProviderKeys(provider string) []models.APIKeyItem          { return nil }
+func (f *fakeSecrets) GetResolvedProviderKey(provider, name string) (string, error)    { return "", nil }
 func (f *fakeSecrets) GetResolvedProviderKeyInfo(provider, name string) (*models.ResolvedProviderKeyInfo, error) {
 	return nil, nil
 }

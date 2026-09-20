@@ -316,8 +316,8 @@ func TestFinalizeReport_LengthTruncatedContinuation(t *testing.T) {
 	if report != want {
 		t.Errorf("expected stitched report %q, got %q", want, report)
 	}
-	if s.lengthContinuationCount != 1 {
-		t.Errorf("expected 1 continuation, got %d", s.lengthContinuationCount)
+	if s.finalize.lengthContinuationCount != 1 {
+		t.Errorf("expected 1 continuation, got %d", s.finalize.lengthContinuationCount)
 	}
 }
 
@@ -343,8 +343,8 @@ func TestFinalizeReport_LengthContinuationBounded(t *testing.T) {
 	if !strings.Contains(report, "still truncated") {
 		t.Errorf("expected the partial fragments in the report, got %q", report)
 	}
-	if s.lengthContinuationCount != lengthContinuationMax {
-		t.Errorf("expected continuation count at the bound, got %d", s.lengthContinuationCount)
+	if s.finalize.lengthContinuationCount != lengthContinuationMax {
+		t.Errorf("expected continuation count at the bound, got %d", s.finalize.lengthContinuationCount)
 	}
 }
 

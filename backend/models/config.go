@@ -6,6 +6,8 @@ package models
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"gopkg.in/yaml.v3"
 )
@@ -421,7 +423,83 @@ type ConnectorConfig struct {
 	WebhookURL string            `json:"webhook_url,omitempty"`
 }
 
+// SearchProvider is a fixed-value enum of the supported internet-search
+// backends. Persisted in registry.json, so the wire value is the JSON string
+// (never persisted in yaml).
+type SearchProvider string
+
+const (
+	SearchProviderTavily  SearchProvider = "tavily"
+	SearchProviderBrave   SearchProvider = "brave"
+	SearchProviderSerpAPI SearchProvider = "serpapi"
+)
+
+// Search result bounds. MaxSearchMaxResults is the ceiling the save boundary
+// enforces; DefaultSearchMaxResults is what the resolver applies when the
+// operator left max_results unset.
+const (
+	DefaultSearchMaxResults = 5
+	MaxSearchMaxResults     = 20
+)
+
+// ErrInvalidSearchProvider and ErrSearchMaxResultsOutOfRange are the
+// save-boundary validation failures for SearchConfig. IsSearchConfigError
+// classifies both so transport handlers map them in one check.
+var (
+	ErrInvalidSearchProvider      = errors.New("invalid search provider")
+	ErrSearchMaxResultsOutOfRange = errors.New("search max_results out of range")
+)
+
+// SearchProviderIDs returns the canonical, ordered provider list (Tavily first).
+// The backend surfaces it so the frontend never hardcodes the option set.
+func SearchProviderIDs() []SearchProvider {
+	return []SearchProvider{SearchProviderTavily, SearchProviderBrave, SearchProviderSerpAPI}
+}
+
+// Valid reports whether p is a registered provider. The empty string is valid —
+// it means "unset", which the resolver maps to the default provider.
+func (p SearchProvider) Valid() bool {
+	switch p {
+	case "", SearchProviderTavily, SearchProviderBrave, SearchProviderSerpAPI:
+		return true
+	default:
+		return false
+	}
+}
+
+// SearchConfig selects the internet-search backend and its result cap. It lives
+// in registry.json (Tier 3) alongside the rest of the dynamic search state.
 type SearchConfig struct {
+	Provider   SearchProvider `json:"provider,omitempty"`
+	MaxResults int            `json:"max_results,omitempty"`
+}
+
+// Validate enforces the save-boundary contract: an unset provider and a zero
+// max_results are valid (defaults apply); an unknown provider or an
+// out-of-range max_results is rejected.
+func (c SearchConfig) Validate() error {
+	if !c.Provider.Valid() {
+		return fmt.Errorf("%w: %q", ErrInvalidSearchProvider, c.Provider)
+	}
+	if c.MaxResults != 0 && (c.MaxResults < 1 || c.MaxResults > MaxSearchMaxResults) {
+		return fmt.Errorf("%w: %d (want 1..%d)", ErrSearchMaxResultsOutOfRange, c.MaxResults, MaxSearchMaxResults)
+	}
+	return nil
+}
+
+// IsSearchConfigError reports whether err is a search-config validation failure,
+// so handlers can map the whole class to a 400 in one predicate.
+func IsSearchConfigError(err error) bool {
+	return errors.Is(err, ErrInvalidSearchProvider) || errors.Is(err, ErrSearchMaxResultsOutOfRange)
+}
+
+// DefaultSearchConfig is the resolver's fallback when the operator has not
+// chosen a provider (or left max_results unset).
+func DefaultSearchConfig() SearchConfig {
+	return SearchConfig{
+		Provider:   SearchProviderTavily,
+		MaxResults: DefaultSearchMaxResults,
+	}
 }
 
 type AgentDefinition struct {

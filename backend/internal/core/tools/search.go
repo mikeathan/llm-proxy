@@ -1,11 +1,12 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+
+	"llm-proxy/models"
 )
 
 // SearchProvider defines the interface for various search engines.
@@ -19,92 +20,62 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// TavilyProvider implements the SearchProvider using the Tavily API.
-type TavilyProvider struct {
-	APIKey string
-	Client *http.Client
+// SearchProviderConfig groups the inputs every provider constructor needs. The
+// client is the injected guardrailed NetworkTools.HTTPClient() (Constitution
+// I.2) — providers never construct their own transport.
+type SearchProviderConfig struct {
+	APIKey     string
+	Client     *http.Client
+	MaxResults int
 }
 
-func (t *TavilyProvider) Search(ctx context.Context, query string) ([]SearchResult, error) {
-	if t.APIKey == "" {
-		return nil, fmt.Errorf("tavily api key missing")
-	}
-	if t.Client == nil {
-		// The client is injected at construction (registry wires the guarded
-		// NetworkTools client). A nil client is a programming error — never fall
-		// back to http.DefaultClient (Constitution I.1).
-		return nil, fmt.Errorf("search client not configured")
-	}
-
-	const searchURL = "https://api.tavily.com/search"
-
-	payload := map[string]any{
-		"api_key":      t.APIKey,
-		"query":        query,
-		"search_depth": "basic",
-		"max_results":  5,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal search payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", searchURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create search request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := t.Client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var errData map[string]any
-		json.NewDecoder(resp.Body).Decode(&errData)
-		return nil, fmt.Errorf("tavily API error (status %d): %v", resp.StatusCode, errData)
-	}
-
-	var rawResponse struct {
-		Results []struct {
-			Title   string `json:"title"`
-			URL     string `json:"url"`
-			Content string `json:"content"`
-		} `json:"results"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rawResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode search response: %w", err)
-	}
-
-	// Map to our generic SearchResult format
-	results := make([]SearchResult, 0, len(rawResponse.Results))
-	for _, r := range rawResponse.Results {
-		results = append(results, SearchResult{
-			Title:   r.Title,
-			URL:     r.URL,
-			Snippet: r.Content,
-		})
-	}
-
-	return results, nil
+// SearchProviderSpec describes a registered provider: whether it requires an API
+// key, and the factory that builds it. Constructors never take a context. The
+// concrete providers and the explicit registration table live in the
+// tools/searchproviders subpackage (mirrors the tools/notifiers split).
+type SearchProviderSpec struct {
+	RequiresKey bool
+	New         func(cfg SearchProviderConfig) (SearchProvider, error)
 }
 
-// InternetTools provides access to search capabilities.
+// ErrSearchNotConfigured means no search provider is usable. It wraps
+// models.ErrToolUnavailable so the loop treats it as terminal (do not retry).
+var ErrSearchNotConfigured = fmt.Errorf("internet search is not configured: %w", models.ErrToolUnavailable)
+
+// ProviderResolver resolves the live provider for a call. It reads the current
+// config + secret on every invocation, so an operator change applies without a
+// restart.
+type ProviderResolver func(ctx context.Context) (SearchProvider, error)
+
+// InternetTools exposes the internet_search tool. It is nil-safe: a nil receiver
+// or nil resolver is the Null Object that returns ErrSearchNotConfigured rather
+// than panicking, so callers never need a nil check (a residual call after the
+// schema-hide gate reaches the tool and gets a clear error).
 type InternetTools struct {
-	provider SearchProvider
+	resolve ProviderResolver
 }
 
-func NewInternetTools(p SearchProvider) *InternetTools {
-	return &InternetTools{provider: p}
+func NewInternetTools(resolve ProviderResolver) *InternetTools {
+	return &InternetTools{resolve: resolve}
 }
 
+// Search validates the query, resolves the live provider, and runs the search.
+// Provider errors are wrapped so the loop records them as a non-approvable tool
+// result.
 func (i *InternetTools) Search(ctx context.Context, query string) ([]SearchResult, error) {
-	if i.provider == nil {
-		return nil, fmt.Errorf("no search provider configured")
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("search query must not be empty")
 	}
-	return i.provider.Search(ctx, query)
+	if i == nil || i.resolve == nil {
+		return nil, ErrSearchNotConfigured
+	}
+	provider, err := i.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := provider.Search(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("internet search failed: %w", err)
+	}
+	return results, nil
 }

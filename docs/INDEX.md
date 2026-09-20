@@ -15,22 +15,26 @@ status, and cross-references to related documents. Use this as the starting poin
 
 ## Skills (Reference Guides)
 
-| File | Title | Topics |
-|------|-------|--------|
-| `docs/skills/agent-loop.md` | Agent Loop & Stuck Detection | Sieve, fallback chain, reasoning budget, spiral detector |
-| `docs/skills/assistant-ui-chat.md` | Assistant UI Chat Architecture | Event handlers, segment system, inactivity timer, SSE timing, scroll behavior, common pitfalls |
-| `docs/skills/assistant-ui-patterns.md` | Assistant UI Patterns | Sidebar states, SSE event flow, tool rendering, mobile breakpoints, common gotchas |
-| `docs/skills/automation.md` | Automation System | Dispatcher, executor, run lifecycle, templates |
-| `docs/skills/clean-code.md` | Clean Code — Language-Agnostic Practices | Naming, functions, comments, formatting, objects/boundaries, error handling, tests, SOLID, emergent design, concurrency, smells & heuristics checklist |
-| `docs/skills/connector-patterns.md` | Connector Implementation Guide | Outbound connector steps, inbound webhook, CONSTITUTION checklist, common errors |
-| `docs/skills/documentation-stewardship.md` | Documentation Stewardship | Post-completion checklist for doc updates |
-| `docs/skills/engineering-practices.md` | Engineering Practices | Go patterns, code style, frontend icon conventions, file checklists |
-| `docs/skills/event-streaming-patterns.md` | Event Streaming Patterns | SSE composables, observer chaining, guardrail flow, heartbeat cleanup, dedup |
-| `docs/skills/lifecycle-events.md` | Session Lifecycle Events | Session phases, SSE contract, frontend handler, testing |
-| `docs/skills/llamacpp-setup.md` | llama.cpp Server Setup | Args, GPU tuning, systemd, performance data |
-| `docs/skills/memory-system.md` | Memory Architecture & Tags | Injection, three-tier, tags, dedup, gotchas |
-| `docs/skills/testing-guide.md` | Testing Guide | Smoke tests, record-replay, run analysis, templates, MockClient patterns |
-| `docs/skills/tool-failure-investigation.md` | Tool Failure Investigation | Error tracing, handler scoping, recovery prompt verification |
+Repo Agent Skills live in `.agents/skills/<name>/SKILL.md` — auto-discovered by Command Code, Pi,
+opencode, and dsh, and loaded on demand (only name + description are always in context).
+
+| Skill | Path | Use when |
+|-------|------|----------|
+| agent-loop | `.agents/skills/agent-loop/SKILL.md` | Sieve, fallback chain, reasoning budget, spiral detector |
+| assistant-ui-chat | `.agents/skills/assistant-ui-chat/SKILL.md` | Event handlers, segment system, inactivity timer, SSE timing, scroll behavior, common pitfalls |
+| assistant-ui-patterns | `.agents/skills/assistant-ui-patterns/SKILL.md` | Sidebar states, SSE event flow, tool rendering, mobile breakpoints, common gotchas |
+| automation | `.agents/skills/automation/SKILL.md` | Dispatcher, executor, run lifecycle, templates |
+| clean-code | `.agents/skills/clean-code/SKILL.md` | Naming, functions, comments, formatting, boundaries, error handling, tests, SOLID, emergent design, concurrency, smells & heuristics checklist |
+| connector-patterns | `.agents/skills/connector-patterns/SKILL.md` | Outbound connector steps, inbound webhook, CONSTITUTION checklist, common errors |
+| documentation-stewardship | `.agents/skills/documentation-stewardship/SKILL.md` | Post-completion checklist for doc updates |
+| engineering-practices | `.agents/skills/engineering-practices/SKILL.md` | Go patterns, code style, frontend icon conventions, file checklists |
+| event-streaming-patterns | `.agents/skills/event-streaming-patterns/SKILL.md` | SSE composables, observer chaining, guardrail flow, heartbeat cleanup, dedup |
+| lifecycle-events | `.agents/skills/lifecycle-events/SKILL.md` | Session phases, SSE contract, frontend handler, testing |
+| llamacpp-setup | `.agents/skills/llamacpp-setup/SKILL.md` | Args, GPU tuning, systemd, performance data |
+| memory-system | `.agents/skills/memory-system/SKILL.md` | Injection, three-tier, tags, dedup, gotchas |
+| tdd-guide | `.agents/skills/tdd-guide/SKILL.md` | Red/Green/Refactor flow, test grouping, keeping the suite fast |
+| testing-guide | `.agents/skills/testing-guide/SKILL.md` | Smoke tests, record-replay, run analysis, templates, MockClient patterns |
+| tool-failure-investigation | `.agents/skills/tool-failure-investigation/SKILL.md` | Error tracing, handler scoping, recovery prompt verification |
 
 ## Specifications (Behavioral Contracts)
 
@@ -76,6 +80,10 @@ status, and cross-references to related documents. Use this as the starting poin
 | `docs/PLANS/cross-cutting/xdg-config-data-relocation.md` | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened; **2026-08-11: two-root design superseded by single-root consolidation — all files under one root**) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | `docs/PLANS/cross-cutting/agents-md-layering-guardrails.md` | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
 | `docs/PLANS/cross-cutting/tool-call-grammar-reenable.md` | Re-enable Tool-Call Grammar Constraint (opt-in, llama.cpp-safe) | proposed | 2026-09-05 | SPEC-001, SPEC-002 |
+| `docs/PLANS/cross-cutting/search-tool-calling.md` | Wire up `internet_search` tool calling (pluggable multi-provider: provider factory + Search settings tab + live key + hide-when-unconfigured gate) | active | 2026-09-12 | SPEC-001, SPEC-006 |
+| `docs/PLANS/cross-cutting/tool-error-classification.md` | Tool Error Classification & Run-Fatality Policy (terminal tool errors, delivery-vs-essential tools, failure bound) | proposed | 2026-09-12 | SPEC-001, SPEC-010, SPEC-006 |
+| `docs/PLANS/cross-cutting/assistant-conversation-package.md` | Assistant Conversation Package (deferred extraction; Step 0 consolidates the LLM/tool test doubles) | proposed | 2026-09-12 | SPEC-001 |
+| `docs/PLANS/cross-cutting/global-run-lane-scheduler.md` | Global Run Lane — serialize all agent runs (queue overlapping automations instead of skipping; chat preempts) | proposed | 2026-09-18 | SPEC-007, SPEC-001, SPEC-003 |
 | `docs/PLANS/cross-cutting/agent-os-sandboxing.md` | Agent OS Sandboxing (rev 2 — network-first, uid-first; one action pipeline with OS jail + egress proxy as execution backends, dedicated-user deployment, per-run network grants; decisions D1–D8, measured platform facts; Phases 0–4 implemented + post-review hardening pass) | complete — pending Linux-CI runtime confirmation of the Landlock probes + optional macOS Seatbelt on framework-capable hardware | 2026-09-06 | SPEC-006, SPEC-009 |
 | `docs/PLANS/cross-cutting/sandbox-runtime-invisibility.md` | Sandbox Runtime Invisibility (`.sandbox` hidden from filesystem listings + terminal output) | complete | 2026-08-25 | SPEC-006, CONSTITUTION II.3 |
 | `docs/PLANS/cross-cutting/persist-assistant-run-state-for-reload.md` | Persist assistant run state (errors/cancels/running) for reliable reload | complete | 2026-08-20 | SPEC-001, SPEC-003 |
@@ -143,8 +151,7 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `docs/SPECS/README.md` | Subdirectory catalog for all SPEC files | Index |
 | `docs/audits/README.md` | Subdirectory catalog for audit files | Index |
 | `docs/PLANS/ARCHIVE/` | Completed/superseded/not-implemented plans | Archive |
-| `docs/skills/` | AI assistant skill files — deep-dive reference guides | Categories |
-| `docs/skills/README.md` | Quick-reference "when to load which skill" map | Navigation |
+| `.agents/skills/` | Repo Agent Skills — auto-discovered by AI agents, loaded on demand | Skills |
 
 ---
 
@@ -157,5 +164,5 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 | `docs/PLANS/` | Active implementation strategies. Organized by subsystem. |
 | `docs/PLANS/ARCHIVE/` | Completed and superseded plans — load on demand. |
 | `docs/audits/` | Post-hoc analysis of system behavior against specs. |
-| `docs/skills/` | AI assistant reference guides — loaded on demand for deep-dive topics. |
+| `.agents/skills/` | Repo Agent Skills — auto-discovered by AI agents, loaded on demand for deep-dive topics. |
 | `.agents/rules/` | Per-language coding rules for AI assistants. |

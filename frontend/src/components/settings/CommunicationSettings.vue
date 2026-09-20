@@ -3,7 +3,7 @@ import { ref, computed, onMounted, provide } from "vue"
 import type { GlobalConfig, ConnectorConfig } from "../../types/admin"
 import { AdminApiService } from "../../services/admin/adminService"
 import { useWebhook } from "../../composables/useWebhook"
-import { useConnectorTokens } from "../../composables/useConnectorTokens"
+import { useToolSecrets } from "../../composables/useToolSecrets"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Icon from "../icons/Icon.vue"
 import WebhookPanel from "./WebhookPanel.vue"
@@ -33,7 +33,7 @@ const editingName = ref<string | null>(null)
 const form = ref<ConnectorForm>({ name: "", type: "telegram", chat_id: "", workspace_id: "", token: "", webhook_token: "" })
 
 const saveError = ref("")
-const tokenMgr = useConnectorTokens()
+const tokenMgr = useToolSecrets("connector")
 
 const { verifyWebhook, clearWebhookState } = useWebhook(connectors, saveError)
 // WebhookPanel child uses the same singleton composable via provide/inject

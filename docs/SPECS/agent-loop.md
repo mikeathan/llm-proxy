@@ -72,6 +72,13 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Tool validation failure: treat as parse error, clear invalid tool calls, inject feedback.
 - Content too long (write exceeds server JSON parse limit): inject `AutomationContentTooLongPrompt` — instructs the model to use `write_file` for the first chunk, then `append_file` for subsequent chunks.
 - Write file content size is NOT enforced by the Go handler. The manifest `maxLength` was removed entirely — server-side grammar constraints were causing silent truncation at exactly `maxLength` chars. The model's own `max_tokens` is the only output cap. If content exceeds server JSON parse limits, the natural JSON parse error triggers recovery.
+- **Tool error classification** (`docs/PLANS/cross-cutting/tool-error-classification.md`). Errors are classified by *who can fix them*: **terminal** (operator-actionable — missing/rejected credential, disabled integration) is marked by the tool wrapping `models.ErrToolUnavailable` with `%w`; **transient** (timeout/429/5xx) and **input/content** (404, bad URL, blocked filename) stay plain and are model-actionable; **security-boundary** denials keep their existing synchronous, non-approvable path. Only a *marked* error changes loop behaviour:
+  - the failing tool is **disabled for the remainder of the run** (the run's `toolFailureState`) — a re-call is short-circuited with a directive tool-result instead of executing (no network);
+  - the tool result is an actionable directive (`prompts.ToolUnavailablePrompt`), never the raw provider error;
+  - **delivery/side-effect tools** (`toolpolicy.FailurePolicyFor(tool) == WarnOnTerminalError`, currently `notify_user`) are non-fatal in **every** channel: the failure is recorded as a warning (`Agent.ToolWarnings()` → run-meta/ledger `warnings`) and the run continues, because the work product still exists offline;
+  - **essential tools** fail an **automation** run (no user present to fix configuration) and let a **chat** run continue so the model reports the failure;
+  - an unclassified error is unchanged record-and-continue (fail-open).
+- **Consecutive tool-failure bound.** After `toolFailureStreakLimit` (3) consecutive errored tool calls (any tool), a chat run suppresses all further tool calls (`prompts.ToolCallsSuppressedPrompt`) so the model finalizes instead of flailing; an automation run fails. The streak resets on any successful tool call.
 
 ### 7. Native Tool Support (Constitution II.5)
 - Controlled by `Agent.useNativeTools` (resolved from `AgentOptions.UseNativeTools` > `ToolProvider.UseNativeTools()`).
@@ -109,7 +116,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - The heartbeat in `computeNextResponseNonStreaming` now uses `lifecycle` (`fallback_waiting`) with elapsed time instead of `tool_stream`.
 
 ### 10. Goroutine Lifecycle in processStream
-- A `streamDone` channel (closed via `defer`) ensures the 30-second heartbeat goroutine exits when `processStream` returns for ANY reason — not just `ctx.Done()`. This prevents misleading "stream still generating" log lines after stuck detection or stream EOF.
+- The heartbeat is a `core.Heartbeat` owned by `processStream`: `hb := core.NewHeartbeat(); hb.Start(ctx, streamHeartbeatInterval)` with `defer hb.Stop()`. The ticker goroutine exits on `ctx.Done()` or `Stop()`, so `defer hb.Stop()` guarantees it ends when `processStream` returns for ANY reason — not just `ctx.Done()`.
+- Ticks are consumed by `streamRun.handleTick`, which only emits `still_thinking` while content/reasoning length is unchanged since the previous tick. That silent-stall gate keeps "stream still generating" logging from firing after stuck detection or stream EOF.
 
 ### 11. Guardrail Decision Flow (Constitution II.10)
 - When `guardrails.ValidateToolCall()` rejects a tool call, the agent invokes `onGuardrail(ctx, payload)` if set.

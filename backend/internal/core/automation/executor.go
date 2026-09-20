@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -182,7 +183,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 
 	execCtx := models.WithTaskName(ctx, req.AutomationName)
 	execCtx = models.WithRunID(execCtx, generateRunID())
-	execCtx = assistant.WithUsageTracker(execCtx)
+	execCtx = usage.WithTracker(execCtx)
 
 	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
 
@@ -230,6 +231,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 
 	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
+	outcome.warnings = agent.ToolWarnings()
 
 	if eventSink != nil {
 		eventSink.Close()
@@ -238,7 +240,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		rcl.CloseRun(models.GetRunID(execCtx))
 	}
 
-	if t := assistant.GetUsageTracker(execCtx); t != nil {
+	if t := usage.FromContext(execCtx); t != nil {
 		procLog.Info("Usage", "llm_calls", t.LLMCalls, "tool_calls", t.ToolCalls,
 			"input_tokens", t.InputTokens, "output_tokens", t.OutputTokens)
 	}
@@ -264,7 +266,7 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 		if err != nil {
 			errStr := fmt.Sprintf("failed to load recording %s: %v", req.RecordingRef, err)
 			resp.State.SetRunning("")
-			e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+			e.recordRun(runOutcome{req: req, resp: resp, startTime: startTime}, "", errStr, time.Since(startTime))
 			return nil, fmt.Errorf("failed to load recording: %w", err)
 		}
 		procLog := e.svc.ProcessLogger(req.WorkspaceID)
@@ -288,7 +290,7 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.SetRunning("")
-		e.recordRun(req, resp.State, "", errStr, time.Since(startTime), nil)
+		e.recordRun(runOutcome{req: req, resp: resp, startTime: startTime}, "", errStr, time.Since(startTime))
 		return nil, fmt.Errorf("failed to get llm client: %w", err)
 	}
 	return client, nil
@@ -416,6 +418,9 @@ type runOutcome struct {
 	runDir    *RunDir
 	startTime time.Time
 	runScope  models.NetworkScope
+	// warnings holds non-fatal tool failures from the agent (e.g. a delivery
+	// connector being down), persisted into run-meta and the run ledger.
+	warnings []string
 }
 
 // handleAgentError writes run-meta and records the failed run.
@@ -428,8 +433,9 @@ func (e *LLMTaskExecutor) handleAgentError(ctx context.Context, outcome runOutco
 			DurationMs:   time.Since(outcome.startTime).Milliseconds(),
 			Error:        errStr,
 			NetworkScope: string(outcome.runScope),
+			Warnings:     outcome.warnings,
 		}
-		if t := assistant.GetUsageTracker(ctx); t != nil {
+		if t := usage.FromContext(ctx); t != nil {
 			meta.LLMCalls = t.LLMCalls
 			meta.ToolCalls = t.ToolCalls
 		}
@@ -437,7 +443,7 @@ func (e *LLMTaskExecutor) handleAgentError(ctx context.Context, outcome runOutco
 		outcome.runDir.WriteMeta(meta)
 	}
 	outcome.resp.State.SetRunning("")
-	e.recordRun(outcome.req, outcome.resp.State, "", errStr, time.Since(outcome.startTime), outcome.runDir)
+	e.recordRun(outcome, "", errStr, time.Since(outcome.startTime))
 	return outcome.resp, fmt.Errorf("agent execution failed: %w", agErr)
 }
 
@@ -488,7 +494,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		Channel: assistant.ChannelAutomation,
 		Payload: proxy.Message{
 			Role:    "system",
-			Content: "✔ Execution complete.",
+			Content: assistant.MsgExecutionComplete,
 		},
 	})
 
@@ -505,15 +511,16 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 			Result:        resultPreview,
 			RecordingPath: outcome.runDir.RecordingRelPath(e.svc.RecordDir()),
 			NetworkScope:  string(outcome.runScope),
+			Warnings:      outcome.warnings,
 		}
-		if t := assistant.GetUsageTracker(ctx); t != nil {
+		if t := usage.FromContext(ctx); t != nil {
 			meta.LLMCalls = t.LLMCalls
 			meta.ToolCalls = t.ToolCalls
 		}
 		outcome.runDir.WriteMeta(meta)
 	}
 
-	e.recordRun(outcome.req, outcome.resp.State, runResult, runError, time.Since(outcome.startTime), outcome.runDir)
+	e.recordRun(outcome, runResult, runError, time.Since(outcome.startTime))
 	return outcome.resp, nil
 }
 
@@ -533,10 +540,12 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm %ds", h, m, s)
 }
 
-func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState, output, errStr string, duration time.Duration, runDir *RunDir) {
+func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, duration time.Duration) {
+	state := outcome.resp.State
 	if state == nil {
 		return
 	}
+	req := outcome.req
 
 	run := models.AutomationRun{
 		ID:             generateRunID(),
@@ -548,8 +557,9 @@ func (e *LLMTaskExecutor) recordRun(req ExecuteRequest, state *models.AgentState
 		DurationMs:     duration.Milliseconds(),
 		Model:          req.Model,
 		RecordingRef:   req.RecordingRef,
-		RunDirName:     runDirName(runDir),
+		RunDirName:     runDirName(outcome.runDir),
 		Events:         nil, // events live in the run dir, not in state.json
+		Warnings:       outcome.warnings,
 	}
 
 	// Add to full history (capped to last 50 for performance)

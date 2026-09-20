@@ -50,7 +50,13 @@ func (t *TelegramNotifier) Send(ctx context.Context, message string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("telegram API error: status %d, body: %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("telegram API error: status %d, body: %s", resp.StatusCode, string(body))
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			// Rejected bot token — operator-actionable, so classify terminal for
+			// the agent loop (see tool-error-classification).
+			return fmt.Errorf("%w: %v", models.ErrToolUnavailable, err)
+		}
+		return err
 	}
 
 	return nil

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import svgLoader from 'vite-svg-loader'
 
 // Tests live in src/__TESTS__/ mirroring the source tree (a test for
 // src/utils/message/textAppend.ts goes in src/__TESTS__/utils/message/).
@@ -7,7 +8,9 @@ import vue from '@vitejs/plugin-vue'
 // Two projects:
 //  - "unit": plain node-environment composable/utility tests (no DOM).
 //  - "component": happy-dom tests for Vue components (suffixed .component.test.ts).
-//    Carries the Vue plugin so .vue SFCs compile under the test runner.
+//    Carries the Vue plugin so .vue SFCs compile under the test runner, and the
+//    SVG loader so `?component` icon imports resolve to components instead of
+//    asset URLs (Icon.vue loads icons through a dynamic `?component` import).
 export default defineConfig({
   test: {
     // Root-level: applies to all projects (not a valid per-project option in Vitest 4).
@@ -30,7 +33,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [vue()],
+        plugins: [vue(), svgLoader()],
         test: {
           name: 'component',
           environment: 'happy-dom',

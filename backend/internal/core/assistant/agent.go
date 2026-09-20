@@ -12,6 +12,8 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
+	"llm-proxy/internal/core/assistant/toolpolicy"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -250,6 +252,11 @@ type Agent struct {
 	cachedToolManual    string // cached BuildToolManual output
 	cachedToolReference string // cached BuildNativeToolReference output
 	toolsHash           uint64 // fingerprint of tool set used to build cache
+
+	// toolFailure is the per-run state of the terminal tool-failure policy
+	// (tool-error-classification). Grouped as one cohesive value rather than
+	// loose fields; reset at the start of each Execute.
+	toolFailure toolFailureState
 }
 
 // prefillDisabled returns whether prefill has been disabled at runtime.
@@ -257,13 +264,13 @@ func (a *Agent) prefillDisabled() bool {
 	if a.runS == nil {
 		return false
 	}
-	return a.runS.prefillDisabled
+	return a.runS.prompt.prefillDisabled
 }
 
 // setPrefillDisabled sets the runtime prefill-disabled flag.
 func (a *Agent) setPrefillDisabled(v bool) {
 	if a.runS != nil {
-		a.runS.prefillDisabled = v
+		a.runS.prompt.prefillDisabled = v
 	}
 }
 
@@ -272,13 +279,13 @@ func (a *Agent) memoryInjected() bool {
 	if a.runS == nil {
 		return false
 	}
-	return a.runS.memoryInjected
+	return a.runS.prompt.memoryInjected
 }
 
 // setMemoryInjected sets the memory-injected flag.
 func (a *Agent) setMemoryInjected(v bool) {
 	if a.runS != nil {
-		a.runS.memoryInjected = v
+		a.runS.prompt.memoryInjected = v
 	}
 }
 
@@ -611,7 +618,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     resolveToolProviderForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.ExcludedTools),
+			Provider:     toolpolicy.ResolveForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.ExcludedTools),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,
@@ -678,7 +685,8 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 	// once the run completes normally, so it never leaks.
 	a.startWatchdog(execCtx, cancel)
 
-	execCtx = WithUsageTracker(execCtx)
+	execCtx = usage.WithTracker(execCtx)
+	a.toolFailure.reset()
 	execCtx = proxy.WithRetryObserver(execCtx, func(info proxy.RetryInfo) { a.notifyUpstream(info) })
 
 	// Stamp the resolved run network scope so the guardrail engine, network
@@ -690,8 +698,23 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 	a.rebuildToolCache(execCtx)
 
+	// A credential failure is run-scoped but its tool result is persisted and
+	// replayed, carrying "Do NOT retry it" into later runs — so a reconfigured
+	// tool stays unused. Neutralize those stale notices when the tool is now
+	// available; still-broken tools keep their original result.
+	if n := NeutralizeStaleToolFailures(history, a.deps.Guardrails, a.config.WorkspaceID); n > 0 {
+		a.deps.Logger.Info("neutralized stale tool-unavailable results from replayed history", "count", n)
+	}
+
 	s := newRunSession(a, execCtx, history)
 	return s.run()
+}
+
+// ToolWarnings returns the non-fatal tool failures recorded during the last
+// Execute (e.g. a delivery connector being down). The automation executor reads
+// it after Execute to persist them in the run meta.
+func (a *Agent) ToolWarnings() []string {
+	return a.toolFailure.warningsSnapshot()
 }
 
 // startWatchdog launches a goroutine that force-cancels the run if it outlives
@@ -754,44 +777,48 @@ func (a *Agent) rebuildToolCache(ctx context.Context) {
 	a.toolsHash = fp
 }
 
-// injectToolInstructions embeds XML tool definitions into the system prompt.
-// Used when native API-level tools are disabled (local models, XML fallback).
-func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
-	if len(tools) == 0 {
-		return history
-	}
-
-	instructions := a.cachedToolManual
-	if instructions == "" {
-		info := make([]prompts.ToolInfo, len(tools))
-		for i, t := range tools {
-			info[i] = prompts.ToolInfo{
-				Name:        t.Function.Name,
-				Description: t.Function.Description,
-				Parameters:  t.Function.Parameters,
-			}
+// toolInfosFromTools projects the wire tool schemas onto the prompt-facing
+// ToolInfo shape shared by both prompt builders.
+func toolInfosFromTools(tools []proxy.Tool) []prompts.ToolInfo {
+	info := make([]prompts.ToolInfo, len(tools))
+	for i, t := range tools {
+		info[i] = prompts.ToolInfo{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
 		}
-		instructions = prompts.BuildToolManual(info)
 	}
+	return info
+}
 
-	a.deps.Logger.Debug("injecting XML tool manual into system prompt",
-		"tool_count", len(tools),
-		"manual_chars", len(instructions),
-		"has_manual", len(instructions) > 0,
-	)
+// injectSystemSection appends one tool section to the first system message (or
+// prepends a default system message when the history has none). The XML manual
+// and the native reference differ only in which injector they use, so both route
+// through here to keep the placement rule in one place. manual additionally
+// traces the manual's before/after state — only the XML manual does.
+func (a *Agent) injectSystemSection(history []proxy.Message, tools []proxy.Tool, section string, inject func(content, section string) string, manual bool) []proxy.Message {
+	if manual {
+		a.deps.Logger.Debug("injecting XML tool manual into system prompt",
+			"tool_count", len(tools),
+			"manual_chars", len(section),
+			"has_manual", len(section) > 0,
+		)
+	}
 	newHistory := make([]proxy.Message, 0, len(history)+1)
 	foundSystem := false
 	for _, msg := range history {
 		if !foundSystem && msg.Role == proxy.SystemRole {
 			newMsg := msg
-			hadManualBefore := prompts.HasToolManual(newMsg.Content)
-			newMsg.Content = prompts.InjectToolManual(newMsg.Content, instructions)
+			hadManualBefore := manual && prompts.HasToolManual(newMsg.Content)
+			newMsg.Content = inject(newMsg.Content, section)
 			newHistory = append(newHistory, newMsg)
 			foundSystem = true
-			a.deps.Logger.Debug("tool manual injection result",
-				"had_manual_before", hadManualBefore,
-				"sys_prompt_chars", len(newMsg.Content),
-			)
+			if manual {
+				a.deps.Logger.Debug("tool manual injection result",
+					"had_manual_before", hadManualBefore,
+					"sys_prompt_chars", len(newMsg.Content),
+				)
+			}
 		} else {
 			newHistory = append(newHistory, msg)
 		}
@@ -799,10 +826,29 @@ func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.To
 	if !foundSystem {
 		newHistory = append([]proxy.Message{{
 			Role:    proxy.SystemRole,
-			Content: prompts.InjectToolManual("You are a powerful agentic AI.", instructions),
+			Content: inject("You are a powerful agentic AI.", section),
 		}}, newHistory...)
 	}
 	return newHistory
+}
+
+// toolSection returns the cached prompt section, rebuilding it from the tool
+// schemas on a cache miss.
+func toolSection(cached string, tools []proxy.Tool, build func([]prompts.ToolInfo) string) string {
+	if cached != "" {
+		return cached
+	}
+	return build(toolInfosFromTools(tools))
+}
+
+// injectToolInstructions embeds XML tool definitions into the system prompt.
+// Used when native API-level tools are disabled (local models, XML fallback).
+func (a *Agent) injectToolInstructions(history []proxy.Message, tools []proxy.Tool) []proxy.Message {
+	if len(tools) == 0 {
+		return history
+	}
+	section := toolSection(a.cachedToolManual, tools, prompts.BuildToolManual)
+	return a.injectSystemSection(history, tools, section, prompts.InjectToolManual, true)
 }
 
 // injectNativeToolReference injects a tool reference into the system prompt
@@ -812,36 +858,6 @@ func (a *Agent) injectNativeToolReference(history []proxy.Message, tools []proxy
 	if len(tools) == 0 {
 		return history
 	}
-
-	reference := a.cachedToolReference
-	if reference == "" {
-		info := make([]prompts.ToolInfo, len(tools))
-		for i, t := range tools {
-			info[i] = prompts.ToolInfo{
-				Name:        t.Function.Name,
-				Description: t.Function.Description,
-				Parameters:  t.Function.Parameters,
-			}
-		}
-		reference = prompts.BuildNativeToolReference(info)
-	}
-	newHistory := make([]proxy.Message, 0, len(history)+1)
-	foundSystem := false
-	for _, msg := range history {
-		if !foundSystem && msg.Role == proxy.SystemRole {
-			newMsg := msg
-			newMsg.Content = prompts.InjectToolReference(newMsg.Content, reference)
-			newHistory = append(newHistory, newMsg)
-			foundSystem = true
-		} else {
-			newHistory = append(newHistory, msg)
-		}
-	}
-	if !foundSystem {
-		newHistory = append([]proxy.Message{{
-			Role:    proxy.SystemRole,
-			Content: prompts.InjectToolReference("You are a powerful agentic AI.", reference),
-		}}, newHistory...)
-	}
-	return newHistory
+	section := toolSection(a.cachedToolReference, tools, prompts.BuildNativeToolReference)
+	return a.injectSystemSection(history, tools, section, prompts.InjectToolReference, false)
 }

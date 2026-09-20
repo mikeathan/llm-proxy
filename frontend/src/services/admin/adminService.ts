@@ -62,11 +62,13 @@ export const AdminApiService = {
     get<{ secret: string }>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`)
       .then(r => r.secret),
 
-  saveToolSecret: (category: string, provider: string, secret: string): Promise<void> =>
-    put<void>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`, { secret }),
+  saveToolSecret: (category: string, provider: string, secret: string): Promise<string> =>
+    put<{ secret: string }>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`, { secret })
+      .then(r => r.secret),
 
-  deleteToolSecret: (category: string, provider: string): Promise<void> =>
-    del<void>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`),
+  deleteToolSecret: (category: string, provider: string): Promise<string> =>
+    del<{ secret: string }>(`${API_ENDPOINTS.secretsTools}?category=${encodeURIComponent(category)}&provider=${encodeURIComponent(provider)}`)
+      .then(r => r.secret),
 
   createConnectorWebhook: (name: string, url: string): Promise<{ status: string; url: string }> =>
     post<{ status: string; url: string }>(API_ENDPOINTS.connectorWebhook(name), { action: 'create', url }),

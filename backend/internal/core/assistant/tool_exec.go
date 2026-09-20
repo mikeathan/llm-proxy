@@ -18,6 +18,8 @@ import (
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/toolpolicy"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -53,6 +55,15 @@ const (
 	// without a response. Silence is not consent.
 	guardrailDeniedByTimeout = "Action timed out without user response; silence is not consent. Do NOT retry, rephrase, or attempt the same outcome via a different path."
 )
+
+// toolFailureStreakLimit bounds consecutive errored tool calls (any tool) before
+// the loop stops flailing: automation fails the run; chat suppresses further
+// tool calls and lets the model finalize.
+const toolFailureStreakLimit = 3
+
+// errToolFailureLimit marks a run that exceeded the consecutive tool-failure
+// bound. (Terminal tool errors carry models.ErrToolUnavailable instead.)
+var errToolFailureLimit = errors.New("too many consecutive tool failures")
 
 type ExecutionPlan struct {
 	Description string          `json:"description"`
@@ -114,14 +125,7 @@ func NewExecutionPlanStrategy(llm proxy.Client, tools []proxy.Tool, logger loggi
 func (s *ExecutionPlanStrategy) Generate(ctx context.Context, task string) (*ExecutionPlan, error) {
 	s.logger.Debug("generating execution plan", "tools", len(s.tools), "task_len", len(task))
 
-	toolInfos := make([]prompts.ToolInfo, len(s.tools))
-	for i, t := range s.tools {
-		toolInfos[i] = prompts.ToolInfo{
-			Name:        t.Function.Name,
-			Description: t.Function.Description,
-			Parameters:  t.Function.Parameters,
-		}
-	}
+	toolInfos := toolInfosFromTools(s.tools)
 	userPrompt := prompts.BuildExecutionPlanPrompt(toolInfos, task)
 
 	req := proxy.ChatRequest{
@@ -296,6 +300,106 @@ func parsePlanContent(content string) (*ExecutionPlan, error) {
 	return &plan, nil
 }
 
+// toolFailureState is the per-run state of the terminal tool-failure policy
+// (tool-error-classification): tools disabled after an operator-actionable
+// failure, the consecutive-failure streak, the suppression flag, and the
+// non-fatal delivery warnings. One cohesive owner keeps these fields out of
+// Agent/runSession and gives the policy a single mutation point.
+type toolFailureState struct {
+	disabled   map[string]struct{}
+	streak     int
+	suppressed bool
+	warnings   []string
+}
+
+// reset clears the state for a new run.
+func (s *toolFailureState) reset() { *s = toolFailureState{} }
+
+// shortCircuit returns a directive (and true) when a call must not execute:
+// tool execution is suppressed, or the tool was disabled earlier in this run.
+func (s *toolFailureState) shortCircuit(tool string) (string, bool) {
+	if s.suppressed {
+		return prompts.ToolCallsSuppressedPrompt, true
+	}
+	if _, disabled := s.disabled[tool]; disabled {
+		return fmt.Sprintf(prompts.ToolUnavailablePrompt, tool,
+			"it failed earlier this run and is disabled until its configuration is fixed"), true
+	}
+	return "", false
+}
+
+// disable marks a tool disabled for the remainder of the run.
+func (s *toolFailureState) disable(tool string) {
+	if s.disabled == nil {
+		s.disabled = make(map[string]struct{})
+	}
+	s.disabled[tool] = struct{}{}
+}
+
+// addWarning records a non-fatal (delivery) failure for the run report.
+func (s *toolFailureState) addWarning(warning string) { s.warnings = append(s.warnings, warning) }
+
+// noteFailure increments the consecutive-failure streak and reports whether the
+// bound tripped (which suppresses all further tool execution).
+func (s *toolFailureState) noteFailure() (suppressed bool) {
+	s.streak++
+	if s.streak < toolFailureStreakLimit {
+		return false
+	}
+	s.suppressed = true
+	return true
+}
+
+// noteSuccess resets the consecutive-failure streak.
+func (s *toolFailureState) noteSuccess() { s.streak = 0 }
+
+// warningsSnapshot returns a copy of the delivery warnings.
+func (s *toolFailureState) warningsSnapshot() []string {
+	out := make([]string, len(s.warnings))
+	copy(out, s.warnings)
+	return out
+}
+
+// toolErrorResult builds the tool result for a failed execution: an actionable
+// directive for a terminal (operator-actionable) failure, otherwise a
+// non-empty string result if the tool supplied one alongside the error, else
+// the raw error map (transient/input — model-actionable).
+func toolErrorResult(tool string, err error, result any) any {
+	if errors.Is(err, models.ErrToolUnavailable) {
+		reason := err.Error()
+		if toolpolicy.FailurePolicyFor(tool) == toolpolicy.WarnOnTerminalError {
+			return fmt.Sprintf(prompts.DeliveryFailedPrompt, tool, reason)
+		}
+		return fmt.Sprintf(prompts.ToolUnavailablePrompt, tool, reason)
+	}
+	if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
+		return str
+	}
+	return map[string]string{"error": err.Error()}
+}
+
+// noteTerminalToolFailure disables the tool for the rest of the run and, for a
+// delivery tool, records a non-fatal warning instead of a run failure.
+func (a *Agent) noteTerminalToolFailure(tool, reason string) {
+	a.toolFailure.disable(tool)
+	if toolpolicy.FailurePolicyFor(tool) == toolpolicy.WarnOnTerminalError {
+		a.toolFailure.addWarning(fmt.Sprintf("%s: %s", tool, reason))
+		a.notifySystemf(MsgToolWarning, tool, reason)
+		a.deps.Logger.Warn("delivery tool failed (non-fatal)", "name", tool, "error", reason)
+	}
+}
+
+// toolFailureIsRunFatal reports whether a tool failure must end the run. Only
+// unattended (automation) runs fail: no user can fix configuration, and a
+// terminal or runaway failure makes the result untrustworthy. Delivery tools
+// never reach here (executeSingleToolStep returns nil for them).
+func (a *Agent) toolFailureIsRunFatal(err error) bool {
+	if a.config.Channel != ChannelAutomation {
+		return false
+	}
+	return errors.Is(err, models.ErrToolUnavailable) || errors.Is(err, errToolFailureLimit)
+}
+
 // executeSingleToolStep resolves guardrails, executes one tool, appends
 // the result to history, and fires notifications.
 // Returns stopBatch (guardrail denied) and execErr (execution failed).
@@ -305,6 +409,15 @@ func (a *Agent) executeSingleToolStep(
 	history *[]proxy.Message,
 	mu *sync.Mutex,
 ) (stopBatch bool, execErr error) {
+	if directive, blocked := a.toolFailure.shortCircuit(tc.Function.Name); blocked {
+		mu.Lock()
+		a.appendToolResult(history, tc, directive)
+		a.notifyToolResult(tc.ID, tc.Function.Name, directive)
+		mu.Unlock()
+		a.deps.Logger.Warn("tool call short-circuited", "name", tc.Function.Name, "reason", directive)
+		return false, nil
+	}
+
 	approved, stopBatch := a.resolveGuardrail(ctx, tc, history, mu)
 	if stopBatch {
 		return true, nil
@@ -324,26 +437,33 @@ func (a *Agent) executeSingleToolStep(
 	mu.Lock()
 	var finalResult any
 	if err != nil {
-		if str, ok := result.(string); ok && strings.TrimSpace(str) != "" {
-			finalResult = str
-		} else {
-			finalResult = map[string]string{"error": err.Error()}
-		}
+		finalResult = toolErrorResult(tc.Function.Name, err, result)
 	} else {
 		finalResult = result
 	}
 	resultStr := a.appendToolResult(history, tc, finalResult)
 	a.deps.Logger.Debug("tool execution completed", "name", tc.Function.Name, "error", err, "result", resultStr)
 	a.notifyToolResult(tc.ID, tc.Function.Name, finalResult)
-	if t := GetUsageTracker(ctx); t != nil {
+	if t := usage.FromContext(ctx); t != nil {
 		t.AddToolCall(tc.Function.Name)
 	}
 	mu.Unlock()
 
-	if err != nil {
+	if err == nil {
+		a.toolFailure.noteSuccess()
+		return false, nil
+	}
+	if errors.Is(err, models.ErrToolUnavailable) {
+		a.noteTerminalToolFailure(tc.Function.Name, err.Error())
+		if toolpolicy.FailurePolicyFor(tc.Function.Name) == toolpolicy.WarnOnTerminalError {
+			return false, nil // delivery failure: recorded as a warning, run continues
+		}
 		return false, err
 	}
-	return false, nil
+	if a.toolFailure.noteFailure() {
+		return false, fmt.Errorf("%w: %s", errToolFailureLimit, err)
+	}
+	return false, err
 }
 
 // processToolCalls validates tool args, resolves guardrails, and executes
@@ -393,6 +513,9 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 		if stopBatch || execErr != nil {
 			if execErr != nil {
 				a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
+				if a.toolFailureIsRunFatal(execErr) {
+					return "", execErr
+				}
 			}
 			return "", nil
 		}
@@ -433,9 +556,7 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		// Security boundary violations (path outside workspace, blocked system files)
 		// are denied immediately — no approval dialog.
 		if isGuardrailSecurityBoundary(err) {
-			mu.Lock()
-			a.appendToolResult(history, tc, formatGuardrailError(err, denialSecurity))
-			mu.Unlock()
+			a.appendGuardrailDenial(history, mu, tc, err, denialSecurity)
 			return false, true
 		}
 
@@ -446,54 +567,69 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 		// the approval bound — an unanswered prompt previously burned the full
 		// GuardrailApprovalTimeout and pushed the run past its deadline.
 		if a.config.Channel == ChannelAutomation {
-			mu.Lock()
-			a.appendToolResult(history, tc, formatGuardrailError(err, denialSecurity))
-			mu.Unlock()
+			a.appendGuardrailDenial(history, mu, tc, err, denialSecurity)
 			return false, true
 		}
 
+		// The approval wait, the timeout classification and the returned
+		// decision are the callback's concern; only a hard denial falls through.
 		if a.deps.OnGuardrail != nil {
-			// The approval wait is bounded (Constitution II.10 / SPEC
-			// guardrails) so an unanswered prompt cannot stall the run
-			// indefinitely. The bound is configurable per-model
-			// (GuardrailApprovalTimeout, default 5 min — Hermes parity; 60s
-			// proved too tight in practice). On expiry the callback returns an
-			// error and the call is treated as denied below — the violation is
-			// recorded and the run continues without the tool.
-			approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
-			defer approvalCancel()
-			decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
-				DecisionID:  fmt.Sprintf("gr_%d", time.Now().UnixNano()),
-				Tool:        tc.Function.Name,
-				Args:        tc.Function.Arguments,
-				Reason:      err.Error(),
-				Category:    toolCategory(tc.Function.Name),
-				WorkspaceID: a.config.WorkspaceID,
-			})
-			if decErr != nil {
-				// No decision arrived before the approval bound — the prompt
-				// expired. Reported as "no response", never as user consent.
-				a.deps.Logger.Warn("guardrail approval wait ended without a decision, treating as denied",
-					"name", tc.Function.Name, "error", decErr)
-				denial = denialTimeout
-			} else if decision.Allow {
-				if decision.Persist {
-					if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
-						a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
-					}
-				} else {
-					a.deps.Guardrails.MarkOverride(a.config.WorkspaceID, tc.Function.Name)
-				}
-				return true, false
+			approved, stopBatch, decided := a.awaitGuardrailApproval(ctx, tc, err, &denial)
+			if decided {
+				return approved, stopBatch
 			}
 		}
 
-		mu.Lock()
-		a.appendToolResult(history, tc, formatGuardrailError(err, denial))
-		mu.Unlock()
+		a.appendGuardrailDenial(history, mu, tc, err, denial)
 		return false, true
 	}
 	return false, false
+}
+
+// awaitGuardrailApproval asks the interactive callback for a decision, bounded
+// by GuardrailApprovalTimeout (Constitution II.10 / SPEC guardrails) so an
+// unanswered prompt cannot stall the run indefinitely. decided=false means the
+// caller should fall through to its default denial; an expired prompt sets
+// *denial to denialTimeout, never user consent.
+func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, err error, denial *guardrailDenialReason) (approved, stopBatch, decided bool) {
+	approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
+	defer approvalCancel()
+	decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
+		DecisionID:  fmt.Sprintf("gr_%d", time.Now().UnixNano()),
+		Tool:        tc.Function.Name,
+		Args:        tc.Function.Arguments,
+		Reason:      err.Error(),
+		Category:    toolCategory(tc.Function.Name),
+		WorkspaceID: a.config.WorkspaceID,
+	})
+	if decErr != nil {
+		// No decision arrived before the approval bound — the prompt expired.
+		// Reported as "no response", never as user consent.
+		a.deps.Logger.Warn("guardrail approval wait ended without a decision, treating as denied",
+			"name", tc.Function.Name, "error", decErr)
+		*denial = denialTimeout
+		return false, false, false
+	}
+	if !decision.Allow {
+		return false, false, false
+	}
+	if decision.Persist {
+		if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
+			a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
+		}
+	} else {
+		a.deps.Guardrails.MarkOverride(a.config.WorkspaceID, tc.Function.Name)
+	}
+	return true, false, true
+}
+
+// appendGuardrailDenial records a denied tool call on the shared history under
+// the caller's lock, so every denial path reports the outcome the same way and
+// the run continues without the tool.
+func (a *Agent) appendGuardrailDenial(history *[]proxy.Message, mu *sync.Mutex, tc proxy.ToolCall, err error, reason guardrailDenialReason) {
+	mu.Lock()
+	a.appendToolResult(history, tc, formatGuardrailError(err, reason))
+	mu.Unlock()
 }
 
 func isGuardrailSecurityBoundary(err error) bool {
@@ -597,6 +733,11 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 			continue
 		}
 		if execErr != nil {
+			if a.toolFailureIsRunFatal(execErr) {
+				// Terminal (operator-actionable) failure of an essential tool in an
+				// unattended run: abort — the plan's result cannot be trusted.
+				return "", currentHistory, execErr
+			}
 			// A tool execution failure (e.g. a shell command exiting non-zero,
 			// a compile error, a missing file) is a step outcome, not a plan
 			// bug: executeSingleToolStep already appended the error as a tool
@@ -747,7 +888,7 @@ func (a *Agent) persistSalvagedWrite(ctx context.Context, tc proxy.ToolCall, pat
 	if execErr != nil {
 		return execErr
 	}
-	if t := GetUsageTracker(ctx); t != nil {
+	if t := usage.FromContext(ctx); t != nil {
 		t.AddToolCall(tc.Function.Name)
 	}
 	return nil
@@ -1058,13 +1199,13 @@ func (a *Agent) trackGuardrailOutcome(tc proxy.ToolCall, result string) {
 		return
 	}
 	if isGuardrailDenialResult(result) {
-		a.runS.guardrailBlockStreak++
-		a.runS.guardrailBlockedTool = tc.Function.Name
+		a.runS.guardrail.blockStreak++
+		a.runS.guardrail.blockedTool = tc.Function.Name
 		return
 	}
-	a.runS.guardrailBlockStreak = 0
-	a.runS.guardrailBlockedTool = ""
-	a.runS.guardrailNagSent = false
+	a.runS.guardrail.blockStreak = 0
+	a.runS.guardrail.blockedTool = ""
+	a.runS.guardrail.nagSent = false
 }
 
 // isGuardrailDenialResult reports whether a tool result is a guardrail denial

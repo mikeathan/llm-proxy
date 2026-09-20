@@ -18,6 +18,7 @@ import (
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/core/tools/searchproviders"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
@@ -124,7 +125,7 @@ type LocalToolRegistry struct {
 func NewLocalToolRegistry(
 	terminal *tools.TerminalTools,
 	comm *tools.CommunicationTools,
-	search *tools.InternetTools,
+	searchTools *tools.InternetTools,
 	fsTools *tools.FileSystemTools,
 	network *tools.NetworkTools,
 	memoryTools *tools.MemoryToolProvider,
@@ -133,7 +134,7 @@ func NewLocalToolRegistry(
 		handlers:      make(map[string]ToolHandler),
 		Terminal:      terminal,
 		Communication: comm,
-		Search:        search,
+		Search:        searchTools,
 		FileSystem:    fsTools,
 		Network:       network,
 		Memory:        memoryTools,
@@ -156,6 +157,26 @@ type AgentStackDeps struct {
 	Observer     tools.StreamObserver
 	EgressProxy  *url.URL
 	EgressEnv    func() []string
+}
+
+// configSecretsReader is the live config + secret read surface the tool
+// initializers need — narrow on purpose (interface segregation) rather than
+// dragging the whole application context in.
+type configSecretsReader interface {
+	Secrets() models.SecretsStore
+	GetRegistry() models.RegistryData
+}
+
+// AgentStackContext is the application-context surface InitializeAgentStack
+// wires the stack from. It is declared here, in the consuming package, so
+// *app.AppContext satisfies it implicitly without assistant importing app.
+type AgentStackContext interface {
+	configSecretsReader
+	Resolver() storage.Resolver
+	GetGuardrails() models.AgentGuardrailsConfig
+	MemoryStore() *memory.Store
+	HostSettings() models.HostSettings
+	SetSandboxProvider(sandbox.Provider)
 }
 
 // stackCtx is the shared wiring for the tool-provider constructors, built once
@@ -191,10 +212,7 @@ func initTerminalTools(s stackCtx) *tools.TerminalTools {
 		StorageOver: s.storageOver,
 	})
 }
-func initCommunicationTools(appCtx interface {
-	GetRegistry() models.RegistryData
-	Secrets() models.SecretsStore
-}, network *tools.NetworkTools) *tools.CommunicationTools {
+func initCommunicationTools(appCtx configSecretsReader, network *tools.NetworkTools) *tools.CommunicationTools {
 	reg := appCtx.GetRegistry()
 	comm := tools.NewCommunicationTools()
 	for name, cfg := range reg.Communication.Connectors {
@@ -268,17 +286,78 @@ func initNetworkTools(s stackCtx) *tools.NetworkTools {
 	}
 	return netTools
 }
-func initSearchTools(appCtx interface {
-	Secrets() models.SecretsStore
-}, network *tools.NetworkTools) *tools.InternetTools {
-	tavilyKey := appCtx.Secrets().GetSecret("search", "tavily")
-	if tavilyKey == "" {
-		return nil
+
+// searchSelection is one live read of the internet-search configuration: the
+// selected provider, its registered spec, the stored key, and the result cap.
+// ok is false when no usable provider is configured (unknown/unregistered
+// provider, or a key-requiring provider with no stored key).
+type searchSelection struct {
+	provider models.SearchProvider
+	spec     tools.SearchProviderSpec
+	key      string
+	max      int
+	ok       bool
+}
+
+// searchTarget reads the live registry config and secret once, so the tool
+// resolver and the guardrail availability predicate can never drift. A provider
+// is available iff its spec is registered and (it does not require a key OR the
+// stored `search:<provider>` secret is non-empty). An unset provider falls back
+// to the default. No I/O and no context — safe from the guardrail gate.
+func searchTarget(registry func() models.RegistryData, secrets models.SecretsStore) searchSelection {
+	cfg := models.DefaultSearchConfig()
+	if registry != nil {
+		cfg = registry().Search
 	}
-	return tools.NewInternetTools(&tools.TavilyProvider{
-		APIKey: tavilyKey,
-		Client: network.HTTPClient(),
+	provider := cfg.Provider
+	if provider == "" {
+		provider = models.DefaultSearchConfig().Provider
+	}
+	spec, registered := searchproviders.GetSearchProvider(provider)
+	if !registered {
+		return searchSelection{}
+	}
+	key := ""
+	if spec.RequiresKey {
+		if secrets == nil {
+			return searchSelection{}
+		}
+		key = secrets.GetSecret(models.CategorySearch, string(provider))
+		if key == "" {
+			return searchSelection{}
+		}
+	}
+	return searchSelection{provider: provider, spec: spec, key: key, max: cfg.MaxResults, ok: true}
+}
+
+// initSearchTools builds the internet_search tool with a lazy resolver plus the
+// availability predicate the guardrail engine uses to schema-hide the tool when
+// no provider is configured. Both read the same searchTarget, so the tool and
+// the gate never disagree. The tool is nil-safe, so a residual call after the
+// gate reaches it and returns ErrSearchNotConfigured.
+func initSearchTools(appCtx configSecretsReader, network *tools.NetworkTools) (*tools.InternetTools, func() bool) {
+	target := func() searchSelection {
+		return searchTarget(appCtx.GetRegistry, appCtx.Secrets())
+	}
+
+	internet := tools.NewInternetTools(func(ctx context.Context) (tools.SearchProvider, error) {
+		sel := target()
+		if !sel.ok {
+			return nil, tools.ErrSearchNotConfigured
+		}
+		provider, err := sel.spec.New(tools.SearchProviderConfig{
+			APIKey:     sel.key,
+			Client:     network.HTTPClient(),
+			MaxResults: sel.max,
+		})
+		if err != nil {
+			logging.Warn("internet search provider unavailable", "provider", string(sel.provider), "error", err)
+			return nil, fmt.Errorf("internet search provider %q: %w", sel.provider, err)
+		}
+		return provider, nil
 	})
+
+	return internet, func() bool { return target().ok }
 }
 
 func initMemoryTools(store *memory.Store) *tools.MemoryToolProvider {
@@ -304,16 +383,7 @@ func initFileSystemTools(s stackCtx) *tools.FileSystemTools {
 	})
 }
 func InitializeAgentStack(
-	appCtx interface {
-		GetSystem() models.SystemConfig
-		GetRegistry() models.RegistryData
-		Resolver() storage.Resolver
-		Secrets() models.SecretsStore
-		GetGuardrails() models.AgentGuardrailsConfig
-		MemoryStore() *memory.Store
-		HostSettings() models.HostSettings
-		SetSandboxProvider(p sandbox.Provider)
-	},
+	appCtx AgentStackContext,
 	mcp nodeherder.MCPService,
 	deps AgentStackDeps,
 ) (ToolProvider, Engine, *guardrails.GuardrailEngine) {
@@ -355,6 +425,8 @@ func InitializeAgentStack(
 		hostNetworkOn: hostNetworkOn, sandbox: sandboxProvider, storageOver: storageOver,
 	}
 	terminal := initTerminalTools(stack)
+	network := initNetworkTools(stack)
+	searchTools, searchAvailable := initSearchTools(appCtx, network)
 	grEngine := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
 		return defaultGuardrails
 	}, stack.resolver, stack.deps.Persistence, func(workspaceID string) (*models.WorkspaceConfig, error) { return stack.readConfig(workspaceID) })
@@ -365,13 +437,15 @@ func InitializeAgentStack(
 	grEngine.SetHostNetworkAllowed(func() bool {
 		return appCtx.HostSettings().Sandboxing.NetworkAllowed()
 	})
-	network := initNetworkTools(stack)
+	// internet_search is schema-hidden while no provider is configured (live
+	// predicate over registry + secrets — takes effect on the next run without a
+	// restart).
+	grEngine.SetSearchAvailable(searchAvailable)
 	comm := initCommunicationTools(appCtx, network)
-	search := initSearchTools(appCtx, network)
 	fsTools := initFileSystemTools(stack)
 	memTools := initMemoryTools(appCtx.MemoryStore())
 
-	localRegistry := NewLocalToolRegistry(terminal, comm, search, fsTools, network, memTools)
+	localRegistry := NewLocalToolRegistry(terminal, comm, searchTools, fsTools, network, memTools)
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, deps.Logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
@@ -495,9 +569,8 @@ func (r *LocalToolRegistry) registerSearchTools() {
 	registerTool(r, "search", models.ToolInternetSearch, func(ctx context.Context, args struct {
 		Query string `json:"query"`
 	}) (any, error) {
-		if r.Search == nil {
-			return nil, fmt.Errorf("search tools not configured")
-		}
+		// InternetTools is nil-safe (nil receiver or resolver ⇒
+		// ErrSearchNotConfigured), so no nil check is needed here.
 		return r.Search.Search(ctx, args.Query)
 	})
 }

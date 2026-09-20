@@ -5,7 +5,7 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 # Staff Frontend Engineering Constitution
 
 > Language-agnostic clean-code principles (naming, functions, comments, smells,
-> SOLID, emergent design) live in [`docs/skills/clean-code.md`](../../docs/skills/clean-code.md);
+> SOLID, emergent design) live in [`.agents/skills/clean-code/SKILL.md`](../skills/clean-code/SKILL.md);
 > this file is the mandatory Vue/TypeScript-specific layer on top.
 
 **Target:** `**/*.vue`, `**/*.ts`, `**/*.js`

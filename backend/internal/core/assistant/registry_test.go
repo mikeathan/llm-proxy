@@ -1,9 +1,16 @@
-package assistant_test
+package assistant
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"llm-proxy/internal/core/assistant"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/db"
@@ -11,16 +18,11 @@ import (
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
-	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 func TestLocalToolRegistry_Discovery(t *testing.T) {
-	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+	r := NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		return models.FileSystemGuardrailsConfig{}
 	}), nil, nil)
 	toolsList, err := r.ListTools(context.Background())
@@ -45,7 +47,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 		},
 	})
 
-	r := assistant.NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+	r := NewLocalToolRegistry(term, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		return models.FileSystemGuardrailsConfig{}
 	}), nil, nil)
 
@@ -73,7 +75,7 @@ func TestLocalToolRegistry_TerminalExecution(t *testing.T) {
 // recorded as successes while the run still errored.
 func TestLocalToolRegistry_WriteErrorIsTruthful(t *testing.T) {
 	wsDir := t.TempDir()
-	r := assistant.NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+	r := NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
 		return models.FileSystemGuardrailsConfig{
 			Enabled:      true,
 			AllowedPaths: []string{wsDir},
@@ -122,15 +124,34 @@ func TestLocalToolRegistry_WriteErrorIsTruthful(t *testing.T) {
 	})
 }
 
+// TestLocalToolRegistry_SearchNilIsRecordAndContinue verifies the nil-safe
+// search tool path: a registry wired without a search provider still executes
+// internet_search and returns ErrSearchNotConfigured (record-and-continue)
+// instead of panicking or raising an approval prompt.
+func TestLocalToolRegistry_SearchNilIsRecordAndContinue(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{}
+	}), nil, nil)
+
+	call := proxy.ToolCall{Function: proxy.FunctionCall{
+		Name:      models.ToolInternetSearch,
+		Arguments: `{"query": "weather"}`,
+	}}
+	_, err := r.ExecuteTool(context.Background(), call)
+	if !errors.Is(err, tools.ErrSearchNotConfigured) {
+		t.Fatalf("ExecuteTool() err = %v, want ErrSearchNotConfigured", err)
+	}
+}
+
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
-	provider, engine, guardrails := assistant.InitializeAgentStack(&mockAppContext{}, nil, assistant.AgentStackDeps{})
+	provider, engine, guardrails := InitializeAgentStack(&mockAppContext{}, nil, AgentStackDeps{})
 
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")
 	}
 
-	_, ok := provider.(*assistant.MultiToolProvider)
+	_, ok := provider.(*MultiToolProvider)
 	if !ok {
 		t.Error("provider is not a MultiToolProvider")
 	}
@@ -143,13 +164,13 @@ func TestInitializeAgentStack_FileSystemIsolation(t *testing.T) {
 	}
 
 	// 1. Initialize the stack
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, assistant.AgentStackDeps{})
+	provider, _, _ := InitializeAgentStack(appCtx, nil, AgentStackDeps{})
 
 	// 2. Access the MultiToolProvider
-	multiProvider := provider.(*assistant.MultiToolProvider)
+	multiProvider := provider.(*MultiToolProvider)
 
 	// 3. Find the LocalToolRegistry (it's the first provider in InitializeAgentStack)
-	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
+	localRegistry := multiProvider.Providers[0].(*LocalToolRegistry)
 
 	// 4. Inspect its FileSystem configuration via the public method
 	fsCfg := localRegistry.FileSystem.Config(context.Background())
@@ -201,11 +222,11 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 
 	// 3. Initialize the Agent Stack
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, assistant.AgentStackDeps{Persistence: manager})
+	provider, _, _ := InitializeAgentStack(appCtx, nil, AgentStackDeps{Persistence: manager})
 
 	// Access the internal registry
-	multiProvider := provider.(*assistant.MultiToolProvider)
-	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
+	multiProvider := provider.(*MultiToolProvider)
+	localRegistry := multiProvider.Providers[0].(*LocalToolRegistry)
 
 	// ========================================================================
 	// Scenario A: Default context (no workspace ID)
@@ -283,9 +304,9 @@ func TestInitializeAgentStack_NetworkGuardrails(t *testing.T) {
 	manager.WriteConfig(wsID, &wsCfg)
 
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := assistant.InitializeAgentStack(appCtx, nil, assistant.AgentStackDeps{Persistence: manager})
-	multiProvider := provider.(*assistant.MultiToolProvider)
-	localRegistry := multiProvider.Providers[0].(*assistant.LocalToolRegistry)
+	provider, _, _ := InitializeAgentStack(appCtx, nil, AgentStackDeps{Persistence: manager})
+	multiProvider := provider.(*MultiToolProvider)
+	localRegistry := multiProvider.Providers[0].(*LocalToolRegistry)
 
 	t.Run("Should apply network overrides", func(t *testing.T) {
 		ctx := models.WithWorkspaceID(context.Background(), wsID)
@@ -306,9 +327,6 @@ func TestInitializeAgentStack_NetworkGuardrails(t *testing.T) {
 
 type mockAppContext struct{}
 
-func (m *mockAppContext) GetSystem() models.SystemConfig {
-	return models.SystemConfig{}
-}
 func (m *mockAppContext) GetRegistry() models.RegistryData {
 	return models.RegistryData{}
 }
@@ -319,7 +337,7 @@ func (m *mockAppContext) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", "", "")
 }
 func (m *mockAppContext) Secrets() models.SecretsStore {
-	return &mocks.MockSecretsStore{}
+	return stubSearchSecrets{}
 }
 func (m *mockAppContext) MemoryStore() *memory.Store          { return nil }
 func (m *mockAppContext) SetSandboxProvider(sandbox.Provider) {}
@@ -335,13 +353,12 @@ type mockAppContextWithDirs struct {
 	workspacesDir string
 }
 
-func (m *mockAppContextWithDirs) GetSystem() models.SystemConfig   { return models.SystemConfig{} }
 func (m *mockAppContextWithDirs) GetRegistry() models.RegistryData { return models.RegistryData{} }
 func (m *mockAppContextWithDirs) GetGuardrails() models.AgentGuardrailsConfig {
 	return models.AgentGuardrailsConfig{}
 }
 func (m *mockAppContextWithDirs) RootDir() string              { return "" }
-func (m *mockAppContextWithDirs) Secrets() models.SecretsStore { return &mocks.MockSecretsStore{} }
+func (m *mockAppContextWithDirs) Secrets() models.SecretsStore { return stubSearchSecrets{} }
 func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
 }
@@ -379,7 +396,7 @@ func TestSystemPrompt_IncludesMemoryNudge(t *testing.T) {
 		}
 
 		memTools := tools.NewMemoryToolProvider(store)
-		r := assistant.NewLocalToolRegistry(nil, nil, nil, fsTools, nil, memTools)
+		r := NewLocalToolRegistry(nil, nil, nil, fsTools, nil, memTools)
 
 		prompt, err := r.GetSystemPrompt()
 		if err != nil {
@@ -391,7 +408,7 @@ func TestSystemPrompt_IncludesMemoryNudge(t *testing.T) {
 	})
 
 	t.Run("without memory tools", func(t *testing.T) {
-		r := assistant.NewLocalToolRegistry(nil, nil, nil, fsTools, nil, nil)
+		r := NewLocalToolRegistry(nil, nil, nil, fsTools, nil, nil)
 		prompt, err := r.GetSystemPrompt()
 		if err != nil {
 			t.Fatalf("GetSystemPrompt failed: %v", err)
@@ -434,5 +451,165 @@ func TestFileSystem_IsSecurePath(t *testing.T) {
 				t.Errorf("IsSecurePath() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// stubSearchSecrets is a minimal models.SecretsStore whose only meaningful
+// method is GetSecret — all the search wiring reads. (The mocks package cannot
+// be used here: it imports this package, which would be a test import cycle.)
+type stubSearchSecrets struct{ key string }
+
+func (s stubSearchSecrets) GetSecret(string, string) string                 { return s.key }
+func (stubSearchSecrets) SetSecret(string, string, string) error            { return nil }
+func (stubSearchSecrets) DeleteSecret(string, string) error                 { return nil }
+func (stubSearchSecrets) MaskedSecret(string, string) string                { return "" }
+func (stubSearchSecrets) GetProviderKeys(string) []models.APIKeyItem        { return nil }
+func (stubSearchSecrets) SetProviderKeys(string, []models.APIKeyItem) error { return nil }
+func (stubSearchSecrets) DeleteProviderKey(string, string) error            { return nil }
+func (stubSearchSecrets) DeleteAllProviderKeys(string) error                { return nil }
+func (stubSearchSecrets) MaskedProviderKeys(string) []models.APIKeyItem     { return nil }
+func (stubSearchSecrets) GetResolvedProviderKey(string, string) (string, error) {
+	return "", nil
+}
+func (stubSearchSecrets) GetResolvedProviderKeyInfo(string, string) (*models.ResolvedProviderKeyInfo, error) {
+	return nil, nil
+}
+func (stubSearchSecrets) ResolveMaskedKey(string, string) (string, error) { return "", nil }
+
+func TestConfigCache_EvictsOnMaxSize(t *testing.T) {
+	cache := core.NewTTLCache[string, *workspaceConfigEntry](100, time.Hour, nil)
+
+	const n = 101
+	ids := make([]string, n)
+	for i := 0; i < n; i++ {
+		ids[i] = "ws-" + string(rune('a'+i%26)) + "-" + string(rune('0'+i/26))
+	}
+	for _, id := range ids {
+		cache.Put(id, &workspaceConfigEntry{config: &models.WorkspaceConfig{}})
+	}
+
+	if got := cache.Len(); got != 100 {
+		t.Errorf("expected cache bounded at 100 entries, got %d", got)
+	}
+}
+
+func TestConfigCache_EvictsOnTTL(t *testing.T) {
+	cache := core.NewTTLCache[string, *workspaceConfigEntry](100, time.Millisecond, nil)
+	wsID := "ws-ttl"
+	first := &workspaceConfigEntry{config: &models.WorkspaceConfig{}}
+	cache.Put(wsID, first)
+
+	time.Sleep(5 * time.Millisecond)
+
+	reloaded, err := cache.Get(wsID, func() (*workspaceConfigEntry, error) {
+		return &workspaceConfigEntry{config: &models.WorkspaceConfig{}}, nil
+	})
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !cache.Contains(wsID) {
+		t.Error("expected entry present after reload")
+	}
+	if reloaded == first {
+		t.Error("expected a fresh entry after TTL expiry, got the same pointer (stale entry retained)")
+	}
+}
+
+func TestGuardrailValidation_UsesCachedConfig(t *testing.T) {
+	calls := 0
+	cache := core.NewTTLCache[string, *workspaceConfigEntry](100, time.Hour, nil)
+	for i := 0; i < 3; i++ {
+		cache.Get("ws-cached", func() (*workspaceConfigEntry, error) {
+			calls++
+			return &workspaceConfigEntry{config: &models.WorkspaceConfig{}}, nil
+		})
+	}
+	if calls != 1 {
+		t.Errorf("cache should serve from memory on subsequent hits: got %d loads", calls)
+	}
+}
+
+// fakeSearchAppCtx is the minimal appCtx the search wiring needs.
+type fakeSearchAppCtx struct {
+	reg models.RegistryData
+	sec models.SecretsStore
+}
+
+func (f fakeSearchAppCtx) GetRegistry() models.RegistryData { return f.reg }
+func (f fakeSearchAppCtx) Secrets() models.SecretsStore     { return f.sec }
+
+func TestSearchTarget(t *testing.T) {
+	secrets := func(key string) models.SecretsStore {
+		return stubSearchSecrets{key: key}
+	}
+	reg := func(provider models.SearchProvider, max int) func() models.RegistryData {
+		return func() models.RegistryData {
+			return models.RegistryData{Search: models.SearchConfig{Provider: provider, MaxResults: max}}
+		}
+	}
+
+	tests := []struct {
+		name     string
+		registry func() models.RegistryData
+		secrets  models.SecretsStore
+		wantOK   bool
+		wantProv models.SearchProvider
+		wantMax  int
+	}{
+		{name: "unset provider defaults to tavily with key", registry: reg("", 0), secrets: secrets("k"), wantOK: true, wantProv: models.SearchProviderTavily},
+		{name: "unknown provider is unavailable", registry: reg("bogus", 5), secrets: secrets("k"), wantOK: false},
+		{name: "missing key is unavailable", registry: reg(models.SearchProviderBrave, 5), secrets: secrets(""), wantOK: false},
+		{name: "selected provider with key is available", registry: reg(models.SearchProviderBrave, 9), secrets: secrets("k"), wantOK: true, wantProv: models.SearchProviderBrave, wantMax: 9},
+		{name: "nil registry falls back to the default", registry: nil, secrets: secrets("k"), wantOK: true, wantProv: models.SearchProviderTavily, wantMax: models.DefaultSearchMaxResults},
+		{name: "nil secrets is unavailable for a key-requiring provider", registry: reg(models.SearchProviderTavily, 5), secrets: nil, wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sel := searchTarget(tt.registry, tt.secrets)
+			if sel.ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", sel.ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if sel.provider != tt.wantProv {
+				t.Errorf("provider = %q, want %q", sel.provider, tt.wantProv)
+			}
+			if sel.max != tt.wantMax {
+				t.Errorf("max = %d, want %d", sel.max, tt.wantMax)
+			}
+		})
+	}
+}
+
+func TestInitSearchTools_AvailabilityGatesResidualCalls(t *testing.T) {
+	network := tools.NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{}
+	}, nil)
+
+	withKey := fakeSearchAppCtx{
+		reg: models.RegistryData{Search: models.SearchConfig{Provider: models.SearchProviderTavily, MaxResults: 3}},
+		sec: stubSearchSecrets{key: "k"},
+	}
+	internet, available := initSearchTools(withKey, network)
+	if internet == nil {
+		t.Fatal("initSearchTools returned a nil tool")
+	}
+	if !available() {
+		t.Error("availability predicate = false, want true with a stored key")
+	}
+
+	withoutKey := fakeSearchAppCtx{
+		reg: withKey.reg,
+		sec: stubSearchSecrets{},
+	}
+	internet, available = initSearchTools(withoutKey, network)
+	if available() {
+		t.Error("availability predicate = true, want false without a key")
+	}
+	// A residual call (schema-hide is the only gate) must reach the tool and
+	// return a clear error, never panic or hit the network.
+	if _, err := internet.Search(context.Background(), "query"); !errors.Is(err, tools.ErrSearchNotConfigured) {
+		t.Fatalf("residual Search() err = %v, want ErrSearchNotConfigured", err)
 	}
 }

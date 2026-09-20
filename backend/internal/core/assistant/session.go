@@ -12,6 +12,8 @@ import (
 
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/repetition"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/models"
 )
@@ -54,63 +56,93 @@ const (
 
 // runSession encapsulates the mutable state of one Agent.Execute call.
 // Fields replace the old pointer-to-primitive pattern (was *int, *bool, *string).
+// The former flat bag is grouped into cohesive clusters (recovery, guardrail,
+// finalize, sieve, prompt, stopGuard) so each concern can be reasoned about and
+// reset on its own. hardCapTriggered is irreversible and gates the forced
+// completion at MaxSteps*2, so it stays flat: no cluster reset may clear it.
 type runSession struct {
 	agent *Agent
 	ctx   context.Context
 
-	history         []proxy.Message
-	steps           int
-	sieveStreak     int
-	starvationCount int
-	warnedAdvisory  bool
+	history          []proxy.Message
+	steps            int
+	rd               repetition.Detector
+	hardCapTriggered bool
 
+	recovery  recoveryState
+	guardrail guardrailState
+	finalize  finalizeState
+	sieve     sieveState
+	prompt    promptState
+	stopGuard stopGuardState
+}
+
+// recoveryState tracks the parse-error / empty-turn recovery ladder.
+type recoveryState struct {
 	parseErrorStreak    int
 	lastParseErrorKind  string
 	totalErrorStreak    int
 	modelCompatNotified bool
-	// postToolNudgeCount re-arms on every successful tool turn (reset in
-	// resetParseErrorState), so a model that emits empty responses after running
-	// tools is nudged repeatedly until it produces a report. hardCapTriggered
-	// (independent) gates the forced completion at MaxSteps*2.
+	syntaxParseStreak   int // consecutive server-side tool-arg JSON syntax failures
+	// postToolNudgeCount re-arms on every successful tool turn (reset below), so
+	// a model that emits empty responses after running tools is nudged
+	// repeatedly until it produces a report.
 	postToolNudgeCount int
-	hardCapTriggered   bool
-	finalizeAttempts   int  // how many deterministic tools-disabled finalization turns fired
-	textOnlyNextTurn   bool // next executeTurn runs with tools disabled (ToolChoiceNone)
+}
 
-	// Guardrail-blocked tool loop guard: consecutive tool calls denied by the
-	// guardrail engine (policy block or user denial). A model that keeps
-	// retrying a blocked tool with NEW arguments is invisible to the
-	// args-keyed spiral detector, so the streak is tracked on the result text
-	// (appendToolResult); past guardrailBlockStreakLimit the next turn injects
-	// a targeted nag and raises the sampling temperature to break the rut.
-	guardrailBlockStreak   int
-	guardrailBlockedTool   string
-	guardrailNagSent       bool
-	recoveryTempEscalation float64
+// reset clears the recovery streaks. hardCapTriggered lives outside this
+// cluster because it is irreversible.
+func (r *recoveryState) reset() { *r = recoveryState{} }
 
-	// lengthContinuationCount tracks finish_reason="length" continuation
-	// nudges injected for a truncated final answer (bounded by
-	// lengthContinuationMax). truncatedParts accumulates the partial report
-	// fragments so the completed answer is the full stitched text, matching
-	// Hermes's _join_truncated_parts behavior.
+// guardrailState tracks the guardrail-blocked tool loop guard: consecutive tool
+// calls denied by the guardrail engine (policy block or user denial). A model
+// that keeps retrying a blocked tool with NEW arguments is invisible to the
+// args-keyed spiral detector, so the streak is tracked on the result text
+// (appendToolResult); past guardrailBlockStreakLimit the next turn injects a
+// targeted nag and raises the sampling temperature to break the rut.
+type guardrailState struct {
+	blockStreak    int
+	blockedTool    string
+	nagSent        bool
+	tempEscalation float64
+}
+
+// finalizeState tracks the deterministic finalization ladder: tools-disabled
+// turns and length-continuation stitching.
+type finalizeState struct {
+	finalizeAttempts int  // how many deterministic tools-disabled finalization turns fired
+	textOnlyNextTurn bool // next executeTurn runs with tools disabled (ToolChoiceNone)
+	// lengthContinuationCount tracks finish_reason="length" continuation nudges
+	// injected for a truncated final answer (bounded by lengthContinuationMax).
+	// truncatedParts accumulates the partial report fragments so the completed
+	// answer is the full stitched text, matching Hermes's _join_truncated_parts.
 	lengthContinuationCount int
 	truncatedParts          []string
-	syntaxParseStreak       int // consecutive server-side tool-arg JSON syntax failures
+}
 
-	rd                   repetitionDetector
+// sieveState tracks physical-context sieve retries and no-tool starvation.
+type sieveState struct {
+	sieveStreak     int
+	starvationCount int
+	warnedAdvisory  bool
+}
+
+// promptState tracks per-run prompt/request overrides.
+type promptState struct {
 	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
+	memoryInjected       bool   // gates hot-memory injection to first turn only
+	prefillDisabled      bool   // runtime override to skip prefill on retry
 	lastContentWithTools string // content saved from a turn that had both text and tool calls
+}
 
-	// Stop guards (evaluator-optimizer, Phase 3). nil for plain react — with no
-	// guards maybeNudge always allows finalization (zero behavior change).
-	// stopGuardAttempts is a dedicated bounded counter (cap maxStopGuardAttempts),
-	// never finalizeAttempts, which handleNoToolCalls owns for its tools-disabled
-	// finalization turn.
-	stopGuards        []StopGuard
-	stopGuardAttempts int
-
-	prefillDisabled bool // runtime override to skip prefill on retry
-	memoryInjected  bool // gates hot-memory injection to first turn only
+// stopGuardState holds the configured stop guards (evaluator-optimizer, Phase
+// 3; nil for plain react — with no guards maybeNudge always allows
+// finalization) and their dedicated bounded attempt counter (cap
+// maxStopGuardAttempts), never finalizeAttempts which handleNoToolCalls owns
+// for its tools-disabled finalization turn.
+type stopGuardState struct {
+	guards   []StopGuard
+	attempts int
 }
 
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
@@ -122,13 +154,13 @@ func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *
 }
 
 func (s *runSession) handleContextSizeError() error {
-	s.sieveStreak++
-	if s.sieveStreak >= sessionMaxSieveRetries {
-		return fmt.Errorf("agent execution failed: model stuck in reasoning loop after %d sieve retries", s.sieveStreak)
+	s.sieve.sieveStreak++
+	if s.sieve.sieveStreak >= sessionMaxSieveRetries {
+		return fmt.Errorf("agent execution failed: model stuck in reasoning loop after %d sieve retries", s.sieve.sieveStreak)
 	}
 	// First sieve uses reactive (keep 2 + 6 messages),
 	// subsequent attempts use aggressive (keep 2 + 3 messages)
-	if s.sieveStreak == 1 {
+	if s.sieve.sieveStreak == 1 {
 		s.history = s.agent.applyReactiveSieve(s.history)
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
@@ -153,10 +185,10 @@ func (s *runSession) handleContextSizeError() error {
 func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 	switch {
 	case failures.IsJSONSyntaxError(err):
-		s.syntaxParseStreak++
+		s.recovery.syntaxParseStreak++
 		s.agent.deps.Logger.Warn("server-side tool call JSON parse error (syntax), sending JSON-escaped hint",
-			"error", err, "streak", s.syntaxParseStreak)
-		if s.syntaxParseStreak >= sessionMaxSyntaxParseRetries {
+			"error", err, "streak", s.recovery.syntaxParseStreak)
+		if s.recovery.syntaxParseStreak >= sessionMaxSyntaxParseRetries {
 			return true
 		}
 		s.history = append(s.history, proxy.Message{
@@ -165,9 +197,9 @@ func (s *runSession) handleToolCallParseError(err error) (giveUp bool) {
 		})
 	default:
 		s.agent.deps.Logger.Warn("server-side tool call JSON parse error, sending length feedback to model", "error", err)
-		s.totalErrorStreak++
-		if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
-			s.modelCompatNotified = true
+		s.recovery.totalErrorStreak++
+		if s.recovery.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.recovery.modelCompatNotified {
+			s.recovery.modelCompatNotified = true
 			s.agent.notifyModelCompatWarning(s.agent.config.UseNativeTools)
 		}
 		s.history = append(s.history, proxy.Message{
@@ -235,8 +267,8 @@ func (s *runSession) finalizeReport(ctx context.Context, prompt ...string) (stri
 		finalizePrompt = prompt[0]
 	}
 
-	s.finalizeAttempts++
-	s.textOnlyNextTurn = true
+	s.finalize.finalizeAttempts++
+	s.finalize.textOnlyNextTurn = true
 	s.history = append(s.history, proxy.Message{
 		Role:    proxy.UserRole,
 		Content: finalizePrompt,
@@ -254,7 +286,7 @@ func (s *runSession) finalizeReport(ctx context.Context, prompt ...string) (stri
 	// handleTextTurn, sharing the same counter/fragments so both paths cannot
 	// exceed lengthContinuationMax combined.
 	for s.maybeContinueTruncated(turnMsg, parseErr) {
-		s.textOnlyNextTurn = true
+		s.finalize.textOnlyNextTurn = true
 		turnMsg, parseErr, err = s.runFinalizationTurn(ctx)
 		if err != nil {
 			return s.finalizationFallback(err, "finalization continuation")
@@ -326,7 +358,7 @@ func (s *runSession) maybeContinueTruncated(turnMsg proxy.Message, parseErr *pro
 	if parseErr != nil && parseErr.XMLFound {
 		return false
 	}
-	if s.lengthContinuationCount >= lengthContinuationMax {
+	if s.finalize.lengthContinuationCount >= lengthContinuationMax {
 		return false
 	}
 	// Strip once and reuse: the guard needs visible text, and the fragment
@@ -336,14 +368,14 @@ func (s *runSession) maybeContinueTruncated(turnMsg proxy.Message, parseErr *pro
 	if strings.TrimSpace(content) == "" {
 		return false
 	}
-	s.lengthContinuationCount++
-	s.truncatedParts = append(s.truncatedParts, content)
+	s.finalize.lengthContinuationCount++
+	s.finalize.truncatedParts = append(s.finalize.truncatedParts, content)
 	s.history = append(s.history, turnMsg)
 	s.agent.notify(EventMessage, turnMsg)
 	s.history = append(s.history, proxy.Message{Role: proxy.UserRole, Content: prompts.LengthContinuationPrompt})
 	s.agent.deps.Logger.Warn("final answer truncated (finish_reason=length), nudging continuation",
 		"content_chars", len(content),
-		"continuation", s.lengthContinuationCount,
+		"continuation", s.finalize.lengthContinuationCount,
 		"max", lengthContinuationMax)
 	return true
 }
@@ -352,11 +384,11 @@ func (s *runSession) maybeContinueTruncated(turnMsg proxy.Message, parseErr *pro
 // content and clears the fragment buffer, so the completed answer is the full
 // stitched text rather than just the last fragment (Hermes _join_truncated_parts).
 func (s *runSession) stitchTruncated(content string) string {
-	if len(s.truncatedParts) == 0 {
+	if len(s.finalize.truncatedParts) == 0 {
 		return content
 	}
-	stitched := joinTruncatedParts(append(s.truncatedParts, content))
-	s.truncatedParts = nil
+	stitched := joinTruncatedParts(append(s.finalize.truncatedParts, content))
+	s.finalize.truncatedParts = nil
 	return stitched
 }
 
@@ -372,7 +404,7 @@ func (s *runSession) synthesizeRunSummary() string {
 	// Tool calls are counted from the usage tracker — the per-execution record
 	// that survives sieving. Scanning s.history alone under-counts because the
 	// physical sieve prunes history to head+tail (e.g. "2 of 18 tool calls").
-	if t := GetUsageTracker(s.ctx); t != nil {
+	if t := usage.FromContext(s.ctx); t != nil {
 		for _, name := range t.UsedToolsSnapshot() {
 			if name == models.ToolSystemError {
 				continue
@@ -481,17 +513,10 @@ func isSpaceByte(c byte) bool {
 }
 
 func (s *runSession) resetParseErrorState() {
-	s.starvationCount = 0
-	s.parseErrorStreak = 0
-	s.lastParseErrorKind = ""
-	s.totalErrorStreak = 0
-	s.modelCompatNotified = false
-	s.syntaxParseStreak = 0
-	// Re-arm the post-tool nudge: a successful tool turn means the model
-	// recovered from a prior empty turn.  Clearing the counter lets a future
-	// empty turn trigger a fresh nudge cycle (pre-branch behavior).
-	s.postToolNudgeCount = 0
-	// hardCapTriggered is left untouched — the hard cap is irreversible.
+	s.recovery.reset()
+	// starvationCount belongs to the sieve cluster; sieveStreak is intentionally
+	// left alone, and hardCapTriggered is irreversible.
+	s.sieve.starvationCount = 0
 }
 
 // maybeNudge consults the configured stop guards at the natural-completion
@@ -502,10 +527,10 @@ func (s *runSession) resetParseErrorState() {
 // Guards never fire on forced completion, fallback answers, or error/stall
 // paths — the hook only sits on the successful-natural-completion branch.
 func (s *runSession) maybeNudge() (string, bool) {
-	if len(s.stopGuards) == 0 || s.stopGuardAttempts >= maxStopGuardAttempts {
+	if len(s.stopGuard.guards) == 0 || s.stopGuard.attempts >= maxStopGuardAttempts {
 		return "", false
 	}
-	for _, g := range s.stopGuards {
+	for _, g := range s.stopGuard.guards {
 		nudge, err := g.Nudge(s)
 		if err != nil {
 			// A failing guard must not corrupt the run: log and allow the
@@ -516,7 +541,7 @@ func (s *runSession) maybeNudge() (string, bool) {
 		if nudge == "" {
 			continue
 		}
-		s.stopGuardAttempts++
+		s.stopGuard.attempts++
 		return nudge, true
 	}
 	return "", false
@@ -794,8 +819,8 @@ func (s *runSession) checkForcedCompletion() (bool, string, error) {
 // handleTurnError processes executeTurn failures. cont=false means return to caller.
 // cont=true with nil err means continue the agent loop.
 func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr error) {
-	s.starvationCount++
-	if s.starvationCount >= DefaultStarvationLimit {
+	s.sieve.starvationCount++
+	if s.sieve.starvationCount >= DefaultStarvationLimit {
 		return true, "", fmt.Errorf("agent stalled: %w", err)
 	}
 	if failures.IsContextSizeError(err) {
@@ -810,12 +835,12 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 		}
 		if content := s.resolveFallbackAnswer(); content != "" {
 			s.agent.deps.Logger.Warn("giving up after repeated server-side tool JSON parse errors; using fallback answer",
-				"streak", s.syntaxParseStreak, "chars", len(content))
+				"streak", s.recovery.syntaxParseStreak, "chars", len(content))
 			reply, _, completeErr := s.completeWith(content)
 			return true, reply, completeErr
 		}
 		return true, "", fmt.Errorf("agent stalled: server-side tool call JSON parse failed %d times: %w",
-			s.syntaxParseStreak, err)
+			s.recovery.syntaxParseStreak, err)
 	}
 	return true, "", err
 }
@@ -825,7 +850,7 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Tool) (done bool, reply string, err error) {
 	s.resetParseErrorState()
 
-	isDuplicate, nagPrompt, dupErr := s.rd.check(s.agent.deps.Logger, turnMsg.ToolCalls)
+	isDuplicate, nagPrompt, dupErr := s.rd.Check(s.agent.deps.Logger, turnMsg.ToolCalls)
 	if dupErr != nil {
 		return true, "", dupErr
 	}
@@ -843,13 +868,13 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 		return false, "", nil
 	}
 
-	if isAlternating, altErr := s.rd.checkAlternating(); isAlternating {
+	if isAlternating, altErr := s.rd.CheckAlternating(); isAlternating {
 		return true, "", altErr
 	}
-	if isCycle, cycleErr := s.rd.checkSequenceRepeat(); isCycle {
+	if isCycle, cycleErr := s.rd.CheckSequenceRepeat(); isCycle {
 		return true, "", cycleErr
 	}
-	if isSameTarget, tgtErr := s.rd.checkSameTarget(turnMsg.ToolCalls); isSameTarget {
+	if isSameTarget, tgtErr := s.rd.CheckSameTarget(turnMsg.ToolCalls); isSameTarget {
 		return true, "", tgtErr
 	}
 
@@ -862,7 +887,7 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 	// answer.  Hermes-aligned: _last_content_with_tools only for housekeeping.
 	if s.hasOnlyHousekeepingTools(turnMsg.ToolCalls) {
 		if stripped := stripThinkBlocks(turnMsg.Content); len(stripped) >= MinAnswerContentLength {
-			s.lastContentWithTools = stripped
+			s.prompt.lastContentWithTools = stripped
 		}
 	}
 
@@ -934,9 +959,9 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 		}
 	}
 
-	s.starvationCount++
-	if s.starvationCount >= DefaultStarvationLimit {
-		return true, "", fmt.Errorf("agent stalled: no tool calls in %d consecutive turns", s.starvationCount)
+	s.sieve.starvationCount++
+	if s.sieve.starvationCount >= DefaultStarvationLimit {
+		return true, "", fmt.Errorf("agent stalled: no tool calls in %d consecutive turns", s.sieve.starvationCount)
 	}
 	reply, shouldExit, err := s.handleNoToolCalls(turnMsg, parseErr, toolsList)
 	if err != nil {
@@ -957,31 +982,8 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 // them, and deduplicates.  A non-nil parseErr means the model produced
 // malformed XML/native tool calls — the caller decides whether to escalate.
 func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (proxy.Message, *proxy.ParseError, []proxy.Tool, error) {
-	// Guardrail-blocked tool loop guard: a model that keeps re-calling a
-	// blocked tool (each attempt with new arguments) never triggers the
-	// args-keyed spiral detector. Once the denial streak crosses the limit,
-	// inject a targeted "stop using this tool" nag and raise the sampling
-	// temperature for this turn to break the rut. One-shot per streak (re-armed
-	// on any allowed tool call); skipped on the tools-disabled finalization
-	// turn where no tools run.
-	if a.runS != nil && !a.runS.textOnlyNextTurn && !a.runS.guardrailNagSent &&
-		a.runS.guardrailBlockStreak >= guardrailBlockStreakLimit {
-		a.runS.guardrailNagSent = true
-		a.runS.recoveryTempEscalation += recoveryTempStep
-		if a.runS.recoveryTempEscalation > maxRecoveryTemp {
-			a.runS.recoveryTempEscalation = maxRecoveryTemp
-		}
-		tool := a.runS.guardrailBlockedTool
-		if tool == "" {
-			tool = "that tool"
-		}
-		*history = append(*history, proxy.Message{
-			Role:    proxy.UserRole,
-			Content: fmt.Sprintf(prompts.GuardrailBlockedNagPrompt, tool),
-		})
-		a.notifyGuardrailLoopBlocked(tool)
-		a.deps.Logger.Warn("guardrail-blocked tool loop: nagging model to switch tools",
-			"tool", tool, "streak", a.runS.guardrailBlockStreak, "temp", a.runS.recoveryTempEscalation)
+	if a.runS != nil {
+		a.runS.injectGuardrailBlockedNag(history)
 	}
 
 	turnCtx, turnCancel := context.WithTimeout(ctx, AgentTurnTimeout)
@@ -1006,10 +1008,10 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	// Finalization turn: run ONE turn with tools disabled so the model is
 	// forced to deliver a text report. Reset immediately so it fires once.
 	toolChoice := proxy.ToolChoice("")
-	if a.runS != nil && a.runS.textOnlyNextTurn {
+	if a.runS != nil && a.runS.finalize.textOnlyNextTurn {
 		toolsList = nil
 		toolChoice = proxy.ToolChoiceNone
-		a.runS.textOnlyNextTurn = false
+		a.runS.finalize.textOnlyNextTurn = false
 	}
 
 	msg, err := a.computeNextResponse(turnCtx, *history, toolsList, toolChoice)
@@ -1046,38 +1048,77 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 		)
 	}
 
-	if len(turnMsg.ToolCalls) > 0 {
-		parseErr = nil
-		for _, tc := range turnMsg.ToolCalls {
-			if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
-				if pe, ok := valErr.(*proxy.ParseError); ok {
-					parseErr = pe
-				}
-				break
-			}
-		}
-		if parseErr != nil {
-			parseErr.XMLFound = true
-			turnMsg.ToolCalls = nil
-			if len(turnMsg.Content) > sessionTruncationFeedbackLen && failures.IsTruncationError(parseErr.JSONError) {
-				turnMsg.Content = "[Large response truncated — see next message for guidance.]"
-			}
-			return turnMsg, parseErr, toolsList, nil
-		}
+	parseErr = normalizeToolCalls(&turnMsg, toolsList, parseErr)
+	return turnMsg, parseErr, toolsList, nil
+}
 
-		uniqueCalls := make([]proxy.ToolCall, 0, len(turnMsg.ToolCalls))
-		seenInTurn := make(map[string]bool)
-		for _, tc := range turnMsg.ToolCalls {
-			callKey := tc.Function.Name + ":" + tc.Function.Arguments
-			if !seenInTurn[callKey] {
-				seenInTurn[callKey] = true
-				uniqueCalls = append(uniqueCalls, tc)
+// injectGuardrailBlockedNag implements the guardrail-blocked tool loop guard: a
+// model that keeps re-calling a blocked tool (each attempt with new arguments)
+// never triggers the args-keyed spiral detector. Once the denial streak crosses
+// the limit, inject a targeted "stop using this tool" nag and raise the sampling
+// temperature for this turn to break the rut. One-shot per streak (re-armed on
+// any allowed tool call); skipped on the tools-disabled finalization turn where
+// no tools run.
+func (s *runSession) injectGuardrailBlockedNag(history *[]proxy.Message) {
+	if s.finalize.textOnlyNextTurn || s.guardrail.nagSent || s.guardrail.blockStreak < guardrailBlockStreakLimit {
+		return
+	}
+	s.guardrail.nagSent = true
+	s.guardrail.tempEscalation += recoveryTempStep
+	if s.guardrail.tempEscalation > maxRecoveryTemp {
+		s.guardrail.tempEscalation = maxRecoveryTemp
+	}
+	tool := s.guardrail.blockedTool
+	if tool == "" {
+		tool = "that tool"
+	}
+	*history = append(*history, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: fmt.Sprintf(prompts.GuardrailBlockedNagPrompt, tool),
+	})
+	s.agent.notifyGuardrailLoopBlocked(tool)
+	s.agent.deps.Logger.Warn("guardrail-blocked tool loop: nagging model to switch tools",
+		"tool", tool, "streak", s.guardrail.blockStreak, "temp", s.guardrail.tempEscalation)
+}
+
+// normalizeToolCalls validates each parsed tool call and drops duplicates within
+// the turn. A validation failure clears the turn's tool calls and returns the
+// ParseError so the caller escalates instead of executing a malformed call.
+// priorErr is returned unchanged when the turn parsed no tool calls — a parse
+// error with zero calls is the caller's to report.
+func normalizeToolCalls(turnMsg *proxy.Message, toolsList []proxy.Tool, priorErr *proxy.ParseError) *proxy.ParseError {
+	if len(turnMsg.ToolCalls) == 0 {
+		return priorErr
+	}
+	var parseErr *proxy.ParseError
+	for _, tc := range turnMsg.ToolCalls {
+		if valErr := proxy.ValidateToolCall(tc, toolsList); valErr != nil {
+			if pe, ok := valErr.(*proxy.ParseError); ok {
+				parseErr = pe
 			}
+			break
 		}
-		turnMsg.ToolCalls = uniqueCalls
+	}
+	if parseErr != nil {
+		parseErr.XMLFound = true
+		turnMsg.ToolCalls = nil
+		if len(turnMsg.Content) > sessionTruncationFeedbackLen && failures.IsTruncationError(parseErr.JSONError) {
+			turnMsg.Content = "[Large response truncated — see next message for guidance.]"
+		}
+		return parseErr
 	}
 
-	return turnMsg, parseErr, toolsList, nil
+	uniqueCalls := make([]proxy.ToolCall, 0, len(turnMsg.ToolCalls))
+	seenInTurn := make(map[string]bool)
+	for _, tc := range turnMsg.ToolCalls {
+		callKey := tc.Function.Name + ":" + tc.Function.Arguments
+		if !seenInTurn[callKey] {
+			seenInTurn[callKey] = true
+			uniqueCalls = append(uniqueCalls, tc)
+		}
+	}
+	turnMsg.ToolCalls = uniqueCalls
+	return nil
 }
 
 func (s *runSession) handleNoToolCalls(
@@ -1109,9 +1150,9 @@ func (s *runSession) handleNoToolCalls(
 	// Genuinely no content: empty turn, possibly after tool results.
 	// Check content-with-tools fallback first — the model may have
 	// written its answer alongside the previous tool calls.
-	if s.lastContentWithTools != "" {
-		content := s.lastContentWithTools
-		s.lastContentWithTools = ""
+	if s.prompt.lastContentWithTools != "" {
+		content := s.prompt.lastContentWithTools
+		s.prompt.lastContentWithTools = ""
 		s.agent.deps.Logger.Info("using content-with-tools fallback as final answer",
 			"chars", len(content))
 		return content, true, nil
@@ -1124,14 +1165,14 @@ func (s *runSession) handleNoToolCalls(
 	// successful tool turn (resetParseErrorState), so this re-arms.
 
 	// (1) Re-armed nudge: inject the nag prompt up to postToolNudgeMax times.
-	if s.postToolNudgeCount < postToolNudgeMax {
-		s.postToolNudgeCount++
+	if s.recovery.postToolNudgeCount < postToolNudgeMax {
+		s.recovery.postToolNudgeCount++
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
 			Content: prompts.AutomationNagPrompt,
 		})
 		s.agent.deps.Logger.Warn("no tool calls - re-arming nudge",
-			"step", s.steps, "nudge", s.postToolNudgeCount)
+			"step", s.steps, "nudge", s.recovery.postToolNudgeCount)
 		return "", false, nil
 	}
 
@@ -1139,7 +1180,7 @@ func (s *runSession) handleNoToolCalls(
 	// Delegated to finalizeReport — the shared primitive plan-execute also uses —
 	// so the two completion paths cannot drift. finalizeAttempts is exhausted →
 	// step (3) terminal. Exactly one finalization turn — no loop.
-	if s.finalizeAttempts < 1 {
+	if s.finalize.finalizeAttempts < 1 {
 		report, err := s.finalizeReport(s.ctx)
 		if err != nil {
 			return "", false, err
@@ -1168,9 +1209,9 @@ func (s *runSession) handleParseErrorFeedback(parseErr *proxy.ParseError, toolsL
 	if len(toolsList) == 0 {
 		return "", true
 	}
-	s.totalErrorStreak++
-	if s.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.modelCompatNotified {
-		s.modelCompatNotified = true
+	s.recovery.totalErrorStreak++
+	if s.recovery.totalErrorStreak >= sessionModelCompatNotifyAfter && !s.recovery.modelCompatNotified {
+		s.recovery.modelCompatNotified = true
 		s.agent.notifyModelCompatWarning(s.agent.config.UseNativeTools)
 	}
 	availableNames := proxy.AvailableToolNames(toolsList)
@@ -1329,14 +1370,11 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 }
 
 func (s *runSession) maybeFlushMemoryBeforeTurn() {
-	if s.agent.deps.MemoryStore == nil || s.memoryFlushSent || !s.agent.config.EnableHotMemory {
+	if s.agent.deps.MemoryStore == nil || s.prompt.memoryFlushSent || !s.agent.config.EnableHotMemory {
 		return
 	}
 
-	totalChars := 0
-	for _, m := range s.history {
-		totalChars += len(m.Content)
-	}
+	totalChars := historyChars(s.history)
 	if totalChars == 0 || s.agent.config.ContextBudget == 0 {
 		return
 	}
@@ -1350,5 +1388,5 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 		Role:    proxy.UserRole,
 		Content: prompts.PreSieveMemoryNudge,
 	})
-	s.memoryFlushSent = true
+	s.prompt.memoryFlushSent = true
 }

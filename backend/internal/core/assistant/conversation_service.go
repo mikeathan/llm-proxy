@@ -8,6 +8,7 @@ import (
 
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -177,7 +178,7 @@ func (s *conversationService) setupRun(ctx context.Context, sessionID, workspace
 	}
 	execCtx = models.WithTaskName(ctx, sessionID)
 	execCtx = models.WithRunID(execCtx, runID)
-	execCtx = WithUsageTracker(execCtx)
+	execCtx = usage.WithTracker(execCtx)
 
 	events.Clear(workspaceID, ChannelAssistant)
 	// Clear stale events from previous runs so new SSE connection doesn't replay old events

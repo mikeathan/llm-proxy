@@ -889,6 +889,44 @@ func TestAdminStateHandler_LoopStrategyOptions(t *testing.T) {
 	}
 }
 
+// TestAdminStateHandler_SearchProviders verifies the backend-driven search
+// provider option list is surfaced (canonical enum order) so the frontend
+// dropdown never hardcodes it.
+func TestAdminStateHandler_SearchProviders(t *testing.T) {
+	handler := newAdminHandlers(&mocks.MockManager{}, &mocks.MockAdminService{
+		GetGuardrailsFunc: func() models.AgentGuardrailsConfig {
+			return models.AgentGuardrailsConfig{}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/state", nil)
+	rr := httptest.NewRecorder()
+	handler.AdminStateHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Config struct {
+			SearchProviders []string `json:"search_providers"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	want := []string{"tavily", "brave", "serpapi"}
+	if len(resp.Config.SearchProviders) != len(want) {
+		t.Fatalf("expected %d search_providers, got %v", len(want), resp.Config.SearchProviders)
+	}
+	for i := range want {
+		if resp.Config.SearchProviders[i] != want[i] {
+			t.Errorf("search_providers[%d] = %q, want %q", i, resp.Config.SearchProviders[i], want[i])
+		}
+	}
+}
+
 func TestAdminLogLevelHandler(t *testing.T) {
 	logger := &mocks.MockLogger{}
 	procHandlers := newProcessHandlers(&mocks.MockManager{}, &mocks.MockAdminService{}, logger)

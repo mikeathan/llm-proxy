@@ -106,6 +106,13 @@ never prompt) publish a `guardrail_violation` lifecycle event with payload `{too
 The frontend surfaces it as its own chat segment so the block is visible without a preceding
 `tool_call`/`tool_result` pair.
 
+**Tool-terminal errors are a separate axis.** A tool that fails for an operator-actionable
+reason (missing/rejected credential) is classified by the **agent loop**, not this engine:
+the tool is disabled for the run and, in automation, the run fails — this is about the tool
+*not working*, not about *permission*. Guardrail denials remain about permission and route
+through the flow above. See SPEC-001 §II.6 and
+`docs/PLANS/cross-cutting/tool-error-classification.md`.
+
 ### 4. Tool-Level Guardrail Configuration
 
 Each tool manifest (`manifests/*.json`) defines default guardrails:
@@ -149,6 +156,15 @@ The agent tool schema is derived from this set at one narrow waist (`resolveTool
 `NewAgent`), so no strategy or channel can ever observe a tool the policy statically disables.
 `RequireReview`, allowlists, and blocked-domain checks remain execution-time gates — they never
 hide a tool from the schema.
+
+`internet_search` is additionally hidden while no search provider is usable. The engine holds a
+live availability predicate (`SetSearchAvailable`, mirroring `SetHostNetworkAllowed`) that reports
+whether the selected provider is registered and its `search:<provider>` secret is non-empty. It is
+read with no I/O from the live registry config + secrets store, so an operator change applies to
+the next run without a restart. A nil predicate leaves the previous behaviour (availability
+governed only by the `Search.Enabled` tier). Schema-hide is the only gate: a residual call reaches
+the tool and returns its own `ErrSearchNotConfigured`, recorded as a non-approvable tool result —
+never an approval prompt.
 
 ### 7. OS Enforcement Layer (host sandboxing — under guardrails, never a replacement)
 

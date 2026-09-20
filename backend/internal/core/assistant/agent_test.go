@@ -630,7 +630,7 @@ func TestAgent_ComputeNextResponse_EmptyFinalizationSkipsNonStream(t *testing.T)
 	// Reproduce the state AFTER the ladder armed and fired the text-only
 	// finalization turn: finalizeAttempts already 1, this call IS the
 	// finalization turn (tools disabled).
-	agent.runS = &runSession{finalizeAttempts: 1}
+	agent.runS = &runSession{finalize: finalizeState{finalizeAttempts: 1}}
 
 	msg, err := agent.computeNextResponse(context.Background(),
 		[]proxy.Message{{Role: proxy.UserRole, Content: "summarize the files"}},
@@ -1386,13 +1386,17 @@ func TestAgent_NonAutomationMultipleSteps(t *testing.T) {
 	}
 }
 
-func TestNotifyPrefillDisabled(t *testing.T) {
-	agent := &Agent{}
+func TestDisablePrefill(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{})
+	agent.runS = newRunSession(agent, context.Background(), nil)
 	var events []AgentEvent
 	agent.deps.Observer = func(ev AgentEvent) { events = append(events, ev) }
 
-	agent.notifyPrefillDisabled()
+	agent.disablePrefill()
 
+	if !agent.prefillDisabled() {
+		t.Error("disablePrefill must persist the override for the rest of the run")
+	}
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -2230,271 +2234,6 @@ func TestAgent_Execute_XMLToolChoiceUnset(t *testing.T) {
 	}
 }
 
-func TestRepetitionDetector_StreakReset(t *testing.T) {
-	logger := logging.NewNopLogger()
-	rd := repetitionDetector{}
-
-	// Call tool A
-	toolCallsA := []proxy.ToolCall{
-		{
-			ID:   "1",
-			Type: "function",
-			Function: proxy.FunctionCall{
-				Name:      "toolA",
-				Arguments: `{"arg": 1}`,
-			},
-		},
-	}
-	isDup, nag, err := rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if isDup {
-		t.Error("expected first call to tool A not to be duplicate")
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
-	}
-
-	// Call tool A again -> duplicate
-	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !isDup {
-		t.Error("expected second consecutive call to tool A to be duplicate")
-	}
-	if nag != prompts.AutomationDuplicateNagPrompt {
-		t.Errorf("expected nag prompt, got %q", nag)
-	}
-	if rd.duplicateStreak != 1 {
-		t.Errorf("expected duplicateStreak to be 1, got %d", rd.duplicateStreak)
-	}
-
-	// Call tool B -> resets streak
-	toolCallsB := []proxy.ToolCall{
-		{
-			ID:   "2",
-			Type: "function",
-			Function: proxy.FunctionCall{
-				Name:      "toolB",
-				Arguments: `{"arg": 2}`,
-			},
-		},
-	}
-	isDup, nag, err = rd.check(logger, toolCallsB)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if isDup {
-		t.Error("expected call to tool B not to be duplicate")
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to reset to 0, got %d", rd.duplicateStreak)
-	}
-
-	// Call tool A again -> found but NOT consecutive (B is last), allowed to execute
-	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if isDup {
-		t.Error("expected tool A call after tool B to be allowed (non-consecutive)")
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak to be 0, got %d", rd.duplicateStreak)
-	}
-	if nag != "" {
-		t.Errorf("expected empty nag on non-consecutive duplicate, got %q", nag)
-	}
-
-	// Call tool A again -> consecutive duplicate (last key is A), streak = 1
-	isDup, _, _ = rd.check(logger, toolCallsA)
-	if !isDup || rd.duplicateStreak != 1 {
-		t.Errorf("expected consecutive duplicate, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
-	}
-
-	// Call tool A again -> consecutive duplicate, streak = 2
-	isDup, _, err = rd.check(logger, toolCallsA)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !isDup || rd.duplicateStreak != 2 {
-		t.Errorf("expected duplicate on second consecutive, got isDup=%t streak=%d", isDup, rd.duplicateStreak)
-	}
-
-	// Call tool A again -> consecutive duplicate (streak = 3 -> fatal error)
-	isDup, nag, err = rd.check(logger, toolCallsA)
-	if err == nil {
-		t.Fatal("expected error on third consecutive duplicate, got nil")
-	}
-	if !strings.Contains(err.Error(), "infinite loop") {
-		t.Errorf("expected infinite loop error, got: %v", err)
-	}
-	if !isDup {
-		t.Error("expected third consecutive duplicate to be detected")
-	}
-	if nag != "" {
-		t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
-	}
-	if rd.duplicateStreak != 0 {
-		t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
-	}
-	if rd.recentCalls != nil {
-		t.Errorf("expected recentCalls cleared after skip, got %v", rd.recentCalls)
-	}
-}
-
-func TestRepetitionDetector_SlidingWindow(t *testing.T) {
-	logger := logging.NewNopLogger()
-
-	makeCall := func(name, args string) proxy.ToolCall {
-		return proxy.ToolCall{
-			ID: fmt.Sprintf("id-%s", name), Type: "function",
-			Function: proxy.FunctionCall{Name: name, Arguments: args},
-		}
-	}
-
-	// Scenario 1: Consecutive duplicate detection
-	// The detector only checks if the current call matches the immediately
-	// previous call (consecutive duplicate).  Non-consecutive duplicates
-	// reset the streak.  A→A→A hits streak=2 on the 3rd call and
-	// A→A→A→A hits streak=3 → fatal on the 4th call.
-	t.Run("consecutive detection", func(t *testing.T) {
-		rd := repetitionDetector{}
-
-		// First A: not a duplicate
-		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if isDup {
-			t.Error("expected first A not duplicate")
-		}
-
-		// Second A: consecutive duplicate, streak=1
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !isDup {
-			t.Error("expected second A to be duplicate (consecutive)")
-		}
-		if rd.duplicateStreak != 1 {
-			t.Errorf("expected streak=1 after second A, got %d", rd.duplicateStreak)
-		}
-
-		// Third A: consecutive duplicate, streak=2 (still nag, not fatal)
-		isDup, _, err = rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !isDup {
-			t.Error("expected third A to be duplicate")
-		}
-		if rd.duplicateStreak != 2 {
-			t.Errorf("expected streak=2 after third A, got %d", rd.duplicateStreak)
-		}
-
-		// Fourth A: consecutive duplicate, streak=3 → fatal error
-		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("toolA", `{"arg":1}`)})
-		if err == nil {
-			t.Fatal("expected error on 4th consecutive duplicate, got nil")
-		}
-		if !strings.Contains(err.Error(), "infinite loop") {
-			t.Errorf("expected infinite loop error, got: %v", err)
-		}
-		if !isDup {
-			t.Error("expected 4th consecutive duplicate to be detected")
-		}
-		if nag != "" {
-			t.Errorf("expected empty nag on fatal duplicate, got %q", nag)
-		}
-		if rd.duplicateStreak != 0 {
-			t.Errorf("expected duplicateStreak reset to 0 after skip, got %d", rd.duplicateStreak)
-		}
-	})
-
-	// Scenario 2: Legitimate iteration — scanning different targets
-	t.Run("legitimate iteration", func(t *testing.T) {
-		rd := repetitionDetector{}
-		targets := []string{
-			`{"mode":"fast"}`,
-			`{"mode":"deep","target":"192.168.50.10"}`,
-			`{"mode":"deep","target":"192.168.50.1"}`,
-			`{"mode":"deep","target":"192.168.50.60"}`,
-			`{"mode":"deep","target":"192.168.50.63"}`,
-			`{"mode":"deep","target":"192.168.50.125"}`,
-			`{"mode":"deep","target":"192.168.50.241"}`,
-		}
-		for i, args := range targets {
-			_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network", args)})
-			if err != nil {
-				t.Fatalf("unexpected error at scan %d (%s): %v", i, args, err)
-			}
-		}
-	})
-
-	// Scenario 3: Consecutive same call is detected as duplicate
-	t.Run("consecutive same call", func(t *testing.T) {
-		rd := repetitionDetector{}
-
-		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
-			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
-		if err != nil {
-			t.Fatalf("unexpected error on first call: %v", err)
-		}
-
-		// Same command repeated consecutively — detected as duplicate
-		isDup, nag, err := rd.check(logger, []proxy.ToolCall{makeCall("execute_terminal_command",
-			`{"command":"ts-node quick-check/test.ts","cwd":""}`)})
-		if err != nil {
-			t.Fatalf("unexpected error on second call: %v", err)
-		}
-		if !isDup {
-			t.Error("expected duplicate on consecutive identical call")
-		}
-		if nag == "" {
-			t.Error("expected non-empty nag prompt")
-		}
-	})
-
-	// Scenario 4: Different targets are NOT duplicates
-	t.Run("different args not duplicate", func(t *testing.T) {
-		rd := repetitionDetector{}
-
-		_, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network",
-			`{"mode":"fast"}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// Different target — should NOT be duplicate
-		isDup, _, err := rd.check(logger, []proxy.ToolCall{makeCall("scan_local_network",
-			`{"mode":"deep","target":"192.168.50.10"}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if isDup {
-			t.Error("expected different scan targets not to be duplicates")
-		}
-	})
-
-	// Scenario 5: system_error excluded from tracking (no-op bookkeeping tool)
-	t.Run("system_error excluded", func(t *testing.T) {
-		rd := repetitionDetector{}
-		for range 6 {
-			_, _, err := rd.check(logger, []proxy.ToolCall{{
-				ID: "sys", Type: "function",
-				Function: proxy.FunctionCall{Name: models.ToolSystemError, Arguments: `{}`},
-			}})
-			if err != nil {
-				t.Fatalf("system_error should never trigger loop: %v", err)
-			}
-		}
-	})
-}
-
 func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	client := &MockClient{
 		ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
@@ -2648,35 +2387,6 @@ func TestInjectToolInstructions_EmptyTools(t *testing.T) {
 	}
 }
 
-func TestNotifyPrematureTerminationNag(t *testing.T) {
-	var events []AgentEvent
-	agent := &Agent{
-		deps: AgentRuntimeDeps{
-			Observer: func(ev AgentEvent) { events = append(events, ev) },
-		},
-	}
-	history := []proxy.Message{
-		{Role: proxy.UserRole, Content: "do something"},
-	}
-	agent.notifyPrematureTerminationNag(&history)
-
-	if len(history) != 2 {
-		t.Errorf("expected history length 2, got %d", len(history))
-	}
-	if history[1].Role != "user" {
-		t.Errorf("expected nag message role 'user', got %q", history[1].Role)
-	}
-	if !strings.Contains(history[1].Content, "incomplete response") {
-		t.Errorf("expected nag message to mention incomplete response, got %q", history[1].Content)
-	}
-	if len(events) != 1 {
-		t.Errorf("expected 1 event, got %d", len(events))
-	}
-	if events[0].Type != EventMessage {
-		t.Errorf("expected EventMessage event type, got %v", events[0].Type)
-	}
-}
-
 func TestAgent_ExecutePlan_Success(t *testing.T) {
 	callCount := 0
 	client := &MockClient{
@@ -2769,6 +2479,60 @@ func TestComputeNextResponseStreamXML_PrefillThinkingError(t *testing.T) {
 	}
 	if streamCalls != 2 {
 		t.Errorf("expected 2 stream calls (1 error + 1 success), got %d", streamCalls)
+	}
+}
+
+// TestComputeNextResponseStreamXML_SendsBareRequest locks the XML fallback tier
+// to a bare request: no tools, no tool_choice, and none of the native-tools
+// request config (reasoning wire params or recovery temperature escalation).
+// That tier only runs after the provider already rejected tools or the prefill,
+// so re-applying that config would re-trigger the rejection.
+func TestComputeNextResponseStreamXML_SendsBareRequest(t *testing.T) {
+	var gotReq proxy.ChatRequest
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			gotReq = req
+			ch := make(chan *proxy.ChatResponse, 2)
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{
+				Delta: proxy.Message{Content: "Hello world"},
+			}}}
+			close(ch)
+			return ch, nil
+		},
+	}
+	provider := &MockProvider{
+		Tools: []proxy.Tool{
+			{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		},
+	}
+
+	agent := NewAgent(client, provider, &MockEngine{}, AgentOptions{
+		MaxSteps:       5,
+		UseNativeTools: boolPtr(false),
+		Temperature:    0.7,
+	})
+	// A pending recovery escalation must not leak into the XML request.
+	agent.runS = &runSession{guardrail: guardrailState{tempEscalation: recoveryTempStep}}
+
+	// Only the streamed request shape is under test — downstream content
+	// handling (empty-stream fallback) belongs to other tests.
+	if _, err := agent.computeNextResponseStreamXML(context.Background(), []proxy.Message{
+		{Role: proxy.UserRole, Content: prompts.AutomationMarker + " do the task"},
+	}, provider.Tools, proxy.ToolChoiceAuto); err != nil {
+		t.Fatalf("computeNextResponseStreamXML failed: %v", err)
+	}
+	if len(gotReq.Tools) != 0 {
+		t.Errorf("XML fallback must send no tools, got %d", len(gotReq.Tools))
+	}
+	if gotReq.ToolChoice != "" {
+		t.Errorf("XML fallback must send no tool_choice, got %q", gotReq.ToolChoice)
+	}
+	if gotReq.Temperature != 0.7 {
+		t.Errorf("XML fallback must use the base temperature, got %v", gotReq.Temperature)
+	}
+	if gotReq.ReasoningBudget != 0 || gotReq.ThinkingBudgetTokens != 0 || gotReq.ReasoningEffort != "" {
+		t.Errorf("XML fallback must not carry reasoning params, got budget=%d thinking=%d effort=%q",
+			gotReq.ReasoningBudget, gotReq.ThinkingBudgetTokens, gotReq.ReasoningEffort)
 	}
 }
 
@@ -5213,11 +4977,11 @@ func TestHandleTextTurn_LengthTruncationNudgesContinuation(t *testing.T) {
 	if done {
 		t.Fatalf("length-truncated turn must not complete; got done=true reply=%q", reply)
 	}
-	if s.lengthContinuationCount != 1 {
-		t.Errorf("expected 1 continuation nudge, got %d", s.lengthContinuationCount)
+	if s.finalize.lengthContinuationCount != 1 {
+		t.Errorf("expected 1 continuation nudge, got %d", s.finalize.lengthContinuationCount)
 	}
-	if len(s.truncatedParts) != 1 || s.truncatedParts[0] != turnMsg.Content {
-		t.Errorf("expected the partial to be accumulated, got %+v", s.truncatedParts)
+	if len(s.finalize.truncatedParts) != 1 || s.finalize.truncatedParts[0] != turnMsg.Content {
+		t.Errorf("expected the partial to be accumulated, got %+v", s.finalize.truncatedParts)
 	}
 	// The partial must be in history followed by the continuation nudge.
 	last := s.history[len(s.history)-1]
@@ -5234,7 +4998,7 @@ func TestHandleTextTurn_LengthTruncationNudgesContinuation(t *testing.T) {
 // cap cannot push the run past the bound.
 func TestHandleTextTurn_LengthContinuationBounded(t *testing.T) {
 	s := newTextTurnSession()
-	s.lengthContinuationCount = lengthContinuationMax // already exhausted
+	s.finalize.lengthContinuationCount = lengthContinuationMax // already exhausted
 
 	turnMsg := proxy.Message{
 		Role:         proxy.AssistantRole,
@@ -5258,7 +5022,7 @@ func TestHandleTextTurn_LengthContinuationBounded(t *testing.T) {
 // (Hermes _join_truncated_parts): partial report + continuation = full report.
 func TestHandleTextTurn_LengthContinuationStitchesParts(t *testing.T) {
 	s := newTextTurnSession()
-	s.truncatedParts = []string{"# Report\n## 1. Filesystem\nlisted"}
+	s.finalize.truncatedParts = []string{"# Report\n## 1. Filesystem\nlisted"}
 
 	// The continuation turn completes naturally (finish_reason="stop") and
 	// continues exactly where the truncated fragment stopped.
@@ -5282,8 +5046,8 @@ func TestHandleTextTurn_LengthContinuationStitchesParts(t *testing.T) {
 	if reply != want {
 		t.Errorf("expected stitched report %q, got %q", want, reply)
 	}
-	if len(s.truncatedParts) != 0 {
-		t.Errorf("expected fragments to be cleared after stitching, got %+v", s.truncatedParts)
+	if len(s.finalize.truncatedParts) != 0 {
+		t.Errorf("expected fragments to be cleared after stitching, got %+v", s.finalize.truncatedParts)
 	}
 }
 
@@ -5304,8 +5068,8 @@ func TestHandleTextTurn_CleanStopUnchanged(t *testing.T) {
 	if !done {
 		t.Fatalf("expected clean stop to complete, got done=false")
 	}
-	if s.lengthContinuationCount != 0 {
-		t.Errorf("clean stop must not nudge a continuation, got %d", s.lengthContinuationCount)
+	if s.finalize.lengthContinuationCount != 0 {
+		t.Errorf("clean stop must not nudge a continuation, got %d", s.finalize.lengthContinuationCount)
 	}
 	if !strings.Contains(reply, "All steps complete") {
 		t.Errorf("expected the full report as reply, got %q", reply)
@@ -5332,5 +5096,120 @@ func TestJoinTruncatedParts(t *testing.T) {
 				t.Errorf("joinTruncatedParts(%+v) = %q, want %q", tt.parts, got, tt.want)
 			}
 		})
+	}
+}
+
+func toolNames(tools []proxy.Tool) map[string]bool {
+	out := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		out[t.Function.Name] = true
+	}
+	return out
+}
+
+// TestPlanExecute_NotifyUserSchemaFollowsGuardrail pins the plan-execute
+// regression: a statically-disabled tool (notify_user with communication off)
+// must never be exposed to the plan generator; enabling communication restores
+// it. Exercises the NewAgent narrow waist (toolpolicy.ResolveForScope).
+func TestPlanExecute_NotifyUserSchemaFollowsGuardrail(t *testing.T) {
+	client := &MockClient{}
+	baseTools := []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}},
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolNotifyUser}},
+	}
+	engine := &MockEngine{Result: "ok"}
+
+	grDisabled := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{Communication: models.CommunicationGuardrailsConfig{Enabled: false}}
+	}, storage.NewPathResolver("", "", ""), nil, nil)
+	agentDisabled := NewAgent(client, &MockProvider{Tools: baseTools}, engine, AgentOptions{
+		MaxSteps:    5,
+		WorkspaceID: "ws-1",
+		Guardrails:  grDisabled,
+	})
+	tools, err := agentDisabled.deps.Provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools failed: %v", err)
+	}
+	names := toolNames(tools)
+	if names[models.ToolNotifyUser] {
+		t.Error("plan tool set must exclude notify_user when communication is disabled")
+	}
+	if !names["test_tool"] {
+		t.Error("non-gated tools must remain in the plan tool set")
+	}
+
+	grEnabled := guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{Communication: models.CommunicationGuardrailsConfig{Enabled: true}}
+	}, storage.NewPathResolver("", "", ""), nil, nil)
+	agentEnabled := NewAgent(client, &MockProvider{Tools: baseTools}, engine, AgentOptions{
+		MaxSteps:    5,
+		WorkspaceID: "ws-1",
+		Guardrails:  grEnabled,
+	})
+	tools, err = agentEnabled.deps.Provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools failed: %v", err)
+	}
+	if !toolNames(tools)[models.ToolNotifyUser] {
+		t.Error("plan tool set must include notify_user when communication is enabled")
+	}
+}
+
+// TestReasoningEnabledOverrideIsProviderSpecific covers agent.go's
+// applyReasoningEnabledOverride: toggleable modes honour the override; the
+// local think-tokens mode ignores it.
+func TestReasoningEnabledOverrideIsProviderSpecific(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode reasoning.ReasoningMode
+	}{
+		{name: "nvidia", mode: reasoning.ModeEnableThinking},
+		{name: "openrouter", mode: reasoning.ModeObject},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			disabled := false
+			spec := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: tc.mode, Enabled: true}, &disabled, models.WorkloadCloud)
+			if spec.Enabled {
+				t.Fatal("expected provider reasoning to be disabled")
+			}
+		})
+	}
+	local := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeThinkTokens, Budget: 1024}, boolPtr(false), models.WorkloadLocal)
+	if local.Budget != 1024 {
+		t.Fatal("local reasoning budget should remain unchanged")
+	}
+}
+
+// TestApplyReasoningEnabledOverride_Effort verifies effort-mode mapping:
+// enabled -> medium, disabled -> EffortNone (omitted wire), nil -> untouched.
+func TestApplyReasoningEnabledOverride_Effort(t *testing.T) {
+	enabled := true
+	disabled := false
+
+	on := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortNone}, &enabled, models.WorkloadCloud)
+	if on.Effort != reasoning.EffortMedium {
+		t.Errorf("enabled effort should map to medium, got %v", on.Effort)
+	}
+
+	off := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}, &disabled, models.WorkloadCloud)
+	if off.Effort != reasoning.EffortNone {
+		t.Errorf("disabled effort should map to EffortNone, got %v", off.Effort)
+	}
+
+	nilOverride := applyReasoningEnabledOverride(reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortHigh}, nil, models.WorkloadCloud)
+	if nilOverride.Effort != reasoning.EffortHigh {
+		t.Errorf("nil override must leave effort untouched, got %v", nilOverride.Effort)
+	}
+}
+
+// TestApplyReasoningEnabledOverride_LocalLoopbackOpenaiSlug: a WorkloadLocal
+// openai slug must be byte-identical to input regardless of enabled flag.
+func TestApplyReasoningEnabledOverride_LocalLoopbackOpenaiSlug(t *testing.T) {
+	disabled := false
+	in := reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}
+	out := applyReasoningEnabledOverride(in, &disabled, models.WorkloadLocal)
+	if out != in {
+		t.Errorf("local workload override must not mutate spec: in %+v out %+v", in, out)
 	}
 }

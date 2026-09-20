@@ -2,14 +2,17 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+
+	"llm-proxy/models"
 )
 
 type stubConnector struct {
-	name     string
-	sendErr  error
+	name    string
+	sendErr error
 }
 
 func (s *stubConnector) Name() string { return s.name }
@@ -52,6 +55,22 @@ func TestCommunicationTools_NotifyAll_PartialFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "fail") || !strings.Contains(err.Error(), "fail2") {
 		t.Fatalf("expected both connector names in error, got: %v", err)
+	}
+}
+
+func TestCommunicationTools_NotifyAll_PreservesTerminalMarker(t *testing.T) {
+	ct := NewCommunicationTools()
+	ct.AddConnector("tg", "telegram", &stubConnector{
+		name:    "Telegram",
+		sendErr: fmt.Errorf("%w: invalid token", models.ErrToolUnavailable),
+	})
+
+	err := ct.NotifyAll(context.Background(), "test", "")
+	if err == nil {
+		t.Fatal("expected error for misconfigured connector")
+	}
+	if !errors.Is(err, models.ErrToolUnavailable) {
+		t.Fatalf("errors.Join must preserve the terminal marker through NotifyAll; got %v", err)
 	}
 }
 

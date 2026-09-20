@@ -2,7 +2,7 @@
 import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication'
+export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search'
 
 export interface APIKeyItem {
   id: string
@@ -93,6 +93,16 @@ export interface CommunicationConfig {
   connectors: Record<string, ConnectorConfig>
 }
 
+// Internet-search backend selection (backend models.SearchProvider enum). The
+// live option list is surfaced by the backend as config.search_providers — this
+// union covers the known values and helpers degrade gracefully for unknowns.
+export type SearchProvider = 'tavily' | 'brave' | 'serpapi'
+
+export interface SearchConfig {
+  provider?: SearchProvider
+  max_results?: number
+}
+
 export interface WebhookInfo {
   url: string
   pending_updates: number
@@ -162,6 +172,10 @@ export interface GlobalConfig {
   default_args?: string[]
   guardrails: AgentGuardrailsConfig
   communication: CommunicationConfig
+  search?: SearchConfig
+  // Backend-driven search-provider option list (mirrors loop_strategy_options).
+  // The Settings dropdown is driven by this; constants/search.ts is a fallback.
+  search_providers?: string[]
   agent_defaults: AgentDefaults
   provider_defaults?: Record<string, AgentDefaults>
   loop_strategy_options?: string[]

@@ -82,6 +82,22 @@ func (p *physicalSieve) Sieve(history []proxy.Message) []proxy.Message {
 	return newHistory
 }
 
+// sieveHistory keeps the locked head, inserts the sieve note, and retains the
+// most recent tail messages. Both sieves share this shape; only the tail size
+// and the reactive pre-check differ.
+func sieveHistory(history []proxy.Message, tail int) []proxy.Message {
+	if len(history) < tail+sieveLockedHead {
+		tail = len(history) - sieveLockedHead
+	}
+	sieved := make([]proxy.Message, 0, len(history))
+	sieved = append(sieved, history[:sieveLockedHead]...)
+	sieved = append(sieved, proxy.Message{
+		Role:    proxy.UserRole,
+		Content: prompts.SieveSystemNote,
+	})
+	return append(sieved, history[len(history)-tail:]...)
+}
+
 type reactiveSieve struct {
 	logger logging.Logger
 }
@@ -93,17 +109,7 @@ func (r *reactiveSieve) Sieve(history []proxy.Message) []proxy.Message {
 	if len(history) <= sieveLockedHead+sieveReactiveTail {
 		return history
 	}
-	sieved := make([]proxy.Message, 0, len(history))
-	sieved = append(sieved, history[:sieveLockedHead]...)
-	sieved = append(sieved, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
-	tail := sieveReactiveTail
-	if len(history) < tail+sieveLockedHead {
-		tail = len(history) - sieveLockedHead
-	}
-	return append(sieved, history[len(history)-tail:]...)
+	return sieveHistory(history, sieveReactiveTail)
 }
 
 type aggressiveSieve struct {
@@ -114,17 +120,7 @@ func (a *aggressiveSieve) Name() string { return "aggressive" }
 
 func (a *aggressiveSieve) Sieve(history []proxy.Message) []proxy.Message {
 	a.logger.Warn("aggressive sieve applied — model stuck after prior recovery attempt")
-	sieved := make([]proxy.Message, 0, sieveLockedHead+sieveAggressiveTail+1)
-	sieved = append(sieved, history[:sieveLockedHead]...)
-	sieved = append(sieved, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
-	tail := sieveAggressiveTail
-	if len(history) < tail+sieveLockedHead {
-		tail = len(history) - sieveLockedHead
-	}
-	return append(sieved, history[len(history)-tail:]...)
+	return sieveHistory(history, sieveAggressiveTail)
 }
 
 // Sieve constants — shared between compression and message-dropping sieves.
