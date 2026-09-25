@@ -52,37 +52,51 @@ func startedLane(t *testing.T) *runlane.Scheduler {
 	return lane
 }
 
-func TestLaneInboundGate_WaitSecondsClampsToHostPolicy(t *testing.T) {
+func TestLaneInboundGate_WaitSecondsResolvesTheBudget(t *testing.T) {
+	const (
+		absent  = false // no X-Queue-Wait header: the host's park policy applies
+		present = true  // explicit header: clamped to the host cap
+	)
 	cases := []struct {
 		name      string
 		policy    *int
+		park      *bool
 		requested int
+		present   bool
 		want      int
 	}{
-		{"default policy honours a shorter request", nil, 10, 10},
-		{"default policy caps a longer request", nil, 600, 60},
-		{"no request means no wait", nil, 0, 0},
-		{"a policy of zero refuses without waiting", new(0), 30, 0},
-		{"an unlimited policy passes the request through", new(-1), 600, 600},
-		{"an explicit cap wins", new(5), 30, 5},
+		{"absent header is refused while parking is off", nil, nil, 0, absent, 0},
+		{"absent header parks when parking is on", nil, new(true), 0, absent, 60},
+		{"parking on with a zero wait still refuses", new(0), new(true), 0, absent, 0},
+		{"parking on with unlimited wait", new(-1), new(true), 0, absent, -1},
+		{"parking on with a short wait", new(5), new(true), 0, absent, 5},
+		{"default policy honours a shorter request", nil, nil, 10, present, 10},
+		{"default policy caps a longer request", nil, nil, 600, present, 60},
+		{"an explicit zero refuses", nil, nil, 0, present, 0},
+		{"a policy of zero refuses an explicit request", new(0), nil, 30, present, 0},
+		{"an unlimited policy passes the request through", new(-1), nil, 600, present, 600},
+		{"an explicit cap wins", new(5), nil, 30, present, 5},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			gate := laneGate{
-				lane:     startedLane(t),
-				settings: settingsFunc(models.SchedulerConfig{InboundWaitSeconds: c.policy}),
+				lane: startedLane(t),
+				settings: settingsFunc(models.SchedulerConfig{
+					InboundWaitSeconds:   c.policy,
+					InboundWaitByDefault: c.park,
+				}),
 			}
-			if got := gate.WaitSeconds(c.requested); got != c.want {
-				t.Fatalf("WaitSeconds(%d) = %d, want %d", c.requested, got, c.want)
+			if got := gate.WaitSeconds(c.requested, c.present); got != c.want {
+				t.Fatalf("WaitSeconds(%d, %v) = %d, want %d", c.requested, c.present, got, c.want)
 			}
 		})
 	}
 }
 
-// A caller with no declared budget must be refused, not held: an ordinary
-// OpenAI client has no way to end a park, and holding it would silently turn
-// "refused" into "hung".
-func TestLaneInboundGate_RefusesACallerWithNoBudget(t *testing.T) {
+// A caller whose resolved budget is 0 (an explicit X-Queue-Wait: 0, or
+// inbound_wait_seconds: 0) must be refused, not held: holding it would silently
+// turn "refused" into "hung".
+func TestLaneInboundGate_RefusesACallerWithAZeroBudget(t *testing.T) {
 	lane := startedLane(t)
 	release := holdModel(t, lane, "job-a", "A")
 

@@ -1109,17 +1109,27 @@ func TestInboundBusyDetail(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "busy header", status: http.StatusConflict,
+			name: "busy header (429 contract)", status: http.StatusTooManyRequests,
 			header: models.ModelStatusBusy, body: body("busy", "the local model is serving a for a running job"),
 			want: "the local model is serving a for a running job",
 		},
 		{
-			name: "queued hold ended unserved", status: http.StatusAccepted,
+			name: "queued hold ended unserved (429 contract)", status: http.StatusTooManyRequests,
 			header: models.ModelStatusQueued, body: body("queued", "waited as long as allowed"),
 			want: "waited as long as allowed",
 		},
 		{
-			name: "busy in the body only (no proxy header)", status: http.StatusConflict,
+			name: "legacy 409 is still recognized", status: http.StatusConflict,
+			header: models.ModelStatusBusy, body: body("busy", "legacy answer"),
+			want: "legacy answer",
+		},
+		{
+			name: "legacy 202 is still recognized", status: http.StatusAccepted,
+			header: models.ModelStatusQueued, body: body("queued", "legacy answer"),
+			want: "legacy answer",
+		},
+		{
+			name: "busy in the body only (no proxy header)", status: http.StatusTooManyRequests,
 			body: body("busy", ""),
 			// The body carries no message, so the raw body is the explanation.
 			want: body("busy", ""),
@@ -1160,6 +1170,72 @@ func TestRetryReasonModelBusyIsItsOwnReason(t *testing.T) {
 	for _, other := range []RetryReason{RetryReasonTransport, RetryReasonStatus, RetryReasonModelStarting} {
 		if RetryReasonModelBusy == other {
 			t.Fatalf("RetryReasonModelBusy collides with %q", other)
+		}
+	}
+}
+
+// A proxy's residency refusal is a 429 — which IsRetryableHTTPStatus counts as
+// a transient fault. The busy check must therefore run BEFORE the
+// retryable-status path: otherwise the refusal is blind-retried while the run
+// keeps the model, and the server's explanation never reaches the UI.
+func TestDoRequest_ReportsModelBusyInsteadOfRetrying(t *testing.T) {
+	var calls int
+	transport := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		resp := newTestResponse(http.StatusTooManyRequests,
+			`{"status":"busy","model":"m","message":"the local model is serving a for a running job"}`)
+		resp.Header.Set(inboundStatusHeader, models.ModelStatusBusy)
+		return resp, nil
+	})
+	client := NewLLMClient("http://example.com", "m", &http.Client{Transport: transport}, nil)
+	var infos []RetryInfo
+	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { infos = append(infos, info) })
+
+	_, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+
+	var httpErr *LLMHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("err = %v, want *LLMHTTPError", err)
+	}
+	if httpErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", httpErr.StatusCode)
+	}
+	if calls != 1 {
+		t.Fatalf("transport called %d times, want 1 — a residency refusal must never be blind-retried", calls)
+	}
+	if len(infos) != 1 || infos[0].Reason != RetryReasonModelBusy {
+		t.Fatalf("observations = %+v, want exactly one model_busy", infos)
+	}
+	if infos[0].Error != "the local model is serving a for a running job" {
+		t.Fatalf("observed error = %q, want the server's explanation", infos[0].Error)
+	}
+}
+
+// The flip side of the reorder: a provider's own 429 (rate limit) carries no
+// residency marker, so it must still be retried as a transient fault instead of
+// being reported as model_busy.
+func TestDoRequest_RetriesAGenuineProvider429(t *testing.T) {
+	var calls int
+	transport := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return newTestResponse(http.StatusTooManyRequests,
+			`{"error":{"message":"Rate limit reached for requests","type":"requests"}}`), nil
+	})
+	client := NewLLMClient("http://example.com", "m", &http.Client{Transport: transport}, nil)
+	var infos []RetryInfo
+	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { infos = append(infos, info) })
+
+	_, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+
+	if err == nil {
+		t.Fatal("want an error once the retry budget is exhausted")
+	}
+	if calls != httpRetryMaxAttempts {
+		t.Fatalf("transport called %d times, want %d — a provider 429 is a transient fault", calls, httpRetryMaxAttempts)
+	}
+	for _, info := range infos {
+		if info.Reason == RetryReasonModelBusy {
+			t.Fatalf("a provider rate limit must not be reported as model_busy: %+v", info)
 		}
 	}
 }

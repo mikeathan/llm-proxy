@@ -122,11 +122,19 @@ type SchedulerConfig struct {
 	CloudConcurrency   int   `yaml:"cloud_concurrency,omitempty" json:"cloud_concurrency,omitempty"`
 	PreemptAutomations *bool `yaml:"preempt_automations,omitempty" json:"preempt_automations,omitempty"`
 
-	// InboundWaitSeconds caps how long an external /v1 caller may wait for the
-	// local model (the caller asks with X-Queue-Wait). 0 refuses immediately;
-	// -1 waits until served, cancelled, or the operator acts. Unlimited is
-	// bounded in practice by InboundMaxQueued, never by memory.
+	// InboundWaitSeconds is how long an external /v1 caller may wait for the
+	// local model: the cap on a wait it requests with X-Queue-Wait, and the
+	// park duration for a header-less caller when InboundWaitByDefault is on.
+	// 0 refuses immediately; -1 waits until served, cancelled, or the operator
+	// acts. Unlimited is bounded in practice by InboundMaxQueued, never by
+	// memory.
 	InboundWaitSeconds *int `yaml:"inbound_wait_seconds,omitempty" json:"inbound_wait_seconds,omitempty"`
+	// InboundWaitByDefault parks a caller that sends no X-Queue-Wait header
+	// (for up to InboundWaitSeconds) instead of refusing it. Off by default:
+	// an unsolicited caller is refused with a retry hint rather than having a
+	// connection held on its behalf. Parked callers are visible to the operator
+	// (run-activity panel) and can cancel out of band.
+	InboundWaitByDefault *bool `yaml:"inbound_wait_by_default,omitempty" json:"inbound_wait_by_default,omitempty"`
 	// InboundMaxQueued bounds how many callers may wait at once. Always
 	// enforced — it is what keeps an unlimited wait from becoming unbounded
 	// held connections.
@@ -160,16 +168,18 @@ var ErrSchedulerInboundInvalid = errors.New("invalid inbound admission settings"
 
 // DefaultSchedulerConfig returns the shipped first-run defaults: local runs
 // serialize (one GPU / one llama.cpp slot), cloud runs parallelize, chat
-// preempts automations, and an external caller may wait up to a minute for the
-// local model (queue depth 32, no client-side preemption).
+// preempts automations, and an external caller is refused with a retry hint
+// unless it asks to wait (X-Queue-Wait) or the host enables parking
+// (queue depth 32, no client-side preemption).
 func DefaultSchedulerConfig() SchedulerConfig {
 	return SchedulerConfig{
-		LocalConcurrency:   1,
-		CloudConcurrency:   3,
-		PreemptAutomations: new(true),
-		InboundWaitSeconds: new(defaultInboundWait),
-		InboundMaxQueued:   new(defaultInboundQueued),
-		InboundPreempt:     new(false),
+		LocalConcurrency:     1,
+		CloudConcurrency:     3,
+		PreemptAutomations:   new(true),
+		InboundWaitSeconds:   new(defaultInboundWait),
+		InboundWaitByDefault: new(false),
+		InboundMaxQueued:     new(defaultInboundQueued),
+		InboundPreempt:       new(false),
 	}
 }
 
@@ -188,6 +198,13 @@ func (c SchedulerConfig) InboundQueueDepth() int {
 		return *c.InboundMaxQueued
 	}
 	return defaultInboundQueued
+}
+
+// InboundMayPark reports whether a caller that sends no X-Queue-Wait header
+// is parked for InboundWaitSeconds instead of refused. Off unless explicitly
+// enabled: unsolicited connections are never held by default.
+func (c SchedulerConfig) InboundMayPark() bool {
+	return c.InboundWaitByDefault != nil && *c.InboundWaitByDefault
 }
 
 // InboundMayPreempt reports whether a contended inbound request may serve by
