@@ -64,7 +64,7 @@ func TestIdleReaper_StopsHangingModels(t *testing.T) {
 	restorePort := utils.SetPortReady(func(port int) bool { return false })
 	defer restorePort()
 
-	// We can't wait 5 minutes in a unit test. 
+	// We can't wait 5 minutes in a unit test.
 	// However, I can't easily override the startupTimeout without modifying the code to accept it.
 	// For now, I'll skip the actual 5m wait but keep the test structure ready if we ever make it configurable.
 	t.Skip("Skipping 5m hang test to avoid slow CI")

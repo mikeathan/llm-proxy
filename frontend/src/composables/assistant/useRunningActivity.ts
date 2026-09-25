@@ -4,10 +4,13 @@ import { POLL_INTERVAL_MS } from '../../constants/api'
 import type { ActiveRunsResponse } from '../../types/assistant'
 
 // useRunningActivity polls the backend's authoritative per-workspace "active
-// runs" endpoint and exposes it as reactive state. It is the single source of
-// truth for "something is running" notifications (assistant glow, automation
-// indicators, future surfaces) — the backend cannot miss a completion the way
-// sticky client-side flags can.
+// runs" endpoint and exposes it as reactive state. It is the source of truth for
+// the workspace-scoped "something is running" notifications (assistant glow,
+// the correct history row after a refresh) — the backend cannot miss a
+// completion the way sticky client-side flags can.
+//
+// Run-scheduler lane state is NOT read here: the lane snapshot is global, so it
+// lives in useGlobalRunActivity and is shared with the header indicator.
 //
 // Implemented as a module-level singleton (like useAssistant) so the polling
 // interval is shared and lives for the app's lifetime.
@@ -20,6 +23,9 @@ const error = ref<string | null>(null)
 // /active-runs response so the UI can mark the correct history row as running
 // after a refresh — the per-session running flag itself is not persisted.
 const assistantConversationId = ref('')
+// assistantQueued is true while the chat run is registered but not yet admitted
+// to the run scheduler, so the UI can show "waiting" instead of a running glow.
+const assistantQueued = ref(false)
 let timer: ReturnType<typeof setInterval> | null = null
 
 async function refresh(workspaceId: string | null) {
@@ -30,6 +36,7 @@ async function refresh(workspaceId: string | null) {
     assistantRunning.value = data.assistant_running
     automationRunning.value = data.automation_running
     assistantConversationId.value = data.assistant_conversation_id || ''
+    assistantQueued.value = data.assistant_queued ?? false
     error.value = null
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load active runs'
@@ -51,5 +58,5 @@ export function useRunningActivity(workspaceId: Ref<string | null>) {
 
   start()
 
-  return { assistantRunning, automationRunning, assistantConversationId, loading, error }
+  return { assistantRunning, automationRunning, assistantConversationId, assistantQueued, loading, error }
 }

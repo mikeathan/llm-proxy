@@ -8,6 +8,7 @@ import { useAutomationRunner } from "../../composables/automation/useAutomationR
 import { useWorkspaceHistory } from "../../composables/automation/useWorkspaceHistory";
 import { useResponsiveLayout } from "../../composables/ui/useResponsiveLayout";
 import type { Automation, AutomationRun } from "../../types/dispatcher";
+import type { LaneKind } from "../../types/assistant";
 import type { MemoryEntry } from "../../types/memory";
 import { DispatcherService } from "../../services/automation/dispatcherService";
 
@@ -28,6 +29,7 @@ import { useToast } from "../../composables/useToast";
 import { useTemplates } from "../../composables/assistant/useTemplates";
 import { useAssistant } from "../../composables/assistant/useAssistant";
 import { useRunningActivity } from "../../composables/assistant/useRunningActivity";
+import { useGlobalRunActivity } from "../../composables/assistant/useGlobalRunActivity";
 import { useMetrics } from "../../composables/system/useMetrics";
 import MobileTabBar from "./common/MobileTabBar.vue";
 import SidebarNavTabs from "./common/SidebarNavTabs.vue";
@@ -54,6 +56,7 @@ const {
   updateAutomation,
   deleteAutomation,
   stopAutomation,
+  cancelQueued,
   deleteRun,
   deleteAutomationRuns,
 } = useDispatcher();
@@ -80,7 +83,10 @@ const recordingsEnabled = ref(false);
 
 // Authoritative per-workspace "running" source. Drives the chat-menu glow and
 // heals sticky local running flags when the backend reports nothing running.
-const { assistantRunning, assistantConversationId } = useRunningActivity(selectedWorkspace)
+const { assistantRunning, assistantConversationId, assistantQueued } = useRunningActivity(selectedWorkspace)
+// Lane occupancy is global (one scheduler for every workspace), so it comes from
+// the shared global source the header indicator also reads.
+const { laneHolders } = useGlobalRunActivity()
 watch(assistantRunning, (running) => reconcileRunning(running))
 // When the backend reports which conversation is running, mark exactly that
 // history row as running so the indicator survives a page refresh.
@@ -265,6 +271,34 @@ const handleCancelEdit = () => {
   editAutomation.value = null;
 };
 
+// Label of the run occupying the lane while the assistant chat waits for a
+// slot — surfaced in the monitor pane as a "waiting for" hint. The lane is
+// global, so the blocker may live in another workspace: its label already
+// carries the workspace, and naming the true blocker beats showing nothing.
+// Chats preempt/queue behind automations, so prefer an automation holder.
+const AUTOMATION_LANE_KIND: LaneKind = "automation";
+
+const laneWaitingLabel = computed(() => {
+  if (!assistantQueued.value) {
+    return "";
+  }
+  const blocker =
+    laneHolders.value.find((holder) => holder.kind === AUTOMATION_LANE_KIND) ??
+    laneHolders.value[0];
+  return blocker?.label ?? "";
+});
+
+const handleCancelQueued = async (auto: Automation) => {
+  try {
+    await cancelQueued(auto.workspace, auto.name);
+    if (selectedAutomationId.value === auto.id) {
+      clearSelection();
+    }
+  } catch {
+    // Banner already shown by the composable.
+  }
+};
+
 const handleDeleteAutomation = async (auto: Automation) => {
   try {
     await deleteAutomation(auto.workspace, auto.name);
@@ -429,6 +463,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
             @select-automation="handleSelectAutomation"
             @edit-automation="handleEditAutomation"
             @delete-automation="handleDeleteAutomation"
+            @cancel-queued="handleCancelQueued"
           />
         </div>
 
@@ -546,6 +581,7 @@ const { showTemplates, handleInjectTemplate } = useTemplates(
       :assistantSessions="runningSessions"
       :loading="loading"
       :metrics="metrics"
+      :laneWaitingLabel="laneWaitingLabel"
       @trigger="handleTrigger"
       @stop="handleStop"
       @select-run="handleSelectRun"

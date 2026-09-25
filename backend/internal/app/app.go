@@ -9,8 +9,10 @@ import (
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/network"
+	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
@@ -19,6 +21,7 @@ type App struct {
 	server       *http.Server
 	services     *AppServices
 	dispatcher   *automation.Dispatcher
+	runLane      *runlane.Scheduler
 	serverCancel context.CancelFunc
 }
 
@@ -50,6 +53,15 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if a.dispatcher != nil {
 		logging.Info("Stopping automation dispatcher...")
 		a.dispatcher.Stop(ctx)
+	}
+
+	// 2.5 Close the run scheduler: cancels run contexts and drains the lanes
+	// before the shell pool / runtime are torn down (bounded by ctx).
+	if a.runLane != nil {
+		logging.Info("Closing run scheduler...")
+		if err := a.runLane.Close(ctx); err != nil {
+			logging.Warn("run scheduler close incomplete", "error", err)
+		}
 	}
 
 	// 3. Cleanup services (kills local models, shell sessions; bounded by ctx)
@@ -93,15 +105,19 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 	// retention window so a long-lived scheduled service does not fill the
 	// disk with per-run events/recordings (runs are created for every
 	// automation run and every assistant message).
-	go automation.NewRunReaper(
+	go rundir.NewRunReaper(
 		filepath.Join(dataMgr.RootDir(), "runs"),
-		automation.DefaultRunReaperInterval,
-		automation.DefaultRunRetention,
+		rundir.DefaultRunReaperInterval,
+		rundir.DefaultRunRetention,
 	).Start(ctx)
 
 	// Tether the watcher restarted after factory reset to the app lifecycle
 	// (Constitution II.2/II.14) instead of an untethered context.
 	svc.AppCtx.SetRootContext(ctx)
+
+	// Start the run scheduler before anything can admit runs (Constitution
+	// II.14: tethered to the app root context).
+	container.RunLane.Start(ctx)
 
 	// Build new dispatcher with AssistantService for LLM execution
 	disp, err := container.BuildDispatcher(svc)
@@ -131,6 +147,7 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		},
 		services:     svc,
 		dispatcher:   container.Dispatcher,
+		runLane:      container.RunLane,
 		serverCancel: serverCancel,
 	}
 }

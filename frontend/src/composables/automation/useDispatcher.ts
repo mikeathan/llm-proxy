@@ -5,6 +5,8 @@ import { DispatcherService } from '../../services/automation/dispatcherService'
 
 const { show: showBanner, clear: clearBanner } = useAppBanner()
 
+const TRIGGER_QUEUED_STATUS = 'queued'
+
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
 const workspaces = ref<{ id: string }[]>([])
@@ -73,11 +75,27 @@ async function fetchMetrics() {
 async function triggerAutomation(workspace: string, automation: string, recordingRef?: string) {
   clearBanner()
   try {
-    await DispatcherService.triggerAutomation(workspace, automation, recordingRef)
+    const result = await DispatcherService.triggerAutomation(workspace, automation, recordingRef)
     await fetchAutomations()
+    // A queued trigger is a success the user must see: the run did not start,
+    // it waits in the lane and executes when a slot frees.
+    if (result.status === TRIGGER_QUEUED_STATUS) {
+      showBanner({ severity: 'notice', message: `Queued #${result.position} — ${automation} starts when the lane frees` })
+    }
   } catch (e) {
     showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to trigger automation' })
     console.error('triggerAutomation error:', e)
+    throw e
+  }
+}
+
+async function cancelQueued(workspace: string, automation: string) {
+  try {
+    await DispatcherService.cancelQueued(workspace, automation)
+    await fetchAutomations()
+  } catch (e) {
+    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to cancel queued automation' })
+    console.error('cancelQueued error:', e)
     throw e
   }
 }
@@ -202,6 +220,7 @@ export function useDispatcher() {
     deleteAutomation,
     updateAutomation,
     stopAutomation,
+    cancelQueued,
     deleteRun,
     deleteAutomationRuns,
   }

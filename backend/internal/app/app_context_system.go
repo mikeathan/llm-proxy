@@ -97,6 +97,11 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 			return err
 		}
 	}
+	if req.Scheduler != nil {
+		if err := req.Scheduler.Validate(); err != nil {
+			return err
+		}
+	}
 
 	// 1. Update Infrastructure (SystemConfig)
 	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
@@ -157,6 +162,9 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 	err = s.dataMgr.Settings().Update(func(set *models.UserSettings) error {
 		if req.DefaultArgs != nil {
 			set.Local.DefaultArgs = req.DefaultArgs
+		}
+		if req.Scheduler != nil {
+			set.Scheduler = req.Scheduler
 		}
 		if local, ok := req.Providers["local"]; ok {
 			// We allow clearing these fields by removing the != "" check

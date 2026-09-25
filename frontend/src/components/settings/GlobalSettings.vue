@@ -9,7 +9,7 @@ import {
   envMapToString,
   stringToEnvMap,
 } from "../../utils/config";
-import type { GlobalConfig } from "../../types/admin";
+import type { GlobalConfig, SchedulerConfig } from "../../types/admin";
 import type { Model } from "../../types/model";
 
 const props = defineProps<{
@@ -78,6 +78,56 @@ function commitEnvironment() {
     localProvider.value = provider;
   }
 }
+
+// The scheduler section is always written whole, seeded with the shipped
+// defaults: the backend treats an absent field as its default, so a partial
+// object must never be persisted.
+const SCHEDULER_DEFAULTS: SchedulerConfig = {
+  local_concurrency: 1,
+  cloud_concurrency: 3,
+  preempt_automations: true,
+  inbound_wait_seconds: 60,
+  inbound_max_queued: 32,
+  inbound_preempt: false,
+};
+
+function updateScheduler(patch: Partial<SchedulerConfig>) {
+  const clone = JSON.parse(JSON.stringify(props.editConfig));
+  clone.scheduler = { ...SCHEDULER_DEFAULTS, ...clone.scheduler, ...patch };
+  cfg.value = clone;
+}
+
+const localConcurrency = computed({
+  get: () => props.editConfig.scheduler?.local_concurrency ?? SCHEDULER_DEFAULTS.local_concurrency,
+  set: (val: number) => updateScheduler({ local_concurrency: Math.max(1, Math.floor(val) || 1) }),
+});
+
+const cloudConcurrency = computed({
+  get: () => props.editConfig.scheduler?.cloud_concurrency ?? SCHEDULER_DEFAULTS.cloud_concurrency,
+  set: (val: number) => updateScheduler({ cloud_concurrency: Math.max(1, Math.floor(val) || 1) }),
+});
+
+const preemptAutomations = computed({
+  get: () => props.editConfig.scheduler?.preempt_automations ?? SCHEDULER_DEFAULTS.preempt_automations,
+  set: (val: boolean) => updateScheduler({ preempt_automations: val }),
+});
+
+// Inbound admission for external /v1 callers. Seconds: 0 refuses immediately,
+// -1 waits indefinitely (still bounded by the queue depth).
+const inboundWaitSeconds = computed({
+  get: () => props.editConfig.scheduler?.inbound_wait_seconds ?? SCHEDULER_DEFAULTS.inbound_wait_seconds,
+  set: (val: number) => updateScheduler({ inbound_wait_seconds: Math.max(-1, Math.floor(val) || 0) }),
+});
+
+const inboundMaxQueued = computed({
+  get: () => props.editConfig.scheduler?.inbound_max_queued ?? SCHEDULER_DEFAULTS.inbound_max_queued,
+  set: (val: number) => updateScheduler({ inbound_max_queued: Math.max(1, Math.floor(val) || 1) }),
+});
+
+const inboundPreempt = computed({
+  get: () => props.editConfig.scheduler?.inbound_preempt ?? SCHEDULER_DEFAULTS.inbound_preempt,
+  set: (val: boolean) => updateScheduler({ inbound_preempt: val }),
+});
 
 const runLoggingEnabled = computed({
   get: () => props.editConfig.run_logging?.enabled ?? false,
@@ -307,6 +357,83 @@ function handleRestart() {
               :modelValue="logLevel"
               @update="$emit('updateLogLevel', $event)"
             />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Run Scheduler</label>
+            <div class="form-helper">
+              How many agent runs may execute at once per workload class — local runs share one GPU, cloud runs parallelize
+            </div>
+            <div class="flex items-center gap-6 mt-2">
+              <label class="flex items-center gap-2 w-fit">
+                <span class="text-sm text-gray-300">Local runs</span>
+                <input
+                  type="number"
+                  :min="1"
+                  step="1"
+                  v-model.number="localConcurrency"
+                  class="form-input w-20"
+                />
+              </label>
+              <label class="flex items-center gap-2 w-fit">
+                <span class="text-sm text-gray-300">Cloud runs</span>
+                <input
+                  type="number"
+                  :min="1"
+                  step="1"
+                  v-model.number="cloudConcurrency"
+                  class="form-input w-20"
+                />
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  v-model="preemptAutomations"
+                  class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
+                />
+                <span class="text-sm text-gray-300">Chat preempts running automations</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">External Model Requests</label>
+            <div class="form-helper">
+              An external client (another proxy, a tool) asking for a different local model would otherwise
+              stop the running one. Instead it waits, or is told to retry — a run is never interrupted unless
+              you serve the request from the run indicator yourself.
+            </div>
+            <div class="flex items-center gap-6 mt-2 flex-wrap">
+              <label class="flex items-center gap-2 w-fit">
+                <span class="text-sm text-gray-300">Wait up to</span>
+                <input
+                  type="number"
+                  :min="-1"
+                  step="1"
+                  v-model.number="inboundWaitSeconds"
+                  class="form-input w-20"
+                />
+                <span class="text-sm text-gray-300">seconds (0 = refuse, -1 = no limit)</span>
+              </label>
+              <label class="flex items-center gap-2 w-fit">
+                <span class="text-sm text-gray-300">Queue depth</span>
+                <input
+                  type="number"
+                  :min="1"
+                  step="1"
+                  v-model.number="inboundMaxQueued"
+                  class="form-input w-20"
+                />
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  v-model="inboundPreempt"
+                  class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
+                />
+                <span class="text-sm text-gray-300">A waiting request may cancel the running run</span>
+              </label>
+            </div>
           </div>
 
           <div class="form-group">

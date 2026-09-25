@@ -5,6 +5,7 @@ import type {
   SessionBrief,
   AssistantSession,
   ActiveRunsResponse,
+  GlobalActiveRunsResponse,
 } from '../../types/assistant'
 import { API_ENDPOINTS } from '../../constants/api'
 
@@ -110,6 +111,34 @@ export class AssistantService {
       throw new Error(`Failed to load active runs: ${res.status} - ${text}`)
     }
     return res.json()
+  }
+
+  static async getGlobalActiveRuns(): Promise<GlobalActiveRunsResponse> {
+    const res = await fetch(API_ENDPOINTS.activeRunsGlobal)
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Failed to load running activity: ${res.status} - ${text}`)
+    }
+    return res.json()
+  }
+
+  // promoteQueuedRun serves a waiting external caller now, cancelling the run
+  // that holds the model it needs. cancelQueuedRun drops it unserved. Both act
+  // on a key from /admin/api/active-runs.
+  static async promoteQueuedRun(key: string): Promise<void> {
+    await this.queueAction(API_ENDPOINTS.queuePromote(key), 'promote', key)
+  }
+
+  static async cancelQueuedRun(key: string): Promise<void> {
+    await this.queueAction(API_ENDPOINTS.queueCancel(key), 'cancel', key)
+  }
+
+  private static async queueAction(endpoint: string, action: string, key: string): Promise<void> {
+    const res = await fetch(endpoint, { method: 'POST' })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Failed to ${action} queued caller ${key}: ${res.status} - ${text}`)
+    }
   }
 
   static async submitGuardrailDecision(decisionId: string, allow: boolean, persist: boolean): Promise<void> {

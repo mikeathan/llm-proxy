@@ -112,6 +112,7 @@ func appConfigToUserSettings(cfg models.AppConfig) models.UserSettings {
 		Guardrails:     cfg.Guardrails,
 		ModelOverrides: cfg.ModelOverrides,
 		Memory:         cfg.Memory,
+		Scheduler:      cfg.Scheduler,
 		RunOutput:      cfg.RunLogging,
 	}
 }
@@ -121,6 +122,7 @@ func applyUserSettingsToAppConfig(cfg *models.AppConfig, set models.UserSettings
 	cfg.Guardrails = set.Guardrails
 	cfg.ModelOverrides = set.ModelOverrides
 	cfg.Memory = set.Memory
+	cfg.Scheduler = set.Scheduler
 	cfg.RunLogging = set.RunOutput
 }
 

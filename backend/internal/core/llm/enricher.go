@@ -5,10 +5,6 @@ import (
 	"llm-proxy/models"
 )
 
-func resolveModelFile(baseDir string, m models.ModelConfig) string {
-	return providers.ResolveModelFile(baseDir, m)
-}
-
 func configModelFromConfig(cfg *models.Config, model models.ModelConfig) models.ModelConfig {
 	var args []string
 	if len(model.Args) == 0 {

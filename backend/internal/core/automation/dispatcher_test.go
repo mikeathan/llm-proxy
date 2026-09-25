@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/eventbus"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -25,6 +29,16 @@ func (e *mockExecutor) ShellPGID(ctx context.Context, workspaceID string) (int, 
 }
 
 func (e *mockExecutor) ModelTimeout(modelName string) time.Duration { return 0 }
+
+// newTestLane builds the lane every dispatcher test admits runs through,
+// tethered to the test process root like production wiring does.
+func newTestLane() *runlane.Scheduler {
+	lane := runlane.New(runlane.Limits{Local: 1, Cloud: 1}, true)
+	lane.Start(context.Background())
+	return lane
+}
+
+func testLaneKeyFor(string) runlane.LaneKey { return runlane.LaneLocal }
 
 func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 	// 1. Setup temporary test environment
@@ -53,7 +67,7 @@ func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 	}
 
 	// 3. Initialize Dispatcher
-	d, err := NewDispatcher(manager, &mockExecutor{}, logger)
+	d, err := NewDispatcher(DispatcherDeps{Persistence: manager, Executor: &mockExecutor{}, Logger: logger, Lane: newTestLane(), LaneKeyFor: testLaneKeyFor})
 	if err != nil {
 		t.Fatalf("failed to create dispatcher: %v", err)
 	}
@@ -85,8 +99,8 @@ func TestDispatcher_Start_CleanupStaleState(t *testing.T) {
 // pgidMockExecutor returns a fixed PGID for ShellPGID queries.
 type pgidMockExecutor struct {
 	executeResp *ExecuteResponse
-	pgid         int
-	pgidErr      error
+	pgid        int
+	pgidErr     error
 }
 
 func (e *pgidMockExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
@@ -121,6 +135,7 @@ func TestStopAutomation_ForceKillUsesPGID(t *testing.T) {
 		logger:     logging.NewNopLogger(),
 		activeRuns: make(map[string]*activeRun),
 		executor:   &pgidMockExecutor{pgid: -12345},
+		lane:       newTestLane(),
 	}
 	// StopAutomation spawns a diagnostic goroutine that sleeps for the default
 	// 30s delay; cancel it so the test terminates the goroutine promptly instead
@@ -154,6 +169,7 @@ func TestStopAutomation_NoShellGraceful(t *testing.T) {
 		logger:     logging.NewNopLogger(),
 		activeRuns: make(map[string]*activeRun),
 		executor:   &pgidMockExecutor{pgidErr: fmt.Errorf("no shell")},
+		lane:       newTestLane(),
 	}
 	defer cancelDiagnostic(t, d, "test-ws")
 
@@ -181,6 +197,7 @@ func TestStopAutomation_NoActiveRun(t *testing.T) {
 	d := &Dispatcher{
 		logger:     logging.NewNopLogger(),
 		activeRuns: make(map[string]*activeRun),
+		lane:       newTestLane(),
 	}
 
 	err := d.StopAutomation("nonexistent")
@@ -194,8 +211,10 @@ func TestStopAutomation_ReplacedRunNoStaleKill(t *testing.T) {
 		logger:          logging.NewNopLogger(),
 		activeRuns:      make(map[string]*activeRun),
 		diagnosticDelay: 0,
+
+		lane: newTestLane(),
 	}
-	d.events = NewEventBus()
+	d.events = eventbus.NewBus()
 
 	_, cancelA := context.WithCancel(context.Background())
 	runA := &activeRun{cancel: cancelA, pgid: -11111}
@@ -243,7 +262,7 @@ func TestDefaultTaskExecutor_ShellPGID(t *testing.T) {
 }
 
 func TestDispatcher_Stop_RespectsContext(t *testing.T) {
-	d, err := NewDispatcher(nil, &mockExecutor{}, logging.NewStderrLogger(logging.LevelError))
+	d, err := NewDispatcher(DispatcherDeps{Executor: &mockExecutor{}, Logger: logging.NewStderrLogger(logging.LevelError), Lane: newTestLane(), LaneKeyFor: testLaneKeyFor})
 	if err != nil {
 		t.Fatalf("NewDispatcher: %v", err)
 	}
@@ -275,7 +294,9 @@ func TestDispatcher_Stop_RespectsContext(t *testing.T) {
 // schedule instead of a @every-1m poll (which retried pre-executor failures
 // every minute and fired new automations immediately).
 func TestTriggerToCron_RealSchedule(t *testing.T) {
-	d := &Dispatcher{}
+	d := &Dispatcher{
+		lane: newTestLane(),
+	}
 	cronTr, err := NewCronTrigger("0 0 * * *")
 	if err != nil {
 		t.Fatalf("cron trigger: %v", err)
@@ -298,7 +319,7 @@ func TestTriggerToCron_RealSchedule(t *testing.T) {
 // longer timeout_minutes is not cut off by the dispatcher cap.
 func TestRunContext_ModelTimeoutWins(t *testing.T) {
 	slowTimeout := 30 * time.Minute
-	d, err := NewDispatcher(nil, &slowModelExecutor{timeout: slowTimeout}, logging.NewNopLogger())
+	d, err := NewDispatcher(DispatcherDeps{Executor: &slowModelExecutor{timeout: slowTimeout}, Logger: logging.NewNopLogger(), Lane: newTestLane(), LaneKeyFor: testLaneKeyFor})
 	if err != nil {
 		t.Fatalf("dispatcher: %v", err)
 	}
@@ -330,3 +351,303 @@ type slowModelExecutor struct {
 }
 
 func (e *slowModelExecutor) ModelTimeout(modelName string) time.Duration { return e.timeout }
+
+// blockingExecutor models the real executor: the run occupies its lane slot
+// until the test releases it, and a cancelled run appends the failed history
+// entry the real executor writes before returning an error.
+type blockingExecutor struct {
+	started chan string
+	proceed chan struct{}
+	calls   atomic.Int64
+}
+
+func (e *blockingExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
+	e.calls.Add(1)
+	e.started <- req.AutomationName
+	select {
+	case <-e.proceed:
+		return &ExecuteResponse{State: req.State}, nil
+	case <-ctx.Done():
+		if req.State != nil {
+			req.State.History = append(req.State.History, models.AutomationRun{
+				WorkspaceID:    req.WorkspaceID,
+				AutomationName: req.AutomationName,
+				Error:          "context canceled",
+			})
+		}
+		return nil, ctx.Err()
+	}
+}
+
+func (e *blockingExecutor) ShellPGID(context.Context, string) (int, error) { return 0, nil }
+func (e *blockingExecutor) ModelTimeout(string) time.Duration              { return 0 }
+
+// newLaneDispatcher builds a dispatcher over a temp workspace root with a
+// local-first lane, matching production wiring.
+func newLaneDispatcher(t *testing.T, exec TaskExecutor) *Dispatcher {
+	t.Helper()
+	tmpRoot, err := os.MkdirTemp("", "dispatcher-lane-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpRoot) })
+	wsDir := filepath.Join(tmpRoot, "workspaces")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolver := storage.NewPathResolver(tmpRoot, wsDir, wsDir)
+	d, err := NewDispatcher(DispatcherDeps{
+		Persistence: persistence.NewWorkspaceManager(resolver),
+		Executor:    exec,
+		Logger:      logging.NewNopLogger(),
+		Lane:        runlane.New(runlane.Limits{Local: 1, Cloud: 1}, true),
+		LaneKeyFor:  testLaneKeyFor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.lane.Start(context.Background())
+	return d
+}
+
+func registerManualAutomation(t *testing.T, d *Dispatcher, ws, name string) {
+	t.Helper()
+	if err := d.Register(ws, &models.Automation{
+		Name:     name,
+		Trigger:  models.TriggerConfig{Type: "manual"},
+		TaskFile: "task.md",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.persistence.WriteTaskFile(ws, "task.md", "run the task"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitStarted(t *testing.T, started <-chan string, want string) {
+	t.Helper()
+	select {
+	case got := <-started:
+		if got != want {
+			t.Fatalf("started %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %q to start", want)
+	}
+}
+
+func eventuallySettled(t *testing.T, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal(msg)
+}
+
+func TestDispatcher_Lane_OverlappingFiresQueueInsteadOfDropping(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	registerManualAutomation(t, d, "ws", "a")
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a")
+
+	res, err := d.Trigger("ws", "a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != TriggerQueued || res.Position != 1 {
+		t.Fatalf("res = %+v, want queued at position 1", res)
+	}
+
+	// A third fire while it is already queued is absorbed — reported as queued
+	// at the same position, never an error.
+	res, err = d.Trigger("ws", "a", "")
+	if err != nil {
+		t.Fatalf("trigger while queued = %v, want nil", err)
+	}
+	if res.Status != TriggerQueued || res.Position != 1 {
+		t.Fatalf("res = %+v, want queued at position 1", res)
+	}
+
+	close(exec.proceed)
+	waitStarted(t, exec.started, "a") // the queued fire becomes the pending rerun
+	if got := atomic.LoadInt64(&d.metrics.QueuedExecutions); got != 1 {
+		t.Fatalf("queued executions = %d, want 1", got)
+	}
+}
+
+func TestDispatcher_Lane_CancelQueuedLeavesRunningRunAlone(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	registerManualAutomation(t, d, "ws", "a")
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a")
+
+	if err := d.CancelQueued("ws", "a"); !errors.Is(err, ErrNoQueuedRun) {
+		t.Fatalf("CancelQueued on a running run = %v, want ErrNoQueuedRun", err)
+	}
+	if ls := d.LaneSnapshot().Lanes[0]; ls.Running != 1 {
+		t.Fatalf("running = %d, want the run left untouched", ls.Running)
+	}
+	if got := atomic.LoadInt64(&d.metrics.FailedExecutions); got != 0 {
+		t.Fatalf("failed executions = %d, want 0", got)
+	}
+
+	close(exec.proceed)
+	eventuallySettled(t, func() bool { return d.LaneSnapshot().Lanes[0].Running == 0 },
+		"running run never released its slot")
+}
+
+func TestDispatcher_Lane_PreemptedRunIsSkippedNotFailed(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	registerManualAutomation(t, d, "ws", "a")
+
+	events, _ := d.Events().Subscribe("ws", assistant.ChannelAutomation)
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a")
+
+	// The interactive claim preempts the running automation; the claim is only
+	// granted after the run unwound, so the run settled when this returns.
+	chatCtx, release, err := d.lane.ClaimInteractive(context.Background(), runlane.LaneLocal, "ws", "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if runlane.Preempted(chatCtx) {
+		t.Fatal("interactive run ctx must not carry a preemption marker")
+	}
+
+	state, err := d.persistence.ReadState("ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.IsRunning() {
+		t.Fatal("preempted run left the workspace marked running")
+	}
+	if len(state.History) != 0 {
+		t.Fatalf("history = %+v, want the failed tail entry dropped", state.History)
+	}
+	if got := atomic.LoadInt64(&d.metrics.PreemptedExecutions); got != 1 {
+		t.Fatalf("preempted executions = %d, want 1", got)
+	}
+	if got := atomic.LoadInt64(&d.metrics.FailedExecutions); got != 0 {
+		t.Fatalf("failed executions = %d, want 0", got)
+	}
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == assistant.EventError {
+				t.Fatalf("preempted run published %q", ev.Type)
+			}
+			continue
+		default:
+		}
+		break
+	}
+	close(exec.proceed)
+}
+
+func TestDispatcher_Lane_SameWorkspaceRunsQueueOnFlock(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	registerManualAutomation(t, d, "ws", "a")
+	registerManualAutomation(t, d, "ws", "b")
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a")
+	if _, err := d.Trigger("ws", "b", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	close(exec.proceed) // a finishes; queued b starts and waits for the flock
+	waitStarted(t, exec.started, "b")
+	if got := atomic.LoadInt64(&d.metrics.SkippedExecutions); got != 0 {
+		t.Fatalf("skipped executions = %d, want 0 (the flock must queue, not drop)", got)
+	}
+}
+
+func TestDispatcher_Lane_StopAutomationClearsQueuedEntries(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	registerManualAutomation(t, d, "ws", "a")
+	registerManualAutomation(t, d, "ws", "b")
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a")
+	if _, err := d.Trigger("ws", "b", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.StopAutomation("ws"); err != nil {
+		t.Fatal(err)
+	}
+	err := d.CancelQueued("ws", "b")
+	if !errors.Is(err, ErrNoQueuedRun) {
+		t.Fatalf("err = %v, want ErrNoQueuedRun (Stop clears pending work)", err)
+	}
+	close(exec.proceed)
+	eventuallySettled(t, func() bool { return d.LaneSnapshot().Lanes[0].Running == 0 },
+		"stopped run never released its slot")
+}
+
+func TestDispatcher_Lane_DropsQueuedEntryForDeletedAutomation(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	registerManualAutomation(t, d, "ws", "a")
+	registerManualAutomation(t, d, "ws", "b")
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a")
+	if _, err := d.Trigger("ws", "b", ""); err != nil {
+		t.Fatal(err)
+	}
+	d.Unregister("ws", "b")
+
+	close(exec.proceed) // a finishes; the queued b re-resolves to nothing and drops
+	eventuallySettled(t, func() bool {
+		ls := d.LaneSnapshot().Lanes[0]
+		return ls.Running == 0 && len(ls.Queued) == 0
+	}, "lane did not drain after the deleted automation was dropped")
+	if got := exec.calls.Load(); got != 1 {
+		t.Fatalf("executions observed = %d, want 1 (the stale entry must not run)", got)
+	}
+}
+
+func TestDispatcherMetrics_Snapshot(t *testing.T) {
+	m := &DispatcherMetrics{}
+	m.RecordExecution(true, false, 1500*time.Millisecond)
+	m.RecordExecution(false, true, 500*time.Millisecond)
+	m.RecordQueued()
+	m.RecordPreempted()
+
+	snap := m.Snapshot()
+	if snap.TotalExecutions != 2 || snap.SuccessfulExecutions != 1 || snap.SkippedExecutions != 1 {
+		t.Fatalf("snapshot counters = %+v, want 2 total / 1 successful / 1 skipped", snap)
+	}
+	if snap.QueuedExecutions != 1 || snap.PreemptedExecutions != 1 {
+		t.Fatalf("snapshot admission counters = %+v, want 1 queued / 1 preempted", snap)
+	}
+	if snap.TotalLatency != 2*time.Second {
+		t.Fatalf("snapshot latency = %v, want 2s", snap.TotalLatency)
+	}
+}

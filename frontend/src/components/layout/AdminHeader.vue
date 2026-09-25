@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import type { AppTab } from "../../types";
 import Icon from "../icons/Icon.vue";
+import RunActivityPill from "./RunActivityPill.vue";
 
 defineProps<{
   activeTab: AppTab;
@@ -35,50 +36,56 @@ onMounted(async () => {
         <span v-if="version" class="version-badge">{{ version }}</span>
       </h1>
 
-      <nav class="nav-links">
-        <button
-          @click="$emit('update:activeTab', 'dashboard')"
-          :class="[
-            'nav-button',
-            activeTab === 'dashboard'
-              ? 'nav-button-active'
-              : 'nav-button-inactive',
-          ]"
-        >
-          Dashboard
-        </button>
-        <button
-          @click="$emit('update:activeTab', 'settings')"
-          :class="[
-            'nav-button',
-            activeTab === 'settings'
-              ? 'nav-button-active'
-              : 'nav-button-inactive',
-          ]"
-        >
-          Settings
-        </button>
-        <button
-          @click="$emit('update:activeTab', 'logs')"
-          :class="[
-            'nav-button',
-            activeTab === 'logs' ? 'nav-button-active' : 'nav-button-inactive',
-          ]"
-        >
-          Process Logs
-        </button>
-        <button
-          @click="$emit('update:activeTab', 'agent-ide')"
-          :class="[
-            'nav-button',
-            activeTab === 'agent-ide'
-              ? 'nav-button-active'
-              : 'nav-button-inactive',
-          ]"
-        >
-          Agent IDE
-        </button>
-      </nav>
+      <div class="header-actions">
+        <RunActivityPill />
+
+        <nav class="nav-links">
+          <button
+            @click="$emit('update:activeTab', 'dashboard')"
+            :class="[
+              'nav-button',
+              activeTab === 'dashboard'
+                ? 'nav-button-active'
+                : 'nav-button-inactive',
+            ]"
+          >
+            Dashboard
+          </button>
+          <button
+            @click="$emit('update:activeTab', 'settings')"
+            :class="[
+              'nav-button',
+              activeTab === 'settings'
+                ? 'nav-button-active'
+                : 'nav-button-inactive',
+            ]"
+          >
+            Settings
+          </button>
+          <button
+            @click="$emit('update:activeTab', 'logs')"
+            :class="[
+              'nav-button',
+              activeTab === 'logs'
+                ? 'nav-button-active'
+                : 'nav-button-inactive',
+            ]"
+          >
+            Process Logs
+          </button>
+          <button
+            @click="$emit('update:activeTab', 'agent-ide')"
+            :class="[
+              'nav-button',
+              activeTab === 'agent-ide'
+                ? 'nav-button-active'
+                : 'nav-button-inactive',
+            ]"
+          >
+            Agent IDE
+          </button>
+        </nav>
+      </div>
     </div>
   </header>
 </template>
@@ -98,6 +105,9 @@ onMounted(async () => {
 }
 .version-badge {
   @apply text-xs font-mono font-normal text-gray-400 bg-gray-700 border border-gray-600 px-2 py-0.5 rounded-full;
+}
+.header-actions {
+  @apply flex items-center gap-3;
 }
 .nav-links {
   @apply flex gap-2;

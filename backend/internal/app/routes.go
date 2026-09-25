@@ -35,13 +35,26 @@ type HandlerSet struct {
 func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
 	hs := &HandlerSet{}
 	hs.Assistant = handlers.NewAssistantMessageHandler(s)
+	// Operator actions on queued inbound callers. These are the only paths that
+	// cancel a run to free the local model, alongside the host's explicit
+	// inbound-preempt policy.
+	var promoteModelWait func(string) error
+	var cancelModelWait func(string) bool
+	if lane := s.Lane(); lane != nil {
+		promoteModelWait = lane.PromoteModelWait
+		cancelModelWait = lane.CancelModelWait
+	}
 	// Authoritative per-workspace "running" source, aggregating the assistant
 	// and automation subsystems so the frontend has one endpoint to poll.
-	hs.ActiveRuns = handlers.NewActiveRunsHandler(
-		hs.Assistant.RunningExists,
-		disp.IsAutomationRunning,
-		hs.Assistant.RunningConversationID,
-	)
+	hs.ActiveRuns = handlers.NewActiveRunsHandler(handlers.ActiveRunsSources{
+		AssistantRunning:        hs.Assistant.RunningExists,
+		AutomationRunning:       disp.IsAutomationRunning,
+		AssistantConversationID: hs.Assistant.RunningConversationID,
+		AssistantQueued:         hs.Assistant.RunningQueued,
+		LaneSnapshot:            disp.LaneSnapshot,
+		PromoteModelWait:        promoteModelWait,
+		CancelModelWait:         cancelModelWait,
+	})
 	hs.Admin = handlers.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
 	hs.System = handlers.NewSystemHandlers(s.AppCtx, s.Logger(), buildInfo)
 	hs.Secrets = handlers.NewSecretsHandlers(s.AppCtx)
@@ -49,6 +62,12 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.MCP = handlers.NewMCPHandlers(s.AppCtx)
 	hs.Model = handlers.NewModelHandlers(s.Runtime, s.AppCtx)
 	hs.Proxy = handlers.NewProxyHandlers(s.Runtime)
+	// External /v1 callers go through the model-residency gate: a request that
+	// would evict the model a run is using waits or is refused instead of
+	// killing the run. Policy comes from the live scheduler settings.
+	if s.Lane() != nil {
+		hs.Proxy.SetInboundGate(s.gate())
+	}
 	if disp != nil {
 		wsSvc := handlers.NewWorkspaceService(s.Persistence())
 		hs.Dispatcher = handlers.NewDispatcherHandlers(disp, wsSvc, s.logger)
@@ -100,7 +119,15 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 				return true
 			}
 			for _, ws := range workspaces {
-				if hs.Assistant.RunningExists(ws.ID) || disp.IsAutomationRunning(ws.ID) {
+				if hs.Assistant.RunningExists(ws.ID) || hs.Assistant.RunningQueued(ws.ID) || disp.IsAutomationRunning(ws.ID) {
+					return true
+				}
+			}
+			// Queued lane entries are active work too: the lanes are
+			// in-memory, so clearing runtime data with a queued run would
+			// silently drop it.
+			for _, lane := range disp.LaneSnapshot().Lanes {
+				if len(lane.Queued) > 0 {
 					return true
 				}
 			}
@@ -194,6 +221,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	if hs.Dispatcher != nil {
 		router.Get("/admin/api/dispatcher/automations", hs.Dispatcher.ListAutomations, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/trigger/{"+models.WorkspaceIDParam+"}/{automation}", hs.Dispatcher.TriggerAutomation, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/queue/{"+models.WorkspaceIDParam+"}/{automation}", hs.Dispatcher.CancelQueuedHandler, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/stop/{"+models.WorkspaceIDParam+"}", hs.Dispatcher.StopAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", hs.Dispatcher.GetDispatcherMetrics, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/activity", hs.Dispatcher.GetGlobalActivity, jsonMethodNotAllowed)
@@ -221,6 +249,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 
 	// Proxy
 	router.Any("/v1/chat/completions", http.HandlerFunc(hs.Proxy.EnsureModelProxyHandler))
+	// Out-of-band cancel for a caller whose request is held waiting for the
+	// local model; the key is returned in the busy/queued answer.
+	router.Delete("/v1/queue/{"+handlers.QueueKeyParam+"}", http.HandlerFunc(hs.Proxy.ServeQueueCancel), jsonMethodNotAllowed)
 	// OpenAI-compatible model catalogue for external OpenAI-format clients
 	// pointed at this proxy (metadata discovery; see ProxyHandlers.ModelsListHandler).
 	router.Get("/v1/models", http.HandlerFunc(hs.Proxy.ModelsListHandler), jsonMethodNotAllowed)
@@ -235,6 +266,12 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", hs.Assistant.DeleteAllSessions, jsonMethodNotAllowed)
 	router.Patch("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", hs.Assistant.RenameSession, jsonMethodNotAllowed)
 	router.Get("/admin/api/workspaces/{"+models.WorkspaceIDParam+"}/active-runs", hs.ActiveRuns.ServeHTTP, jsonMethodNotAllowed)
+	// Workspace-independent lane state for the always-visible header indicator.
+	router.Get("/admin/api/active-runs", hs.ActiveRuns.ServeGlobalHTTP, jsonMethodNotAllowed)
+	// Operator actions on a queued inbound caller: serve it now (cancelling the
+	// run holding the model) or drop it.
+	router.Post("/admin/api/queue/{queue_key}/promote", hs.ActiveRuns.ServePromoteHTTP, jsonMethodNotAllowed)
+	router.Post("/admin/api/queue/{queue_key}/cancel", hs.ActiveRuns.ServeCancelHTTP, jsonMethodNotAllowed)
 
 	// Memory API
 	if hs.Memory != nil {

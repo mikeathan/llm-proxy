@@ -90,6 +90,10 @@ func (h *SystemHandlers) AdminSystemPutHandler(w http.ResponseWriter, r *http.Re
 			writeJSONError(w, http.StatusBadRequest, notFound.Error())
 			return
 		}
+		if models.IsSchedulerConfigError(err) {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err.Error())
 		return
 	}
@@ -110,6 +114,10 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 			return
 		}
 		if models.IsSearchConfigError(err2) {
+			writeJSONError(w, http.StatusBadRequest, err2.Error())
+			return
+		}
+		if models.IsSchedulerConfigError(err2) {
 			writeJSONError(w, http.StatusBadRequest, err2.Error())
 			return
 		}

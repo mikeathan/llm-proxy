@@ -77,6 +77,11 @@ const (
 	// (HTTP 202/503 with a {"status":"starting"} body) — the proxy polls until
 	// the model is ready instead of failing the run.
 	RetryReasonModelStarting RetryReason = "model_starting"
+	// RetryReasonModelBusy is an upstream proxy's deliberate refusal to switch
+	// the local model while a run is using it (HTTP 409 busy / 202 queued, with
+	// an explanation in the body). The run holding the model is protected on
+	// purpose, so this is reported, not retried as a transient fault.
+	RetryReasonModelBusy RetryReason = "model_busy"
 )
 
 // RetryInfo describes a single retry that is about to happen. It is
@@ -386,6 +391,7 @@ const upstreamLoadingMarker = "loading model"
 //     a managed model starts), and
 //   - HTTP 503 {"error":{"message":"Loading model",...}} (raw llama.cpp while
 //     its model loads).
+//
 // The proxy polls until the model is ready instead of failing the run.
 func isModelStartingResponse(status int, body string) bool {
 	if status != http.StatusAccepted && status != http.StatusServiceUnavailable {
@@ -398,6 +404,39 @@ func isModelStartingResponse(status int, body string) bool {
 		return true
 	}
 	return status == http.StatusServiceUnavailable && strings.Contains(strings.ToLower(body), upstreamLoadingMarker)
+}
+
+// inboundStatusHeader carries the proxy's inbound-admission verdict (see the
+// statuses in models/llm.go) alongside the HTTP status.
+const inboundStatusHeader = "X-LLM-Status"
+
+// inboundBusyDetail reports the upstream's explanation when a response is a
+// proxy's deliberate "the model you asked for is in use by a run" answer, and
+// "" when it is anything else. It is not a fault — the run holding the model is
+// protected on purpose — so the caller reports it with its own reason instead of
+// retrying it as a transient error. Body status is accepted too, since a
+// non-proxy upstream may echo it.
+func inboundBusyDetail(resp *http.Response, body string) string {
+	if resp.StatusCode != http.StatusConflict && resp.StatusCode != http.StatusAccepted {
+		return ""
+	}
+	busy := func(status string) bool {
+		return status == models.ModelStatusBusy || status == models.ModelStatusQueued
+	}
+	// One decode serves both probes: the body's status (when the header is
+	// absent) and the body's explanation.
+	var probe struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	parsed := json.Unmarshal([]byte(body), &probe) == nil
+	if !busy(resp.Header.Get(inboundStatusHeader)) && (!parsed || !busy(probe.Status)) {
+		return ""
+	}
+	if parsed && probe.Message != "" {
+		return probe.Message
+	}
+	return body
 }
 
 // doRequest issues the HTTP POST with bounded retry + backoff for transient
@@ -507,6 +546,24 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 			continue
 		}
 		if !IsRetryableResponse(resp.StatusCode, httpErr.Body) {
+			// A proxy refusing to evict a model in use is a deliberate answer with
+			// its own reason, not a generic upstream error: report which run is in
+			// the way, then let the caller decide.
+			if detail := inboundBusyDetail(resp, httpErr.Body); detail != "" {
+				logging.Warn("upstream local model is in use by a run",
+					"model", c.model, "url", url, "kind", kind,
+					"status", resp.StatusCode, "detail", detail)
+				if observer != nil {
+					observer(RetryInfo{
+						Reason:    RetryReasonModelBusy,
+						Attempt:   attempt + 1,
+						Status:    resp.StatusCode,
+						Error:     detail,
+						ElapsedMs: time.Since(start).Milliseconds(),
+					})
+				}
+				return nil, httpErr
+			}
 			logging.Warn("LLM upstream non-retryable error",
 				"model", c.model, "url", url, "kind", kind,
 				"status", resp.StatusCode, "error", httpErr.Error())

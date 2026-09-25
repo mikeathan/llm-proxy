@@ -1,19 +1,24 @@
-package automation
+// Package eventbus provides the per-workspace, per-channel event fan-out used
+// by both assistant chat runs and automation runs. It is infrastructure: it
+// routes and buffers assistant.AgentEvent values without knowing anything about
+// the automation domain.
+package eventbus
 
 import (
+	"sync"
+	"time"
+
 	"github.com/google/uuid"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
-	"sync"
-	"time"
 )
 
-// EventBus handles per-workspace, per-channel event broadcasting. Events are
+// Bus handles per-workspace, per-channel event broadcasting. Events are
 // partitioned by (workspaceID, channel) so assistant chat and automation runs
 // never share a subscriber set — an automation's final report cannot leak into
 // the assistant SSE stream. Channel is derived from AgentEvent.Channel.
-type EventBus struct {
+type Bus struct {
 	mu          sync.RWMutex
 	subscribers map[string]map[assistant.EventChannel][]chan assistant.AgentEvent // ws -> channel -> channels
 	recent      map[string]map[assistant.EventChannel][]assistant.AgentEvent      // ws -> channel -> recent
@@ -54,12 +59,12 @@ const (
 	dropWarnInterval = 10 * time.Second
 )
 
-func NewEventBus() *EventBus {
-	return newEventBus(30*time.Second, 60*time.Second)
+func NewBus() *Bus {
+	return newBus(30*time.Second, 60*time.Second)
 }
 
-func newEventBus(reaperInterval, reaperMaxFull time.Duration) *EventBus {
-	b := &EventBus{
+func newBus(reaperInterval, reaperMaxFull time.Duration) *Bus {
+	b := &Bus{
 		subscribers:      make(map[string]map[assistant.EventChannel][]chan assistant.AgentEvent),
 		recent:           make(map[string]map[assistant.EventChannel][]assistant.AgentEvent),
 		recentBytes:      make(map[string]map[assistant.EventChannel]int64),
@@ -76,17 +81,17 @@ func newEventBus(reaperInterval, reaperMaxFull time.Duration) *EventBus {
 
 // Stop terminates the reaper goroutine. Safe to call multiple times and from
 // multiple goroutines concurrently.
-func (b *EventBus) Stop() {
+func (b *Bus) Stop() {
 	b._stop()
 }
 
-func (b *EventBus) _stop() {
+func (b *Bus) _stop() {
 	b.stopOnce.Do(func() {
 		close(b.stop)
 	})
 }
 
-func (b *EventBus) reapLoop() {
+func (b *Bus) reapLoop() {
 	ticker := time.NewTicker(b.reaperInterval)
 	defer ticker.Stop()
 	for {
@@ -101,7 +106,7 @@ func (b *EventBus) reapLoop() {
 
 // reap removes subscriber channels that have been full (no reader draining
 // them) longer than reaperMaxFull. It never closes a channel.
-func (b *EventBus) reap() {
+func (b *Bus) reap() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := time.Now()
@@ -155,7 +160,7 @@ func channelOf(event assistant.AgentEvent) assistant.EventChannel {
 	return assistant.ChannelAutomation
 }
 
-func (b *EventBus) Subscribe(workspaceID string, channel assistant.EventChannel) (chan assistant.AgentEvent, []assistant.AgentEvent) {
+func (b *Bus) Subscribe(workspaceID string, channel assistant.EventChannel) (chan assistant.AgentEvent, []assistant.AgentEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -179,7 +184,7 @@ func (b *EventBus) Subscribe(workspaceID string, channel assistant.EventChannel)
 	return ch, recent
 }
 
-func (b *EventBus) Unsubscribe(workspaceID string, channel assistant.EventChannel, ch chan assistant.AgentEvent) {
+func (b *Bus) Unsubscribe(workspaceID string, channel assistant.EventChannel, ch chan assistant.AgentEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -232,7 +237,7 @@ var criticalEvents = map[assistant.AgentEventType]bool{
 // still carries it for the next re-subscribe.
 var criticalEventPublishTimeout = 3 * time.Second
 
-func (b *EventBus) Publish(workspaceID string, event assistant.AgentEvent) {
+func (b *Bus) Publish(workspaceID string, event assistant.AgentEvent) {
 	// Assign a stable ID if the source didn't provide one (e.g. guardrail events
 	// constructed outside the agent's notify method, or lifecycle events from
 	// the executor).  This ID survives SSE reconnection, allowing the frontend
@@ -339,7 +344,7 @@ func warnKey(workspaceID string, channel assistant.EventChannel) string {
 // warnSlowSubscriber logs a slow-subscriber warning at most once per
 // dropWarnInterval per workspace/channel, so a stalled subscriber cannot spam
 // the log with a line per dropped event.
-func (b *EventBus) warnSlowSubscriber(workspaceID string, channel assistant.EventChannel, msg string) {
+func (b *Bus) warnSlowSubscriber(workspaceID string, channel assistant.EventChannel, msg string) {
 	key := warnKey(workspaceID, channel)
 	b.warnMu.Lock()
 	defer b.warnMu.Unlock()
@@ -351,7 +356,7 @@ func (b *EventBus) warnSlowSubscriber(workspaceID string, channel assistant.Even
 	logging.Warn(msg, "workspace", workspaceID, "channel", channel)
 }
 
-func (b *EventBus) Clear(workspaceID string, channel assistant.EventChannel) {
+func (b *Bus) Clear(workspaceID string, channel assistant.EventChannel) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.recent[workspaceID] != nil {
@@ -368,7 +373,7 @@ func (b *EventBus) Clear(workspaceID string, channel assistant.EventChannel) {
 
 // SubscriberCount returns the number of live subscriber channels for a
 // workspace/channel pair. Intended for diagnostics and tests.
-func (b *EventBus) SubscriberCount(workspaceID string, channel assistant.EventChannel) int {
+func (b *Bus) SubscriberCount(workspaceID string, channel assistant.EventChannel) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.subscribers[workspaceID][channel])

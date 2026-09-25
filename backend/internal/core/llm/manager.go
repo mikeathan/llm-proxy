@@ -120,6 +120,10 @@ type LLMRuntimeManager struct {
 	// (ReconcileLocalServingContext). Cleared on Sync (registry may have
 	// re-introduced stale metadata) and on model stop.
 	servingCtxSynced map[string]bool
+
+	// residency refuses local-model evictions that would stop a model an
+	// admitted run or inbound caller is using (residency.go). nil = unguarded.
+	residency ResidencyGuard
 }
 
 func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore, regSource func() models.RegistryData) *LLMRuntimeManager {
@@ -385,6 +389,13 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 	}
 
 	if cfg.Provider == "" || cfg.Provider == "local" {
+		// A local slot serves one model at a time, so reaching a different one
+		// means stopping the running server. Refuse when an admitted run or
+		// inbound caller is still using it — the caller waits or retries
+		// instead of silently killing live work.
+		if err := m.checkLocalEvictionLocked(ctx, name); err != nil {
+			return ModelInstance{}, err
+		}
 		for {
 			cfg = m.syncPortWithActiveLocked(cfg)
 			if inst, ok := m.readyInstanceLocked(name, cfg); ok {

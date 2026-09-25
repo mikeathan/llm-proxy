@@ -118,16 +118,12 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 
 	ctx := h.execCtx(workspaceID)
 
-	// Trigger asynchronously: Dispatcher.Trigger blocks until the run finishes
-	// (up to the automation timeout). Holding the webhook request open that
-	// long would make this endpoint a trivial resource-exhaustion amplifier,
-	// so the trigger runs in a guarded goroutine and the run's progress is
-	// observed by the monitor goroutine below.
-	safe.Go("webhook automation trigger", func() {
-		if err := h.Dispatcher.Trigger(ctx, workspaceID, name, ""); err != nil {
-			h.Logger.Error("automation trigger failed", "name", name, "error", err)
-		}
-	})
+	// Trigger is a cheap lane enqueue (the run timeout starts at dequeue), so
+	// it runs inline; the run's progress is observed by the monitor goroutine
+	// below.
+	if _, err := h.Dispatcher.Trigger(workspaceID, name, ""); err != nil {
+		h.Logger.Error("automation trigger failed", "name", name, "error", err)
+	}
 
 	immediateReply := fmt.Sprintf("Running '%s'...", name)
 	h.replyToChat(connectorName, immediateReply)

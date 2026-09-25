@@ -32,6 +32,11 @@ export interface Automation {
   last_output?: string
   last_error?: string
   is_running?: boolean
+  // Queued in the run scheduler waiting for a lane slot; queue_position is
+  // 1-based. Both are empty while the run executes or sits idle. Serialized by
+  // the backend as "queued"/"queue_position" (AutomationInfo).
+  queued?: boolean
+  queue_position?: number
   history?: AutomationRun[]
   network_grant?: NetworkGrant
 }
@@ -68,8 +73,13 @@ export interface DispatcherMetrics {
   total_latency_ms: number
 }
 
+// TriggerStatus is the dispatch admission outcome reported by the trigger
+// endpoint: started immediately, or queued behind running work.
+export type TriggerStatus = 'started' | 'queued'
+
 export interface TriggerResponse {
-  status: string
+  status: TriggerStatus
+  position?: number
   workspace: string
   automation: string
 }
@@ -131,7 +141,7 @@ export interface GuardrailBlockedPayload {
 // UpstreamEventPayload in backend/internal/core/assistant/agent_events.go.
 export interface UpstreamEventPayload {
   event: string // "retry"
-  reason: 'transport' | 'status' | 'model_starting'
+  reason: 'transport' | 'status' | 'model_starting' | 'model_busy'
   attempt: number // 1-based attempt being retried
   max_attempts: number
   error?: string // transport error text

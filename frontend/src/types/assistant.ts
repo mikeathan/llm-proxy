@@ -82,6 +82,42 @@ export interface CancelAgentResponse {
 // ActiveRunsResponse is the authoritative per-workspace "currently executing"
 // state returned by GET /workspaces/{id}/active-runs. It is the single source
 // the UI polls to drive "running" notifications instead of sticky local flags.
+// Run-scheduler lane state is not here — the lane snapshot is global, so it
+// lives only on GlobalActiveRunsResponse.
+//
+// LaneHolder identifies a run currently occupying a run-scheduler slot.
+// LaneKind / LaneKey mirror the backend runlane enums (runlane.Kind / LaneKey).
+// 'inbound' is an external /v1 caller holding the local model.
+export type LaneKind = 'automation' | 'interactive' | 'inbound'
+export type LaneKey = 'local' | 'cloud'
+
+export interface LaneHolder {
+  key: string
+  kind: LaneKind
+  workspace_id: string
+  automation?: string
+  label: string
+  // model is the local model the holder is using (absent for cloud runs); the
+  // residency gate refuses evicting it out from under the holder.
+  model?: string
+  since: string
+}
+
+// QueuedRun identifies a run waiting in a scheduler lane, or an external caller
+// waiting for the local model (kind 'inbound' — the operator can promote or
+// cancel it). position is 1-based within its own queue.
+export interface QueuedRun {
+  key: string
+  kind?: LaneKind
+  lane?: LaneKey
+  workspace_id: string
+  automation?: string
+  label: string
+  model?: string
+  position: number
+  queued_at: string
+}
+
 export interface ActiveRunsResponse {
   assistant_running: boolean
   automation_running: boolean
@@ -89,6 +125,18 @@ export interface ActiveRunsResponse {
   // running, or "" when none is running. The frontend uses it to mark the
   // correct history row as running after a refresh.
   assistant_conversation_id: string
+  // assistant_queued is true while a chat run is registered but not yet
+  // admitted to the run scheduler (assistant_running stays true while waiting).
+  assistant_queued?: boolean
+}
+
+// GlobalActiveRunsResponse is the workspace-independent slice of the active
+// state returned by GET /admin/api/active-runs. Every run occupies a lane, so
+// this snapshot is a complete "something is running, anywhere" signal and backs
+// the always-visible header indicator.
+export interface GlobalActiveRunsResponse {
+  lane_holders?: LaneHolder[]
+  queued?: QueuedRun[]
 }
 
 import type { LifecyclePhase } from './dispatcher'

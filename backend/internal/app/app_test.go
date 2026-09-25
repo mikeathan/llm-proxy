@@ -39,6 +39,9 @@ func TestRoutesExist(t *testing.T) {
 		"/admin/api/state",
 		"/v1/chat/completions",
 		"/admin/api/conversation/message",
+		// The caller's out-of-band cancel for a held model request. A GET here
+		// must still resolve (405), which is what proves the route exists.
+		"/v1/queue/inbound:probe",
 	}
 
 	for _, path := range tests {

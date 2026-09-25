@@ -12,7 +12,7 @@ import (
 func TestToolManifestConsistency(t *testing.T) {
 	// This test ensures that the Go constants in models/tools.go
 	// stay in perfect sync with the tool_name property in our JSON manifests.
-	
+
 	manifestsDir := "manifests"
 
 	tests := []struct {

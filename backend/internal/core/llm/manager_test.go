@@ -446,8 +446,8 @@ func TestRuntimeManager_CrashedModel_ReapedAndRecorded(t *testing.T) {
 	m := llm.NewWithReapInterval(
 		[]models.ModelConfig{{Name: "test", Path: "crash_reap.gguf", Port: 3333}},
 		"127.0.0.1",
-		time.Hour,             // idle timeout: not the trigger here
-		time.Millisecond*20,   // reaper tick
+		time.Hour,           // idle timeout: not the trigger here
+		time.Millisecond*20, // reaper tick
 	)
 	defer m.Shutdown()
 

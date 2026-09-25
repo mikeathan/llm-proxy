@@ -53,7 +53,6 @@ Organized by subsystem:
 | [`cross-cutting/search-tool-calling.md`](cross-cutting/search-tool-calling.md) | Wire up `internet_search` tool calling (pluggable multi-provider, live key, hide-when-unconfigured) | active | 2026-09-12 | SPEC-001, SPEC-006 |
 | [`cross-cutting/tool-error-classification.md`](cross-cutting/tool-error-classification.md) | Tool Error Classification & Run-Fatality Policy (terminal tool errors, delivery-vs-essential, failure bound) | proposed | 2026-09-12 | SPEC-001, SPEC-010, SPEC-006 |
 | [`cross-cutting/assistant-conversation-package.md`](cross-cutting/assistant-conversation-package.md) | Assistant Conversation Package (deferred extraction; Step 0 consolidates the LLM/tool test doubles) | proposed | 2026-09-12 | SPEC-001 |
-| [`cross-cutting/global-run-lane-scheduler.md`](cross-cutting/global-run-lane-scheduler.md) | Global Run Lane — serialize all agent runs (queue overlapping automations instead of skipping; chat preempts) | proposed | 2026-09-18 | SPEC-007, SPEC-001, SPEC-003 |
 | [`cross-cutting/persist-assistant-run-state-for-reload.md`](cross-cutting/persist-assistant-run-state-for-reload.md) | Persist assistant run state (errors/cancels/running) for reliable reload | complete | 2026-08-20 | SPEC-001, SPEC-003 |
 | [`cross-cutting/sqlite-session-storage.md`](cross-cutting/sqlite-session-storage.md) | SQLite session storage (future work, proposed) | proposed | 2026-08-20 | SPEC-001 |
 | [`cross-cutting/xdg-config-data-relocation.md`](cross-cutting/xdg-config-data-relocation.md) | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
@@ -83,9 +82,10 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Search Tool Calling | provider factory (Tavily/Brave/SerpAPI) + Search settings tab + live key + hide-when-unconfigured gate |
 | proposed | Tool Error Classification & Run-Fatality Policy | `ErrToolUnavailable` sentinel + provider/connector mapping, loop policy (disable + failure streak), delivery warnings in run meta |
 | proposed | Assistant Conversation Package | Step 0 consolidate LLM/tool test doubles, then extract `conversation` (loop core/strategies stay — need a session facade) |
-| proposed | Global Run Lane | P1 `runlane` primitive → P2 automation serialization → P3 assistant claim/preempt + wiring → P4 API → P5 UI → P6 docs |
 | proposed | SQLite Session Storage | JSON → SQLite migration (deliberately deferred, future work) |
 
 > **2026-09-05 hygiene pass:** archived as complete — `knight-rider-arc-bubble.md` (extraction to `ArcOrbitLoader` verified in code), `cloud-provider-token-budgets.md` (all phases incl. merged Phase 7 + M8 probe verified). Archived as merged — `cancel-stale-turn-bleed.md` (backend SSE bleed now homed in overhaul Phase 5). `xdg-config-data-relocation.md` removed from this table (already complete, row was stale).
+>
+> **2026-09-25 consolidation:** the completed `cross-cutting/global-run-lane-scheduler.md` and `cross-cutting/inbound-request-admission.md` were folded into **SPEC-007 §V/§V.1** (run scheduler + model-residency contract) plus `docs/architecture.md` (package layout, pitfalls #34–#36) and the `automation` skill, then removed from `docs/PLANS/` — their design rationale remains in git history.
 
 See [`docs/INDEX.md`](../INDEX.md) for the full catalog with IDs and cross-references.

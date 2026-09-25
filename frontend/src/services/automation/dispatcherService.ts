@@ -66,6 +66,11 @@ export const DispatcherService = {
     return post<void>(`${BASE_URL}/stop/${workspace}`)
   },
 
+  // Cancels a queued (not yet running) automation entry so it never starts.
+  async cancelQueued(workspace: string, automation: string): Promise<void> {
+    return del<void>(`${BASE_URL}/queue/${encodeURIComponent(workspace)}/${encodeURIComponent(automation)}`)
+  },
+
   async getWorkspaceState(workspace: string): Promise<AgentState> {
     return get<AgentState>(`${BASE_URL}/workspaces/${workspace}/state`)
   },

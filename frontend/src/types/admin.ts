@@ -180,6 +180,22 @@ export interface GlobalConfig {
   provider_defaults?: Record<string, AgentDefaults>
   loop_strategy_options?: string[]
   run_logging?: { enabled: boolean }
+  // Run scheduler admission limits (global-run-lane plan).
+  scheduler?: SchedulerConfig
+}
+
+export interface SchedulerConfig {
+  local_concurrency: number
+  cloud_concurrency: number
+  preempt_automations: boolean
+  // Inbound admission for external /v1 callers asking for a local model.
+  // seconds a caller may wait: 0 refuses immediately, -1 waits indefinitely.
+  inbound_wait_seconds?: number
+  // How many callers may wait at once (always enforced).
+  inbound_max_queued?: number
+  // Whether a contended caller may cancel the run holding the model. Off by
+  // default: otherwise only the operator's "Serve now" evicts.
+  inbound_preempt?: boolean
 }
 
 export interface AgentDefinition {

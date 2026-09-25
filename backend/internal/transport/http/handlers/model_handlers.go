@@ -202,7 +202,7 @@ func (r *modelFormRequest) workloadClass(classify func(models.ModelConfig) model
 	if classify != nil {
 		return classify(cfg)
 	}
-	return models.NewWorkloadClassifier("", nil).Classify(cfg)
+	return models.ClassifyConfig(cfg)
 }
 
 // enrichMetadataFromProviders populates model metadata from the provider's

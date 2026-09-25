@@ -1,4 +1,4 @@
-package automation
+package eventbus
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 
 func TestBroadcastOrphanReaper(t *testing.T) {
 	// Tiny interval + max-full so the test runs fast.
-	bus := newEventBus(5*time.Millisecond, 10*time.Millisecond)
+	bus := newBus(5*time.Millisecond, 10*time.Millisecond)
 	defer bus.Stop()
 
 	ws := "ws-reaper"
@@ -68,7 +68,7 @@ func TestBroadcastOrphanReaper(t *testing.T) {
 }
 
 func TestBroadcastHealthyChannelNotReaped(t *testing.T) {
-	bus := newEventBus(5*time.Millisecond, 10*time.Millisecond)
+	bus := newBus(5*time.Millisecond, 10*time.Millisecond)
 	defer bus.Stop()
 
 	ws := "ws-healthy"
@@ -104,7 +104,7 @@ func TestBroadcastHealthyChannelNotReaped(t *testing.T) {
 
 func TestUnsubscribeCleansFullSinceAndPrunes(t *testing.T) {
 	// Long intervals so reapLoop does not interfere with the assertions.
-	bus := newEventBus(time.Hour, time.Hour)
+	bus := newBus(time.Hour, time.Hour)
 	defer bus.Stop()
 
 	ws := "ws-prune"
@@ -135,7 +135,7 @@ func TestUnsubscribeCleansFullSinceAndPrunes(t *testing.T) {
 }
 
 func TestClearPrunesEmptyWorkspace(t *testing.T) {
-	bus := newEventBus(time.Hour, time.Hour)
+	bus := newBus(time.Hour, time.Hour)
 	defer bus.Stop()
 
 	bus.Publish("ws-clear", assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: "x"})
@@ -156,8 +156,8 @@ func TestClearPrunesEmptyWorkspace(t *testing.T) {
 	}
 }
 
-func TestEventBusStopIdempotentConcurrent(t *testing.T) {
-	bus := newEventBus(time.Hour, time.Hour)
+func TestBusStopIdempotentConcurrent(t *testing.T) {
+	bus := newBus(time.Hour, time.Hour)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
@@ -182,7 +182,7 @@ func TestBroadcastCriticalEventDeliveredWhenFull(t *testing.T) {
 	criticalEventPublishTimeout = 500 * time.Millisecond
 	t.Cleanup(func() { criticalEventPublishTimeout = old })
 
-	bus := newEventBus(time.Hour, time.Hour) // no reaper interference
+	bus := newBus(time.Hour, time.Hour) // no reaper interference
 	defer bus.Stop()
 
 	ws := "ws-critical"
@@ -214,25 +214,23 @@ func TestBroadcastCriticalEventDeliveredWhenFull(t *testing.T) {
 	}
 
 	// Drain the channel: the critical event must be delivered (it was queued
-	// behind the fillers, never dropped).
-	deadline := time.Now().Add(time.Second)
+	// behind the fillers, never dropped). Publish completes once its send lands,
+	// which the reader observes first — so Publish is awaited rather than
+	// assumed already returned.
+	deadline := time.After(time.Second)
 	found := false
-	for time.Now().Before(deadline) && !found {
+	for !found {
 		select {
 		case got := <-ch:
-			if got.Type == assistant.EventGuardrailBlocked {
-				found = true
-			}
-		case <-time.After(50 * time.Millisecond):
+			found = got.Type == assistant.EventGuardrailBlocked
+		case <-deadline:
+			t.Fatal("guardrail_blocked event was dropped on a full channel (never delivered)")
 		}
 	}
 	select {
 	case <-published:
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("critical event Publish did not complete after the reader drained")
-	}
-	if !found {
-		t.Fatal("guardrail_blocked event was dropped on a full channel (never delivered)")
 	}
 }
 
@@ -240,7 +238,7 @@ func TestBroadcastCriticalEventDeliveredWhenFull(t *testing.T) {
 // cosmetic events: a full channel drops reasoning/tool_stream traffic so a slow
 // subscriber cannot stall the agent loop. Only critical events block.
 func TestBroadcastNonCriticalDroppedWhenFull(t *testing.T) {
-	bus := newEventBus(time.Hour, time.Hour)
+	bus := newBus(time.Hour, time.Hour)
 	defer bus.Stop()
 
 	ws := "ws-drop"
@@ -280,7 +278,7 @@ func TestBroadcastNonCriticalDroppedWhenFull(t *testing.T) {
 // does NOT close the channel (readers exit on ctx.Done); this test exercises the
 // churn so -race confirms no closed-channel send and no data race.
 func TestBroadcastPublishUnsubscribeNoPanic(t *testing.T) {
-	bus := newEventBus(time.Hour, time.Hour)
+	bus := newBus(time.Hour, time.Hour)
 	defer bus.Stop()
 
 	ws := "ws-churn"
@@ -328,7 +326,7 @@ func TestBroadcastPublishUnsubscribeNoPanic(t *testing.T) {
 }
 
 func TestRecentCappedByBytes(t *testing.T) {
-	bus := newEventBus(time.Hour, time.Hour)
+	bus := newBus(time.Hour, time.Hour)
 	defer bus.Stop()
 
 	ws := "ws-bytes"
@@ -367,7 +365,7 @@ func TestRecentCappedByBytes(t *testing.T) {
 }
 
 func TestDropWarnRateLimited(t *testing.T) {
-	bus := newEventBus(time.Hour, time.Hour)
+	bus := newBus(time.Hour, time.Hour)
 	defer bus.Stop()
 	bus.dropWarnInterval = 10 * time.Millisecond
 

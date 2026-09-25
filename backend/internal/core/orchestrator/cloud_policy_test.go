@@ -142,11 +142,11 @@ func TestResolveOutputCap_PublishedBeatsTier(t *testing.T) {
 // max_tokens/context_budget are not overwritten by ApplyMetadataDefaults.
 func TestApplyMetadataDefaults_CloudOverridePreserved(t *testing.T) {
 	cfg := &models.ModelConfig{
-		Name:           "test-model",
-		Provider:       "openrouter",
-		MaxTokens:      2048,
-		ContextBudget:  8192,
-		WorkloadClass:  models.WorkloadCloud,
+		Name:          "test-model",
+		Provider:      "openrouter",
+		MaxTokens:     2048,
+		ContextBudget: 8192,
+		WorkloadClass: models.WorkloadCloud,
 	}
 	ApplyMetadataDefaults(cfg)
 	if cfg.MaxTokens != 2048 {

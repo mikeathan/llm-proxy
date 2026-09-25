@@ -1091,3 +1091,75 @@ func TestLLMClient_ModelStartingBoundedByContext(t *testing.T) {
 		t.Fatalf("expected context deadline exceeded, got %v", err)
 	}
 }
+
+// A proxy answering "the model you asked for is in use" must be recognised so
+// the caller reports why instead of showing a generic upstream failure.
+func TestInboundBusyDetail(t *testing.T) {
+	body := func(status, message string) string {
+		if message == "" {
+			return `{"status":"` + status + `"}`
+		}
+		return `{"status":"` + status + `","message":"` + message + `"}`
+	}
+	cases := []struct {
+		name   string
+		status int
+		header string
+		body   string
+		want   string
+	}{
+		{
+			name: "busy header", status: http.StatusConflict,
+			header: models.ModelStatusBusy, body: body("busy", "the local model is serving a for a running job"),
+			want: "the local model is serving a for a running job",
+		},
+		{
+			name: "queued hold ended unserved", status: http.StatusAccepted,
+			header: models.ModelStatusQueued, body: body("queued", "waited as long as allowed"),
+			want: "waited as long as allowed",
+		},
+		{
+			name: "busy in the body only (no proxy header)", status: http.StatusConflict,
+			body: body("busy", ""),
+			// The body carries no message, so the raw body is the explanation.
+			want: body("busy", ""),
+		},
+		{
+			name: "a starting answer is not a busy answer", status: http.StatusAccepted,
+			header: models.ModelStatusStarting, body: body(models.ModelStatusStarting, ""),
+		},
+		{
+			name: "a 200 is never busy", status: http.StatusOK, header: models.ModelStatusBusy,
+		},
+		{
+			name: "an unrelated 409 is not a busy answer", status: http.StatusConflict,
+			body: `{"error":"conflict"}`,
+		},
+		{
+			name: "an unrelated 500 is not a busy answer", status: http.StatusInternalServerError,
+			header: models.ModelStatusBusy,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: c.status, Header: http.Header{}}
+			if c.header != "" {
+				resp.Header.Set(inboundStatusHeader, c.header)
+			}
+			if got := inboundBusyDetail(resp, c.body); got != c.want {
+				t.Fatalf("inboundBusyDetail = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestRetryReasonModelBusyIsItsOwnReason(t *testing.T) {
+	// The reason travels to the UI as an explanation, so it must not collide
+	// with the transient-retry vocabulary.
+	for _, other := range []RetryReason{RetryReasonTransport, RetryReasonStatus, RetryReasonModelStarting} {
+		if RetryReasonModelBusy == other {
+			t.Fatalf("RetryReasonModelBusy collides with %q", other)
+		}
+	}
+}

@@ -1,4 +1,4 @@
-package automation
+package eventbus
 
 import (
 	"encoding/json"
@@ -10,13 +10,13 @@ import (
 	"llm-proxy/internal/core/assistant"
 )
 
-func TestEventSink_WritesAndSyncsOnClose(t *testing.T) {
+func TestSink_WritesAndSyncsOnClose(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events.jsonl")
 
-	s, err := NewEventSink(path)
+	s, err := NewSink(path)
 	if err != nil {
-		t.Fatalf("NewEventSink: %v", err)
+		t.Fatalf("NewSink: %v", err)
 	}
 
 	ev := assistant.AgentEvent{
@@ -45,13 +45,13 @@ func TestEventSink_WritesAndSyncsOnClose(t *testing.T) {
 	}
 }
 
-func TestEventSink_MultipleWritesSyncedOnClose(t *testing.T) {
+func TestSink_MultipleWritesSyncedOnClose(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events.jsonl")
 
-	s, err := NewEventSink(path)
+	s, err := NewSink(path)
 	if err != nil {
-		t.Fatalf("NewEventSink: %v", err)
+		t.Fatalf("NewSink: %v", err)
 	}
 	for i := 0; i < 5; i++ {
 		if err := s.Write(assistant.AgentEvent{

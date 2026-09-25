@@ -19,6 +19,18 @@ var ModelStartPollInterval = 3 * time.Second
 // at both ends keeps the producer and consumer from drifting apart.
 const ModelStatusStarting = "starting"
 
+// Inbound-admission statuses, carried on X-LLM-Status like ModelStatusStarting.
+// The local slot serves one model at a time, so a request that would evict a
+// model a run is using is answered instead of served:
+//
+//   - ModelStatusBusy: refused right now — the caller may retry (Retry-After).
+//   - ModelStatusQueued: accepted but not served; the wait ended without the
+//     model becoming free, so the caller may retry or give up.
+const (
+	ModelStatusBusy   = "busy"
+	ModelStatusQueued = "queued"
+)
+
 var (
 	ErrModelStarting = errors.New("model is starting")
 	ErrUnknownModel  = errors.New("unknown model")

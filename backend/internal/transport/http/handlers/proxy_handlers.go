@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,16 +13,32 @@ import (
 	"strconv"
 	"time"
 
+	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 )
 
 type ProxyHandlers struct {
 	runtime RuntimeService
+	// inbound gates external /v1 callers on local-model residency; nil leaves
+	// requests ungated (see inbound_gate.go).
+	inbound InboundGate
 }
 
 func NewProxyHandlers(runtime RuntimeService) *ProxyHandlers {
 	return &ProxyHandlers{runtime: runtime}
+}
+
+// SetInboundGate installs the local-model admission gate for external /v1
+// callers. Called at the composition root; nil leaves requests ungated.
+func (h *ProxyHandlers) SetInboundGate(g InboundGate) { h.inbound = g }
+
+// nextInboundKey mints a waiting caller's identity: its cancel handle, and its
+// row key in the operator UI. Cryptographically random because the caller can
+// cancel by key on the public /v1 surface — a guessable key would let one caller
+// drop another's wait.
+func (h *ProxyHandlers) nextInboundKey() string {
+	return inboundKeyPrefix + rand.Text()
 }
 
 var reverseProxyFactory = func(target string) http.Handler {
@@ -168,17 +186,19 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 		model = primary
 	}
 
-	mi, err := h.runtime.EnsureModel(r.Context(), model)
-	if err == models.ErrModelStarting {
-		w.Header().Set("Retry-After", "1")
-		w.Header().Set("X-LLM-Status", models.ModelStatusStarting)
-		w.WriteHeader(http.StatusAccepted)
-		w.Write([]byte(fmt.Sprintf(`{"status":%q}`, models.ModelStatusStarting)))
+	// An external caller never evicts the local model: a request that would
+	// switch away from the model a run is using waits within its budget, or is
+	// told to retry. Approval here is what sanctions the switch below.
+	release, proceed := h.admitInbound(w, r, model)
+	if !proceed {
 		return
 	}
+	if release != nil {
+		defer release()
+	}
 
-	if err != nil {
-		http.Error(w, "model error: "+err.Error(), http.StatusInternalServerError)
+	mi, err := h.runtime.EnsureModel(r.Context(), model)
+	if h.writeEnsureModelError(w, model, err) {
 		return
 	}
 
@@ -214,6 +234,32 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 	})
 
 	rp.ServeHTTP(w, r)
+}
+
+// writeEnsureModelError maps an EnsureModel failure onto the wire and reports
+// whether a response was written. A still-loading model and a busy local slot
+// each have their own retry answer, both on the X-LLM-Status channel the client
+// already understands; anything else is a server error.
+func (h *ProxyHandlers) writeEnsureModelError(w http.ResponseWriter, model string, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, models.ErrModelStarting):
+		w.Header().Set("Retry-After", "1")
+		w.Header().Set("X-LLM-Status", models.ModelStatusStarting)
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(fmt.Sprintf(`{"status":%q}`, models.ModelStatusStarting)))
+	case errors.Is(err, llm.ErrLocalModelBusy):
+		// A run admitted between the gate's approval and this call owns the
+		// model now: report busy rather than a 500, and never evict it.
+		writeInboundStatus(w, inboundAnswer{
+			httpStatus: http.StatusConflict, llmStatus: models.ModelStatusBusy,
+			model: model, message: busyMessage(model, h.activeLocalModel()),
+		})
+	default:
+		http.Error(w, "model error: "+err.Error(), http.StatusInternalServerError)
+	}
+	return true
 }
 
 func NewReverseProxy(target string) *httputil.ReverseProxy {

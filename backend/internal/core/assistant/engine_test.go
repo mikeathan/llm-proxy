@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/testing/mocks"
-	"llm-proxy/internal/core/proxy"
 )
 
 // noopLogger for testing

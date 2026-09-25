@@ -21,6 +21,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
@@ -51,6 +52,7 @@ type Container struct {
 	Core       Core
 	Infra      Infra
 	Dispatcher *automation.Dispatcher
+	RunLane    *runlane.Scheduler
 	RecordDir  string // absolute path to runs directory, empty when recording is disabled
 }
 
@@ -62,15 +64,6 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 }
 
 func (c *Container) BuildAppServices() *AppServices {
-	var recordingStore *recordings.RecordingStore
-	if c.RecordDir != "" {
-		var rsErr error
-		recordingStore, rsErr = recordings.NewRecordingStore(c.RecordDir)
-		if rsErr != nil {
-			logging.Warn("Failed to init recording store", "dir", c.RecordDir, "error", rsErr)
-		}
-	}
-
 	s := &AppServices{
 		Runtime:        c.Core.Runtime,
 		AppCtx:         c.Core.AppCtx,
@@ -79,60 +72,29 @@ func (c *Container) BuildAppServices() *AppServices {
 		Clock:          c.Infra.Clock,
 		persistence:    persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
 		limiter:        ratelimiter.NewLimiter(c.Infra.Clock),
-		RecordingStore: recordingStore,
+		RecordingStore: c.newRecordingStore(),
 	}
+	// One "is this workload local?" authority (model host + cached local
+	// interface IPs), shared by the client factory and the reasoning wire.
+	s.workloadClassifier = models.NewWorkloadClassifier(c.modelHost(), models.LocalInterfaceIPs())
 
-	// WorkloadClassifier is built once (modelHost + cached local interface IPs)
-	// and shared by the client factory and the reasoning wire — the single
-	// "is this workload local?" authority (Fix 1 unification).
-	modelHost := ""
-	if c.Core.Runtime != nil {
-		modelHost = c.Core.Runtime.ModelHost()
-	}
-	workloadClassifier := models.NewWorkloadClassifier(modelHost, models.LocalInterfaceIPs())
-
-	factory := func(baseURL string, model string, headers http.Header) proxy.Client {
-		var client proxy.Client
-		// Route by the actual upstream destination AND the model artifact, not
-		// the config provider slug: a model whose BaseURL points at the local
-		// llama.cpp host — or whose id names a .gguf artifact served by a
-		// remote llama.cpp — must use thinking_budget_tokens and the 10-minute
-		// response-header timeout even if its slug is "openai" (SPEC-005: a
-		// remote llama.cpp serving GGUF is a local workload).
-		if workloadClassifier.ClassifyClient(baseURL, model) {
-			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
-		} else {
-			client = proxy.NewLLMClient(baseURL, model, nil, headers)
-		}
-		// Always wrap in RecordingClient so that run-specific recording.jsonl is supported,
-		// but only set recordDir if recording is globally enabled.
-		client = recorder.New(client, c.RecordDir, model)
-		if c.RecordDir != "" {
-			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
-		}
-
-		return client
-	}
-
-	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, factory)
+	c.initRunScheduler(s)
+	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, c.newClientFactory(s.workloadClassifier))
 	s.dispatcher = c.Dispatcher
 	s.guardrailDecisionStore = assistantPkg.NewGuardrailDecisionStore()
 
-	// Initialize Shell/Terminal Subsystem
+	// Shell/terminal subsystem, then the agent egress proxy (plan D2 / Phase 1):
+	// when sandboxing.egress_proxy > 0, run the loopback-only forward proxy and
+	// route agent tool + shell egress through it. Domain policy is built inside
+	// startEgressProxy from host settings — absent lists = allow-all.
 	shellManager, streamObserver := c.initShellOrchestrator(s)
-
-	// Agent egress proxy (plan D2 / Phase 1): when sandboxing.egress_proxy > 0,
-	// run the loopback-only forward proxy and route agent tool + shell egress
-	// through it. Domain policy (egress_allow/deny_domains) is built inside
-	// startEgressProxy from host settings — absent lists = allow-all. Started/
-	// stopped here — the single composition root.
 	egressProxyURL, egressEnv, err := startEgressProxy(s)
 	if err != nil {
 		logging.Warn("agent egress proxy disabled", "error", err.Error())
 	}
 
-	// Initialize unified tool providers and engines (Local Registry + Remote
-	// MCP). Services travel together in one deps struct (rule: ≤3 params).
+	// Unified tool providers and engines (Local Registry + Remote MCP). Services
+	// travel together in one deps struct (rule: ≤3 params).
 	s.toolProvider, s.engine, s.guardrailEngine = assistantPkg.InitializeAgentStack(
 		s.AppCtx,
 		s.nodeHerder,
@@ -147,6 +109,81 @@ func (c *Container) BuildAppServices() *AppServices {
 	)
 
 	return s
+}
+
+// newRecordingStore opens the per-run recording store, or nil when recording is
+// disabled (a store that cannot be prepared must not block startup).
+func (c *Container) newRecordingStore() *recordings.RecordingStore {
+	if c.RecordDir == "" {
+		return nil
+	}
+	store, err := recordings.NewRecordingStore(c.RecordDir)
+	if err != nil {
+		logging.Warn("Failed to init recording store", "dir", c.RecordDir, "error", err)
+		return nil
+	}
+	return store
+}
+
+// modelHost is the configured local model host, "" when no runtime is wired.
+func (c *Container) modelHost() string {
+	if c.Core.Runtime == nil {
+		return ""
+	}
+	return c.Core.Runtime.ModelHost()
+}
+
+// initRunScheduler builds the one run scheduler and wires everything that must
+// see it at boot: the container (automations), AppServices (chat), and the model
+// manager's residency guard — plus live reconfiguration on settings changes.
+func (c *Container) initRunScheduler(s *AppServices) {
+	cfg := c.Core.AppCtx.GetSettings().Scheduler
+	if cfg == nil {
+		def := models.DefaultSchedulerConfig()
+		cfg = &def
+	}
+	preempt := cfg.PreemptAutomations == nil || *cfg.PreemptAutomations
+	lane := runlane.New(runlane.Limits{Local: cfg.LocalConcurrency, Cloud: cfg.CloudConcurrency}, preempt)
+	// One scheduler for every admission path: the container serves automations
+	// (dispatcher) and AppServices serves chat (the handler's Lane()). Without
+	// this, chat runs skip the lane entirely — they record no holder, so the
+	// header run indicator stays hidden and chat preemption never happens.
+	c.RunLane = lane
+	s.runLane = lane
+	// The model manager refuses local-model evictions that would stop an admitted
+	// run or inbound caller — the lane is the single authority (runlane gate).
+	// Runtime is nil in some tests, so this is optional.
+	if setter, ok := c.Core.Runtime.(interface{ SetResidencyGuard(llm.ResidencyGuard) }); ok {
+		setter.SetResidencyGuard(s.gate())
+	}
+	c.Core.AppCtx.dataMgr.Settings().OnChange(func(set models.UserSettings) {
+		if set.Scheduler == nil {
+			return
+		}
+		lane.SetLimits(runlane.Limits{Local: set.Scheduler.LocalConcurrency, Cloud: set.Scheduler.CloudConcurrency})
+		lane.SetPreempt(set.Scheduler.PreemptAutomations == nil || *set.Scheduler.PreemptAutomations)
+	})
+}
+
+// newClientFactory routes each model to its client by the actual upstream
+// destination and artifact — a remote llama.cpp serving GGUF is a local workload
+// (SPEC-005) — and wraps every client in the recorder.
+func (c *Container) newClientFactory(classifier models.WorkloadClassifier) func(string, string, http.Header) proxy.Client {
+	return func(baseURL string, model string, headers http.Header) proxy.Client {
+		var client proxy.Client
+		if classifier.ClassifyClient(baseURL, model) {
+			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
+		} else {
+			client = proxy.NewLLMClient(baseURL, model, nil, headers)
+		}
+		// Always wrap in RecordingClient so a run-specific recording.jsonl is
+		// supported; the dir is only set when recording is globally enabled.
+		client = recorder.New(client, c.RecordDir, model)
+		if c.RecordDir != "" {
+			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
+		}
+		return client
+	}
 }
 
 // egressProxyUser is the Basic-auth username the agent credentials use; the
@@ -273,6 +310,8 @@ type AppServices struct {
 	logger                 logging.Logger
 	Clock                  utils.Clock
 	dispatcher             *automation.Dispatcher
+	runLane                *runlane.Scheduler
+	workloadClassifier     models.WorkloadClassifier
 	limiter                ratelimiter.Limiter
 	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
 	RecordingStore         *recordings.RecordingStore
@@ -496,14 +535,13 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
 func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.Dispatcher, error) {
-	persistenceMgr := svc.Persistence()
-
-	exec := c.BuildTaskExecutor(svc)
-
-	d, err := automation.NewDispatcher(persistenceMgr, exec, c.Infra.Logger,
-
-		automation.WithWorkerCount(1),
-	)
+	d, err := automation.NewDispatcher(automation.DispatcherDeps{
+		Persistence: svc.Persistence(),
+		Executor:    c.BuildTaskExecutor(svc),
+		Logger:      c.Infra.Logger,
+		Lane:        c.RunLane,
+		LaneKeyFor:  svc.LaneKeyFor,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -22,16 +22,16 @@ type runState struct {
 }
 
 type RecordingClient struct {
-	underlying   proxy.Client
-	recordDir    string
-	modelName    string
-	mu           sync.Mutex
-	states       map[string]*runState
-	dirs         map[string]string
-	currentDir   string // fallback/legacy
-	syncRunning  bool
-	stop         chan struct{}
-	stopOnce     sync.Once
+	underlying  proxy.Client
+	recordDir   string
+	modelName   string
+	mu          sync.Mutex
+	states      map[string]*runState
+	dirs        map[string]string
+	currentDir  string // fallback/legacy
+	syncRunning bool
+	stop        chan struct{}
+	stopOnce    sync.Once
 }
 
 // recordingSyncInterval is how often open recording files are fsynced. Chunks
@@ -248,7 +248,8 @@ func (rc *RecordingClient) ReasoningField() string {
 	return rc.underlying.ReasoningField()
 }
 
-func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {	if err := rc.ensureFile(ctx); err != nil {
+func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	if err := rc.ensureFile(ctx); err != nil {
 		return nil, err
 	}
 
