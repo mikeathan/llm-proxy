@@ -87,6 +87,7 @@ const SCHEDULER_DEFAULTS: SchedulerConfig = {
   cloud_concurrency: 3,
   preempt_automations: true,
   inbound_wait_seconds: 60,
+  inbound_wait_by_default: false,
   inbound_max_queued: 32,
   inbound_preempt: false,
 };
@@ -113,10 +114,17 @@ const preemptAutomations = computed({
 });
 
 // Inbound admission for external /v1 callers. Seconds: 0 refuses immediately,
-// -1 waits indefinitely (still bounded by the queue depth).
+// -1 waits indefinitely (still bounded by the queue depth). A caller that asks
+// with X-Queue-Wait is capped at this; a caller that doesn't ask is only parked
+// when the parking toggle below is on.
 const inboundWaitSeconds = computed({
   get: () => props.editConfig.scheduler?.inbound_wait_seconds ?? SCHEDULER_DEFAULTS.inbound_wait_seconds,
   set: (val: number) => updateScheduler({ inbound_wait_seconds: Math.max(-1, Math.floor(val) || 0) }),
+});
+
+const inboundWaitByDefault = computed({
+  get: () => props.editConfig.scheduler?.inbound_wait_by_default ?? SCHEDULER_DEFAULTS.inbound_wait_by_default,
+  set: (val: boolean) => updateScheduler({ inbound_wait_by_default: val }),
 });
 
 const inboundMaxQueued = computed({
@@ -400,8 +408,8 @@ function handleRestart() {
             <label class="form-label">External Model Requests</label>
             <div class="form-helper">
               An external client (another proxy, a tool) asking for a different local model would otherwise
-              stop the running one. Instead it waits, or is told to retry — a run is never interrupted unless
-              you serve the request from the run indicator yourself.
+              stop the running one. It is told to retry instead — a run is never interrupted unless you serve
+              the request from the run indicator yourself, where parked requests appear and can be dismissed.
             </div>
             <div class="flex items-center gap-6 mt-2 flex-wrap">
               <label class="flex items-center gap-2 w-fit">
@@ -414,6 +422,14 @@ function handleRestart() {
                   class="form-input w-20"
                 />
                 <span class="text-sm text-gray-300">seconds (0 = refuse, -1 = no limit)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  v-model="inboundWaitByDefault"
+                  class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
+                />
+                <span class="text-sm text-gray-300">Park requests that don't ask to wait</span>
               </label>
               <label class="flex items-center gap-2 w-fit">
                 <span class="text-sm text-gray-300">Queue depth</span>

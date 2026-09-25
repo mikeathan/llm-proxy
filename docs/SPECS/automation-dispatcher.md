@@ -173,9 +173,14 @@ eviction is now a **decided** act, not a side effect:
   evict each other.
 - **The manager refuses, the transport explains.** `GetInstance` returns
   `llm.ErrLocalModelBusy` for a refused eviction; the proxy handler answers
-  `409` + `X-LLM-Status: busy`, or `202` + `queued` when a wait ended unserved, with
-  a body naming the model in the way and `Retry-After`. A client asks to wait with
-  `X-Queue-Wait: N`; without it the caller is refused rather than held.
+  **`429` + `X-LLM-Status: busy`** (refused) or **`429` + `queued`** (parked but
+  the wait ended unserved), both with `Retry-After` and a body naming the model
+  in the way — the standard "busy, back off" pair, which OpenAI-compatible
+  clients already retry on (409/202 were used before 2026-09-25 and are still
+  recognized by this proxy's client for mixed-version deployments). A caller with no
+  `X-Queue-Wait` header is parked for `inbound_wait_seconds` only when the host
+  enabled `inbound_wait_by_default`; otherwise it is refused (an unsolicited
+  connection is never held). An explicit `X-Queue-Wait: 0` refuses immediately.
 - **Nothing is evicted on a caller's behalf.** Only the operator's
   `POST /admin/api/queue/{key}/promote` (and the opt-in `inbound_preempt` host
   policy, default off) cancels the blocking run — and the waiter is granted only
@@ -185,9 +190,13 @@ eviction is now a **decided** act, not a side effect:
   returned to the caller in the busy/queued answer. The operator's
   `POST /admin/api/queue/{key}/cancel` is the same drop behind admin auth.
 - **Settings** (`settings.yml → scheduler`, live): `inbound_wait_seconds`
-  (default 60; `0` refuses immediately, `-1` unbounded), `inbound_max_queued`
-  (default 32, always enforced so an unbounded wait cannot hold unbounded
-  connections), `inbound_preempt` (default false).
+  (default 60) caps a wait a caller requests with `X-Queue-Wait` and is the park
+  duration for a header-less caller (`0` refuses immediately, `-1` unbounded);
+  `inbound_wait_by_default` (default **false**) parks header-less callers instead
+  of refusing them — parked callers appear in the run-activity panel where the
+  operator can serve or dismiss them;
+  `inbound_max_queued` (default 32, always enforced so an unbounded wait cannot
+  hold unbounded connections); `inbound_preempt` (default false).
 - **Held lane** — while the gate holds an entry the local lane suspends queued
   starts, so a preempted scheduled run is re-queued but does not restart ahead of
   the caller the operator promoted.

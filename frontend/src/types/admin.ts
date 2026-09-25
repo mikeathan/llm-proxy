@@ -189,8 +189,13 @@ export interface SchedulerConfig {
   cloud_concurrency: number
   preempt_automations: boolean
   // Inbound admission for external /v1 callers asking for a local model.
-  // seconds a caller may wait: 0 refuses immediately, -1 waits indefinitely.
+  // Wait budget in seconds: the cap on a caller-requested X-Queue-Wait, and
+  // the park duration when inbound_wait_by_default is on. 0 refuses
+  // immediately, -1 waits indefinitely.
   inbound_wait_seconds?: number
+  // Park a caller that sends no X-Queue-Wait header (for up to
+  // inbound_wait_seconds) instead of refusing it. Off by default.
+  inbound_wait_by_default?: boolean
   // How many callers may wait at once (always enforced).
   inbound_max_queued?: number
   // Whether a contended caller may cancel the run holding the model. Off by

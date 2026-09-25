@@ -24,8 +24,13 @@ const ModelStatusStarting = "starting"
 // model a run is using is answered instead of served:
 //
 //   - ModelStatusBusy: refused right now — the caller may retry (Retry-After).
-//   - ModelStatusQueued: accepted but not served; the wait ended without the
-//     model becoming free, so the caller may retry or give up.
+//   - ModelStatusQueued: the caller was parked, but the wait ended unserved —
+//     nothing was accepted for later processing, so the caller retries or gives up.
+//
+// Both answers go out as HTTP 429 + Retry-After: the standard "busy, back off"
+// signal, which OpenAI-compatible clients already retry on. (409/202 were used
+// before 2026-09-25; this proxy's client still recognizes them for
+// mixed-version deployments.)
 const (
 	ModelStatusBusy   = "busy"
 	ModelStatusQueued = "queued"

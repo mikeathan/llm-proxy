@@ -21,9 +21,10 @@ import (
 // The gate (the run scheduler's model-residency gate, injected at the
 // composition root) decides; this file only spells the wire behaviour.
 const (
-	// queueWaitHeader is the caller's declared patience, in seconds. Absent or
-	// 0 means "do not wait" — the caller is refused rather than held, which
-	// keeps ordinary OpenAI clients from having connections parked.
+	// queueWaitHeader is the caller's declared patience, in seconds. Absent
+	// means "the host decides": the caller is parked up to InboundWaitSeconds
+	// only when the host enabled inbound_wait_by_default, and refused
+	// otherwise. An explicit 0 means "do not wait" — refused rather than held.
 	queueWaitHeader = "X-Queue-Wait"
 	// retryAfterSeconds tells a refused caller when to come back. A guess is
 	// honest here: nothing can predict when the running work ends.
@@ -48,19 +49,22 @@ type InboundRequest struct {
 	Active string // local model currently served ("" when none)
 	Key    string // stable identity: cancel/dismiss handle and UI row key
 	Label  string // human label for the UI
-	// Wait is the caller's effective budget in seconds, already clamped by
+	// Wait is the caller's effective budget in seconds, resolved by
 	// WaitSeconds. 0 means it must be served now or refused; negative is
-	// unbounded.
+	// unbounded. A caller that sent no header gets the host's park policy here
+	// (0 when inbound_wait_by_default is off).
 	Wait int
 }
 
 // InboundGate admits external /v1 callers to the local model. Implemented by the
 // composition root over the run scheduler + host settings.
 type InboundGate interface {
-	// WaitSeconds clamps a caller's requested wait to host policy: 0 refuses
-	// immediately, -1 waits without a budget, otherwise at most that many
-	// seconds.
-	WaitSeconds(requested int) int
+	// WaitSeconds resolves a caller's effective wait in seconds. A caller that
+	// sent an explicit X-Queue-Wait (present=true) is clamped to the host cap;
+	// one that sent no header is parked for InboundWaitSeconds only when the
+	// host enabled inbound_wait_by_default, and refused otherwise. Either way
+	// 0 refuses immediately and -1 waits without a budget.
+	WaitSeconds(requested int, present bool) int
 	// Wait admits req, blocking while the local model is in use. It returns a
 	// release that must be called when the caller has finished using the model,
 	// or an error: ErrInboundBusy / ErrInboundQueueFull, ctx.Err() when the
@@ -74,17 +78,18 @@ type InboundGate interface {
 	Cancel(key string) bool
 }
 
-// parseQueueWait reads the caller's patience from the request header. An absent
-// or malformed value means "do not wait".
-func parseQueueWait(raw string) int {
+// parseQueueWait reads the caller's patience from the request header. It
+// reports false when the header is absent, so the caller inherits the host
+// default; a present but malformed or negative value means "do not wait".
+func parseQueueWait(raw string) (int, bool) {
 	if strings.TrimSpace(raw) == "" {
-		return 0
+		return 0, false
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || n < 0 {
-		return 0
+		return 0, true
 	}
-	return n
+	return n, true
 }
 
 // isLocalModel reports whether the request targets a manager-launched local
@@ -120,6 +125,7 @@ type inboundAnswer struct {
 // writeInboundStatus answers a caller whose request was deliberately not served,
 // on the same X-LLM-Status + Retry-After channel as the "starting" handshake.
 func writeInboundStatus(w http.ResponseWriter, a inboundAnswer) {
+	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
 	w.Header().Set("X-LLM-Status", a.llmStatus)
 	w.WriteHeader(a.httpStatus)
@@ -192,18 +198,20 @@ func (h *ProxyHandlers) admitInbound(w http.ResponseWriter, r *http.Request, mod
 	case err == nil:
 		return release, true
 	case errors.Is(err, ErrInboundBusy), errors.Is(err, ErrInboundQueueFull):
-		// Refused, not held: the caller may come back.
+		// Refused, not held. 429 + Retry-After is the standard "busy, back off"
+		// answer — OpenAI-compatible clients already retry on it.
 		writeInboundStatus(w, inboundAnswer{
-			httpStatus: http.StatusConflict, llmStatus: models.ModelStatusBusy,
+			httpStatus: http.StatusTooManyRequests, llmStatus: models.ModelStatusBusy,
 			model: model, message: busyMessage(model, active),
 		})
 		return nil, false
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, runlane.ErrModelWaitCancelled), errors.Is(err, runlane.ErrClosed):
 		// The wait ended without the model freeing (or the host is going down):
-		// the caller was deliberately not served and may retry.
+		// the parked entry was dropped, nothing was accepted for later
+		// processing — so this is "retry" (429), not "accepted" (202).
 		writeInboundStatus(w, inboundAnswer{
-			httpStatus: http.StatusAccepted, llmStatus: models.ModelStatusQueued,
-			model: model, message: busyMessage(model, active),
+			httpStatus: http.StatusTooManyRequests, llmStatus: models.ModelStatusQueued,
+			model: model, message: queuedMessage(model, active),
 		})
 		return nil, false
 	default:
@@ -220,4 +228,16 @@ func busyMessage(model, active string) string {
 		return "the local model is in use by a running job; " + model + " is not served meanwhile"
 	}
 	return "the local model is serving " + active + " for a running job; " + model + " would interrupt it"
+}
+
+// queuedMessage explains a parked caller whose wait expired without the model
+// becoming free. It is deliberately different from busyMessage: the caller did
+// wait, so "would interrupt it" would be wrong — nothing was accepted for later
+// processing.
+func queuedMessage(model, active string) string {
+	if active == "" {
+		return "the wait for the local model ended before it became available; " + model + " was not served"
+	}
+	return "waited as long as allowed; the local model is still serving " + active +
+		" for a running job, so " + model + " was not served"
 }

@@ -78,9 +78,10 @@ const (
 	// the model is ready instead of failing the run.
 	RetryReasonModelStarting RetryReason = "model_starting"
 	// RetryReasonModelBusy is an upstream proxy's deliberate refusal to switch
-	// the local model while a run is using it (HTTP 409 busy / 202 queued, with
-	// an explanation in the body). The run holding the model is protected on
-	// purpose, so this is reported, not retried as a transient fault.
+	// the local model while a run is using it (HTTP 429 busy/queued, with an
+	// explanation in the body; legacy 409/202 still recognized). The run
+	// holding the model is protected on purpose, so this is reported before
+	// the transient-retry classification — never blind-retried.
 	RetryReasonModelBusy RetryReason = "model_busy"
 )
 
@@ -414,10 +415,14 @@ const inboundStatusHeader = "X-LLM-Status"
 // proxy's deliberate "the model you asked for is in use by a run" answer, and
 // "" when it is anything else. It is not a fault — the run holding the model is
 // protected on purpose — so the caller reports it with its own reason instead of
-// retrying it as a transient error. Body status is accepted too, since a
-// non-proxy upstream may echo it.
+// retrying it as a transient error. 429 (Too Many Requests) is the contract
+// status; 409/202 are still recognized for mixed-version deployments that
+// predate it. Body status is accepted too, since a non-proxy upstream may echo
+// it.
 func inboundBusyDetail(resp *http.Response, body string) string {
-	if resp.StatusCode != http.StatusConflict && resp.StatusCode != http.StatusAccepted {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests, http.StatusConflict, http.StatusAccepted:
+	default:
 		return ""
 	}
 	busy := func(status string) bool {
@@ -545,25 +550,27 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 			}
 			continue
 		}
-		if !IsRetryableResponse(resp.StatusCode, httpErr.Body) {
-			// A proxy refusing to evict a model in use is a deliberate answer with
-			// its own reason, not a generic upstream error: report which run is in
-			// the way, then let the caller decide.
-			if detail := inboundBusyDetail(resp, httpErr.Body); detail != "" {
-				logging.Warn("upstream local model is in use by a run",
-					"model", c.model, "url", url, "kind", kind,
-					"status", resp.StatusCode, "detail", detail)
-				if observer != nil {
-					observer(RetryInfo{
-						Reason:    RetryReasonModelBusy,
-						Attempt:   attempt + 1,
-						Status:    resp.StatusCode,
-						Error:     detail,
-						ElapsedMs: time.Since(start).Milliseconds(),
-					})
-				}
-				return nil, httpErr
+		// A proxy refusing to evict a model in use is a deliberate answer with
+		// its own reason, not a transient fault — checked BEFORE the generic
+		// retryable-status path, because 429 is otherwise blind-retried: it
+		// would keep failing while the run holds the model, and the server's
+		// explanation must be reported instead.
+		if detail := inboundBusyDetail(resp, httpErr.Body); detail != "" {
+			logging.Warn("upstream local model is in use by a run",
+				"model", c.model, "url", url, "kind", kind,
+				"status", resp.StatusCode, "detail", detail)
+			if observer != nil {
+				observer(RetryInfo{
+					Reason:    RetryReasonModelBusy,
+					Attempt:   attempt + 1,
+					Status:    resp.StatusCode,
+					Error:     detail,
+					ElapsedMs: time.Since(start).Milliseconds(),
+				})
 			}
+			return nil, httpErr
+		}
+		if !IsRetryableResponse(resp.StatusCode, httpErr.Body) {
 			logging.Warn("LLM upstream non-retryable error",
 				"model", c.model, "url", url, "kind", kind,
 				"status", resp.StatusCode, "error", httpErr.Error())

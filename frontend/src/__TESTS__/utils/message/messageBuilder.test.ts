@@ -196,12 +196,14 @@ describe('useMessageBuilder upstream notices', () => {
     const builder = useMessageBuilder(messages)
 
     const detail = 'the local model is serving a for a running job; b would interrupt it'
-    builder.handleEvent(upstreamEvent({ reason: 'model_busy', status: 409, error: detail }))
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', status: 429, error: detail }))
 
     const notice = lastSegments(messages)[0]
     expect(notice?.kind === 'notice' ? notice.message : undefined).toContain(detail)
     if (notice?.kind === 'notice') {
-      expect(notice.message).not.toContain('409')
+      // The server detail stands alone — no second "model in use" prefix.
+      expect(notice.message).toBe(detail)
+      expect(notice.message).not.toContain('429')
       expect(notice.message).not.toContain('Upstream retrying')
     }
   })
@@ -210,7 +212,7 @@ describe('useMessageBuilder upstream notices', () => {
     const messages = ref<AssistantMessage[]>([])
     const builder = useMessageBuilder(messages)
 
-    builder.handleEvent(upstreamEvent({ reason: 'model_busy', status: 409 }))
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', status: 429 }))
 
     const notice = lastSegments(messages)[0]
     expect(notice?.kind === 'notice' ? notice.message : undefined).toBe(MODEL_BUSY_NOTICE)

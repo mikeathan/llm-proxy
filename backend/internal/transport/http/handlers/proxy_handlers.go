@@ -245,15 +245,17 @@ func (h *ProxyHandlers) writeEnsureModelError(w http.ResponseWriter, model strin
 	case err == nil:
 		return false
 	case errors.Is(err, models.ErrModelStarting):
+		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "1")
 		w.Header().Set("X-LLM-Status", models.ModelStatusStarting)
 		w.WriteHeader(http.StatusAccepted)
 		w.Write([]byte(fmt.Sprintf(`{"status":%q}`, models.ModelStatusStarting)))
 	case errors.Is(err, llm.ErrLocalModelBusy):
 		// A run admitted between the gate's approval and this call owns the
-		// model now: report busy rather than a 500, and never evict it.
+		// model now: report busy rather than a 500, and never evict it. Same
+		// 429 + Retry-After answer as the gate's own refusal.
 		writeInboundStatus(w, inboundAnswer{
-			httpStatus: http.StatusConflict, llmStatus: models.ModelStatusBusy,
+			httpStatus: http.StatusTooManyRequests, llmStatus: models.ModelStatusBusy,
 			model: model, message: busyMessage(model, h.activeLocalModel()),
 		})
 	default:

@@ -186,11 +186,15 @@ The same `runlane` gate arbitrates **model residency**, not just lane slots: the
 slot serves one model at a time, so a request for a different model would otherwise stop
 the running server and kill any run using it. `LLMRuntimeManager.GetInstance` refuses the
 switch when a run or inbound caller still holds the model (`llm.ErrLocalModelBusy`), and
-the gate queues the caller instead. External `/v1` callers opt into waiting with
-`X-Queue-Wait: N` (else refused `409` + `X-LLM-Status: busy`); nothing evicts on a
-caller's behalf — only the operator's promote (`POST /admin/api/queue/{key}/promote`) or
-the opt-in `inbound_preempt` policy cancels the blocker, and the waiter is granted only
-after it unwinds. While the gate holds an entry, the local lane suspends queued starts
-(or a re-queued automation instantly re-takes the model ahead of the caller). Settings:
-`inbound_wait_seconds`, `inbound_max_queued`, `inbound_preempt`. Full contract: SPEC-007
-§V.1.
+the gate queues the caller instead. A caller that asks with `X-Queue-Wait: N` parks up to
+`inbound_wait_seconds`; a caller with no header parks only when the host enabled
+`inbound_wait_by_default` (default off — refused `429` + `X-LLM-Status: busy` +
+`Retry-After`, explicit `X-Queue-Wait: 0` always refuses). Parked callers surface in the
+run-activity panel
+(Serve now / Dismiss) and can cancel out of band. Nothing evicts on a caller's behalf —
+only the operator's promote (`POST /admin/api/queue/{key}/promote`) or the opt-in
+`inbound_preempt` policy cancels the blocker, and the waiter is granted only after it
+unwinds. While the gate holds an entry, the local lane suspends queued starts (or a
+re-queued automation instantly re-takes the model ahead of the caller). Settings:
+`inbound_wait_seconds`, `inbound_wait_by_default`, `inbound_max_queued`,
+`inbound_preempt`. Full contract: SPEC-007 §V.1.

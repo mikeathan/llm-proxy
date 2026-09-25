@@ -37,11 +37,21 @@ func (g laneGate) BlockedBy(active, requested, callerKey string) string {
 	return res.BlockedBy.Key
 }
 
-// WaitSeconds implements handlers.InboundGate: it clamps a caller's requested
-// wait to host policy — 0 refuses immediately, -1 waits without a budget,
-// otherwise at most that many seconds.
-func (g laneGate) WaitSeconds(requested int) int {
-	limit := g.settings().InboundWait()
+// WaitSeconds implements handlers.InboundGate: it resolves a caller's effective
+// wait in seconds. A caller that sent an explicit X-Queue-Wait is clamped to the
+// host cap. A caller that sent no header is parked for InboundWaitSeconds only
+// when the host enabled inbound_wait_by_default — otherwise it is refused:
+// an unsolicited connection is never held on its behalf. Either way 0 refuses
+// immediately and -1 waits without a budget.
+func (g laneGate) WaitSeconds(requested int, present bool) int {
+	cfg := g.settings()
+	limit := cfg.InboundWait()
+	if !present {
+		if !cfg.InboundMayPark() {
+			return 0
+		}
+		return limit
+	}
 	if limit == 0 || requested <= 0 {
 		return 0
 	}
@@ -56,11 +66,11 @@ func (g laneGate) WaitSeconds(requested int) int {
 func (g laneGate) Cancel(key string) bool { return g.lane.CancelModelWait(key) }
 
 // Wait implements handlers.InboundGate. It admits a caller immediately when the
-// switch is harmless, otherwise by queueing it behind the run using the model. A
-// caller with no budget is refused rather than held — an ordinary OpenAI client
-// must never have a connection parked on its behalf. Queue depth is enforced
-// here so an unlimited wait cannot become unbounded held connections; the
-// caller's own ctx bounds the rest.
+// switch is harmless, otherwise by queueing it behind the run using the model.
+// A caller whose resolved budget is 0 (explicit X-Queue-Wait: 0, or
+// inbound_wait_seconds: 0) is refused rather than held; every other caller
+// waits within its budget. Queue depth is enforced here so an unlimited wait
+// cannot become unbounded held connections; the caller's own ctx bounds the rest.
 func (g laneGate) Wait(ctx context.Context, req handlers.InboundRequest) (func(), error) {
 	cfg := g.settings()
 	claim := runlane.ModelClaim{Active: req.Active, Requested: req.Model, Key: req.Key, Label: req.Label}

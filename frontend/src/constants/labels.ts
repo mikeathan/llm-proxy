@@ -25,6 +25,5 @@ export const UPSTREAM_RETRYING_TEMPLATE = 'Upstream retrying ({attempt}/{max}) �
 export const MODEL_STARTING_NOTICE = 'Model is starting — waiting for it to become ready'
 // A remote proxy refused to serve this request because a run is using the model
 // it would have to stop. Not a fault: the run is protected on purpose.
-export const MODEL_BUSY_TEMPLATE = 'Model in use by a running job — {detail}'
 export const MODEL_BUSY_NOTICE = 'Model in use by a running job — this request was not served'
 export const TRANSPORT_ERROR_LABEL = 'transport error'

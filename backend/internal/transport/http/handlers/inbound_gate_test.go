@@ -32,7 +32,10 @@ func (g *fakeGate) Cancel(key string) bool {
 	return g.cancelFound
 }
 
-func (g *fakeGate) WaitSeconds(requested int) int {
+func (g *fakeGate) WaitSeconds(requested int, present bool) int {
+	if !present {
+		return g.maxWait
+	}
 	if g.maxWait == 0 || requested <= 0 {
 		return 0
 	}
@@ -90,7 +93,7 @@ func liveUpstream(t *testing.T) (local llm.ModelInstance, endpoint string) {
 	return llm.ModelInstance{Host: u.Hostname(), Port: port}, srv.URL
 }
 
-func TestInbound_RefusedWhenModelIsInUseAndNoBudget(t *testing.T) {
+func TestInbound_RefusedWhenTheCallerWillNotWait(t *testing.T) {
 	rt := &fakeRuntime{
 		models:     []models.ModelConfig{localModel("a"), localModel("b")},
 		activeInfo: &llm.ActiveModelInfo{Name: "a"},
@@ -99,10 +102,10 @@ func TestInbound_RefusedWhenModelIsInUseAndNoBudget(t *testing.T) {
 	h.SetInboundGate(&fakeGate{maxWait: 60, err: ErrInboundBusy})
 
 	rec := httptest.NewRecorder()
-	h.EnsureModelProxyHandler(rec, inboundRequest("b", ""))
+	h.EnsureModelProxyHandler(rec, inboundRequest("b", "0"))
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429: %s", rec.Code, rec.Body.String())
 	}
 	if got := rec.Header().Get("X-LLM-Status"); got != models.ModelStatusBusy {
 		t.Fatalf("X-LLM-Status = %q, want %q", got, models.ModelStatusBusy)
@@ -110,12 +113,43 @@ func TestInbound_RefusedWhenModelIsInUseAndNoBudget(t *testing.T) {
 	if rec.Header().Get("Retry-After") == "" {
 		t.Fatal("a refused caller needs Retry-After to know it may come back")
 	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
 	if !strings.Contains(rec.Body.String(), "a") {
 		t.Fatalf("body should name the model being served, got %s", rec.Body.String())
 	}
 	// The whole point: the running model is never evicted on a refusal.
 	if rt.ensureCalls != 0 {
 		t.Fatalf("EnsureModel called %d times, want 0 (must not evict)", rt.ensureCalls)
+	}
+}
+
+// A caller that sends no X-Queue-Wait header gets whatever budget the gate's
+// park policy resolves: when it resolves a hold, the caller is parked and
+// answered "queued" when the wait is spent, instead of being refused.
+func TestInbound_AbsentHeaderIsHeldWhenTheGateParksIt(t *testing.T) {
+	rt := &fakeRuntime{
+		models:     []models.ModelConfig{localModel("a"), localModel("b")},
+		activeInfo: &llm.ActiveModelInfo{Name: "a"},
+	}
+	h := NewProxyHandlers(rt)
+	h.SetInboundGate(&fakeGate{maxWait: 1, block: true})
+
+	rec := httptest.NewRecorder()
+	h.EnsureModelProxyHandler(rec, inboundRequest("b", ""))
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 once the park budget is spent: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("X-LLM-Status"); got != models.ModelStatusQueued {
+		t.Fatalf("X-LLM-Status = %q, want %q", got, models.ModelStatusQueued)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "waited as long as allowed") {
+		t.Fatalf("a parked caller's expired answer must say it waited, got %s", body)
+	}
+	if rt.ensureCalls != 0 {
+		t.Fatalf("EnsureModel called %d times, want 0 (never served)", rt.ensureCalls)
 	}
 }
 
@@ -159,8 +193,8 @@ func TestInbound_BudgetExpiryAnswersQueued(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("waited %v, want the caller's 1s budget honoured", elapsed)
 	}
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, want 202: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429: %s", rec.Code, rec.Body.String())
 	}
 	if got := rec.Header().Get("X-LLM-Status"); got != models.ModelStatusQueued {
 		t.Fatalf("X-LLM-Status = %q, want %q", got, models.ModelStatusQueued)
@@ -208,8 +242,8 @@ func TestInbound_BusyFromTheModelManagerAnswersBusy(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.EnsureModelProxyHandler(rec, inboundRequest("b", ""))
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429: %s", rec.Code, rec.Body.String())
 	}
 	if got := rec.Header().Get("X-LLM-Status"); got != models.ModelStatusBusy {
 		t.Fatalf("X-LLM-Status = %q, want %q", got, models.ModelStatusBusy)
@@ -236,12 +270,21 @@ func TestInbound_WithoutAGateRequestsAreUnchanged(t *testing.T) {
 }
 
 func TestParseQueueWait(t *testing.T) {
-	cases := map[string]int{
-		"": 0, "0": 0, "30": 30, "-5": 0, "abc": 0, " 12 ": 12,
+	cases := map[string]struct {
+		want    int
+		present bool
+	}{
+		"":     {0, false},
+		"0":    {0, true},
+		"30":   {30, true},
+		"-5":   {0, true},
+		"abc":  {0, true},
+		" 12 ": {12, true},
 	}
 	for raw, want := range cases {
-		if got := parseQueueWait(raw); got != want {
-			t.Fatalf("parseQueueWait(%q) = %d, want %d", raw, got, want)
+		got, present := parseQueueWait(raw)
+		if got != want.want || present != want.present {
+			t.Fatalf("parseQueueWait(%q) = (%d, %v), want (%d, %v)", raw, got, present, want.want, want.present)
 		}
 	}
 }
