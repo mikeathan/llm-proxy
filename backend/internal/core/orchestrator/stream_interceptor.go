@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	proseTokenRatio = 0.5
-	codeTokenRatio  = 1.0
+	proseTokenRatio   = 0.5
+	codeTokenRatio    = 1.0
 	rollingWindowSize = 200
 )
 

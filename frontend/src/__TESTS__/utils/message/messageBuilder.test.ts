@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ref } from 'vue'
-import { MODEL_STARTING_NOTICE } from '../../../constants/labels'
+import { MODEL_BUSY_NOTICE, MODEL_STARTING_NOTICE } from '../../../constants/labels'
 import { useMessageBuilder } from '../../../utils/message/messageBuilder'
 import type { AssistantMessage, Segment } from '../../../types/assistant'
 import type { AgentEvent } from '../../../types/dispatcher'
@@ -47,7 +47,7 @@ describe('useMessageBuilder still_thinking lifecycle', () => {
   })
 })
 
-function upstreamEvent(overrides: Partial<{ attempt: number, max_attempts: number, reason: 'transport' | 'status' | 'model_starting', status: number, error: string, err_class: string }> = {}): AgentEvent {
+function upstreamEvent(overrides: Partial<{ attempt: number, max_attempts: number, reason: 'transport' | 'status' | 'model_starting' | 'model_busy', status: number, error: string, err_class: string }> = {}): AgentEvent {
   return {
     type: 'upstream',
     payload: {
@@ -189,6 +189,31 @@ describe('useMessageBuilder upstream notices', () => {
       expect(notice.message).not.toContain('1/0')
       expect(notice.message).not.toContain('transport')
     }
+  })
+
+  it('explains a busy model with the server detail instead of a status code', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    const detail = 'the local model is serving a for a running job; b would interrupt it'
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', status: 409, error: detail }))
+
+    const notice = lastSegments(messages)[0]
+    expect(notice?.kind === 'notice' ? notice.message : undefined).toContain(detail)
+    if (notice?.kind === 'notice') {
+      expect(notice.message).not.toContain('409')
+      expect(notice.message).not.toContain('Upstream retrying')
+    }
+  })
+
+  it('states a busy model without a detail rather than showing nothing', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', status: 409 }))
+
+    const notice = lastSegments(messages)[0]
+    expect(notice?.kind === 'notice' ? notice.message : undefined).toBe(MODEL_BUSY_NOTICE)
   })
 })
 

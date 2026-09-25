@@ -28,6 +28,11 @@ export const API_ENDPOINTS = {
   processes: `${API_BASE}/runtime/processes`,
   connectorWebhook: (name: string) => `${API_BASE}/connectors/${encodeURIComponent(name)}/webhook`,
   activeRuns: (workspaceId: string) => `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/active-runs`,
+  activeRunsGlobal: `${API_BASE}/active-runs`,
+  // Operator actions on a queued inbound caller (external /v1 request waiting
+  // for the local model): serve it now, or drop it.
+  queuePromote: (key: string) => `${API_BASE}/queue/${encodeURIComponent(key)}/promote`,
+  queueCancel: (key: string) => `${API_BASE}/queue/${encodeURIComponent(key)}/cancel`,
 } as const
 
 // Polling interval in milliseconds for state/metrics refresh

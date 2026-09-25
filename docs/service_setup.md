@@ -121,6 +121,18 @@ journalctl -u llm-proxy.service -f
   persistent failure stops the unit after 5 attempts within 5 minutes.
 - `MemoryDenyWriteExecute=true` is safe for the Go binary; remove it only if a
   future embedded runtime needs executable-mapping memory.
+- `SystemCallFilter=@system-service` additionally lists the three Landlock
+  syscalls — `landlock_create_ruleset`, `landlock_add_rule`,
+  `landlock_restrict_self`. The agent OS-sandboxing layer probes Landlock at
+  boot and jails every agent child with it, and not every systemd release
+  includes those calls in `@system-service`. systemd's default action on a
+  non-allowlisted syscall is to **kill** the process (it does not return an
+  error), so a missing entry crash-loops the unit at startup:
+  `Main process exited, code=dumped, status=31/SYS` (`SIGSYS`) right after
+  `Host Shell Manager initialized successfully`. Check what your systemd allows
+  with `systemd-analyze syscall-filter @system-service | grep landlock`; if it
+  prints nothing, the explicit entries are what keep the service alive. Listing
+  syscalls already present in the group is harmless.
 - The service listens on an unprivileged port (:4001 default), so it needs no
   capabilities (`CapabilityBoundingSet=` is empty by design).
 - Check effective hardening any time with:

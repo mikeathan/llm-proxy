@@ -98,7 +98,6 @@ func (m *Orchestrator) Close() {
 	m.clients = make(map[string]*Client)
 }
 
-
 func (m *Orchestrator) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	m.mu.RLock()
 	clients := make([]*Client, 0, len(m.clients))

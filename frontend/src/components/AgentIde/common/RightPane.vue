@@ -19,6 +19,8 @@ defineProps<{
   assistantSessions: SessionBrief[]
   loading: boolean
   metrics: DispatcherMetrics | null
+  // Label of the run occupying the lane while a chat waits for a slot.
+  laneWaitingLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -60,6 +62,9 @@ const emit = defineEmits<{
       </BaseButton>
       <p v-if="!selectedAutomation" class="action-helper">
         Select an automation to enable execution
+      </p>
+      <p v-if="laneWaitingLabel" class="action-helper">
+        Waiting for {{ laneWaitingLabel }} to finish
       </p>
     </div>
 

@@ -204,6 +204,7 @@ type adminConfigView struct {
 	LoopStrategyOptions  []string                       `json:"loop_strategy_options"`
 	SearchProviders      []string                       `json:"search_providers"`
 	RunLogging           *models.RunLoggingConfig       `json:"run_logging,omitempty"`
+	Scheduler            *models.SchedulerConfig        `json:"scheduler,omitempty"`
 }
 
 type adminSystemView struct {
@@ -350,6 +351,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			LoopStrategyOptions: assistant.RegisteredLoopStrategyNames(),
 			// Backend-driven search-provider option list (canonical enum order).
 			SearchProviders: searchProviderOptions(),
+			Scheduler:       settings.Scheduler,
 			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}

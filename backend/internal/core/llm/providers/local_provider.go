@@ -155,7 +155,7 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 	logBuf := logging.NewBufferLogger(logBufferSize)
 	tokens := metrics.NewTokenTracker()
 	procCtx, cancel := context.WithCancel(context.Background())
-	
+
 	// Pre-flight check: ensure the model path is valid before attempting launch
 	if err := ValidateModelPath(p.cfg.Path); err != nil {
 		cancel()
@@ -163,10 +163,10 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 	}
 
 	args := BuildLaunchArgs(p.cfg, p.host)
-	logging.Info("Starting local model (discovery)", 
-		"model", p.cfg.Name, 
-		"binary", p.llamaBinary, 
-		"args", args, 
+	logging.Info("Starting local model (discovery)",
+		"model", p.cfg.Name,
+		"binary", p.llamaBinary,
+		"args", args,
 		"env", p.cfg.Environment)
 
 	freePort(p.cfg.Port)

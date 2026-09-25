@@ -107,7 +107,7 @@ func TestBuildToleratesUnkeyedModel(t *testing.T) {
 	r := providers.NewProviderRegistrar(providers.GetRegistry(), secrets, "127.0.0.1")
 
 	p, err := r.Build(models.ModelConfig{
-		Provider: "nvidia",
+		Provider:       "nvidia",
 		ProviderConfig: &models.ProviderConfig{},
 	})
 	if err != nil {

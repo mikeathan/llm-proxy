@@ -1,5 +1,10 @@
 package models
 
+import (
+	"errors"
+	"fmt"
+)
+
 const (
 	AddrAllInterfaces     = "0.0.0.0"
 	AddrLocalhost         = "127.0.0.1"
@@ -71,6 +76,7 @@ type UserSettings struct {
 	Guardrails     *AgentGuardrailsConfig   `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
 	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Scheduler      *SchedulerConfig         `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	RunOutput      *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 }
 
@@ -102,6 +108,119 @@ func DefaultMemoryConfig() MemoryConfig {
 	}
 }
 
+// SchedulerConfig holds the run-scheduler knobs: per-workload-class
+// concurrency limits, whether interactive claims may preempt running
+// automations, and how external /v1 callers are admitted to the local model.
+//
+// The inbound fields are pointers because a settings.yml that already has a
+// `scheduler:` block is not backfilled per field (only the whole block is) — a
+// plain int would read as "explicitly zero" when it was simply absent. The two
+// concurrency limits are plain ints because zero is not a meaningful value for
+// them: Validate rejects it and the runtime clamps to 1.
+type SchedulerConfig struct {
+	LocalConcurrency   int   `yaml:"local_concurrency,omitempty" json:"local_concurrency,omitempty"`
+	CloudConcurrency   int   `yaml:"cloud_concurrency,omitempty" json:"cloud_concurrency,omitempty"`
+	PreemptAutomations *bool `yaml:"preempt_automations,omitempty" json:"preempt_automations,omitempty"`
+
+	// InboundWaitSeconds caps how long an external /v1 caller may wait for the
+	// local model (the caller asks with X-Queue-Wait). 0 refuses immediately;
+	// -1 waits until served, cancelled, or the operator acts. Unlimited is
+	// bounded in practice by InboundMaxQueued, never by memory.
+	InboundWaitSeconds *int `yaml:"inbound_wait_seconds,omitempty" json:"inbound_wait_seconds,omitempty"`
+	// InboundMaxQueued bounds how many callers may wait at once. Always
+	// enforced — it is what keeps an unlimited wait from becoming unbounded
+	// held connections.
+	InboundMaxQueued *int `yaml:"inbound_max_queued,omitempty" json:"inbound_max_queued,omitempty"`
+	// InboundPreempt lets a contended inbound request serve by cancelling the
+	// run holding the model. Off by default: clients may only ever ask to wait,
+	// and promotion stays an operator action.
+	InboundPreempt *bool `yaml:"inbound_preempt,omitempty" json:"inbound_preempt,omitempty"`
+}
+
+// minSchedulerConcurrency is the lowest limit that can still admit a run.
+const minSchedulerConcurrency = 1
+
+// Inbound-admission bounds. Unlimited waiting is expressible; a nonsensical wait
+// and an empty queue are not.
+const (
+	minInboundWaitSeconds = -1
+	minInboundMaxQueued   = 1
+	defaultInboundWait    = 60
+	defaultInboundQueued  = 32
+)
+
+// ErrSchedulerConcurrencyBelowMinimum is the save-boundary validation failure
+// for SchedulerConfig concurrency limits. IsSchedulerConfigError classifies it
+// so transport handlers map the whole class to a 400 in one predicate.
+var ErrSchedulerConcurrencyBelowMinimum = errors.New("scheduler concurrency must be >= 1")
+
+// ErrSchedulerInboundInvalid is the save-boundary validation failure for the
+// inbound-admission knobs, classified the same way.
+var ErrSchedulerInboundInvalid = errors.New("invalid inbound admission settings")
+
+// DefaultSchedulerConfig returns the shipped first-run defaults: local runs
+// serialize (one GPU / one llama.cpp slot), cloud runs parallelize, chat
+// preempts automations, and an external caller may wait up to a minute for the
+// local model (queue depth 32, no client-side preemption).
+func DefaultSchedulerConfig() SchedulerConfig {
+	return SchedulerConfig{
+		LocalConcurrency:   1,
+		CloudConcurrency:   3,
+		PreemptAutomations: new(true),
+		InboundWaitSeconds: new(defaultInboundWait),
+		InboundMaxQueued:   new(defaultInboundQueued),
+		InboundPreempt:     new(false),
+	}
+}
+
+// InboundWait returns the effective cap on how long an external caller may wait
+// for the local model: 0 refuses immediately, -1 is unbounded.
+func (c SchedulerConfig) InboundWait() int {
+	if c.InboundWaitSeconds != nil {
+		return *c.InboundWaitSeconds
+	}
+	return defaultInboundWait
+}
+
+// InboundQueueDepth returns the effective bound on how many callers may wait.
+func (c SchedulerConfig) InboundQueueDepth() int {
+	if c.InboundMaxQueued != nil {
+		return *c.InboundMaxQueued
+	}
+	return defaultInboundQueued
+}
+
+// InboundMayPreempt reports whether a contended inbound request may serve by
+// cancelling the run holding the model. Off unless explicitly enabled: clients
+// may only ever ask to wait, and promotion otherwise stays an operator action.
+func (c SchedulerConfig) InboundMayPreempt() bool {
+	return c.InboundPreempt != nil && *c.InboundPreempt
+}
+
+// Validate rejects limits that could never admit a run, or inbound settings that
+// could never admit a caller.
+func (c SchedulerConfig) Validate() error {
+	if c.LocalConcurrency < minSchedulerConcurrency {
+		return fmt.Errorf("%w: local_concurrency %d", ErrSchedulerConcurrencyBelowMinimum, c.LocalConcurrency)
+	}
+	if c.CloudConcurrency < minSchedulerConcurrency {
+		return fmt.Errorf("%w: cloud_concurrency %d", ErrSchedulerConcurrencyBelowMinimum, c.CloudConcurrency)
+	}
+	if c.InboundWaitSeconds != nil && *c.InboundWaitSeconds < minInboundWaitSeconds {
+		return fmt.Errorf("%w: inbound_wait_seconds %d (-1 is the minimum: unlimited)", ErrSchedulerInboundInvalid, *c.InboundWaitSeconds)
+	}
+	if c.InboundMaxQueued != nil && *c.InboundMaxQueued < minInboundMaxQueued {
+		return fmt.Errorf("%w: inbound_max_queued %d (at least %d)", ErrSchedulerInboundInvalid, *c.InboundMaxQueued, minInboundMaxQueued)
+	}
+	return nil
+}
+
+// IsSchedulerConfigError reports whether err is a scheduler-config validation
+// failure.
+func IsSchedulerConfigError(err error) bool {
+	return errors.Is(err, ErrSchedulerConcurrencyBelowMinimum) || errors.Is(err, ErrSchedulerInboundInvalid)
+}
+
 // SystemUpdatePayload represents a unified request to update system, registry, and environment settings.
 type SystemUpdatePayload struct {
 	WorkspacesDir string `json:"workspaces_dir,omitempty"`
@@ -129,4 +248,5 @@ type SystemUpdatePayload struct {
 	Guardrails           *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
 	Bind                 string                  `json:"bind,omitempty"` // For AdminSystemHandler specifically
 	RunLogging           *RunLoggingConfig       `json:"run_logging,omitempty"`
+	Scheduler            *SchedulerConfig        `json:"scheduler,omitempty"`
 }

@@ -12,10 +12,11 @@ package orchestrator
 // maintaining a provider→format mapping.
 //
 // Modes detected at stream time:
-//   Separate reasoning — reasoning_content deltas arrive before content
-//     (Anthropic Claude, DeepSeek R1, any model with thinking blocks)
-//   Standard           — no reasoning_content deltas (GPT-4o, Gemini, etc)
-//   Usage chunk        — empty delta carrying token counts (both modes)
+//
+//	Separate reasoning — reasoning_content deltas arrive before content
+//	  (Anthropic Claude, DeepSeek R1, any model with thinking blocks)
+//	Standard           — no reasoning_content deltas (GPT-4o, Gemini, etc)
+//	Usage chunk        — empty delta carrying token counts (both modes)
 type ReasoningNormalizer struct {
 	seenReasoning bool
 	usageSeen     bool

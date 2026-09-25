@@ -145,39 +145,39 @@ func characterizationMatrix() []goldenCase {
 		},
 		// --- each cloud provider: metadata absent / present / inflated (>128K) ---
 		{
-			id: "nvidia:no-metadata",
+			id:  "nvidia:no-metadata",
 			cfg: models.ModelConfig{Name: "nvidia-model", Provider: "nvidia"},
 		},
 		{
-			id: "nvidia:metadata-present",
+			id:  "nvidia:metadata-present",
 			cfg: models.ModelConfig{Name: "nvidia-model", Provider: "nvidia", Metadata: &models.ModelMetadata{ContextLength: 32768}},
 		},
 		{
-			id: "nvidia:metadata-inflated",
+			id:  "nvidia:metadata-inflated",
 			cfg: models.ModelConfig{Name: "nvidia-model", Provider: "nvidia", Metadata: &models.ModelMetadata{ContextLength: 1_000_000}},
 		},
 		{
-			id: "openrouter:no-metadata",
+			id:  "openrouter:no-metadata",
 			cfg: models.ModelConfig{Name: "claude", Provider: "openrouter"},
 		},
 		{
-			id: "openrouter:metadata-present",
+			id:  "openrouter:metadata-present",
 			cfg: models.ModelConfig{Name: "deepseek/deepseek-v4-flash", Provider: "openrouter", Metadata: &models.ModelMetadata{ContextLength: 1_048_576}},
 		},
 		{
-			id: "openrouter:metadata-inflated",
+			id:  "openrouter:metadata-inflated",
 			cfg: models.ModelConfig{Name: "claude", Provider: "openrouter", Metadata: &models.ModelMetadata{ContextLength: 2_000_000}},
 		},
 		{
-			id: "gemini:no-metadata",
+			id:  "gemini:no-metadata",
 			cfg: models.ModelConfig{Name: "gemini-2", Provider: "gemini"},
 		},
 		{
-			id: "gemini:metadata-present",
+			id:  "gemini:metadata-present",
 			cfg: models.ModelConfig{Name: "gemini-2", Provider: "gemini", Metadata: &models.ModelMetadata{ContextLength: 1_048_576}},
 		},
 		{
-			id: "gemini:metadata-inflated",
+			id:  "gemini:metadata-inflated",
 			cfg: models.ModelConfig{Name: "gemini-2", Provider: "gemini", Metadata: &models.ModelMetadata{ContextLength: 2_000_000}},
 		},
 	}

@@ -3,7 +3,7 @@ package models
 // AppConfig is the single persisted configuration root (Tier 1+2 merged,
 // written to settings.yml). It carries the full operator+user configuration in
 // one hand-editable document: server, workspaces_dir, metrics, sandboxing,
-// local, guardrails, model_overrides, memory, run_logging.
+// local, guardrails, model_overrides, memory, scheduler, run_logging.
 type AppConfig struct {
 	Server         AppServerConfig          `yaml:"server" json:"server"`
 	WorkspacesDir  string                   `yaml:"workspaces_dir" json:"workspaces_dir"`
@@ -13,6 +13,7 @@ type AppConfig struct {
 	Guardrails     *AgentGuardrailsConfig   `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
 	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Scheduler      *SchedulerConfig         `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	RunLogging     *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 }
 
@@ -45,11 +46,8 @@ func DefaultAppConfig() AppConfig {
 		// override via settings.yml.
 		Metrics:    MetricsConfig{GPU: GPUConfig{Provider: "auto"}, GPUSampleIntervalSec: 10, GPUSmoothingAlpha: 0.3},
 		Sandboxing: DefaultHostSettings().Sandboxing,
-		Memory:     ptr(DefaultMemoryConfig()),
-		RunLogging: ptr(DefaultRunLoggingConfig()),
+		Memory:     new(DefaultMemoryConfig()),
+		Scheduler:  new(DefaultSchedulerConfig()),
+		RunLogging: new(DefaultRunLoggingConfig()),
 	}
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

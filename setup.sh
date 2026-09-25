@@ -616,6 +616,17 @@ install_flow() {
   # ships with defaults; the five tokens below are the only host-specific
   # values. Custom SVC_USER/SVC_ROOT prompts would otherwise produce a unit
   # that runs the wrong user / wrong data root.
+  #
+  # Hardening is NOT rendered here — it travels with the template so it cannot
+  # drift. In particular the template's SystemCallFilter=@system-service also
+  # lists the three Landlock syscalls (landlock_create_ruleset,
+  # landlock_add_rule, landlock_restrict_self) that the agent OS-sandboxing
+  # layer probes at boot and uses to jail agent children. systemd's default
+  # action on a non-allowlisted syscall is to KILL the process, so a systemd
+  # whose @system-service predates Landlock would crash-loop the service with
+  # "code=dumped, status=31/SYS" (SIGSYS). Keep them in the template; editing
+  # the template and re-running this flow reinstalls the unit (the cmp below
+  # detects the change).
   local RENDERED="/tmp/${BIN_NAME}.rendered.service"
   if [[ $DRY_RUN == 1 ]]; then
     info "(dry-run) render unit (User=$SVC_USER, LLM_PROXY_HOME=$SVC_ROOT) and install to $UNIT"

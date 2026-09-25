@@ -107,7 +107,7 @@ func (m *MockManager) ClassifyModel(cfg models.ModelConfig) models.WorkloadClass
 	if m.ClassifyModelFunc != nil {
 		return m.ClassifyModelFunc(cfg)
 	}
-	return models.NewWorkloadClassifier("", nil).Classify(cfg)
+	return models.ClassifyConfig(cfg)
 }
 
 func (m *MockManager) EnsureModel(ctx context.Context, name string) (llm.ModelInstance, error) {

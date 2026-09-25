@@ -4,10 +4,11 @@ import (
 	"context"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
@@ -35,7 +36,7 @@ type MockAssistantService struct {
 	Model          string
 	EngineRef      assistant.Engine
 	PersistenceMgr *persistence.WorkspaceManager
-	EventBusRef    *automation.EventBus
+	EventBusRef    *eventbus.Bus
 	// GuardrailStore / GuardrailEng override the per-call constructed defaults
 	// so tests can inject a decision store with retained payloads and an engine
 	// backed by a real persistence manager.
@@ -62,6 +63,9 @@ func (m *MockAssistantService) Logger() logging.Logger {
 func (m *MockAssistantService) SelectModels() (string, string) {
 	return "", ""
 }
+
+func (m *MockAssistantService) Lane() *runlane.Scheduler          { return nil }
+func (m *MockAssistantService) LaneKeyFor(string) runlane.LaneKey { return runlane.LaneLocal }
 
 func (m *MockAssistantService) Engine() assistant.Engine {
 	if m.EngineRef != nil {
@@ -155,7 +159,7 @@ func (m *MockAssistantService) Events() assistant.EventPublisher {
 	if m.EventBusRef != nil {
 		return m.EventBusRef
 	}
-	return automation.NewEventBus()
+	return eventbus.NewBus()
 }
 
 func (m *MockAssistantService) MemoryStore() *memory.Store { return nil }

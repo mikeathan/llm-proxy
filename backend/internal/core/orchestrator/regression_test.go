@@ -96,9 +96,9 @@ func TestRegression_StreamIntercepted_OutputIdentical(t *testing.T) {
 
 func TestRegression_CodeSniff_Accuracy(t *testing.T) {
 	tests := []struct {
-		name        string
-		chunks      []StreamChunk
-		wantRatio   float64
+		name      string
+		chunks    []StreamChunk
+		wantRatio float64
 	}{
 		{
 			name: "inside_code_fence_doubles_count",

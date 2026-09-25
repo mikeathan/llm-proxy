@@ -1,16 +1,16 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/eventbus"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
-	"llm-proxy/internal/platform/safe"
 	"llm-proxy/models"
 	"net/http"
 	"path/filepath"
@@ -37,10 +37,12 @@ type Dispatcher interface {
 	Register(workspaceID string, auto *models.Automation) error
 	Unregister(workspaceID string, automationName string) error
 	ListAll() []*automation.AutomationEntry
-	Trigger(ctx context.Context, workspaceID string, automationName string, recordingRef string) error
+	Trigger(workspaceID string, automationName string, recordingRef string) (automation.TriggerResult, error)
+	CancelQueued(workspaceID string, automationName string) error
+	LaneSnapshot() runlane.Snapshot
 	StopAutomation(workspaceID string) error
 	Metrics() *automation.DispatcherMetrics
-	Events() *automation.EventBus
+	Events() *eventbus.Bus
 	GlobalActivity() []models.AutomationRun
 	UnregisterWorkspace(workspaceID string)
 	ClearWorkspaceHistory(workspaceID string)
@@ -104,26 +106,41 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 }
 
 type AutomationInfo struct {
-	ID           string                 `json:"id"`
-	Workspace    string                 `json:"workspace"`
-	Name         string                 `json:"name"`
-	TaskFile     string                 `json:"task_file"`
-	Strategy     string                 `json:"strategy"`
-	Trigger      string                 `json:"trigger"`
-	TriggerValue string                 `json:"trigger_value,omitempty"`
-	Model        string                 `json:"model,omitempty"`
-	LoopStrategy string                 `json:"loop_strategy,omitempty"`
-	RecordingRef string                 `json:"recording_ref,omitempty"`
-	NetworkGrant string                 `json:"network_grant,omitempty"` // '' = inherit workspace scope
-	LastOutput   string                 `json:"last_output,omitempty"`
-	LastError    string                 `json:"last_error,omitempty"`
-	IsRunning    bool                   `json:"is_running"`
-	History      []models.AutomationRun `json:"history,omitempty"`
+	ID           string `json:"id"`
+	Workspace    string `json:"workspace"`
+	Name         string `json:"name"`
+	TaskFile     string `json:"task_file"`
+	Strategy     string `json:"strategy"`
+	Trigger      string `json:"trigger"`
+	TriggerValue string `json:"trigger_value,omitempty"`
+	Model        string `json:"model,omitempty"`
+	LoopStrategy string `json:"loop_strategy,omitempty"`
+	RecordingRef string `json:"recording_ref,omitempty"`
+	NetworkGrant string `json:"network_grant,omitempty"` // '' = inherit workspace scope
+	LastOutput   string `json:"last_output,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
+	IsRunning    bool   `json:"is_running"`
+	// Queued/QueuePosition report the run scheduler admission: the automation
+	// is waiting in its workload lane (Position is 1-based). Both are empty
+	// while the run executes or sits idle — IsRunning stays the source of
+	// truth for "actually executing".
+	Queued        bool                   `json:"queued,omitempty"`
+	QueuePosition int                    `json:"queue_position,omitempty"`
+	History       []models.AutomationRun `json:"history,omitempty"`
 }
 
 func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Request) {
 	entries := h.dispatcher.ListAll()
 	infos := make([]AutomationInfo, 0, len(entries))
+
+	// One snapshot per request feeds every queued badge (position must come
+	// from the admission-time state, never a per-entry re-read).
+	queuedBy := make(map[string]runlane.Entry)
+	for _, lane := range h.dispatcher.LaneSnapshot().Lanes {
+		for _, e := range lane.Queued {
+			queuedBy[e.Key] = e
+		}
+	}
 
 	for _, entry := range entries {
 		info := AutomationInfo{
@@ -157,6 +174,10 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			}
 			info.IsRunning = state.ActiveAutomation == entry.Name
 		}
+		if e, ok := queuedBy[entry.ID]; ok {
+			info.Queued = true
+			info.QueuePosition = e.Position
+		}
 
 		infos = append(infos, info)
 	}
@@ -170,26 +191,26 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	state, err := h.workspace.GetState(workspaceID)
-	if err == nil && state.IsRunning() {
-		respondError(w, http.StatusConflict, fmt.Sprintf("automation '%s' is already running in workspace '%s'", state.ActiveAutomation, workspaceID))
+	recordingRef := r.URL.Query().Get("recording_ref")
+
+	// Submit is a cheap lane enqueue (the run timeout starts at dequeue), so
+	// the trigger runs inline and reports the admission disposition. The old
+	// 409-on-running path is gone: overlapping runs queue instead.
+	result, err := h.dispatcher.Trigger(workspaceID, automationName, recordingRef)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	recordingRef := r.URL.Query().Get("recording_ref")
-
-	safe.Go("automation trigger", func() {
-		if err := h.dispatcher.Trigger(context.Background(), workspaceID, automationName, recordingRef); err != nil {
-			h.logger.Error("Async automation trigger failed",
-				"workspace", workspaceID,
-				"automation", automationName,
-				"recording_ref", recordingRef,
-				"error", err)
-		}
-	})
-
-	respondJSON(w, map[string]string{
-		"status":     "triggered",
+	status := http.StatusOK
+	if result.Status == automation.TriggerQueued {
+		status = http.StatusAccepted
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":     result.Status,
+		"position":   result.Position,
 		"workspace":  workspaceID,
 		"automation": automationName,
 	})
@@ -213,15 +234,34 @@ func (h *DispatcherHandlers) StopAutomation(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *DispatcherHandlers) GetDispatcherMetrics(w http.ResponseWriter, r *http.Request) {
-	metrics := h.dispatcher.Metrics()
+	metrics := h.dispatcher.Metrics().Snapshot()
 
 	respondJSON(w, map[string]interface{}{
 		"total_executions": metrics.TotalExecutions,
 		"successful":       metrics.SuccessfulExecutions,
 		"failed":           metrics.FailedExecutions,
 		"skipped":          metrics.SkippedExecutions,
+		"queued":           metrics.QueuedExecutions,
+		"preempted":        metrics.PreemptedExecutions,
 		"total_latency_ms": metrics.TotalLatency.Milliseconds(),
 	})
+}
+
+// CancelQueuedHandler handles DELETE /admin/api/dispatcher/queue/{workspace}/
+// {automation}: it drops a queued (not yet running) entry. Stopping a running
+// automation is POST /dispatcher/stop/{workspace}, which also clears pending.
+func (h *DispatcherHandlers) CancelQueuedHandler(w http.ResponseWriter, r *http.Request) {
+	workspaceID, automationName, ok := h.parse(w, r, models.WorkspaceIDParam, "automation")
+	if !ok {
+		return
+	}
+
+	if err := h.dispatcher.CancelQueued(workspaceID, automationName); err != nil {
+		writeJSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *DispatcherHandlers) GetWorkspaceState(w http.ResponseWriter, r *http.Request) {

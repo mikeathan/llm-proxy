@@ -7,15 +7,18 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
+	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/models"
 )
 
@@ -39,12 +42,14 @@ type AssistantMessageHandler struct {
 	svc         AssistantService
 	service     assistantPkg.ConversationService
 	running     sync.Map
+	lane        *runlane.Scheduler
 }
 
 type runningAgent struct {
 	cancel         context.CancelFunc
 	done           chan struct{}
 	conversationID string
+	granted        atomic.Bool // true once the run lane admitted the run
 }
 
 func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
@@ -58,6 +63,7 @@ func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandl
 		persistence: service.Persistence(),
 		svc:         service,
 		service:     assistantPkg.NewConversationService(service, service.Persistence()),
+		lane:        service.Lane(),
 	}
 }
 
@@ -216,19 +222,19 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 // infrastructure. The workspace process logger is returned for execution; no
 // per-run duplicate log is created. Returns zero values when recording is
 // disabled.
-func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceID, conversationID, modelName, runID string) (*automation.EventSink, logging.Logger) {
+func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceID, conversationID, modelName, runID string) (*eventbus.Sink, logging.Logger) {
 	procLog := h.svc.ProcessLogger(workspaceID)
 	if !h.svc.RunLoggingEnabled() || modelName == "" {
 		return nil, procLog
 	}
 	parent := filepath.Join(h.svc.RootDir(), "runs")
-	rd, rErr := automation.NewRunDir(parent, workspaceID, conversationID, modelName)
+	rd, rErr := rundir.NewRunDir(parent, workspaceID, conversationID, modelName)
 	if rErr != nil {
 		h.logger.Error("failed to create run dir", "error", rErr)
 		return nil, procLog
 	}
-	es, esErr := automation.NewEventSink(rd.EventsPath())
-	var eventSink *automation.EventSink
+	es, esErr := eventbus.NewSink(rd.EventsPath())
+	var eventSink *eventbus.Sink
 	if esErr == nil {
 		eventSink = es
 	}
@@ -299,8 +305,10 @@ func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, mes
 
 // RunWithCancel registers the workspace in the running map (so the
 // /assistant/cancel endpoint can cancel this invocation), cancels any prior
-// in-flight agent for the same workspace, executes handleAssistant, then
-// cleans up the running map entry.
+// in-flight agent for the same workspace, admits the run to the run scheduler
+// (preempting a running automation in the same workload lane, or queueing
+// behind other work), executes handleAssistant, then cleans up the running
+// map entry.
 //
 // The execution context is derived from context.Background(), NOT the caller's
 // context. This is intentional: a client disconnect (page refresh / tab close /
@@ -324,13 +332,65 @@ func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID
 
 	execCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	h.running.Store(workspaceID, &runningAgent{cancel: cancel, done: done, conversationID: conversationID})
+	ra := &runningAgent{cancel: cancel, done: done, conversationID: conversationID}
+	h.running.Store(workspaceID, ra)
 	defer func() {
 		h.running.Delete(workspaceID)
 		cancel()
 		close(done)
 	}()
-	return h.handleAssistant(execCtx, payload, log)
+
+	runCtx := execCtx
+	if h.lane != nil {
+		// Every run is admitted through the scheduler: an interactive chat
+		// preempts a running automation in its lane, or queues FIFO behind
+		// other chats. The claim derives from execCtx so ra.cancel (the
+		// /assistant/cancel path and cancelPriorForWorkspace) still reaches
+		// the run while it waits or runs. The wait happens in this detached
+		// goroutine — ServeHTTP already returned 202.
+		//
+		// The claimed model is the resolved primary/fallback (an
+		// AssistantMessage carries no model of its own). Recording it lets the
+		// model-residency gate refuse evicting this chat's model.
+		claimed, release, err := h.lane.ClaimInteractive(execCtx, h.svc.LaneKeyFor(""), workspaceID, h.chatModel())
+		if err != nil {
+			// Cancelled while waiting, or the preempted automation did not
+			// stop in time: same shape as an explicit cancel — no failed-run
+			// artifacts.
+			log.Info("assistant run not admitted to the run lane", "workspace", workspaceID, "error", err)
+			return nil, nil
+		}
+		defer release()
+		ra.granted.Store(true)
+		runCtx = claimed
+	}
+	return h.handleAssistant(runCtx, payload, log)
+}
+
+// chatModel resolves the model a chat run will use — the registry primary, or
+// the fallback when no primary is configured. It mirrors the resolution
+// LaneKeyFor applies, so the lane key and the holder's model agree.
+func (h *AssistantMessageHandler) chatModel() string {
+	primary, fallback := h.svc.SelectModels()
+	if primary != "" {
+		return primary
+	}
+	return fallback
+}
+
+// RunningQueued reports whether the workspace has an agent run registered but
+// not yet admitted to the run lane, so the UI can show "waiting" instead of a
+// running glow (assistant_running stays true while waiting).
+func (h *AssistantMessageHandler) RunningQueued(workspaceID string) bool {
+	if h.lane == nil {
+		return false
+	}
+	if v, ok := h.running.Load(workspaceID); ok {
+		if ra, ok := v.(*runningAgent); ok {
+			return !ra.granted.Load()
+		}
+	}
+	return false
 }
 
 // RunningConversationID reports the conversation ID of the agent currently

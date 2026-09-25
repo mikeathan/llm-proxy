@@ -12,11 +12,13 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/usage"
+	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
@@ -252,7 +254,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	return e.handleAgentSuccess(execCtx, outcome, finalReply, fullHistory)
 }
 
-func runDirName(runDir *RunDir) string {
+func runDirName(runDir *rundir.RunDir) string {
 	if runDir == nil {
 		return ""
 	}
@@ -323,7 +325,7 @@ func waitForModelReady(ctx context.Context, get func() (proxy.Client, error), mo
 	}
 }
 
-func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*RunDir, *EventSink, bool) {
+func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*rundir.RunDir, *eventbus.Sink, bool) {
 	if !e.svc.RunLoggingEnabled() {
 		return nil, nil, false
 	}
@@ -332,12 +334,12 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 		return nil, nil, false
 	}
 	parent := filepath.Join(rootDir, "runs")
-	runDir, rErr := NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
+	runDir, rErr := rundir.NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
 	if rErr != nil {
 		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
 		return nil, nil, false
 	}
-	eventSink, esErr := NewEventSink(runDir.EventsPath())
+	eventSink, esErr := eventbus.NewSink(runDir.EventsPath())
 	if esErr != nil {
 		procLog.Warn("failed to create event sink, continuing without", "error", esErr)
 		return runDir, nil, false
@@ -361,7 +363,7 @@ func (e *LLMTaskExecutor) runNetworkScope(req ExecuteRequest) models.NetworkScop
 }
 
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
-func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, eventSink *EventSink) assistant.AgentOptions {
+func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, eventSink *eventbus.Sink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
 		Logger:       procLog,
 		MaxSteps:     assistant.DefaultMaxSteps,
@@ -415,7 +417,7 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 type runOutcome struct {
 	req       ExecuteRequest
 	resp      *ExecuteResponse
-	runDir    *RunDir
+	runDir    *rundir.RunDir
 	startTime time.Time
 	runScope  models.NetworkScope
 	// warnings holds non-fatal tool failures from the agent (e.g. a delivery
@@ -427,7 +429,7 @@ type runOutcome struct {
 func (e *LLMTaskExecutor) handleAgentError(ctx context.Context, outcome runOutcome, agErr error) (*ExecuteResponse, error) {
 	errStr := fmt.Sprintf("agent execution failed: %v", agErr)
 	if outcome.runDir != nil {
-		meta := RunMeta{
+		meta := rundir.RunMeta{
 			Model:        outcome.req.Model,
 			Task:         outcome.req.AutomationName,
 			DurationMs:   time.Since(outcome.startTime).Milliseconds(),
@@ -504,7 +506,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		if len(resultPreview) > 120 {
 			resultPreview = resultPreview[:120] + "..."
 		}
-		meta := RunMeta{
+		meta := rundir.RunMeta{
 			Model:         outcome.req.Model,
 			Task:          outcome.req.AutomationName,
 			DurationMs:    time.Since(outcome.startTime).Milliseconds(),

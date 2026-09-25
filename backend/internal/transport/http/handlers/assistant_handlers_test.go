@@ -15,8 +15,9 @@ import (
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -68,10 +69,17 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 		mockMCP,
 	)
 
-	// Setup Persistence
-	tmpWorkspaces := t.TempDir()
+	// Setup Persistence. The run's session checkpoints are written by an
+	// event-bus subscriber, so a checkpoint can still land after the run leaves
+	// the running map — a strict t.TempDir() cleanup would fail the test on that
+	// late write. The dir is therefore created and removed explicitly,
+	// best-effort.
+	tmpWorkspaces, tmpErr := os.MkdirTemp("", "llm-proxy-assistant-handlers-")
+	if tmpErr != nil {
+		t.Fatal(tmpErr)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpWorkspaces) })
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
-	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
 
@@ -859,7 +867,7 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 	})
 	engine := assistant.NewEngine(mockMCP, logger)
 
-	eventBus := automation.NewEventBus()
+	eventBus := eventbus.NewBus()
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 	service.EventBusRef = eventBus
 
@@ -953,7 +961,7 @@ loop:
 }
 
 func TestPublishSessionLifecycle_SkipsEmptyIDs(t *testing.T) {
-	eventBus := automation.NewEventBus()
+	eventBus := eventbus.NewBus()
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.EventBusRef = eventBus
 
@@ -973,7 +981,7 @@ func TestPublishSessionLifecycle_SkipsEmptyIDs(t *testing.T) {
 }
 
 func TestPublishSessionLifecycle_PublishesWithCorrectPayload(t *testing.T) {
-	eventBus := automation.NewEventBus()
+	eventBus := eventbus.NewBus()
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.EventBusRef = eventBus
 
@@ -1265,9 +1273,17 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	engine := assistant.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 
-	tmpWorkspaces := t.TempDir()
+	// The run's session checkpoints are written by an event-bus subscriber, so a
+	// checkpoint can still land after the run leaves the running map — the
+	// cancel-and-wait below cannot cover that. A strict t.TempDir() cleanup would
+	// fail the test on such a late write, so the dir is created and removed
+	// explicitly, best-effort.
+	tmpWorkspaces, tmpErr := os.MkdirTemp("", "llm-proxy-assistant-202-")
+	if tmpErr != nil {
+		t.Fatal(tmpErr)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpWorkspaces) })
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
-	defer os.RemoveAll(tmpWorkspaces)
 
 	handler := NewAssistantMessageHandler(service)
 
@@ -1323,7 +1339,7 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
 
-	eventBus := automation.NewEventBus()
+	eventBus := eventbus.NewBus()
 	eventCh, _ := eventBus.Subscribe("ws-no-model", assistant.ChannelAssistant)
 
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mocks.NewMockNodeHerder(nil))
@@ -1378,7 +1394,7 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *t
 	mockLimiter := &mocks.MockRateLimiter{}
 	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
 
-	eventBus := automation.NewEventBus()
+	eventBus := eventbus.NewBus()
 	eventCh, _ := eventBus.Subscribe("ws-empty-conv", assistant.ChannelAssistant)
 
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mocks.NewMockNodeHerder(nil))
@@ -1515,6 +1531,35 @@ func TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected(t *testing.T) {
 			handler.GuardrailDecisionHandler(rr, req)
 			if rr.Code != tc.expect {
 				t.Errorf("expected %d, got %d: %s", tc.expect, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestAssistant_RunningQueued(t *testing.T) {
+	newLane := func() *runlane.Scheduler { return runlane.New(runlane.Limits{Local: 1, Cloud: 1}, true) }
+	tests := []struct {
+		name    string
+		lane    *runlane.Scheduler
+		store   bool
+		granted bool
+		want    bool
+	}{
+		{"no lane means never queued", nil, true, false, false},
+		{"registered but not granted is queued", newLane(), true, false, true},
+		{"granted is not queued", newLane(), true, true, false},
+		{"no registered run is not queued", newLane(), false, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &AssistantMessageHandler{running: sync.Map{}, lane: tt.lane}
+			if tt.store {
+				ra := &runningAgent{}
+				ra.granted.Store(tt.granted)
+				h.running.Store("ws", ra)
+			}
+			if got := h.RunningQueued("ws"); got != tt.want {
+				t.Fatalf("RunningQueued = %v, want %v", got, tt.want)
 			}
 		})
 	}

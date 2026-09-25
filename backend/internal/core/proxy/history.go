@@ -121,4 +121,3 @@ func SanitizeHistory(history []Message) []Message {
 	}
 	return sanitized
 }
-

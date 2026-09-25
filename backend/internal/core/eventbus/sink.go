@@ -1,4 +1,4 @@
-package automation
+package eventbus
 
 import (
 	"bufio"
@@ -11,31 +11,31 @@ import (
 	"llm-proxy/internal/core/assistant"
 )
 
-// EventSink writes AgentEvents to a JSONL file as they fire during a run.
+// Sink writes AgentEvents to a JSONL file as they fire during a run.
 // Thread-safe. Writes are buffered and flushed on every write so the file is
-// current; the file is fsynced periodically (eventSinkSyncInterval) and once
+// current; the file is fsynced periodically (syncInterval) and once
 // more on Close, so a crash mid-run loses at most one sync interval of events.
-type EventSink struct {
-	mu      sync.Mutex
-	writer  *bufio.Writer
-	file    *os.File
-	encoder *json.Encoder
-	stop    chan struct{}
+type Sink struct {
+	mu       sync.Mutex
+	writer   *bufio.Writer
+	file     *os.File
+	encoder  *json.Encoder
+	stop     chan struct{}
 	stopOnce sync.Once
 }
 
-// eventSinkSyncInterval is how often the events file is fsynced. High-frequency
+// syncInterval is how often the events file is fsynced. High-frequency
 // events (reasoning/tool_stream chunks) must not fsync per write — that blocks
 // the agent loop on a disk syscall per chunk.
-const eventSinkSyncInterval = time.Second
+const syncInterval = time.Second
 
-func NewEventSink(path string) (*EventSink, error) {
+func NewSink(path string) (*Sink, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return nil, fmt.Errorf("create events file %s: %w", path, err)
 	}
 	w := bufio.NewWriterSize(f, 65536)
-	s := &EventSink{
+	s := &Sink{
 		file:    f,
 		writer:  w,
 		encoder: json.NewEncoder(w),
@@ -47,8 +47,8 @@ func NewEventSink(path string) (*EventSink, error) {
 
 // syncLoop periodically fsyncs the events file so buffered data survives a
 // crash without blocking the hot write path on a per-event fsync.
-func (s *EventSink) syncLoop() {
-	ticker := time.NewTicker(eventSinkSyncInterval)
+func (s *Sink) syncLoop() {
+	ticker := time.NewTicker(syncInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -62,13 +62,13 @@ func (s *EventSink) syncLoop() {
 
 // sync flushes the buffered writer and fsyncs the file. Caller need not hold
 // the mutex — sync acquires it.
-func (s *EventSink) sync() {
+func (s *Sink) sync() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
 }
 
-func (s *EventSink) syncLocked() {
+func (s *Sink) syncLocked() {
 	if s.writer != nil {
 		_ = s.writer.Flush()
 	}
@@ -77,7 +77,7 @@ func (s *EventSink) syncLocked() {
 	}
 }
 
-func (s *EventSink) Write(ev assistant.AgentEvent) error {
+func (s *Sink) Write(ev assistant.AgentEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.encoder.Encode(ev); err != nil {
@@ -89,7 +89,7 @@ func (s *EventSink) Write(ev assistant.AgentEvent) error {
 	return nil
 }
 
-func (s *EventSink) Close() {
+func (s *Sink) Close() {
 	s.stopOnce.Do(func() {
 		close(s.stop)
 	})

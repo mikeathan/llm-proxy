@@ -138,7 +138,7 @@ type GuardrailInvalidatedPayload struct {
 // UI uses this to surface a live "retrying…" notice instead of silent stalls.
 type UpstreamEventPayload struct {
 	Event       string `json:"event"`                // "retry"
-	Reason      string `json:"reason"`               // "transport" | "status" | "model_starting"
+	Reason      string `json:"reason"`               // "transport" | "status" | "model_starting" | "model_busy"
 	Attempt     int    `json:"attempt"`              // 1-based attempt being retried
 	MaxAttempts int    `json:"max_attempts"`         // total attempts (incl. first)
 	Error       string `json:"error,omitempty"`      // transport error text
@@ -219,6 +219,13 @@ func (a *Agent) notifyUpstream(info proxy.RetryInfo) {
 		// generic transport error.
 		payload.Reason = "model_starting"
 		payload.Status = info.Status
+	} else if info.Reason == proxy.RetryReasonModelBusy {
+		// The upstream proxy refused to switch the local model because a run is
+		// using it — deliberate, with its own explanation. The UI names the
+		// situation instead of showing a generic upstream failure.
+		payload.Reason = "model_busy"
+		payload.Status = info.Status
+		payload.Error = info.Error
 	} else {
 		payload.Reason = "transport"
 		payload.Error = info.Error

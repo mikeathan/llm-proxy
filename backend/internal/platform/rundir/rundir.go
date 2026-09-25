@@ -1,4 +1,8 @@
-package automation
+// Package rundir owns the on-disk layout of agent run directories: creating a
+// run's output folder before execution and pruning completed runs on a
+// retention window. It has no dependency on the automation domain — it is
+// filesystem infrastructure.
+package rundir
 
 import (
 	"crypto/rand"

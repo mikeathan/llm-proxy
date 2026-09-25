@@ -199,10 +199,14 @@ func (r *ProviderRegistrar) Build(cfg models.ModelConfig) (models.Provider, erro
 			if settable, ok := provider.(interface{ SetHTTPDoer(HTTPDoer) }); ok {
 				settable.SetHTTPDoer(r.doer)
 			}
-			if settable, ok := provider.(interface{ SetWorkloadClassifier(models.WorkloadClassifier) }); ok {
+			if settable, ok := provider.(interface {
+				SetWorkloadClassifier(models.WorkloadClassifier)
+			}); ok {
 				settable.SetWorkloadClassifier(r.workloadClassifier)
 			}
-			if settable, ok := provider.(interface{ SetCatalogCache(*core.TTLCache[string, []models.ProviderModelInfo]) }); ok {
+			if settable, ok := provider.(interface {
+				SetCatalogCache(*core.TTLCache[string, []models.ProviderModelInfo])
+			}); ok {
 				settable.SetCatalogCache(r.catalogCache)
 			}
 			return provider, nil

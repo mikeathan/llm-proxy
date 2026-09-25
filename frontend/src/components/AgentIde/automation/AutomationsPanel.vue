@@ -13,13 +13,20 @@ const emit = defineEmits<{
   (e: 'select-automation', automation: Automation): void
   (e: 'edit-automation', automation: Automation): void
   (e: 'delete-automation', automation: Automation): void
+  (e: 'cancel-queued', automation: Automation): void
 }>()
 
 const confirmingDeleteFor = ref<string | null>(null)
+const confirmingCancelFor = ref<string | null>(null)
 
 const confirmAndEmit = (auto: Automation) => {
   confirmingDeleteFor.value = null
   emit('delete-automation', auto)
+}
+
+const confirmCancelAndEmit = (auto: Automation) => {
+  confirmingCancelFor.value = null
+  emit('cancel-queued', auto)
 }
 
 const isWorkspaceBusy = (workspaceAutos: Automation[]) => {
@@ -58,10 +65,28 @@ const isAutomationLocked = (auto: Automation, workspaceAutos: Automation[]) => {
                 <span class="pulse-dot"></span>
                 Running
               </span>
+              <span v-else-if="auto.queued" class="status-queued">
+                Queued #{{ auto.queue_position ?? 1 }}
+              </span>
             </div>
           </button>
           
           <div class="row-actions">
+            <button
+              v-if="auto.queued && confirmingCancelFor !== auto.id"
+              @click.stop="confirmingCancelFor = auto.id"
+              class="btn-automation-action btn-automation-action--cancel"
+              title="Cancel Queued Run"
+            >
+              <Icon name="stop" size="sm" />
+            </button>
+            <div v-if="auto.queued && confirmingCancelFor === auto.id" class="px-1">
+              <InlineConfirm
+                :message="`Cancel queued '${auto.name}'?`"
+                @confirm="confirmCancelAndEmit(auto)"
+                @cancel="confirmingCancelFor = null"
+              />
+            </div>
             <button
               v-if="confirmingDeleteFor !== auto.id"
               @click.stop="confirmingDeleteFor = auto.id"
@@ -140,6 +165,14 @@ const isAutomationLocked = (auto: Automation, workspaceAutos: Automation[]) => {
 
 .pulse-dot {
   @apply w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)];
+}
+
+.status-queued {
+  @apply text-[10px] text-amber-400 font-bold uppercase tracking-wider ml-auto;
+}
+
+.btn-automation-action--cancel {
+  @apply hover:text-amber-400;
 }
 
 .row-actions {

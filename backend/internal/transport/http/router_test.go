@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/assistant"
-	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/eventbus"
 )
 
 func TestRouter_MethodMatch(t *testing.T) {
@@ -166,7 +166,7 @@ func TestRouter_PanicRecoveredKeepsServing(t *testing.T) {
 }
 
 func TestRouter_PanicRecoveredCleansEventBus(t *testing.T) {
-	bus := automation.NewEventBus()
+	bus := eventbus.NewBus()
 	defer bus.Stop()
 
 	router := NewRouter()

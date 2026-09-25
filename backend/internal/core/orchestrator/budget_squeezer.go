@@ -198,7 +198,7 @@ func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 // effective endpoint host carried on ProviderConfig.BaseURL.  No DNS, no
 // network calls.
 func classifyWorkload(cfg models.ModelConfig) models.WorkloadClass {
-	return models.NewWorkloadClassifier("", nil).Classify(cfg)
+	return models.ClassifyConfig(cfg)
 }
 
 // 1. Explicit ProviderConfig.InternalCreditWeight override

@@ -1,9 +1,12 @@
 package handlers
 
 import (
-	"context"
+	"encoding/json"
+	"errors"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/eventbus"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -18,15 +21,30 @@ import (
 
 // Minimal hand-rolled mock for dispatcher satisfying the full interface
 type testDispatcher struct {
-	mgr        *persistence.WorkspaceManager
-	stopCalled map[string]bool
+	mgr           *persistence.WorkspaceManager
+	stopCalled    map[string]bool
+	triggerResult automation.TriggerResult
+	triggerErr    error
+	cancelErr     error
+	cancelCalled  map[string]bool
+	laneSnapshot  runlane.Snapshot
 }
 
-func (t *testDispatcher) Persistence() *persistence.WorkspaceManager            { return t.mgr }
-func (t *testDispatcher) Register(ws string, a *models.Automation) error        { return nil }
-func (t *testDispatcher) Unregister(ws, name string) error                      { return nil }
-func (t *testDispatcher) ListAll() []*automation.AutomationEntry                { return nil }
-func (t *testDispatcher) Trigger(ctx context.Context, ws, name, _ string) error { return nil }
+func (t *testDispatcher) Persistence() *persistence.WorkspaceManager     { return t.mgr }
+func (t *testDispatcher) Register(ws string, a *models.Automation) error { return nil }
+func (t *testDispatcher) Unregister(ws, name string) error               { return nil }
+func (t *testDispatcher) ListAll() []*automation.AutomationEntry         { return nil }
+func (t *testDispatcher) Trigger(ws, name, _ string) (automation.TriggerResult, error) {
+	return t.triggerResult, t.triggerErr
+}
+func (t *testDispatcher) CancelQueued(ws, name string) error {
+	if t.cancelCalled == nil {
+		t.cancelCalled = make(map[string]bool)
+	}
+	t.cancelCalled[ws+"/"+name] = true
+	return t.cancelErr
+}
+func (t *testDispatcher) LaneSnapshot() runlane.Snapshot { return t.laneSnapshot }
 func (t *testDispatcher) StopAutomation(ws string) error {
 	if t.stopCalled != nil {
 		t.stopCalled[ws] = true
@@ -36,7 +54,7 @@ func (t *testDispatcher) StopAutomation(ws string) error {
 func (t *testDispatcher) Metrics() *automation.DispatcherMetrics {
 	return &automation.DispatcherMetrics{}
 }
-func (t *testDispatcher) Events() *automation.EventBus           { return nil }
+func (t *testDispatcher) Events() *eventbus.Bus                  { return nil }
 func (t *testDispatcher) GlobalActivity() []models.AutomationRun { return nil }
 func (t *testDispatcher) UnregisterWorkspace(ws string)          {}
 func (t *testDispatcher) ClearWorkspaceHistory(ws string)        {}
@@ -449,5 +467,144 @@ func TestValidateAutomation_NetworkGrant(t *testing.T) {
 				t.Errorf("expected network_grant hint, got %q", err.Error())
 			}
 		})
+	}
+}
+
+func TestTriggerAutomation_ReportsLaneDisposition(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{
+		triggerResult: automation.TriggerResult{Status: automation.TriggerQueued, Position: 2},
+	}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/dispatcher/trigger/ws/a", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	rec := httptest.NewRecorder()
+
+	handlers.TriggerAutomation(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 for a queued trigger, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Status   string `json:"status"`
+		Position int    `json:"position"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Status != automation.TriggerQueued || body.Position != 2 {
+		t.Fatalf("body = %+v, want queued at position 2", body)
+	}
+}
+
+func TestTriggerAutomation_ReportsStartedDisposition(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{
+		triggerResult: automation.TriggerResult{Status: automation.TriggerStarted},
+	}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/dispatcher/trigger/ws/a", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	rec := httptest.NewRecorder()
+
+	handlers.TriggerAutomation(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for a started trigger, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTriggerAutomation_MapsAdmissionErrorToNotFound(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{triggerErr: errors.New("boom")}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/dispatcher/trigger/ws/a", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	rec := httptest.NewRecorder()
+
+	handlers.TriggerAutomation(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for an admission error, got %d", rec.Code)
+	}
+}
+
+func TestCancelQueuedHandler_RecordsCancellation(t *testing.T) {
+	dispatcher := &testDispatcher{}
+	handlers := NewDispatcherHandlers(dispatcher, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/dispatcher/queue/ws/a", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	rec := httptest.NewRecorder()
+
+	handlers.CancelQueuedHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !dispatcher.cancelCalled["ws/a"] {
+		t.Fatal("CancelQueued was not invoked for ws/a")
+	}
+}
+
+func TestCancelQueuedHandler_NotQueued(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{cancelErr: automation.ErrNoQueuedRun}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/dispatcher/queue/ws/a", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	rec := httptest.NewRecorder()
+
+	handlers.CancelQueuedHandler(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when nothing is queued, got %d", rec.Code)
+	}
+}
+
+func TestListAutomations_ReportsQueuedPosition(t *testing.T) {
+	entry := &automation.AutomationEntry{ID: "ws/queued", Workspace: "ws", Name: "queued", TaskFile: "task.md"}
+	entry.Trigger, _ = automation.New(models.TriggerConfig{Type: models.TriggerManual})
+	entry.Strategy = &automation.IsolatedStrategy{}
+	ld := &listDispatcher{
+		testDispatcher: &testDispatcher{laneSnapshot: runlane.Snapshot{Lanes: []runlane.LaneState{{
+			Lane:  runlane.LaneLocal,
+			Limit: 1,
+			Queued: []runlane.Entry{{
+				Key: "ws/queued", Lane: runlane.LaneLocal, WorkspaceID: "ws",
+				Automation: "queued", Position: 3,
+			}},
+		}}}},
+		entries: []*automation.AutomationEntry{entry},
+	}
+	tmp := t.TempDir()
+	handlers := NewDispatcherHandlers(ld, NewWorkspaceService(persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/dispatcher/automations", nil)
+	rec := httptest.NewRecorder()
+
+	handlers.ListAutomations(rec, req)
+
+	var infos []AutomationInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &infos); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(infos) != 1 || !infos[0].Queued || infos[0].QueuePosition != 3 {
+		t.Fatalf("infos = %+v, want the queued automation at position 3", infos)
+	}
+
+	// The JSON key is the frontend contract: the panel reads `queued` (and
+	// `queue_position`), so a struct-level assertion alone would not catch a
+	// tag drift like `is_queued`.
+	var raw []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw response: %v", err)
+	}
+	if _, ok := raw[0]["queued"]; !ok {
+		t.Fatalf("wire payload missing \"queued\": %s", rec.Body.String())
+	}
+	if _, ok := raw[0]["is_queued"]; ok {
+		t.Fatalf("wire payload must use \"queued\", not \"is_queued\": %s", rec.Body.String())
 	}
 }

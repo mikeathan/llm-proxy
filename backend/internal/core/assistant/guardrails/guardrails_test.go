@@ -502,11 +502,11 @@ func TestGuardrailEngine_ResolveRunScope(t *testing.T) {
 		grant models.NetworkScope
 		want  models.NetworkScope
 	}{
-		{"host off beats internet grant", boolp(false), wsInternet, models.NetworkScopeInternet, models.NetworkScopeNone},
-		{"grant none tightens internet ws", boolp(true), wsInternet, models.NetworkScopeNone, models.NetworkScopeNone},
-		{"grant lan loosens offline ws", boolp(true), wsOff, models.NetworkScopeLan, models.NetworkScopeLan},
-		{"inherit follows ws internet", boolp(true), wsInternet, models.NetworkScopeInherit, models.NetworkScopeInternet},
-		{"inherit with ws off is none", boolp(true), wsOff, models.NetworkScopeInherit, models.NetworkScopeNone},
+		{"host off beats internet grant", new(false), wsInternet, models.NetworkScopeInternet, models.NetworkScopeNone},
+		{"grant none tightens internet ws", new(true), wsInternet, models.NetworkScopeNone, models.NetworkScopeNone},
+		{"grant lan loosens offline ws", new(true), wsOff, models.NetworkScopeLan, models.NetworkScopeLan},
+		{"inherit follows ws internet", new(true), wsInternet, models.NetworkScopeInherit, models.NetworkScopeInternet},
+		{"inherit with ws off is none", new(true), wsOff, models.NetworkScopeInherit, models.NetworkScopeNone},
 		{"no host provider defaults allowed", nil, wsInternet, models.NetworkScopeInherit, models.NetworkScopeInternet},
 	}
 	for _, tt := range tests {
@@ -521,8 +521,6 @@ func TestGuardrailEngine_ResolveRunScope(t *testing.T) {
 		})
 	}
 }
-
-func boolp(b bool) *bool { return &b }
 
 func TestGuardrailEngine_ScopeAwareSchemaAndDenial(t *testing.T) {
 	wsOffCfg := func() models.AgentGuardrailsConfig {
@@ -695,9 +693,9 @@ func TestSearchAvailabilityGate(t *testing.T) {
 		wantHidden bool
 	}{
 		{name: "no predicate keeps enabled search visible", cfg: enabled, available: nil, wantHidden: false},
-		{name: "available keeps enabled search visible", cfg: enabled, available: boolp(true), wantHidden: false},
-		{name: "unavailable hides enabled search", cfg: enabled, available: boolp(false), wantHidden: true},
-		{name: "policy-disabled stays hidden even when available", cfg: disabled, available: boolp(true), wantHidden: true},
+		{name: "available keeps enabled search visible", cfg: enabled, available: new(true), wantHidden: false},
+		{name: "unavailable hides enabled search", cfg: enabled, available: new(false), wantHidden: true},
+		{name: "policy-disabled stays hidden even when available", cfg: disabled, available: new(true), wantHidden: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

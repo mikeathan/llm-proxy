@@ -4,7 +4,7 @@ import { LIFECYCLE_PHASES, type AgentEvent, type UpstreamEventPayload } from '..
 import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../dispatcher'
 import type { InsetPhase } from '../../types/inset'
 import type { MessageBuilderOptions } from '../../types/message'
-import { MODEL_STARTING_NOTICE, TRANSPORT_ERROR_LABEL, UPSTREAM_RETRYING_TEMPLATE } from '../../constants/labels'
+import { MODEL_BUSY_NOTICE, MODEL_BUSY_TEMPLATE, MODEL_STARTING_NOTICE, TRANSPORT_ERROR_LABEL, UPSTREAM_RETRYING_TEMPLATE } from '../../constants/labels'
 
 // Tool-call markup patterns, hoisted to module scope: stripToolCallXml runs on
 // every stream event (10–100/sec during a stream) and the finalize guard on
@@ -46,6 +46,11 @@ function safeParseArgs(raw: string): string {
 function upstreamRetryMessage(p: UpstreamEventPayload): string {
   if (p?.reason === 'model_starting') {
     return MODEL_STARTING_NOTICE
+  }
+  if (p?.reason === 'model_busy') {
+    // A remote proxy refused the switch because a run holds the model. The
+    // server's explanation is already human — show it rather than a status code.
+    return p.error ? MODEL_BUSY_TEMPLATE.replace('{detail}', p.error) : MODEL_BUSY_NOTICE
   }
   const attempt = p?.attempt ?? 0
   const max = p?.max_attempts ?? 0

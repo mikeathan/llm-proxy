@@ -103,7 +103,9 @@ func (m *mockSvc) SelectModels() (string, string) { return "", "" }
 // stubClient is a minimal proxy.Client for waitForModelReady tests.
 type stubClient struct{}
 
-func (stubClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) { return nil, nil }
+func (stubClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+	return nil, nil
+}
 func (stubClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 	return nil, nil
 }

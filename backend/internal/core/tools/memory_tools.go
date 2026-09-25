@@ -43,10 +43,10 @@ type RouteStrategy func(wsID string) MemoryRoute
 // Open/Closed: adding a new combination is a one-line registration here,
 // not a new case in branching logic.
 var routeStrategies = map[string]RouteStrategy{
-	"user_always_permanent":      func(wsID string) MemoryRoute { return MemoryRoute{"global", "user_profile", []string{"hot"}} },
-	"user_on_demand_permanent":   func(wsID string) MemoryRoute { return MemoryRoute{"global", "user_profile", nil} },
-	"user_on_demand_session":     func(wsID string) MemoryRoute { return MemoryRoute{"global", "user_profile", nil} },
-	"workspace_always_permanent": func(wsID string) MemoryRoute { return MemoryRoute{wsID, "long_term", []string{"hot"}} },
+	"user_always_permanent":         func(wsID string) MemoryRoute { return MemoryRoute{"global", "user_profile", []string{"hot"}} },
+	"user_on_demand_permanent":      func(wsID string) MemoryRoute { return MemoryRoute{"global", "user_profile", nil} },
+	"user_on_demand_session":        func(wsID string) MemoryRoute { return MemoryRoute{"global", "user_profile", nil} },
+	"workspace_always_permanent":    func(wsID string) MemoryRoute { return MemoryRoute{wsID, "long_term", []string{"hot"}} },
 	"workspace_on_demand_permanent": func(wsID string) MemoryRoute { return MemoryRoute{wsID, "long_term", nil} },
 	"workspace_on_demand_session":   func(wsID string) MemoryRoute { return MemoryRoute{wsID, "session", nil} },
 }
@@ -73,8 +73,8 @@ func resolveParams(scope memory.Scope, mode memory.Mode, keep memory.Keep, wsID 
 // Scope is optional: "user" searches global user facts, "workspace" searches
 // project facts, omitted searches both.
 func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
-	Query interface{} `json:"query"`
-	Limit int         `json:"limit"`
+	Query interface{}  `json:"query"`
+	Limit int          `json:"limit"`
 	Scope memory.Scope `json:"scope"`
 	Tags  []string     `json:"tags"`
 }) (any, error) {
@@ -174,11 +174,11 @@ func mergeAndCap(a, b []memory.MemoryEntry, limit int) []memory.MemoryEntry {
 // tool first tries to find a matching entry by content substring; if none is found it
 // falls through to create a new entry rather than erroring.
 func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
-	Content string        `json:"content"`
-	Scope   memory.Scope  `json:"scope"`
-	Mode    memory.Mode   `json:"mode"`
-	Keep    memory.Keep   `json:"keep"`
-	OldText string        `json:"old_text"`
+	Content string       `json:"content"`
+	Scope   memory.Scope `json:"scope"`
+	Mode    memory.Mode  `json:"mode"`
+	Keep    memory.Keep  `json:"keep"`
+	OldText string       `json:"old_text"`
 }) (any, error) {
 	if m.store == nil {
 		return "memory is not available", nil

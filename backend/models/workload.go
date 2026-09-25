@@ -61,6 +61,15 @@ func (c WorkloadClassifier) Classify(cfg ModelConfig) WorkloadClass {
 	return WorkloadCloud
 }
 
+// ClassifyConfig classifies cfg from its own signals only — provider == "local",
+// a .gguf artifact, or a loopback/unspecified BaseURL — without the configured
+// model host or local interface IPs. Prefer Classify with the bootstrap
+// WorkloadClassifier; this is the single shared fallback for call sites that
+// hold only the config (budget path, model views, test doubles).
+func ClassifyConfig(cfg ModelConfig) WorkloadClass {
+	return NewWorkloadClassifier("", nil).Classify(cfg)
+}
+
 // ClassifyEndpoint reports whether rawURL targets a local serving host:
 // loopback/unspecified, the configured model host, or a cached local-interface
 // IP.  No DNS, no network — pure host comparison.

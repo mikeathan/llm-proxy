@@ -49,7 +49,18 @@ LockPersonality=true
 # Go binaries are JIT-less; safe to enable. Remove only if a future embedded
 # runtime needs executable-mapping memory.
 MemoryDenyWriteExecute=true
-SystemCallFilter=@system-service
+# @system-service covers the backend's normal syscalls. The three Landlock
+# syscalls are listed EXPLICITLY because the agent OS-sandboxing layer needs
+# them and systemd's @system-service does not always include them: the
+# filesystem-jail provider probes Landlock at startup (landlock_create_ruleset)
+# and confines every agent child with landlock_add_rule + landlock_restrict_self.
+# On a systemd whose @system-service predates Landlock, a non-allowlisted
+# syscall is KILLED (SIGSYS -> journal "code=dumped, status=31/SYS", restart
+# loop) rather than returned as an error, so the service dies at boot right
+# after "Host Shell Manager initialized successfully". Listing syscalls already
+# in @system-service is harmless. Verify with:
+#   systemd-analyze syscall-filter @system-service | grep landlock
+SystemCallFilter=@system-service landlock_create_ruleset landlock_add_rule landlock_restrict_self
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=

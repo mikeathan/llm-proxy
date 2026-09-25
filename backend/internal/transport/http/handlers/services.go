@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
@@ -213,6 +214,10 @@ type AssistantService interface {
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
 	SelectModels() (string, string)
+	// Lane is the run scheduler every agent run (chat and automation) is
+	// admitted through; LaneKeyFor resolves a model's workload-class lane.
+	Lane() *runlane.Scheduler
+	LaneKeyFor(model string) runlane.LaneKey
 
 	Engine() assistant.Engine
 	ToolProvider() assistant.ToolProvider

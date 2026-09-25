@@ -12,22 +12,27 @@ import (
 	"llm-proxy/models"
 )
 
-// fakeRuntime implements RuntimeService with only ListModels wired;
-// ModelsListHandler only calls ListModels, every other method is a stub.
+// fakeRuntime implements RuntimeService with only the methods the proxy
+// handlers use wired; every other method is a stub.
 type fakeRuntime struct {
-	models []models.ModelConfig
+	models      []models.ModelConfig
+	activeInfo  *llm.ActiveModelInfo
+	instance    llm.ModelInstance
+	ensureErr   error
+	ensureCalls int
 }
 
 func (f *fakeRuntime) ListModels() []models.ModelConfig { return f.models }
 func (f *fakeRuntime) EnsureModel(context.Context, string) (llm.ModelInstance, error) {
-	return llm.ModelInstance{}, nil
+	f.ensureCalls++
+	return f.instance, f.ensureErr
 }
 func (f *fakeRuntime) RecordActivity(string)                     {}
 func (f *fakeRuntime) Sync()                                     {}
 func (f *fakeRuntime) AddModel(models.ModelConfig) error         { return nil }
 func (f *fakeRuntime) UpdateModel(models.ModelConfig) error      { return nil }
 func (f *fakeRuntime) RemoveModel(string) error                  { return nil }
-func (f *fakeRuntime) ActiveInfo() *llm.ActiveModelInfo          { return nil }
+func (f *fakeRuntime) ActiveInfo() *llm.ActiveModelInfo          { return f.activeInfo }
 func (f *fakeRuntime) ActiveLogs() string                        { return "" }
 func (f *fakeRuntime) LastTokensPerSecond() (float64, time.Time) { return 0, time.Time{} }
 func (f *fakeRuntime) LastModelError() string                    { return "" }

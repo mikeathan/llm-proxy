@@ -346,6 +346,9 @@ func mergeAppConfigDefaults(d, c models.AppConfig) models.AppConfig {
 	if c.RunLogging == nil {
 		c.RunLogging = d.RunLogging
 	}
+	if c.Scheduler == nil {
+		c.Scheduler = d.Scheduler
+	}
 	return c
 }
 

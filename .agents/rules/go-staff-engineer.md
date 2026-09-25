@@ -155,12 +155,10 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
     helpers. When unsure what the installed toolchain offers, check it directly (`go doc
     builtin`, `go doc slices`, `go doc maps`) rather than trusting remembered release notes;
     never hard-pin a rule to one minor Go release.
--   **Pointer to a value:** need a pointer to the **zero value** → `new(T)` (stdlib; never a
-    local `ptr(x)`-style wrapper for zero targets — editors/linters flag it). Need a pointer
-    to a **non-zero** literal → one generic helper per package tree
-    (`func ptr[T any](v T) *T { return &v }`; precedent: `models.ptr`), called only with
-    non-zero values. (`new` has no initializer form in any released Go — do not reach for
-    one.)
+-   **Pointer to a value:** use the builtin `new` — `new(T)` for a zero value, `new(expr)`
+    (Go 1.26+) for a non-zero literal. Do not add `ptr(x)`-style wrapper helpers: the
+    `newexpr` analyzer (`go tool fix -newexpr`, gopls modernize) flags any
+    `func f(x T) *T { return &x }` and rewrites its call sites to `new(x)`.
 -   **Domain vocabulary with a fixed value set → typed string enum, never a bare `string`:**
     `type X string` + named constants + a `Valid()` method. Persisted enums live in the
     leaf `models` package (precedent: `WorkloadClass`, `LoopStrategy`); consumer packages

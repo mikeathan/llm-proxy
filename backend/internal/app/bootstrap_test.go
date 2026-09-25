@@ -32,6 +32,32 @@ func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 	}
 }
 
+// The run scheduler must reach AppServices.Lane(): the assistant handler takes
+// its lane from there, and a nil lane silently disables chat admission. Chat
+// runs would then never record a lane holder — so the header run indicator
+// stays hidden during a chat and preempt/queue-between-chats never happens.
+// Automations are unaffected (they use Container.RunLane), which is exactly why
+// the omission stayed invisible.
+func TestBuildAppServices_WiresRunLane(t *testing.T) {
+	utils.SetRequiredEnv(t)
+
+	logger := &mocks.MockLogger{}
+	dataMgr := minimalDataManager(t)
+
+	container := bootstrap(dataMgr, logger, false, false)
+	services := container.BuildAppServices()
+
+	if container.RunLane == nil {
+		t.Fatal("container.RunLane is nil")
+	}
+	if services.Lane() == nil {
+		t.Fatal("AppServices.Lane() is nil — chat runs bypass the run scheduler")
+	}
+	if services.Lane() != container.RunLane {
+		t.Fatal("AppServices.Lane() must be the same scheduler as Container.RunLane")
+	}
+}
+
 func minimalDataManager(t *testing.T) *storage.DataManager {
 	dir := t.TempDir()
 
