@@ -71,18 +71,20 @@ vulkaninfo --summary
 ## systemd Service
 
 ```ini
+# Minimal dev unit. The canonical hardened deployment unit is
+# docs/services/llm-proxy.service (dedicated user, strict lockdown), rendered
+# by setup.sh.
 [Unit]
 Description=LLM Proxy
 After=network.target
 
 [Service]
 Type=simple
-User=mikeathan
-WorkingDirectory=/home/mikeathan/dev/llm-proxy
-# Self-contained layout: LLM_PROXY_HOME=<dir> gives <dir>/config + <dir>/data.
-# (An explicit --data sets the DATA root only; ConfigDir still follows env/XDG/home.)
-Environment=LLM_PROXY_HOME=/home/mikeathan/llm-proxy
-ExecStart=/home/mikeathan/dev/llm-proxy/llm-proxy
+User=llm-proxy
+WorkingDirectory=/var/lib/llm-proxy
+# Single-root layout: LLM_PROXY_HOME=<dir> holds settings, DB, logs, workspaces.
+Environment=LLM_PROXY_HOME=/var/lib/llm-proxy
+ExecStart=/usr/local/bin/llm-proxy
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes

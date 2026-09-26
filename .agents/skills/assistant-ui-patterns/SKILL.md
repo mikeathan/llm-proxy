@@ -1,7 +1,7 @@
 ---
 name: assistant-ui-patterns
-description: "Assistant UI patterns: sidebar states, SSE event flow, tool rendering, and mobile breakpoints. Use when working on AgentIde UI components."
-when_to_use: "Editing AgentIde UI components, sidebar states, tool rendering, or mobile breakpoints."
+description: "AgentIde UI shell patterns: chat shell composition, sidebar/drawer states, mobile breakpoints, the shared chat renderer, and UI gotchas. Use when working on AgentIde layout/components."
+when_to_use: "Editing AgentIde UI layout, sidebar/drawer states, mobile breakpoints, or the shared ChatMessages renderer."
 status: reference
 last_reviewed: 2026-07-11
 ---
@@ -23,7 +23,7 @@ AssistantChat.vue
   └── ChatInput.vue                      → text input + send/cancel
 
 AutomationDetails.vue
-  └── useLiveConsole → automationEventsToMessages → ChatMessages (mode="automation")
+  └── useLiveConsole → useMessageBuilder → ChatMessages (mode="automation")
 
 SSE: useAssistantSSE → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=assistant
 SSE: useLiveConsole  → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=automation
@@ -31,7 +31,7 @@ SSE: useLiveConsole  → EventSource → /admin/api/dispatcher/workspaces/{ws}/l
 
 **Critical invariant:** `useAssistant` is a **module-level singleton**. State is shared across all components that import it. Never create a local instance.
 
-**Renderer unification:** assistant chat and automation runs share ONE renderer — `ChatMessages.vue`. Automation feeds it via `automationEventsToMessages` (`utils/message/automationToMessages.ts`), which maps `AgentEvent[]` → `AssistantMessage[]`, reusing `buildSegmentsFromHistory`. The old `LiveConsole`/`TerminalOutput` terminal stack was deleted; do NOT reintroduce a bespoke terminal renderer. In `automation` mode `ChatMessages` hides the welcome card and `UserMessage` bubble and passes a static `phase`. New automation event types belong in `automationEventsToMessages`, not in a terminal overlay.
+**Renderer unification:** assistant chat and automation runs share ONE renderer — `ChatMessages.vue` — and ONE event→message consumer, `useMessageBuilder` (`utils/message/messageBuilder.ts`). `useLiveConsole` feeds the builder directly; the old `automationEventsToMessages` bridge and the `LiveConsole`/`TerminalOutput` terminal stack were deleted (the bridge concatenated cumulative re-emits into a cascade) — do NOT reintroduce either. In `automation` mode `ChatMessages` hides the welcome card and `UserMessage` bubble and passes a static `phase`. New automation event types are handled in the builder, not in a forked mapping.
 
 ---
 
@@ -73,61 +73,22 @@ Current implementation uses a single `sidebarOpen` boolean. Desktop aside transi
 
 ---
 
-## SSE Event Flow
+## SSE wiring (UI side)
 
-```
-Agent publishes event via publishObs
-  → EventBus.Publish(workspaceID, event)
-    → fanned out to all subscribers (EventSource connections)
-      → frontend useAssistantSSE receives JSON
-        → updates messages ref
-          → ChatMessages re-renders
-```
+The event plumbing (observer → EventBus → `/live` SSE → dedup), the event-type/phase tables, and the guardrail flow are owned by [`event-streaming-patterns`](../event-streaming-patterns/SKILL.md); session phases by [`lifecycle-events`](../lifecycle-events/SKILL.md). Only the UI-side wiring belongs here:
 
-**Key files:**
-- `frontend/src/composables/assistant/useAssistant.ts` — singleton state
-- `frontend/src/composables/assistant/useAssistantSSE.ts` — EventSource lifecycle
-- `backend/internal/core/automation/broadcast.go` — EventBus
+**Key files:** `composables/assistant/useAssistant.ts` (singleton state), `useAssistantSSE.ts` (EventSource lifecycle), `backend/internal/core/eventbus/` (bus).
 
-**Lifecycle:**
-1. User sends message → `POST /admin/api/conversation/message`
-2. Before the request completes, frontend connects SSE to `/admin/api/dispatcher/workspaces/{ws}/live`
-3. Backend agent loop runs, publishing events via `publishObs`
-4. SSE streams `agent_update` events to frontend
-5. Frontend appends each event to `messages` ref
+**UI integration rules:**
+- Connect SSE **before** the `POST /admin/api/conversation/message`; otherwise the agent runs to completion with no streamed events.
+- Never mutate `messages` directly — call the composable's methods; the singleton ref is overwritten on the next update.
+- Do not disconnect before the agent completes (component unmount included).
 
-**Common mistakes:**
-- Calling `POST /message` without first connecting SSE — the agent runs to completion but no events stream
-- Modifying `messages` directly instead of through `useAssistant` — breaks reactivity (singleton ref)
-- Disconnecting SSE early — component unmount must not happen before agent completes
+**Chat + automation share ONE event→message consumer** — `useMessageBuilder`. Chat uses `finalizeOn: 'explicit'`; automation passes `finalizeOn: 'lifecycle'` + a synthetic run-header message. Customize automation chrome via the `ChatMessages` `mode` prop + `#run-header` slot, never a forked mapping.
 
-**Chat + automation share ONE event→message consumer.** Both `useAssistant`
-(chat) and `useLiveConsole` (automation) feed `useMessageBuilder` — the single
-`AgentEvent[] → AssistantMessage[]` consumer. The bespoke `automationEventsToMessages`
-bridge was deleted (it concatenated cumulative re-emits, causing the repeated
-"The user wants me to…" cascade). Automation passes `finalizeOn: 'lifecycle'`
-and a synthetic run-header message; chat keeps the default `finalizeOn:
-'explicit'`. Customize automation chrome via the `ChatMessages` `mode` prop +
-`#run-header` slot, never a forked mapping.
+## Tool message rendering
 
----
-
-## Tool Message Rendering Pattern
-
-Messages from the assistant contain tool calls and results. These are rendered through shared components:
-
-| Event type | Component | Path |
-|-----------|-----------|------|
-| `tool_call` | `<ToolCallBlock>` | `components/common/chat/ToolCallBlock.vue` |
-| `tool_result` | `<ToolResultBlock>` | `components/common/chat/ToolResultBlock.vue` |
-| `lifecycle` | `<LifecycleMessage>` | `components/common/chat/LifecycleMessage.vue` |
-| `guardrail_violation` | (inline in TerminalOutput) | — |
-| `guardrail_blocked` | `<GuardrailBanner>` | `components/common/chat/GuardrailBanner.vue` |
-
-All tool-related UI components moved to `components/common/chat/` during the refactor. Import path:
-```typescript
-import ToolCallBlock from "../../components/common/chat/ToolCallBlock.vue"
-```
+Tool/reasoning segments render inside `ChatBubble.vue` via `ToolCallSegment.vue` (`components/AgentIde/assistant/`); guardrail approval is `components/common/chat/GuardrailBanner.vue`. There is no separate `ToolCallBlock`/`ToolResultBlock`/`LifecycleMessage` component — the event-type → rendering map is in [`event-streaming-patterns`](../event-streaming-patterns/SKILL.md).
 
 ---
 

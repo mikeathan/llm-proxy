@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Session Lifecycle Events
 
-**Source:** `backend/internal/core/assistant/agent_events.go` (phase constants), `backend/internal/transport/http/assistant_handlers.go` (publishing)
+**Source:** `backend/internal/core/assistant/agent_events.go` (phase constants), `backend/internal/transport/http/handlers/assistant_handlers.go` (publishing)
 
 ---
 
@@ -222,7 +222,7 @@ The `notify_user` tool is excluded from the agent in webhook context via the gua
 - `RunWithCancel` in `assistant_handlers.go` — registers/unregisters in the shared `running` map
 - `handleAgentMessage` / `runAgentReply` in `webhook_handlers.go` — async agent execution
 - `replyToChat` in `webhook_handlers.go` — sends via connector's `Send()` method
-- `filtered_provider.go` / `tool_availability.go` in `core/assistant/` — wraps `ToolProvider` to exclude tools per context / guardrail policy
+- `toolpolicy/tool_availability.go` — wraps `ToolProvider` to exclude tools per context / guardrail policy
 
 ## Backward Compatibility
 

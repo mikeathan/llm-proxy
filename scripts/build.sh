@@ -46,11 +46,14 @@ fi
 
 # --- Versioning (from the most recent git tag) -------------------------------
 ui_info "Retrieving version from Git tags..."
-VERSION=$(git tag --sort=-v:refname | head -n 1)
+# head closes the pipe after the first tag; on a repo with many tags git gets
+# SIGPIPE, which pipefail would turn into a failed substitution. The `|| true`
+# keeps the first line and lets the "dev" fallback below handle a real failure.
+VERSION=$(git tag --sort=-v:refname | head -n 1 || true)
 [[ -n "$VERSION" ]] || VERSION="dev"
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-ui_ok "Version ${UI_GREEN}${VERSION}${UI_NC} (commit ${UI_CYAN}${COMMIT}${UI_NC})"
+ui_ok "Version ${VERSION} (commit ${COMMIT})"
 
 # --- Frontend build ----------------------------------------------------------
 ui_info "Building frontend assets..."
@@ -77,7 +80,7 @@ LDFLAGS="-X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildDate=$
 go mod tidy
 
 if go build -ldflags "$LDFLAGS" -o "./${BIN_NAME}" .; then
-  ui_ok "Backend binary created at ${UI_BOLD}backend/${BIN_NAME}${UI_NC}"
+  ui_ok "Backend binary created at backend/${BIN_NAME}"
 else
   ui_die "Backend compilation failed!"
 fi

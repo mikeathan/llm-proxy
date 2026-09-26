@@ -22,19 +22,20 @@ opencode, and dsh, and loaded on demand (only name + description are always in c
 |-------|------|----------|
 | agent-loop | `.agents/skills/agent-loop/SKILL.md` | Sieve, fallback chain, reasoning budget, spiral detector |
 | assistant-ui-chat | `.agents/skills/assistant-ui-chat/SKILL.md` | Event handlers, segment system, inactivity timer, SSE timing, scroll behavior, common pitfalls |
-| assistant-ui-patterns | `.agents/skills/assistant-ui-patterns/SKILL.md` | Sidebar states, SSE event flow, tool rendering, mobile breakpoints, common gotchas |
+| assistant-ui-patterns | `.agents/skills/assistant-ui-patterns/SKILL.md` | AgentIde shell: layout, sidebar/drawer states, mobile breakpoints, shared renderer, UI gotchas |
 | automation | `.agents/skills/automation/SKILL.md` | Dispatcher, executor, run lifecycle, templates |
 | clean-code | `.agents/skills/clean-code/SKILL.md` | Naming, functions, comments, formatting, boundaries, error handling, tests, SOLID, emergent design, concurrency, smells & heuristics checklist |
 | connector-patterns | `.agents/skills/connector-patterns/SKILL.md` | Outbound connector steps, inbound webhook, CONSTITUTION checklist, common errors |
-| documentation-stewardship | `.agents/skills/documentation-stewardship/SKILL.md` | Post-completion checklist for doc updates |
+| debugging | `.agents/skills/debugging/SKILL.md` | Root-cause a failing test/build/agent run/tool call: reproduce, locate, isolate, fix, regression-test |
+| documentation-stewardship | `.agents/skills/documentation-stewardship/SKILL.md` | Post-change doc pass: SPEC/plan/INDEX/pitfalls/skill/CONSTITUTION mapping + verify |
 | engineering-practices | `.agents/skills/engineering-practices/SKILL.md` | Go patterns, code style, frontend icon conventions, file checklists |
 | event-streaming-patterns | `.agents/skills/event-streaming-patterns/SKILL.md` | SSE composables, observer chaining, guardrail flow, heartbeat cleanup, dedup |
 | lifecycle-events | `.agents/skills/lifecycle-events/SKILL.md` | Session phases, SSE contract, frontend handler, testing |
 | llamacpp-setup | `.agents/skills/llamacpp-setup/SKILL.md` | Args, GPU tuning, systemd, performance data |
 | memory-system | `.agents/skills/memory-system/SKILL.md` | Injection, three-tier, tags, dedup, gotchas |
+| task-planning | `.agents/skills/task-planning/SKILL.md` | Classify, trace the code path, scope, decompose into verifiable steps, plan docs, resume |
 | tdd-guide | `.agents/skills/tdd-guide/SKILL.md` | Red/Green/Refactor flow, test grouping, keeping the suite fast |
 | testing-guide | `.agents/skills/testing-guide/SKILL.md` | Smoke tests, record-replay, run analysis, templates, MockClient patterns |
-| tool-failure-investigation | `.agents/skills/tool-failure-investigation/SKILL.md` | Error tracing, handler scoping, recovery prompt verification |
 
 ## Specifications (Behavioral Contracts)
 
@@ -100,7 +101,7 @@ opencode, and dsh, and loaded on demand (only name + description are always in c
 
 ## Archived Plans
 
-Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHIVE/` — loaded only when their specific topic is relevant. On 2026-07-11, 7 stale plans were archived: `agent-loop/enhanced-agent-flow-and-compatibility.md`, `assistant-ui/simple-three-bubble.md`, `cross-cutting/interactive-user-input.md`, `cross-cutting/per-run-output-directories.md`, `cross-cutting/terminal-ui.md`, `assistant-ui/running-indicator-webhook.md`, `memory/mbtcp-implementation.md`. On 2026-08-01, the superseded `assistant-ui/automation-unified-renderer-and-report-truncation.md` was archived (replaced by `automation-renderer-unify-consumption.md`); the root `DUPLICATION_AUDIT.md` and `cross-cutting/reasoning-neutral-working-state.md` were merged into `docs/PLANS/codebase-audit-report.md` (appendix) and `docs/PLANS/cross-cutting/reasoning-capture-dynamic.md` respectively. On 2026-08-06, `cross-cutting/provider-agnostic-reasoning-enable.md` (proposed) was merged into `cross-cutting/cloud-provider-token-budgets.md` as **Phase 7** and archived to `ARCHIVE/cross-cutting/` (consolidation — shared `WorkloadClass`/`reasoning_param.go` surface). On 2026-08-07: the **Codebase Audit Report** was reclassified from plan to audit and moved to `docs/audits/codebase-audit-report.md`; `agent-loop/ephemeral-turn-context.md` (reverted) was archived to `ARCHIVE/agent-loop/`; `fix-final-report-realignment.md` moved to `agent-loop/`; `agents-md/` merged into `cross-cutting/`. The "Remaining Work" view in `PLANS/README.md` now tracks non-complete plans by status (no separate todo folder). On 2026-09-05 (plan-hygiene review): `assistant-ui/knight-rider-arc-bubble.md` archived as complete (`ArcOrbitLoader` extraction verified in code); `assistant-ui/cancel-stale-turn-bleed.md` archived as merged (backend SSE bleed homed in overhaul Phase 5); `cross-cutting/cloud-provider-token-budgets.md` archived as complete (all phases incl. merged Phase 7 + M8 probe verified in `orchestrator/context_resolution.go`); CI plan status corrected `proposed`→`partial`; `agent-improvements.md` re-scoped; memory plan duplicate-Phase-2 numbering fixed. On 2026-09-25, the completed `cross-cutting/global-run-lane-scheduler.md` and `cross-cutting/inbound-request-admission.md` plans were **consolidated into SPEC-007 §V/§V.1** (run scheduler + model-residency contract), `docs/architecture.md` (package layout, pitfalls #34–#36) and the `automation` skill, and removed from `docs/PLANS/` (git history retains the design rationale).
+Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHIVE/` — loaded only when their specific topic is relevant. On 2026-07-11, 7 stale plans were archived: `agent-loop/enhanced-agent-flow-and-compatibility.md`, `assistant-ui/simple-three-bubble.md`, `cross-cutting/interactive-user-input.md`, `cross-cutting/per-run-output-directories.md`, `cross-cutting/terminal-ui.md`, `assistant-ui/running-indicator-webhook.md`, `memory/mbtcp-implementation.md`. On 2026-08-01, the superseded `assistant-ui/automation-unified-renderer-and-report-truncation.md` was archived (replaced by `automation-renderer-unify-consumption.md`); the root `DUPLICATION_AUDIT.md` and `cross-cutting/reasoning-neutral-working-state.md` were merged into `docs/audits/codebase-audit-report.md` (appendix) and `docs/PLANS/cross-cutting/reasoning-capture-dynamic.md` respectively. On 2026-08-06, `cross-cutting/provider-agnostic-reasoning-enable.md` (proposed) was merged into `cross-cutting/cloud-provider-token-budgets.md` as **Phase 7** and archived to `ARCHIVE/cross-cutting/` (consolidation — shared `WorkloadClass`/`reasoning_param.go` surface). On 2026-08-07: the **Codebase Audit Report** was reclassified from plan to audit and moved to `docs/audits/codebase-audit-report.md`; `agent-loop/ephemeral-turn-context.md` (reverted) was archived to `ARCHIVE/agent-loop/`; `fix-final-report-realignment.md` moved to `agent-loop/`; `agents-md/` merged into `cross-cutting/`. The "Remaining Work" view in `PLANS/README.md` now tracks non-complete plans by status (no separate todo folder). On 2026-09-05 (plan-hygiene review): `assistant-ui/knight-rider-arc-bubble.md` archived as complete (`ArcOrbitLoader` extraction verified in code); `assistant-ui/cancel-stale-turn-bleed.md` archived as merged (backend SSE bleed homed in overhaul Phase 5); `cross-cutting/cloud-provider-token-budgets.md` archived as complete (all phases incl. merged Phase 7 + M8 probe verified in `orchestrator/context_resolution.go`); CI plan status corrected `proposed`→`partial`; `agent-improvements.md` re-scoped; memory plan duplicate-Phase-2 numbering fixed. On 2026-09-25, the completed `cross-cutting/global-run-lane-scheduler.md` and `cross-cutting/inbound-request-admission.md` plans were **consolidated into SPEC-007 §V/§V.1** (run scheduler + model-residency contract), `docs/architecture.md` (package layout, pitfalls #34–#36) and the `automation` skill, and removed from `docs/PLANS/` (git history retains the design rationale).
 
 ## Audits
 
@@ -124,20 +125,20 @@ Completed, superseded, and not-implemented plans are stored in `docs/PLANS/ARCHI
 
 ## Agent Rules (AI Assistant Guidance)
 
-| File | Title | Lines |
-|------|-------|-------|
-| `.agents/rules/go-staff-engineer.md` | Go Coding Rules for AI | 48 |
-| `.agents/rules/frontend-vue-engineer.md` | Vue Coding Rules for AI | 53 |
+| File | Title |
+|------|-------|
+| `.agents/rules/go-staff-engineer.md` | Go Coding Rules for AI |
+| `.agents/rules/frontend-vue-engineer.md` | Vue Coding Rules for AI |
 
 ## Top-Level Guides
 
-| File | Title | Lines | Audience |
-|------|-------|-------|----------|
-| `README.md` | LLM Proxy — Quick Start & Config | 63 | End users |
-| `AGENTS.md` | Instructions for AI Coding Assistants | 53 | AI assistants |
-| `docs/architecture.md` | Architecture Reference (mappings, contracts, checklists, pitfalls) | 272 | Developers |
-| `CONSTITUTION.md` | Architectural Invariants — The Law | 116 | Everyone |
-| `docs/guides/loop-strategy.md` | Loop Strategy — Operator Guide (which archetype to pick) | — | Operators |
+| File | Title | Audience |
+|------|-------|----------|
+| `README.md` | LLM Proxy — Quick Start & Config | End users |
+| `AGENTS.md` | Instructions for AI Coding Assistants | AI assistants |
+| `docs/architecture.md` | Architecture Reference (mappings, contracts, checklists, pitfalls) | Developers |
+| `CONSTITUTION.md` | Architectural Invariants — The Law | Everyone |
+| `docs/guides/loop-strategy.md` | Loop Strategy — Operator Guide (which archetype to pick) | Operators |
 
 ## Other Documents
 

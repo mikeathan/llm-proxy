@@ -2,11 +2,10 @@
 # setup.sh — interactive installer/uninstaller for the llm-proxy systemd
 # service (host provisioning). LINUX ONLY (systemd). macOS production
 # deployment uses the dedicated-user launchd daemon instead —
-# docs/services/llm-proxy.launchd.plist (+ docs/service_setup.md → macOS); this
-# script's preview mode still works on macOS for dry-run inspection.
+# docs/services/llm-proxy.launchd.plist (+ docs/service_setup.md → macOS).
 #
-# UI: native `dialog`/`whiptail` panels (classic blue setup-screen look) when
-# available; falls back to a plain-ANSI TUI otherwise. Zero required deps.
+# UI: native `dialog`/`whiptail` panels when available; falls back to a
+# plain-ANSI TUI otherwise. Zero required deps.
 #
 # Subcommands (TUI menu shown when run bare):
 #   ./setup.sh install    install flow (build binary + register systemd)
@@ -16,15 +15,13 @@
 #   ./setup.sh purge      uninstall + erase EVERYTHING (typed confirmation)
 #   ./setup.sh access     grant service-user read access to external model/
 #                         binary paths (ACLs; explicit opt-in)
-#   ./setup.sh service     start/stop/restart/status + view service logs
-#   ./setup.sh preview    dry-run preview of install
+#   ./setup.sh service    start/stop/restart/status + view service logs
 #
 # Flags (for CI / unattended runs; skip the TUI entirely):
 #   --install     install flow with defaults
 #   --uninstall   uninstall flow with defaults (data is KEPT)
 #   --build       build the binary first (scripts/build.sh)
 #   --force       overwrite binary + unit even when identical
-#   --dry-run     preview — no changes, works on macOS too
 #   --yes         accept all prompts with defaults
 #
 # Contributor dev setup (gitleaks + git hooks) lives in
@@ -39,7 +36,7 @@ SVC_USER="llm-proxy"
 SVC_ROOT="/var/lib/llm-proxy"
 INSTALL_BIN="/usr/local/bin/${BIN_NAME}"
 
-FORCE=0; DRY_RUN=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; MODE=""
+FORCE=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; MODE=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -50,14 +47,12 @@ for arg in "$@"; do
     build)       MODE="build" ;;
     service)     MODE="service" ;;
     access)      MODE="access" ;;
-    preview)     MODE="preview"; DRY_RUN=1 ;;
     --install)   MODE="install" ;;
     --uninstall) MODE="uninstall" ;;
     --build)     DO_BUILD=1 ;;
     --force)     FORCE=1 ;;
-    --dry-run)   DRY_RUN=1 ;;
     --yes)       ASSUME_YES=1 ;;
-    -h|--help)   sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg (-h for usage)" >&2; exit 1 ;;
   esac
 done
@@ -97,41 +92,41 @@ fi
 source "$PRJ_ROOT/scripts/lib/ui.sh"
 # shellcheck source=scripts/lib/toolchain.sh
 source "$PRJ_ROOT/scripts/lib/toolchain.sh"
-BOLD=$UI_BOLD; CYAN=$UI_CYAN; GREEN=$UI_GREEN
-YELLOW=$UI_YELLOW; RED=$UI_RED; DIM=$UI_DIM; NC=$UI_NC
+BOLD=$UI_BOLD; ACCENT=$UI_MAUVE; TEXT=$UI_TEXT
+GREEN=$UI_GREEN; YELLOW=$UI_YELLOW; RED=$UI_RED; DIM=$UI_DIM; NC=$UI_NC
 
 # --- whiptail theme ---------------------------------------------------------
-# whiptail's stock palette renders as muddy magenta on modern terminal themes.
-# Pin a "retro phosphor" look: near-black panels, amber borders/titles, green
-# text, and inverted amber/green highlights — classic CRT terminal vibes.
-# Honor NO_COLOR to keep the system palette. (dialog uses dialogrc,
-# not newt, so this only applies to the whiptail backend.)
+# Pin a Catppuccin Macchiato look (the theme this repo's opencode TUI uses):
+# black panels, mauve borders/titles, light text, teal highlights. newt only
+# takes the 16-colour names, so these are the nearest ANSI slots. Honor
+# NO_COLOR to keep the system palette. (dialog uses dialogrc, not newt, so this
+# only applies to the whiptail backend.)
 if [[ $UI_BACKEND == whiptail && -z "${NO_COLOR:-}" ]]; then
   export NEWT_COLORS='
-    root=green,black
-    window=green,black
-    border=yellow,black
-    title=yellow,black
-    textbox=green,black
-    button=black,yellow
-    compactbutton=black,yellow
-    actbutton=black,green
-    checkbox=green,black
-    actcheckbox=black,green
-    entry=green,black
-    actentry=black,green
-    label=green,black
-    listbox=green,black
-    actlistbox=black,green
-    helpline=yellow,black
-    roottext=yellow,black
+    root=white,black
+    window=white,black
+    border=magenta,black
+    title=magenta,black
+    textbox=white,black
+    button=black,magenta
+    compactbutton=black,magenta
+    actbutton=black,cyan
+    checkbox=white,black
+    actcheckbox=black,cyan
+    entry=white,black
+    actentry=black,cyan
+    label=white,black
+    listbox=white,black
+    actlistbox=black,cyan
+    helpline=cyan,black
+    roottext=cyan,black
   '
 fi
 
-info()    { echo "  • $1"; }
-success() { echo "  ✓ $1"; }
-warn()    { echo "  ! $1"; }
-fail()    { echo "  ✗ $1" >&2; exit 1; }
+info()    { printf '  %s•%s %s%s%s\n' "$ACCENT" "$NC" "$TEXT" "$1" "$NC"; }
+success() { printf '  %s✓%s %s%s%s\n' "$GREEN" "$NC" "$TEXT" "$1" "$NC"; }
+warn()    { printf '  %s!%s %s%s%s\n' "$YELLOW" "$NC" "$TEXT" "$1" "$NC"; }
+fail()    { printf '  %s✗%s %s%s%s\n' "$RED" "$NC" "$TEXT" "$1" "$NC" >&2; exit 1; }
 
 # --- whiptail / dialog backend ---------------------------------------------
 # Sizing: menus/boxes get a fixed comfortable geometry; whiptail and dialog
@@ -158,16 +153,16 @@ ansi_menu() {
   if [[ $INTERACTIVE == 0 ]]; then echo "${items[0]}"; return; fi
   local esc_t=1; (( BASH_VERSINFO[0] > 3 )) && esc_t=0.1
   while true; do
-    echo -e "${CYAN}${BOLD}$title${NC}" >&2
+    printf '%s%s%s%s\n' "$ACCENT" "$BOLD" "$title" "$NC" >&2
     for ((i=0; i<n; i++)); do
       local tag="${items[$((i*2))]}" desc="${items[$((i*2+1))]}"
       if (( i+1 == sel )); then
-        echo -e "  ${CYAN}${BOLD}▸ ${desc}${NC}" >&2
+        printf '  %s%s▌ %s%s\n' "$ACCENT" "$BOLD" "$desc" "$NC" >&2
       else
-        echo -e "    ${desc}" >&2
+        printf '%s    %s%s\n' "$TEXT" "$desc" "$NC" >&2
       fi
     done
-    echo -e "${DIM}  (↑/↓ + Enter, q to quit)${NC}" >&2
+    printf '%s  (↑/↓ + Enter, q to quit)%s\n' "$DIM" "$NC" >&2
     IFS= read -rsn1 key || exit 0
     if [[ $key == $'\x1b' ]]; then
       read -rsn2 -t "$esc_t" seq || true
@@ -196,7 +191,6 @@ ui_input() { # $1 prompt, $2 default
 ui_confirm() {
   local default_no=0
   [[ "$1" == *"[y/N]"* ]] && default_no=1
-  if [[ $DRY_RUN == 1 ]]; then return 1; fi
   if [[ $INTERACTIVE == 0 ]]; then
     [[ $default_no == 0 ]]
   elif [[ $UI_BACKEND == ansi ]]; then
@@ -210,7 +204,7 @@ ui_confirm() {
 }
 
 ui_msgbox() { # $1 text
-  if [[ $DRY_RUN == 1 || $INTERACTIVE == 0 || $UI_BACKEND == ansi ]]; then
+  if [[ $INTERACTIVE == 0 || $UI_BACKEND == ansi ]]; then
     echo "  $1"; return
   fi
   # Same fd swap as ui_menu/ui_input: newt/dialog draw on stdout, so without
@@ -249,37 +243,15 @@ ui_pause() { # non-blocking status line (progress feedback during work)
 # LOGIC LAYER — calls ui_* only. All steps are idempotent.
 # =============================================================================
 
-run() { if [[ $DRY_RUN == 1 ]]; then info "(dry-run) $*"; else "$@"; fi; }
-
-# Confirm with dry-run/interactivity semantics applied; destructive branches
-# are skipped during preview.
-confirm() {
-  if [[ $DRY_RUN == 1 ]]; then info "(dry-run) would prompt: $1"; return 1; fi
-  ui_confirm "$1"
-}
-
 check_env() {
   if ! command -v systemctl >/dev/null 2>&1; then
-    if [[ $DRY_RUN == 1 ]]; then
-      warn "systemd not found on this host — previewing Linux install steps only"
-    elif [[ -t 0 && $INTERACTIVE == 1 ]]; then
-      # Preview-capable host (e.g. a dev Mac): offer the TUI in dry-run
-      # instead of refusing outright.
-      warn "systemd not found on this host — switching to preview mode (dry-run)"
-      DRY_RUN=1
-    elif [[ "$(uname -s)" == "Darwin" ]]; then
+    if [[ "$(uname -s)" == "Darwin" ]]; then
       fail "macOS deployment is NOT covered by setup.sh (Linux/systemd only) — see docs/service_setup.md → macOS: dedicated-user launchd daemon via docs/services/llm-proxy.launchd.plist."
-    else
-      fail "systemd not found — this script targets Linux servers (see docs/service_setup.md)."
     fi
+    fail "systemd not found — this script targets Linux servers (see docs/service_setup.md)."
   fi
   [[ -f "docs/services/${BIN_NAME}.service" ]] || fail "docs/services/${BIN_NAME}.service missing — run from the repo root."
-  if [[ $DRY_RUN == 1 ]]; then
-    warn "DRY RUN — no changes will be made"
-    [[ $EUID -eq 0 ]] || warn "not root: root-only paths cannot be inspected; output is approximate"
-  elif [[ $EUID -ne 0 ]]; then
-    fail "run with sudo: sudo ./setup.sh"
-  fi
+  [[ $EUID -eq 0 ]] || fail "run with sudo: sudo ./setup.sh"
 }
 
 # -----------------------------------------------------------------------------
@@ -289,7 +261,7 @@ check_env() {
 # -----------------------------------------------------------------------------
 choose_service_user() {
   local invoking="${SUDO_USER:-$(id -un)}"
-  if [[ $INTERACTIVE != 1 || $DRY_RUN == 1 ]]; then
+  if [[ $INTERACTIVE != 1 ]]; then
     echo "$SVC_USER" # non-interactive: keep the default (llm-proxy)
     return
   fi
@@ -349,7 +321,7 @@ grant_read_access() { # $1 = service user, $2 = path
     warn "setfacl not available — install the 'acl' package and re-run (skipping $path)"
     return
   fi
-  run setfacl -R -m "u:${user}:rX" "$path"
+  setfacl -R -m "u:${user}:rX" "$path"
   # Traverse-only on the parent chain: stop at / (root is traversable already).
   local parent
   parent="$(dirname "$(realpath "$path")")"
@@ -367,7 +339,6 @@ grant_read_access() { # $1 = service user, $2 = path
 # llama-server binary). Explicit opt-in, never part of install.
 # -----------------------------------------------------------------------------
 access_flow() {
-  [[ $DRY_RUN == 1 ]] && warn "DRY RUN — nothing will be granted"
   offer_access_grants
   info "restart the service afterwards: sudo systemctl restart ${BIN_NAME}.service"
 }
@@ -375,7 +346,7 @@ access_flow() {
 # Prompt for model dir + llama-server binary paths and grant the service user
 # read access via ACLs. Used by install (dedicated/custom user chosen) and by
 # the explicit `access` mode. Saves answers in $SVC_ROOT/.setup-paths (0600)
-# so later runs prefill them. Never runs in dry-run/non-interactive mode.
+# so later runs prefill them. Never runs in non-interactive mode.
 offer_access_grants() {
   local MODEL_DIR_PATH="" LLAMA_BIN_PATH=""
   local PATHS_FILE="$SVC_ROOT/.setup-paths"
@@ -384,7 +355,7 @@ offer_access_grants() {
     # shellcheck disable=SC1090
     source "$PATHS_FILE"
   fi
-  if [[ $INTERACTIVE == 1 && $DRY_RUN != 1 ]]; then
+  if [[ $INTERACTIVE == 1 ]]; then
     step "External model & runtime paths"
     MODEL_DIR_PATH="$(ui_input "Model directory the service should read (blank to skip):" "${MODEL_DIR_PATH:-}")"
     LLAMA_BIN_PATH="$(ui_input "llama-server binary path (blank to skip):" "${LLAMA_BIN_PATH:-}")"
@@ -426,10 +397,6 @@ service_flow() {
       back    "Back")"
     case "$action" in
       start | stop | restart)
-        if [[ $DRY_RUN == 1 ]]; then
-          info "(dry-run) systemctl $action $UNIT_NAME"
-          continue
-        fi
         [[ $action == restart ]] && systemctl reset-failed "$UNIT_NAME" 2>/dev/null || true
         if out="$(systemctl "$action" "$UNIT_NAME" 2>&1)"; then
           printf 'service %s: OK\n%s' "$action" "${out:-}" > "$tmp"
@@ -440,26 +407,14 @@ service_flow() {
         ui_textbox "$tmp" "Service ${action}"
         ;;
       status)
-        if [[ $DRY_RUN == 1 ]]; then
-          info "(dry-run) systemctl status $UNIT_NAME"
-          continue
-        fi
         systemctl status "$UNIT_NAME" --no-pager >"$tmp" 2>&1 || true
         ui_textbox "$tmp" "Service status"
         ;;
       logs)
-        if [[ $DRY_RUN == 1 ]]; then
-          info "(dry-run) journalctl -u $UNIT_NAME -n 100"
-          continue
-        fi
         journalctl -u "$UNIT_NAME" -n 100 --no-pager >"$tmp" 2>&1 || true
         ui_textbox "$tmp" "Last 100 log lines"
         ;;
       follow)
-        if [[ $DRY_RUN == 1 ]]; then
-          info "(dry-run) journalctl -u $UNIT_NAME -f"
-          continue
-        fi
         info "following ${UNIT_NAME} — Ctrl+C to stop (service keeps running)"
         journalctl -u "$UNIT_NAME" -n 20 -f || true
         ;;
@@ -473,9 +428,10 @@ service_flow() {
 # -----------------------------------------------------------------------------
 # BUILD — scripts/build.sh is the single build implementation (setup.sh and
 # launch.sh call it; it also runs standalone). Here we run it inside the active
-# UI: under whiptail/dialog the output streams into a programbox so it never
-# spills onto the bare terminal behind the panels; on failure the captured log
-# is shown in a textbox. The ANSI fallback streams directly.
+# UI: dialog (and any backend with a streaming widget) shows the output live in
+# a programbox; whiptail has no such widget, so its output is captured and
+# shown in a textbox on failure. Without a terminal (redirected output, CI) the
+# output streams directly.
 # -----------------------------------------------------------------------------
 
 BUILD_BOX_TITLE="Building ${BIN_NAME}"
@@ -504,9 +460,12 @@ build_command() {
     printf '%sBUILD_INLINE=1 bash %q' "$prefix" "$PRJ_ROOT/scripts/build.sh"
     return
   fi
-  go_bin="$(sudo -u "$SUDO_USER" bash -lc 'command -v go' 2>/dev/null || true)"
-  if [[ -z "$go_bin" ]]; then
-    user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  go_bin="$(sudo -u "$SUDO_USER" bash -lc 'command -v go' 2>/dev/null | tail -n1 || true)"
+  # A login shell may print a banner before the path (and "" when go is not on
+  # PATH at all), so only trust an executable result; otherwise scan the common
+  # install locations.
+  if [[ ! -x "$go_bin" ]]; then
+    user_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
     go_bin="$(find_go_bin "$user_home" || true)"
   fi
   if [[ -n "$go_bin" ]]; then
@@ -516,15 +475,31 @@ build_command() {
   fi
 }
 
-# build_in_box — run the build in a whiptail/dialog programbox. Leaves the
+# build_stream_widget — the option this backend uses to stream a command's
+# output, or nothing when it has none. whiptail (newt) has neither --programbox
+# nor --progressbox on most builds; dialog has --programbox. The help text is
+# captured first (not piped into grep) so an early grep exit cannot SIGPIPE the
+# UI binary and, under pipefail, fake a "no widget" answer.
+build_stream_widget() {
+  local help opt
+  help="$("$UI_BACKEND" --help 2>&1 || true)"
+  for opt in --programbox --progressbox; do
+    if grep -q -- "$opt" <<<"$help"; then
+      printf '%s\n' "$opt"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# build_stream_box — live output in the backend's streaming widget. Leaves the
 # full output in BUILD_LOG and returns the build's status (nonzero when the box
 # itself failed, even if the build succeeded).
-build_in_box() {
+build_stream_box() { # $1 = widget option
   BUILD_LOG="$(mktemp)"
   local cmd; cmd="$(build_command NO_COLOR=1)"
   if eval "$cmd" 2>&1 | tee "$BUILD_LOG" | \
-      "$UI_BACKEND" --title "$BUILD_BOX_TITLE" --scrolltext \
-        --programbox "$BUILD_BOX_PROMPT" 24 76; then
+      "$UI_BACKEND" --title "$BUILD_BOX_TITLE" "$1" "$BUILD_BOX_PROMPT" 24 76; then
     return 0
   fi
   # PIPESTATUS[0] is the build; a 0 there means the box, not the build, failed.
@@ -533,12 +508,16 @@ build_in_box() {
   return "$rc"
 }
 
+# build_capture_box — fallback when the backend has no streaming widget: run
+# with the output captured and let build_step show it (textbox on failure).
+build_capture_box() {
+  BUILD_LOG="$(mktemp)"
+  local cmd; cmd="$(build_command NO_COLOR=1)"
+  eval "$cmd" >"$BUILD_LOG" 2>&1
+}
+
 # build_step — build through scripts/build.sh, keeping output inside the UI.
 build_step() {
-  if [[ $DRY_RUN == 1 ]]; then
-    info "(dry-run) bash $PRJ_ROOT/scripts/build.sh"
-    return 0
-  fi
   repair_root_owned
   ui_pause "building (scripts/build.sh) — this can take a few minutes..."
 
@@ -550,8 +529,13 @@ build_step() {
     return 0
   fi
 
-  local rc=0
-  build_in_box || rc=$?
+  local rc=0 widget
+  widget="$(build_stream_widget || true)"
+  if [[ -n "$widget" ]]; then
+    build_stream_box "$widget" || rc=$?
+  else
+    build_capture_box || rc=$?
+  fi
   if (( rc != 0 )); then
     ui_textbox "$BUILD_LOG" "Build failed"
     rm -f "$BUILD_LOG"
@@ -566,7 +550,7 @@ build_step() {
 # -----------------------------------------------------------------------------
 install_flow() {
   step "Configuration"
-  if [[ $INTERACTIVE == 1 && $DRY_RUN != 1 ]]; then
+  if [[ $INTERACTIVE == 1 ]]; then
     SVC_ROOT="$(ui_input "Data root:" "$SVC_ROOT")"
     INSTALL_BIN="$(ui_input "Binary install path:" "$INSTALL_BIN")"
     # Refuse values that would corrupt the unit or the filesystem.
@@ -576,8 +560,8 @@ install_flow() {
   fi
   info "user=$SVC_USER root=$SVC_ROOT bin=$INSTALL_BIN backend=$UI_BACKEND"
   START_NOW=1
-  if [[ $INTERACTIVE == 1 && $DRY_RUN != 1 ]]; then
-    confirm "Start the service when done?" || START_NOW=0
+  if [[ $INTERACTIVE == 1 ]]; then
+    ui_confirm "Start the service when done?" || START_NOW=0
   fi
 
   step "Binary"
@@ -589,7 +573,7 @@ install_flow() {
   if [[ -f "$INSTALL_BIN" ]] && [[ $FORCE != 1 ]] && cmp -s "$SRC_BIN" "$INSTALL_BIN" 2>/dev/null; then
     success "already installed and identical: $INSTALL_BIN (skipping)"
   else
-    run install -m 0755 "$SRC_BIN" "$INSTALL_BIN"
+    install -m 0755 "$SRC_BIN" "$INSTALL_BIN"
     success "installed $INSTALL_BIN"
   fi
 
@@ -597,7 +581,7 @@ install_flow() {
   if id "$SVC_USER" &>/dev/null; then
     success "user exists (skipping)"
   else
-    run useradd --system --home-dir "$SVC_ROOT" --shell /usr/sbin/nologin "$SVC_USER"
+    useradd --system --home-dir "$SVC_ROOT" --shell /usr/sbin/nologin "$SVC_USER"
     success "created system user ${SVC_USER} (no password, nologin — login-locked by design)"
   fi
 
@@ -611,7 +595,7 @@ install_flow() {
   if command -v getent >/dev/null 2>&1; then
     for gpu_group in render video; do
       if getent group "$gpu_group" >/dev/null 2>&1; then
-        run usermod -aG "$gpu_group" "$SVC_USER"
+        usermod -aG "$gpu_group" "$SVC_USER"
         success "added ${SVC_USER} to ${gpu_group} (GPU device access)"
         gpu_groups=1
       fi
@@ -635,13 +619,13 @@ install_flow() {
     # the service runs as SVC_USER and must be able to write here.
     local owner="$(stat -c '%U' "$SVC_ROOT" 2>/dev/null || stat -f '%Su' "$SVC_ROOT" 2>/dev/null || echo "?")"
     if [[ "$owner" != "$SVC_USER" ]]; then
-      run chown -R "$SVC_USER":"$SVC_USER" "$SVC_ROOT"
+      chown -R "$SVC_USER":"$SVC_USER" "$SVC_ROOT"
       success "exists — ownership corrected to ${SVC_USER} (was: ${owner})"
     else
       success "exists, owned by ${SVC_USER} (skipping)"
     fi
   else
-    run install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$SVC_ROOT"
+    install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$SVC_ROOT"
     success "created (0700, owned by ${SVC_USER})"
   fi
 
@@ -652,9 +636,9 @@ install_flow() {
   if [[ -n "$LEGACY_HOME" && -d "$LEGACY_DIR" ]]; then
     if [[ -f "$SVC_ROOT/settings.yml" ]]; then
       success "legacy dir found but $SVC_ROOT is already initialized (skipping)"
-    elif confirm "Found legacy state at $LEGACY_DIR — copy it into $SVC_ROOT?"; then
-      run cp -a "$LEGACY_DIR/." "$SVC_ROOT/"
-      run chown -R "$SVC_USER":"$SVC_USER" "$SVC_ROOT"
+    elif ui_confirm "Found legacy state at $LEGACY_DIR — copy it into $SVC_ROOT?"; then
+      cp -a "$LEGACY_DIR/." "$SVC_ROOT/"
+      chown -R "$SVC_USER":"$SVC_USER" "$SVC_ROOT"
       success "state migrated (original left untouched)"
     fi
   else
@@ -664,20 +648,16 @@ install_flow() {
   step "settings.yml → workspaces_dir"
   SETTINGS="$SVC_ROOT/settings.yml"
   if [[ ! -f "$SETTINGS" ]]; then
-    if [[ $DRY_RUN == 1 ]]; then
-      info "(dry-run) no settings.yml — would create a stub with workspaces_dir: workspaces"
-    else
-      info "no settings.yml yet — writing a stub"
-      printf 'workspaces_dir: workspaces\n' > "$SETTINGS"
-      chown "$SVC_USER":"$SVC_USER" "$SETTINGS"; chmod 0600 "$SETTINGS"
-      success "created settings.yml with workspaces_dir: workspaces"
-    fi
+    info "no settings.yml yet — writing a stub"
+    printf 'workspaces_dir: workspaces\n' > "$SETTINGS"
+    chown "$SVC_USER":"$SVC_USER" "$SETTINGS"; chmod 0600 "$SETTINGS"
+    success "created settings.yml with workspaces_dir: workspaces"
   # A present-but-EMPTY value (workspaces_dir: "") is treated as unset by the
   # backend and falls through to the default, so require a non-empty value
   # before declaring the setting done.
   elif grep -Eq '^workspaces_dir:[[:space:]]*[^[:space:]#]+' "$SETTINGS" 2>/dev/null; then
     success "workspaces_dir already set (skipping)"
-  elif confirm "Append 'workspaces_dir: workspaces' to $SETTINGS?"; then
+  elif ui_confirm "Append 'workspaces_dir: workspaces' to $SETTINGS?"; then
     # Guard against appending to a file without a trailing newline (would
     # otherwise merge into the last YAML line).
     if [[ -s "$SETTINGS" ]] && [[ -n "$(tail -c1 "$SETTINGS")" ]]; then
@@ -707,55 +687,43 @@ install_flow() {
   # the template and re-running this flow reinstalls the unit (the cmp below
   # detects the change).
   local RENDERED="/tmp/${BIN_NAME}.rendered.service"
-  if [[ $DRY_RUN == 1 ]]; then
-    info "(dry-run) render unit (User=$SVC_USER, LLM_PROXY_HOME=$SVC_ROOT) and install to $UNIT"
+  sed -e "s|^User=.*|User=${SVC_USER}|" \
+      -e "s|^Group=.*|Group=${SVC_USER}|" \
+      -e "s|^Environment=LLM_PROXY_HOME=.*|Environment=LLM_PROXY_HOME=${SVC_ROOT}|" \
+      -e "s|^WorkingDirectory=.*|WorkingDirectory=${SVC_ROOT}|" \
+      -e "s|^ReadWritePaths=.*|ReadWritePaths=${SVC_ROOT}|" \
+      "docs/services/${BIN_NAME}.service" > "$RENDERED"
+  if [[ -f "$UNIT" ]] && [[ $FORCE != 1 ]] && cmp -s "$RENDERED" "$UNIT" 2>/dev/null; then
+    rm -f "$RENDERED"
+    success "already installed and identical (skipping)"
   else
-    sed -e "s|^User=.*|User=${SVC_USER}|" \
-        -e "s|^Group=.*|Group=${SVC_USER}|" \
-        -e "s|^Environment=LLM_PROXY_HOME=.*|Environment=LLM_PROXY_HOME=${SVC_ROOT}|" \
-        -e "s|^WorkingDirectory=.*|WorkingDirectory=${SVC_ROOT}|" \
-        -e "s|^ReadWritePaths=.*|ReadWritePaths=${SVC_ROOT}|" \
-        "docs/services/${BIN_NAME}.service" > "$RENDERED"
-    if [[ -f "$UNIT" ]] && [[ $FORCE != 1 ]] && cmp -s "$RENDERED" "$UNIT" 2>/dev/null; then
-      rm -f "$RENDERED"
-      success "already installed and identical (skipping)"
-    else
-      install -m 0644 "$RENDERED" "$UNIT" && rm -f "$RENDERED"
-      systemctl daemon-reload
-      success "installed (User=$SVC_USER, root=$SVC_ROOT) + daemon-reloaded"
-    fi
+    install -m 0644 "$RENDERED" "$UNIT" && rm -f "$RENDERED"
+    systemctl daemon-reload
+    success "installed (User=$SVC_USER, root=$SVC_ROOT) + daemon-reloaded"
   fi
 
   if [[ $START_NOW == 1 ]]; then
     step "Enable & start"
-    if [[ $DRY_RUN == 1 ]]; then
-      info "(dry-run) systemctl enable --now $BIN_NAME.service"
-    else
-      # Clear failed-state / start-limit residue (e.g. a long crash-loop under
-      # the previous unit) so restart is not refused with "start request
-      # repeated too quickly".
-      systemctl reset-failed "$BIN_NAME.service" 2>/dev/null || true
-      systemctl enable "$BIN_NAME.service" &>/dev/null
-      if ! systemctl restart "$BIN_NAME.service"; then
-        warn "restart failed — recent logs:"
-        journalctl -u "$BIN_NAME.service" -n 10 --no-pager | sed 's/^/    /' >&2
-        fail "service failed to start — see: journalctl -u ${BIN_NAME}.service -f"
-      fi
-      success "service enabled and (re)started"
+    # Clear failed-state / start-limit residue (e.g. a long crash-loop under
+    # the previous unit) so restart is not refused with "start request
+    # repeated too quickly".
+    systemctl reset-failed "$BIN_NAME.service" 2>/dev/null || true
+    systemctl enable "$BIN_NAME.service" &>/dev/null
+    if ! systemctl restart "$BIN_NAME.service"; then
+      warn "restart failed — recent logs:"
+      journalctl -u "$BIN_NAME.service" -n 10 --no-pager | sed 's/^/    /' >&2
+      fail "service failed to start — see: journalctl -u ${BIN_NAME}.service -f"
     fi
+    success "service enabled and (re)started"
 
     step "Verify"
-    if [[ $DRY_RUN == 1 ]]; then
-      info "(dry-run) systemctl is-active $BIN_NAME.service"
+    sleep 2
+    if systemctl is-active --quiet "$BIN_NAME.service"; then
+      success "service is active — PID $(systemctl show -p MainPID --value "$BIN_NAME.service")"
     else
-      sleep 2
-      if systemctl is-active --quiet "$BIN_NAME.service"; then
-        success "service is active — PID $(systemctl show -p MainPID --value "$BIN_NAME.service")"
-      else
-        warn "service is NOT active — recent logs:"
-        journalctl -u "$BIN_NAME.service" -n 10 --no-pager | sed 's/^/    /' >&2
-        fail "check: journalctl -u ${BIN_NAME}.service -f"
-      fi
+      warn "service is NOT active — recent logs:"
+      journalctl -u "$BIN_NAME.service" -n 10 --no-pager | sed 's/^/    /' >&2
+      fail "check: journalctl -u ${BIN_NAME}.service -f"
     fi
   else
     info "start skipped — enable later with: sudo systemctl enable --now ${BIN_NAME}"
@@ -769,10 +737,8 @@ install_flow() {
   # Refresh the dev launcher's env file so ./launch.sh defaults to the same
   # data root the service uses. Values are defaults only — anything exported
   # before ./launch.sh wins.
-  if [[ $DRY_RUN != 1 ]]; then
-    printf '# generated by setup.sh — refreshed on every install\nLLM_PROXY_HOME=%q\n' "$SVC_ROOT" > "$PRJ_ROOT/.launch.env"
-    success "dev launcher env refreshed: .launch.env (LLM_PROXY_HOME=$SVC_ROOT)"
-  fi
+  printf '# generated by setup.sh — refreshed on every install\nLLM_PROXY_HOME=%q\n' "$SVC_ROOT" > "$PRJ_ROOT/.launch.env"
+  success "dev launcher env refreshed: .launch.env (LLM_PROXY_HOME=$SVC_ROOT)"
 
   ui_msgbox "Install complete.
 UI:    http://<host>:4001
@@ -805,9 +771,9 @@ uninstall_flow() {
 
   step "Stop & disable service"
   if [[ -f "$UNIT" ]]; then
-    run systemctl stop "$BIN_NAME.service" 2>/dev/null || true
-    run systemctl disable "$BIN_NAME.service" 2>/dev/null || true
-    run systemctl reset-failed "$BIN_NAME.service" 2>/dev/null || true
+    systemctl stop "$BIN_NAME.service" 2>/dev/null || true
+    systemctl disable "$BIN_NAME.service" 2>/dev/null || true
+    systemctl reset-failed "$BIN_NAME.service" 2>/dev/null || true
     success "service stopped and disabled"
   else
     success "nothing to stop (skipping)"
@@ -815,16 +781,16 @@ uninstall_flow() {
 
   step "Remove unit file"
   if [[ -f "$UNIT" ]]; then
-    run rm -f "$UNIT"
-    run systemctl daemon-reload
+    rm -f "$UNIT"
+    systemctl daemon-reload
     success "unit removed + daemon-reloaded"
   else
     success "no unit file (skipping)"
   fi
 
   step "Binary"
-  if [[ -f "$INSTALL_BIN" ]] && { [[ $PURGE == 1 ]] || confirm "Remove $INSTALL_BIN? [y/N]"; }; then
-    run rm -f "$INSTALL_BIN"
+  if [[ -f "$INSTALL_BIN" ]] && { [[ $PURGE == 1 ]] || ui_confirm "Remove $INSTALL_BIN? [y/N]"; }; then
+    rm -f "$INSTALL_BIN"
     success "binary removed"
   else
     info "binary kept"
@@ -833,15 +799,13 @@ uninstall_flow() {
   step "Data root (${SVC_ROOT})"
   if [[ ! -d "$SVC_ROOT" ]]; then
     success "not present (skipping)"
-  elif [[ $PURGE != 1 ]] && confirm "Keep data at $SVC_ROOT (recommended — DB, secrets, master.key)?"; then
+  elif [[ $PURGE != 1 ]] && ui_confirm "Keep data at $SVC_ROOT (recommended — DB, secrets, master.key)?"; then
     info "data kept — reinstalling later picks it up automatically"
-  elif [[ $PURGE == 1 ]] || confirm "Really delete everything under $SVC_ROOT? IRREVERSIBLE. [y/N]"; then
+  elif [[ $PURGE == 1 ]] || ui_confirm "Really delete everything under $SVC_ROOT? IRREVERSIBLE. [y/N]"; then
       # PURGE mode was already gated by the typed PURGE in purge_flow —
       # do not ask twice. Plain uninstall types DELETE here.
-      if [[ $DRY_RUN == 1 ]]; then
-        info "(dry-run) would require typing DELETE to proceed"
-      elif [[ $PURGE == 1 ]]; then
-        run rm -rf "$SVC_ROOT"
+      if [[ $PURGE == 1 ]]; then
+        rm -rf "$SVC_ROOT"
         success "data root erased (purge)"
       else
         local d=""
@@ -851,7 +815,7 @@ uninstall_flow() {
           d="$(ui_input "Type DELETE to confirm:" "")"
         fi
         if [[ "$d" == "DELETE" ]]; then
-          run rm -rf "$SVC_ROOT"
+          rm -rf "$SVC_ROOT"
           success "data root deleted"
         else
           warn "confirmation did not match DELETE — data kept"
@@ -869,8 +833,8 @@ uninstall_flow() {
       # Never delete the invoking user's own account — the service may have
       # been installed to run as them (self-profile choice).
       warn "kept — $SVC_USER is the invoking user (refusing to delete)"
-    elif [[ $PURGE == 1 ]] || confirm "Remove system user $SVC_USER? [y/N]"; then
-      run userdel "$SVC_USER"
+    elif [[ $PURGE == 1 ]] || ui_confirm "Remove system user $SVC_USER? [y/N]"; then
+      userdel "$SVC_USER"
       success "user removed"
     fi
   else
@@ -884,7 +848,7 @@ uninstall_flow() {
     command -v getent >/dev/null 2>&1 && LEGACY_HOME="$(getent passwd "${SUDO_USER:-}" 2>/dev/null | cut -d: -f6 || true)"
     local legacy_dir="${LEGACY_HOME:-}/.config/${BIN_NAME}"
     if [[ -n "$LEGACY_HOME" && -d "$legacy_dir" ]]; then
-      run rm -rf "$legacy_dir"
+      rm -rf "$legacy_dir"
       success "legacy config erased: $legacy_dir"
     else
       success "not present (skipping)"
@@ -926,13 +890,6 @@ purge_flow() {
 This is IRREVERSIBLE. Workspaces are agent files — if any work
 product lives there, it is gone forever.\n\nContinue only if you are certain."
 
-  if [[ $DRY_RUN == 1 ]]; then
-    echo -e "${YELLOW}${BOLD}DRY RUN — full purge preview (nothing erased)${NC}"
-    echo -e "$warning"
-    PURGE=1 uninstall_flow
-    return
-  fi
-
   # Hard gate 1: explicit warning acceptance.
   if ! ui_confirm "$warning Continue? [y/N]"; then
     warn "purge aborted — nothing was erased"
@@ -961,7 +918,7 @@ STEP=0
 step() {
   STEP=$((STEP+1))
   if [[ $UI_BACKEND == ansi ]]; then
-    echo -e "\n${CYAN}${BOLD}[ $STEP ]${NC} ${BOLD}$1${NC}"
+    printf '\n%s▌%s %s[%d]%s %s%s%s\n' "$ACCENT" "$NC" "$DIM" "$STEP" "$NC" "$BOLD$TEXT" "$1" "$NC"
   else
     echo -e "\n>>> [ $STEP ] $1"
   fi
@@ -969,9 +926,10 @@ step() {
 
 print_header() {
   if [[ $UI_BACKEND == ansi ]]; then
-    echo -e "${CYAN}${BOLD}==================================================${NC}"
-    echo -e "${CYAN}${BOLD}  llm-proxy — host setup${NC}"
-    echo -e "${CYAN}${BOLD}==================================================${NC}"
+    printf '\n%s╭─%s %s%sllm-proxy%s %s· host setup%s\n' \
+      "$ACCENT" "$NC" "$BOLD" "$TEXT" "$NC" "$DIM" "$NC"
+    printf '%s│%s  %ssystemd installer · Linux only%s\n' "$ACCENT" "$NC" "$DIM" "$NC"
+    printf '%s╰%s' "$ACCENT" "$NC"; ui_rule 54
   else
     echo "llm-proxy — host setup (UI: $UI_BACKEND)"
   fi
@@ -988,7 +946,6 @@ main() {
     build)     build_step ;;
     service)   service_flow ;;
     access)    access_flow ;;
-    preview)   install_flow ;;
     *)
       case "$(ui_menu "What would you like to do?" \
         install           "Install — build binary + register systemd service" \
@@ -998,18 +955,14 @@ main() {
         access            "Access — grant service read access to model/binary paths" \
         uninstall         "Uninstall — remove service (asks about data)" \
         purge             "Full purge — uninstall + erase EVERYTHING" \
-        preview_install   "Preview install (dry-run)" \
-        preview_uninstall "Preview uninstall (dry-run)" \
         quit              "Quit")" in
         install)           DO_BUILD=1; install_flow ;;
         register)          install_flow ;;
         build)             build_step ;;
         service)           service_flow ;;
         access)            access_flow ;;
-        uninstall)         if confirm "Uninstall the llm-proxy service? [y/N]"; then uninstall_flow; else warn "aborted"; fi ;;
+        uninstall)         if ui_confirm "Uninstall the llm-proxy service? [y/N]"; then uninstall_flow; else warn "aborted"; fi ;;
         purge)             purge_flow ;;
-        preview_install)   DRY_RUN=1; warn "DRY RUN — no changes will be made"; install_flow ;;
-        preview_uninstall) DRY_RUN=1; warn "DRY RUN — no changes will be made"; uninstall_flow ;;
         *) exit 0 ;;
       esac
       ;;

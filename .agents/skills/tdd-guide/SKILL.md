@@ -79,8 +79,18 @@ cd backend && go build ./... && go test ./... && go run ./tools/check-complexity
 - Only if the edge case can actually trigger a failure in real usage
 - Add as a new `t.Run` case to an existing table, not a separate test function
 
+## Failure handling
+
+- **Red doesn't fail** — the behavior already exists, or the test asserts nothing real. Fix the test to assert the behavior you *intend* to add; don't proceed with a test that can't fail.
+- **Red fails for the wrong reason** (compile error, missing fixture) — that's not Red. Make it fail on the assertion first, then implement.
+- **Green won't come** — you're over-implementing or the design is wrong. Shrink the change to the smallest thing that satisfies the case; if the test can't be satisfied without unrelated work, the step was too big (`task-planning`).
+- **An existing unrelated test breaks** — you changed shared behavior. Decide whether the old test encodes the wrong contract and fix it deliberately; never delete/ignore it to get green.
+- **Baseline is already red before you start** — stop and report it; do not build on a broken baseline. Use `debugging`.
+
 ## References
 
-- Project patterns: `testing-guide.md`, `engineering-practices.md`
+- Patterns: [`.agents/skills/testing-guide/SKILL.md`](../testing-guide/SKILL.md) (smoke tests, run analysis, MockClient, record-replay)
+- Repo mechanics: [`.agents/skills/engineering-practices/SKILL.md`](../engineering-practices/SKILL.md)
+- Debugging a failing test: [`.agents/skills/debugging/SKILL.md`](../debugging/SKILL.md)
 - Constitution IV.5: Mock the interface, not the implementation
-- go-staff-engineer.md §5: Table-driven tests, sub-test pattern
+- `.agents/rules/go-staff-engineer.md` §Testing: table-driven tests, `foo.go → foo_test.go`

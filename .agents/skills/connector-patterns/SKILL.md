@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Communication Connector Implementation Guide
 
-**Source docs:** SPEC-009, `docs/PLANS/cross-cutting/connector-system.md`, `docs/PLANS/cross-cutting/connector-inbound-webhook.md`
+**Source docs:** SPEC-009, `docs/PLANS/ARCHIVE/cross-cutting/connector-system.md`, `docs/PLANS/cross-cutting/connector-inbound-webhook.md`
 
 ---
 

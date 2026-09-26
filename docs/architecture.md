@@ -182,9 +182,9 @@ The `recordreplay` build tag ensures these tests are excluded from `go test ./..
 When adding a new model-level field, update these files:
 
 1. `models/config.go` or `models/infrastructure.go` — type definition
-2. `internal/transport/http/registry_handlers.go` — add/update request structs
-3. `internal/transport/http/admin_handlers.go` — view struct
-4. `internal/transport/http/admin_view.go` — view mapping
+2. `internal/transport/http/handlers/registry_handlers.go` — add/update request structs
+3. `internal/transport/http/handlers/admin_handlers.go` — view struct
+4. `internal/transport/http/handlers/admin_view.go` — view mapping
 5. `internal/core/llm/manager.go` — if field affects runtime behavior
 6. `internal/testing/mocks/manager.go` — if interface changed
 7. Frontend component (if UI field)
