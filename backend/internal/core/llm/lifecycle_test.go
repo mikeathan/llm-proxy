@@ -2,7 +2,12 @@ package llm_test
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -68,6 +73,60 @@ func TestIdleReaper_StopsHangingModels(t *testing.T) {
 	// However, I can't easily override the startupTimeout without modifying the code to accept it.
 	// For now, I'll skip the actual 5m wait but keep the test structure ready if we ever make it configurable.
 	t.Skip("Skipping 5m hang test to avoid slow CI")
+}
+
+// logCrashCmd returns a fake exec.Command whose helper writes model output and
+// then exits non-zero, simulating a llama-server that crashes after logging.
+func logCrashCmd() func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	return func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		cmd := exec.Command(os.Args[0], "-test.run=TestHelperLogCrashProcess")
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		return cmd
+	}
+}
+
+func TestHelperLogCrashProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	fmt.Fprintln(os.Stdout, "llama-server: simulated crash: out of memory")
+	os.Exit(1)
+}
+
+// TestRuntimeManager_CrashedModel_RetainsLogs guards that a crashed model's
+// captured stdout/stderr survive the model being cleared, so /admin/api/logs can
+// still show WHY it exited. Previously the buffer was dropped with activeModel,
+// leaving the endpoint with empty logs after a crash.
+func TestRuntimeManager_CrashedModel_RetainsLogs(t *testing.T) {
+	restoreExec := utils.SetExecCommandContext(logCrashCmd())
+	defer restoreExec()
+
+	restorePort := utils.SetPortReady(func(port int) bool { return false })
+	defer restorePort()
+
+	setupModelFile(t, "crash_logs.gguf")
+	m := llm.New([]models.ModelConfig{{Name: "test", Path: "crash_logs.gguf", Port: 5556}}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
+
+	_, _ = m.EnsureModel(context.Background(), "test")
+
+	// Wait for the process to exit, then trigger the clear on the next call.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if am := m.ActiveModel(); am != nil && am.Exited() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_, _ = m.EnsureModel(context.Background(), "test")
+
+	if m.ActiveModel() != nil {
+		t.Fatal("expected crashed model cleared")
+	}
+	if logs := m.ActiveLogs(); !strings.Contains(logs, "simulated crash") {
+		t.Errorf("ActiveLogs() = %q, want retained crash output", logs)
+	}
 }
 
 func TestIdleReaper_RespectsZeroTimeout(t *testing.T) {

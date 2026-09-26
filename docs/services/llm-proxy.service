@@ -69,13 +69,24 @@ UMask=0077
 
 # --- Memory / process limits (real cgroup v2 enforcement, plan Phase 3) -----
 # MemoryMax bounds the whole service scope: backend + every agent-spawned
-# shell/toolchain child. Calibrated high enough for parallel go build / npm
-# install (Phase-3 acceptance re-checks node/go/npm under it). MemoryMax is the
-# OOM-kill ceiling; MemoryHigh throttles (memory reclaim) first. TasksMax caps
-# fork-bombs per service WITHOUT the per-uid blast radius of RLIMIT_NPROC.
-MemoryMax=8G
-MemoryHigh=6G
+# shell/toolchain child AND any local llama-server the proxy launches as a
+# child. A 35B Q4 model is ~20 GB, so a fixed low cap (the old 8G) makes
+# llama.cpp thrash at MemoryHigh and never finish loading — worse on a
+# shared-memory iGPU, where weights count against host RAM. Host-relative
+# percentages leave room for model weights while still bounding the whole
+# scope below total RAM (a runaway agent can no longer take the entire
+# machine). MemoryMax is the OOM-kill ceiling; MemoryHigh throttles (memory
+# reclaim) first. TasksMax caps fork-bombs per service WITHOUT the per-uid
+# blast radius of RLIMIT_NPROC.
+MemoryMax=85%
+MemoryHigh=75%
 TasksMax=512
+
+# `--load-mode mlock` models: llama.cpp maps and locks weights, which needs
+# RLIMIT_MEMLOCK — the empty CapabilityBoundingSet below means there is no
+# CAP_IPC_LOCK to bypass it. Without this, mlock fails and prints
+# "failed to mlock ... Cannot allocate memory. Try increasing RLIMIT_MEMLOCK".
+LimitMEMLOCK=infinity
 
 LimitNOFILE=65536
 

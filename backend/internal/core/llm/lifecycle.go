@@ -58,6 +58,7 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 		}
 	}
 
+	m.retainActiveModelLogsLocked()
 	m.activeModel = nil
 	m.activeProvider = nil
 	m.activeCloudConfig = nil
@@ -155,14 +156,24 @@ func (m *LLMRuntimeManager) reapIdleModels(reapInterval time.Duration) {
 	}
 }
 
-// ActiveLogs returns the buffered output for the current model.
+// ActiveLogs returns the buffered output for the current model, or the last
+// stopped/crashed model's output when no model is running — so a post-mortem of
+// a crash is still visible via /admin/api/logs after the model is cleared.
 func (m *LLMRuntimeManager) ActiveLogs() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.activeModel == nil || m.activeModel.Logs == nil {
-		return ""
+		return m.lastModelLogs
 	}
 	return m.activeModel.Logs.String()
+}
+
+// retainActiveModelLogsLocked snapshots the active model's buffered output into
+// lastModelLogs before the model is cleared. Must be called with m.mu held.
+func (m *LLMRuntimeManager) retainActiveModelLogsLocked() {
+	if m.activeModel != nil && m.activeModel.Logs != nil {
+		m.lastModelLogs = m.activeModel.Logs.String()
+	}
 }
 
 // LastTokensPerSecond returns the throughput of the active model.
@@ -203,6 +214,7 @@ func (m *LLMRuntimeManager) clearCrashedModelLocked(name string) error {
 		m.activeModel.Cancel()
 	}
 	m.recordModelErrorLocked(name, exitErr)
+	m.retainActiveModelLogsLocked()
 	m.activeModel = nil
 	m.activeProvider = nil
 	if exitErr != nil {

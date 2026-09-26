@@ -540,6 +540,24 @@ install_flow() {
     success "created system user ${SVC_USER} (no password, nologin — login-locked by design)"
   fi
 
+  # GPU device access. The service launches llama-server as this user, so it
+  # must be in the device groups: AMD ROCm /dev/kfd and /dev/dri/renderD* are
+  # root:render, generic DRI /dev/dri/card* is root:video. Without them
+  # llama.cpp enumerates no GPU and silently falls back to CPU, which then
+  # collides with the unit's memory ceiling. Add whichever groups exist;
+  # `usermod -aG` is idempotent for an existing member.
+  local gpu_group gpu_groups=0
+  if command -v getent >/dev/null 2>&1; then
+    for gpu_group in render video; do
+      if getent group "$gpu_group" >/dev/null 2>&1; then
+        run usermod -aG "$gpu_group" "$SVC_USER"
+        success "added ${SVC_USER} to ${gpu_group} (GPU device access)"
+        gpu_groups=1
+      fi
+    done
+  fi
+  [[ $gpu_groups == 1 ]] || warn "no render/video groups found — a GPU local model may not be visible to the service"
+
   # External paths (models, llama-server binary) only need explicit grants
   # when the service does NOT run as the invoking user — its own files are
   # readable by definition.

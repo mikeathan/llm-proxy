@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -95,10 +96,41 @@ func (d *Dispatcher) Register(workspaceID string, auto *models.Automation) error
 		return fmt.Errorf("automation not registered")
 	}
 
-	if entry.Trigger.Type() != "manual" {
-		return d.scheduleAutomation(entry)
+	// scheduleAutomation atomically replaces any prior entry for this
+	// automation, so a re-register (trigger type or schedule edit) cannot
+	// orphan the old cron job and leave it firing alongside the new one.
+	return d.scheduleAutomation(entry)
+}
+
+// removeJob stops and forgets the cron entry for an automation ID. It is safe
+// to call for automations that were never scheduled (e.g. manual triggers).
+func (d *Dispatcher) removeJob(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if entryID, exists := d.jobs[id]; exists {
+		d.cron.Remove(entryID)
+		delete(d.jobs, id)
+	}
+}
+
+// replaceJob atomically removes the automation's existing cron entry and
+// installs jobFn on schedule. Holding d.mu across the remove and the add stops
+// two concurrent re-registers (e.g. an HTTP edit racing the config watcher)
+// from each installing an entry and orphaning the other.
+func (d *Dispatcher) replaceJob(id, schedule string, jobFn func()) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if entryID, exists := d.jobs[id]; exists {
+		d.cron.Remove(entryID)
+		delete(d.jobs, id)
 	}
 
+	entryID, err := d.cron.AddFunc(schedule, jobFn)
+	if err != nil {
+		return fmt.Errorf("failed to add cron function: %w", err)
+	}
+	d.jobs[id] = entryID
 	return nil
 }
 
@@ -108,12 +140,7 @@ func (d *Dispatcher) Unregister(workspaceID, automationName string) error {
 		return fmt.Errorf("automation not found")
 	}
 
-	d.mu.Lock()
-	if entryID, exists := d.jobs[entry.ID]; exists {
-		d.cron.Remove(entryID)
-		delete(d.jobs, entry.ID)
-	}
-	d.mu.Unlock()
+	d.removeJob(entry.ID)
 
 	d.registry.Unregister(workspaceID, automationName)
 	return nil
@@ -155,7 +182,8 @@ func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {
 }
 
 func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
-	if entry.Trigger.Type() == "manual" {
+	if entry.Trigger.Type() == models.TriggerManual {
+		d.removeJob(entry.ID)
 		return nil
 	}
 
@@ -193,16 +221,7 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 		}
 	}
 
-	entryID, err := d.cron.AddFunc(schedule, jobFunc)
-	if err != nil {
-		return fmt.Errorf("failed to add cron function: %w", err)
-	}
-
-	d.mu.Lock()
-	d.jobs[entry.ID] = entryID
-	d.mu.Unlock()
-
-	return nil
+	return d.replaceJob(entry.ID, schedule, jobFunc)
 }
 
 // triggerToCron converts a Trigger to a cron-compatible schedule string. The
@@ -228,15 +247,38 @@ func (d *Dispatcher) startWatcher(ctx context.Context) (*fsnotify.Watcher, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
-	if err := watcher.Add(d.persistence.BaseDir()); err != nil {
+	root := d.persistence.MetadataRoot()
+	if err := watcher.Add(root); err != nil {
 		watcher.Close()
-		return nil, fmt.Errorf("failed to watch base directory: %w", err)
+		return nil, fmt.Errorf("failed to watch metadata directory: %w", err)
 	}
-	d.logger.Info("Started fsnotify watcher", "path", d.persistence.BaseDir())
+	d.syncWorkspaceWatches(watcher, root)
+	d.logger.Info("Started fsnotify watcher", "path", root)
 	return watcher, nil
 }
 
+// syncWorkspaceWatches adds a watch for every workspace metadata directory so
+// config.yaml writes are observed. fsnotify is non-recursive, so watching the
+// metadata root alone misses writes inside per-workspace subdirectories.
+func (d *Dispatcher) syncWorkspaceWatches(watcher *fsnotify.Watcher, root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		d.logger.Warn("Failed to list metadata directory for watching", "path", root, "error", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		if err := watcher.Add(dir); err != nil {
+			d.logger.Warn("Failed to watch workspace metadata directory", "path", dir, "error", err)
+		}
+	}
+}
+
 func (d *Dispatcher) watchConfigChanges(ctx context.Context, watcher *fsnotify.Watcher) error {
+	root := d.persistence.MetadataRoot()
 	for {
 		select {
 		case <-ctx.Done():
@@ -246,9 +288,15 @@ func (d *Dispatcher) watchConfigChanges(ctx context.Context, watcher *fsnotify.W
 				return nil
 			}
 			// Only react to config.yaml changes
-			if filepath.Base(event.Name) == "config.yaml" {
+			if filepath.Base(event.Name) == models.ConfigFilename {
 				d.logger.Info("Config change detected, reconciling automations", "file", event.Name)
 				d.handleConfigChange()
+				continue
+			}
+			// A new workspace metadata directory appeared; watch it so its later
+			// config.yaml writes are observed (fsnotify is not recursive).
+			if event.Op&fsnotify.Create != 0 && filepath.Dir(event.Name) == root {
+				d.syncWorkspaceWatches(watcher, root)
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
