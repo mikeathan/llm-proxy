@@ -1174,40 +1174,64 @@ func TestRetryReasonModelBusyIsItsOwnReason(t *testing.T) {
 	}
 }
 
-// A proxy's residency refusal is a 429 — which IsRetryableHTTPStatus counts as
-// a transient fault. The busy check must therefore run BEFORE the
-// retryable-status path: otherwise the refusal is blind-retried while the run
-// keeps the model, and the server's explanation never reaches the UI.
-func TestDoRequest_ReportsModelBusyInsteadOfRetrying(t *testing.T) {
+// A proxy's residency refusal is a deliberate answer, not a transient fault:
+// it is reported once (so the UI can offer Wait / Cancel), then the caller
+// waits and re-checks until the model frees or the run is cancelled. It must
+// still be checked BEFORE the retryable-status path, otherwise the refusal is
+// blind-retried up to the transient budget and the server's explanation never
+// reaches the UI.
+func TestDoRequest_WaitsOutModelBusy(t *testing.T) {
 	var calls int
 	transport := roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		calls++
-		resp := newTestResponse(http.StatusTooManyRequests,
-			`{"status":"busy","model":"m","message":"the local model is serving a for a running job"}`)
-		resp.Header.Set(inboundStatusHeader, models.ModelStatusBusy)
-		return resp, nil
+		if calls == 1 {
+			resp := newTestResponse(http.StatusTooManyRequests,
+				`{"status":"busy","model":"m","message":"the local model is serving a for a running job"}`)
+			resp.Header.Set(inboundStatusHeader, models.ModelStatusBusy)
+			resp.Header.Set("Retry-After", "1")
+			return resp, nil
+		}
+		return newTestResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
 	})
 	client := NewLLMClient("http://example.com", "m", &http.Client{Transport: transport}, nil)
 	var infos []RetryInfo
 	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { infos = append(infos, info) })
 
-	_, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
-
-	var httpErr *LLMHTTPError
-	if !errors.As(err, &httpErr) {
-		t.Fatalf("err = %v, want *LLMHTTPError", err)
+	if _, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}}); err != nil {
+		t.Fatalf("Chat err = %v, want success once the model frees", err)
 	}
-	if httpErr.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("status = %d, want 429", httpErr.StatusCode)
-	}
-	if calls != 1 {
-		t.Fatalf("transport called %d times, want 1 — a residency refusal must never be blind-retried", calls)
+	if calls != 2 {
+		t.Fatalf("transport called %d times, want 2 — wait for the model, then re-check", calls)
 	}
 	if len(infos) != 1 || infos[0].Reason != RetryReasonModelBusy {
 		t.Fatalf("observations = %+v, want exactly one model_busy", infos)
 	}
 	if infos[0].Error != "the local model is serving a for a running job" {
 		t.Fatalf("observed error = %q, want the server's explanation", infos[0].Error)
+	}
+}
+
+// The wait is bounded by ctx: cancelling the run (the user pressing Cancel in
+// the client prompt) ends it promptly instead of polling forever.
+func TestDoRequest_ModelBusyWaitHonorsContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls int
+	transport := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		cancel() // the run is cancelled while the model is busy
+		resp := newTestResponse(http.StatusTooManyRequests, `{"status":"busy","model":"m","message":"busy"}`)
+		resp.Header.Set(inboundStatusHeader, models.ModelStatusBusy)
+		resp.Header.Set("Retry-After", "30")
+		return resp, nil
+	})
+	client := NewLLMClient("http://example.com", "m", &http.Client{Transport: transport}, nil)
+
+	_, err := client.Chat(ctx, ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if calls != 1 {
+		t.Fatalf("transport called %d times, want 1 — cancel must stop the wait", calls)
 	}
 }
 

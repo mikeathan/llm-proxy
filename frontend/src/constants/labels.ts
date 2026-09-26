@@ -26,4 +26,11 @@ export const MODEL_STARTING_NOTICE = 'Model is starting — waiting for it to be
 // A remote proxy refused to serve this request because a run is using the model
 // it would have to stop. Not a fault: the run is protected on purpose.
 export const MODEL_BUSY_NOTICE = 'Model in use by a running job — this request was not served'
+// Wait / Cancel prompt shown while the client waits for a busy local model to
+// free up. The backend keeps waiting until the user cancels (or the run ends).
+export const MODEL_BUSY_DIALOG_TITLE = 'Local model is busy'
+export const MODEL_BUSY_DIALOG_MESSAGE =
+  'The local model is serving another run. This request is waiting for it to free up.'
+export const MODEL_BUSY_WAIT_LABEL = 'Wait'
+export const MODEL_BUSY_CANCEL_LABEL = 'Cancel'
 export const TRANSPORT_ERROR_LABEL = 'transport error'

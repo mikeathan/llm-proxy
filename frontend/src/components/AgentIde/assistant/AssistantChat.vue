@@ -5,6 +5,13 @@ import { AssistantService } from "../../../services/assistant/assistantService";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useResponsiveLayout } from "../../../composables/ui/useResponsiveLayout";
 import GuardrailBanner from "../../../components/common/chat/GuardrailBanner.vue";
+import ConfirmDialog from "../../../components/ui/ConfirmDialog.vue";
+import {
+  MODEL_BUSY_CANCEL_LABEL,
+  MODEL_BUSY_DIALOG_MESSAGE,
+  MODEL_BUSY_DIALOG_TITLE,
+  MODEL_BUSY_WAIT_LABEL,
+} from "../../../constants/labels";
 import ChatSessionList from "./ChatSessionList.vue";
 import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
@@ -24,7 +31,7 @@ const { isMobile } = useResponsiveLayout(640);
 
 const {
   loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
-  thinking, liveReasoning, paused, phase,
+  thinking, liveReasoning, paused, phase, modelBusy, dismissModelBusy,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
   liveEvents,
@@ -114,6 +121,21 @@ const initWorkspace = async () => {
 
 const handleRetry = (text: string) => {
   void launchRun(text);
+};
+
+// A busy local model means the run is waiting (see useMessageBuilder's
+// modelBusy): offer Wait (keep waiting) or Cancel (abort the run). The dialog's
+// close sets modelBusy to null via the v-model setter, which is the Wait action.
+const showModelBusy = computed({
+  get: () => modelBusy.value !== null,
+  set: (value: boolean) => {
+    if (!value) dismissModelBusy();
+  },
+});
+const modelBusyMessage = computed(() => modelBusy.value ?? "");
+const handleModelBusyCancel = () => {
+  dismissModelBusy();
+  void cancel();
 };
 
   const handleLoadSession = async (sessionId: string) => {
@@ -269,6 +291,17 @@ const handleDeleteGroup = async (ids: string[]) => {
         @update:input-message="inputMessage = $event"
       />
     </div>
+
+    <ConfirmDialog
+      v-model="showModelBusy"
+      :title="MODEL_BUSY_DIALOG_TITLE"
+      :message="modelBusyMessage || MODEL_BUSY_DIALOG_MESSAGE"
+      type="warning"
+      :confirm-text="MODEL_BUSY_WAIT_LABEL"
+      :cancel-text="MODEL_BUSY_CANCEL_LABEL"
+      @confirm="dismissModelBusy"
+      @cancel="handleModelBusyCancel"
+    />
   </div>
 </template>
 

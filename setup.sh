@@ -31,7 +31,7 @@
 # scripts/setup-gitleaks.sh — different job, different machine.
 set -euo pipefail
 
-PRJ_ROOT="$(cd "$(dirname "$0")" && pwd)"
+PRJ_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_NAME="llm-proxy"
 
 # Defaults (overridable via interactive prompts)
@@ -90,9 +90,15 @@ else
   UI_BACKEND="ansi"
 fi
 
-# Colors (ANSI backend only; matches scripts/build.sh)
-BOLD='\033[1m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
-YELLOW='\033[0;33m'; RED='\033[0;31m'; DIM='\033[2m'; NC='\033[0m'
+# Shared ANSI palette + toolchain discovery. The palette lives in
+# scripts/lib/ui.sh so setup.sh, build.sh and the other dev scripts cannot drift
+# apart; ui.sh also honors NO_COLOR. Alias it to the short names this file uses.
+# shellcheck source=scripts/lib/ui.sh
+source "$PRJ_ROOT/scripts/lib/ui.sh"
+# shellcheck source=scripts/lib/toolchain.sh
+source "$PRJ_ROOT/scripts/lib/toolchain.sh"
+BOLD=$UI_BOLD; CYAN=$UI_CYAN; GREEN=$UI_GREEN
+YELLOW=$UI_YELLOW; RED=$UI_RED; DIM=$UI_DIM; NC=$UI_NC
 
 # --- whiptail theme ---------------------------------------------------------
 # whiptail's stock palette renders as muddy magenta on modern terminal themes.
@@ -465,6 +471,97 @@ service_flow() {
 }
 
 # -----------------------------------------------------------------------------
+# BUILD — scripts/build.sh is the single build implementation (setup.sh and
+# launch.sh call it; it also runs standalone). Here we run it inside the active
+# UI: under whiptail/dialog the output streams into a programbox so it never
+# spills onto the bare terminal behind the panels; on failure the captured log
+# is shown in a textbox. The ANSI fallback streams directly.
+# -----------------------------------------------------------------------------
+
+BUILD_BOX_TITLE="Building ${BIN_NAME}"
+BUILD_BOX_PROMPT="Compiling frontend assets + backend binary — this can take a few minutes..."
+BUILD_LOG=""
+
+# Self-heal repo ownership before a user-run build: earlier root-run builds
+# leave root-owned files (frontend_dist etc.) that break the build with EACCES.
+repair_root_owned() {
+  [[ -n "${SUDO_USER:-}" ]] || return 0
+  find "$PRJ_ROOT" -user root -print -quit 2>/dev/null | grep -q . || return 0
+  ui_pause "repairing root-owned files in the repo (from older root-run builds)..."
+  chown -R "$SUDO_USER":"$(id -gn "$SUDO_USER")" "$PRJ_ROOT"
+  success "repo ownership repaired (was: root)"
+}
+
+# build_command [env-prefix] — the shell command that runs scripts/build.sh as
+# the invoking user. Under sudo the toolchain lives in that user's login
+# environment and sudo's reset PATH hides it, so go is located explicitly (some
+# users only have go on PATH via an interactive shell config `bash -l` never
+# reads). A captured build passes "NO_COLOR=1" so the log is plain text.
+build_command() {
+  local prefix="${1:-}${1:+ }" go_bin user_home
+  local script="cd $(printf '%q' "$PRJ_ROOT") && ${prefix}BUILD_INLINE=1 ./scripts/build.sh"
+  if [[ -z "${SUDO_USER:-}" ]]; then
+    printf '%sBUILD_INLINE=1 bash %q' "$prefix" "$PRJ_ROOT/scripts/build.sh"
+    return
+  fi
+  go_bin="$(sudo -u "$SUDO_USER" bash -lc 'command -v go' 2>/dev/null || true)"
+  if [[ -z "$go_bin" ]]; then
+    user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+    go_bin="$(find_go_bin "$user_home" || true)"
+  fi
+  if [[ -n "$go_bin" ]]; then
+    printf 'sudo -u %q env PATH=%q:%q bash -lc %q' "$SUDO_USER" "$(dirname "$go_bin")" "$PATH" "$script"
+  else
+    printf 'sudo -u %q bash -lc %q' "$SUDO_USER" "$script"
+  fi
+}
+
+# build_in_box — run the build in a whiptail/dialog programbox. Leaves the
+# full output in BUILD_LOG and returns the build's status (nonzero when the box
+# itself failed, even if the build succeeded).
+build_in_box() {
+  BUILD_LOG="$(mktemp)"
+  local cmd; cmd="$(build_command NO_COLOR=1)"
+  if eval "$cmd" 2>&1 | tee "$BUILD_LOG" | \
+      "$UI_BACKEND" --title "$BUILD_BOX_TITLE" --scrolltext \
+        --programbox "$BUILD_BOX_PROMPT" 24 76; then
+    return 0
+  fi
+  # PIPESTATUS[0] is the build; a 0 there means the box, not the build, failed.
+  local rc="${PIPESTATUS[0]}"
+  [[ "$rc" == 0 ]] && rc=1
+  return "$rc"
+}
+
+# build_step — build through scripts/build.sh, keeping output inside the UI.
+build_step() {
+  if [[ $DRY_RUN == 1 ]]; then
+    info "(dry-run) bash $PRJ_ROOT/scripts/build.sh"
+    return 0
+  fi
+  repair_root_owned
+  ui_pause "building (scripts/build.sh) — this can take a few minutes..."
+
+  # Stream directly when there is no TUI to draw in: the ANSI fallback, a
+  # non-interactive run, or output redirected to a file/pipe (CI).
+  if [[ $UI_BACKEND == ansi || $INTERACTIVE == 0 || ! -t 1 ]]; then
+    eval "$(build_command)" || fail "build failed (scripts/build.sh)"
+    success "build complete"
+    return 0
+  fi
+
+  local rc=0
+  build_in_box || rc=$?
+  if (( rc != 0 )); then
+    ui_textbox "$BUILD_LOG" "Build failed"
+    rm -f "$BUILD_LOG"
+    fail "build failed"
+  fi
+  rm -f "$BUILD_LOG"
+  success "build complete"
+}
+
+# -----------------------------------------------------------------------------
 # INSTALL
 # -----------------------------------------------------------------------------
 install_flow() {
@@ -485,43 +582,7 @@ install_flow() {
 
   step "Binary"
   if [[ $DO_BUILD == 1 ]]; then
-    ui_pause "building (scripts/build.sh) — this can take a few minutes..."
-    if [[ $DRY_RUN == 1 ]]; then
-      info "(dry-run) bash $PRJ_ROOT/scripts/build.sh"
-    elif [[ -n "${SUDO_USER:-}" ]]; then
-      # Self-heal repo ownership: earlier versions of this script built as
-      # root, leaving root-owned files (frontend_dist etc.) that break user-
-      # run builds with EACCES. Repair before dropping to the invoking user.
-      local root_owned
-      root_owned="$(find "$PRJ_ROOT" -user root -print -quit 2>/dev/null || true)"
-      if [[ -n "$root_owned" ]]; then
-        ui_pause "repairing root-owned files in the repo (from older root-run builds)..."
-        chown -R "$SUDO_USER":"$SUDO_USER" "$PRJ_ROOT"
-        success "repo ownership repaired (was: root)"
-      fi
-      # Run the build as the invoking user: the toolchain (go, node) lives in
-      # that user's login environment, and sudo's reset PATH hides it from
-      # root. Login shell (-l) so profile-provided tool paths resolve.
-      # Some users keep go on PATH only via their interactive shell config
-      # (e.g. zsh .zshrc), which `bash -l` never reads — locate the binary
-      # explicitly and prepend its directory to PATH.
-      local go_bin go_dir user_home
-      go_bin="$(sudo -u "$SUDO_USER" bash -lc 'command -v go' 2>/dev/null || true)"
-      if [[ -z "$go_bin" ]]; then
-        user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
-        for d in /usr/local/go/bin "$user_home/go/bin" "$user_home/.local/bin" /snap/bin /usr/lib/go/bin /opt/go/bin; do
-          if [[ -x "$d/go" ]]; then go_bin="$d/go"; break; fi
-        done
-      fi
-      if [[ -n "$go_bin" ]]; then
-        go_dir="$(dirname "$go_bin")"
-        sudo -u "$SUDO_USER" env PATH="$go_dir:$PATH" bash -lc "cd '$PRJ_ROOT' && BUILD_INLINE=1 ./scripts/build.sh"
-      else
-        sudo -u "$SUDO_USER" bash -lc "cd '$PRJ_ROOT' && BUILD_INLINE=1 ./scripts/build.sh"
-      fi
-    else
-      BUILD_INLINE=1 bash "$PRJ_ROOT/scripts/build.sh"
-    fi
+    build_step
   fi
   SRC_BIN="$PRJ_ROOT/backend/${BIN_NAME}"
   [[ -x "$SRC_BIN" ]] || fail "$SRC_BIN not found — build it first (scripts/build.sh) or pick 'Install (with build)'."
@@ -924,7 +985,7 @@ main() {
     install)   install_flow ;;
     uninstall) uninstall_flow ;;
     purge)     purge_flow ;;
-    build)     run bash "$PRJ_ROOT/scripts/build.sh" ;;
+    build)     build_step ;;
     service)   service_flow ;;
     access)    access_flow ;;
     preview)   install_flow ;;
@@ -942,7 +1003,7 @@ main() {
         quit              "Quit")" in
         install)           DO_BUILD=1; install_flow ;;
         register)          install_flow ;;
-        build)             run bash "$PRJ_ROOT/scripts/build.sh" ;;
+        build)             build_step ;;
         service)           service_flow ;;
         access)            access_flow ;;
         uninstall)         if confirm "Uninstall the llm-proxy service? [y/N]"; then uninstall_flow; else warn "aborted"; fi ;;

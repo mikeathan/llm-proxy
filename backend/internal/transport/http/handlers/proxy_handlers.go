@@ -247,7 +247,7 @@ func (h *ProxyHandlers) writeEnsureModelError(w http.ResponseWriter, model strin
 	case errors.Is(err, models.ErrModelStarting):
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "1")
-		w.Header().Set("X-LLM-Status", models.ModelStatusStarting)
+		w.Header().Set(models.InboundStatusHeader, models.ModelStatusStarting)
 		w.WriteHeader(http.StatusAccepted)
 		w.Write([]byte(fmt.Sprintf(`{"status":%q}`, models.ModelStatusStarting)))
 	case errors.Is(err, llm.ErrLocalModelBusy):

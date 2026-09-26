@@ -127,7 +127,7 @@ type inboundAnswer struct {
 func writeInboundStatus(w http.ResponseWriter, a inboundAnswer) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
-	w.Header().Set("X-LLM-Status", a.llmStatus)
+	w.Header().Set(models.InboundStatusHeader, a.llmStatus)
 	w.WriteHeader(a.httpStatus)
 	// Best effort: a write failure means the client is already gone, and there
 	// is nothing here that could act on it.
