@@ -90,6 +90,31 @@ PrivateTmp=yes
 ProtectSystem=full
 ```
 
+**Dedicated service user + local GPU model (critical):** the unit in
+`docs/services/llm-proxy.service` runs the service under a dedicated
+unprivileged user and the proxy launches `llama-server` as a child, so that user
+must be in the GPU device groups or llama.cpp reports
+`warning: no usable GPU found, --gpu-layers option will be ignored` and silently
+falls back to CPU:
+
+```bash
+sudo usermod -aG render,video llm-proxy   # groups exist on Ubuntu/Arch/Fedora
+sudo systemctl restart llm-proxy
+sudo -u llm-proxy rocm-smi                # must list the GPU (AMD)
+```
+
+`setup.sh` now does this automatically for new and existing service users. Also
+note the unit's memory/`mlock` settings: `MemoryMax`/`MemoryHigh` are
+host-relative (a fixed 8G cannot hold a 35B Q4 model, especially on a
+shared-memory iGPU), and `LimitMEMLOCK=infinity` is required for `--load-mode
+mlock` since `CapabilityBoundingSet=` leaves no `CAP_IPC_LOCK`.
+
+**Diagnosing a dead model:** the proxy buffers llama-server stdout/stderr and
+retains it after the model exits, so `GET /admin/api/logs` returns the crash
+output (`logs`) plus the recorded exit error (`error`) even when `running:false`.
+The same output also reaches the journal (`journalctl -u llm-proxy`). Kernel OOM
+kills show up separately: `journalctl -k | grep -iE "oom|killed process"`.
+
 ## Important Gotchas
 
 - The server's `--temp` is ignored when our code sends `temperature` in the API request. Server-level penalty flags (`--repeat-penalty`, etc.) still apply because our `ChatRequest` has no fields for them.

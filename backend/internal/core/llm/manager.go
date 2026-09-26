@@ -115,6 +115,11 @@ type LLMRuntimeManager struct {
 	// (e.g. a llama-server that crashed on launch due to bad args).
 	lastModelError string
 
+	// lastModelLogs retains the captured stdout/stderr of the most recently
+	// stopped/crashed local model so /admin/api/logs can still show WHY it exited
+	// after the live buffer is dropped with activeModel (cleared on ClearLogs).
+	lastModelLogs string
+
 	// servingCtxSynced marks local models whose serving-context metadata has
 	// been reconciled against the running server once per server start
 	// (ReconcileLocalServingContext). Cleared on Sync (registry may have
@@ -493,6 +498,7 @@ func (m *LLMRuntimeManager) ClearLogs() error {
 	if m.activeModel != nil && m.activeModel.Logs != nil {
 		m.activeModel.Logs.Clear()
 	}
+	m.lastModelLogs = ""
 	return nil
 }
 

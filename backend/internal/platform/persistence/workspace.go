@@ -237,8 +237,10 @@ func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 	return workspaces, nil
 }
 
-func (m *WorkspaceManager) BaseDir() string {
-	return m.resolver.WorkspacesRoot()
+// MetadataRoot returns the per-workspace metadata root that holds config.yaml
+// and state.json, distinct from the workspace content root.
+func (m *WorkspaceManager) MetadataRoot() string {
+	return m.resolver.MetadataRoot()
 }
 
 // GetRelativeWorkspacePath returns the relative path from the current working directory to the base workspace directory.

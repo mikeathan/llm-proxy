@@ -46,6 +46,16 @@ last_reviewed: 2026-07-11
   model configured with a longer timeout is not cut off mid-run (`runContext` in dispatcher.go)
 - Cron jobs register their **real schedule** (`triggerToCron`), so pre-executor failures no longer
   retry every minute and a new automation does not fire immediately
+- Re-`Register`ing an automation **atomically replaces** its cron entry (`replaceJob`: remove-then-add
+  under `d.mu`). A trigger switch or schedule edit must never leave the old entry scheduled — that
+  previously made a cron automation switched to `manual` keep firing at its old time (and leaked a
+  second entry on every schedule change). `scheduleAutomation` removes the entry for a manual trigger;
+  `Unregister` shares `removeJob`
+- If an automation still fires after being changed, the orphan lives in the running process —
+  **restart the service** to clear it (scheduling state is in-memory only)
+- The hot-reload watcher watches the **metadata root** (`<root>/meta`, where `config.yaml` lives) plus
+  each workspace metadata dir, because fsnotify is non-recursive. Watching `workspaces/` (the old
+  `BaseDir`) never saw a `config.yaml` write, so reconciliation was dead
 - Panic containment: every execution goroutine runs through `safe.Go` and cron jobs through
   `cron.Recover`; `executeAutomation` recovers panics and clears the run's running state, so a
   single bad run can never crash the service or leave a workspace stuck marked running
@@ -126,6 +136,11 @@ Templates live in `backend/data/templates/`. They're plain markdown files copied
 
 ## Important Gotchas
 
+- The `EventError` payload must be `map[string]string{"error": ..., "hint": ...}` — the same
+  shape the assistant failure path (`conversation_service.handleErrorResult`) publishes. The shared
+  frontend consumer (`messageBuilder` `case 'error'`) reads `payload.error` and falls back to
+  **"Unknown error"** otherwise; publishing a `proxy.Message` (as `failRun` once did) silently
+  discards the classified cause.
 - The workspace is NOT cleaned between runs. Leftover files from previous runs pollute the agent's context and cause confusion.
 - `notify_user` is NOT a valid tool for automation. The guardrail blocks it. Write the final report directly as natural-language output.
 - A trailing comma in a tools manifest (`system.json`) can silently drop a tool entry — validate manifests after edits.

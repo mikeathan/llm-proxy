@@ -192,21 +192,19 @@ func (d *Dispatcher) failRun(entry *AutomationEntry, state *models.AgentState, e
 	state.SetRunning("")
 	d.persistence.WriteState(entry.Workspace, state)
 
-	// Un-hang the UI by publishing the error over the EventBus. The content is
-	// the classified summary + hint — the raw error would be an opaque upstream
-	// JSON dump in the run console (full error is logged).
+	// Un-hang the UI by publishing the error over the EventBus. The payload
+	// must match the shared frontend consumer (messageBuilder reads
+	// {error, hint}), the same shape the assistant failure path publishes — a
+	// proxy.Message here rendered as "Unknown error". The full error is logged.
 	fi := failures.ClassifyRunFailure(runErr)
-	errContent := fi.Error
+	payload := map[string]string{"error": fi.Error}
 	if fi.Hint != "" {
-		errContent = fi.Error + "\n\n" + fi.Hint
+		payload["hint"] = fi.Hint
 	}
 	d.events.Publish(entry.Workspace, assistant.AgentEvent{
 		Type:    assistant.EventError,
 		Channel: assistant.ChannelAutomation,
-		Payload: proxy.Message{
-			Role:    "system",
-			Content: errContent,
-		},
+		Payload: payload,
 	})
 
 	// Ensure failed runs also propagate to the global ledger
