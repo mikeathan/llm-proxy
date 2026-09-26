@@ -408,8 +408,8 @@ function handleRestart() {
             <label class="form-label">External Model Requests</label>
             <div class="form-helper">
               An external client (another proxy, a tool) asking for a different local model would otherwise
-              stop the running one. It is told to retry instead — a run is never interrupted unless you serve
-              the request from the run indicator yourself, where parked requests appear and can be dismissed.
+              stop the running one. It is held or told to retry instead — a run is never interrupted unless you
+              serve the request from the run indicator yourself, where queued requests appear and can be dismissed.
             </div>
             <div class="flex items-center gap-6 mt-2 flex-wrap">
               <label class="flex items-center gap-2 w-fit">
@@ -429,7 +429,7 @@ function handleRestart() {
                   v-model="inboundWaitByDefault"
                   class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
                 />
-                <span class="text-sm text-gray-300">Park requests that don't ask to wait</span>
+                <span class="text-sm text-gray-300">Queue requests that don't ask to wait</span>
               </label>
               <label class="flex items-center gap-2 w-fit">
                 <span class="text-sm text-gray-300">Queue depth</span>
@@ -447,7 +447,7 @@ function handleRestart() {
                   v-model="inboundPreempt"
                   class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
                 />
-                <span class="text-sm text-gray-300">A waiting request may cancel the running run</span>
+                <span class="text-sm text-gray-300">Allow a waiting request to interrupt the running job</span>
               </label>
             </div>
           </div>

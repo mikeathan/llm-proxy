@@ -96,6 +96,10 @@ export function useAssistant() {
   const liveReasoning = builder.liveReasoning
   const paused = builder.paused
   const phase = builder.phase
+  // modelBusy is the client-side Wait / Cancel prompt: the local model is
+  // serving another run, so the caller is waiting rather than failing.
+  const modelBusy = builder.modelBusy
+  const dismissModelBusy = builder.dismissModelBusy
 
   // submitDecision resolves a pending guardrail approval. The SSE surface only
   // *reports* the block; the backend waits (bounded by GuardrailApprovalTimeout)
@@ -480,6 +484,8 @@ export function useAssistant() {
     liveReasoning,
     paused,
     phase,
+    modelBusy,
+    dismissModelBusy,
     cancel,
     fetchSessions,
     loadSession,

@@ -1,44 +1,48 @@
-#!/bin/sh
-# setup-gitleaks.sh — one-shot contributor dev setup for llm-proxy.
+#!/usr/bin/env bash
+set -euo pipefail
+
+# scripts/setup-gitleaks.sh — one-shot contributor dev setup for llm-proxy.
+#
 # Installs the secret-scanning dependency and registers the git hook so
-# contributors don't have to wire anything up manually.
-# (Host/service provisioning is ./setup.sh — different job, different machine.)
+# contributors don't have to wire anything up manually. Idempotent: safe to
+# re-run. (Host/service provisioning is ./setup.sh — a different job.)
 #
-# Usage:   ./scripts/setup-gitleaks.sh
-#
-set -e
+#   ./scripts/setup-gitleaks.sh
 
-echo "==> llm-proxy local setup"
+PRJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# --- gitleaks (pre-commit secret scanner) ---
-if command -v gitleaks >/dev/null 2>&1; then
-  echo "==> gitleaks already installed: $(gitleaks version 2>/dev/null | head -1 || echo present)"
+# shellcheck source=lib/ui.sh
+source "$PRJ_ROOT/scripts/lib/ui.sh"
+
+cd "$PRJ_ROOT"
+ui_header "llm-proxy · contributor setup" "gitleaks secret-scanning pre-commit hook"
+
+# --- gitleaks (pre-commit secret scanner) ------------------------------------
+if ui_have gitleaks; then
+  ui_ok "gitleaks already installed: $(gitleaks version 2>/dev/null | head -1 || echo present)"
+elif ui_have brew; then
+  ui_info "installing gitleaks via brew..."
+  brew install gitleaks
+  ui_ok "gitleaks installed"
 else
-  if command -v brew >/dev/null 2>&1; then
-    echo "==> installing gitleaks via brew..."
-    brew install gitleaks
-  else
-    echo "ERROR: Homebrew not found. Install gitleaks manually:" >&2
-    echo "       https://github.com/gitleaks/gitleaks#installing" >&2
-    echo "       (apt: gitleaks | go: go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest)" >&2
-    exit 1
-  fi
+  ui_err "Homebrew not found. Install gitleaks manually:"
+  ui_detail "https://github.com/gitleaks/gitleaks#installing"
+  ui_detail "apt: gitleaks  |  go: go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest"
+  exit 1
 fi
 
-# --- git hooks ---
-echo "==> registering git hooks (core.hooksPath=.githooks)"
+# --- git hooks ---------------------------------------------------------------
+ui_info "registering git hooks (core.hooksPath=.githooks)"
 git config core.hooksPath .githooks
 chmod +x .githooks/pre-commit 2>/dev/null || true
+ui_ok "hook registered"
 
-# --- sanity check ---
-echo "==> verifying hook fires..."
-if git diff --cached --quiet 2>/dev/null; then
-  : # nothing staged; that's fine for setup
-fi
+# --- sanity check ------------------------------------------------------------
+ui_info "verifying hook fires..."
 if gitleaks git --staged --no-banner >/dev/null 2>&1; then
-  echo "==> gitleaks pre-commit hook active."
+  ui_ok "gitleaks pre-commit hook active"
 else
-  echo "WARNING: gitleaks scan reported an issue; hook is still installed but check output above." >&2
+  ui_warn "gitleaks scan reported an issue — hook is installed but re-check manually"
 fi
 
-echo "==> done. Secret-scanning pre-commit hook is now active for this clone."
+ui_ok "done — secret scanning is now active for this clone"

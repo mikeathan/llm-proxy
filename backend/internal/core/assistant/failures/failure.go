@@ -16,9 +16,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/models"
 )
 
 // maxFailureBodyLen bounds extracted upstream message text that reaches the UI.
@@ -88,6 +90,22 @@ func classifyHTTPFailure(httpErr *proxy.LLMHTTPError) FailureInfo {
 	lower := strings.ToLower(body)
 	summary := fmt.Sprintf("The model server rejected the request (HTTP %d): %s",
 		httpErr.StatusCode, extractUpstreamMessage(body))
+
+	// A proxy's residency verdict ("busy"/"queued") is a deliberate refusal to
+	// swap the local model, not an upstream capacity limit — it gets its own
+	// hint and must be checked before the generic 429 wording.
+	if status := residencyAnswer(httpErr.StatusCode, body); status != "" {
+		hint := "The local model is busy serving another run. Wait for it to free up, or cancel this request."
+		if status == models.ModelStatusQueued {
+			hint = "The local model was still busy after waiting. Wait longer, or cancel this request."
+		}
+		return FailureInfo{
+			Error:  summary,
+			Hint:   hint,
+			Status: httpErr.StatusCode,
+			Kind:   kind,
+		}
+	}
 
 	switch {
 	case strings.Contains(lower, "custom grammar constraints with tools"):
@@ -177,9 +195,10 @@ func classifyGenericFailure(err error) FailureInfo {
 	}
 }
 
-// extractUpstreamMessage pulls the readable "message" out of an OpenAI-style
-// error body ({... "error": {"message": "..."}}), falling back to a bounded
-// raw excerpt when the body is not that shape.
+// extractUpstreamMessage pulls the readable "message" out of a proxy error body.
+// It understands an OpenAI-style error ({"error":{"message":...}}) and the
+// residency verdict shape the local model gate emits ({"status":...
+// "message":...}), falling back to a bounded raw excerpt for anything else.
 func extractUpstreamMessage(body string) string {
 	if body == "" {
 		return "the server returned no details"
@@ -188,11 +207,32 @@ func extractUpstreamMessage(body string) string {
 		Error struct {
 			Message string `json:"message"`
 		} `json:"error"`
+		Message string `json:"message"`
 	}
-	if json.Unmarshal([]byte(body), &parsed) == nil && strings.TrimSpace(parsed.Error.Message) != "" {
-		return bound(parsed.Error.Message, maxFailureBodyLen)
+	if json.Unmarshal([]byte(body), &parsed) == nil {
+		if m := strings.TrimSpace(parsed.Error.Message); m != "" {
+			return bound(m, maxFailureBodyLen)
+		}
+		if m := strings.TrimSpace(parsed.Message); m != "" {
+			return bound(m, maxFailureBodyLen)
+		}
 	}
 	return bound(body, maxFailureBodyLen)
+}
+
+// residencyAnswer reports the residency verdict for a proxy's busy answer. It
+// is keyed to the contract statuses (429, plus legacy 409/202) and parses the
+// body with models.ResidencyAnswer — the same wire contract the proxy client
+// reads — so an unrelated provider body is not misread as a local-model
+// refusal.
+func residencyAnswer(statusCode int, body string) string {
+	switch statusCode {
+	case http.StatusTooManyRequests, http.StatusConflict, http.StatusAccepted:
+		status, _ := models.ResidencyAnswer(body)
+		return status
+	default:
+		return ""
+	}
 }
 
 // isContextOverflowBody reports whether a lowercased upstream body indicates a

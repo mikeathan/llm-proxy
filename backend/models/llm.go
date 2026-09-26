@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -35,6 +36,34 @@ const (
 	ModelStatusBusy   = "busy"
 	ModelStatusQueued = "queued"
 )
+
+// InboundStatusHeader carries the inbound-admission verdict (a ModelStatus*
+// value) alongside the HTTP status. One home for the header name keeps the
+// producer (proxy handler) and consumers (proxy client) from drifting apart.
+const InboundStatusHeader = "X-LLM-Status"
+
+// IsResidencyStatus reports whether s is one of the inbound-admission residency
+// verdicts (busy/queued). Shared by the proxy client (which reads the
+// X-LLM-Status header) and the failure classifier (which reads the body) so the
+// producer and every consumer agree on the contract.
+func IsResidencyStatus(s string) bool {
+	return s == ModelStatusBusy || s == ModelStatusQueued
+}
+
+// ResidencyAnswer parses a proxy's residency answer body — the
+// {"status":"busy"|"queued","message":"..."} shape the inbound gate emits —
+// returning the verdict and its human explanation. It returns ("", "") for any
+// other body, so callers need no separate JSON handling.
+func ResidencyAnswer(body string) (status, message string) {
+	var probe struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(body), &probe) != nil || !IsResidencyStatus(probe.Status) {
+		return "", ""
+	}
+	return probe.Status, probe.Message
+}
 
 var (
 	ErrModelStarting = errors.New("model is starting")

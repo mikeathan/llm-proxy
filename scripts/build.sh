@@ -1,111 +1,99 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- Configuration & UI Helpers ---
+# scripts/build.sh — compile the llm-proxy binary (frontend assets + backend).
+#
+# Single build implementation: setup.sh and launch.sh both call this script, and
+# it runs standalone for manual builds.
+#
+# Callers that render its output inside their own UI (whiptail/dialog panels)
+# set BUILD_INLINE=1 for lean output and NO_COLOR=1 so the captured log is plain
+# text — matching the two modes:
+#   ./scripts/build.sh                     # pretty standalone build
+#   BUILD_INLINE=1 NO_COLOR=1 ./scripts/build.sh   # lean, plain, for a TUI box
+
 PRJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN_NAME="llm-proxy"
-
-# Colors for modern terminal output
-BOLD='\033[1m'
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-info() { echo -e "${BLUE}${BOLD}info${NC} $1"; }
-success() { echo -e "${GREEN}${BOLD}success${NC} $1"; }
-error() { echo -e "${RED}${BOLD}error${NC} $1"; exit 1; }
-
-# Inline mode: callers that have their own UI (setup.sh, launch.sh) set
-# BUILD_INLINE=1 to get lean output — no banner, no success sparkles, no
-# systemd-advice footer (the caller says what happens next). Standalone runs
-# keep the full decorated output.
 INLINE=${BUILD_INLINE:-0}
+START_SECONDS=$SECONDS
 
-# --- Initialization ---
+# shellcheck source=lib/ui.sh
+source "$PRJ_ROOT/scripts/lib/ui.sh"
+# shellcheck source=lib/toolchain.sh
+source "$PRJ_ROOT/scripts/lib/toolchain.sh"
+
 cd "$PRJ_ROOT"
+
 if [[ $INLINE != 1 ]]; then
-  echo -e "${CYAN}${BOLD}==================================================${NC}"
-  info "Starting build for ${BOLD}llm-proxy${NC}..."
-  echo -e "${CYAN}${BOLD}==================================================${NC}"
+  ui_header "llm-proxy · build" "frontend assets + backend binary"
 fi
 
-# --- Repo ownership guard ---
+# --- Repo ownership guard ----------------------------------------------------
 # Root-owned files in the tree (typically left behind by an earlier root-run
-# build) make vite/npm fail mid-build with EACCES. Fail fast with the fix,
-# or self-heal when the script itself runs as root.
+# build) make vite/npm fail mid-build with EACCES. Fail fast with the fix, or
+# self-heal when the script itself runs as root.
 if find . -user root -print -quit 2>/dev/null | grep -q .; then
   if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
-    info "Repairing root-owned files (from an earlier root-run build)..."
+    ui_info "Repairing root-owned files (from an earlier root-run build)..."
     chown -R "${SUDO_USER}":"$(id -gn "$SUDO_USER")" "$PRJ_ROOT"
-    success "repo ownership repaired"
+    ui_ok "repo ownership repaired"
   else
-    echo -e "${RED}${BOLD}error${NC} Found root-owned files in the repo (vite will fail with EACCES)."
-    echo -e "Fix:  ${BOLD}sudo chown -R \"$(id -un)\":\"$(id -gn)\" $PRJ_ROOT${NC}"
+    ui_err "Found root-owned files in the repo (vite will fail with EACCES)."
+    ui_detail "Fix:  sudo chown -R \"$(id -un)\":\"$(id -gn)\" $PRJ_ROOT"
     exit 1
   fi
 fi
 
-# --- Versioning (Using Git Tags) ---
-info "Retrieving version from Git tags..."
-# Get the most recent tag by version number, or fallback to 'dev' if no tags exist
+# --- Versioning (from the most recent git tag) -------------------------------
+ui_info "Retrieving version from Git tags..."
 VERSION=$(git tag --sort=-v:refname | head -n 1)
-if [[ -z "${VERSION}" ]]; then
-    VERSION="dev"
-fi
+[[ -n "$VERSION" ]] || VERSION="dev"
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ui_ok "Version ${UI_GREEN}${VERSION}${UI_NC} (commit ${UI_CYAN}${COMMIT}${UI_NC})"
 
-info "Version: ${GREEN}${VERSION}${NC} (Commit: ${CYAN}${COMMIT}${NC})"
-
-# --- Frontend Build ---
-info "Building frontend assets..."
+# --- Frontend build ----------------------------------------------------------
+ui_info "Building frontend assets..."
 if (cd frontend && npm install && npm run build); then
-    success "Frontend generated successfully."
+  ui_ok "Frontend generated successfully."
 else
-    error "Frontend build failed!"
+  ui_die "Frontend build failed!"
 fi
 
-# --- Backend Compilation ---
-info "Compiling backend binary..."
+# --- Backend compilation -----------------------------------------------------
+ui_info "Compiling backend binary..."
 
 # Locate go even when PATH comes from a non-bash login environment (e.g. the
 # user's go lives in their zsh .zshrc, invisible to `bash -l`).
-if ! command -v go >/dev/null 2>&1; then
-  for d in /usr/local/go/bin "$HOME/go/bin" "$HOME/.local/bin" /snap/bin /usr/lib/go/bin /opt/go/bin; do
-    if [[ -x "$d/go" ]]; then export PATH="$d:$PATH"; break; fi
-  done
+if ! ui_have go; then
+  go_bin="$(find_go_bin || true)"
+  [[ -n "$go_bin" ]] && export PATH="$(dirname "$go_bin"):$PATH"
 fi
-if ! command -v go >/dev/null 2>&1; then
-  error "go not found on PATH or in common install locations (/usr/local/go/bin, ~/go/bin, snap)."
-fi
+ui_have go || ui_die "go not found on PATH or in common install locations (/usr/local/go/bin, ~/go/bin, snap)."
 
 cd backend
 
-# Go Linker flags
 LDFLAGS="-X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildDate=${BUILD_DATE}"
-
 go mod tidy
-# We build the binary directly inside the backend folder
+
 if go build -ldflags "$LDFLAGS" -o "./${BIN_NAME}" .; then
-    success "Backend binary created at ${BOLD}backend/${BIN_NAME}${NC}"
+  ui_ok "Backend binary created at ${UI_BOLD}backend/${BIN_NAME}${UI_NC}"
 else
-    error "Backend compilation failed!"
+  ui_die "Backend compilation failed!"
 fi
 
-# --- Success Summary ---
+# --- Summary -----------------------------------------------------------------
 cd "$PRJ_ROOT"
+ELAPSED=$((SECONDS - START_SECONDS))
+
 if [[ $INLINE == 1 ]]; then
   ls -lh "backend/${BIN_NAME}"
   exit 0
 fi
 
-echo -e "\n${GREEN}${BOLD}✨ Build process complete! ✨${NC}"
+ui_header "Build complete" "finished in ${ELAPSED}s"
 ls -lh "backend/${BIN_NAME}"
-
-echo -e "\n${CYAN}${BOLD}Next Step: Update your Systemd Service${NC}"
-echo -e "Update your service file to use the backend folder as the working directory:"
-echo -e "${BOLD}WorkingDirectory=$(pwd)/backend${NC}"
-echo -e "${BOLD}ExecStart=$(pwd)/backend/${BIN_NAME}${NC}"
-echo -e "--------------------------------------------------\n"
+ui_detail "Next step — point your systemd unit at the served binary:"
+ui_detail "WorkingDirectory=$(pwd)/backend"
+ui_detail "ExecStart=$(pwd)/backend/${BIN_NAME}"
+ui_rule 54

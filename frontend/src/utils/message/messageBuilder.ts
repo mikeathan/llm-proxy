@@ -101,6 +101,11 @@ export function useMessageBuilder(
   const liveReasoning = ref('')
   const paused = ref(false)
   const phase = ref<InsetPhase>('idle')
+  // modelBusy carries the server's explanation when a local model is held by
+  // another run. The chat surfaces a Wait / Cancel prompt for it; it is cleared
+  // as soon as the stream resumes (the model freed) or the run ends.
+  const modelBusy = ref<string | null>(null)
+  const dismissModelBusy = () => { modelBusy.value = null }
   let pauseTimer: ReturnType<typeof setTimeout> | null = null
 
   // Streaming flush throttle. tool_stream events arrive every 10–50ms; each
@@ -223,6 +228,9 @@ export function useMessageBuilder(
   // resolved rather than leaving a stale "retrying…" chip. Resolves ALL pending
   // notices — a turn may stack several sequential retries before recovery.
   function resolvePendingNotices() {
+    // A busy wait ends the same way a retry does: the stream resumes (or the run
+    // fails). Either way the Wait / Cancel prompt is moot.
+    modelBusy.value = null
     const segments = getSegments()
     let changed = false
     for (let i = 0; i < segments.length; i++) {
@@ -241,8 +249,14 @@ export function useMessageBuilder(
   // do NOT touch phase/streaming/thinking flags.
   function handleUpstreamNotice(p: UpstreamEventPayload) {
     ensureAssistant()
-    const segments = getSegments()
     const message = upstreamRetryMessage(p)
+    // A residency refusal is actionable, not just informational: the client is
+    // waiting for another run to free the local model. Surface it as a Wait /
+    // Cancel prompt in addition to the inline retry chip.
+    if (p?.reason === 'model_busy') {
+      modelBusy.value = message
+    }
+    const segments = getSegments()
     const last = segments[segments.length - 1]
     if (last && last.kind === 'notice' && last.status === 'pending') {
       // Collapse consecutive retries into the existing notice so a long retry
@@ -474,6 +488,7 @@ export function useMessageBuilder(
     thinking.value = false
     paused.value = false
     liveReasoning.value = ''
+    modelBusy.value = null
     const m = assistantMessage()
     if (m) {
       m.content = reasoningCommitted
@@ -499,7 +514,8 @@ export function useMessageBuilder(
     phase.value = 'idle'
     finalized = false
     lastReply = ''
+    modelBusy.value = null
   }
 
-  return { handleEvent, finalize, reset, streaming, thinking, liveReasoning, paused, phase, resetPauseTimer }
+  return { handleEvent, finalize, reset, streaming, thinking, liveReasoning, paused, phase, resetPauseTimer, modelBusy, dismissModelBusy }
 }

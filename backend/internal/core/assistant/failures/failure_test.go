@@ -83,6 +83,31 @@ func TestClassifyRunFailure(t *testing.T) {
 			wantHint: []string{"rate-limiting"},
 		},
 		{
+			name:     "local model busy (residency body)",
+			err:      httpErr("chat", 429, `{"status":"busy","model":"Qwen3.6 35B A3B","message":"the local model is serving Qwen3.5 35B A3B for a running job; Qwen3.6 35B A3B would interrupt it","retry_after_seconds":5}`),
+			wantKind: failureKindChat,
+			wantSub:  []string{"HTTP 429", "the local model is serving Qwen3.5 35B A3B"},
+			// The residency body must be read as a sentence, not dumped raw.
+			wantNoSub: []string{`{"status"`, "retry_after_seconds"},
+			wantHint:  []string{"local model", "busy"},
+		},
+		{
+			name:      "local model queued (residency body)",
+			err:       httpErr("stream", 429, `{"status":"queued","model":"m","message":"waited as long as allowed; the local model is still serving a for a running job, so m was not served","retry_after_seconds":5}`),
+			wantKind:  failureKindStream,
+			wantSub:   []string{"waited as long as allowed"},
+			wantNoSub: []string{`{"status"`},
+			wantHint:  []string{"still busy"},
+		},
+		{
+			// A non-proxy 500 that happens to carry a top-level status:busy must
+			// not be misread as a local-model refusal.
+			name:     "busy status on a non-residency status is not model_busy",
+			err:      httpErr("chat", 500, `{"status":"busy","message":"engine overloaded"}`),
+			wantKind: failureKindChat,
+			wantSub:  []string{"engine overloaded"},
+		},
+		{
 			name:     "service unavailable",
 			err:      httpErr("chat", 503, `{"error":{"message":"overloaded"}}`),
 			wantKind: failureKindChat,

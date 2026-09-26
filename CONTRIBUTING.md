@@ -16,6 +16,10 @@ cd frontend
 npm install && npm run dev             # dev (proxies to :4001)
 npm run build                          # production
 
+# Full build (frontend assets + backend binary) — the single build script the
+# installer calls; also runnable standalone. setup.sh runs it inside its TUI.
+./scripts/build.sh
+
 # One-time: install deps + enable secret-scanning git hook
 ./scripts/setup-gitleaks.sh            # installs gitleaks, registers .githooks
 ```

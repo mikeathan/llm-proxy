@@ -98,6 +98,46 @@ describe('useMessageBuilder upstream notices', () => {
     expect(builder.streaming.value).toBe(false)
   })
 
+  it('opens a Wait/Cancel prompt on a residency refusal', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', error: 'the local model is serving a for a running job' }))
+
+    expect(builder.modelBusy.value).toBe('the local model is serving a for a running job')
+    const notice = lastSegments(messages).find(s => s.kind === 'notice')
+    expect(notice?.kind === 'notice' ? notice.message : '').toContain('the local model is serving')
+  })
+
+  it('leaves the model-busy prompt unset for ordinary retries', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(upstreamEvent({ reason: 'status', status: 529 }))
+
+    expect(builder.modelBusy.value).toBeNull()
+  })
+
+  it('clears the model-busy prompt when the stream resumes', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', error: 'busy' }))
+    builder.handleEvent(streamResumeEvent())
+
+    expect(builder.modelBusy.value).toBeNull()
+  })
+
+  it('clears the model-busy prompt on dismiss', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+
+    builder.handleEvent(upstreamEvent({ reason: 'model_busy', error: 'busy' }))
+    builder.dismissModelBusy()
+
+    expect(builder.modelBusy.value).toBeNull()
+  })
+
   it('shows the classified err_class in the transport retry notice', () => {
     const messages = ref<AssistantMessage[]>([])
     const builder = useMessageBuilder(messages)

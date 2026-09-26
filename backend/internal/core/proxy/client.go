@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -80,8 +81,9 @@ const (
 	// RetryReasonModelBusy is an upstream proxy's deliberate refusal to switch
 	// the local model while a run is using it (HTTP 429 busy/queued, with an
 	// explanation in the body; legacy 409/202 still recognized). The run
-	// holding the model is protected on purpose, so this is reported before
-	// the transient-retry classification — never blind-retried.
+	// holding the model is protected on purpose, so this is reported once and
+	// then waited out (ctx-bound) rather than blind-retried against the
+	// transient budget — the model frees when that run ends.
 	RetryReasonModelBusy RetryReason = "model_busy"
 )
 
@@ -219,6 +221,14 @@ func ClearReasoningParams(req *ChatRequest) {
 const (
 	httpRetryMaxAttempts = 3
 	httpRetryBaseBackoff = 800 * time.Millisecond
+
+	// Residency-busy wait. A proxy refusing to swap a local model in use is not
+	// a transient fault; the caller waits and re-checks (bounded by ctx, not by
+	// the transient-retry budget). These bound the proxy's Retry-After hint so a
+	// missing or wrong value cannot spin the caller or stall the run.
+	modelBusyDefaultWait = 5 * time.Second
+	modelBusyMinWait     = 1 * time.Second
+	modelBusyMaxWait     = 30 * time.Second
 )
 
 // LLMHTTPError is a typed error for non-2xx upstream responses. Its Error()
@@ -293,6 +303,25 @@ func backoffForRetry(attempt int) time.Duration {
 	base := httpRetryBaseBackoff * time.Duration(1<<uint(attempt-1))
 	jitter := time.Duration(rand.Int64N(int64(base / 5)))
 	return base - base/10 + jitter
+}
+
+// modelBusyRetryDelay is the pause before re-checking a local model a proxy
+// reported busy/parked. It honors the proxy's Retry-After, clamped to
+// [modelBusyMinWait, modelBusyMaxWait] so a missing or wrong hint cannot spin
+// the caller or stall the run.
+func modelBusyRetryDelay(h http.Header) time.Duration {
+	secs, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After")))
+	if err != nil || secs <= 0 {
+		return modelBusyDefaultWait
+	}
+	d := time.Duration(secs) * time.Second
+	if d < modelBusyMinWait {
+		return modelBusyMinWait
+	}
+	if d > modelBusyMaxWait {
+		return modelBusyMaxWait
+	}
+	return d
 }
 
 // classifyTransportError buckets a connection-level upstream failure into a
@@ -409,37 +438,31 @@ func isModelStartingResponse(status int, body string) bool {
 
 // inboundStatusHeader carries the proxy's inbound-admission verdict (see the
 // statuses in models/llm.go) alongside the HTTP status.
-const inboundStatusHeader = "X-LLM-Status"
+const inboundStatusHeader = models.InboundStatusHeader
 
 // inboundBusyDetail reports the upstream's explanation when a response is a
 // proxy's deliberate "the model you asked for is in use by a run" answer, and
 // "" when it is anything else. It is not a fault — the run holding the model is
-// protected on purpose — so the caller reports it with its own reason instead of
-// retrying it as a transient error. 429 (Too Many Requests) is the contract
-// status; 409/202 are still recognized for mixed-version deployments that
-// predate it. Body status is accepted too, since a non-proxy upstream may echo
-// it.
+// protected on purpose — so the caller reports it with its own reason (the UI
+// offers Wait / Cancel) and waits it out instead of burning the transient
+// retry budget. 429 (Too Many Requests) is the contract status; 409/202 are
+// still recognized for mixed-version deployments that predate it. Body status
+// is accepted too, since a non-proxy upstream may echo it.
 func inboundBusyDetail(resp *http.Response, body string) string {
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests, http.StatusConflict, http.StatusAccepted:
 	default:
 		return ""
 	}
-	busy := func(status string) bool {
-		return status == models.ModelStatusBusy || status == models.ModelStatusQueued
-	}
-	// One decode serves both probes: the body's status (when the header is
-	// absent) and the body's explanation.
-	var probe struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-	}
-	parsed := json.Unmarshal([]byte(body), &probe) == nil
-	if !busy(resp.Header.Get(inboundStatusHeader)) && (!parsed || !busy(probe.Status)) {
+	// The header verdict and the body verdict are both recognized; the body also
+	// carries the explanation. models.ResidencyAnswer owns the body contract so
+	// the client and the failure classifier cannot drift from the producer.
+	status, message := models.ResidencyAnswer(body)
+	if !models.IsResidencyStatus(resp.Header.Get(inboundStatusHeader)) && status == "" {
 		return ""
 	}
-	if parsed && probe.Message != "" {
-		return probe.Message
+	if message != "" {
+		return message
 	}
 	return body
 }
@@ -455,6 +478,7 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 	start := time.Now()
 	observer := RetryObserverFrom(ctx)
 	attempt := 0
+	busyReported := false
 	for {
 		if attempt > 0 {
 			timer := time.NewTimer(backoffForRetry(attempt))
@@ -552,14 +576,17 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 		}
 		// A proxy refusing to evict a model in use is a deliberate answer with
 		// its own reason, not a transient fault — checked BEFORE the generic
-		// retryable-status path, because 429 is otherwise blind-retried: it
-		// would keep failing while the run holds the model, and the server's
-		// explanation must be reported instead.
+		// retryable-status path, because 429 is otherwise blind-retried against
+		// the transient budget. It is reported once (so the UI can offer Wait /
+		// Cancel), then the caller waits and re-checks: a run holding the model
+		// eventually frees it, and the wait is bounded by ctx (run timeout /
+		// user cancel), not by the transient-retry budget.
 		if detail := inboundBusyDetail(resp, httpErr.Body); detail != "" {
-			logging.Warn("upstream local model is in use by a run",
+			logging.Warn("upstream local model is in use by a run, waiting",
 				"model", c.model, "url", url, "kind", kind,
 				"status", resp.StatusCode, "detail", detail)
-			if observer != nil {
+			if observer != nil && !busyReported {
+				busyReported = true
 				observer(RetryInfo{
 					Reason:    RetryReasonModelBusy,
 					Attempt:   attempt + 1,
@@ -568,7 +595,12 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 					ElapsedMs: time.Since(start).Milliseconds(),
 				})
 			}
-			return nil, httpErr
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(modelBusyRetryDelay(resp.Header)):
+			}
+			continue
 		}
 		if !IsRetryableResponse(resp.StatusCode, httpErr.Body) {
 			logging.Warn("LLM upstream non-retryable error",

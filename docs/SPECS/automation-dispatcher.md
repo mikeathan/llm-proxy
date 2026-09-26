@@ -201,8 +201,11 @@ eviction is now a **decided** act, not a side effect:
   starts, so a preempted scheduled run is re-queued but does not restart ahead of
   the caller the operator promoted.
 - **Client side** — a remote proxy's busy/queued answer is reported as its own
-  upstream reason (`model_busy`) with the server's explanation, not retried as a
-  transient fault.
+  upstream reason (`model_busy`) with the server's explanation. The client then
+  waits (honoring `Retry-After`, bounded by the run context) and re-checks until
+  the model frees or the run is cancelled — it is not retried against the
+  transient-retry budget. The chat UI surfaces a Wait / Cancel prompt for the
+  wait; the inline notice carries the server's explanation.
 
 #### V.1.1 Known limits (documented, not hidden)
 
