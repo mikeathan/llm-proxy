@@ -1,14 +1,16 @@
 ---
 name: testing-guide
-description: "Testing guide: smoke tests, record-replay, run analysis, templates, and MockClient patterns. Use when writing or running tests."
-when_to_use: "Writing/running tests, smoke tests, record-replay, MockClient, or analysing a failed run."
+description: "Testing guide: authoring/running Go + Vitest tests, smoke tasks, record-replay, MockClient patterns, and run-artifact analysis. Use when writing or running tests; for a failing test/run start with debugging."
+when_to_use: "Authoring or running tests, smoke runs, record-replay, MockClient patterns, template tasks, or reading run artifacts."
 status: reference
-last_reviewed: 2026-07-11
+last_reviewed: 2026-09-26
 ---
 
 # Testing — Patterns, Tools & Strategies
 
-**Source docs:** `docs/PLANS/cross-cutting/record-replay-test-framework.md`, `backend/data/templates/`, `AGENTS.md` Test Patterns
+**Source docs:** `docs/PLANS/ARCHIVE/cross-cutting/record-replay-test-framework.md`, `backend/data/templates/`, `AGENTS.md` Test Patterns
+
+> A failing test or run? Start with [`debugging`](../debugging/SKILL.md). This skill is for authoring/running tests and reading run artifacts.
 
 ---
 

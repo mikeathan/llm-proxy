@@ -1,9 +1,9 @@
 ---
 name: engineering-practices
-description: "Repo engineering mechanics: Go patterns, error handling, code style, frontend icon conventions, and file-change checklists. Use when writing Go or Vue in this repo."
-when_to_use: "Editing Go or Vue in this repo; adding a tool, model field, or prompt; style/complexity questions."
+description: "Repo engineering mechanics: Go patterns, error handling, code style, frontend icon conventions, and the ordered file-change checklists for a model field / tool / prompt / connector. Use when writing Go or Vue in this repo or adding one of those."
+when_to_use: "Editing Go or Vue; adding a tool, model field, prompt, or connector; style/complexity questions."
 status: reference
-last_reviewed: 2026-07-11
+last_reviewed: 2026-09-26
 ---
 
 # Engineering Practices — Go Patterns, Code Style & Architecture
@@ -12,7 +12,8 @@ last_reviewed: 2026-07-11
 
 > Language-agnostic principles (naming, functions, comments, dependency boundaries,
 > the smells checklist) live in [`clean-code`](../clean-code/SKILL.md); this file covers
-> the repo/Go/Vue mechanics that build on them.
+> the repo/Go/Vue mechanics that build on them. For multi-file changes, start with
+> [`task-planning`](../task-planning/SKILL.md) to trace the real code path first.
 
 ---
 
@@ -134,9 +135,9 @@ Extract multi-condition checks into a named helper. `if isRetryable(err)` is bet
 
 **When adding a new model-level field:**
 1. `models/config.go` or `models/infrastructure.go` — type definition
-2. `internal/transport/http/registry_handlers.go` — request struct
-3. `internal/transport/http/admin_handlers.go` — view struct
-4. `internal/transport/http/admin_view.go` — view mapping
+2. `internal/transport/http/handlers/registry_handlers.go` — request struct
+3. `internal/transport/http/handlers/admin_handlers.go` — view struct
+4. `internal/transport/http/handlers/admin_view.go` — view mapping
 5. `internal/core/llm/manager.go` — if field affects runtime behaviour
 6. `internal/testing/mocks/manager.go` — if interface changed
 7. Frontend component (if UI field)
@@ -167,23 +168,19 @@ Extract multi-condition checks into a named helper. `if isRetryable(err)` is bet
 
 ### Icon/Emoji Centralization
 
-All emoji and icon constants live in `frontend/src/constants/icons.ts`. Never hardcode
-`"⚠️"`, `"✅"`, or any Unicode symbol directly in a `.vue` template or `.ts` composable.
-Import the named constant instead. This centralises visual identity, prevents `⚠` vs `⚠️`
-variation-selector inconsistency, and makes global updates possible in one place.
+All emoji and Unicode symbol constants live in `frontend/src/constants/icons.ts`. Never hardcode
+`"⚠️"`, `"✅"`, or any Unicode symbol directly in a `.vue` template or `.ts` composable —
+import the named constant instead (this prevents `⚠` vs `⚠️` variation-selector drift and keeps
+one source of truth).
 
-The frontend has **three competing icon systems** — know which to use:
+SVG icons are rendered by `Icon.vue` (`frontend/src/components/icons/Icon.vue`), which
+dynamically imports `frontend/src/assets/svg/<name>.svg?component` by name. There is no barrel
+file and no registration step — the filename *is* the API.
 
-| System | Location | Icons | When to use |
-|--------|----------|-------|-------------|
-| `UIIcon.vue` | `components/common/UIIcon.vue` | 12 UI icons (close, plus, check, chevron-*, trash, settings, play, stop, spinner, document, search) | **Default for new UI work** |
-| `Icon.vue` | `components/icons/Icon.vue` | 3 SVG icons from `assets/svg/` (arrow-down, arrow-up, trash) | When SVG asset is needed from `assets/svg/index.ts` |
-| Raw inline `<svg>` | Scattered across ~16 files | ~40+ unique inline SVGs | Only for single-use decorative icons that don't fit existing systems |
-
-**Adding a new SVG icon used in 2+ components:**
-1. Add SVG file to `assets/svg/`
-2. Register in `assets/svg/index.ts` with named export
-3. Add case to `UIIcon.vue` if it's a standard UI icon
-4. Add named constant to `constants/icons.ts` if it's an emoji/Unicode symbol
+| Need | Use |
+|------|-----|
+| An SVG icon | Drop `<name>.svg` into `frontend/src/assets/svg/`, then `<Icon name="<name>" size="sm" />` (`spinner` is special-cased; sizes `xs/sm/md/lg`). |
+| A text symbol / emoji | Add a named constant to `frontend/src/constants/icons.ts` and import it. |
+| A single-use decorative SVG | Inline `<svg>` is acceptable; promote to `assets/svg/` on the **second** use. |
 
 See the header comment in `constants/icons.ts` for the full rule.

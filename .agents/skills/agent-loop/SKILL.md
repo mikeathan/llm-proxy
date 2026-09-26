@@ -1,14 +1,16 @@
 ---
 name: agent-loop
-description: "Agent-loop mechanics: execution flow, structural/reactive sieve, stuck and spiral detection, reasoning budget, fallback chain, and key constants. Use when debugging agent runs, tool loops, completion, or context pruning."
-when_to_use: "Debugging agent execution, sieving/pruning, stuck or spiral loops, completion, fallbacks, or reasoning budget."
+description: "Agent-loop mechanics (reference): execution flow, structural/reactive sieve, stuck/spiral detection, reasoning budget, fallback chain, GBNF, and key constants. Load alongside debugging when the failure is in the loop."
+when_to_use: "Loop mechanics: sieving/pruning, stuck or spiral detection, completion, fallback chain, reasoning budget, or grammar."
 status: reference
-last_reviewed: 2026-07-11
+last_reviewed: 2026-09-26
 ---
 
 # Agent Loop — Execution, Sieve, Stuck Detection & Fallback
 
-**Source docs:** SPEC-001, `docs/PLANS/agent-loop/refactor-assistant-clean-code.md`, `docs/audits/agent-stability-report.md`
+**Source docs:** SPEC-001, `docs/PLANS/ARCHIVE/agent-loop/refactor-assistant-clean-code.md`, `docs/audits/agent-stability-report.md`
+
+> Debugging workflow: [`debugging`](../debugging/SKILL.md). Planning a loop change: [`task-planning`](../task-planning/SKILL.md).
 
 ---
 

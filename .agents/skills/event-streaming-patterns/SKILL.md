@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
 
-**Source docs:** `SPEC-006`, `internal/core/assistant/agent_events.go`, `frontend/src/composables/useAssistantSSE.ts`, `frontend/src/composables/automation/useLiveConsole.ts`
+**Source docs:** `SPEC-006`, `internal/core/assistant/agent_events.go`, `frontend/src/composables/assistant/useAssistantSSE.ts`, `frontend/src/composables/automation/useLiveConsole.ts`
 
 ---
 
@@ -33,13 +33,13 @@ as JSON payload.
 |------|---------------|---------|-------------|
 | `step_start` | Each turn begins | `{step: number}` | Step counter in console |
 | `message` | Model produces text | `{role, content}` | Streaming text bubble |
-| `tool_call` | Model calls a tool | `{function: {name, arguments}}` | `ToolCallBlock.vue` |
-| `tool_result` | Tool execution completes | `{name, result, error?}` | `ToolResultBlock.vue` |
+| `tool_call` | Model calls a tool | `{function: {name, arguments}}` | `ToolCallSegment.vue` |
+| `tool_result` | Tool execution completes | `{name, result, error?}` | `ToolCallSegment.vue` |
 | `tool_stream` | Mid-generation text delta | `string` | Live streaming content |
 | `guardrail_blocked` | Tool blocked by guardrail | `{decision_id, tool, args, reason, category}` | `GuardrailBanner.vue` |
 | `guardrail_invalidated` | Decision auto-resolved | `{decision_id, reason}` | Clears pending banner |
 | `guardrail_violation` | Tool blocked (no approval) | `{tool, error}` | Error message |
-| `lifecycle` | Agent/session status events | `{phase, ...}` | `LifecycleMessage.vue` |
+| `lifecycle` | Agent/session status events | `{phase, ...}` | `ChatBubble.vue` |
 | `error` | Execution error | `string` | Error display |
 
 `lifecycle` phases: `session_*` (session started/progress/completed), `agent_thinking`
@@ -107,7 +107,7 @@ Model calls tool → GuardrailEngine blocks → GuardrailDecisionCallback invoke
 ```
 
 > **Delivery guarantee:** `guardrail_blocked` / `guardrail_invalidated` / `error` are
-> `criticalEvents` in the EventBus (`automation/broadcast.go`) — they are never dropped
+> `criticalEvents` in the EventBus (`internal/core/eventbus/bus.go`) — they are never dropped
 > when a subscriber's buffer is full (bounded blocking send, 3s), unlike cosmetic events
 > (reasoning/tool_stream). Dropping a `guardrail_blocked` would leave the agent waiting on
 > an approval the UI never shows; the `recent` replay buffer is only the reconnect net, not
@@ -249,11 +249,10 @@ Always pair `select { case <-ctx.Done(): case <-streamDone: }` in new goroutines
 | File | Purpose |
 |------|---------|
 | `internal/core/assistant/agent_events.go` | Observer type, lifecycle event helpers |
-| `internal/transport/http/dispatcher_handlers.go` | SSE endpoint, event publish |
-| `frontend/src/composables/useAssistantSSE.ts` | Assistant SSE composable |
+| `internal/transport/http/handlers/dispatcher_handlers.go` | SSE endpoint, event publish |
+| `frontend/src/composables/assistant/useAssistantSSE.ts` | Assistant SSE composable |
 | `frontend/src/composables/automation/useLiveConsole.ts` | Automation SSE composable |
 | `frontend/src/constants/icons.ts` | `getPhaseMessage()` — lifecycle → emoji mapping |
-| `frontend/src/components/common/GuardrailBanner.vue` | Guardrail approval UI |
-| `frontend/src/components/common/LifecycleMessage.vue` | Lifecycle event rendering |
-| `frontend/src/components/common/ToolCallBlock.vue` | Tool call rendering |
-| `frontend/src/components/common/ToolResultBlock.vue` | Tool result rendering |
+| `frontend/src/components/common/chat/GuardrailBanner.vue` | Guardrail approval UI |
+| `frontend/src/components/AgentIde/assistant/ChatBubble.vue` | Assistant bubble: reasoning + tool segments |
+| `frontend/src/components/AgentIde/assistant/ToolCallSegment.vue` | Tool call/result segment rendering |

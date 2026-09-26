@@ -50,17 +50,18 @@ Prefer a short, searchable summary with `file:line` pointers and verbatim values
 - **Heavy deps / CI changes:** ask before adding or modifying.
 
 ## Skills (load on demand — never all at once)
-`.agents/skills/<name>/SKILL.md` are Agent Skills the harness surfaces automatically; load by phase:
-- **Design / plan** → `clean-code`, `engineering-practices`, + the affected subsystem skill (`agent-loop`, `connector-patterns`, `assistant-ui-*`, `memory-system`, `automation`, `event-streaming-patterns`, `lifecycle-events`)
-- **Implement** → `tdd-guide` (+ `clean-code`, `engineering-practices`)
-- **Verify / debug** → `testing-guide`; `tool-failure-investigation` for a failing tool call
-- **After the change** → `documentation-stewardship` · **Ops / config** → `llamacpp-setup`
+`.agents/skills/<name>/SKILL.md` are Agent Skills the harness surfaces automatically — only each skill's `name` + `description` are always in context; the body loads when relevant. Full catalog: `docs/INDEX.md` → Skills. Load by phase:
+- **Plan / research** → `task-planning` (classify → trace the code path → scope → decompose; for multi-file, ambiguous, or "understand before changing" work). Add `clean-code` + `engineering-practices`, and the affected subsystem skill: `agent-loop`, `automation`, `connector-patterns`, `memory-system`, `event-streaming-patterns`, `lifecycle-events`, `assistant-ui-chat` / `assistant-ui-patterns`.
+- **Implement** → `tdd-guide` (+ `clean-code`, `engineering-practices`).
+- **Verify / debug** → `debugging` for anything failing (test, build, agent run, tool call); `testing-guide` for authoring/running tests, smoke runs, record-replay, and run analysis.
+- **Close out** → `documentation-stewardship`.
+- **Ops / config** → `llamacpp-setup`.
 
 ## Before coding
 1. Read `CONSTITUTION.md` (6 sections — the law).
 2. Read the relevant SPEC (`docs/INDEX.md` → SPEC-001..009) for the affected subsystem only.
 3. Load `.agents/rules/go-staff-engineer.md` for backend, `.agents/rules/frontend-vue-engineer.md` for frontend. Mandatory.
-4. Load the matching skill(s) for this phase (see Skills above).
+4. Load the matching skill(s) for this phase (see Skills above); for multi-file or ambiguous work start with `task-planning`, and use `debugging` when something fails.
 5. Run the relevant baseline: backend `cd backend && go build ./... && go test ./...` for backend work; frontend `cd frontend && npm test && npm run build` for frontend work (run `npm ci`/`npm install` only if `node_modules` is missing); docs/tests tasks skip build.
 
 ## Instruction Authority
