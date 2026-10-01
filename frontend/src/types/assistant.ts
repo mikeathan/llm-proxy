@@ -118,6 +118,16 @@ export interface QueuedRun {
   queued_at: string
 }
 
+// GlobalRunTick records one poll of the global lane snapshot (plan D20): an
+// 'error' tick carries the previous good holders and must never be read as
+// "every run ended". seq increases on every tick, so each one is observable.
+export type RunTickStatus = 'ok' | 'error'
+export interface GlobalRunTick {
+  seq: number
+  status: RunTickStatus
+  holders: LaneHolder[]
+}
+
 export interface ActiveRunsResponse {
   assistant_running: boolean
   automation_running: boolean
@@ -137,6 +147,17 @@ export interface ActiveRunsResponse {
 export interface GlobalActiveRunsResponse {
   lane_holders?: LaneHolder[]
   queued?: QueuedRun[]
+  lanes?: LaneSummary[]
+}
+
+// One run lane's capacity and occupancy (handlers.LaneSummary). holder_keys
+// match lane_holders[].key; inbound callers hold no lane slot.
+export interface LaneSummary {
+  lane: LaneKey
+  limit: number
+  running: number
+  waiting: number
+  holder_keys: string[]
 }
 
 import type { LifecyclePhase } from './dispatcher'
@@ -152,10 +173,11 @@ export interface SessionLifecyclePayload {
   source?: string
 }
 
-// SourceSection groups sessions by source (webhook vs manual) for the session
-// list. See utils/assistant/source.ts.
-export interface SourceSection {
-  source: string
+// A headed group in the conversation list (utils/assistant/sessionSections.ts):
+// pinned conversations, manual ones by recency, or a source (webhook) folder.
+export interface SessionSection {
+  key: string
+  label: string
+  kind: 'pinned' | 'recency' | 'source'
   sessions: SessionBrief[]
-  grouped: boolean
 }

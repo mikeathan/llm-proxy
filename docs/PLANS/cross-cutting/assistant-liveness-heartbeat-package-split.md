@@ -63,7 +63,7 @@ Timeline from `runs/workspace-1/deepseek-v4-flash-0731/conv_20260818083057/event
   rendering; and two low/medium-risk package extractions to shrink the oversized
   `assistant` package (24 non-test files, ~17 kLOC).
 - **Out of scope (deferred):** SSE transport keepalive; maintenance-ticker loops
-  (EventBus reaper, EventSink sync, ledger cleaner, …); loop-strategy extraction;
+  (EventBus reaper, `eventbus.Sink` sync, ledger cleaner, …); loop-strategy extraction;
   mega-file splitting (`stream.go` 993, `session.go` 950, `tool_exec.go` 778,
   `agent.go` 738).
 

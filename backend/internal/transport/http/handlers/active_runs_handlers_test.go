@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -112,6 +113,32 @@ func TestActiveRunsHandler_GlobalLaneState(t *testing.T) {
 	}
 }
 
+// TestActiveRunsHandler_GlobalLaneLimits pins the per-lane summary the header
+// run indicator draws as slot bars: every lane with its limit, occupancy and
+// the keys of the runs holding its slots — idle lanes included, so capacity is
+// visible before anything runs. The wire keys are the frontend contract.
+func TestActiveRunsHandler_GlobalLaneLimits(t *testing.T) {
+	h := NewActiveRunsHandler(ActiveRunsSources{
+		LaneSnapshot: func() runlane.Snapshot { return laneSnapshotFixture() },
+	})
+	rec := httptest.NewRecorder()
+	h.ServeGlobalHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/api/active-runs", nil))
+
+	var got struct {
+		Lanes []map[string]any `json:"lanes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	want := []map[string]any{
+		{"lane": "local", "limit": float64(1), "running": float64(1), "waiting": float64(0), "holder_keys": []any{"ws/a"}},
+		{"lane": "cloud", "limit": float64(3), "running": float64(0), "waiting": float64(0), "holder_keys": []any{}},
+	}
+	if !reflect.DeepEqual(got.Lanes, want) {
+		t.Fatalf("lanes = %#v\nwant  %#v", got.Lanes, want)
+	}
+}
+
 func TestActiveRunsHandler_GlobalWithoutSnapshotSource(t *testing.T) {
 	h := NewActiveRunsHandler(ActiveRunsSources{})
 
@@ -127,8 +154,8 @@ func TestActiveRunsHandler_GlobalWithoutSnapshotSource(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got.LaneHolders != nil || got.Queued != nil {
-		t.Errorf("lane fields = %+v/%+v, want empty without a snapshot source", got.LaneHolders, got.Queued)
+	if got.LaneHolders != nil || got.Queued != nil || got.Lanes != nil {
+		t.Errorf("lane fields = %+v/%+v/%+v, want empty without a snapshot source", got.LaneHolders, got.Queued, got.Lanes)
 	}
 }
 

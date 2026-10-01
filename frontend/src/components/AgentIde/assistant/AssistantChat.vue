@@ -15,27 +15,50 @@ import {
 import ChatSessionList from "./ChatSessionList.vue";
 import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
-import Icon from "../../../components/icons/Icon.vue";
+import BaseButton from "../../common/buttons/BaseButton.vue";
+import StatusTag from "../../common/display/StatusTag.vue";
+import { useConfirm } from "../../../composables/ui/useConfirm";
+import { usePinnedSessions } from "../../../composables/assistant/usePinnedSessions";
+import type { StatusState } from "../../../types/ui";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 
 const props = defineProps<{
   workspaceId: string;
+  // The conversation addressed by the route (/workspaces/:ws/assistant/:id);
+  // null for a new chat. The chat reports its own session changes back through
+  // update:conversationId so the URL always names what is on screen.
+  conversationId?: string | null;
 }>();
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "update:conversationId", id: string | null): void;
 }>();
 
-const { isMobile } = useResponsiveLayout(640);
+// The session list becomes a slide-over below `sm`.
+const { breakpoint } = useResponsiveLayout();
+const isMobile = computed(() => breakpoint.value === "base");
 
 const {
   loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
   thinking, liveReasoning, paused, phase, modelBusy, dismissModelBusy,
   fetchSessions, loadSession, newSession, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
-  liveEvents,
+  liveEvents, sseConnected,
 } = useAssistant();
+const { confirm } = useConfirm();
+const { forget: forgetPins } = usePinnedSessions(() => props.workspaceId);
+
+// The thin status strip (plan D14): what the assistant is doing, from the real
+// run state — never a fixed "online".
+const status = computed<{ state: StatusState; label: string }>(() => {
+  if (pendingDecision.value) return { state: "running", label: "Waiting for your approval" };
+  if (modelBusy.value) return { state: "queued", label: "Waiting for the model" };
+  if (loading.value && !sseConnected.value) return { state: "error", label: "Reconnecting to the run" };
+  if (loading.value) return { state: "running", label: "Working" };
+  return { state: "neutral", label: "Ready" };
+});
 
 const inputMessage = ref("");
 const sidebarOpen = ref(false);
@@ -104,10 +127,30 @@ const initWorkspace = async () => {
   newSession();
   await fetchSessions(props.workspaceId);
   connectSSE();
+  if (props.conversationId) await handleLoadSession(props.conversationId);
 };
+
+// Route → chat: a deep link or back/forward to another conversation loads it.
+watch(() => props.conversationId, (id) => {
+  if (id && id !== currentSessionId.value) void handleLoadSession(id);
+});
+// Chat → route: a newly created session (first send) or one picked from the
+// session list becomes the URL. Clearing is reported by the handlers that clear.
+watch(currentSessionId, (id) => {
+  if (id && id !== props.conversationId) emit("update:conversationId", id);
+});
+const forgetConversation = (removed: string[]) => {
+  forgetPins(removed);
+  if (props.conversationId && removed.includes(props.conversationId)) emit("update:conversationId", null);
+};
+
+const titleOf = (id: string) => sessions.value.find((s) => s.id === id)?.snippet || "this conversation";
+const confirmDelete = (title: string, message: string) =>
+  confirm({ title, message, type: "warning", confirmText: "Delete" });
 
   const handleNewChat = async () => {
     newSession();
+    emit("update:conversationId", null);
     resetInsets();
     await fetchSessions(props.workspaceId);
   };
@@ -149,9 +192,9 @@ const handleModelBusyCancel = () => {
   };
 
 const handleDeleteSession = async (sessionId: string) => {
-  if (confirm("Are you sure you want to delete this conversation?")) {
-    await deleteSession(props.workspaceId, sessionId);
-  }
+  if (!(await confirmDelete(`Delete “${titleOf(sessionId)}”?`, "The conversation and its history are removed from this workspace."))) return;
+  await deleteSession(props.workspaceId, sessionId);
+  forgetConversation([sessionId]);
 };
 
 const handleCancelSession = async (sessionId: string) => {
@@ -168,9 +211,11 @@ const handleRenameSession = async (sessionId: string, title: string) => {
 };
 
 const handleClearAll = async () => {
-  if (!confirm("Delete all conversations in this workspace? This cannot be undone.")) return;
+  if (!(await confirmDelete("Delete every conversation?", `All ${sessions.value.length} conversations in ${props.workspaceId} are removed. This cannot be undone.`))) return;
   try {
+    const removed = sessions.value.map((s) => s.id);
     await AssistantService.deleteAllSessions(props.workspaceId);
+    forgetConversation(removed);
     await fetchSessions(props.workspaceId);
   } catch (err) {
     console.error("Failed to clear all sessions", err);
@@ -178,8 +223,9 @@ const handleClearAll = async () => {
 };
 
 const handleDeleteGroup = async (ids: string[]) => {
-  if (!confirm("Delete all conversations in this group? This cannot be undone.")) return;
+  if (!(await confirmDelete(`Delete ${ids.length} conversations?`, "Every conversation in this group is removed. This cannot be undone."))) return;
   await deleteSessionsByIds(props.workspaceId, ids);
+  forgetConversation(ids);
 };
 </script>
 
@@ -195,6 +241,7 @@ const handleDeleteGroup = async (ids: string[]) => {
         v-if="sidebarOpen"
         :sessions="sessions"
         :current-session-id="currentSessionId"
+        :workspace-id="workspaceId"
         :is-mobile="false"
         @load="handleLoadSession"
         @delete="handleDeleteSession"
@@ -213,6 +260,7 @@ const handleDeleteGroup = async (ids: string[]) => {
         <ChatSessionList
           :sessions="sessions"
           :current-session-id="currentSessionId"
+          :workspace-id="workspaceId"
           :is-mobile="true"
           @load="handleLoadSession"
           @delete="handleDeleteSession"
@@ -237,31 +285,33 @@ const handleDeleteGroup = async (ids: string[]) => {
 
     <div class="chat-area">
       <header class="chat-header">
-        <div class="flex items-center gap-2">
-          <button @click="toggleSidebar" class="btn-header-action relative" :title="sidebarOpen ? 'Hide conversations' : 'Show conversations'">
-            <Icon :name="sidebarOpen ? 'chevron-left' : 'chevron-right'" size="sm" />
-            <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" />
-          </button>
-          <button @click="handleNewChat" class="btn-header-action" title="New Chat">
-            <Icon name="plus" size="sm" />
-          </button>
-          <div class="chat-info">
-            <span class="chat-status">Agent Online</span>
-            <h2 class="chat-title">{{ workspaceId }}</h2>
-          </div>
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="relative">
+            <BaseButton
+              variant="ghost"
+              size="sm"
+              :icon="sidebarOpen ? 'chevron-left' : 'chevron-right'"
+              icon-only
+              :label="sidebarOpen ? 'Hide conversations' : 'Show conversations'"
+              :aria-expanded="sidebarOpen"
+              @click="toggleSidebar"
+            />
+            <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
+          </span>
+          <BaseButton variant="ghost" size="sm" icon="plus" icon-only label="New chat" @click="handleNewChat" />
+          <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ workspaceId }}</h2>
+          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" />
         </div>
-        <button @click="emit('close')" class="btn-chat-close" title="Exit Chat">
-          <Icon name="close" size="sm" />
-        </button>
+        <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
       </header>
 
       <div v-if="pendingDecision" class="guardrail-banner-wrapper">
-        <GuardrailBanner :decision="pendingDecision" @allow="(persist: boolean) => submitDecision(true, persist)" @deny="() => submitDecision(false, false)" />
+        <GuardrailBanner :decision="pendingDecision" :submit="submitDecision" />
       </div>
 
-      <div v-if="messages.length === 0 && currentSessionRunning && !loading" class="chat-processing-banner">
-        Agent is processing…
-      </div>
+      <p v-if="messages.length === 0 && currentSessionRunning && !loading" role="status" class="chat-processing-banner">
+        This conversation is running — its output appears as it arrives.
+      </p>
 
       <ChatMessages
         ref="chatMessagesRef"
@@ -306,8 +356,6 @@ const handleDeleteGroup = async (ids: string[]) => {
 </template>
 
 <style scoped lang="postcss">
-@import url('../../../styles/theme.css');
-
 .assistant-shell {
   @apply h-full flex overflow-hidden relative;
 }
@@ -324,7 +372,7 @@ const handleDeleteGroup = async (ids: string[]) => {
 
 /* ── Mobile drawer + backdrop ── */
 .mobile-backdrop {
-  @apply fixed inset-0 bg-black/50 z-30 backdrop-blur-sm;
+  @apply fixed inset-0 bg-scrim/50 z-30;
 }
 
 .mobile-drawer {
@@ -359,41 +407,15 @@ const handleDeleteGroup = async (ids: string[]) => {
 
 /* ── Chat area ── */
 .chat-area {
-  @apply flex-1 flex flex-col bg-gray-900 relative min-w-0;
+  @apply flex-1 flex flex-col bg-canvas relative min-w-0;
 }
 
 .chat-header {
-  @apply px-4 py-3 bg-gray-800/40 border-b border-white/5 flex items-center justify-between z-10;
-}
-
-.chat-info {
-  @apply flex flex-col;
-}
-
-.chat-status {
-  @apply text-[9px] font-bold text-green-500 uppercase tracking-widest leading-none mb-1;
-}
-
-.chat-title {
-  @apply text-xs font-bold text-gray-200 leading-none;
-}
-
-.btn-header-action {
-  @apply p-1.5 rounded-md hover:bg-gray-700 border border-gray-700 shadow-sm text-gray-400 hover:text-gray-200 transition-all duration-150 flex items-center justify-center focus:outline-none;
-}
-.btn-header-action:active {
-  @apply scale-95;
+  @apply flex min-h-11 items-center justify-between gap-2 border-b border-hairline bg-surface px-3 py-1.5 z-10;
 }
 
 .badge-dot {
-  @apply absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full;
-}
-
-.btn-chat-close {
-  @apply p-1.5 rounded-md hover:bg-red-600/30 text-gray-500 hover:text-red-400 transition-all duration-150;
-}
-.btn-chat-close:active {
-  @apply scale-95;
+  @apply absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-state-error;
 }
 
 .guardrail-banner-wrapper {
@@ -401,6 +423,6 @@ const handleDeleteGroup = async (ids: string[]) => {
 }
 
 .chat-processing-banner {
-  @apply px-6 py-3 text-xs text-gray-500 italic;
+  @apply m-0 px-6 py-3 text-[length:var(--text-small)] text-muted;
 }
 </style>

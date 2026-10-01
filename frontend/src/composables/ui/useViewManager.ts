@@ -1,53 +1,35 @@
-import { ref, computed, type Ref, type ComputedRef } from "vue"
-import type { Automation, AutomationRun } from "../../types/dispatcher"
+import { computed, type Ref } from "vue"
+import type { AutomationRun } from "../../types/dispatcher"
 import type { MemoryEntry } from "../../types/memory"
+import type { WorkspaceLocation } from "../../types/routes"
+import type { WorkspaceMainView } from "../../types/ui"
 
+/**
+ * Derives the Workspaces layout. What is addressable — workspace, file,
+ * section, assistant — comes from the route (plan D18); the view manager adds
+ * only the selections that are not: a run opened from the history list and a
+ * memory entry. Below `lg` the view shows one pane: the explorer on the
+ * workspace overview, the addressed page otherwise.
+ */
 export function useViewManager(deps: {
-  selectedWorkspace: Ref<string | null>
-  selectedFile: Ref<{ workspace: string; filename: string } | null>
+  location: Readonly<Ref<WorkspaceLocation>>
   selectedRun: Ref<AutomationRun | null>
   selectedMemory: Ref<MemoryEntry | null>
-  settingsWorkspaceId: Ref<string | null>
-  selectedAutomation: ComputedRef<Automation | null>
-  isMobile: Ref<boolean>
+  isMobile: Readonly<Ref<boolean>>
 }) {
-  const leftTab = ref<"explorer" | "automations" | "recordings" | "memory" | "activity">("explorer")
-  const mobilePanel = ref<"explorer" | "workspace" | "monitor">("workspace")
-  const workspaceMiddleTab = ref<"pulse" | "chat">("pulse")
-
-  const memoryActive = computed(() => leftTab.value === "memory")
-
-  const canOpenAssistant = computed(() => !!deps.selectedWorkspace.value)
-
-  const activeMainView = computed(() => {
-    if (deps.settingsWorkspaceId.value) return "workspace-settings"
+  const activeMainView = computed<WorkspaceMainView>(() => {
+    const at = deps.location.value
     if (deps.selectedRun.value) return "history"
-    if (deps.selectedMemory.value && deps.selectedWorkspace.value) return "memory-detail"
-    if (deps.selectedFile.value) return "editor"
-    if (deps.selectedWorkspace.value && workspaceMiddleTab.value === "chat") return "assistant"
-    if (deps.selectedAutomation.value) return "automation"
-    return "dashboard"
+    if (at.ws && at.assistant) return "assistant"
+    if (at.section === "settings") return "settings"
+    if (at.section === "playbooks") return "playbooks"
+    if (at.section === "memory") return deps.selectedMemory.value ? "memory-detail" : "memory"
+    if (at.filePath) return "editor"
+    return "overview"
   })
 
-  function toggleAssistant() {
-    workspaceMiddleTab.value = workspaceMiddleTab.value === "chat" ? "pulse" : "chat"
-    if (deps.isMobile.value) {
-      mobilePanel.value = "workspace"
-    }
-  }
+  const explorerVisible = computed(() => !deps.isMobile.value || activeMainView.value === "overview")
+  const mainVisible = computed(() => !deps.isMobile.value || activeMainView.value !== "overview")
 
-  function closeViewDetails() {
-    workspaceMiddleTab.value = "pulse"
-  }
-
-  return {
-    leftTab,
-    mobilePanel,
-    workspaceMiddleTab,
-    activeMainView,
-    memoryActive,
-    canOpenAssistant,
-    toggleAssistant,
-    closeViewDetails,
-  }
+  return { activeMainView, explorerVisible, mainVisible }
 }

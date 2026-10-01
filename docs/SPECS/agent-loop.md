@@ -1,15 +1,24 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.0"
+version: "1.1"
 status: stable
-last_updated: 2026-06-08
+last_updated: 2026-09-29
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
 ---
 
 # SPEC: Agent Loop
+
+## Changelog
+
+- **1.1 (2026-09-29)** — Reference corrections (no behavior change): the guardrail decision store
+  lives in `assistant/agent.go` (there is no `guardrail_decision.go`); the streaming markup filter
+  `FilterStreamingMarkup` lives in `assistant/stream.go` (tested in `stream_test.go`, not
+  `content_filter_test.go`); `executePlan` is the plan-execute loop strategy's shared primitive, not
+  an `execute_plan` tool (SPEC-010); the reasoning capability table is
+  `providerReasoningCapabilities` in `assistant/reasoning/reasoning_param.go`.
 
 ## I. Intent
 The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented conversations. It orchestrates model inference, tool call parsing, tool execution, and history management. It must be model-agnostic — supporting both local models (via text-based XML tool calls) and cloud models (via native tool schemas) — and resilient to model-specific failures.
@@ -125,7 +134,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - The callback blocks until: user approves (`Allow: true`), user rejects (`Allow: false`), timeout fires (default 5 min, per-model configurable via `guardrail_approval_timeout_seconds`), or context is cancelled.
 - If approved with `Persist: true`: the guardrail engine saves an override to the workspace config (`config.yaml`) so future matching calls pass without blocking.
 - In automation mode (no user present), the callback is nil and guardrail violations fail immediately with an error tool result.
-- The decision store (`assistant/guardrail_decision.go`) provides concurrent-safe Register/Resolve/Remove operations.
+- The decision store (`assistant/agent.go`, `GuardrailDecisionStore`) provides concurrent-safe Register/Resolve/Remove operations.
 
 ### 12. History Normalization (Constitution II.8)
 - `NormalizeHistory()`: strips `ToolCalls` when `useNativeTools=false`. Converts `tool` role → `user` role with `tool_call_id` embedded in content (`Tool result [call_N]: <json>`) to avoid Jinja template errors in llama.cpp while preserving call/result association. No auto-nags. Consolidates consecutive same-role messages.
@@ -140,7 +149,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Frontend exposes these as number inputs in the Agent Tuning grid with `title`-attribute tooltips and input constraints (min/max/step).
 
 ### 14. executePlan Step Limit and Timeout
-- The `executePlan` tool bypasses the standard single-tool-per-turn loop and executes a multi-step plan atomically.
+- The `executePlan` primitive (shared by the plan-execute loop strategy — the old `execute_plan` tool is gone, SPEC-010) bypasses the standard single-tool-per-turn loop and executes a multi-step plan atomically.
 - **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), the plan is rejected before any step executes.
 - **Plan-level timeout:** the entire plan is wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 minutes, overridable per-model via `ModelConfig.MaxPlanDurationMinutes`).
 - **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout` / `FilesystemToolTimeout` as regular tool calls. If any step times out, the plan aborts.
@@ -157,7 +166,7 @@ automation/executor.go          — task dispatch, per-model config → AgentOpt
 assistant/agent.go              — Execute loop, sieve, tool processing
 assistant/registry.go           — wires LocalToolRegistry + MCP → provider/engine
 assistant/tool_provider.go      — MultiToolProvider, CompositeEngine, ToolProvider interface
-assistant/content_filter.go     — streaming markup filter
+assistant/stream.go             — streaming compute, FilterStreamingMarkup markup filter
 assistant/guardrails/           — tool-call guardrail validation
 assistant/prompts/              — system prompts, nag prompts, tool manual builder
 proxy/client.go                 — HTTP pipe to LLM servers (Chat + Stream)
@@ -191,12 +200,12 @@ Executor → Agent.Execute()
 | `ModelConfig.ToolCallFormat` | (empty) | `"native"` to force native tools |
 | `ModelConfig.MaxTokens` | 3072 | Per-request token limit sent in `max_tokens` to the LLM |
 
-Provider-specific defaults are defined in `models/tuning.go` (`ProviderTuningDefaults()`) for the numeric rows and `assistant/reasoning_param.go` (`providerReasoningTable`) for the reasoning wire, composed in `assistant/agent.go`, and exposed to the frontend via `adminTuningDefaults` in `GET /admin/api/state`. The UI uses these to prefill model forms with reasonable values per provider (e.g. Gemini/OpenAI/NVIDIA/OpenRouter get 8192 output-cap tokens and `native` tools; local models get 2048 prefill tokens and XML text mode).
+Provider-specific defaults are defined in `models/tuning.go` (`ProviderTuningDefaults()`) for the numeric rows and `assistant/reasoning/reasoning_param.go` (`providerReasoningCapabilities`) for the reasoning wire, composed in `assistant/agent.go`, and exposed to the frontend via `adminTuningDefaults` in `GET /admin/api/state`. The UI uses these to prefill model forms with reasonable values per provider (e.g. Gemini/OpenAI/NVIDIA/OpenRouter get 8192 output-cap tokens and `native` tools; local models get 2048 prefill tokens and XML text mode).
 
 ## IV. Testing Strategy
 - Unit tests: `agent_test.go` covers simple execution, tool calls, loop detection, streaming, premature termination, `precededByToolResult`.
 - Parser tests: `tool_call_parser_test.go` covers XML format, malformed JSON, missing tool fields, unsupported tags, tool validation, `ParseError.Feedback`.
-- Content filter tests: `content_filter_test.go` covers markup detection edge cases.
+- Content filter tests: `stream_test.go` (`TestFilterStreamingMarkup`) covers markup detection edge cases.
 
 ## V. Constitutional References
 - II.4: Unambiguous Tool Boundaries (XML-only)

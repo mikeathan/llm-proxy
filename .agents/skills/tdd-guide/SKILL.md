@@ -1,8 +1,6 @@
 ---
 name: tdd-guide
 description: "TDD with agents: Red/Green/Refactor flow, test grouping, and keeping the suite fast. Use when implementing a feature or fix test-first."
-when_to_use: "Implementing a feature or fix test-first; writing the first failing test; keeping tests fast."
-status: reference
 last_reviewed: 2026-09-12
 ---
 
@@ -37,7 +35,7 @@ Test time compounds. Every test must earn its place.
 |---|---|---|
 | Isolated algorithm / pure function | Unit (mock deps) | `TestBuildHotInjection` |
 | Feature spanning packages | Integration/behavior | Agent loop with MockClient |
-| New subsystem | Integration + smoke | `testing-guide.md` patterns |
+| New subsystem | Integration + smoke | `testing-guide` skill patterns |
 
 Prefer integration tests over unit tests when the agent handles the feature —
 one acceptance criteria = one test cycle. Let the agent write unit tests for

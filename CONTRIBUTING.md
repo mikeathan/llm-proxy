@@ -13,8 +13,11 @@ go run main.go                          # :4001
 
 # Frontend
 cd frontend
-npm install && npm run dev             # dev (proxies to :4001)
-npm run build                          # production
+npm install && npm run dev             # dev (proxies to :4001); /admin/design = token reference
+npm test                               # unit + component (Vitest)
+npm run lint                           # ESLint + palette ratchet + preset contrast gate (frontend/scripts/check-palette.mjs, check-contrast.cjs)
+npm run test:visual                    # visual regression (Playwright, installed Chrome)
+npm run build                          # production (runs lint + type check first)
 
 # Full build (frontend assets + backend binary) — the single build script the
 # installer calls; also runnable standalone. setup.sh runs it inside its TUI.
@@ -27,8 +30,10 @@ npm run build                          # production
 ## Before You Write Code
 
 1. Read `CONSTITUTION.md` — architectural invariants (6 sections).
-2. Read the relevant SPEC (`docs/INDEX.md` → SPEC-001..009).
+2. Read the relevant SPEC (`docs/SPECS/README.md`).
 3. Run `cd backend && go build ./... && go test ./...` for clean baseline.
+4. Working with an AI agent? It follows `AGENTS.md`; docs/instruction changes must pass
+   `./scripts/check-agent-harness.sh`.
 
 ## Code Standards
 
@@ -40,6 +45,11 @@ npm run build                          # production
 ### Vue / TypeScript
 - Composables are singletons; `ref()` over `reactive()`.
 - Services are stateless; types from `types/`.
+- Colours come from design tokens (`src/styles/tokens.css`) via semantic classes
+  (`bg-surface-raised`, `text-muted`, `border-hairline`, `text-state-error`) —
+  never raw palette classes (`bg-gray-800`). The palette ratchet fails lint if a
+  file gains one; after migrating a file run `node scripts/check-palette.mjs --update`.
+- Product name: import `PRODUCT_NAME` / `APP_TITLE` from `src/config/brand.ts`.
 
 Full Go/Vue rules: `.agents/rules/`. Architecture + directory map: `docs/architecture.md`.
 
@@ -62,11 +72,12 @@ Merging a PR to `main` automatically tags a release — no deployment, no artifa
   artifacts attached to releases are not produced yet (see
   `docs/PLANS/cross-cutting/ci-github-actions-and-versioning.md` §3.4).
 
-## Git Hooks (secret scanning)
+## Git Hooks (secret scanning + agent harness)
 
-A pre-commit hook blocks commits that contain secrets (API keys, tokens, private keys).
+A pre-commit hook blocks commits that contain secrets and keeps the agent-instruction docs consistent.
 
-**Dependency:** [gitleaks](https://github.com/gitleaks/gitleaks) — `brew install gitleaks`.
+**Dependency:** [gitleaks](https://github.com/gitleaks/gitleaks) — `brew install gitleaks` (optional;
+the secret scan is skipped when it is absent, but the harness check still runs).
 
 **One-time enable:** from the repo root run `./scripts/setup-gitleaks.sh`. It installs the gitleaks
 dependency and registers the hook automatically:
@@ -79,10 +90,15 @@ Hooks are version-controlled under `.githooks/`, but Git does not auto-enable th
 that is what the script's `git config core.hooksPath .githooks` step does (do it once
 per clone).
 
-- Hook script: `.githooks/pre-commit` (runs `gitleaks git --staged`).
+- Hook script: `.githooks/pre-commit` — runs `gitleaks git --staged`, then
+  `scripts/check-agent-harness.sh` when instruction/doc files are staged.
 - Allowlist / rules: `.gitleaks.toml` — add false-positive fixtures here.
-- If gitleaks is not installed the hook warns and skips (does not block commits).
+- If gitleaks is not installed the secret scan warns and is skipped; the agent-harness
+  check still runs and blocks on inconsistency. Bypass either with `git commit --no-verify`.
 - Ignored secret files (`secrets.json`, `config.json`, `.env*`) are enforced via `.gitignore`.
 
+The same checks run in CI on every PR (jobs `secrets` and `agent-harness`).
+
 ## Documentation
-After any change: follow `.agents/skills/documentation-stewardship/SKILL.md`.
+After any change: follow `.agents/skills/documentation-stewardship/SKILL.md`. Verify the doc/agent
+catalog still resolves with `./scripts/check-agent-harness.sh`.

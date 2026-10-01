@@ -1,8 +1,6 @@
 ---
 name: lifecycle-events
 description: "Session lifecycle: phases, SSE contract, frontend handler, and testing. Use when changing session phases or refresh/resume handling."
-when_to_use: "Session phases, session_started/completed, refresh/resume reconstruction, webhook flows."
-status: reference
 last_reviewed: 2026-07-11
 ---
 

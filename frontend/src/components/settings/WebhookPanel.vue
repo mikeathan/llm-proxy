@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { inject, computed } from "vue"
 import type { Ref } from "vue"
-import type { ConnectorConfig } from "../../types/admin"
+import type { ConnectorConfig, VerifyState } from "../../types/admin"
+import type { StatusState } from "../../types/ui"
 import { useWebhook } from "../../composables/useWebhook"
+import { useConfirm } from "../../composables/ui/useConfirm"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import CopyButton from "../common/display/CopyButton.vue"
+import MicroLabel from "../common/display/MicroLabel.vue"
+import StatusTag from "../common/display/StatusTag.vue"
+import FormField from "../common/forms/FormField.vue"
+import Panel from "../common/layout/Panel.vue"
 
 const props = defineProps<{
   name: string
@@ -16,115 +22,68 @@ const props = defineProps<{
 const connectors = inject("connectors") as unknown as Ref<Record<string, ConnectorConfig>>
 const saveError = inject("saveError") as unknown as Ref<string>
 const { webhookBaseUrl, defaultHost, webhookState, createWebhook, verifyWebhook, deleteWebhook } = useWebhook(connectors, saveError)
+const { confirm } = useConfirm()
 
 // Computed alias so the template reads s.host/s.creating instead of webhookState(name).host/...
 const s = computed(() => webhookState(props.name))
+const localEndpoint = computed(() => `${webhookBaseUrl.value}${props.name}`)
+
+const VERIFY_TAG: Record<Exclude<VerifyState, "idle">, { state: StatusState; label: string }> = {
+  checking: { state: "running", label: "Checking" },
+  registered: { state: "success", label: "Registered" },
+  unregistered: { state: "neutral", label: "Not registered" },
+  error: { state: "error", label: "Error" },
+}
+const verifyTag = computed(() => (s.value.verifyState === "idle" ? null : VERIFY_TAG[s.value.verifyState]))
+const urlMismatch = computed(
+  () => s.value.verifyState === "registered" && !!s.value.info?.url && !!props.cfg.webhook_url && s.value.info.url !== props.cfg.webhook_url,
+)
+
+async function remove() {
+  const ok = await confirm({
+    title: `Delete the webhook of ${props.name}?`,
+    message: "Telegram stops delivering inbound messages to this connector until a webhook is created again.",
+    type: "warning",
+    confirmText: "Delete webhook",
+  })
+  if (ok) await deleteWebhook(props.name)
+}
 </script>
 
 <template>
-  <div class="webhook-panel">
-    <div class="webhook-url-row">
-      <span class="webhook-label">Registered:</span>
-      <code v-if="cfg.webhook_url" class="webhook-url">{{ cfg.webhook_url }}</code>
-      <span v-else class="webhook-url webhook-url--empty">Not registered yet</span>
-      <CopyButton v-if="cfg.webhook_url" :text="cfg.webhook_url" iconSize="sm" />
-    </div>
-    <div class="webhook-url-row webhook-url-row--hint">
-      <span class="webhook-label">Local endpoint:</span>
-      <code class="webhook-url webhook-url--hint">{{ webhookBaseUrl }}{{ name }}</code>
-      <CopyButton :text="`${webhookBaseUrl}${name}`" iconSize="sm" />
+  <Panel :title="`Inbound webhook · ${name}`" preserve-case>
+    <template #actions>
+      <StatusTag v-if="verifyTag" v-bind="verifyTag" />
+    </template>
+    <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-2">
+      <dt><MicroLabel>Registered</MicroLabel></dt>
+      <dd class="m-0 flex min-w-0 items-center gap-2">
+        <code v-if="cfg.webhook_url" class="truncate font-mono text-[length:var(--text-small)] text-primary">{{ cfg.webhook_url }}</code>
+        <span v-else class="text-[length:var(--text-small)] text-faint">Not registered yet</span>
+        <CopyButton v-if="cfg.webhook_url" :text="cfg.webhook_url" title="Copy registered URL" />
+      </dd>
+      <dt><MicroLabel>Local endpoint</MicroLabel></dt>
+      <dd class="m-0 flex min-w-0 items-center gap-2">
+        <code class="truncate font-mono text-[length:var(--text-small)] text-muted">{{ localEndpoint }}</code>
+        <CopyButton :text="localEndpoint" title="Copy local endpoint" />
+      </dd>
+    </dl>
+
+    <div class="mt-4 flex flex-wrap items-end gap-2">
+      <FormField label="Public host" hint="A tunnel host or full URL that reaches this server." class="min-w-[220px] max-w-sm flex-1">
+        <template #default="{ id, describedBy }">
+          <input :id="id" v-model="s.host" :aria-describedby="describedBy" :placeholder="defaultHost" type="text" class="form-control font-mono" autocomplete="off" />
+        </template>
+      </FormField>
+      <BaseButton variant="secondary" size="sm" icon="play" :loading="s.creating" @click="createWebhook(name)">Create</BaseButton>
+      <BaseButton variant="secondary" size="sm" icon="check" :loading="s.verifying" @click="verifyWebhook(name)">Verify</BaseButton>
+      <BaseButton variant="danger" size="sm" icon="trash" :loading="s.deleting" @click="remove">Delete</BaseButton>
     </div>
 
-    <div class="webhook-controls">
-      <input v-model="s.host"
-             :placeholder="defaultHost"
-             class="form-input form-input--inline form-input--host" />
-      <BaseButton variant="primary" size="sm" icon="play"
-                  :loading="s.creating" @click="createWebhook(name)">
-        Create
-      </BaseButton>
-      <BaseButton variant="secondary" size="sm" icon="check"
-                  :loading="s.verifying" @click="verifyWebhook(name)">
-        Verify
-      </BaseButton>
-      <BaseButton variant="danger" size="sm" icon="trash"
-                  :loading="s.deleting" @click="deleteWebhook(name)">
-        Delete
-      </BaseButton>
-    </div>
-
-    <div v-if="s.verifyState && s.verifyState !== 'idle'" class="verify-status">
-      <span :class="['verify-badge', `verify-badge--${s.verifyState}`]">
-        <template v-if="s.verifyState === 'checking'">Checking...</template>
-        <template v-else-if="s.verifyState === 'registered'">Registered</template>
-        <template v-else-if="s.verifyState === 'unregistered'">Not registered</template>
-        <template v-else-if="s.verifyState === 'error'">Error</template>
-      </span>
-      <span v-if="s.verifyMsg" class="verify-msg">{{ s.verifyMsg }}</span>
-      <span v-if="s.verifyState === 'registered' && s.info?.url && cfg.webhook_url && s.info!.url !== cfg.webhook_url" class="verify-mismatch">
-        Telegram sees a different URL — re-create webhook with current host
-      </span>
-    </div>
-    <div v-if="s.statusMsg" class="webhook-status">{{ s.statusMsg }}</div>
-  </div>
+    <p v-if="s.verifyMsg" class="mb-0 mt-3 text-[length:var(--text-small)] text-muted">{{ s.verifyMsg }}</p>
+    <p v-if="urlMismatch" class="mb-0 mt-1 text-[length:var(--text-small)] text-state-running">
+      Telegram sees a different URL — create the webhook again with the current host.
+    </p>
+    <p v-if="s.statusMsg" role="status" class="mb-0 mt-1 text-[length:var(--text-small)] text-state-success">{{ s.statusMsg }}</p>
+  </Panel>
 </template>
-
-<style scoped lang="postcss">
-.webhook-panel {
-  @apply space-y-2 py-2.5 px-3 bg-gray-900/60 rounded border border-gray-700/50;
-}
-.webhook-url-row {
-  @apply flex items-center gap-2 text-xs;
-}
-.webhook-label {
-  @apply text-gray-400 shrink-0;
-}
-.webhook-url {
-  @apply text-blue-300 font-mono truncate flex-1;
-}
-.webhook-controls {
-  @apply flex items-center gap-2;
-}
-.form-input--inline {
-  @apply w-auto min-w-[180px] flex-1 max-w-sm;
-}
-.form-input--host {
-  @apply font-mono text-xs;
-}
-.webhook-url-row--hint {
-  @apply opacity-60;
-}
-.webhook-url--empty {
-  @apply text-gray-500 italic;
-}
-.webhook-url--hint {
-  @apply text-gray-500;
-}
-.verify-status {
-  @apply flex flex-wrap items-center gap-x-3 gap-y-1 text-xs;
-}
-.verify-badge {
-  @apply inline-flex items-center gap-1 font-medium;
-}
-.verify-badge--checking {
-  @apply text-gray-400;
-}
-.verify-badge--registered {
-  @apply text-green-400;
-}
-.verify-badge--unregistered {
-  @apply text-amber-400;
-}
-.verify-badge--error {
-  @apply text-red-400;
-}
-.verify-msg {
-  @apply text-gray-400;
-}
-.verify-mismatch {
-  @apply text-amber-400;
-}
-.webhook-status {
-  @apply text-xs text-green-400;
-}
-</style>

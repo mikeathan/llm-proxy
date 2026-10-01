@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -393,6 +394,7 @@ func TestValidateAutomation_TaskFile(t *testing.T) {
 		wantErr  bool
 	}{
 		{"valid relative file", "task.md", false},
+		{"nested task file accepted", "jobs/nightly.md", false},
 		{"empty rejected", "", true},
 		{"absolute path rejected", "/etc/passwd", true},
 		{"parent traversal rejected", "../secret.txt", true},
@@ -425,6 +427,10 @@ func TestIsUnsafeFileParam(t *testing.T) {
 		{".", true},
 		{"..", true},
 		{"a/../b", true},
+		{"sub/task.md", false}, // nested paths are allowed (plan Phase 3)
+		{"../secret.md", true},
+		{"sub/../../secret.md", true},
+		{"/etc/passwd", true},
 	}
 	for _, tc := range cases {
 		if got := isUnsafeFileParam(tc.value); got != tc.unsafe {
@@ -606,5 +612,80 @@ func TestListAutomations_ReportsQueuedPosition(t *testing.T) {
 	}
 	if _, ok := raw[0]["is_queued"]; ok {
 		t.Fatalf("wire payload must use \"queued\", not \"is_queued\": %s", rec.Body.String())
+	}
+}
+
+// fileRoutes mounts the workspace file handlers on a real ServeMux with the
+// production patterns, so the {file...} wildcard and %2F decoding are exercised.
+func fileRoutes(h *DispatcherHandlers) *http.ServeMux {
+	const ws = "/ws/{" + models.WorkspaceIDParam + "}"
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+ws+"/tree", h.ListWorkspaceTree)
+	mux.HandleFunc("GET "+ws+"/files/{file...}", h.ReadWorkspaceFile)
+	mux.HandleFunc("PUT "+ws+"/files/{file...}", h.WriteWorkspaceFile)
+	mux.HandleFunc("DELETE "+ws+"/files/{file...}", h.DeleteWorkspaceFile)
+	return mux
+}
+
+func serveFile(mux *http.ServeMux, method, target, body string) *httptest.ResponseRecorder {
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(method, target, strings.NewReader(body)))
+	return rr
+}
+
+// Nested workspace files over HTTP: write, read (plain and %2F-encoded), list,
+// delete; traversal and symlink escapes are refused and touch nothing outside.
+func TestWorkspaceFileHandlers_NestedAndContained(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, t.TempDir())
+	mgr := persistence.NewWorkspaceManager(resolver)
+	mux := fileRoutes(NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger()))
+	const wsID = "files-ws"
+
+	if rr := serveFile(mux, "PUT", "/ws/"+wsID+"/files/docs/plan.md", `{"content":"nested"}`); rr.Code != http.StatusOK {
+		t.Fatalf("PUT nested: %d %s", rr.Code, rr.Body.String())
+	}
+	for _, target := range []string{"/ws/" + wsID + "/files/docs/plan.md", "/ws/" + wsID + "/files/docs%2Fplan.md"} {
+		rr := serveFile(mux, "GET", target, "")
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"nested"`) {
+			t.Fatalf("GET %s: %d %s", target, rr.Code, rr.Body.String())
+		}
+	}
+	rr := serveFile(mux, "GET", "/ws/"+wsID+"/tree", "")
+	var tree models.WorkspaceTree
+	if err := json.Unmarshal(rr.Body.Bytes(), &tree); err != nil || rr.Code != http.StatusOK {
+		t.Fatalf("GET tree: %d %s (%v)", rr.Code, rr.Body.String(), err)
+	}
+	if !slices.Contains(tree.Entries, models.TreeEntry{Path: "docs/plan.md", Type: models.TreeEntryFile}) {
+		t.Fatalf("tree lacks docs/plan.md: %+v", tree.Entries)
+	}
+	if rr := serveFile(mux, "DELETE", "/ws/"+wsID+"/files/docs/plan.md", ""); rr.Code != http.StatusOK {
+		t.Fatalf("DELETE nested: %d %s", rr.Code, rr.Body.String())
+	}
+
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.md")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(resolver.WorkspaceDir(wsID), "out")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ method, file, body string }{
+		{"GET", "..%2Fescape.md", ""},
+		{"GET", "out/secret.md", ""},
+		{"PUT", "out/new.md", `{"content":"x"}`},
+		{"DELETE", "out/secret.md", ""},
+	} {
+		rr := serveFile(mux, tc.method, "/ws/"+wsID+"/files/"+tc.file, tc.body)
+		if rr.Code == http.StatusOK || strings.Contains(rr.Body.String(), "secret\"") {
+			t.Errorf("%s %s: status %d body %s — want refused", tc.method, tc.file, rr.Code, rr.Body.String())
+		}
+	}
+	if data, err := os.ReadFile(secret); err != nil || string(data) != "secret" {
+		t.Fatalf("outside file changed: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "new.md")); !os.IsNotExist(err) {
+		t.Fatal("a file was written outside the workspace")
 	}
 }

@@ -2,7 +2,7 @@
 
 ## What is a SPEC?
 
-A SPEC is a behavioral contract for a subsystem. Every significant subsystem has one (SPEC-001 through SPEC-009). SPECs define *what* the system does, not *how* — the "how" lives in PLANS and skills.
+A SPEC is a behavioral contract for a subsystem. Every significant subsystem has one (the current set is cataloged in `docs/SPECS/README.md`). SPECs define *what* the system does, not *how* — the "how" lives in PLANS and skills.
 
 ## SPEC Statuses
 
@@ -15,7 +15,7 @@ A SPEC is a behavioral contract for a subsystem. Every significant subsystem has
 
 ## Proposing a New SPEC
 
-1. Determine the next available SPEC ID from `docs/INDEX.md`.
+1. Determine the next available SPEC ID from `docs/SPECS/README.md`.
 2. Copy `_template.md` (if it exists) or use an existing SPEC as template.
 3. Write the SPEC with sections: Intent, Functional Requirements, Data Model, Behavior, Error Handling.
 4. Set status to `draft` and open a PR.
@@ -42,8 +42,8 @@ When a subsystem is removed or replaced:
 
 - SPECs reference CONSTITUTION sections via the `constitution_references` field.
 - SPECs reference other SPECs via the `related_specs` field.
-- INDEX.md tracks all SPECs, their status, and their cross-references.
-- When adding a new SPEC or updating an existing one, update INDEX.md.
+- `docs/SPECS/README.md` tracks all SPECs, their status, and their cross-references.
+- When adding a new SPEC or updating an existing one, update `docs/SPECS/README.md`.
 
 ## Enforcement
 

@@ -13,6 +13,9 @@ import type { Model, ProviderManifest, ProviderModelInfo } from '../../types/mod
 import { get, post, put, del } from '../httpClient'
 
 export const AdminApiService = {
+  fetchVersion: (): Promise<{ version?: string }> =>
+    get<{ version?: string }>(API_ENDPOINTS.version),
+
   fetchState: (): Promise<AdminState> =>
     get<AdminState>(`${API_ENDPOINTS.state}?available=1`),
 

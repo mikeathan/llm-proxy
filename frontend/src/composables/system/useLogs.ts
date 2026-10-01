@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onActivated, onDeactivated, onMounted, onUnmounted } from 'vue'
 import { MetricsApiService } from '../../services/monitoring/metricsService'
 import { POLL_INTERVAL_MS } from '../../constants/api'
 
@@ -62,22 +62,35 @@ async function poll() {
 }
 
 export function useLogs() {
-  onMounted(() => {
+  // A kept-alive consumer (Activity, plan D19) counts as listening only while
+  // it is on screen, so logs are not polled for a page nobody is looking at.
+  let subscribed = false
+
+  function subscribe() {
+    if (subscribed) return
+    subscribed = true
     subscriberCount++
-    // Start polling only if this is the first component to mount
+    // Start polling only if this is the first listener
     if (subscriberCount === 1 && !pollTimer) {
       poll()
     }
-  })
+  }
 
-  onUnmounted(() => {
+  function unsubscribe() {
+    if (!subscribed) return
+    subscribed = false
     subscriberCount--
     // Stop polling if no components are listening
     if (subscriberCount <= 0 && pollTimer) {
       clearTimeout(pollTimer)
       pollTimer = null
     }
-  })
+  }
+
+  onMounted(subscribe)
+  onActivated(subscribe)
+  onDeactivated(unsubscribe)
+  onUnmounted(unsubscribe)
 
   // Actions
   const clearProcessLogs = async () => {

@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
-import { PROVIDER_ICONS, PROVIDER_LABELS, PROVIDER_STYLES, PROVIDER_IDS } from '../../constants/providers'
+import { PROVIDER_LABELS, PROVIDER_IDS } from '../../constants/providers'
 import type { ProviderType, SettingsTab } from '../../types/admin'
 import type { ProviderManifest } from '../../types/model'
 
@@ -37,24 +37,14 @@ export function useProviders() {
   const settingsTabs = computed<SettingsTab[]>(() => {
     // We want to preserve the order from SETTINGS_TABS while ensuring 
     // any dynamically discovered cloud providers are also included.
-    const base = ['local', 'local-models', 'guardrails', ...cloudProviders.value, 'mcp', 'communication', 'search', 'processes']
+    const base = ['appearance', 'local', 'local-models', 'guardrails', ...cloudProviders.value, 'mcp', 'communication', 'search', 'processes']
     return Array.from(new Set(base)) as SettingsTab[]
   })
-
-  const getIcon = (type: string) => {
-    const manifest = manifests.value.find(m => m.id === type)
-    if (manifest?.icon) return manifest.icon
-    return PROVIDER_ICONS[type as keyof typeof PROVIDER_ICONS] || '❓'
-  }
 
   const getLabel = (type: string) => {
     const manifest = manifests.value.find(m => m.id === type)
     if (manifest?.name) return manifest.name
     return PROVIDER_LABELS[type as keyof typeof PROVIDER_LABELS] || type
-  }
-
-  const getStyle = (type: string) => {
-    return PROVIDER_STYLES[type as keyof typeof PROVIDER_STYLES] || 'bg-gray-900/30 text-gray-400 border-gray-500/30'
   }
 
   return {
@@ -64,8 +54,6 @@ export function useProviders() {
     cloudProviders,
     allProviders,
     settingsTabs,
-    getIcon,
     getLabel,
-    getStyle
   }
 }

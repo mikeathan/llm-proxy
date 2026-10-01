@@ -5,9 +5,9 @@ last_reviewed: 2026-09-05
 
 # Assistant UI Overhaul — Chat, History & Layout
 
-**Status:** active — re-validated against code 2026-09-05 (plan-hygiene review); Phases 4–5 items below still open
+**Status:** active — reconciled with `cross-cutting/frontend-redesign-retro.md` (Phase 5 · Assistant chrome) on 2026-09-30: Phase 4 is complete; of Phase 5 only the backend SSE-bleed item is still open (see below)
 **Date:** 2026-06-25  
-**Phases:** 1 ✅ | 2 ✅ | 3 ✅ | 4 ⬜ (3/7) | 5 ☐  
+**Phases:** 1 ✅ | 2 ✅ | 3 ✅ | 4 ✅ | 5 ⬜ (2/3)  
 **Absorbed:** the deferred backend SSE-bleed follow-up from `cancel-stale-turn-bleed.md` (archived 2026-09-05) now lives in Phase 5 below — implement it here, not in the archived plan.
 **Related:** `simple-three-bubble.md`, `consolidated-streaming-bubbles.md` (predecessor — complete)
 
@@ -69,13 +69,24 @@ Changes:
 ### Phase 4: UI Polish
 - [x] Error banner for agent failures (stall, timeout, tool failure)
 - [-] Tool call inline errors with retry UI (rejected — not currently worth the effort. Error display already shows failures; retry would need agent-level support. Can revisit.)
-- [ ] Better streaming progress (spinner, estimated progress)
-- [ ] Mobile-responsive: stacked layout with toggleable panels
+- [x] Better streaming progress — the chat header's status strip states the real run state (Ready / Working / Waiting for the model / Waiting for your approval / Reconnecting to the run), next to the bubble's phase label and elapsed timer (retro redesign, 2026-09-30). No *estimated* progress: the backend reports no progress measure to estimate from.
+- [x] Mobile-responsive: below `sm` the conversation list is a drawer over a scrim, the chat is full width; verified at 390 px (retro redesign, 2026-09-30).
 - [x] Keyboard shortcut: `Ctrl+K` → focus input
 - [x] Empty state for new conversation
 - [x] "Agent is thinking..." with consistent animation
 
 ### Phase 5: Stop Button & Refresh Resilience
+
+**Status 2026-09-30 (verified in code):** the stop button and refresh resilience
+were delivered by later work — runs are detached background runs observed over
+SSE (the POST returns 202), Stop calls `POST /admin/api/conversation/cancel`
+(`CancelAssistantHandler`, cancels by workspace with an optional
+conversation id), a running conversation reconnects on load (`useAssistant.loadSession`),
+and failed / cancelled runs are persisted (`cross-cutting/persist-assistant-run-state-for-reload.md`,
+complete). The design below is kept as history. **Still open:** the backend half of
+the SSE-bleed item — not re-verified here; the frontend already drops events of
+another conversation (`useAssistant`).
+
 - **Backend SSE bleed on cancel** (absorbed from `ARCHIVE/assistant-ui/cancel-stale-turn-bleed.md`): after cancelling a turn mid-stream, the backend may continue emitting SSE events from the cancelled run (stale reasoning/segments) — ensure the cancel path terminates the event stream so no cancelled-turn events reach a newly started turn. Frontend guards for this were fixed 2026-06-26 (`messageBuilder.reset()` clearing `liveReasoning`, `turnGrouper` taking segments from `last`); the backend half is still open.
 - **Stop button** — ensure backend agent cancels when user clicks stop:
   - Investigate if `AbortController.abort()` properly cancels the HTTP request
@@ -243,4 +254,4 @@ Extracted 3 new subcomponents:
 - **SSE reconnection on session switch** — When loading a previous session, the SSE connection must be closed and re-established. `useAssistant.ts` already handles `sse.disconnect()` in cleanup — a `switchSession()` method needs to call this.
 - **Overlay z-index conflicts** — The overlay must sit above the dashboard but below any modals/toasts. Use z-40 (below toast at z-50).
 - **Context cancellation during streaming** — Go's `http.Server` does not always propagate client disconnection to `r.Context()` during active response writes. The cancel endpoint approach avoids relying on automatic context propagation.
-- **Run state recovery after refresh** — The event buffer on the backend (`EventSink`) holds recent events. Reconnecting SSE and replaying the buffer should restore most state, but in-flight tool executions may be lost. A "Recovering state..." indicator covers the gap.
+- **Run state recovery after refresh** — The event buffer on the backend (`eventbus.Sink`) holds recent events. Reconnecting SSE and replaying the buffer should restore most state, but in-flight tool executions may be lost. A "Recovering state..." indicator covers the gap.

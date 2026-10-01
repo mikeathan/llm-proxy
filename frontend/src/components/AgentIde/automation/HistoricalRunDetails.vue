@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { ref } from "vue";
 import type { AutomationRun } from "../../../types/dispatcher";
+import { useConfirm } from "../../../composables/ui/useConfirm";
+import { formatAbsoluteTime, formatDuration } from "../../../utils/format/time";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
+import StatusTag from "../../common/display/StatusTag.vue";
+import IdChip from "../../common/display/IdChip.vue";
+import MicroLabel from "../../common/display/MicroLabel.vue";
+import BaseButton from "../../common/buttons/BaseButton.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
-import Icon from "../../icons/Icon.vue";
-import InlineConfirm from "../../ui/InlineConfirm.vue";
+
+// One finished automation run: outcome, the event trail, its error and its
+// report. Shown in a drawer (Activity, Automations) or a page panel
+// (Workspaces); `embedded` drops the close button when the container has one.
 
 const props = defineProps<{
   run: AutomationRun;
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -16,230 +24,77 @@ const emit = defineEmits<{
   (e: "delete-automation-runs", automation: { name: string; workspace: string }): void;
 }>();
 
-const confirmDeleteRun = ref(false);
-const confirmClearRuns = ref(false);
+const { confirm } = useConfirm();
 
-function handleDeleteRun() {
-  confirmDeleteRun.value = false;
-  emit("delete-run", props.run);
+async function handleDeleteRun() {
+  const ok = await confirm({
+    title: "Delete this run?",
+    message: "The run and its artifacts (events, recordings, logs) are removed. This cannot be undone.",
+    type: "error",
+    confirmText: "Delete run",
+  });
+  if (ok) emit("delete-run", props.run);
 }
 
-function handleClearRuns() {
+async function handleClearRuns() {
   if (!props.run.workspace_id) return;
-  confirmClearRuns.value = false;
-  emit("delete-automation-runs", {
-    name: props.run.automation_name,
-    workspace: props.run.workspace_id,
+  const ok = await confirm({
+    title: `Delete every run of ${props.run.automation_name}?`,
+    message: "Every run directory for this automation is removed. This cannot be undone.",
+    type: "error",
+    confirmText: "Delete all runs",
   });
+  if (ok) emit("delete-automation-runs", { name: props.run.automation_name, workspace: props.run.workspace_id });
 }
 </script>
 
 <template>
-  <div class="details-shell">
-    <div class="header-section">
-      <div class="title-row">
-        <h2 class="main-title">
-          <span
-            class="status-dot"
-            :class="run.error ? 'status-dot--error' : 'status-dot--success'"
-          ></span>
-          <span class="title-prefix">History /</span> {{ run.automation_name }}
-        </h2>
-        <div class="header-actions">
-          <span class="run-id-tag">{{ run.id }}</span>
-          <div class="header-action-divider" aria-hidden="true"></div>
-          <button
-            class="btn-danger-outline group"
-            title="Delete this run and its artifacts"
-            @click="confirmDeleteRun = true"
-          >
-            <Icon name="trash" size="sm" />
-            <span>Delete This Run</span>
-          </button>
-          <button
-            class="btn-danger-text group"
-            title="Delete all runs for this automation"
-            @click="confirmClearRuns = true"
-          >
-            <span>Clear All Runs</span>
-          </button>
-          <button
-            @click="emit('close')"
-            class="btn-close group"
-            title="Close and return to dashboard"
-          >
-            <Icon name="close" size="sm" />
-          </button>
-        </div>
+  <article class="flex flex-col gap-4 p-4">
+    <header class="flex flex-wrap items-start justify-between gap-3">
+      <div class="flex min-w-0 flex-col gap-1">
+        <h2 class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">{{ run.automation_name }}</h2>
+        <span class="font-mono text-[length:var(--text-small)] text-muted">
+          {{ run.workspace_id }} · finished {{ formatAbsoluteTime(run.timestamp) }}
+        </span>
       </div>
-
-      <div class="confirm-row">
-        <InlineConfirm
-          v-if="confirmDeleteRun"
-          message="Delete this run? This removes the run and its artifacts (events, recordings, logs) and cannot be undone."
-          @confirm="handleDeleteRun"
-          @cancel="confirmDeleteRun = false"
-        />
-        <InlineConfirm
-          v-if="confirmClearRuns"
-          message="Delete ALL runs for this automation? This removes every run directory and cannot be undone."
-          @confirm="handleClearRuns"
-          @cancel="confirmClearRuns = false"
-        />
+      <div class="flex flex-wrap items-center gap-2">
+        <BaseButton variant="danger" size="sm" icon="trash" @click="handleDeleteRun">Delete run</BaseButton>
+        <BaseButton v-if="run.workspace_id" variant="ghost" size="sm" @click="handleClearRuns">Clear all runs</BaseButton>
+        <BaseButton v-if="!embedded" variant="ghost" size="sm" icon="close" icon-only label="Close run" @click="emit('close')" />
       </div>
+    </header>
 
-      <div class="stats-grid">
-        <div class="stat-box">
-          <span class="stat-label">Status</span>
-          <span
-            class="stat-value"
-            :class="run.error ? 'stat-value--error' : 'stat-value--success'"
-          >
-            {{ run.error ? "Failed" : "Success" }}
-          </span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-label">Duration</span>
-          <span class="stat-value stat-value--mono"
-            >{{ run.duration_ms }} ms</span
-          >
-        </div>
-        <div class="stat-box">
-          <span class="stat-label">Model</span>
-          <span class="stat-value">{{ run.model || "Default" }}</span>
-        </div>
+    <dl class="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-px border border-hairline bg-border-hairline">
+      <div class="flex flex-col gap-1.5 bg-surface p-3">
+        <dt><MicroLabel>Status</MicroLabel></dt>
+        <dd class="m-0"><StatusTag :state="run.error ? 'error' : 'success'" :label="run.error ? 'Failed' : 'Completed'" /></dd>
       </div>
-    </div>
-
-    <div class="content-section">
-      <!-- Full Terminal Execution Log (Replay) -->
-      <ExecutionAuditTrail v-if="run.events?.length" :events="run.events" />
-
-
-      <div v-if="run.error" class="error-section">
-        <h4 class="section-header section-header--error">Final Error</h4>
-        <div class="error-box">
-          {{ run.error }}
-        </div>
+      <div class="flex flex-col gap-1.5 bg-surface p-3">
+        <dt><MicroLabel>Duration</MicroLabel></dt>
+        <dd class="m-0 font-mono tabular-nums text-primary">{{ formatDuration(run.duration_ms) }}</dd>
       </div>
-
-      <div v-if="run.output" class="output-section">
-        <h4 class="section-header section-header--info">Final Summary Report</h4>
-        <div class="output-box">
-          <MarkdownViewer :content="run.output" />
-        </div>
+      <div class="flex flex-col gap-1.5 bg-surface p-3">
+        <dt><MicroLabel>Model</MicroLabel></dt>
+        <dd class="m-0 font-mono text-primary">{{ run.model || "default" }}</dd>
       </div>
-    </div>
-  </div>
+      <div class="flex flex-col gap-1.5 bg-surface p-3">
+        <dt><MicroLabel>Run</MicroLabel></dt>
+        <dd class="m-0"><IdChip :id="run.id" /></dd>
+      </div>
+    </dl>
+
+    <ExecutionAuditTrail v-if="run.events?.length" :events="run.events" />
+
+    <section v-if="run.error" class="flex flex-col gap-2">
+      <MicroLabel>Final error</MicroLabel>
+      <pre class="m-0 whitespace-pre-wrap break-words border border-state-error/40 bg-state-error/10 p-3 font-mono text-[length:var(--text-small)] text-state-error">{{ run.error }}</pre>
+    </section>
+
+    <section v-if="run.output" class="flex flex-col gap-2">
+      <MicroLabel>Final report</MicroLabel>
+      <div class="border border-hairline bg-canvas p-3">
+        <MarkdownViewer :content="run.output" />
+      </div>
+    </section>
+  </article>
 </template>
-
-<style scoped lang="postcss">
-.details-shell {
-  @apply flex-1 flex flex-col h-full animate-in fade-in zoom-in-95 duration-300;
-}
-
-.header-section {
-  @apply p-6 border-b border-gray-700 bg-gray-900/10;
-}
-
-.title-row {
-  @apply flex items-center justify-between mb-4;
-}
-
-.main-title {
-  @apply text-xl font-bold text-gray-100 flex items-center gap-3;
-}
-
-.status-dot {
-  @apply w-3 h-3 rounded-full;
-}
-
-.status-dot--error {
-  @apply bg-red-500;
-}
-
-.status-dot--success {
-  @apply bg-green-500;
-}
-
-.title-prefix {
-  @apply text-gray-500 text-sm font-normal;
-}
-
-.header-actions {
-  @apply flex items-center gap-3 flex-wrap justify-end;
-}
-
-.header-action-divider {
-  @apply w-px h-5 bg-gray-700;
-}
-
-.run-id-tag {
-  @apply text-[10px] px-2 py-1 bg-gray-700/50 rounded text-gray-400 font-mono border border-white/5;
-}
-
-.btn-danger-outline {
-  @apply flex items-center gap-1.5 text-xs font-semibold text-red-400 border border-red-500/40
-         hover:bg-red-500/10 hover:border-red-400 rounded-md px-2.5 py-1.5 transition-colors
-         active:scale-95 whitespace-nowrap;
-}
-
-.btn-danger-text {
-  @apply text-xs font-semibold text-red-400/80 hover:text-red-400 rounded-md px-2 py-1.5
-         transition-colors active:scale-95 whitespace-nowrap;
-}
-
-.confirm-row {
-  @apply flex flex-col gap-2 mt-2;
-}
-
-.btn-close {
-  @apply bg-gray-700 hover:bg-gray-600 text-white p-1.5 rounded-full transition-colors 
-         flex items-center justify-center shadow-lg active:scale-95;
-}
-
-.stats-grid {
-  @apply grid grid-cols-3 gap-6;
-}
-
-.stat-box {
-  @apply bg-gray-800/40 p-3 rounded-lg border border-white/5;
-}
-
-.stat-label {
-  @apply text-[10px] uppercase font-bold text-gray-500 block mb-1;
-}
-
-.stat-value {
-  @apply text-sm font-medium text-gray-300;
-}
-
-.stat-value--error {
-  @apply text-red-400;
-}
-
-.stat-value--success {
-  @apply text-green-400;
-}
-
-.stat-value--mono {
-  @apply font-mono;
-}
-
-.content-section {
-  @apply flex-1 p-6 overflow-y-auto bg-gray-900/20 space-y-8;
-}
-
-.section-header--info {
-  @apply text-blue-500/80;
-}
-
-.error-box {
-
-  @apply bg-red-900/10 border border-red-900/20 p-4 rounded-lg font-mono text-sm text-red-300 whitespace-pre-wrap;
-}
-
-.output-box {
-  @apply bg-gray-950/40 border border-white/5 p-6 rounded-xl shadow-2xl;
-}
-</style>

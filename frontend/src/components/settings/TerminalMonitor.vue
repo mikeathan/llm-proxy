@@ -2,11 +2,21 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import { useToast } from '../../composables/useToast'
+import { useConfirm } from '../../composables/ui/useConfirm'
 import { errorMessage } from '../../utils/errors'
-import { formatTime } from '../../utils/format/time'
+import { formatAbsoluteTime, formatRelativeTime } from '../../utils/format/time'
 import type { TerminalSessionView } from '../../types/admin'
+import type { DataTableColumn } from '../../types/ui'
+import Panel from '../common/layout/Panel.vue'
+import DataTable from '../common/display/DataTable.vue'
+import StatusTag from '../common/display/StatusTag.vue'
+import BaseButton from '../common/buttons/BaseButton.vue'
+
+// The persistent host terminals, polled while the Security section is open.
+const POLL_MS = 5000
 
 const toast = useToast()
+const { confirm } = useConfirm()
 
 const sessions = ref<TerminalSessionView[]>([])
 const isLoading = ref(true)
@@ -32,18 +42,34 @@ const fetchSessions = async () => {
 }
 
 const resetTerminal = async (workspaceID: string) => {
+  const ok = await confirm({
+    title: `Reset terminals of ${workspaceID}?`,
+    message: 'Every terminal session of this workspace is killed; a running command stops. The next command starts a fresh session.',
+    type: 'warning',
+    confirmText: 'Reset',
+  })
+  if (!ok) return
   try {
     await AdminApiService.resetTerminalSession(workspaceID)
-    toast.success(`Terminal session reset for ${workspaceID}`)
+    toast.success(`Terminal sessions reset for ${workspaceID}`)
     await fetchSessions()
   } catch (e) {
-    toast.error(`Failed to reset terminal: ${errorMessage(e)}`)
+    toast.error(`Could not reset the terminal: ${errorMessage(e)}`)
   }
 }
 
+const sessionKey = (s: TerminalSessionView) => `${s.workspace_id}|${s.network_on}`
+const COLUMNS: DataTableColumn<TerminalSessionView>[] = [
+  { key: 'workspace', label: 'Workspace', value: (s) => s.workspace_id },
+  { key: 'network', label: 'Network' },
+  { key: 'used', label: 'Last activity' },
+  { key: 'path', label: 'Host path' },
+  { key: 'actions', label: 'Actions' },
+]
+
 onMounted(() => {
   void fetchSessions()
-  pollTimer = setInterval(() => void fetchSessions(), 5000)
+  pollTimer = setInterval(() => void fetchSessions(), POLL_MS)
 })
 
 onUnmounted(() => {
@@ -53,139 +79,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="monitor-card">
-    <div class="monitor-header">
-      <div class="flex items-center gap-2">
-        <span class="pulse-icon" :class="{ 'active': sessions.length > 0 }"></span>
-        <h3 class="monitor-title">Active Host Terminals</h3>
-      </div>
-      <span class="session-count">{{ sessions.length }} active</span>
-    </div>
-
-    <div v-if="isLoading && sessions.length === 0" class="p-8 text-center text-gray-500">
-      Initializing monitor...
-    </div>
-
-    <div v-else-if="loadError && sessions.length === 0" class="empty-state">
-      Unable to load terminal sessions: {{ loadError }}.
-      <button class="retry-btn" @click="fetchSessions">Retry</button>
-    </div>
-
-    <div v-else-if="sessions.length === 0" class="empty-state">
-      No active persistent sessions. Terminals are spawned on-demand.
-    </div>
-
-    <div v-else class="session-list">
-      <div
-        v-for="s in sessions"
-        :key="`${s.workspace_id}|${s.network_on}`"
-        class="session-item"
-      >
-        <div class="session-info">
-          <div class="workspace-id">
-            {{ s.workspace_id }}
-            <span class="scope-tag" :class="s.network_on ? 'scope-on' : 'scope-off'">
-              {{ s.network_on ? 'net on' : 'net off' }}
-            </span>
-          </div>
-          <div class="session-meta">
-            <span>Last activity: {{ formatTime(s.last_used) }}</span>
-            <span class="separator">•</span>
-            <span class="path-truncate" :title="s.host_path">{{ s.host_path }}</span>
-          </div>
-        </div>
-
-        <button
-          class="reset-btn"
-          type="button"
-          title="Force kill and reset all sessions for this workspace"
-          @click="resetTerminal(s.workspace_id)"
-        >
-          Reset
-        </button>
-      </div>
-    </div>
-  </div>
+  <Panel title="Active host terminals" flush>
+    <template #actions>
+      <span class="font-mono text-[length:var(--text-small)] tabular-nums text-muted">{{ sessions.length }} active</span>
+    </template>
+    <DataTable
+      :columns="COLUMNS"
+      :rows="sessions"
+      :row-key="sessionKey"
+      caption="Host terminal sessions"
+      :loading="isLoading && !sessions.length"
+      :error="sessions.length ? null : loadError || null"
+      error-next="The monitor retries every few seconds; check the app log if it keeps failing."
+      empty-title="No persistent sessions"
+      empty-body="Terminals start on demand when an agent runs a command."
+    >
+      <template #cell-network="{ row }">
+        <StatusTag :state="row.network_on ? 'success' : 'neutral'" :label="row.network_on ? 'Net on' : 'Net off'" />
+      </template>
+      <template #cell-used="{ row }">
+        <time :datetime="row.last_used" :title="formatAbsoluteTime(row.last_used)">{{ formatRelativeTime(row.last_used) }}</time>
+      </template>
+      <template #cell-path="{ row }">
+        <span class="block max-w-xs truncate font-mono text-[length:var(--text-small)] text-muted" :title="row.host_path">{{ row.host_path }}</span>
+      </template>
+      <template #cell-actions="{ row }">
+        <BaseButton variant="ghost" size="sm" icon="refresh" icon-only :label="`Reset terminals of ${row.workspace_id}`" @click="resetTerminal(row.workspace_id)" />
+      </template>
+    </DataTable>
+  </Panel>
 </template>
-
-<style scoped lang="postcss">
-.monitor-card {
-  @apply bg-gray-950/50 border border-gray-800 rounded-lg overflow-hidden mt-6;
-}
-
-.monitor-header {
-  @apply p-4 border-b border-gray-800 flex items-center justify-between bg-gray-900/30;
-}
-
-.monitor-title {
-  @apply text-sm font-medium text-gray-300;
-}
-
-.session-count {
-  @apply text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full;
-}
-
-.empty-state {
-  @apply p-8 text-center text-sm text-gray-500 font-light italic flex flex-col items-center gap-2;
-}
-
-.retry-btn {
-  @apply text-xs text-blue-400 hover:text-blue-300 underline;
-}
-
-.session-list {
-  @apply divide-y divide-gray-800/50 max-h-64 overflow-y-auto;
-}
-
-.session-item {
-  @apply p-4 flex items-center justify-between hover:bg-gray-800/20 transition-colors;
-}
-
-.session-info {
-  @apply flex-1 min-w-0 pr-4;
-}
-
-.workspace-id {
-  @apply text-sm font-medium text-gray-200 truncate flex items-center gap-2;
-}
-
-.scope-tag {
-  @apply text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded-full shrink-0;
-}
-.scope-on {
-  @apply bg-emerald-900/40 text-emerald-300 border border-emerald-700/50;
-}
-.scope-off {
-  @apply bg-gray-800 text-gray-400 border border-gray-700;
-}
-
-.session-meta {
-  @apply flex items-center gap-2 text-xs text-gray-500 mt-1;
-}
-
-.separator {
-  @apply opacity-30;
-}
-
-.path-truncate {
-  @apply truncate block max-w-xs;
-}
-
-.reset-btn {
-  @apply text-xs font-medium text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-3 py-1.5 rounded transition-all active:scale-95;
-}
-
-.pulse-icon {
-  @apply w-2 h-2 rounded-full bg-gray-600 transition-colors;
-}
-
-.pulse-icon.active {
-  @apply bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)];
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .5; }
-}
-</style>

@@ -5,7 +5,7 @@ import type { AssistantMessage } from '../../../types/assistant'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
 import ChatBubble from './ChatBubble.vue'
 import UserMessage from './UserMessage.vue'
-import Icon from '../../icons/Icon.vue'
+import BaseButton from '../../common/buttons/BaseButton.vue'
 import type { InsetPhase } from '../../../types/inset'
 
 const props = defineProps<{
@@ -52,10 +52,6 @@ function onContainerScroll() {
   updateWasNearBottom(container.value)
   atBottom.value = isNearBottom(container.value)
   emit('scroll-update', atBottom.value)
-}
-
-function formatStamp(): string {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
 // Auto-scroll on new content (streaming tokens, new turns) but only while the
@@ -112,20 +108,20 @@ defineExpose({
    <div class="message-container" ref="container" @scroll="onContainerScroll">
     <slot name="run-header" :phase="phase" :is-automation="isAutomation" />
 
-    <div v-if="messages.length === 0 && !loading && !isAutomation" class="chat-empty-card">
-      <div class="chat-empty">
-        <div class="welcome-icon"><Icon name="message" /></div>
-        <h3>Workspace Assistant</h3>
-        <p>You are talking to the agent bounded to <strong>{{ workspaceId }}</strong>.</p>
-        <p>Ask it to scan files, check metrics, or help debug issues.</p>
-      </div>
+    <!-- Empty state (plan D14): says what the agent will do, and frames the
+         guardrail approval as an expected step rather than an error. -->
+    <div v-if="messages.length === 0 && !loading && !isAutomation" class="chat-empty">
+      <p class="chat-empty-eyebrow">Assistant · <span class="font-mono normal-case">{{ workspaceId }}</span></p>
+      <h3 class="chat-empty-title">Ask about this workspace</h3>
+      <p>It reads and changes files in <span class="font-mono text-primary">{{ workspaceId }}</span> and uses the tools its guardrails allow.</p>
+      <p>When a step is blocked, it stops and asks you — approving or denying it is part of the normal flow.</p>
+      <p class="chat-empty-hint">Enter sends · Shift+Enter adds a line · Ctrl / ⌘ K focuses the message box.</p>
     </div>
 
     <template v-for="(turn, idx) in turns" :key="'turn-' + idx">
       <UserMessage
         v-if="!isAutomation"
         :content="turn.userMessage"
-        :timestamp="formatStamp()"
         @retry="emit('retry', turn.userMessage)"
       />
 
@@ -146,21 +142,25 @@ defineExpose({
       />
     </template>
 
-    <button
+    <BaseButton
       v-if="!atBottom"
-      class="scroll-to-bottom"
-      :title="scrollDirection === 'down' ? 'Scroll to bottom' : 'Scroll to top'"
+      variant="secondary"
+      size="sm"
+      :icon="scrollDirection === 'down' ? 'arrow-down' : 'arrow-up'"
+      icon-only
+      :label="scrollDirection === 'down' ? 'Scroll to the latest message' : 'Scroll to the first message'"
+      class-name="scroll-to-bottom"
       @click="toggleScroll(container)"
-    >
-      <Icon :name="scrollDirection === 'down' ? 'arrow-down' : 'arrow-up'" size="sm" />
-    </button>
+    />
   </div>
 </template>
 
 <style scoped>
 .message-container { @apply relative flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5; }
-.chat-empty-card { @apply bg-gray-800/40 border border-white/5 rounded-2xl p-6 mx-1; }
-.chat-empty { @apply flex flex-col items-center justify-center text-center text-gray-500 gap-3 max-w-sm mx-auto; }
-.welcome-icon { @apply text-4xl mb-2 opacity-50; }
-.scroll-to-bottom { @apply absolute bottom-4 right-4 z-10 flex items-center justify-center p-2 rounded-full bg-gray-700/90 hover:bg-gray-600 text-gray-200 shadow-lg border border-white/10 transition-colors; }
+.chat-empty { @apply mx-auto flex max-w-[56ch] flex-col gap-2 border border-dashed border-control p-5 text-[length:var(--text-small)] text-secondary; }
+.chat-empty p { @apply m-0; }
+.chat-empty-eyebrow { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }
+.chat-empty-title { @apply m-0 text-[length:var(--text-heading)] font-semibold text-primary; }
+.chat-empty-hint { @apply font-mono text-[length:var(--text-micro)] text-faint; }
+:deep(.scroll-to-bottom) { @apply sticky bottom-0 ml-auto z-10 bg-surface; }
 </style>

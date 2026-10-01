@@ -1,105 +1,54 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import type { GuardrailBlockedPayload } from "../../../types";
+import BaseButton from "../buttons/BaseButton.vue";
 
+// A guardrail blocked a tool call and the run waits for the operator. The
+// banner only asks; `submit` (the owner's submitDecision) sends the decision —
+// the one place it is sent. While it is in flight every choice is locked, and a
+// failure leaves the banner ready to try again.
 const props = defineProps<{
   decision: GuardrailBlockedPayload;
+  submit: (allow: boolean, persist: boolean) => Promise<void>;
 }>();
 
-const emit = defineEmits<{
-  allow: [persist: boolean];
-  deny: [];
-}>();
-
-import { post } from "../../../services/httpClient";
+const SEND_FAILED = "Could not send the decision — try again.";
 
 const submitting = ref(false);
+const failed = ref(false);
 
-const handleAllow = async (persist: boolean) => {
+async function decide(allow: boolean, persist: boolean) {
+  if (submitting.value) return;
   submitting.value = true;
+  failed.value = false;
   try {
-    await post('/admin/api/conversation/guardrail-decision', { decision_id: props.decision.decision_id, allow: true, persist });
-    emit("allow", persist);
-  } catch (err) {
-    console.error("Failed to submit guardrail decision", err);
+    await props.submit(allow, persist);
+  } catch {
+    failed.value = true;
   } finally {
     submitting.value = false;
   }
-};
-
-const handleDeny = async () => {
-  submitting.value = true;
-  try {
-    await post('/admin/api/conversation/guardrail-decision', { decision_id: props.decision.decision_id, allow: false, persist: false });
-    emit("deny");
-  } catch (err) {
-    console.error("Failed to submit guardrail decision", err);
-  } finally {
-    submitting.value = false;
-  }
-};
-
-import { ref } from "vue";
+}
 </script>
 
 <template>
-  <div class="guardrail-banner">
-    <div class="approval-header">
-      <span class="approval-icon">🛑</span>
-      <span class="approval-title">Guardrail Blocked — Action Required</span>
+  <div role="alert" class="flex flex-col gap-3 border-l-2 border-state-running bg-state-running/[0.08] px-4 py-3">
+    <p class="m-0 font-mono text-[length:var(--text-small)] font-semibold uppercase tracking-[var(--tracking-micro)] text-state-running">
+      Approval needed — a guardrail blocked this step
+    </p>
+    <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-[length:var(--text-small)]">
+      <dt class="text-muted">Tool</dt>
+      <dd class="m-0 font-mono text-primary">{{ decision.tool }}</dd>
+      <dt class="text-muted">Reason</dt>
+      <dd class="m-0 text-secondary">{{ decision.reason }}</dd>
+      <dt class="text-muted">Category</dt>
+      <dd class="m-0 font-mono text-secondary">{{ decision.category }}</dd>
+    </dl>
+    <div class="flex flex-wrap gap-2">
+      <BaseButton variant="primary" size="sm" :disabled="submitting" @click="decide(true, true)">Allow and remember</BaseButton>
+      <BaseButton variant="secondary" size="sm" :disabled="submitting" @click="decide(true, false)">Allow once</BaseButton>
+      <BaseButton variant="danger" size="sm" :disabled="submitting" @click="decide(false, false)">Deny</BaseButton>
     </div>
-    <div class="approval-details">
-      <div><strong>Tool:</strong> {{ decision.tool }}</div>
-      <div><strong>Reason:</strong> {{ decision.reason }}</div>
-      <div><strong>Category:</strong> {{ decision.category }}</div>
-    </div>
-    <div class="approval-actions">
-      <button class="btn-approve" :disabled="submitting" @click="handleAllow(true)">
-        Allow &amp; Remember
-      </button>
-      <button class="btn-approve-once" :disabled="submitting" @click="handleAllow(false)">
-        Allow Once
-      </button>
-      <button class="btn-deny" :disabled="submitting" @click="handleDeny">
-        Deny
-      </button>
-    </div>
+    <p v-if="failed" class="m-0 text-[length:var(--text-small)] text-state-error">{{ SEND_FAILED }}</p>
   </div>
 </template>
-
-<style scoped lang="postcss">
-.guardrail-banner {
-  @apply p-4 bg-amber-900/30 border border-amber-500/50 rounded-lg animate-in fade-in slide-in-from-top-2;
-}
-
-.approval-header {
-  @apply flex items-center gap-2 mb-3;
-}
-
-.approval-icon {
-  @apply text-lg;
-}
-
-.approval-title {
-  @apply text-amber-300 font-bold text-sm uppercase tracking-wide;
-}
-
-.approval-details {
-  @apply text-[11px] text-amber-100/80 space-y-1 mb-3 pl-6 border-l border-amber-500/30 py-1;
-}
-
-.approval-actions {
-  @apply flex gap-2 flex-wrap;
-}
-
-.btn-approve {
-  @apply px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
-}
-
-.btn-approve-once {
-  @apply px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
-}
-
-.btn-deny {
-  @apply px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-[11px] font-bold rounded transition-colors uppercase tracking-wide;
-}
-</style>

@@ -98,9 +98,12 @@ export function useAutomationForm(
   })
 
   // ---- populate / reset --------------------------------------------------
+  // Keyed on identity: a refreshed copy of the same automation (the owner polls)
+  // must not overwrite the user's unsaved edits.
   watch(
-    editAutomation,
-    (target) => {
+    () => editAutomation.value?.id,
+    () => {
+      const target = editAutomation.value
       if (!target) {
         resetForm()
         return

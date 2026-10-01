@@ -1,14 +1,12 @@
 ---
 name: testing-guide
-description: "Testing guide: authoring/running Go + Vitest tests, smoke tasks, record-replay, MockClient patterns, and run-artifact analysis. Use when writing or running tests; for a failing test/run start with debugging."
-when_to_use: "Authoring or running tests, smoke runs, record-replay, MockClient patterns, template tasks, or reading run artifacts."
-status: reference
-last_reviewed: 2026-09-26
+description: "Testing guide: authoring/running Go + Vitest/Playwright tests, smoke tasks, record-replay, MockClient patterns, and run-artifact analysis. Use when writing or running tests; for a failing test/run start with debugging."
+last_reviewed: 2026-09-30
 ---
 
 # Testing — Patterns, Tools & Strategies
 
-**Source docs:** `docs/PLANS/ARCHIVE/cross-cutting/record-replay-test-framework.md`, `backend/data/templates/`, `AGENTS.md` Test Patterns
+**Source docs:** `docs/PLANS/ARCHIVE/cross-cutting/record-replay-test-framework.md`, `backend/data/templates/`, `docs/architecture.md` → Test Patterns
 
 > A failing test or run? Start with [`debugging`](../debugging/SKILL.md). This skill is for authoring/running tests and reading run artifacts.
 
@@ -20,6 +18,8 @@ last_reviewed: 2026-09-26
 |------|-------------|---------|
 | **Go unit test** | Parser, store, tool logic | `go test ./...` |
 | **Agent integration** | Agent loop behaviour | `go test ./internal/core/assistant/` |
+| **Frontend unit / component** | Composables, utils, domain, theme (`*.test.ts`); anything mounting a `.vue` or routing (`*.component.test.ts`) | `cd frontend && npm test` |
+| **Frontend visual** | `/design` reference screenshots at 1440 / 390 px | `cd frontend && npm run test:visual` |
 | **Record-replay** | LLM interaction without live model | `go test -tags recordreplay ./internal/core/assistant/ -run TestAgent_Execute_AgainstRecordings -v` |
 
 ## Automation Task Templates
@@ -28,16 +28,16 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 
 | Template | Purpose |
 |----------|---------|
-| `smoke-test.md` | 10-step smoke test: filesystem, terminal, npm, TypeScript, network, final report |
-| `memory-cascade-test.md` | Save persona facts, search once, answer questions, write biography |
-| `memory-tags-test.md` | Save facts with tags, verify tag-filtered search returns correct subsets |
-| `sandbox-fs-hierarchy-test.md` | Create directory structure, write/compile/run TypeScript, verify hierarchy |
+| `smoke-test.md` | LLM smoke test — multi-tool coverage (filesystem, terminal, npm, TypeScript, network, final report) |
+| `memory-cascade-test.md` | Memory cascade — persona recall & cross-reference |
+| `memory-three-tier-test.md` | Memory three-tier test (scope/mode/keep routing) |
+| `sandbox-conformance-probe.md` | Sandbox conformance probe (OS-jail / run capability) |
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
-| `ts-runtime-sanity-check.md` | TypeScript runtime behaviour, Node.js interop |
-| `compliance_check_internal.md` | Security compliance audit |
+| `compliance_check_internal.md` | Compliance & high-risk port audit |
 | `network_recon_unprivileged.md` | Unprivileged network reconnaissance |
-| `workspace_health_audit.md` | Workspace health check |
+| `workspace_health_audit.md` | Workspace storage & health audit |
 | `web_discovery_fast.md` | Fast AI/LLM news discovery — token-efficient search digest |
+| `llm_ai_release_brief.md` | LLM & AI release news brief |
 
 ## Running a Smoke Test
 
@@ -64,92 +64,43 @@ Each run produces:
 - Reasoning budget exceeded warnings are warn-only (expected)
 - Final report is coherent and covers all required topics
 
-## MockClient Patterns (Agent Tests)
+## LLM test doubles (two distinct mocks — use the right one)
 
-Agent tests in `internal/core/assistant/agent_test.go` use `MockClient` to simulate
-LLM responses. There are **three patterns** for controlling what the mock returns:
+There are **two** LLM mocks with different fields; mixing them is a compile error.
 
-### Pattern 1: Single fixed response (`client.Response`)
+| Mock | File | Use for | Fields |
+|------|------|---------|--------|
+| `assistant.MockClient` | `internal/core/assistant/agent_test.go` | agent-loop tests | `Response` (single), `Err`, `Calls`, `ChatFunc`, `StreamFunc`, `ReasoningFieldOverride` |
+| `mocks.MockLLMClient` | `internal/testing/mocks/provider.go` | handler / service tests | `Response`, `Responses[]`, `Err`, `LastReq`, `Requests`, `Calls` |
 
-Simplest — the mock returns the same response on every `Chat()` call.
-Use for single-turn tests where the model only needs to respond once:
+### `assistant.MockClient` (agent tests)
 
-```go
-client := &MockClient{
-    Response: proxy.ChatResponse{
-        Choices: []proxy.Choice{
-            {Message: proxy.Message{Role: "assistant", Content: "# Summary\nHello world"}},
-        },
-    },
-}
-```
-
-Every call to `client.Chat()` returns the same `Response`.
-
-### Pattern 2: Response sequence (`client.Responses` array)
-
-The mock cycles through responses in order. Use for multi-turn tests where
-the model needs to call a tool, then respond:
-
-```go
-clientMock.Responses = []proxy.ChatResponse{
-    // 1. First LLM response: Call Tool
-    {Choices: []proxy.Choice{{
-        Message: proxy.Message{
-            Role: "assistant",
-            ToolCalls: []proxy.ToolCall{{...}},
-        },
-    }}},
-    // 2. Second LLM response: Final text
-    {Choices: []proxy.Choice{{
-        Message: proxy.Message{
-            Role:    "assistant",
-            Content: "# Summary\nThe result is done.",
-        },
-    }}},
-}
-```
-
-The mock returns `Responses[0]` on first call, `Responses[1]` on second, etc.
-If calls exceed the array length, the last response is reused.
-
-### Pattern 3: Custom logic (`client.ChatFunc`)
-
-For complex scenarios that need per-call logic. `client.Calls` is post-incremented
-(already incremented when `ChatFunc` runs):
+- **One fixed reply** — set `Response`; every `Chat()` returns `&m.Response` (the same pointer each call — copy inside `ChatFunc` if you mutate it).
+- **Per-call logic** — set `ChatFunc`; `Calls` is post-incremented (already incremented when `ChatFunc` runs, so the first call sees `Calls == 1`).
 
 ```go
 client.ChatFunc = func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
     if client.Calls == 1 {
-        return toolCallResponse, nil
+        return toolCallResponse, nil // first turn: call a tool
     }
-    return finalResponse, nil
+    return finalResponse, nil        // second turn: final text
 }
 ```
 
-### Critical: Streaming is disabled by default
+- **Streaming is off by default** — `Stream()` returns `"streaming not implemented in mock"` unless you set `StreamFunc`, so agent tests silently exercise the non-streaming `Chat()` fallback and never the streaming path. Set `StreamFunc` to cover streaming.
+- It has **no `Responses` field**.
 
-`MockClient.Stream()` returns `error "streaming not implemented in mock"` by default.
-This means agent tests **silently fall through to `Chat()`** — they never test the
-streaming code path. To test streaming, set `client.StreamFunc`.
+### `mocks.MockLLMClient` (handler / service tests)
 
-### Response handling order
-
-```
-client.Chat()
-  → client.Calls++
-  → if client.ChatFunc != nil → use ChatFunc
-  → if len(client.Responses) > 0 → cycle through Responses by index
-  → fall back to client.Response (single shared value)
-```
+- Set `Responses` to script a sequence: it returns `Responses[Calls-1]`, and once the calls exceed the slice it reuses the last entry. If `Responses` is empty it falls back to `Response`. `Responses` takes priority over `Response`.
+- It has **no `ChatFunc`/`StreamFunc`** — `Stream()` always errors.
 
 ### Common mistakes
 
-- **Off-by-one on `client.Calls`** — Post-incremented: first call has `Calls == 1`, not 0.
-- **Setting both `Response` AND `Responses`** — `Responses` takes priority if non-empty.
-- **Forgetting `StreamFunc`** — Tests silently test the non-streaming fallback, not streaming.
-- **Shared `Response` pointer** — `return &m.Response` returns the same pointer every time.
-  The response struct is reused, not copied. Make a copy inside `ChatFunc` if needed.
+- **Off-by-one on `Calls`** — post-incremented: first call has `Calls == 1`, not 0.
+- **Using `Responses` on `assistant.MockClient`** — the field does not exist (that is `mocks.MockLLMClient`).
+- **Forgetting `StreamFunc` on `assistant.MockClient`** — the test silently tests the non-streaming fallback, not streaming.
+- **Setting both `Response` and `Responses` on `MockLLMClient`** — `Responses` wins when non-empty.
 
 ## Record-Replay Testing
 
@@ -191,9 +142,46 @@ Replay tests are opt-in via the `recordreplay` build tag. The test runner (`llmp
 go test -tags recordreplay ./internal/core/assistant/ -run TestAgent_Execute_AgainstRecordings -v
 ```
 
-Fixture `.jsonl` files go in `internal/core/assistant/testdata/recordings/`.
+Fixture `.jsonl` files live in `internal/core/assistant/testdata/recordings/`, **but**
+`TestAgent_Execute_AgainstRecordings` reads `../../../testdata/recordings` (→ backend/testdata/recordings,
+which does not exist) and `t.Skip`s when it finds no `.jsonl` files there. The replay test therefore
+**silently skips** today — do not trust a green result; confirm it actually ran, or point the test at
+the fixtures directory.
 
 See `docs/PLANS/ARCHIVE/cross-cutting/record-replay-test-framework.md` for the full design.
+
+## Frontend testing (Vitest + Playwright)
+
+Tests mirror the source tree in `frontend/src/__TESTS__/`. `frontend/vitest.config.ts` defines two projects:
+**`unit`** (node, `*.test.ts`) and **`component`** (happy-dom + Vue plugin, `*.component.test.ts`) — a test that
+mounts or imports a `.vue` file, or navigates the router (lazy route chunks), must be a `.component.test.ts`.
+`npm run build` runs `npm run lint` (ESLint + palette ratchet + contrast gate) → `vue-tsc -b` → `vite build`.
+`npm run test:visual` drives installed Chrome against the Vite dev server (`frontend/playwright.config.ts`);
+add `-- --update-snapshots` only to accept an intended change.
+
+Gotchas (each cost a debugging round):
+- **Vitest stubs CSS imports, even `?raw`** — `tokens.css` is let through per project via `css.include`.
+- The node project has no `localStorage` — use `__TESTS__/helpers/memoryStorage.ts` + `vi.stubGlobal`. Other
+  helpers: `fieldByLabel.ts` (find a control by label; survives markup changes), `fakeMatchMedia.ts`.
+- ES2020 target (`tsconfig.app.json`) + `noUncheckedIndexedAccess` (inherited from `@vue/tsconfig`): no `.at()` / `Object.hasOwn`; indexed access is `T | undefined`.
+- happy-dom does not submit a form when its submit button is clicked — `form.trigger('submit')`.
+- `onBeforeRouteLeave` registers only inside a `RouterView` — mount a wrapper rendering one, then `vi.waitFor`
+  the lazy page. A route navigation settles after its chunk loads (`vi.waitFor`, not `flushPromises`);
+  `router.resolve()` does not follow redirects (`router.push` + `currentRoute`).
+- Route views read `composables/ui/useDestinationRoute.ts`, not `useRoute()` — with `out-in` transitions and
+  keep-alive, a leaving view otherwise sees the *next* route.
+- `structuredClone` throws on reactive props — copy plain prop data with JSON.
+
+**Checking the real app (isolated backend):** the binary embeds `frontend_dist` at compile time, so run
+`npm run build` and rebuild the binary before looking at UI changes. Build into a scratch dir and start it
+**with cwd = that dir**: `cd <scratch> && ./lp-bin --data <scratch>/home`. Never start it with cwd `backend/` —
+it then loads `backend/.env.development` (`internal/platform/env/env.go`) and points at the user's real
+data. Confirm `GET /admin/api/dispatcher/workspaces` returns your fixtures before any write. To stop it, read
+the PID's command line from `lsof -tiTCP:4001 -sTCP:LISTEN` first and kill only what you started. Ad-hoc
+Playwright scripts use `channel: 'chrome'`; inject a theme with localStorage `admin-ui:theme-selection` =
+`{"version":1,"data":{"kind":"preset","id":"retro-dark"}}` (plus `admin-ui:theme-applied`, see `e2e/design.visual.spec.ts`).
+
+---
 
 ## Common Pitfalls
 

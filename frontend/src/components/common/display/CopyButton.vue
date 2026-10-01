@@ -1,60 +1,48 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import Icon from '../../icons/Icon.vue';
+import { onUnmounted, ref } from 'vue'
+import BaseButton from '../buttons/BaseButton.vue'
 
+// Copies a value (text as-is, anything else as pretty JSON). Icon-only, named
+// by `title`; the result is announced politely, like IdChip.
 const props = defineProps<{
-  text: unknown; // Text or object to copy
-  title?: string; // HTML title attribute
-  iconSize?: 'sm' | 'md' | 'lg'; // Size of the SVG icon
-}>();
+  text: unknown
+  /** Accessible name and tooltip. */
+  title?: string
+}>()
 
-const isCopied = ref(false);
+const FEEDBACK_MS = 2000
+const COPIED = 'Copied'
+const COPY_FAILED = 'Copy failed'
+const DEFAULT_LABEL = 'Copy to clipboard'
 
-const sizeClass = computed(() => {
-  return {
-    'sm': 'w-3 h-3',
-    'md': 'w-4 h-4',
-    'lg': 'w-5 h-5',
-  }[props.iconSize || 'md'];
-});
+const feedback = ref('')
+let timer: ReturnType<typeof setTimeout> | null = null
 
-const handleCopy = async (event: Event) => {
-  event.stopPropagation();
-  event.preventDefault();
-
+async function copy() {
   try {
-    const stringToCopy = typeof props.text === 'string' ? props.text : JSON.stringify(props.text, null, 2);
-    await navigator.clipboard.writeText(stringToCopy);
-    
-    isCopied.value = true;
-    setTimeout(() => {
-      isCopied.value = false;
-    }, 2000);
-  } catch (err) {
-    console.error('Failed to copy text', err);
+    await navigator.clipboard.writeText(typeof props.text === 'string' ? props.text : JSON.stringify(props.text, null, 2))
+    feedback.value = COPIED
+  } catch {
+    feedback.value = COPY_FAILED
   }
-};
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => (feedback.value = ''), FEEDBACK_MS)
+}
+onUnmounted(() => {
+  if (timer) clearTimeout(timer)
+})
 </script>
 
 <template>
-  <button 
-    @click="handleCopy"
-    :title="title || 'Copy to clipboard'"
-    class="copy-btn"
-  >
-    <!-- Checkmark SVG -->
-    <Icon v-if="isCopied" name="check" size="sm" class="text-green-400" />
-    <!-- Copy / Duplicate SVG -->
-    <svg v-else xmlns="http://www.w3.org/2000/svg" :class="sizeClass" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-    </svg>
-  </button>
+  <span class="inline-flex flex-none items-center gap-1">
+    <BaseButton
+      variant="ghost"
+      size="sm"
+      :icon="feedback === COPIED ? 'check' : 'document'"
+      icon-only
+      :label="title || DEFAULT_LABEL"
+      @click.stop.prevent="copy"
+    />
+    <span role="status" class="font-mono text-[length:var(--text-micro)] text-muted">{{ feedback }}</span>
+  </span>
 </template>
-
-<style scoped lang="postcss">
-/* Base styling that can be extended by parents via class attributes */
-.copy-btn {
-  @apply text-gray-500 hover:text-white transition-colors flex items-center justify-center;
-}
-</style>

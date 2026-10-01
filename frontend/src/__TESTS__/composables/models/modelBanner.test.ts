@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { computeModelBanner } from '../../../composables/models/modelBanner'
+import { toSettings } from '../../../router/routes'
 import type { AdminState } from '../../../types/admin'
 
 function state(overrides: Partial<AdminState['config']> = {}, models: string[] = []): AdminState {
@@ -53,7 +54,7 @@ describe('computeModelBanner', () => {
     const b = computeModelBanner(state({}, ['alpha']))
     expect(b?.html).toContain('Settings')
     expect(b?.action?.label).toBe('Configure models')
-    expect(b?.action?.settingsTab).toBe('local')
+    expect(b?.action?.to).toEqual(toSettings('local'))
   })
 
   it('fallback notice includes html + a review action', () => {

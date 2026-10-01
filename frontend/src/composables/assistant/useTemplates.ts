@@ -1,36 +1,35 @@
-import { ref } from "vue";
 import type { Ref } from "vue";
 import type { Template } from "../../types/templates";
 import { DispatcherService } from "../../services/automation/dispatcherService";
 import { useToast } from "../useToast";
 
+// Playbook injection for the Workspaces playbooks section. The route decides
+// when the library is shown; `openFile` navigates to a file, so the editor
+// always shows what the URL names.
 export function useTemplates(
-  selectedWorkspace: Ref<string | null>,
+  selectedWorkspace: Readonly<Ref<string | null>>,
   selectedFile: Ref<{ workspace: string; filename: string } | null>,
   fileContent: Ref<string>,
-  fetchWorkspaceFiles: (workspace: string) => Promise<void>,
-  handleOpenFile: (workspace: string, filename: string) => Promise<void>,
+  fetchWorkspaceTree: (workspace: string) => Promise<void>,
+  openFile: (workspace: string, filename: string) => Promise<unknown>,
 ) {
-  const showTemplates = ref(false);
   const toast = useToast();
 
   const handleInjectTemplate = async (template: Template, mode: 'append' | 'create') => {
-    if (!selectedWorkspace.value) {
+    const workspace = selectedWorkspace.value;
+    if (!workspace) {
       toast.error("Please select a workspace first");
       return;
     }
 
-    // If mode is 'create' OR no file is open, create a new one from template
-    if (mode === 'create' || !selectedFile.value) {
+    // Append only into this workspace's open buffer; otherwise create a new file.
+    const file = selectedFile.value?.workspace === workspace ? selectedFile.value : null;
+    if (mode === 'create' || !file) {
       const filename = `${template.id}.md`;
       try {
-        await DispatcherService.writeWorkspaceFile(
-          selectedWorkspace.value,
-          filename,
-          template.content,
-        );
-        await fetchWorkspaceFiles(selectedWorkspace.value);
-        await handleOpenFile(selectedWorkspace.value, filename);
+        await DispatcherService.writeWorkspaceFile(workspace, filename, template.content);
+        await fetchWorkspaceTree(workspace);
+        await openFile(workspace, filename);
         toast.success(`Created new playbook: ${filename}`);
       } catch (err) {
         console.error("Failed to auto-create playbook", err);
@@ -39,17 +38,17 @@ export function useTemplates(
       return;
     }
 
-    // Otherwise append to current
+    // Otherwise append to the open buffer and return to it.
     const content = template.content;
     if (fileContent.value && !fileContent.value.endsWith("\n")) {
       fileContent.value += "\n\n";
     }
     fileContent.value += content;
+    await openFile(file.workspace, file.filename);
     toast.success("Playbook added to editor - remember to save!");
   };
 
   return {
-    showTemplates,
     handleInjectTemplate,
   };
 }

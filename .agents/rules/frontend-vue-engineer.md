@@ -79,6 +79,41 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
     is the trigger to extract; a single-use block stays inline where it belongs. Never
     copy-paste a field/control across features.
 
+## Admin UI conventions (SPEC-003)
+
+Each rule has one owner in `frontend/src`; the contracts are in
+[`docs/SPECS/discovery-panel.md`](../../docs/SPECS/discovery-panel.md).
+
+-   **Semantic tokens only.** Colours, radii, type and motion come from the
+    token classes (`bg-surface`, `text-muted`, `border-hairline`, `state-*`,
+    `accent-*`) backed by `styles/tokens.css` / `theme/tokenRegistry.ts`. Raw
+    palette classes (`bg-gray-800`, `text-red-400`) are rejected by
+    `npm run lint` (ESLint `no-palette-classes` for templates,
+    `frontend/scripts/check-palette.mjs` for `@apply` and TS literals); hard-coded hex
+    colours are not linted but equally off-limits. No shadows except the
+    primary button's `.offset-brand`.
+-   **Numbers through `utils/format/`** (`formatDuration`, `formatTokenCount`,
+    `formatCost`, `formatBytes`, `formatContrastRatio`, `formatRelativeTime` /
+    `formatAbsoluteTime`) — never
+    `toFixed`/string-glued units in a component.
+-   **Navigation through typed builders** in `router/routes.ts`
+    (`toWorkspaceFile`, `toAutomation`, `toSettings`, `toActivity`, …) — never
+    a hand-built path. Route names live in `types/routes.ts`.
+-   **Browser storage through `usePersistedState`** (namespaced, versioned,
+    validated, falls back on corrupt data). No direct `localStorage`.
+-   **Destructive actions through `useConfirm` / `ConfirmDialog`** — never
+    `window.confirm` or `alert`; feedback goes to toasts.
+-   **Unsaved edits through `useUnsavedChangesGuard`** — one guard per page.
+-   **New polling through `usePolling`** (pauses on keep-alive deactivation,
+    stops on unmount). A shared poller counts its consumers and stops at
+    zero; every timer has a named owner and a teardown.
+-   **Model/user markdown through `utils/markdown/renderMarkdown.ts`** — the
+    only sanctioned `v-html` source (raw HTML escaped, safe URL schemes only).
+-   **Motion via tokens**; scripted scrolling via `utils/motion.ts` so
+    `prefers-reduced-motion` is honoured.
+-   **Buttons are `BaseButton`** (icon-only needs `label`); a raw `<button>`
+    only where it is not an action (tree rows, tabs, list items).
+
 ## State
 
 -   Prefer local state.
@@ -139,7 +174,7 @@ description: Staff Frontend Engineering constitution for Vue 3, TypeScript, UX a
 ## Testing
 
 - Unit: Vitest. Tests live in `src/__TESTS__/` **mirroring the source tree** — a test for
-  `src/utils/message/textAppend.ts` goes in `src/__TESTS__/utils/message/textAppend.test.ts`.
+  `src/utils/message/turnGrouper.ts` goes in `src/__TESTS__/utils/message/turnGrouper.test.ts`.
   Run with `npm test` (`vitest run`).
 - Component: Vue Test Utils.
 - E2E: Playwright.

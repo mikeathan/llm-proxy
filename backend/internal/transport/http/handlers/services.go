@@ -114,7 +114,7 @@ type WorkspaceService interface {
 	CreateWorkspace(id string, cfg *models.WorkspaceConfig, initialFiles map[string]string) error
 	GetState(workspaceID string) (*models.AgentState, error)
 	ListWorkspaces() ([]*models.Workspace, error)
-	ListFiles(workspaceID string) ([]string, error)
+	ListTree(workspaceID string) (models.WorkspaceTree, error)
 	ReadTaskFile(workspaceID, filename string) (string, error)
 	WriteTaskFile(workspaceID, filename, content string) error
 	DeleteTaskFile(workspaceID, filename string) error
@@ -180,8 +180,8 @@ func (s *workspaceService) ListWorkspaces() ([]*models.Workspace, error) {
 	return s.mgr.ListWorkspaces()
 }
 
-func (s *workspaceService) ListFiles(workspaceID string) ([]string, error) {
-	return s.mgr.ListFiles(workspaceID)
+func (s *workspaceService) ListTree(workspaceID string) (models.WorkspaceTree, error) {
+	return s.mgr.ListTree(workspaceID)
 }
 
 func (s *workspaceService) ReadTaskFile(workspaceID, filename string) (string, error) {

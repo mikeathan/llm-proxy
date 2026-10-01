@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { marked } from "marked";
+import MarkdownViewer from "../../../components/common/display/MarkdownViewer.vue";
 import CopyButton from "../../../components/common/display/CopyButton.vue";
 import { TEXT_EVENT_TOOL_RESULT, TEXT_EVENT_GUARDRAIL_BLOCKED } from "../../../constants/icons";
 import {
@@ -49,11 +49,11 @@ defineProps<{
             {{ getRoleLabel(getMsgPayload(ev).role) }}
           </span>
 
-          <div
+          <MarkdownViewer
             v-if="getMsgPayload(ev).role === 'assistant'"
-            class="message-text prose prose-invert prose-xs max-w-none"
-            v-html="marked.parse(getMsgPayload(ev).content)"
-          ></div>
+            class="message-text"
+            :content="getMsgPayload(ev).content"
+          />
           <p v-else class="message-text">{{ getMsgPayload(ev).content }}</p>
         </div>
 
@@ -66,7 +66,6 @@ defineProps<{
             >
             <CopyButton
               :text="getToolCallPayload(ev).function.arguments"
-              iconSize="sm"
               class="btn-copy-mini"
               title="Copy arguments"
             />
@@ -88,7 +87,6 @@ defineProps<{
             </summary>
             <CopyButton
               :text="getToolResPayload(ev).result"
-              iconSize="sm"
               class="btn-copy-mini result-copy-btn"
               title="Copy result"
             />
@@ -120,43 +118,43 @@ defineProps<{
 
 <style scoped lang="postcss">
 .log-section {
-  @apply border-l-2 border-gray-700/30 pl-4 py-2;
+  @apply border-l-2 border-hairline pl-4 py-2;
 }
 
 .section-header {
-  @apply text-[10px] font-black uppercase tracking-[0.2em] mb-4;
+  @apply font-mono text-[length:var(--text-micro)] font-medium uppercase tracking-[var(--tracking-micro)] mb-4;
 }
 
 .section-header--accent {
-  @apply text-purple-400/80;
+  @apply text-muted;
 }
 
 .terminal-box {
-  @apply bg-black/40 rounded-lg p-5 font-mono text-[11px] space-y-4 shadow-inner border border-white/5;
+  @apply bg-canvas rounded-[var(--radius-sm)] p-5 font-mono text-[11px] space-y-4 border border-hairline;
 }
 
 .event-line {
-  @apply border-l-2 border-gray-800/50 pl-4 py-1;
+  @apply border-l-2 border-hairline pl-4 py-1;
 }
 
 .event-step {
-  @apply border-l-blue-500/50;
+  @apply border-l-accent-info/50;
 }
 
 .step-label {
-  @apply text-blue-400/80 font-bold uppercase;
+  @apply text-accent-info-text font-bold uppercase;
 }
 
 .event-message {
-  @apply border-l-gray-800/50 my-2 pl-4 py-2;
+  @apply border-l-hairline my-2 pl-4 py-2;
 }
 
 .system-msg {
-  @apply border-l-indigo-500/30 bg-indigo-500/5 !important;
+  @apply border-l-accent-info/30 bg-accent-info/[0.05] !important;
 }
 
 .system-error-msg {
-  @apply border-l-red-500/30 bg-red-500/10 !important;
+  @apply border-l-state-error/30 bg-state-error/10 !important;
 }
 
 .role-label {
@@ -164,15 +162,15 @@ defineProps<{
 }
 
 .role-system {
-  @apply text-indigo-400/80;
+  @apply text-accent-info-text;
 }
 
 .role-assistant {
-  @apply text-emerald-400/80;
+  @apply text-state-success;
 }
 
 .message-text {
-  @apply text-gray-400 leading-relaxed;
+  @apply text-secondary leading-relaxed;
 }
 
 /* Typography Overrides */
@@ -185,7 +183,7 @@ defineProps<{
 }
 
 .event-tool-call {
-  @apply border-l-blue-400/50 py-1;
+  @apply border-l-accent-info/50 py-1;
 }
 
 .tool-call-header {
@@ -193,34 +191,35 @@ defineProps<{
 }
 
 .tool-name {
-  @apply text-blue-300/80 font-bold;
+  @apply text-accent-info-text font-bold;
 }
 
 .btn-copy-mini {
-  @apply ml-auto p-1.5 text-gray-500 hover:text-white transition-colors flex items-center justify-center;
+  @apply ml-auto;
 }
 
 .tool-args {
-  @apply bg-blue-900/5 p-2 rounded text-[10px] text-blue-200/40 italic;
+  @apply m-0 bg-surface-raised p-2 rounded-[2px] text-[10px] text-muted whitespace-pre-wrap break-words;
 }
 
 .event-result {
-  @apply border-l-green-500/50;
+  @apply border-l-state-success/50;
 }
 
 .res-details {
   @apply relative;
 }
 
+/* Shown on hover and on keyboard focus (not hover only). */
 .result-copy-btn {
-  @apply absolute top-0 right-0 z-10 opacity-0 transition-opacity;
+  @apply absolute top-0 right-0 z-10 opacity-0 transition-opacity focus-within:opacity-100;
 }
 .res-details:hover .result-copy-btn {
   @apply opacity-100;
 }
 
 .res-summary {
-  @apply flex items-center gap-2 text-green-400/80 cursor-pointer hover:text-green-300 transition-colors list-none outline-none;
+  @apply flex items-center gap-2 rounded-[2px] text-state-success cursor-pointer list-none transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2;
 }
 
 .res-summary::-webkit-details-marker {
@@ -228,15 +227,15 @@ defineProps<{
 }
 
 .res-hint {
-  @apply text-[9px] text-gray-600 italic;
+  @apply text-[9px] text-faint;
 }
 
 .res-data {
-  @apply mt-2 bg-black/60 p-3 rounded text-[10px] text-gray-500 max-h-60 overflow-y-auto border border-white/5;
+  @apply mt-2 bg-surface-raised p-3 rounded-[2px] text-[10px] text-muted max-h-60 overflow-y-auto border border-hairline;
 }
 
 .event-violation {
-  @apply border-l-red-500/50 bg-red-900/10 p-3 rounded;
+  @apply border-l-state-error/50 bg-state-error/[0.08] p-3 rounded-[2px];
 }
 
 .violation-header {
@@ -244,10 +243,10 @@ defineProps<{
 }
 
 .violation-title {
-  @apply text-red-400 font-bold uppercase tracking-tight;
+  @apply text-state-error font-bold uppercase tracking-tight;
 }
 
 .violation-body {
-  @apply text-red-300/70 text-[11px] leading-relaxed;
+  @apply text-secondary text-[11px] leading-relaxed;
 }
 </style>

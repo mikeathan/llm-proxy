@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import LogLevelPanel from "./LogLevelPanel.vue";
-import BaseButton from "../common/buttons/BaseButton.vue";
-import InfoTooltip from "../common/display/InfoTooltip.vue";
+import Panel from "../common/layout/Panel.vue";
+import FormField from "../common/forms/FormField.vue";
+import SegmentedControl from "../common/forms/SegmentedControl.vue";
+import BaseToggle from "../common/buttons/BaseToggle.vue";
 import {
   argsToString,
   stringToArgs,
   envMapToString,
   stringToEnvMap,
 } from "../../utils/config";
-import type { GlobalConfig, SchedulerConfig } from "../../types/admin";
+import { LOG_LEVELS } from "../../constants/api";
+import type { GlobalConfig, ProviderItem, SchedulerConfig } from "../../types/admin";
 import type { Model } from "../../types/model";
+import type { ChoiceOption } from "../../types/ui";
+
+// Settings · Local engine: the global configuration as numbered panels. Every
+// field writes a copy of the config through `update:editConfig` (the page owns
+// it and its save); only the log level applies on the spot.
 
 const props = defineProps<{
   editConfig: GlobalConfig;
@@ -22,67 +29,81 @@ const emit = defineEmits<{
   (e: "update:editConfig", config: GlobalConfig): void;
   (e: "updateConfig"): void;
   (e: "updateLogLevel", level: string): void;
-  (e: "restartBackend"): void;
 }>();
 
-// Writable local copy of editConfig — emits on every change so parent
-// stores the canonical value and this component stays reactive.
-const cfg = computed({
-  get: () => props.editConfig,
-  set: (val) => emit("update:editConfig", val),
-})
+const GPU_PROVIDERS: ChoiceOption[] = [
+  { value: "", label: "None — no GPU metrics" },
+  { value: "auto", label: "Auto-detect (recommended)" },
+  { value: "nvidia", label: "NVIDIA (nvidia-smi)" },
+  { value: "rocm", label: "AMD ROCm (rocm-smi)" },
+  { value: "macos", label: "macOS (Metal / Apple silicon)" },
+  { value: "amdgpu_top", label: "AMD (amdgpu_top)" },
+  { value: "sysfs", label: "Linux (direct sysfs)" },
+];
+// Providers that poll through a CLI tool whose path can be overridden.
+const GPU_TOOL_PROVIDERS = ["nvidia", "rocm", "amdgpu_top"];
+const GPU_NO_INDEX = "macos";
+const GPU_SYSFS = "sysfs";
+const LOG_LEVEL_OPTIONS: ChoiceOption[] = LOG_LEVELS.map((level) => ({ value: level, label: level }));
 
-const localProvider = computed({
-  get: () => {
-    if (!props.editConfig.providers?.local) {
-      return {
-        type: "local" as const,
-        model_dir: "",
-        llama_server_binary: "",
-        default_args: [],
-        environment: {},
-      };
-    }
-    return props.editConfig.providers.local;
-  },
-  set: (val) => {
-    const clone = JSON.parse(JSON.stringify(cfg.value));
-    if (!clone.providers) clone.providers = {};
-    clone.providers.local = val;
-    cfg.value = clone;
-  }
-});
+const replaceConfig = (patch: Partial<GlobalConfig>) => emit("update:editConfig", { ...props.editConfig, ...patch });
+
+/** A top-level config field as a v-model target that writes a copy. */
+const configField = <K extends keyof GlobalConfig>(key: K) =>
+  computed<GlobalConfig[K]>({
+    get: () => props.editConfig[key],
+    set: (value) => replaceConfig({ [key]: value } as Partial<GlobalConfig>),
+  });
+
+const primaryModel = configField("primary_model");
+const fallbackModel = configField("fallback_model");
+const workspacesDir = configField("workspaces_dir");
+const modelHost = configField("model_host");
+const idleTimeout = configField("idle_timeout_seconds");
+const gpuProvider = configField("gpu_provider");
+const gpuIndex = configField("gpu_index");
+const gpuBinary = configField("gpu_binary");
+const gpuSysfsPath = configField("gpu_sysfs_path");
+
+const EMPTY_LOCAL: ProviderItem = { type: "local", model_dir: "", llama_server_binary: "", default_args: [], environment: {} };
+const localProvider = computed<ProviderItem>(() => props.editConfig.providers?.local ?? EMPTY_LOCAL);
+const replaceLocal = (patch: Partial<ProviderItem>) =>
+  replaceConfig({ providers: { ...props.editConfig.providers, local: { ...localProvider.value, ...patch } } });
+
+/** A local-provider field as a v-model target that writes a copy. */
+const localField = <K extends keyof ProviderItem>(key: K) =>
+  computed<ProviderItem[K]>({
+    get: () => localProvider.value[key],
+    set: (value) => replaceLocal({ [key]: value } as Partial<ProviderItem>),
+  });
+
+const modelDir = localField("model_dir");
+const llamaBinary = localField("llama_server_binary");
 
 const defaultArgsStr = computed({
   get: () => argsToString(localProvider.value.default_args),
-  set: (val: string) => {
-    const provider = { ...localProvider.value, default_args: stringToArgs(val) };
-    localProvider.value = provider;
-  },
+  set: (val: string) => replaceLocal({ default_args: stringToArgs(val) }),
 });
 
+// Environment is parsed only when the field loses focus, so typing a line
+// is never reformatted under the cursor.
 const environmentStr = ref(envMapToString(localProvider.value.environment));
-
 watch(() => localProvider.value.environment, (env) => {
   const serialized = envMapToString(env);
-  if (environmentStr.value !== serialized) {
-    environmentStr.value = serialized;
-  }
+  if (environmentStr.value !== serialized) environmentStr.value = serialized;
 }, { deep: true });
 
 function commitEnvironment() {
   const parsed = stringToEnvMap(environmentStr.value);
-  const serialized = envMapToString(parsed);
-  if (serialized !== envMapToString(localProvider.value.environment ?? {})) {
-    const provider = { ...localProvider.value, environment: parsed };
-    localProvider.value = provider;
+  if (envMapToString(parsed) !== envMapToString(localProvider.value.environment ?? {})) {
+    replaceLocal({ environment: parsed });
   }
 }
 
 // The scheduler section is always written whole, seeded with the shipped
 // defaults: the backend treats an absent field as its default, so a partial
 // object must never be persisted.
-const SCHEDULER_DEFAULTS: SchedulerConfig = {
+const SCHEDULER_DEFAULTS: Required<SchedulerConfig> = {
   local_concurrency: 1,
   cloud_concurrency: 3,
   preempt_automations: true,
@@ -92,439 +113,225 @@ const SCHEDULER_DEFAULTS: SchedulerConfig = {
   inbound_preempt: false,
 };
 
-function updateScheduler(patch: Partial<SchedulerConfig>) {
-  const clone = JSON.parse(JSON.stringify(props.editConfig));
-  clone.scheduler = { ...SCHEDULER_DEFAULTS, ...clone.scheduler, ...patch };
-  cfg.value = clone;
+/** A scheduler field as a v-model target; `normalise` cleans typed numbers. */
+function schedulerField<K extends keyof SchedulerConfig>(
+  key: K,
+  normalise: (value: Required<SchedulerConfig>[K]) => Required<SchedulerConfig>[K] = (value) => value,
+) {
+  return computed<Required<SchedulerConfig>[K]>({
+    // A present field is never undefined, so the fallback only fills gaps.
+    get: () => (props.editConfig.scheduler?.[key] ?? SCHEDULER_DEFAULTS[key]) as Required<SchedulerConfig>[K],
+    set: (value) => replaceConfig({ scheduler: { ...SCHEDULER_DEFAULTS, ...props.editConfig.scheduler, [key]: normalise(value) } }),
+  });
 }
+const wholeAtLeast = (min: number, fallback: number) => (value: number) => Math.max(min, Math.floor(value) || fallback);
 
-const localConcurrency = computed({
-  get: () => props.editConfig.scheduler?.local_concurrency ?? SCHEDULER_DEFAULTS.local_concurrency,
-  set: (val: number) => updateScheduler({ local_concurrency: Math.max(1, Math.floor(val) || 1) }),
-});
-
-const cloudConcurrency = computed({
-  get: () => props.editConfig.scheduler?.cloud_concurrency ?? SCHEDULER_DEFAULTS.cloud_concurrency,
-  set: (val: number) => updateScheduler({ cloud_concurrency: Math.max(1, Math.floor(val) || 1) }),
-});
-
-const preemptAutomations = computed({
-  get: () => props.editConfig.scheduler?.preempt_automations ?? SCHEDULER_DEFAULTS.preempt_automations,
-  set: (val: boolean) => updateScheduler({ preempt_automations: val }),
-});
-
+const localConcurrency = schedulerField("local_concurrency", wholeAtLeast(1, 1));
+const cloudConcurrency = schedulerField("cloud_concurrency", wholeAtLeast(1, 1));
+const preemptAutomations = schedulerField("preempt_automations");
 // Inbound admission for external /v1 callers. Seconds: 0 refuses immediately,
 // -1 waits indefinitely (still bounded by the queue depth). A caller that asks
 // with X-Queue-Wait is capped at this; a caller that doesn't ask is only parked
 // when the parking toggle below is on.
-const inboundWaitSeconds = computed({
-  get: () => props.editConfig.scheduler?.inbound_wait_seconds ?? SCHEDULER_DEFAULTS.inbound_wait_seconds,
-  set: (val: number) => updateScheduler({ inbound_wait_seconds: Math.max(-1, Math.floor(val) || 0) }),
-});
-
-const inboundWaitByDefault = computed({
-  get: () => props.editConfig.scheduler?.inbound_wait_by_default ?? SCHEDULER_DEFAULTS.inbound_wait_by_default,
-  set: (val: boolean) => updateScheduler({ inbound_wait_by_default: val }),
-});
-
-const inboundMaxQueued = computed({
-  get: () => props.editConfig.scheduler?.inbound_max_queued ?? SCHEDULER_DEFAULTS.inbound_max_queued,
-  set: (val: number) => updateScheduler({ inbound_max_queued: Math.max(1, Math.floor(val) || 1) }),
-});
-
-const inboundPreempt = computed({
-  get: () => props.editConfig.scheduler?.inbound_preempt ?? SCHEDULER_DEFAULTS.inbound_preempt,
-  set: (val: boolean) => updateScheduler({ inbound_preempt: val }),
-});
+const inboundWaitSeconds = schedulerField("inbound_wait_seconds", wholeAtLeast(-1, 0));
+const inboundWaitByDefault = schedulerField("inbound_wait_by_default");
+const inboundMaxQueued = schedulerField("inbound_max_queued", wholeAtLeast(1, 1));
+const inboundPreempt = schedulerField("inbound_preempt");
 
 const runLoggingEnabled = computed({
   get: () => props.editConfig.run_logging?.enabled ?? false,
-  set: (val: boolean) => {
-    const clone = JSON.parse(JSON.stringify(props.editConfig));
-    if (!clone.run_logging) {
-      clone.run_logging = { enabled: false };
-    }
-    clone.run_logging.enabled = val;
-    emit("update:editConfig", clone);
-  }
+  set: (enabled: boolean) => replaceConfig({ run_logging: { ...props.editConfig.run_logging, enabled } }),
 });
 
-function submitConfig() {
-  emit("updateConfig");
-}
-
-function handleRestart() {
-  if (window.confirm("Are you sure you want to restart the backend? This will terminate any active model sessions and automations.")) {
-    emit("restartBackend");
-  }
-}
+const showGpuIndex = computed(() => !!gpuProvider.value && gpuProvider.value !== GPU_NO_INDEX);
+const showGpuBinary = computed(() => GPU_TOOL_PROVIDERS.includes(gpuProvider.value ?? ""));
+const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
 </script>
+
 <template>
-  <div class="settings-container">
-    <h2 class="settings-title">Local Engine Configuration</h2>
-
-    <form @submit.prevent="submitConfig" class="settings-form">
-      <div class="form-group">
-        <label class="form-label">Primary System Model</label>
-        <div class="form-helper">
-          The default model to use for the proxy and general requests if not specified.
-        </div>
-        <select
-          v-model="cfg.primary_model"
-          class="form-input"
-        >
-          <option value="">(Auto: First available)</option>
-          <option v-for="m in models" :key="m.name" :value="m.name">
-            {{ m.name }} ({{ m.provider }})
-          </option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Fallback System Model</label>
-        <div class="form-helper">
-          The fallback model to use if the primary model goes offline or throws an error.
-        </div>
-        <select
-          v-model="cfg.fallback_model"
-          class="form-input"
-        >
-          <option value="">(None: No fallback)</option>
-          <option v-for="m in models" :key="m.name" :value="m.name">
-            {{ m.name }} ({{ m.provider }})
-          </option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Model Directory</label>
-        <div class="form-helper">
-          Absolute or relative path to scan for .gguf files
-        </div>
-        <input
-          v-model="localProvider.model_dir"
-          type="text"
-          class="form-input"
-          placeholder="/path/to/models"
-        />
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Workspaces Directory</label>
-        <div class="form-helper">
-          Where agent workspace files are stored. When empty, workspaces go to
-          the workspaces/ directory in the repository root during development,
-          or in the data root (LLM_PROXY_HOME / --data) when no repository is
-          found. Relative paths resolve against the data root.
-        </div>
-        <input
-          v-model="cfg.workspaces_dir"
-          type="text"
-          class="form-input"
-        />
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Llama Server Binary</label>
-        <div class="form-helper">Path to llama-server executable</div>
-        <input
-          v-model="localProvider.llama_server_binary"
-          type="text"
-          class="form-input"
-          placeholder="/usr/local/bin/llama-server"
-        />
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Model Host IP</label>
-        <div class="form-helper">
-          IP address the underlying server binds to (default: 127.0.0.1)
-        </div>
-        <input
-          v-model="cfg.model_host"
-          type="text"
-          class="form-input"
-        />
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Default Arguments</label>
-        <div class="form-helper">
-          Space-separated arguments passed to all local models
-        </div>
-        <textarea
-          v-model="defaultArgsStr"
-          class="form-input form-input--mono"
-          rows="2"
-          placeholder="--ctx-size 4096"
-        ></textarea>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Environment Variables</label>
-        <div class="form-helper">
-          Line-separated KEY=VALUE pairs injected into the environment
-        </div>
-        <textarea
-          v-model="environmentStr"
-          class="form-input form-input--mono"
-          rows="3"
-          placeholder="HSA_OVERRIDE_GFX_VERSION=11.0.0&#10;AMD_SERIALIZE_KERNEL=1"
-          @blur="commitEnvironment"
-        ></textarea>
-      </div>
-
-      <div class="form-section">
-        <h3 class="section-title">Model Lifecycle</h3>
-        <div class="form-group">
-          <label class="form-label">Idle Timeout (seconds)
-            <InfoTooltip text="How long a local model stays loaded after its last request before the backend stops it to free memory. Set -1 to never stop a model automatically. Applied by the runtime that manages local models." />
-          </label>
-          <div class="form-helper">
-            Seconds of inactivity before stopping a local model; -1 keeps it loaded indefinitely
-          </div>
-          <input
-            v-model.number="cfg.idle_timeout_seconds"
-            type="number"
-            min="-1"
-            step="1"
-            class="form-input"
-          />
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3 class="section-title">GPU Status Configuration</h3>
-        <div class="form-helper mb-4">
-          Configure how the system retrieves GPU utilization and memory metrics.
-        </div>
-        
-        <div class="form-grid">
-          <div class="form-group">
-            <label class="form-label">GPU Provider</label>
-            <div class="form-helper">Method used to poll metrics</div>
-            <select v-model="cfg.gpu_provider" class="form-input">
-              <option value="">(None: Not setup)</option>
-              <option value="auto">Auto-detect (Recommended)</option>
-              <option value="nvidia">NVIDIA (nvidia-smi)</option>
-              <option value="rocm">AMD ROCm (rocm-smi)</option>
-              <option value="macos">macOS (Metal/Apple Silicon)</option>
-              <option value="amdgpu_top">AMD (amdgpu_top)</option>
-              <option value="sysfs">Linux (Direct Sysfs)</option>
+  <form class="flex flex-col gap-4" @submit.prevent="$emit('updateConfig')">
+    <Panel title="Routing">
+      <div class="form-grid">
+        <FormField label="Primary model" hint="Serves requests that name no model.">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="primaryModel" :aria-describedby="describedBy" class="form-control">
+              <option value="">Auto — first available</option>
+              <option v-for="m in models" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
             </select>
-          </div>
-
-          <div class="form-group" v-if="editConfig.gpu_provider && editConfig.gpu_provider !== 'macos'">
-            <label class="form-label">GPU Index</label>
-            <div class="form-helper">The device ID (usually 0)</div>
-            <input
-              v-model.number="editConfig.gpu_index"
-              type="number"
-              class="form-input"
-              placeholder="0"
-            />
-          </div>
-        </div>
-
-        <div class="form-group mt-4" v-if="['nvidia', 'rocm', 'amdgpu_top'].includes(editConfig.gpu_provider || '')">
-          <label class="form-label">Custom Tool Binary</label>
-          <div class="form-helper">Override path to tool binary (Optional)</div>
-          <input
-            v-model="cfg.gpu_binary"
-            type="text"
-            class="form-input"
-            placeholder="e.g. /opt/rocm/bin/rocm-smi"
-          />
-        </div>
-
-        <div class="form-group mt-4" v-if="editConfig.gpu_provider === 'sysfs'">
-          <label class="form-label">Sysfs Device Path</label>
-          <div class="form-helper">Path to the GPU device in /sys (Optional)</div>
-          <input
-            v-model="cfg.gpu_sysfs_path"
-            type="text"
-            class="form-input"
-            placeholder="/sys/class/drm/card0/device"
-          />
-        </div>
+          </template>
+        </FormField>
+        <FormField label="Fallback model" hint="Takes over when the primary is offline or fails.">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="fallbackModel" :aria-describedby="describedBy" class="form-control">
+              <option value="">None — no fallback</option>
+              <option v-for="m in models" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
+            </select>
+          </template>
+        </FormField>
       </div>
+    </Panel>
 
-      <div class="form-section">
-        <h3 class="section-title">Logging Settings</h3>
-        <div class="form-helper mb-4">
-          Configure system and execution logging.
-        </div>
-
-        <div class="space-y-4">
-          <div class="form-group">
-            <label class="form-label">System Log Level</label>
-            <div class="form-helper">
-              Change the verbosity of proxy logging in the terminal
-            </div>
-            <LogLevelPanel
-              :modelValue="logLevel"
-              @update="$emit('updateLogLevel', $event)"
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Run Scheduler</label>
-            <div class="form-helper">
-              How many agent runs may execute at once per workload class — local runs share one GPU, cloud runs parallelize
-            </div>
-            <div class="flex items-center gap-6 mt-2">
-              <label class="flex items-center gap-2 w-fit">
-                <span class="text-sm text-gray-300">Local runs</span>
-                <input
-                  type="number"
-                  :min="1"
-                  step="1"
-                  v-model.number="localConcurrency"
-                  class="form-input w-20"
-                />
-              </label>
-              <label class="flex items-center gap-2 w-fit">
-                <span class="text-sm text-gray-300">Cloud runs</span>
-                <input
-                  type="number"
-                  :min="1"
-                  step="1"
-                  v-model.number="cloudConcurrency"
-                  class="form-input w-20"
-                />
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer w-fit">
-                <input
-                  type="checkbox"
-                  v-model="preemptAutomations"
-                  class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
-                />
-                <span class="text-sm text-gray-300">Chat preempts running automations</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">External Model Requests</label>
-            <div class="form-helper">
-              An external client (another proxy, a tool) asking for a different local model would otherwise
-              stop the running one. It is held or told to retry instead — a run is never interrupted unless you
-              serve the request from the run indicator yourself, where queued requests appear and can be dismissed.
-            </div>
-            <div class="flex items-center gap-6 mt-2 flex-wrap">
-              <label class="flex items-center gap-2 w-fit">
-                <span class="text-sm text-gray-300">Wait up to</span>
-                <input
-                  type="number"
-                  :min="-1"
-                  step="1"
-                  v-model.number="inboundWaitSeconds"
-                  class="form-input w-20"
-                />
-                <span class="text-sm text-gray-300">seconds (0 = refuse, -1 = no limit)</span>
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer w-fit">
-                <input
-                  type="checkbox"
-                  v-model="inboundWaitByDefault"
-                  class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
-                />
-                <span class="text-sm text-gray-300">Queue requests that don't ask to wait</span>
-              </label>
-              <label class="flex items-center gap-2 w-fit">
-                <span class="text-sm text-gray-300">Queue depth</span>
-                <input
-                  type="number"
-                  :min="1"
-                  step="1"
-                  v-model.number="inboundMaxQueued"
-                  class="form-input w-20"
-                />
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer w-fit">
-                <input
-                  type="checkbox"
-                  v-model="inboundPreempt"
-                  class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
-                />
-                <span class="text-sm text-gray-300">Allow a waiting request to interrupt the running job</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Workspace Run Logging</label>
-            <div class="form-helper">
-              Enable per-run logs, execution history, and event streams inside workspace directories
-            </div>
-            <label class="flex items-center gap-2 cursor-pointer mt-2 w-fit">
-              <input
-                type="checkbox"
-                v-model="runLoggingEnabled"
-                class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-600 w-4 h-4"
-              />
-              <span class="text-sm text-gray-300">Enable Run Logging</span>
-            </label>
-          </div>
-        </div>
+    <Panel title="Local engine">
+      <div class="form-grid">
+        <FormField label="Model directory" hint="Scanned for .gguf files. Absolute, or relative to the data root.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="modelDir" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="/path/to/models" autocomplete="off" />
+          </template>
+        </FormField>
+        <FormField label="llama-server binary" hint="Path to the llama-server executable.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="llamaBinary" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="/usr/local/bin/llama-server" autocomplete="off" />
+          </template>
+        </FormField>
+        <FormField label="Model host IP" hint="The address local model servers bind to. Default 127.0.0.1.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="modelHost" :aria-describedby="describedBy" type="text" class="form-control font-mono" autocomplete="off" />
+          </template>
+        </FormField>
       </div>
+      <div class="form-grid mt-4">
+        <FormField label="Default arguments" hint="Space-separated, passed to every local model.">
+          <template #default="{ id, describedBy }">
+            <textarea :id="id" v-model="defaultArgsStr" :aria-describedby="describedBy" rows="2" class="form-control font-mono" placeholder="--ctx-size 4096" spellcheck="false"></textarea>
+          </template>
+        </FormField>
+        <FormField label="Environment variables" hint="One KEY=VALUE per line, set for every local model.">
+          <template #default="{ id, describedBy }">
+            <textarea
+              :id="id"
+              v-model="environmentStr"
+              :aria-describedby="describedBy"
+              rows="3"
+              class="form-control font-mono"
+              placeholder="HSA_OVERRIDE_GFX_VERSION=11.0.0&#10;AMD_SERIALIZE_KERNEL=1"
+              spellcheck="false"
+              @blur="commitEnvironment"
+            ></textarea>
+          </template>
+        </FormField>
+      </div>
+    </Panel>
 
-      <div class="form-actions gap-3">
-        <BaseButton 
-          type="button" 
-          variant="secondary" 
-          icon="power"
-          @click="handleRestart"
+    <Panel title="Workspace storage">
+      <div class="form-grid">
+        <FormField
+          label="Workspaces directory"
+          hint="Empty: workspaces/ in the repository during development, otherwise in the data root (LLM_PROXY_HOME / --data). Relative paths resolve against the data root."
         >
-          Restart Backend
-        </BaseButton>
-        <BaseButton type="submit" variant="primary" icon="play">
-          Save Local Engine Settings
-        </BaseButton>
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="workspacesDir" :aria-describedby="describedBy" type="text" class="form-control font-mono" autocomplete="off" />
+          </template>
+        </FormField>
+        <FormField label="Run logging" hint="Per-run logs, execution history and event streams inside each workspace.">
+          <template #default="{ id, describedBy }">
+            <BaseToggle :id="id" v-model="runLoggingEnabled" :described-by="describedBy" label="Record workspace run logs" />
+          </template>
+        </FormField>
       </div>
-    </form>
-  </div>
+    </Panel>
+
+    <Panel title="Model lifecycle">
+      <div class="form-grid">
+        <FormField label="Idle timeout (seconds)" hint="A local model with no requests for this long is stopped to free memory. -1 keeps it loaded.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="idleTimeout" :aria-describedby="describedBy" type="number" min="-1" step="1" class="form-control font-mono tabular-nums" />
+          </template>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel title="GPU metrics">
+      <div class="form-grid">
+        <FormField label="GPU provider" hint="How utilisation and memory are read.">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="gpuProvider" :aria-describedby="describedBy" class="form-control">
+              <option v-for="option in GPU_PROVIDERS" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField v-if="showGpuIndex" label="GPU index" hint="The device ID, usually 0.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="gpuIndex" :aria-describedby="describedBy" type="number" min="0" class="form-control font-mono tabular-nums" placeholder="0" />
+          </template>
+        </FormField>
+        <FormField v-if="showGpuBinary" label="Tool binary" hint="Optional. Overrides the path to the provider's tool.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="gpuBinary" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="/opt/rocm/bin/rocm-smi" autocomplete="off" />
+          </template>
+        </FormField>
+        <FormField v-if="showSysfsPath" label="Sysfs device path" hint="Optional. The GPU device under /sys.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="gpuSysfsPath" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="/sys/class/drm/card0/device" autocomplete="off" />
+          </template>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel title="Run scheduler">
+      <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
+        How many agent runs execute at once per workload class. Local runs share one GPU; cloud runs run in parallel.
+      </p>
+      <div class="form-grid">
+        <FormField label="Local runs at once">
+          <template #default="{ id }">
+            <input :id="id" v-model.number="localConcurrency" type="number" min="1" step="1" class="form-control font-mono tabular-nums" />
+          </template>
+        </FormField>
+        <FormField label="Cloud runs at once">
+          <template #default="{ id }">
+            <input :id="id" v-model.number="cloudConcurrency" type="number" min="1" step="1" class="form-control font-mono tabular-nums" />
+          </template>
+        </FormField>
+        <FormField label="Chat priority" hint="A chat message pauses a running automation instead of waiting behind it.">
+          <template #default="{ id, describedBy }">
+            <BaseToggle :id="id" v-model="preemptAutomations" :described-by="describedBy" label="Chat preempts running automations" />
+          </template>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel title="External requests">
+      <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
+        An external client (another proxy, a tool) asking for a different local model would otherwise stop the
+        running one. It is held or told to retry instead — a run is only interrupted when you serve the request from
+        the run indicator, where queued requests appear and can be dismissed.
+      </p>
+      <div class="form-grid">
+        <FormField label="Wait up to (seconds)" hint="0 refuses at once; -1 waits with no limit.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="inboundWaitSeconds" :aria-describedby="describedBy" type="number" min="-1" step="1" class="form-control font-mono tabular-nums" />
+          </template>
+        </FormField>
+        <FormField label="Queue depth" hint="Requests held at once; more are refused.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="inboundMaxQueued" :aria-describedby="describedBy" type="number" min="1" step="1" class="form-control font-mono tabular-nums" />
+          </template>
+        </FormField>
+        <FormField label="Requests that don't ask to wait">
+          <template #default="{ id }">
+            <BaseToggle :id="id" v-model="inboundWaitByDefault" label="Queue them too" />
+          </template>
+        </FormField>
+        <FormField label="Interrupting">
+          <template #default="{ id }">
+            <BaseToggle :id="id" v-model="inboundPreempt" label="A waiting request may interrupt the running job" />
+          </template>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel title="Logging">
+      <FormField label="System log level" hint="Applies immediately — no save needed.">
+        <template #default>
+          <SegmentedControl :model-value="logLevel" :options="LOG_LEVEL_OPTIONS" label="System log level" class="w-fit" @update:model-value="$emit('updateLogLevel', $event)" />
+        </template>
+      </FormField>
+    </Panel>
+  </form>
 </template>
 
 <style scoped lang="postcss">
-.settings-container {
-  @apply bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-6 space-y-4 animate-in slide-in-from-right-4 duration-300;
-}
-.settings-title {
-  @apply text-xl font-bold text-white mb-6 border-b border-gray-700 pb-3;
-}
-.section-title {
-  @apply text-base font-bold text-gray-300 mb-2;
-}
-.settings-form {
-  @apply space-y-4;
-}
 .form-grid {
-  @apply grid grid-cols-1 md:grid-cols-2 gap-4;
-}
-.form-group {
-  @apply space-y-1.5;
-}
-.form-label {
-  @apply block text-sm font-semibold text-gray-200;
-}
-.form-helper {
-  @apply text-xs text-gray-500 mb-2;
-}
-.mb-custom {
-  @apply mb-2;
-}
-.form-input {
-  @apply w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2.5 text-white transition-all 
-         focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 outline-none;
-}
-.form-input--mono {
-  @apply font-mono text-xs;
-}
-.form-section {
-  @apply pt-4 border-t border-gray-700 mt-4;
-}
-.form-actions {
-  @apply pt-6 border-t border-gray-700 flex justify-end;
+  @apply grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-4;
 }
 </style>

@@ -123,6 +123,10 @@ Returns full admin state: active model, available models, guardrails config, pro
 | GET | `/admin/api/metrics` | System metrics |
 | GET | `/admin/api/runtime/processes` | List processes |
 | POST | `/admin/api/runtime/processes/{pid}/stop` | Kill process |
+| GET | `/admin/api/active-runs` | Global run state: `lane_holders`, `queued`, and `lanes` (per lane `lane`, `limit`, `running`, `waiting`, `holder_keys`) |
+| GET | `/admin/api/workspaces/{ws}/active-runs` | A workspace's assistant / automation running flags |
+| POST | `/admin/api/queue/{queue_key}/promote` | Serve a queued inbound caller now (cancels the run holding its model) |
+| POST | `/admin/api/queue/{queue_key}/cancel` | Drop a queued inbound caller |
 
 ### Log Level
 
@@ -178,10 +182,10 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/admin/api/dispatcher/workspaces/{workspace}/files` | List files |
-| GET | `/admin/api/dispatcher/workspaces/{workspace}/files/{file}` | Read file |
-| PUT | `/admin/api/dispatcher/workspaces/{workspace}/files/{file}` | Write file |
-| DELETE | `/admin/api/dispatcher/workspaces/{workspace}/files/{file}` | Delete file |
+| GET | `/admin/api/dispatcher/workspaces/{workspace}/tree` | Recursive file tree: `{"entries":[{"path","type":"file"\|"dir","collapsed"?}],"truncated"}` — slash paths, sorted, dirs included, capped at 5000 entries breadth-first; dotfiles and escaping symlinks omitted; `node_modules`-style dirs listed `collapsed` and not descended |
+| GET | `/admin/api/dispatcher/workspaces/{workspace}/files/{file...}` | Read file (nested path; each segment percent-encoded) |
+| PUT | `/admin/api/dispatcher/workspaces/{workspace}/files/{file...}` | Write file (parent directories created) |
+| DELETE | `/admin/api/dispatcher/workspaces/{workspace}/files/{file...}` | Delete file |
 
 ### Workspace Automations
 

@@ -12,6 +12,7 @@ import type { ModelForm } from '../../types/model'
 import type { APIKeyItem, ProviderType } from '../../types/admin'
 import type { AvailableModel, Model, ProviderModelInfo, WorkloadClass } from '../../types/model'
 import { DEFAULT_CONFIG } from '../models/useConfig'
+import { motionScroll } from '../../utils/motion'
 
 export function useProviderModels(
   props: {
@@ -166,7 +167,7 @@ export function useProviderModels(
   function scanAndAdd(keyName: string) {
     startAdd()
     modelForm.value.key = keyName
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: motionScroll('smooth') })
   }
 
   function cancelEdit() {
@@ -241,7 +242,7 @@ export function useProviderModels(
       prefill: modelForm.value.prefill,
       provider_config: { api_key_name: '' },
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: motionScroll('smooth') })
   }
 
   async function handleClearAll() {

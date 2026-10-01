@@ -1,4 +1,4 @@
-import type { SettingsTab } from "../types/admin";
+import type { SettingsGroup, SettingsTab } from "../types/admin";
 
 /**
  * Domain logic for settings categorization and validation.
@@ -8,23 +8,26 @@ import type { SettingsTab } from "../types/admin";
  * Checks if a tab is a provider-specific tab.
  */
 export const isProviderTab = (tab: SettingsTab): boolean => {
-  return tab !== "local" && tab !== "local-models" && tab !== "mcp" && tab !== "guardrails" && tab !== "security" && tab !== "processes" && tab !== "communication" && tab !== "search";
+  return tab !== "appearance" && tab !== "local" && tab !== "local-models" && tab !== "mcp" && tab !== "guardrails" && tab !== "security" && tab !== "processes" && tab !== "communication" && tab !== "search";
 };
 
 /**
  * categorizes settings tabs into groups for UI navigation.
  */
-export const getSettingsGroups = (tabs: SettingsTab[]) => {
+// The System group's order in the category nav.
+const SYSTEM_TABS: readonly SettingsTab[] = ['appearance', 'security', 'local', 'local-models', 'guardrails', 'processes'];
+
+export const getSettingsGroups = (tabs: SettingsTab[]): SettingsGroup[] => {
   // ensure security is injected if not already present in the source tabs
   const enhancedTabs = tabs.includes('security') ? tabs : ['security', ...tabs]
   
   return [
     {
       name: "System",
-      tabs: enhancedTabs.filter(t => t === 'local' || t === 'local-models' || t === 'guardrails' || t === 'security' || t === 'processes')
+      tabs: SYSTEM_TABS.filter(t => enhancedTabs.includes(t))
     },
     {
-      name: "Cloud Providers",
+      name: "Cloud providers",
       tabs: tabs.filter(t => isProviderTab(t))
     },
     {

@@ -1,13 +1,25 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import type { SessionBrief } from '../../../types/assistant'
-import { formatTime } from '../../../utils/format/time'
-import { groupSessionsBySource, sourceIcon, sourceLabel } from '../../../utils/assistant/source'
+import { formatAbsoluteTime, formatRelativeTime } from '../../../utils/format/time'
+import { buildSessionSections } from '../../../utils/assistant/sessionSections'
+import { sourceIcon } from '../../../utils/assistant/source'
+import { usePinnedSessions } from '../../../composables/assistant/usePinnedSessions'
+import BaseButton from '../../common/buttons/BaseButton.vue'
+import MicroLabel from '../../common/display/MicroLabel.vue'
+import StatusTag from '../../common/display/StatusTag.vue'
+import SearchInput from '../../common/forms/SearchInput.vue'
 import Icon from '../../icons/Icon.vue'
 
+// The workspace's conversations (plan D14): searchable by title, pinnable
+// (kept per workspace in this browser), grouped Pinned · Today · Yesterday ·
+// This week · Older, with webhook conversations in their own folder. Row
+// actions are named after their conversation and show on hover or keyboard
+// focus (always on touch-sized screens). Deleting is confirmed by the chat.
 const props = defineProps<{
   sessions: SessionBrief[]
   currentSessionId: string | null
+  workspaceId: string
   isMobile?: boolean
 }>()
 
@@ -22,271 +34,151 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const renaming = ref<string | null>(null)
-const renameInput = ref('')
+const UNTITLED = 'Empty conversation'
 
-const groupedSessions = computed(() => groupSessionsBySource(props.sessions))
+const query = ref('')
+const { pinned, toggle: togglePin } = usePinnedSessions(() => props.workspaceId)
+const sections = computed(() => buildSessionSections(props.sessions, { pinned: pinned.value, query: query.value, now: Date.now() }))
+const titleOf = (session: SessionBrief) => session.snippet || UNTITLED
 
-const collapsedGroups = ref(new Set<string>())
-
-function toggleGroup(source: string) {
-  const next = new Set(collapsedGroups.value)
-  if (next.has(source)) next.delete(source)
-  else next.add(source)
-  collapsedGroups.value = next
+const collapsed = ref(new Set<string>())
+function toggleSection(key: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsed.value = next
 }
 
-// Manual first (root), then webhook folder
-const orderedGroups = computed(() => groupedSessions.value.slice().reverse())
+const renaming = ref<string | null>(null)
+const renameInput = ref('')
+const renameField = ref<HTMLInputElement[] | null>(null)
 
-function startRename(sessionId: string, current: string) {
-  renaming.value = sessionId
-  renameInput.value = current
+async function startRename(session: SessionBrief) {
+  renaming.value = session.id
+  renameInput.value = session.snippet
+  await nextTick()
+  renameField.value?.[0]?.focus()
 }
 
 function confirmRename() {
-  if (renaming.value && renameInput.value.trim()) {
-    emit('rename', renaming.value, renameInput.value.trim())
-  }
+  if (renaming.value && renameInput.value.trim()) emit('rename', renaming.value, renameInput.value.trim())
   renaming.value = null
 }
 
-function cancelRename() {
+const cancelRename = () => {
   renaming.value = null
 }
 </script>
 
 <template>
-  <div class="session-panel" :class="{ 'session-panel--mobile': isMobile }">
-    <div class="session-panel-header">
-      <h3 class="session-panel-title">Conversations</h3>
-      <div class="header-actions">
-        <button
-          v-if="sessions.length > 0"
-          @click="emit('clear-all')"
-          class="btn-header-icon"
-          title="Delete all conversations"
-        >
-          <Icon name="trash" size="xs" />
-        </button>
-        <button @click="emit('new-chat')" class="btn-header-icon" title="New Chat">
-          <Icon name="plus" size="sm" />
-        </button>
-        <button
-          v-if="isMobile"
-          @click="emit('close')"
-          class="btn-header-icon btn-close"
-          title="Close"
-        >
-          <Icon name="close" size="sm" />
-        </button>
-      </div>
+  <div class="flex h-full w-full flex-col overflow-hidden border-r border-hairline bg-surface">
+    <div class="flex flex-none items-center justify-between gap-2 border-b border-hairline px-3 py-2">
+      <MicroLabel>Conversations</MicroLabel>
+      <span class="flex items-center gap-1">
+        <BaseButton v-if="sessions.length" variant="ghost" size="sm" icon="trash" icon-only label="Delete all conversations" @click="emit('clear-all')" />
+        <BaseButton variant="ghost" size="sm" icon="plus" icon-only label="New chat" @click="emit('new-chat')" />
+        <BaseButton v-if="isMobile" variant="ghost" size="sm" icon="close" icon-only label="Close conversations" @click="emit('close')" />
+      </span>
     </div>
 
-    <div v-if="sessions.length === 0" class="empty-sessions">
-      No history in this workspace.
-    </div>
+    <p v-if="!sessions.length" class="m-0 px-3 py-6 text-center text-[length:var(--text-small)] text-muted">
+      No conversations yet. Ask the assistant something to start one.
+    </p>
 
-    <div class="session-list">
-      <template v-for="group in orderedGroups" :key="group.source">
-      <div
-        v-if="group.grouped"
-        class="session-group-header"
-        @click="toggleGroup(group.source)"
-      >
-        <Icon :name="collapsedGroups.has(group.source) ? 'chevron-right' : 'chevron-down'" size="xs" class="fold-icon" />
-        <span class="fold-label">{{ sourceLabel(group.source) }}</span>
-        <button
-          class="btn-group-delete"
-          title="Delete all webhook conversations"
-          @click.stop="emit('delete-group', group.sessions.map(s => s.id))"
-        >
-          <Icon name="trash" size="xs" />
-        </button>
+    <template v-else>
+      <div class="flex-none px-3 py-2">
+        <SearchInput v-model="query" label="Search conversations" />
       </div>
-      <div
-        v-for="session in group.sessions"
-        :key="session.id"
-        v-show="!group.grouped || !collapsedGroups.has(group.source)"
-        class="session-row"
-        :class="{ 'session-row--active': currentSessionId === session.id }"
-      >
-        <button
-          v-if="renaming !== session.id"
-          @click="emit('load', session.id)"
-          class="session-item"
-        >
-          <div class="session-item-row">
-            <Icon v-if="sourceIcon(session.source)" :name="sourceIcon(session.source)!" size="xs" class="session-source" />
-            <span v-if="session.running" class="session-dot" title="Running">●</span>
-            <span class="session-snippet">{{ session.snippet || 'Empty conversation' }}</span>
+      <p v-if="!sections.length" class="m-0 px-3 py-4 text-center text-[length:var(--text-small)] text-muted">
+        No conversation matches “{{ query.trim() }}”.
+      </p>
+
+      <div class="min-h-0 flex-1 overflow-y-auto pb-2">
+        <section v-for="section in sections" :key="section.key" :aria-label="section.label">
+          <div data-test="session-group" class="flex items-center gap-1 px-3 pb-1 pt-3">
+            <button
+              v-if="section.kind === 'source'"
+              type="button"
+              :aria-expanded="!collapsed.has(section.key)"
+              class="flex min-w-0 flex-1 items-center gap-1 rounded-[var(--radius-sm)] text-left focus-visible:outline-none focus-visible:ring-2"
+              @click="toggleSection(section.key)"
+            >
+              <Icon :name="collapsed.has(section.key) ? 'chevron-right' : 'chevron-down'" size="xs" />
+              <MicroLabel>{{ section.label }}</MicroLabel>
+            </button>
+            <MicroLabel v-else class="flex-1">{{ section.label }}</MicroLabel>
+            <BaseButton
+              v-if="section.kind === 'source'"
+              variant="ghost"
+              size="sm"
+              icon="trash"
+              icon-only
+              :label="`Delete all ${section.label.toLowerCase()} conversations`"
+              @click="emit('delete-group', section.sessions.map((s) => s.id))"
+            />
           </div>
-          <span class="session-time">{{ formatTime(session.updated_at || '') }}</span>
-        </button>
 
-        <div v-else class="rename-form">
-          <input
-            v-model="renameInput"
-            @keydown.enter="confirmRename"
-            @keydown.escape="cancelRename"
-            @blur="confirmRename"
-            class="rename-input"
-            autofocus
-          />
-        </div>
+          <ul v-show="!collapsed.has(section.key)" class="m-0 list-none p-0">
+            <li
+              v-for="session in section.sessions"
+              :key="session.id"
+              :class="[
+                'session-row group relative flex min-w-0 items-center gap-1 border-l-2 px-2 py-1.5',
+                currentSessionId === session.id ? 'border-accent-brand bg-surface-active' : 'border-transparent hover:bg-surface-hover',
+              ]"
+            >
+              <input
+                v-if="renaming === session.id"
+                ref="renameField"
+                v-model="renameInput"
+                aria-label="Conversation title"
+                class="form-control flex-1"
+                @keydown.enter="confirmRename"
+                @keydown.escape="cancelRename"
+                @blur="confirmRename"
+              />
+              <button
+                v-else
+                type="button"
+                :aria-current="currentSessionId === session.id ? 'true' : undefined"
+                class="flex min-w-0 flex-1 flex-col gap-0.5 rounded-[var(--radius-sm)] px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2"
+                @click="emit('load', session.id)"
+              >
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <Icon v-if="sourceIcon(session.source)" :name="sourceIcon(session.source)!" size="xs" class-name="flex-none text-muted" />
+                  <span class="truncate text-[length:var(--text-small)] text-primary">{{ titleOf(session) }}</span>
+                </span>
+                <span class="flex items-center gap-2">
+                  <StatusTag v-if="session.running" state="running" label="Running" />
+                  <time
+                    v-if="session.updated_at"
+                    :datetime="session.updated_at"
+                    :title="formatAbsoluteTime(session.updated_at)"
+                    class="font-mono text-[length:var(--text-micro)] text-faint"
+                  >{{ formatRelativeTime(session.updated_at) }}</time>
+                </span>
+              </button>
 
-        <div v-if="renaming !== session.id" class="session-actions">
-          <button
-            v-if="session.running"
-            @click.stop="emit('cancel', session.id)"
-            class="btn-action-icon btn-cancel"
-            title="Cancel run"
-          >
-            <Icon name="close" size="xs" />
-          </button>
-          <button
-            @click.stop="startRename(session.id, session.snippet)"
-            class="btn-action-icon"
-            title="Rename"
-          >
-            <Icon name="edit" size="xs" />
-          </button>
-          <button
-            @click.stop="emit('delete', session.id)"
-            class="btn-action-icon btn-delete"
-            title="Delete"
-          >
-            <Icon name="trash" size="xs" />
-          </button>
-        </div>
+              <span
+                v-if="renaming !== session.id"
+                :class="['session-actions flex-none items-center', isMobile ? 'flex' : 'hidden group-hover:flex group-focus-within:flex']"
+              >
+                <BaseButton
+                  variant="ghost"
+                  size="sm"
+                  :icon="pinned.has(session.id) ? 'arrow-down' : 'arrow-up'"
+                  icon-only
+                  :label="`${pinned.has(session.id) ? 'Unpin' : 'Pin'} ${titleOf(session)}`"
+                  @click="togglePin(session.id)"
+                />
+                <BaseButton v-if="session.running" variant="ghost" size="sm" icon="stop" icon-only :label="`Stop ${titleOf(session)}`" @click="emit('cancel', session.id)" />
+                <BaseButton variant="ghost" size="sm" icon="edit" icon-only :label="`Rename ${titleOf(session)}`" @click="startRename(session)" />
+                <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete ${titleOf(session)}`" @click="emit('delete', session.id)" />
+              </span>
+            </li>
+          </ul>
+        </section>
       </div>
-      </template>
-    </div>
+    </template>
   </div>
 </template>
-
-<style scoped lang="postcss">
-.session-panel {
-  @apply h-full w-full flex flex-col bg-gray-800/80 overflow-hidden;
-}
-
-.session-panel--mobile {
-  @apply bg-gray-800;
-}
-
-.session-panel-header {
-  @apply flex items-center justify-between px-3 py-2.5 border-b border-white/5 shrink-0;
-}
-
-.session-panel-title {
-  @apply text-xs font-bold uppercase tracking-wider text-gray-400;
-}
-
-.header-actions {
-  @apply flex items-center gap-1;
-}
-
-.btn-header-icon {
-  @apply p-1.5 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors transition-transform duration-150 flex items-center justify-center;
-}
-.btn-header-icon:active { @apply scale-95; }
-
-.btn-close {
-  @apply hover:bg-red-500/15 hover:text-red-400;
-}
-
-.empty-sessions {
-  @apply p-4 text-xs text-center text-gray-500 italic;
-}
-
-.session-list {
-  @apply flex-1 overflow-y-auto;
-}
-
-.session-group-header {
-  @apply flex items-center gap-1 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 cursor-pointer select-none;
-}
-.session-group-header:hover {
-  @apply text-gray-400;
-}
-
-.fold-icon {
-  @apply shrink-0;
-}
-
-.fold-label {
-  @apply flex-1;
-}
-
-.btn-group-delete {
-  @apply p-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/15 transition-colors;
-}
-
-.session-row {
-  @apply relative flex items-center px-3 py-2.5 cursor-pointer transition-all duration-150;
-  border-left: 3px solid transparent;
-}
-
-.session-row:hover {
-  @apply bg-white/[0.04];
-}
-
-.session-row--active {
-  background-color: rgba(59, 130, 246, 0.08);
-  border-left-color: rgb(59, 130, 246);
-}
-
-.session-item {
-  @apply flex flex-col gap-0.5 text-left min-w-0 flex-1 bg-transparent border-none cursor-pointer self-stretch justify-center;
-}
-
-.session-item-row {
-  @apply flex items-center gap-1.5 min-w-0;
-}
-
-.session-source {
-  @apply text-[11px] shrink-0;
-}
-
-.session-dot {
-  @apply text-blue-500 text-[10px] shrink-0;
-}
-
-.session-snippet {
-  @apply text-sm text-gray-200 truncate font-medium min-w-0;
-}
-
-.session-time {
-  @apply text-[10px] text-gray-500 font-mono;
-}
-
-.rename-form {
-  @apply flex-1;
-}
-
-.rename-input {
-  @apply w-full bg-gray-900 border border-blue-500 rounded px-2 py-1 text-sm text-gray-200 outline-none;
-}
-
-.session-actions {
-  @apply hidden gap-0.5 ml-2 shrink-0;
-}
-.session-row:hover .session-actions {
-  @apply flex;
-}
-
-.btn-action-icon {
-  @apply p-1 rounded hover:bg-gray-700/50 text-gray-500 hover:text-gray-300 transition-colors;
-}
-
-.btn-cancel {
-  @apply text-orange-400;
-}
-.btn-cancel:hover {
-  @apply bg-orange-500/15 text-orange-300;
-}
-
-.btn-delete:hover {
-  @apply hover:bg-red-500/15 hover:text-red-400;
-}
-</style>

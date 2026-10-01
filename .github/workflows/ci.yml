@@ -45,6 +45,17 @@ jobs:
       - name: Scan history
         run: ./gitleaks detect --source . --config .gitleaks.toml --redact --log-opts=HEAD
 
+  # Cheap, dependency-free gate: catches dead links, catalog drift, and malformed
+  # skill frontmatter in the agent instructions. No Go/Node setup needed.
+  agent-harness:
+    name: Agent harness consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check agent docs, skills, and catalogs
+        run: bash ./scripts/check-agent-harness.sh
+
   backend:
     name: Backend (build, vet, complexity, test, coverage)
     runs-on: ubuntu-latest

@@ -1,5 +1,8 @@
 import type { Automation, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../../types/dispatcher'
+import type { WorkspaceTree } from '../../types/workspace'
+import type { AutomationPayload } from '../../types/automation'
 import { get, post, put, del } from '../httpClient'
+import { encodeFilePath } from '../../utils/workspace/filePath'
 
 const BASE_URL = '/admin/api/dispatcher'
 const RECORDINGS_URL = '/admin/api/recordings'
@@ -29,32 +32,34 @@ export const DispatcherService = {
     return post<void>(`${BASE_URL}/workspaces`, { id })
   },
 
-  async listWorkspaceFiles(workspace: string): Promise<string[]> {
-    return get<string[]>(`${BASE_URL}/workspaces/${workspace}/files`)
+  // Bounded recursive listing: files and directories, workspace-relative paths.
+  async listWorkspaceTree(workspace: string): Promise<WorkspaceTree> {
+    return get<WorkspaceTree>(`${BASE_URL}/workspaces/${workspace}/tree`)
   },
 
+  // File paths may be nested; encodeFilePath keeps the separators.
   async readWorkspaceFile(workspace: string, file: string): Promise<string> {
-    const data = await get<{ content: string }>(`${BASE_URL}/workspaces/${workspace}/files/${file}`)
+    const data = await get<{ content: string }>(`${BASE_URL}/workspaces/${workspace}/files/${encodeFilePath(file)}`)
     return data.content
   },
 
   async writeWorkspaceFile(workspace: string, file: string, content: string): Promise<void> {
-    return put<void>(`${BASE_URL}/workspaces/${workspace}/files/${file}`, { content })
+    return put<void>(`${BASE_URL}/workspaces/${workspace}/files/${encodeFilePath(file)}`, { content })
   },
 
   async deleteWorkspaceFile(workspace: string, file: string): Promise<void> {
-    return del<void>(`${BASE_URL}/workspaces/${workspace}/files/${file}`)
+    return del<void>(`${BASE_URL}/workspaces/${workspace}/files/${encodeFilePath(file)}`)
   },
 
   async deleteWorkspace(workspace: string): Promise<void> {
     return del<void>(`${BASE_URL}/workspaces/${workspace}`)
   },
 
-  async createAutomation(workspace: string, automation: Automation): Promise<void> {
+  async createAutomation(workspace: string, automation: AutomationPayload): Promise<void> {
     return post<void>(`${BASE_URL}/workspaces/${workspace}/automations`, automation)
   },
 
-  async updateAutomation(workspace: string, oldName: string, automation: Automation): Promise<void> {
+  async updateAutomation(workspace: string, oldName: string, automation: AutomationPayload): Promise<void> {
     return put<void>(`${BASE_URL}/workspaces/${workspace}/automations/${oldName}`, automation)
   },
 

@@ -1,0 +1,59 @@
+{
+  "global": {
+    "block_secrets": false,
+    "user_blocked_patterns": [
+      "AKIA"
+    ]
+  },
+  "terminal": {
+    "enabled": true,
+    "allowed_commands": [
+      "ls",
+      "cat"
+    ],
+    "allowed_env_vars": [
+      "PATH"
+    ],
+    "blocked_patterns": [
+      "rm -rf"
+    ],
+    "path_extensions": [],
+    "allowed_external_paths": [],
+    "timeout_seconds": 30,
+    "session_idle_timeout_seconds": 1800,
+    "max_output_size_chars": 10000
+  },
+  "search": {
+    "enabled": false,
+    "max_query_len": 200,
+    "blocked_sites": []
+  },
+  "communication": {
+    "enabled": false,
+    "require_review": true,
+    "max_messages_per_task": 10
+  },
+  "filesystem": {
+    "enabled": true,
+    "allowed_paths": [
+      "."
+    ],
+    "read_only": false,
+    "max_file_size_kb": 1024,
+    "allowed_extensions": [
+      ".md"
+    ],
+    "blocked_filenames": [
+      ".env"
+    ]
+  },
+  "network": {
+    "enabled": true,
+    "allow_lan_access": true,
+    "allow_internet_access": true,
+    "blocked_domains": [],
+    "blocked_ips": [],
+    "max_fetch_size_kb": 5000,
+    "timeout_seconds": 30
+  }
+}

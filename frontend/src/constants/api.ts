@@ -3,6 +3,7 @@ const API_BASE = '/admin/api'
 
 export const API_ENDPOINTS = {
   state: `${API_BASE}/state`,
+  version: `${API_BASE}/version`,
   metrics: `${API_BASE}/metrics`,
   logs: `${API_BASE}/logs`,
   appLogs: `${API_BASE}/app-logs/tail`,

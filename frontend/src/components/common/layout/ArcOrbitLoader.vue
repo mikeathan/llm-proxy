@@ -1,13 +1,12 @@
 <script setup lang="ts">
+// The accent comes from the theme (--accent-info), so the ring follows it.
 withDefaults(defineProps<{
   active: boolean
   radius?: string
   thickness?: number
-  color?: string
 }>(), {
-  radius: '1rem',
+  radius: 'var(--radius-md)',
   thickness: 1.5,
-  color: '129, 140, 248',
 })
 </script>
 
@@ -30,7 +29,7 @@ withDefaults(defineProps<{
   pointer-events: none;
   opacity: 0;
   z-index: 1;
-  transition: opacity 0.4s ease-out;
+  transition: opacity var(--motion-slow) var(--ease-standard);
 }
 .arc-orbit-loader.is-active { opacity: 1; }
 .arc-orbit-loader::before {
@@ -43,7 +42,7 @@ withDefaults(defineProps<{
     from 0deg,
     transparent 0deg,
     transparent 240deg,
-    rgba(v-bind(color), 1) 300deg,
+    rgb(var(--accent-info)) 300deg,
     transparent 360deg
   );
   -webkit-mask:

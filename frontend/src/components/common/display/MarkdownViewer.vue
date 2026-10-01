@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '../../../utils/markdown/renderMarkdown'
 
 const props = defineProps<{
   content: string
@@ -20,11 +20,9 @@ const htmlContent = computed(() => {
     raw = match[1];
   }
 
-  const html = marked(raw, {
-    gfm: true,
-    breaks: true,
-  })
-  return html
+  // Model-written text: rendered through the one safe markdown path (raw HTML
+  // escaped, unsafe URL schemes dropped) before it reaches v-html.
+  return renderMarkdown(raw)
 })
 </script>
 
@@ -35,7 +33,7 @@ const htmlContent = computed(() => {
 
 <style scoped lang="postcss">
 .markdown-body {
-  @apply text-gray-300 antialiased;
+  @apply text-secondary antialiased;
 }
 
 /* Tighter spacing for ide layout */
@@ -46,7 +44,7 @@ const htmlContent = computed(() => {
 .markdown-body :deep(h1), 
 .markdown-body :deep(h2), 
 .markdown-body :deep(h3) {
-  @apply text-gray-100 font-bold mt-4 mb-2 tracking-tight;
+  @apply text-primary font-bold mt-4 mb-2 tracking-tight;
 }
 
 .markdown-body :deep(h3) { @apply text-[13px]; }
@@ -55,15 +53,15 @@ const htmlContent = computed(() => {
 
 /* Ensure code blocks look like terminal windows */
 .markdown-body :deep(pre) {
-  @apply bg-[#0d1117] border border-gray-800 rounded-lg p-5 overflow-x-auto mb-6 font-mono shadow-inner !important;
+  @apply bg-surface-raised border border-hairline rounded-[var(--radius-sm)] p-5 overflow-x-auto mb-6 font-mono !important;
 }
 
 .markdown-body :deep(code) {
-  @apply font-mono text-[0.85em] text-blue-300 bg-blue-900/10 px-1 py-0.5 rounded;
+  @apply font-mono text-[0.85em] text-accent-info-text bg-accent-info/[0.08] px-1 py-0.5 rounded-[2px];
 }
 
 .markdown-body :deep(pre code) {
-  @apply block p-0 bg-transparent border-0 leading-tight text-gray-300 !important;
+  @apply block p-0 bg-transparent border-0 leading-tight text-secondary !important;
 }
 
 /* Professional table styling */
@@ -72,10 +70,10 @@ const htmlContent = computed(() => {
 }
 
 .markdown-body :deep(th) {
-  @apply bg-gray-800/50 text-gray-100 font-bold p-2 border border-gray-700 text-left;
+  @apply bg-surface-raised text-primary font-bold p-2 border border-control text-left;
 }
 
 .markdown-body :deep(td) {
-  @apply p-2 border border-gray-700 text-gray-300;
+  @apply p-2 border border-control text-secondary;
 }
 </style>

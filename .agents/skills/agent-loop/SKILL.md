@@ -1,8 +1,6 @@
 ---
 name: agent-loop
 description: "Agent-loop mechanics (reference): execution flow, structural/reactive sieve, stuck/spiral detection, reasoning budget, fallback chain, GBNF, and key constants. Load alongside debugging when the failure is in the loop."
-when_to_use: "Loop mechanics: sieving/pruning, stuck or spiral detection, completion, fallback chain, reasoning budget, or grammar."
-status: reference
 last_reviewed: 2026-09-26
 ---
 
@@ -15,6 +13,10 @@ last_reviewed: 2026-09-26
 ---
 
 ## Execution Flow
+
+`session.run()` resolves the configured **loop strategy** and dispatches to it (SPEC-010: `react` is
+the default; `plan_execute` and `evaluator_optimizer` are registered in `loop_strategy.go`). The
+diagram below is the shared turn path every strategy composes.
 
 ```
 executor.go Execute()
@@ -71,7 +73,7 @@ Note: local/GGUF models now auto-derive a think-token budget from `max_tokens` (
 - 2nd consecutive stuck → aggressive sieve (first 2 + last 3 messages) + stronger nag
 - 3rd consecutive stuck → agent fails with clear error
 
-**Stuck detection is skipped on XML fallback retries** (the `skipStuckCheck` flag).
+**Stuck detection is skipped on XML fallback retries** (the `SkipStuckCheck` config flag).
 
 ## Natural Completion vs Control Plane
 
@@ -261,9 +263,10 @@ raw, _ := json.Marshal(result)
 a.appendToolResult(history, tc, string(raw))
 ```
 
-## executePlan Execution (Plan Bypass Path)
+## executePlan Execution (plan_execute primitive)
 
-When the model emits a multi-step plan (legacy `execute_plan` tool), it bypasses the standard turn loop:
+`executePlan` is the shared plan primitive used by `PlanExecuteStrategy` (SPEC-010); the old
+`execute_plan` tool is gone. When a plan is generated it bypasses the standard turn loop:
 
 - **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), plan fails before any step executes.
 - **Plan-level timeout:** whole plan wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 min).
@@ -275,7 +278,7 @@ When the model emits a multi-step plan (legacy `execute_plan` tool), it bypasses
 
 ## Important Gotchas
 
-- Do NOT terminate on reasoning budget exceeded (#19 in AGENTS.md). The server enforces it.
+- Do NOT terminate on reasoning budget exceeded. The server enforces it; the proxy only warns.
 - Do NOT change `streamReasoningBudgetDivisor` from 3. Divisor 4 caused recompilation loops.
 - The `budgetWarned` flag prevents log spam — warning fires once per stream, not 200+ times.
 - Empty stream fallback must use XML streaming, NOT Chat directly (the Chat path was the old buggy behaviour).

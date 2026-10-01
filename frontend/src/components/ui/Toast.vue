@@ -1,91 +1,58 @@
 <script setup lang="ts">
 import { useToast } from "../../composables/useToast";
-import { TOAST_SUCCESS, TOAST_ERROR, TOAST_WARNING, TOAST_INFO, TOAST_CLOSE } from "../../constants/icons";
+import { TOAST_SUCCESS, TOAST_ERROR, TOAST_WARNING, TOAST_INFO } from "../../constants/icons";
+import type { ToastType } from "../../types/ui";
+import BaseButton from "../common/buttons/BaseButton.vue";
 
+// Transient notices, announced through one polite live region; an error is
+// also role="alert" so it is announced at once. Each can be dismissed by its
+// named button or by clicking it.
 const { toasts, remove } = useToast();
+
+const MARK: Record<ToastType, string> = { success: TOAST_SUCCESS, error: TOAST_ERROR, warning: TOAST_WARNING, info: TOAST_INFO };
+const TONE: Record<ToastType, string> = {
+  success: "border-l-state-success text-state-success",
+  error: "border-l-state-error text-state-error",
+  warning: "border-l-state-running text-state-running",
+  info: "border-l-accent-info text-accent-info-text",
+};
 </script>
 
 <template>
-  <div class="toast-container">
+  <div aria-live="polite" class="pointer-events-none fixed bottom-6 right-6 z-[9999] flex max-w-[calc(100vw-3rem)] flex-col gap-3">
     <TransitionGroup name="toast">
       <div
         v-for="toast in toasts"
         :key="toast.id"
-        class="toast-item"
-        :class="`toast-item--${toast.type}`"
+        :role="toast.type === 'error' ? 'alert' : undefined"
+        :class="[
+          'pointer-events-auto flex w-[360px] max-w-full cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] border border-l-2 border-strong bg-surface px-3 py-2.5',
+          TONE[toast.type],
+        ]"
         @click="remove(toast.id)"
       >
-        <div class="toast-icon">
-          <span v-if="toast.type === 'success'">{{ TOAST_SUCCESS }}</span>
-          <span v-else-if="toast.type === 'error'">{{ TOAST_ERROR }}</span>
-          <span v-else-if="toast.type === 'warning'">{{ TOAST_WARNING }}</span>
-          <span v-else>{{ TOAST_INFO }}</span>
-        </div>
-        <div class="toast-content">
-          {{ toast.message }}
-        </div>
-        <button class="toast-close" @click.stop="remove(toast.id)">{{ TOAST_CLOSE }}</button>
+        <span aria-hidden="true" class="flex-none font-mono text-[length:var(--text-small)] font-semibold">{{ MARK[toast.type] }}</span>
+        <span class="min-w-0 flex-1 break-words text-[length:var(--text-small)] text-primary">{{ toast.message }}</span>
+        <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Dismiss notification" @click.stop="remove(toast.id)" />
       </div>
     </TransitionGroup>
   </div>
 </template>
 
-<style scoped lang="postcss">
-.toast-container {
-  @apply fixed bottom-6 right-6 flex flex-col gap-3 pointer-events-none;
-  z-index: 9999;
-}
-
-.toast-item {
-  @apply pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border
-         min-w-[300px] max-w-md cursor-pointer transition-all duration-300;
-}
-
-.toast-item--success {
-  @apply bg-emerald-950/90 border-emerald-500/30 text-emerald-200;
-}
-
-.toast-item--error {
-  @apply bg-rose-950/90 border-rose-500/30 text-rose-200;
-}
-
-.toast-item--warning {
-  @apply bg-amber-950/90 border-amber-500/30 text-amber-200;
-}
-
-.toast-item--info {
-  @apply bg-blue-950/90 border-blue-500/30 text-blue-200;
-}
-
-.toast-icon {
-  @apply flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-white/10 font-bold text-sm;
-}
-
-.toast-content {
-  @apply flex-1 text-sm font-medium leading-relaxed;
-}
-
-.toast-close {
-  @apply opacity-50 hover:opacity-100 text-lg leading-none transition-opacity;
-}
-
-/* Animations */
+<style scoped>
 .toast-enter-active,
 .toast-leave-active {
-  @apply transition-all duration-500;
-  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  transition: opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
 }
-
 .toast-enter-from {
-  @apply opacity-0 translate-y-4 scale-90 blur-sm;
+  opacity: 0;
+  transform: translateY(8px);
 }
-
 .toast-leave-to {
-  @apply opacity-0 translate-x-8 scale-95;
+  opacity: 0;
+  transform: translateX(16px);
 }
-
 .toast-move {
-  @apply transition-transform duration-500;
-  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 </style>

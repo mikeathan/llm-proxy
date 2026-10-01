@@ -35,6 +35,30 @@ const (
 	SandboxRunDir = "/run"
 )
 
+// TreeEntryType is the kind of a workspace tree entry.
+type TreeEntryType string
+
+const (
+	TreeEntryFile TreeEntryType = "file"
+	TreeEntryDir  TreeEntryType = "dir"
+)
+
+// TreeEntry is one path in a workspace file tree (GET …/workspaces/{ws}/tree).
+// Path is workspace-root-relative and slash-separated. Collapsed marks a heavy
+// directory (node_modules, .venv, …) that is listed but not descended into.
+type TreeEntry struct {
+	Path      string        `json:"path"`
+	Type      TreeEntryType `json:"type"`
+	Collapsed bool          `json:"collapsed,omitempty"`
+}
+
+// WorkspaceTree is a bounded recursive listing of a workspace, sorted by path.
+// Truncated reports that the entry cap cut off deeper entries.
+type WorkspaceTree struct {
+	Entries   []TreeEntry `json:"entries"`
+	Truncated bool        `json:"truncated"`
+}
+
 // TriggerConfig describes a trigger for an automation.
 type TriggerConfig struct {
 	Type  TriggerType `yaml:"type"  json:"type"`  // "cron" | "interval" | "manual"

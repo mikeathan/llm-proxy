@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from "vue";
+import { motionScroll } from "../../utils/motion";
 
 /**
  * Auto-scroll composable.
@@ -44,7 +45,7 @@ export function useAutoScroll(threshold = 50, idleMs = 2000) {
 
   function scrollTo(target: HTMLElement | null, behavior: ScrollBehavior = "instant") {
     if (!target) return;
-    target.scrollTo({ top: target.scrollHeight, behavior });
+    target.scrollTo({ top: target.scrollHeight, behavior: motionScroll(behavior) });
   }
 
   /** Consumers call this on every content change. */
@@ -76,7 +77,7 @@ export function useAutoScroll(threshold = 50, idleMs = 2000) {
   /** Force scroll to top regardless of user position. */
   function scrollToTop(el?: HTMLElement | null, behavior: ScrollBehavior = "smooth") {
     const target = el ?? container.value ?? null;
-    target?.scrollTo({ top: 0, behavior });
+    target?.scrollTo({ top: 0, behavior: motionScroll(behavior) });
   }
 
   /**

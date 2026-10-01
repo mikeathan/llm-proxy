@@ -173,3 +173,47 @@ func TestWriteAtomic_userContentFileMode(t *testing.T) {
 		t.Errorf("user content file mode = %o, want 0644", fi.Mode().Perm())
 	}
 }
+
+// TestWriteAtomicInRoot covers the root-scoped atomic write used for workspace
+// files: nested names (the temp file lives beside the target, so no path
+// separator reaches the temp pattern), the class file mode, no leftover temp
+// file, and refusal to write through a symlink that leaves the root.
+func TestWriteAtomicInRoot(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	t.Run("nested name round-trips with the class mode", func(t *testing.T) {
+		if err := WriteAtomicInRoot(root, "sub/deep/task.md", []byte("hi"), ClassUserContent); err != nil {
+			t.Fatalf("WriteAtomicInRoot: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, "sub", "deep", "task.md"))
+		if err != nil || string(data) != "hi" {
+			t.Fatalf("read back = %q, %v", data, err)
+		}
+		fi, _ := os.Stat(filepath.Join(dir, "sub", "deep", "task.md"))
+		if fi.Mode().Perm() != 0o644 {
+			t.Errorf("file mode = %o, want 0644", fi.Mode().Perm())
+		}
+		entries, _ := os.ReadDir(filepath.Join(dir, "sub", "deep"))
+		if len(entries) != 1 {
+			t.Errorf("leftover temp files: %v", entries)
+		}
+	})
+
+	t.Run("symlinked directory leaving the root is refused", func(t *testing.T) {
+		outside := t.TempDir()
+		if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteAtomicInRoot(root, "escape/pwned.md", []byte("x"), ClassUserContent); err == nil {
+			t.Fatal("expected an error writing through an escaping symlink")
+		}
+		if _, err := os.Stat(filepath.Join(outside, "pwned.md")); !os.IsNotExist(err) {
+			t.Fatalf("file was written outside the root: %v", err)
+		}
+	})
+}

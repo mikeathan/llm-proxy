@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { triggerAutomationMock, cancelQueuedMock, listAutomationsMock, show, clear } = vi.hoisted(() => ({
+const { triggerAutomationMock, cancelQueuedMock, listAutomationsMock, listWorkspaceTreeMock, show, clear } = vi.hoisted(() => ({
+  listWorkspaceTreeMock: vi.fn(),
   triggerAutomationMock: vi.fn(),
   cancelQueuedMock: vi.fn(),
   listAutomationsMock: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('../../../services/automation/dispatcherService', () => ({
     triggerAutomation: triggerAutomationMock,
     cancelQueued: cancelQueuedMock,
     listAutomations: listAutomationsMock,
+    listWorkspaceTree: listWorkspaceTreeMock,
   },
 }))
 
@@ -63,5 +65,16 @@ describe('useDispatcher', () => {
     await useDispatcher().triggerAutomation('ws', 'nightly')
 
     expect(show).not.toHaveBeenCalled()
+  })
+
+  it('fetchWorkspaceTree keeps the tree and derives the nested file list from it', async () => {
+    listWorkspaceTreeMock.mockResolvedValue({
+      entries: [{ path: 'docs', type: 'dir' }, { path: 'docs/plan.md', type: 'file' }, { path: 'task.md', type: 'file' }],
+      truncated: false,
+    })
+    const { fetchWorkspaceTree, workspaceTrees, workspaceFiles } = useDispatcher()
+    await fetchWorkspaceTree('ws')
+    expect(workspaceTrees.value.ws?.entries).toHaveLength(3)
+    expect(workspaceFiles.value.ws).toEqual(['docs/plan.md', 'task.md'])
   })
 })

@@ -230,12 +230,12 @@ func TestWorkspaceService_Lifecycle(t *testing.T) {
 		t.Errorf("expected 'hello', got %q", content)
 	}
 
-	files, err := svc.ListFiles(wsID)
+	tree, err := svc.ListTree(wsID)
 	if err != nil {
-		t.Fatalf("ListFiles: %v", err)
+		t.Fatalf("ListTree: %v", err)
 	}
-	if len(files) == 0 {
-		t.Error("expected at least one file")
+	if len(tree.Entries) == 0 {
+		t.Error("expected at least one entry")
 	}
 
 	if err := svc.DeleteTaskFile(wsID, "notes.txt"); err != nil {

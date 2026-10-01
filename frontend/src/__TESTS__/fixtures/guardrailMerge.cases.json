@@ -1,0 +1,821 @@
+[
+  {
+    "name": "no workspace layer inherits everything",
+    "workspace": null,
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "an empty layer (seeded session idle and network) changes nothing",
+    "workspace": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": []
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [],
+        "allowed_env_vars": [],
+        "blocked_patterns": [],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 0,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": false,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 0,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "lists are unioned, never shortened",
+    "workspace": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "ghp_"
+        ]
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [
+          "git",
+          "ls"
+        ],
+        "allowed_env_vars": [],
+        "blocked_patterns": [
+          "curl"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [
+          "/mnt/data"
+        ],
+        "timeout_seconds": 0,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": false,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 0,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA",
+          "ghp_"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat",
+          "git"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf",
+          "curl"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [
+          "/mnt/data"
+        ],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "switches can only be turned on",
+    "workspace": {
+      "global": {
+        "block_secrets": true,
+        "user_blocked_patterns": []
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [],
+        "allowed_env_vars": [],
+        "blocked_patterns": [],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 0,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": true,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": true,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 0,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": true,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": true,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": true,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "positive numbers replace, zero inherits",
+    "workspace": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": []
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [],
+        "allowed_env_vars": [],
+        "blocked_patterns": [],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 90,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": false,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 100,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 90,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 100,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "session idle always comes from the layer, even zero",
+    "workspace": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": []
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [],
+        "allowed_env_vars": [],
+        "blocked_patterns": [],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 0,
+        "session_idle_timeout_seconds": 0,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": false,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 0,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 0,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "a layer sets its own network access, restricting or loosening",
+    "workspace": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": []
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [],
+        "allowed_env_vars": [],
+        "blocked_patterns": [],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 0,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": false,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": false,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 0,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": true,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": false,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  },
+  {
+    "name": "require review can only be turned off",
+    "workspace": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": []
+      },
+      "terminal": {
+        "enabled": false,
+        "allowed_commands": [],
+        "allowed_env_vars": [],
+        "blocked_patterns": [],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 0,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 0
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 0,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": false,
+        "max_messages_per_task": 0
+      },
+      "filesystem": {
+        "enabled": false,
+        "allowed_paths": [],
+        "read_only": false,
+        "max_file_size_kb": 0,
+        "allowed_extensions": [],
+        "blocked_filenames": []
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 0,
+        "timeout_seconds": 0
+      }
+    },
+    "effective": {
+      "global": {
+        "block_secrets": false,
+        "user_blocked_patterns": [
+          "AKIA"
+        ]
+      },
+      "terminal": {
+        "enabled": true,
+        "allowed_commands": [
+          "ls",
+          "cat"
+        ],
+        "allowed_env_vars": [
+          "PATH"
+        ],
+        "blocked_patterns": [
+          "rm -rf"
+        ],
+        "path_extensions": [],
+        "allowed_external_paths": [],
+        "timeout_seconds": 30,
+        "session_idle_timeout_seconds": 1800,
+        "max_output_size_chars": 10000
+      },
+      "search": {
+        "enabled": false,
+        "max_query_len": 200,
+        "blocked_sites": []
+      },
+      "communication": {
+        "enabled": false,
+        "require_review": false,
+        "max_messages_per_task": 10
+      },
+      "filesystem": {
+        "enabled": true,
+        "allowed_paths": [
+          "."
+        ],
+        "read_only": false,
+        "max_file_size_kb": 1024,
+        "allowed_extensions": [
+          ".md"
+        ],
+        "blocked_filenames": [
+          ".env"
+        ]
+      },
+      "network": {
+        "enabled": true,
+        "allow_lan_access": true,
+        "allow_internet_access": true,
+        "blocked_domains": [],
+        "blocked_ips": [],
+        "max_fetch_size_kb": 5000,
+        "timeout_seconds": 30
+      }
+    }
+  }
+]

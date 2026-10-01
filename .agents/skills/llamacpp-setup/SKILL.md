@@ -1,14 +1,12 @@
 ---
 name: llamacpp-setup
 description: "Local llama.cpp server setup: arguments, GPU tuning, systemd, and performance data. Use when configuring or tuning a local model server."
-when_to_use: "Configuring or tuning a local llama.cpp server, GPU flags, systemd, or performance."
-status: reference
 last_reviewed: 2026-07-11
 ---
 
 # llama.cpp Server — Setup, Args & Tuning
 
-**Source docs:** `docs/llama_cpp_setup`, `docs/services/llm-proxy.service`, `docs/audits/memory-injection-investigation.md`
+**Source docs:** `docs/services/llm-proxy.service`, `docs/audits/gpu-performance-audit.md`, `docs/PLANS/gpu-performance.md`
 
 ---
 

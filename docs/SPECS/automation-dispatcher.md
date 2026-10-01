@@ -1,15 +1,21 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.2"
+version: "1.3"
 status: stable
-last_updated: 2026-09-25
+last_updated: 2026-09-29
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 ---
 
 # SPEC: Automation Dispatcher
+
+## Changelog
+
+- **1.3 (2026-09-29)** — Reference correction (no behavior change): the SSE / `events.jsonl` event
+  vocabulary now lists the actual `assistant.AgentEvent` types + `lifecycle` phases (there is no
+  `run_completed` event); the JSONL sink type is `eventbus.Sink`.
 
 ## I. Intent
 
@@ -45,8 +51,10 @@ of run events to the frontend.
 ### 4. SSE Streaming
 
 - `/dispatcher/workspaces/{ws}/live` — SSE endpoint for per-workspace live events.
-- Events: `step_start`, `tool_call`, `tool_result`, `stuck_detected`, `fallback_*`,
-  `guardrails:blocked`, `guardrails:resolved`, `run_completed`, `error`.
+- Events: the shared `assistant.AgentEvent` types — `step_start`, `message`, `tool_call`,
+  `tool_result`, `reasoning`, `tool_stream`, `guardrail_violation`/`guardrail_blocked`/
+  `guardrail_invalidated`, `upstream`, `error` — plus `lifecycle` phases (`session_started`/
+  `progress`/`completed`, `stuck_detected`, `fallback_*`, `agent_thinking`, `still_thinking`).
 - `Bus` in `internal/core/eventbus` manages per-workspace, per-channel pub/sub
   (`Subscribe`/`Publish`/`Unsubscribe`); `Sink` writes the same events to a per-run JSONL file.
 
@@ -55,7 +63,7 @@ of run events to the frontend.
 Each run produces:
 - `run-meta.json` — machine-readable metadata (model, status, steps, duration).
 - `events.jsonl` — structured event stream (lifecycle events with timestamps). The in-memory
-  `EventSink` is thread-safe, buffers writes and flushes per write, and fsyncs periodically
+  `eventbus.Sink` is thread-safe, buffers writes and flushes per write, and fsyncs periodically
   (1s interval) plus once on `Close` — a crash loses at most one sync interval of events.
   In-RAM capture per run is bounded to the most recent 500 events (the full stream lives in
   `events.jsonl`); `recordRun` drops the older slice to bound memory under concurrent long runs.
@@ -130,7 +138,8 @@ Every agent run — chat and automation — is admitted through the
 - **Global run visibility** — lane state is **global** (`Scheduler.Snapshot()`
   takes no arguments), so exactly one route exposes it: `GET
   /admin/api/active-runs` with **no workspace path parameter**, returning
-  `lane_holders` / `queued`. `GET /workspaces/{ws}/active-runs` carries **only**
+  `lane_holders` / `queued` and `lanes` (per lane: `lane`, `limit`, `running`,
+  `waiting`, `holder_keys` — idle lanes included; inbound callers hold no lane slot). `GET /workspaces/{ws}/active-runs` carries **only**
   the workspace-scoped fields (`assistant_running`, `automation_running`,
   `assistant_conversation_id`, `assistant_queued`). The frontend polls the global
   route once (`useGlobalRunActivity`, 10 s) and shares that state between the

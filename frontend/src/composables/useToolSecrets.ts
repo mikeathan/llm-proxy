@@ -1,4 +1,4 @@
-import { ref } from "vue"
+import { computed, ref } from "vue"
 import type { Ref } from "vue"
 import { AdminApiService } from "../services/admin/adminService"
 
@@ -7,6 +7,13 @@ import { AdminApiService } from "../services/admin/adminService"
 // every named entry in that category is tracked independently.
 export function useToolSecrets(category: string) {
   const tokens = ref<Record<string, { masked: string; dirty: string | null }>>({})
+  // A typed token waits for the section's Save, like any other unsaved edit.
+  const isDirty = computed(() => Object.values(tokens.value).some((tok) => tok.dirty !== null))
+
+  // Drops every typed, unsaved token (the stored masks stay).
+  function discard() {
+    for (const tok of Object.values(tokens.value)) tok.dirty = null
+  }
 
   async function load(name: string) {
     try {
@@ -54,5 +61,5 @@ export function useToolSecrets(category: string) {
     }
   }
 
-  return { tokens, load, ensureTracked, saveDirty, clear }
+  return { tokens, isDirty, load, ensureTracked, saveDirty, clear, discard }
 }

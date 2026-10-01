@@ -32,8 +32,9 @@ defineProps<{
   color: #9ca3af;
 }
 .tooltip-text {
-  visibility: hidden;
-  opacity: 0;
+  /* Hidden hints take no layout space: an invisible one still widened the
+     page and caused horizontal scrolling on narrow screens. */
+  display: none;
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
@@ -43,17 +44,15 @@ defineProps<{
   font-size: 11px;
   padding: 6px 10px;
   border-radius: 6px;
-  white-space: nowrap;
+  width: max-content;
   max-width: 280px;
   border: 1px solid #374151;
   pointer-events: none;
-  transition: opacity 0.15s;
   z-index: 20;
   line-height: 1.4;
   text-align: center;
 }
 .tooltip-wrap:hover .tooltip-text {
-  visibility: visible;
-  opacity: 1;
+  display: block;
 }
 </style>

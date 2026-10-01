@@ -1,8 +1,6 @@
 ---
 name: assistant-ui-chat
 description: "Assistant chat UI architecture: event handlers, the segment system, inactivity timer, SSE timing, scroll behavior, and common pitfalls. Use when changing the chat view or its SSE handling."
-when_to_use: "Changing the assistant chat view, streamed rendering, segments, thinking indicator, or auto-scroll."
-status: reference
 last_reviewed: 2026-07-11
 ---
 
@@ -245,7 +243,7 @@ The dots NEVER appear while text is streaming. The user needs to see the text, n
 forward-looking `docs/PLANS/gpu-performance.md`):**
 - **Never leave a CSS animation running on a hidden/invisible element.** CSS animations run even at `opacity: 0` / `visibility: hidden`. Every animation is gated to its visible state — the arc-orbit animation lives on `.arc-orbit-loader.is-active::before`, and the thinking-gap dots animate only under `.bubble-paused:not(.bubble-paused--hidden)`.
 - **`content-visibility: auto` on non-live turns** (`.message-wrapper--virtualized`, applied when `!(loading && isLastTurn)`) skips paint/composite of offscreen history so a growing session doesn't re-composite the whole pane. `contain-intrinsic-size: auto 120px` keeps scroll heights stable.
-- **Avoid `backdrop-blur` on always-visible elements** — each layer is a constant macOS compositing cost. `RightPane` pulse-container and `MetricsPulse` use solid `bg-gray-900` instead.
+- **Avoid `backdrop-blur` on always-visible elements** — each layer is a constant macOS compositing cost. Always-visible chrome (the sidebar rail, the top strip) uses solid token backgrounds (`bg-canvas`) instead.
 - The live reasoning box renders via `MarkdownViewer` (restored 2026-08-28 — GPU-neutral),
   throttled 100ms flush / 250ms outer auto-scroll; the inset keeps its 320px cap + internal
   scroll. Parity check (2026-08-05): same browser, Gemini ≈3% GPU vs llm-proxy ≈30% — the
@@ -272,7 +270,7 @@ The `.bubble-inset` (reasoning/tool panel) is shown via **`v-show` (kept mounted
 
 - `watch(segments.length)` scrolls the new segment into view (`behavior: instant`, `block: nearest`)
 - **There is NO `watch(messages)` that calls `scrollToBottom()`**. This was removed because it fires on EVERY stream chunk (every 10-50ms), constantly recalculating scroll position and causing visible flickering at the bottom edge of the bubble.
-- User has scrolled up: `scrollSegmentIntoView` still scrolls new segments into view (the user sees the new tool call/reasoning segment even if scrolled up).
+- User has scrolled up: `useAutoScroll` pauses following immediately. If new content arrives and the user stops scrolling for `idleMs` (2s), it resumes and snaps to the bottom; scrolling back to the bottom re-arms it right away. A finished/static conversation stays paused.
 
 ## Turn Grouper (`turnGrouper.ts`)
 

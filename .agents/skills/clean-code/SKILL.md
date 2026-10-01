@@ -1,8 +1,6 @@
 ---
 name: clean-code
 description: "Language-agnostic clean-code practices: naming, functions, comments, formatting, boundaries, error handling, tests, SOLID, emergent design, concurrency, and a smells checklist. Use when writing or reviewing code."
-when_to_use: "Writing, refactoring, or reviewing code; naming/function/comment smells; design tradeoffs."
-status: reference
 last_reviewed: 2026-09-06
 ---
 
@@ -94,7 +92,7 @@ A name is the cheapest documentation you will ever write.
   third. Premature abstraction is as costly as duplication.
 - **Structure**: use guard clauses / early returns; keep the happy path
   unindented; no deep nesting (≤3 levels). Keep the function within the repo's
-  line/complexity limits (see AGENTS.md; `check-complexity` gate).
+  line/complexity limits (see `engineering-practices`; `check-complexity` gate).
 
 ---
 

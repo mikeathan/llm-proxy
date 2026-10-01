@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import Icon from '../../icons/Icon.vue'
+import BaseButton from '../../common/buttons/BaseButton.vue'
 import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 
 defineProps<{
@@ -38,44 +38,30 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 <template>
   <div class="input-area">
     <div class="input-wrap">
-      <ArcOrbitLoader :active="loading && paused" :thickness="1" radius="0.75rem" />
+      <ArcOrbitLoader :active="loading && paused" :thickness="1" />
       <textarea
         ref="inputRef"
+        aria-label="Message the assistant"
         :value="inputMessage"
         @input="emit('update:inputMessage', ($event.target as HTMLTextAreaElement).value)"
         @keydown="onKeydown"
-        placeholder="Ask the workspace agent..."
+        placeholder="Ask the workspace agent…"
         class="chat-input"
         :class="{ 'is-loading': loading }"
         rows="1"
         :disabled="loading"
       ></textarea>
     </div>
-    <button
-      v-if="loading"
-      @click="emit('cancel')"
-      class="btn-stop"
-      title="Stop"
-    >
-      <Icon name="close" size="md" />
-    </button>
-    <button
-      v-else
-      @click="emit('send')"
-      :disabled="!inputMessage.trim()"
-      class="btn-send"
-    >
-      <Icon name="send" size="md" />
-    </button>
+    <BaseButton v-if="loading" variant="danger" size="lg" icon="stop" icon-only label="Stop the run" @click="emit('cancel')" />
+    <BaseButton v-else variant="primary" size="lg" icon="send" icon-only label="Send" :disabled="!inputMessage.trim()" @click="emit('send')" />
   </div>
 </template>
 
 <style scoped>
-.input-area { @apply p-3 sm:p-4 border-t border-gray-700 bg-gray-800 flex gap-2 shrink-0; }
+.input-area { @apply p-3 sm:p-4 border-t border-hairline bg-surface flex items-end gap-2 shrink-0; }
 .input-wrap { @apply flex-1 relative; isolation: isolate; }
-.chat-input { @apply w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none placeholder-gray-600 transition-colors; position: relative; z-index: 0; }
+.chat-input { @apply block w-full rounded-[var(--radius-md)] border border-control bg-canvas px-3 py-2.5 text-[length:var(--text-body)] text-primary placeholder:text-faint resize-none transition-colors focus-visible:outline-none focus-visible:ring-2; position: relative; z-index: 0; }
 .chat-input:disabled { @apply opacity-50 cursor-not-allowed; }
 .chat-input.is-loading { @apply border-transparent; }
-.btn-send { @apply bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md w-14 shrink-0; }
-.btn-stop { @apply bg-red-700 hover:bg-red-600 text-white rounded-xl px-4 flex items-center justify-center transition-colors shadow-md w-14 shrink-0; }
+
 </style>

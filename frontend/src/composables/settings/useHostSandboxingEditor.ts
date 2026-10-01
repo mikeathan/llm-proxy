@@ -81,6 +81,11 @@ export function useHostSandboxingEditor() {
     draft.value = normalizeSandboxingConfig({ ...draft.value, ...changes })
   }
 
+  /** Drop every unsaved edit: back to the last loaded / saved policy. */
+  function discard(): void {
+    draft.value = normalizeSandboxingConfig(JSON.parse(originalKey.value) as SandboxingConfig)
+  }
+
   return {
     loading,
     saving,
@@ -95,5 +100,6 @@ export function useHostSandboxingEditor() {
     load,
     save,
     patch,
+    discard,
   }
 }
