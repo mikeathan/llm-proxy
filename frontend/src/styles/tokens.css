@@ -1,0 +1,176 @@
+/*
+ * Design tokens — the single source of truth for the retro theme system.
+ * Plan: docs/PLANS/cross-cutting/frontend-redesign-retro.md (D1, D6, D13, D15, D17).
+ *
+ * Colour tokens are opaque "R G B" channel triples so Tailwind opacity
+ * modifiers work: rgb(var(--surface-raised) / <alpha-value>) (D15).
+ * Translucency is a usage decision, never a token property.
+ *
+ * Presets are selected with [data-theme] on <html>. retro-dark is the default
+ * and also applies with no attribute; retro-dark-lifted overrides only what it
+ * lifts. Design language: plan → "Design language". Every contrast-bearing value is proven by
+ * scripts/check-contrast.cjs (npm run lint) and by the preset tests (npm test).
+ */
+
+/* ── retro-dark (default) ─────────────────────────────────────────────── */
+/* Also the base of retro-dark-soft and retro-dark-lifted, so a subtree nested inside
+   another theme (e.g. a preview card) never inherits that theme's text.
+   Material: warm near-black ink with cream text; surfaces are separated by
+   hairline borders, not fills, soft shadows or gradients. The one shadow is
+   the hard offset "print" shadow in full brand under primary buttons. */
+:root,
+[data-theme='retro-dark'],
+[data-theme='retro-dark-soft'],
+[data-theme='retro-dark-lifted'] {
+  color-scheme: dark;
+
+  --canvas: 12 11 10;
+  --surface: 12 11 10;
+  --surface-raised: 26 24 22;
+  --surface-hover: 33 31 28;
+  --surface-active: 41 38 35;
+
+  /* Borders: hairline/strong are decorative panel edges only;
+     border-control identifies inputs and buttons (≥3:1, WCAG 1.4.11). */
+  --border-hairline: 38 36 33;
+  --border-strong: 58 55 50;
+  --border-control: 120 115 107;
+
+  /* Text tiers. text-decorative is large text / ornament only, never metadata. */
+  --text-primary: 242 237 227;
+  --text-secondary: 212 206 195;
+  --text-muted: 158 152 142;
+  --text-faint: 140 134 125;
+  --text-decorative: 100 96 89;
+  --text-inverse: 12 11 10;
+  /* Labels on solid accent fills (primary / danger buttons): dark ink here,
+     cream on paper's dark accents (D16 amendment, plan V10). */
+  --text-on-accent: 12 11 10;
+
+  /* Brand — the one signature accent (persimmon): eyebrow marks, active
+     navigation, focus, the wordmark. Never used for run state. */
+  --accent-brand: 255 106 61;
+
+  /* Data and state ("Signal" palette) — colour is reserved for these.
+     accent-info (cobalt) is fills and large text; accent-info-text is the
+     readable tint for links/labels. Success is mint, running is citrine;
+     each sits on a different hue from the persimmon brand. */
+  --accent-info: 108 140 255;
+  --accent-info-text: 142 166 255;
+  --state-success: 47 212 163;
+  --state-running: 232 207 74;
+  --state-queued: 191 172 98;
+  --state-error: 255 77 94;
+  --state-live: 47 212 163;
+
+  /* Utility colours. bar-track is the dither ink of empty meter tracks. */
+  --focus-ring: 255 106 61;
+  --bar-track: 58 55 50;
+  --scrim: 0 0 0;
+}
+
+/* ── retro-dark-soft — the default: a faded black, easier on the eyes ─────
+   Canvas #22201d. Lifting the surfaces alone loses contrast for the accents
+   drawn on them, so the brand-adjacent text tones (muted, faint, queued, error,
+   info-text) are lightened too; scripts/check-contrast.cjs proves every pair. */
+[data-theme='retro-dark-soft'] {
+  --canvas: 34 32 29;
+  --surface: 34 32 29;
+  --surface-raised: 43 41 38;
+  --surface-hover: 51 49 46;
+  --surface-active: 59 57 54;
+  --border-hairline: 58 56 53;
+  --border-strong: 82 80 77;
+  --border-control: 138 132 122;
+  --text-muted: 178 172 162;
+  --text-faint: 172 166 156;
+  --state-error: 255 112 124;
+  --state-queued: 205 187 112;
+  --accent-info-text: 150 174 255;
+  --bar-track: 70 68 65;
+}
+
+/* ── retro-dark-lifted (D13) — content surfaces lifted off the ink ───── */
+[data-theme='retro-dark-lifted'] {
+  --canvas: 21 20 18;
+  --surface: 21 20 18;
+  --surface-raised: 31 29 27;
+  --surface-hover: 38 36 33;
+  --surface-active: 46 43 40;
+  --border-hairline: 44 42 38;
+  --text-faint: 150 144 134;
+}
+
+/* ── retro-paper — warm light theme with its own accent set ─────────── */
+[data-theme='retro-paper'] {
+  color-scheme: light;
+
+  --canvas: 243 239 228;
+  --surface: 243 239 228;
+  --surface-raised: 235 229 214;
+  --surface-hover: 226 219 202;
+  --surface-active: 218 210 191;
+
+  --border-hairline: 217 209 189;
+  --border-strong: 196 187 164;
+  --border-control: 122 114 98;
+
+  --text-primary: 28 26 23;
+  --text-secondary: 58 54 47;
+  --text-muted: 80 75 66;
+  --text-faint: 100 93 80;
+  --text-decorative: 160 151 132;
+  --text-inverse: 243 239 228;
+  --text-on-accent: 243 239 228;
+
+  --accent-brand: 168 52 16;
+
+  --accent-info: 53 82 200;
+  --accent-info-text: 47 73 184;
+  --state-success: 8 104 78;
+  --state-running: 104 90 0;
+  --state-queued: 100 86 28;
+  --state-error: 168 24 64;
+  --state-live: 8 104 78;
+
+  --focus-ring: 168 52 16;
+  --bar-track: 196 187 164;
+  --scrim: 28 26 23;
+}
+
+/* ── Theme-independent tokens: typography, shape, motion (D17) ──────── */
+:root {
+  /* Families are finalised in Phase 0 by looking; self-hosted woff2 lands in
+     Phase 1 (styles/fonts.css). The stacks degrade to metric-close system fonts. */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-micro: 10px;
+  --tracking-micro: 0.12em;
+  --text-body: 14px;
+  --text-small: 12px;
+  --text-heading: 18px;
+  --text-display: 30px;
+  --text-numeral: 28px;
+  --leading-body: 1.5;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --offset-control: 2px;
+  --space-unit: 4px;
+
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasised: cubic-bezier(0.3, 0, 0, 1.2);
+}
+
+/* One place zeroes all motion for users who ask for it. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}

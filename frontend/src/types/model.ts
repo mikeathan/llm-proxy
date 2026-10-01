@@ -1,6 +1,6 @@
 // LLM Model related types
-import type { ProviderType, SettingsTab } from './admin'
-import type { BannerSeverity } from './ui'
+import type { ProviderType } from './admin'
+import type { BannerAction, BannerSeverity } from './ui'
 export interface ActiveModel {
   name: string
   provider: ProviderType
@@ -188,8 +188,8 @@ export interface ModelBanner {
   message: string
   // HTML variant of the message (app-controlled, never user input).
   html?: string
-  // Action button that deep-links to a Settings tab.
-  action?: { label: string; settingsTab: SettingsTab }
+  // Action button that deep-links to a Settings section.
+  action?: BannerAction
 }
 
 // ProviderManifest describes a provider as discovered/registered by the backend

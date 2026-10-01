@@ -1,8 +1,6 @@
 ---
 name: connector-patterns
 description: "Communication connector implementation guide: outbound connector steps, inbound webhook, CONSTITUTION checklist, and common errors. Use when adding or changing a connector."
-when_to_use: "Adding or changing an outbound connector or inbound webhook (Telegram, Slack, ...)."
-status: reference
 last_reviewed: 2026-07-11
 ---
 
@@ -149,7 +147,7 @@ Inbound messages are handled by `WebhookHandler` (`POST /api/v1/webhooks/{connec
 **Routing:**
 - The connector must have `workspace_id` in `cfg.Settings`.
 - Messages are appended to the latest session for that workspace.
-- An `inbound_message` event is published to the EventBus.
+- The message triggers an agent run (`RunWithCancel` → `runAgentReply`); the run's `session_*` lifecycle events are published to the workspace EventBus on the assistant channel. There is no `inbound_message` event type.
 
 ---
 

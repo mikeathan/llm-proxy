@@ -38,6 +38,20 @@ type ActiveRunsResponse struct {
 type GlobalActiveRunsResponse struct {
 	LaneHolders []runlane.Holder `json:"lane_holders,omitempty"`
 	Queued      []runlane.Entry  `json:"queued,omitempty"`
+	// Lanes summarises every workload-class lane — idle ones too — so the UI
+	// can draw capacity (one slot per unit of limit) next to the flat lists.
+	Lanes []LaneSummary `json:"lanes,omitempty"`
+}
+
+// LaneSummary is one lane's capacity and occupancy for the UI. HolderKeys are
+// the keys of the runs in its slots (they match lane_holders[].key); inbound
+// callers occupy no lane slot and never appear here.
+type LaneSummary struct {
+	Lane       runlane.LaneKey `json:"lane"`
+	Limit      int             `json:"limit"`
+	Running    int             `json:"running"`
+	Waiting    int             `json:"waiting"`
+	HolderKeys []string        `json:"holder_keys"`
 }
 
 // QueueKeyParam is the path parameter naming a queued inbound caller; the key
@@ -113,8 +127,13 @@ func callString(fn func(string) string, workspaceID string) string {
 // once for the always-visible header indicator and reuses it for the per-chat
 // "waiting for a lane" hint.
 func (h *ActiveRunsHandler) ServeGlobalHTTP(w http.ResponseWriter, r *http.Request) {
-	holders, queued := h.laneState()
-	respondJSON(w, GlobalActiveRunsResponse{LaneHolders: holders, Queued: queued})
+	if h.sources.LaneSnapshot == nil {
+		respondJSON(w, GlobalActiveRunsResponse{})
+		return
+	}
+	snap := h.sources.LaneSnapshot()
+	holders, queued := flattenLanes(snap)
+	respondJSON(w, GlobalActiveRunsResponse{LaneHolders: holders, Queued: queued, Lanes: summariseLanes(snap)})
 }
 
 // ServePromoteHTTP serves a queued inbound caller now, by cancelling the run
@@ -165,14 +184,9 @@ func (h *ActiveRunsHandler) queueKey(w http.ResponseWriter, r *http.Request) (st
 	return vals[0], true
 }
 
-// laneState flattens the scheduler's per-lane read model into the two flat
-// lists the UI consumes. Nil when no snapshot source is wired; empty when every
-// lane is idle.
-func (h *ActiveRunsHandler) laneState() (holders []runlane.Holder, queued []runlane.Entry) {
-	if h.sources.LaneSnapshot == nil {
-		return nil, nil
-	}
-	snap := h.sources.LaneSnapshot()
+// flattenLanes flattens the scheduler's per-lane read model into the two flat
+// lists the UI consumes; empty when every lane is idle.
+func flattenLanes(snap runlane.Snapshot) (holders []runlane.Holder, queued []runlane.Entry) {
 	for _, lane := range snap.Lanes {
 		holders = append(holders, lane.Holders...)
 		queued = append(queued, lane.Queued...)
@@ -184,4 +198,17 @@ func (h *ActiveRunsHandler) laneState() (holders []runlane.Holder, queued []runl
 	holders = append(holders, snap.ModelHolders...)
 	queued = append(queued, snap.ModelWaiters...)
 	return holders, queued
+}
+
+// summariseLanes reports each lane's limit and occupancy, idle lanes included.
+func summariseLanes(snap runlane.Snapshot) []LaneSummary {
+	lanes := make([]LaneSummary, 0, len(snap.Lanes))
+	for _, lane := range snap.Lanes {
+		keys := make([]string, 0, len(lane.Holders))
+		for _, holder := range lane.Holders {
+			keys = append(keys, holder.Key)
+		}
+		lanes = append(lanes, LaneSummary{Lane: lane.Lane, Limit: lane.Limit, Running: lane.Running, Waiting: lane.Waiting, HolderKeys: keys})
+	}
+	return lanes
 }

@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { } from 'vue'
+import { nextTick, ref, useId, watch } from 'vue'
 import type { DialogType } from '../../types/ui'
+import BaseButton from '../common/buttons/BaseButton.vue'
+
+// The single confirmation dialog (Phase 5 primitive), shown through useConfirm.
+// An alert dialog: it takes focus on the safe choice (Cancel), Escape cancels,
+// and focus returns to whatever opened it. Warning and error dialogs mark the
+// confirm action as destructive.
 
 interface Props {
   modelValue: boolean
@@ -23,73 +29,48 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
+const titleId = useId()
+const messageId = useId()
+const cancelButton = ref<InstanceType<typeof BaseButton> | null>(null)
+let opener: HTMLElement | null = null
+
 const close = () => { emit('update:modelValue', false) }
+const confirm = () => { emit('confirm'); close() }
+const cancel = () => { emit('cancel'); close() }
+
+watch(
+  () => props.modelValue,
+  async (open) => {
+    if (open) {
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      await nextTick()
+      ;(cancelButton.value?.$el as HTMLElement | undefined)?.focus()
+    } else {
+      opener?.focus()
+      opener = null
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
-  <div v-if="modelValue" class="dialog-overlay">
+  <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60 p-4">
     <div
-      class="dialog-content"
-      :class="`dialog-content--${type}`"
+      role="alertdialog"
+      aria-modal="true"
+      :aria-labelledby="titleId"
+      :aria-describedby="messageId"
+      :data-type="type"
+      class="w-full max-w-md rounded-[var(--radius-sm)] border border-strong bg-surface p-5"
+      @keydown.escape="cancel"
     >
-      <h3 class="dialog-title">{{ title }}</h3>
-      <p class="dialog-message">{{ message }}</p>
-      <div class="dialog-actions">
-        <button
-          @click="emit('cancel'); close()"
-          class="btn-secondary"
-        >
-          {{ cancelText }}
-        </button>
-        <button
-          @click="emit('confirm'); close()"
-          class="btn-primary"
-        >
-          {{ confirmText }}
-        </button>
+      <h2 :id="titleId" class="m-0 text-[15px] font-semibold text-primary">{{ title }}</h2>
+      <p :id="messageId" class="mb-5 mt-2 text-secondary">{{ message }}</p>
+      <div class="flex flex-wrap justify-end gap-2">
+        <BaseButton ref="cancelButton" variant="secondary" @click="cancel">{{ cancelText }}</BaseButton>
+        <BaseButton :variant="type === 'info' ? 'primary' : 'danger'" @click="confirm">{{ confirmText }}</BaseButton>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped lang="postcss">
-.dialog-overlay {
-  @apply fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm;
-}
-
-.dialog-content {
-  @apply w-full max-w-md p-6 rounded-lg border shadow-xl transition-all;
-}
-
-.dialog-content--info {
-  @apply bg-blue-900/20 border-blue-500 text-blue-200;
-}
-
-.dialog-content--warning {
-  @apply bg-yellow-900/20 border-yellow-500 text-yellow-200;
-}
-
-.dialog-content--error {
-  @apply bg-red-900/20 border-red-500 text-red-200;
-}
-
-.dialog-title {
-  @apply text-lg font-semibold mb-2;
-}
-
-.dialog-message {
-  @apply text-sm mb-6 opacity-90;
-}
-
-.dialog-actions {
-  @apply flex justify-end gap-3;
-}
-
-.btn-secondary {
-  @apply px-4 py-2 text-sm font-medium hover:bg-white/10 rounded transition-colors;
-}
-
-.btn-primary {
-  @apply px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 rounded transition-colors;
-}
-</style>

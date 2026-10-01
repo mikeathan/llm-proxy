@@ -366,24 +366,7 @@ func (h *AdminHandlers) AdminPageHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := strings.TrimPrefix(r.URL.Path, "/admin")
-	if p == "" || p == "/" {
-		p = "index.html"
-	} else {
-		p = strings.TrimPrefix(p, "/")
-	}
-
-	if _, err := fs.Stat(fsys, p); os.IsNotExist(err) {
-		p = "index.html"
-	}
-
-	if p == "index.html" {
-		r.URL.Path = "/"
-	} else {
-		r.URL.Path = "/" + p
-	}
-
-	http.FileServer(http.FS(fsys)).ServeHTTP(w, r)
+	serveAdminUI(fsys, w, r)
 }
 
 func parseLogLevel(input string) (logging.Level, error) {

@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onUnmounted, ref } from 'vue'
 import { useMemory } from '../../../composables/memory/useMemory'
+import { asUtc, formatAbsoluteTime } from '../../../utils/format/time'
+import { MEMORY_TYPE_LABEL } from '../../../constants/memory'
 import type { MemoryEntry } from '../../../types/memory'
+import StatusTag from '../../common/display/StatusTag.vue'
+import BaseButton from '../../common/buttons/BaseButton.vue'
+
+// One memory entry: read, copy, or edit its title and content.
 
 const props = defineProps<{
   entry: MemoryEntry
@@ -13,13 +19,18 @@ const emit = defineEmits<{
   (e: 'updated'): void
 }>()
 
-const {
-  updateMemory,
-} = useMemory()
+const { updateMemory } = useMemory()
+
+const COPY_FEEDBACK_MS = 2000
 
 const isEditing = ref(false)
 const editTitle = ref('')
 const editContent = ref('')
+const copied = ref('')
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+onUnmounted(() => {
+  if (copiedTimer) clearTimeout(copiedTimer)
+})
 
 function startEdit() {
   editTitle.value = props.entry.title
@@ -37,95 +48,61 @@ async function saveEdit() {
   emit('updated')
 }
 
-function formatTime(ts: string): string {
-  if (!ts) return ''
-  const d = new Date(ts.endsWith('Z') ? ts : ts + 'Z')
-  return d.toLocaleString()
-}
-
-function typeLabel(t: string): string {
-  switch (t) {
-    case 'long_term': return 'Permanent'
-    case 'daily': return 'Daily'
-    case 'session': return 'Session'
-    case 'user_profile': return 'User Profile'
-    default: return t
+async function copyContent() {
+  try {
+    await navigator.clipboard.writeText(props.entry.content)
+    copied.value = 'Copied'
+  } catch {
+    copied.value = 'Copy failed'
   }
-}
-
-function copyContent() {
-  navigator.clipboard.writeText(props.entry.content)
+  if (copiedTimer) clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => (copied.value = ''), COPY_FEEDBACK_MS)
 }
 </script>
 
 <template>
-  <div class="detail-container">
-    <!-- Header -->
-    <div class="detail-header">
-      <div class="detail-header-left">
-        <span class="detail-type-badge" :class="'detail-type-badge--' + entry.memory_type">
-          {{ typeLabel(entry.memory_type) }}
-        </span>
-        <span class="detail-source">by {{ entry.source }}</span>
+  <article class="flex min-h-0 flex-col gap-3">
+    <header class="flex flex-wrap items-center justify-between gap-2">
+      <span class="flex items-center gap-2">
+        <StatusTag state="neutral" :label="MEMORY_TYPE_LABEL[entry.memory_type] ?? entry.memory_type" />
+        <span class="font-mono text-[length:var(--text-small)] text-muted">by {{ entry.source }}</span>
+      </span>
+      <span class="flex items-center gap-1">
+        <span role="status" class="font-mono text-[length:var(--text-micro)] text-muted">{{ copied }}</span>
+        <BaseButton v-if="!isEditing" variant="ghost" size="sm" icon="edit" @click="startEdit">Edit</BaseButton>
+        <BaseButton variant="ghost" size="sm" @click="copyContent">Copy</BaseButton>
+        <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close" @click="emit('close')" />
+      </span>
+    </header>
+
+    <template v-if="!isEditing">
+      <h2 class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">{{ entry.title || 'Untitled' }}</h2>
+      <p class="m-0 whitespace-pre-wrap break-words text-secondary">{{ entry.content }}</p>
+    </template>
+    <form v-else class="flex flex-col gap-2" @submit.prevent="saveEdit">
+      <label class="flex flex-col gap-1.5">
+        <span class="text-[length:var(--text-small)] font-medium text-secondary">Title</span>
+        <input v-model="editTitle" class="field-control h-8" />
+      </label>
+      <label class="flex flex-col gap-1.5">
+        <span class="text-[length:var(--text-small)] font-medium text-secondary">Content</span>
+        <textarea v-model="editContent" rows="10" class="field-control py-2"></textarea>
+      </label>
+      <div class="flex justify-end gap-2">
+        <BaseButton variant="secondary" @click="cancelEdit">Cancel</BaseButton>
+        <BaseButton type="submit">Save</BaseButton>
       </div>
-      <div class="detail-header-right">
-        <button v-if="!isEditing" @click="startEdit" class="btn-icon" title="Edit">✏️</button>
-        <button @click="copyContent" class="btn-icon" title="Copy content">📋</button>
-        <button @click="emit('close')" class="btn-icon" title="Close">✕</button>
-      </div>
-    </div>
+    </form>
 
-    <!-- Title -->
-    <div v-if="!isEditing" class="detail-title">{{ entry.title || 'Untitled' }}</div>
-    <input
-      v-else
-      v-model="editTitle"
-      class="edit-input"
-      placeholder="Title"
-    />
-
-    <!-- Content -->
-    <div v-if="!isEditing" class="detail-content">{{ entry.content }}</div>
-    <textarea
-      v-else
-      v-model="editContent"
-      class="edit-textarea"
-      placeholder="Content"
-      rows="10"
-    ></textarea>
-
-    <!-- Edit actions -->
-    <div v-if="isEditing" class="edit-actions">
-      <button @click="saveEdit" class="btn-save">Save</button>
-      <button @click="cancelEdit" class="btn-cancel">Cancel</button>
-    </div>
-
-    <!-- Footer -->
-    <div class="detail-footer">
-      <span class="detail-time">Created: {{ formatTime(entry.created_at) }}</span>
-      <span v-if="entry.created_at !== entry.updated_at" class="detail-time">Updated: {{ formatTime(entry.updated_at) }}</span>
-    </div>
-  </div>
+    <footer class="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[length:var(--text-micro)] text-faint">
+      <span>Created {{ formatAbsoluteTime(asUtc(entry.created_at)) }}</span>
+      <span v-if="entry.created_at !== entry.updated_at">Updated {{ formatAbsoluteTime(asUtc(entry.updated_at)) }}</span>
+    </footer>
+  </article>
 </template>
 
-<style scoped>
-.detail-container { @apply flex flex-col h-full p-4; }
-.detail-header { @apply flex items-center justify-between mb-3; }
-.detail-header-left { @apply flex items-center gap-2; }
-.detail-header-right { @apply flex items-center gap-1; }
-.detail-type-badge { @apply text-xs px-2 py-0.5 rounded font-mono; }
-.detail-type-badge--long_term { @apply bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300; }
-.detail-type-badge--daily { @apply bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300; }
-.detail-type-badge--session { @apply bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300; }
-.detail-source { @apply text-xs text-gray-400; }
-.btn-icon { @apply px-1.5 py-0.5 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600; }
-.detail-title { @apply text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2; }
-.edit-input { @apply w-full px-2 py-1 mb-2 text-lg font-semibold border border-gray-300 dark:border-gray-600 rounded bg-transparent; }
-.detail-content { @apply flex-1 overflow-y-auto text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap; }
-.edit-textarea { @apply flex-1 w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-transparent resize-none font-mono; }
-.edit-actions { @apply flex gap-2 mt-2; }
-.btn-save { @apply px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600; }
-.btn-cancel { @apply px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600; }
-.detail-footer { @apply mt-4 flex flex-col gap-0.5; }
-.detail-time { @apply text-[11px] text-gray-400; }
+<style scoped lang="postcss">
+.field-control {
+  @apply w-full rounded-[var(--radius-md)] border border-control bg-canvas px-2.5 text-primary focus-visible:outline-none focus-visible:ring-2;
+}
 </style>

@@ -2,12 +2,44 @@
 import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search'
+export type SettingsTab = ProviderType | 'appearance' | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search'
 
 export interface APIKeyItem {
   id: string
   name: string
   key: string
+  base_url?: string
+}
+
+// The add / edit connector form in Settings · Communication. Tokens are
+// write-only: `token` holds a newly typed bot token, never the stored one.
+export interface ConnectorForm {
+  name: string
+  type: string
+  chat_id: string
+  workspace_id: string
+  token: string
+  webhook_token: string
+}
+
+// A titled group of Settings categories in the category nav.
+export interface SettingsGroup {
+  name: string
+  tabs: SettingsTab[]
+}
+
+// The last "Test connection" of a provider's key in Settings.
+export interface ProviderTestStatus {
+  loading: boolean
+  error?: string
+  success?: string
+}
+
+// What "Test connection" sends for the selected key.
+export interface ProviderKeyTest {
+  key: string
+  name: string
+  id: string
   base_url?: string
 }
 
@@ -66,6 +98,44 @@ export interface AgentGuardrailsConfig {
   communication: CommunicationGuardrailsConfig
   filesystem: FileSystemGuardrailsConfig
   network: NetworkGuardrailsConfig
+}
+
+// A section of a guardrail policy (the keys of AgentGuardrailsConfig).
+export type GuardrailSection = keyof AgentGuardrailsConfig
+
+// Where a workspace's effective guardrail value comes from, given how the
+// backend merges a workspace layer over the global policy (MergeWith):
+// unchanged from the global policy, tightened / replaced by the workspace, or
+// loosened by it (an exception to the global policy).
+export type GuardrailSource = 'inherited' | 'overridden' | 'exception'
+
+// One field of the guardrail form: which control edits it, and its copy.
+export interface GuardrailFieldSpec {
+  field: string
+  label: string
+  control: 'toggle' | 'list' | 'number'
+  hint?: string
+  placeholder?: string
+}
+
+// One section of the guardrail form. `switchField` is the switch that turns the
+// tool on (its fields show only while it is on).
+export interface GuardrailSectionSpec {
+  section: GuardrailSection
+  title: string
+  switchField?: string
+  fields: GuardrailFieldSpec[]
+}
+
+// How the backend merges one guardrail field of a workspace layer (MergeWith):
+// on-wins / off-wins — the layer can only switch it on / off; union — lists
+// are joined; positive — a number above 0 replaces; layer — always the
+// layer's value; present — the layer's value whenever the layer has the
+// section. `loosens` marks fields where the workspace value widens what the
+// agent may do (an exception) rather than tightening it.
+export interface GuardrailMergeRule {
+  kind: 'on-wins' | 'off-wins' | 'union' | 'positive' | 'layer' | 'present'
+  loosens: boolean
 }
 
 export interface ProviderItem {

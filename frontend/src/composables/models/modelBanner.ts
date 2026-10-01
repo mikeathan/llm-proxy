@@ -1,6 +1,7 @@
 import type { AdminState } from '../../types/admin'
 import type { ModelBanner } from '../../types/model'
 import { escapeHtml } from '../../utils/format/format'
+import { toSettings } from '../../router/routes'
 
 // computeModelBanner derives the global persistent warning banner from admin
 // state. Only the primary model drives banners:
@@ -23,7 +24,7 @@ export function computeModelBanner(state: AdminState | null): ModelBanner | null
       message:
         'No primary or fallback model set. Requests will fail. Open Settings -> Global to choose a model.',
       html: 'No primary or fallback model set. Requests will fail. Open <strong>Settings &rarr; Global</strong> to choose a model.',
-      action: { label: 'Configure models', settingsTab: 'local' },
+      action: { label: 'Configure models', to: toSettings('local') },
     }
   }
   if (!primaryOk && fallbackOk) {
@@ -34,7 +35,7 @@ export function computeModelBanner(state: AdminState | null): ModelBanner | null
       severity: 'notice',
       message: `Primary model not set — using fallback "${cfg.fallback_model}". Set a primary in Settings -> Global.`,
       html: `Primary model not set — using fallback <strong>"${fb}"</strong>. Set a primary in <strong>Settings &rarr; Global</strong>.`,
-      action: { label: 'Review models', settingsTab: 'local' },
+      action: { label: 'Review models', to: toSettings('local') },
     }
   }
   return null

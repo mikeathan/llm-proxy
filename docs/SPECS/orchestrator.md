@@ -1,9 +1,9 @@
 ---
 id: SPEC-005
 title: Orchestrator / Budget
-version: "1.1"
+version: "1.2"
 status: stable
-last_updated: 2026-08-01
+last_updated: 2026-09-29
 constitution_references: [VI]
 related_specs: [SPEC-001]
 supersedes:
@@ -12,6 +12,10 @@ supersedes:
 # SPEC: Orchestrator / Budget
 
 ## Changelog
+
+- **1.2 (2026-09-29)** — Reference correction (no behavior change): budget-exceeded is signalled by
+  `PreFlightResult{Allowed: false, Reason: …}` (surfaced as a `budget exceeded: <reason>` error),
+  not a removed `ErrBudgetExceeded` sentinel.
 
 - **1.1 (2026-08-01)** — Cloud Provider Token Budgets amendment. The tier table
   now lives in `models/tuning.go` (leaf package) and the per-provider cloud
@@ -156,7 +160,9 @@ from model metadata, and applies provider-tier tuning defaults.
 
 ## III. Error Handling
 
-- Budget exceeded: return `ErrBudgetExceeded` — caller must pause or fail.
+- Budget exceeded: `PreFlightCheck` returns `PreFlightResult{Allowed: false, Reason: …}`; the loop
+  surfaces it as a `budget exceeded: <reason>` error — caller must pause or fail. (There is no
+  `ErrBudgetExceeded` sentinel.)
 - Context resolution failure: local workloads always resolve a numeric fallback
   (`defaultLocalContextLength`) — never a typed error on the runtime path and never a
   cloud default. Cloud workloads with a published context too small for any viable prompt

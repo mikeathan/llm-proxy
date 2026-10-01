@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DispatcherMetrics } from '../../../types/dispatcher'
+import { formatDuration } from '../../../utils/format/time'
 
 defineProps<{
   metrics: DispatcherMetrics | null
@@ -28,7 +29,7 @@ defineProps<{
       </div>
       <div class="metric-row">
         <span class="metric-label">Avg Latency</span>
-        <span class="metric-value">{{ Math.round(metrics.total_latency_ms / Math.max(metrics.total_executions, 1)) }}ms</span>
+        <span class="metric-value">{{ formatDuration(metrics.total_latency_ms / Math.max(metrics.total_executions, 1)) }}</span>
       </div>
     </div>
     <div v-else class="metrics-empty">No metrics available</div>
@@ -37,11 +38,11 @@ defineProps<{
 
 <style scoped lang="postcss">
 .metrics-panel {
-  @apply bg-gray-800 rounded-lg p-4 flex-1;
+  @apply bg-surface border border-hairline rounded-[var(--radius-sm)] p-4 flex-1;
 }
 
 .metrics-title {
-  @apply font-semibold text-sm text-gray-300 mb-3;
+  @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted mb-3;
 }
 
 .metrics-list {
@@ -53,26 +54,26 @@ defineProps<{
 }
 
 .metric-label {
-  @apply text-gray-400;
+  @apply text-muted;
 }
 
 .metric-value {
-  @apply text-gray-200;
+  @apply text-primary;
 }
 
 .metric-value--success {
-  @apply text-green-400;
+  @apply text-state-success;
 }
 
 .metric-value--error {
-  @apply text-red-400;
+  @apply text-state-error;
 }
 
 .metric-value--warning {
-  @apply text-yellow-400;
+  @apply text-state-running;
 }
 
 .metrics-empty {
-  @apply text-gray-500 text-sm;
+  @apply text-faint text-sm;
 }
 </style>

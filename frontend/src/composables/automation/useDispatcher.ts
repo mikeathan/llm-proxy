@@ -1,7 +1,10 @@
-import { ref } from 'vue'
+import { computed, markRaw, ref, shallowRef } from 'vue'
 import type { Automation, AutomationRun, AgentState, DispatcherMetrics } from '../../types/dispatcher'
 import { useAppBanner } from '../ui/useAppBanner'
 import { DispatcherService } from '../../services/automation/dispatcherService'
+import type { WorkspaceTree } from '../../types/workspace'
+import type { AutomationPayload } from '../../types/automation'
+import { treeFilePaths } from '../../utils/workspace/fileTree'
 
 const { show: showBanner, clear: clearBanner } = useAppBanner()
 
@@ -10,7 +13,14 @@ const TRIGGER_QUEUED_STATUS = 'queued'
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
 const workspaces = ref<{ id: string }[]>([])
-const workspaceFiles = ref<Record<string, string[]>>({})
+// One tree per workspace. shallowRef + markRaw: trees can hold thousands of
+// entries and are replaced wholesale, never mutated (performance budget).
+const workspaceTrees = shallowRef<Record<string, WorkspaceTree>>({})
+// File paths per workspace (e.g. the automation task-file picker), derived from
+// the tree — one listing, one derivation.
+const workspaceFiles = computed<Record<string, string[]>>(() =>
+  Object.fromEntries(Object.entries(workspaceTrees.value).map(([ws, tree]) => [ws, treeFilePaths(tree)])),
+)
 const loading = ref(false)
 
 async function fetchAutomations(silent = false) {
@@ -35,16 +45,13 @@ async function fetchWorkspaces() {
   }
 }
 
-async function fetchWorkspaceFiles(workspace: string) {
+async function fetchWorkspaceTree(workspace: string) {
   try {
-    const files = await DispatcherService.listWorkspaceFiles(workspace)
-    workspaceFiles.value = {
-      ...workspaceFiles.value,
-      [workspace]: files,
-    }
+    const tree = await DispatcherService.listWorkspaceTree(workspace)
+    workspaceTrees.value = { ...workspaceTrees.value, [workspace]: markRaw(tree) }
   } catch (e) {
     showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to fetch workspace files' })
-    console.error('fetchWorkspaceFiles error:', e)
+    console.error('fetchWorkspaceTree error:', e)
   }
 }
 
@@ -112,7 +119,7 @@ async function stopAutomation(workspace: string) {
   }
 }
 
-async function updateAutomation(workspace: string, oldName: string, automation: Automation) {
+async function updateAutomation(workspace: string, oldName: string, automation: AutomationPayload) {
   try {
     await DispatcherService.updateAutomation(workspace, oldName, automation)
     await fetchAutomations()
@@ -134,7 +141,7 @@ async function deleteAutomation(workspace: string, automation: string) {
   }
 }
 
-async function createAutomation(workspace: string, automation: Automation) {
+async function createAutomation(workspace: string, automation: AutomationPayload) {
   try {
     await DispatcherService.createAutomation(workspace, automation)
     await fetchAutomations()
@@ -148,7 +155,7 @@ async function createAutomation(workspace: string, automation: Automation) {
 async function deleteWorkspaceFile(workspace: string, file: string) {
   try {
     await DispatcherService.deleteWorkspaceFile(workspace, file)
-    await fetchWorkspaceFiles(workspace)
+    await fetchWorkspaceTree(workspace)
   } catch (e) {
     showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to delete file' })
     console.error('deleteWorkspaceFile error:', e)
@@ -167,7 +174,7 @@ async function deleteWorkspace(workspace: string) {
   }
 }
 
-// Confirmation is handled by the UI (InlineConfirm), not here, so these
+// Confirmation is handled by the UI (ConfirmDialog), not here, so these
 // functions perform the action directly and surface errors via a banner.
 async function deleteRun(run: AutomationRun) {
   if (!run.workspace_id || !run.id) {
@@ -204,13 +211,14 @@ export function useDispatcher() {
     automations,
     metrics,
     workspaces,
+    workspaceTrees,
     workspaceFiles,
     loading,
     fetchAutomations,
     fetchMetrics,
     triggerAutomation,
     fetchWorkspaces,
-    fetchWorkspaceFiles,
+    fetchWorkspaceTree,
     fetchWorkspaceState,
     fetchGlobalActivity,
     createWorkspace,

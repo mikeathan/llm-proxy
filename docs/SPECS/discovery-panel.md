@@ -1,57 +1,267 @@
 ---
 id: SPEC-003
-title: Discovery Panel
-version: "1.0"
+title: Admin UI (formerly Discovery Panel)
+version: "2.2"
 status: stable
-last_updated: 2026-05-30
+last_updated: 2026-09-30
 constitution_references: []
-related_specs: []
+related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
 ---
 
-# SPEC: Discovery Panel
+# SPEC: Admin UI
+
+## Changelog
+
+- **2.2 (2026-09-30)** — The top strip carries host stats again (CPU, memory,
+  GPU core, token throughput), on every destination, expandable to the detail
+  card. The redesign had moved them to the Overview only, so they were missing
+  on the assistant and automations pages. The metrics poll is now app-wide
+  (owned by the strip) and pauses on a hidden tab.
+- **2.1 (2026-09-30)** — Added the `retro-dark-soft` preset (faded black,
+  canvas `#22201d`) and made it the default for first visits and for a dark
+  OS; `retro-dark` (the original near-black ink) stays selectable and is
+  still the cascade base in `tokens.css`. Behaviour change only for browsers
+  with no stored theme choice.
+- **2.0 (2026-09-30)** — Rewritten to match the shipped admin UI after the
+  retro redesign (`docs/PLANS/cross-cutting/frontend-redesign-retro.md`).
+  v1.0 described a single "Discovery Panel" (`DiscoveryPanel.vue`,
+  `ModelGrid.vue`, `ToolManifest.vue`, `WorkspaceList.vue`) that never
+  existed, a glassmorphic "Glass Deck" style with pulse animations, and a
+  credential "Unlock" action. All three are withdrawn: the UI is a routed
+  shell with six destinations, a token-based theme system with no
+  shadows or glass, and masked-by-default secrets with no unlock step.
+  The file keeps its name so existing references resolve.
+- **1.0 (2026-05-30)** — Initial Discovery Panel spec.
 
 ## I. Intent
-The Discovery Panel serves as the central nervous system for the LLM-proxy project. It provides a high-fidelity interface for the user to explore, configure, and monitor the three core pillars of the agentic environment: **Models**, **Tools**, and **Workspaces**.
+
+The admin UI (`frontend/`, served at `/admin`) is the single operator's
+console for the proxy: it shows what the system is doing now, lets the
+operator configure models, providers, guardrails and automations, and gives
+each workspace a file explorer and an assistant. It runs on a LAN, has no
+account model, and makes no network request outside the proxy's own origin.
 
 ## II. Functional Requirements
 
-### 1. Model Catalog (Tier 1)
-*   **Inventory**: List all models registered in the system (Local LlamaCpp, Remote OpenAI/Anthropic/Gemini).
-*   **Metadata Display**: Show parameter count, quantization levels, and context length.
-*   **Lifecycle Control**: Start/Stop buttons for local model runtimes.
-*   **Provider Management**: Configure API keys and base URLs for remote providers.
+### 1. Shell and navigation
+- Six destinations in a persistent, collapsible left sidebar: **Overview,
+  Workspaces, Automations, Models, Activity, Settings**. The collapse state
+  persists; below the mobile breakpoint the sidebar becomes a drawer.
+- A header carries the **host stats strip** (§II.8), the run-activity pill
+  (global lane state, see §II.5) and the notification bell. A context drawer (Monitor) is available at every
+  width.
+- Every page is addressable by URL (§III.2); refreshing a deep link renders
+  the same page. An unknown path renders a not-found page **inside the
+  shell** — never a silent redirect.
+- The first tab stop is a "Skip to content" link that moves focus to
+  `main#content`.
 
-### 2. Tool Registry (Tier 2)
-*   **Local Tools**: Browse internal capabilities (Terminal, FS, Search, Communication).
-*   **Remote MCP**: Automatically discover and list tools provided by connected MCP servers (e.g., NodeHerder).
-*   **Documentation**: View auto-generated tool signatures and descriptions directly in the UI.
+### 2. Destinations
+- **Overview** — health (active model, system metrics), running work with
+  lane slot bars, recent runs.
+- **Workspaces** — list page; per workspace: **Files** (tree + editor),
+  **Assistant** (sessions with search, pins and time groups), **Memory**,
+  **Playbooks**, **Settings** (the workspace guardrail layer, §II.6).
+- **Automations** — list without a workspace requirement, detail with run
+  history, create/edit form, recordings.
+- **Models** — local runtimes and remote provider catalogues.
+- **Activity** — the global run ledger; filters live in the query string so
+  a filtered view is shareable.
+- **Settings** — global configuration by section (`/settings/<section>`),
+  including provider keys, security, MCP servers (SPEC-008) and Appearance.
 
-### 3. Workspace Explorer (Tier 3)
-*   **Isolation Mapping**: List active workspaces and their associated security policies.
-*   **Activity Feed**: Real-time stream of events occurring within each workspace.
-*   **Storage Metrics**: Monitor disk usage and file counts for agent-managed directories.
+### 3. Workspace file tree
+- Fed by `GET /admin/api/dispatcher/workspaces/{workspace}/tree`
+  (`docs/api-reference.md`): slash paths, sorted, breadth-first, **capped at
+  5,000 entries** (`truncated: true` beyond); dotfiles and symlinks that
+  escape the workspace are omitted; dependency directories are listed
+  `collapsed` and not descended.
+- All workspace file I/O is contained by `os.Root`, so a symlink cannot
+  reach outside the workspace.
+- The open file's path is part of the URL. Filtering shows at most **200
+  matches** with a "showing N of M" status, so a filter over the full cap
+  never blocks the main thread.
+
+### 4. Run notifications
+- Only **terminal** transitions notify: a run ending or an automation
+  failing. Starting a run updates the pill, not the bell.
+- The lane snapshot cannot tell success from failure, so an assistant run is
+  reported as **ended**. Automation failure comes from the activity ledger's
+  `error`, read only after an observed transition (coalesced per tick; one
+  retry on the next tick if the entry is not there yet), never per tick.
+- Correctness rules: dedupe by lane key **plus** run identity; the baseline
+  is the first successful tick (runs finished before load never notify);
+  failed ticks are ignored (never read as "every run vanished"); several
+  endings in one tick coalesce into one summary.
+- No new timers: detection rides the existing global activity poll, which
+  pauses while the tab is hidden and ticks immediately on return. The tray
+  keeps at most 20 notifications and remembers at most 200 seen runs. While
+  unread notifications exist, `document.title` is prefixed with the count.
+
+### 5. Run activity
+- One global poller reads `GET /admin/api/active-runs` (lane holders, queue,
+  and per-lane `limit` / `running` / `waiting` for slot bars; SPEC-007). A
+  failed poll is surfaced ("run state unavailable"), never shown as stale
+  live counts.
+
+### 6. Settings and guardrails
+- One save model per page: edits are a draft, **Save** / **Discard** act on
+  the whole section, and one unsaved-change guard covers route leaves and
+  tab close.
+- A workspace's guardrails are a **layer** over the global configuration,
+  merged exactly as the backend's `MergeWith` does (lists union, switches
+  only turn on, numbers > 0 replace); the UI shows each effective value's
+  source. A shared fixture keeps the TypeScript mirror and the Go merge in
+  step (SPEC-006).
+
+### 7. Theming
+- Built-in presets: `retro-dark-soft` (default; a faded black, easier on the
+  eyes), `retro-dark` (the original near-black ink), `retro-dark-lifted`,
+  `retro-paper` (light). With no stored choice the UI follows the system
+  colour scheme: a dark OS gets the default, a light OS gets `retro-paper`.
+  The picker is Settings · Appearance. Adding a preset means a block in
+  `styles/tokens.css`, the id in `types/theme.ts`, `theme/presets.ts`,
+  `theme/tokenSheet.ts`, `public/theme-boot.js` and
+  `frontend/scripts/check-contrast.cjs` (every pair must pass).
+- Custom themes: duplicate a preset or import JSON; both paths run one
+  validator. Only known token names are accepted; each value must match its
+  kind's grammar (opaque colour, length, duration). Fonts and easing are not
+  editable. A contrast failure blocks saving until the operator
+  acknowledges it; a grammar failure always rejects. Themes export to JSON
+  (they are device-local and would otherwise be lost with browser data).
+
+### 8. Host stats
+- The header strip shows CPU load, memory %, GPU core % and tokens/s from
+  `GET /admin/api/metrics` on every destination; the GPU figure is omitted
+  when there is no GPU. Below `md` only throughput stays in the strip.
+- Clicking it opens the detail panel (a popover from `sm`, a bottom sheet
+  below): CPU and memory meters, the GPU's VRAM, core utilization and
+  temperature (or "Not reported"), throughput with a since-page-load
+  sparkline, and a link to the Overview. Escape or an outside press closes it.
+- Load levels colour the number, never replace it: CPU and GPU core turn
+  amber from 50% and red from 80%; memory from 75% and 90% (used memory
+  includes the OS cache, so ~70% is normal). The figures are not announced as
+  a live region.
+- Cost: one request per poll interval (10 s; the server samples the GPU on
+  its own 10 s timer and caches host stats for 2 s), and a few text nodes per
+  poll — measured at ~33 ms of main-thread time over 41 s on the assistant page.
 
 ## III. Technical Architecture
 
-### Component Hierarchy
-*   `DiscoveryPanel.vue` (Main View)
-    *   `SidebarNavigation.vue` (Context Switcher)
-    *   `ModelGrid.vue` (Tier 1 Explorer)
-    *   `ToolManifest.vue` (Tier 2 Explorer)
-    *   `WorkspaceList.vue` (Tier 3 Explorer)
+### 1. Layout (`frontend/src/`)
+- `views/` — one component per destination (lazy route chunks).
+- `components/layout/` — shell (sidebar, header, context drawer, skip link);
+  `components/common/` — shared primitives by domain (`buttons/`,
+  `display/`, `feedback/`, `forms/`, `layout/`); `components/ui/` — dialogs
+  and toasts; `components/AgentIde/` — workspace/automation feature
+  components (historical path, kept); `components/settings/` — settings
+  sections.
+- `composables/` — module-level singletons by domain; `services/` —
+  stateless API clients; `domain/` — pure logic (e.g. guardrail layers);
+  `utils/format/` — every user-visible number and time; `theme/` — token
+  registry, presets, validator, apply; `router/` — route table and typed
+  builders; `types/` — the only place exported types live.
+- App-wide lifecycle is wired once in `main.ts` (router, theme boot,
+  `startRunNotifications(router)`).
 
-### Data Orchestration
-*   The panel polls the `/admin/api/state` and `/admin/api/mcp` endpoints to maintain synchronization with the backend.
-*   Real-time updates are pushed via the `EventBus` to reflect tool execution and model state changes.
+### 2. Routes
+History mode under Vite's `base` (`/admin/`). Route names are constants in
+`types/routes.ts`; every navigation goes through the typed builders in
+`router/routes.ts` (`toWorkspaceFile(ws, path)`, `toAutomation(id)`,
+`toSettings(section)`, `toActivity(filters)`, …).
 
-## IV. Design Aesthetics
-*   **Visual Style**: Dark mode by default, utilizing a glassmorphic "Glass Deck" aesthetic.
-*   **Interactive Elements**: Hover-activated tooltips for complex tool parameters.
-*   **State Indicators**: Pulse animations for active model runtimes and running automations.
-*   **Responsiveness**: Grid-based layout that adapts from widescreen desktops to tablet views.
+| Path | Name | Notes |
+|---|---|---|
+| `/` | — | redirect → `/overview` |
+| `/overview` | `overview` | |
+| `/workspaces` | `workspaces` | list; keep-alive |
+| `/workspaces/:ws` | `workspace` | redirect → files |
+| `/workspaces/:ws/files/:path(.*)*` | `workspace-files` | nested path in the URL |
+| `/workspaces/:ws/assistant/:conversationId?` | `workspace-assistant` | notification target |
+| `/workspaces/:ws/:section(memory\|playbooks\|settings)` | `workspace-section` | `/security` redirects to `settings` |
+| `/automations` | `automations` | |
+| `/automations/new` | `automation-new` | |
+| `/automations/recordings` | `automation-recordings` | static segment ranks above `:id` |
+| `/automations/:id` | `automation` | |
+| `/automations/:id/edit` | `automation-edit` | |
+| `/models` | `models` | |
+| `/activity` | `activity` | query: `kind`, `status`, `workspace`, `q`, `from`, `to`; keep-alive |
+| `/settings/:section?` | `settings` | |
+| `/design` | `design` | **dev builds only** — living token/primitive reference |
+| `/:pathMatch(.*)*` | `not-found` | in-shell |
 
-## V. Security Guardrails
-*   The Discovery Panel respects all `CONSTITUTION.md` rules.
-*   Credential display is masked by default; editing requires explicit "Unlock" action.
-*   Tool execution from the panel is subject to the same `GuardrailEngine` validation as agentic calls.
+Keep-alive is opt-in by route meta (Workspaces, Activity); there is no global
+`<KeepAlive>`.
+
+### 3. SPA fallback (backend)
+`handlers/admin_ui.go` serves existing files from the embedded bundle as-is.
+Any other `GET` under `/admin` is a client route and receives `index.html` —
+except paths that can only be files (`/admin/api/*`, Vite's `assets/`, and
+root-level files), which **404** so a stale bundle or bad API call fails
+loudly instead of receiving HTML.
+
+### 4. Theme token contract
+- `theme/tokenRegistry.ts` is the one list of token names and kinds;
+  `styles/tokens.css`, the validator, the Tailwind map and the theme editor
+  derive from it.
+- Colour tokens are stored as opaque `R G B` channel triples so Tailwind's
+  opacity modifiers work (`rgb(var(--x) / <alpha-value>)`); users author hex,
+  `rgb()` or `hsl()` and the validator normalises. Translucency is a usage
+  decision, never a token property.
+- A theme is applied to `<html>`: `data-theme` selects the preset block, the
+  `dark` class tracks the scheme, and a custom theme's validated overrides
+  are inline custom properties (`theme/apply.ts`).
+- **Pre-paint boot:** `public/theme-boot.js` is a blocking same-origin script
+  in `<head>` that applies the stored, already-validated theme before first
+  paint (no flash, no CSP change). It re-checks each value against a cheap
+  grammar and falls back to the default preset on any error. A contract test
+  proves it produces the same `<html>` state as `apply.ts`.
+- Browser persistence goes through `usePersistedState` only (namespaced,
+  versioned keys; corrupt data falls back): theme selection and custom
+  themes, sidebar collapse, pinned sessions.
+
+### 5. Data orchestration
+- Polling goes through `usePolling`: it pauses when a keep-alive view is
+  deactivated and stops on unmount. `useMetrics` counts its consumers and
+  stops at zero; the header strip is a permanent consumer, so the poll runs
+  for the app's lifetime and pauses while the tab is hidden (refreshing at
+  once on return). `useGlobalRunActivity` runs app-wide (notifications depend
+  on it) and pauses while the tab is hidden.
+- Assistant runs stream over SSE (SPEC-001 events); the assistant is one
+  module-level singleton.
+
+## IV. Design Language
+- Warm ink canvas with a cream light preset; persimmon is the brand accent and
+  never a state colour; mint / cobalt / citrine / red carry success / info /
+  running / error.
+- Flat surfaces: **no shadows**, except the primary button's hard brand
+  offset. No glass, no blur.
+- Components use semantic token classes only; raw Tailwind palette classes
+  fail `npm run lint`.
+- Typography (Inter, JetBrains Mono) is self-hosted; motion durations are
+  tokens.
+
+## V. Accessibility and Performance
+- Every preset passes the contrast gate
+  (`frontend/scripts/check-contrast.cjs`, run by `npm run lint`; WCAG 4.5:1 for text roles); the
+  preset test fails `npm test` on a regression.
+- Every control is keyboard reachable with a visible focus indicator;
+  icon-only buttons carry a label; toasts are announced through a live
+  region.
+- `prefers-reduced-motion` zeroes motion tokens, stops fixed-duration
+  animations, and makes scripted scrolling instant.
+- Every data view has loading, empty and error states.
+- Budgets (measured 2026-09-30, see the plan's Phase 6): the tree at the
+  5,000-entry cap renders collapsed in ~110 ms; filtering stays under ~70 ms
+  with no long task at 1× CPU.
+
+## VI. Security
+- The UI respects `CONSTITUTION.md`; it talks only to its own origin.
+- Model and user markdown is rendered only through
+  `utils/markdown/renderMarkdown.ts`: raw HTML is escaped and only
+  `http`, `https`, `mailto` and relative URLs become links.
+- Secrets (provider keys) are write-only in the UI: shown masked, replaced,
+  never read back in clear.
+- Guardrail approvals from the UI go through the same `GuardrailEngine`
+  decision as agent calls (SPEC-006); one approval posts once.

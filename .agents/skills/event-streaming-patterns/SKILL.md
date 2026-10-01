@@ -1,8 +1,6 @@
 ---
 name: event-streaming-patterns
 description: "Event streaming patterns: SSE composables, observer chaining, guardrail flow, heartbeat cleanup, and dedup. Use when working with event streams or SSE handlers."
-when_to_use: "SSE event flow, composables, observer chaining, guardrail events, dedup, heartbeat cleanup."
-status: reference
 last_reviewed: 2026-07-11
 ---
 

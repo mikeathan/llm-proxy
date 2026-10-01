@@ -45,6 +45,8 @@ function onClick() {
 <template>
   <div class="segment-item">
     <button
+      type="button"
+      :aria-expanded="showDetail"
       class="segment-header"
       :class="['segment-item--tool', toolIconClass(segment.status || ''), { 'segment-item--running': segment.status === 'running' }, { 'segment-item--compact': compact }]"
       @click="onClick"
@@ -87,24 +89,23 @@ function onClick() {
 
 <style scoped>
 .segment-item { @apply text-[11px]; }
-.segment-header { @apply w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-white/5 transition-colors text-left; border: none; cursor: pointer; font-family: inherit; font-size: inherit; color: inherit; background: transparent; }
+.segment-header { @apply w-full flex items-center gap-2 px-1.5 py-1 rounded-[var(--radius-sm)] hover:bg-surface-hover transition-colors text-left focus-visible:outline-none focus-visible:ring-2; border: none; cursor: pointer; font-family: inherit; font-size: inherit; color: inherit; background: transparent; }
 .segment-icon { @apply flex items-center justify-center w-3.5 h-3.5 shrink-0; }
-.segment-icon:deep(.h-4\\.w-4) { @apply h-3.5 w-3.5; }
+.segment-icon:deep(.h-4\.w-4) { @apply h-3.5 w-3.5; }
 .segment-icon:deep(svg) { @apply w-3.5 h-3.5; }
-.segment-item--running .segment-icon { @apply text-blue-400; }
-.segment-header:not(.segment-item--running):not(.segment-item--error) .segment-icon { @apply text-green-500/70; }
-.segment-item--error .segment-icon { @apply text-red-400/70; }
-.segment-label { @apply flex-1 font-mono text-gray-500 truncate flex items-center gap-2; }
+.segment-item--running .segment-icon { @apply text-state-running; }
+.segment-header:not(.segment-item--running):not(.segment-item--error) .segment-icon { @apply text-state-success; }
+.segment-item--error .segment-icon { @apply text-state-error; }
 .segment-name { @apply shrink-0; }
-.segment-chevron { @apply text-gray-600 w-3 h-3 flex items-center justify-center shrink-0; }
-.segment-detail { @apply mt-1 ml-6 p-3 bg-gray-800/40 border border-white/5 rounded-2xl flex flex-col gap-2; }
+.segment-chevron { @apply text-faint w-3 h-3 flex items-center justify-center shrink-0; }
+.segment-detail { @apply mt-1 ml-6 p-3 bg-canvas border border-hairline rounded-[var(--radius-sm)] flex flex-col gap-2; }
 .segment-detail-row { @apply flex flex-col gap-1; }
-.segment-detail-key { @apply text-[10px] uppercase tracking-wider text-gray-500 font-semibold; }
-.segment-detail-value { @apply text-xs font-mono text-gray-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto; }
+.segment-detail-key { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }
+.segment-detail-value { @apply m-0 text-xs font-mono text-secondary whitespace-pre-wrap break-words max-h-48 overflow-y-auto; }
 
 /* ── Compact mode (inside inset) ── */
 .segment-item--compact { @apply py-0.5; }
-.segment-label { @apply flex-1 font-mono text-gray-400 truncate flex items-center gap-2; }
-.segment-preview { @apply text-gray-500 text-[10px] truncate flex-1; }
-.segment-preview--error { @apply text-red-400/70; }
+.segment-label { @apply flex-1 font-mono text-muted truncate flex items-center gap-2; }
+.segment-preview { @apply text-faint text-[10px] truncate flex-1; }
+.segment-preview--error { @apply text-state-error; }
 </style>

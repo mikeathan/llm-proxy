@@ -9,6 +9,9 @@ const { error: toastError, success: toastSuccess } = useToast()
 
 
 const state = ref<AdminState | null>(null)
+// Why the last catalogue read failed (null after a successful one), so pages
+// can show an error instead of loading forever.
+const error = ref<string | null>(null)
 
 const activeModel = computed(() => state.value?.active)
 const availableModels = computed(() => state.value?.available ?? [])
@@ -19,8 +22,10 @@ const agentDefaults = computed<AgentDefaults>(() => state.value?.config?.agent_d
 const refresh = async (): Promise<void> => {
   try {
     state.value = await AdminApiService.fetchState()
+    error.value = null
     reconcileModelRefs((state.value?.models ?? []).map((m) => m.name))
   } catch (e: any) {
+    error.value = e?.message || 'The model catalogue could not be read.'
     console.error('[useModels] fetch state failed:', e.message)
   }
 }
@@ -106,6 +111,7 @@ const fetchProviderModels = async (provider: string, apiKeyName?: string): Promi
 export function useModels() {
   return {
     state,
+    error,
     models,
     activeModel,
     availableModels,

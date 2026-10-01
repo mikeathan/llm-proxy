@@ -64,13 +64,4 @@ func TestPathResolver(t *testing.T) {
 			t.Errorf("Lock() = %v, want %v", got, want)
 		}
 	})
-
-	t.Run("TaskFile", func(t *testing.T) {
-		id := "test-ws"
-		filename := "custom.md"
-		want := filepath.Join(workspacesDir, id, filename)
-		if got := resolver.TaskFile(id, filename); got != want {
-			t.Errorf("TaskFile() = %v, want %v", got, want)
-		}
-	})
 }

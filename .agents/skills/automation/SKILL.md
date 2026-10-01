@@ -1,8 +1,6 @@
 ---
 name: automation
 description: "Automation system: dispatcher, executor, run lifecycle, and templates. Use when working on scheduled tasks or automations."
-when_to_use: "Working on scheduled tasks, cron/interval triggers, run lifecycle, or task templates."
-status: reference
 last_reviewed: 2026-07-11
 ---
 
@@ -31,10 +29,13 @@ last_reviewed: 2026-07-11
 ## Execution Lifecycle
 
 1. **Trigger** — Scheduled (cron/interval) or manual via UI
-2. **Start** — Dispatcher creates a run, emits SSE `run_start`
+2. **Start** — Dispatcher creates a run and publishes an `EventMessage` (system "▶ Booting automation…")
 3. **Execute** — `LLMTaskExecutor.Execute()` runs the agent loop
-4. **Progress** — SSE events stream turn-by-turn to the UI
-5. **Complete/Fail** — Result saved to run history, SSE `run_complete` or `run_fail`
+4. **Progress** — `AgentEvent`s stream turn-by-turn to the UI on the shared bus
+5. **Complete/Fail** — `handleAgentSuccess` publishes a final `EventMessage` (`MsgExecutionComplete`); failures publish `EventError`. The run + result are persisted via `recordRun` (run dir/ledger), and workspace run state is exposed via `/active-runs`.
+
+> There is no `run_start` / `run_complete` / `run_fail` event type — run status is inferred from the
+> streamed `AgentEvent`s plus the run ledger / active-runs APIs.
 
 ## Key Components
 
@@ -81,7 +82,7 @@ When an automation targets a local model that is not running (e.g. idle-reaped b
 scheduled run), the first `GetClientForModel` triggers `llama-server` startup and returns
 `models.ErrModelStarting` while it warms up. `getLLMClient` now **polls** on that sentinel
 (`waitForModelReady`) instead of failing the run immediately, so an unattended run can auto-start
-the local LLM and wait for it. The poll runs every `modelStartPollInterval` (3s) up to
+the local LLM and wait for it. The poll runs every `models.ModelStartPollInterval` (3s) up to
 `modelStartWaitTimeout` (5 min), mirroring the idle reaper's own 5-minute startup window, and
 aborts immediately on any non-starting error or on context cancellation.
 

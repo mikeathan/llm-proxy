@@ -1,8 +1,6 @@
 ---
 name: debugging
 description: "Root-cause a failing test, build, agent run, or tool call: reproduce, capture the exact error, locate the code path, isolate one hypothesis, fix the smallest cause, add a regression test, run the gate. Use when something fails or misbehaves."
-when_to_use: "A test/build/run/tool call fails, an agent run loops or stalls, or behavior is wrong and the cause is unknown."
-status: reference
 last_reviewed: 2026-09-26
 ---
 

@@ -51,8 +51,18 @@ This document contains architectural reference material extracted from the agent
 - `internal/platform/units/` — binary size conversions (KiB/MiB/GiB → bytes) shared by storage accounting, sandbox rlimits and fetch limits (single home; no inline `1024`/`<<30` arithmetic)
 - `internal/platform/logging/` — Structured logging (global + per-workspace process logs)
 - `internal/app/` — Bootstrap, AppContext (central state manager), service wiring
-- `internal/transport/http/` — Router, middleware, frontend embed
+- `internal/transport/http/` — Router, middleware, frontend embed (`handlers/admin_ui.go`: SPA fallback — client routes get `index.html`, `/admin/api/*`, `assets/` and root files 404; SPEC-003 §III.3)
 - `internal/transport/http/handlers/` — HTTP handler types (Admin, System, Process, MCP, Model, Secrets, Dispatcher, Assistant, Proxy, Recordings, Memory, Webhook)
+
+### Frontend (`frontend/src/`)
+
+The admin UI contract — destinations, route table, theme tokens, tree, notifications — is SPEC-003 (`docs/SPECS/discovery-panel.md`); its §III.1 is the directory map. Entry points:
+
+- `main.ts` — the one bootstrap: router, `startRunNotifications(router)`, mount
+- `router/index.ts` (route table) · `router/routes.ts` (typed builders — the only way to build a location) · `types/routes.ts` (route names)
+- `theme/tokenRegistry.ts` (every token name) · `styles/tokens.css` (preset values as `R G B` channels) · `public/theme-boot.js` (pre-paint, contract-tested against `theme/apply.ts`)
+- `components/common/<domain>/` shared primitives · `components/layout/` shell · `views/` one lazy chunk per destination
+- `/design` (dev builds only) — living gallery of tokens and primitives, with Playwright visual baselines (`e2e/`, `npm run test:visual`)
 
 ## Critical Contracts (Do Not Break)
 
@@ -113,69 +123,23 @@ The `recordreplay` build tag ensures these tests are excluded from `go test ./..
 
 ## Coding Standards & Architecture
 
-### General Principles
+### Principles
 
-1. **Clean Architecture**: Dependencies point inward. `internal/core/` knows nothing about `internal/transport/`. `internal/platform/` is a dependency-free foundation. Models (`models/`) have zero imports from the rest of the codebase.
-2. **SOLID**:
-   - **Single Responsibility** per file/function. If a function does two things, split it.
-   - **Open/Closed**: Extend via injection (interfaces), not modification.
-   - **Liskov Substitution**: Interface consumers should work with any implementation — test mocks must satisfy the same contract.
-   - **Interface Segregation**: Keep interfaces small. `RuntimeService` (manager interface) is a good example — methods are focused and cohesive.
-   - **Dependency Inversion**: High-level logic (agent loop) depends on abstractions (LLM client interface), not concrete implementations.
-3. **DRY but not premature**: Repeat 3 times before extracting. Two similar lines are just similar; three identical patterns means extract.
-4. **Idiomatic Go**:
-   - Zero-value initialization over constructors for simple types.
-   - Accept interfaces, return structs.
-   - `fmt.Errorf` with `%w` for error wrapping. Use sentinel errors from `models/llm.go`.
-   - No getters/setters for struct fields — export directly.
-   - Table-driven tests with `t.Run`.
-   - Prefer `range` over index-based loops.
-   - `var` zero-init for package-level, `:=` for local.
-5. **Production Readiness**:
-   - Graceful shutdown on SIGINT/SIGTERM (signal.NotifyContext in main.go).
-   - All long-lived operations accept `context.Context` for cancellation.
-   - Validate at boundaries, trust internals (Constitution I.1).
-   - Structured logging with `logging.Info/Debug/Warn/Error` and key-value pairs.
-   - No secrets in logs or error messages.
+Coding principles, Go idioms, error handling, and Vue conventions are owned by the mandatory rule
+files and skills — reference them, don't restate them here:
 
-### Engineering Patterns
+- **Mandatory Go / Vue mechanics:** [`.agents/rules/`](../.agents/rules/).
+- **Language-agnostic principles + smells checklist:** [`clean-code`](../.agents/skills/clean-code/SKILL.md).
+- **Repo patterns, limits, file checklists:** [`engineering-practices`](../.agents/skills/engineering-practices/SKILL.md).
 
-1. **Constants over magic values**: Every hardcoded string, int, or float that appears in logic must be a named constant (`const`, not `var`). Group related constants at the top of the file. Exceptions: `0`, `1`, `""`, `nil` in zero-value initialisation or loop counters.
-2. **Strategy Pattern for branching to extend**: When a `switch` or `if-else` chain grows with new cases over time, replace it with a strategy map. New cases become registrations, not new branches. Follows Open/Closed — the function is closed for modification, open for extension.
-3. **Value Objects for domain primitives**: Use typed constants (`type Scope string`) with a `Validate()` method instead of raw strings. Catches invalid states at compile time and makes the domain vocabulary explicit. Only for values that have a bounded set of valid states — not for freeform strings like names or messages.
-4. **Null Object over nil checks**: Prefer returning a no-op object over nil when a function has a valid "do nothing" path. The caller shouldn't need to check for nil before every call. Only applies when the nil case has a meaningful no-op behaviour — not for error paths.
-5. **Command Query Separation**: A function either returns data OR mutates state, never both. A save operation returns `error` or `ok`. A query returns data. If a function currently does both, split it into two.
-6. **Defensive programming at boundaries**: Validate all inputs at system boundaries (API handlers, tool handlers, store methods). Trust internal callers. If an invalid state is impossible at the call site but the function signature allows it, document the assumption with a comment.
-7. **No silent failures**: Every error must be handled — either returned to the caller, logged, or explicitly ignored with a comment explaining why (`_ = doSomething()  // best-effort cleanup`). Never use `_ =` without a comment.
-8. **Immutability for function parameters**: Don't modify input slices or maps. Make a copy first (`append([]T{}, input...)` for slices, a fresh `map` for maps). The original caller's data should be unchanged after the call.
-9. **Guard clauses over nested ifs**: Return early for error/null/edge cases. The happy path should be flat and left-aligned. Never nest deeper than 3 levels.
-10. **Function composition for complex conditions**: Extract multi-condition checks into a named helper function. `if isRetryable(err)` is better than `if errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || ...`. The helper name documents the WHY.
+Repo-specific facts worth keeping here:
 
-### File Organization
-
-- **One primary type per file**, named after the type (e.g., `agent.go` → `Agent`, `session.go` → `runSession`).
-- **Handlers in `internal/transport/http/`** — thin, parse request → call service → write response. No business logic.
-- **Services in `internal/platform/`** — reusable infrastructure (storage, logging, network).
-- **Implementation in `internal/core/`** — business logic with minimal imports from `internal/platform/`.
-- **Package-level state in composables** — module-level `ref()` with `mountCount` pattern for polling.
-- **No `init()` functions** — explicit construction via `New*` or `Initialize*`.
-
-### Error Handling
-
-- Validate at system boundaries (user input, external APIs). Trust internal callers.
-- Wrap errors with `fmt.Errorf("context: %w", err)` at each layer boundary.
-- Use sentinel errors from `models/llm.go` for known LLM conditions (`ErrUnknownModel`, `ErrModelExists`, `ErrModelStarting`).
-- Return early on errors — no deep nesting of `if err == nil` (happy path to the left).
-- Don't log AND return — one or the other. Return for the caller to handle.
-
-### Frontend (Vue 3 + TypeScript)
-
-- **Composables are singletons** — module-level state shared across components.
-- **`ref()` over `reactive()`** for reactive state.
-- **Type imports** from `types/` directory (barrel exports).
-- **Services are stateless** — API calls only, no local state.
-- **Polling with `mountCount`** — ref-counted intervals (starts at first mount, stops when last unmounts).
-- **`npm run build`** runs `vue-tsc -b` then `vite build` — TS errors fail the build.
+- **Dependency direction:** `internal/core/` → `internal/platform/` → `models/`; transport depends on core, never the reverse. `models/` has zero imports from the rest of the codebase.
+- **No `init()` functions** in backend code — explicit construction via `New*` / `Initialize*` (the tool-registry connector factories are the documented exception).
+- **Production readiness:** graceful shutdown via `signal.NotifyContext` in `main.go`; every long-lived operation takes a `context.Context`; structured `logging.*` with key-value pairs; no secrets in logs.
+- **Frontend:** composables are module-level singletons; `npm run build` runs `vue-tsc -b` then `vite build` (TS errors fail the build). The admin UI's contract is SPEC-003 (`docs/SPECS/discovery-panel.md`).
+- **Polling through `usePolling`** for new code — pauses when a keep-alive view deactivates, stops on unmount. The older shared pollers own their timers and are ref-counted (`useProcesses`, and `useMetrics`, whose consumers also release on keep-alive deactivate; the header's `HostStats` keeps it running app-wide and it pauses on a hidden tab); `useGlobalRunActivity` runs app-wide and pauses on a hidden tab. Every timer needs a named owner and teardown (Phase 6 leak audit).
+- **Admin UI conventions** (tokens only, `utils/format/`, typed route builders, `usePersistedState`, `ConfirmDialog`, `renderMarkdown`) — `.agents/rules/frontend-vue-engineer.md` → Admin UI conventions.
 
 ## File Change Checklist
 
@@ -225,13 +189,14 @@ When adding a prompt:
 ## Adding a Frontend Settings Tab Checklist
 
 1. Add tab name to `SettingsTab` type in `frontend/src/types/admin.ts`
-2. Add icon + label in `frontend/src/constants/providers.ts`
+2. Add the label in `frontend/src/constants/providers.ts` (the category nav shows labels only)
 3. If the tab is NOT a cloud provider, add exclusion to `isProviderTab()` in `frontend/src/domain/settings.ts`
 4. Register in the appropriate settings group in `getSettingsGroups()` in `frontend/src/domain/settings.ts`
-5. Create the settings component in `frontend/src/components/settings/`
-6. Import the component in `frontend/src/components/settings/Settings.vue`
-7. Add `v-show="activeTab === 'your-tab'"` div in the Settings.vue template
+5. Create the settings component in `frontend/src/components/settings/`, built from `Panel` sections and `FormField` controls
+6. Import the component in `frontend/src/views/SettingsView.vue` and add a `v-show="activeTab === 'your-tab'"` block (sections stay mounted, so edits survive switching category)
+7. If it edits the shared configuration, end the section with `SettingsActions` bound to `useConfig().isDirty` (Discard / Save). A draft of its own (secrets, host settings) emits `dirty-change` so the page's single unsaved-change guard covers it
 8. Run `npm run build` — TS errors will catch any missing icon/label entries
+9. The tab is a route section (`/settings/<tab>`) automatically — an unknown section renders the in-shell not-found page. Link to it with `toSettings('<tab>')` from `frontend/src/router/routes.ts`, never a hand-built path
 
 ## New Backend Endpoint Checklist
 
@@ -296,16 +261,24 @@ When adding a prompt:
     (backend, leaf package — no import cycle) and `PROVIDER_IDS` (frontend,
     `constants/providers.ts`). The numeric tuning table (`models/tuning.go`),
     the two reasoning tables (`assistant/reasoning_param.go`), and the frontend
-    `PROVIDER_META` display record all key off it, and a drift test
+    `PROVIDER_LABELS` record (typed by `SettingsTab`) all key off it, and a drift test
     (`models/provider_registry_test.go`, `reasoning_param_test.go`) fails CI if any
     table gains or loses a provider without the others. Provider *capabilities* (e.g.
     `supports_base_url`, surfaced via `provider_defaults[id].supports_base_url`) are
     emitted by the backend (`models.SupportsBaseURL`), never re-listed in the UI — the
-    old `new Set(['openai','openrouter','nvidia'])` in `Settings.vue` is gone.
+    old `new Set(['openai','openrouter','nvidia'])` in the pre-redesign `Settings.vue` (now `views/SettingsView.vue`) is gone.
 
 9. **Memory system — see `.agents/skills/memory-system/SKILL.md`** for full architecture: storage, injection, three-tier design, tags, dedup, and known issues.
 
 20. **Agent loop mechanics — see `.agents/skills/agent-loop/SKILL.md`** for: execution flow, sieve, stuck detection, reasoning budget, fallback chain, repetition/spiral detector, and key constants.
+
+22. **Workspace guardrails are a layer, merged additively.** `models.AgentGuardrailsConfig.MergeWith`
+    unions lists, lets a workspace only switch things on (`require_review` only off),
+    replaces numbers only when > 0, always takes session idle from the layer, and — for a
+    saved layer — always takes network access from it. A workspace cannot remove a global
+    entry. The UI mirrors this in `frontend/src/domain/guardrailLayers.ts`; change both
+    together — `backend/models/config_merge_contract_test.go` and the TS test run the same
+    fixture (`frontend/src/__TESTS__/fixtures/guardrailMerge.*.json`) and fail on drift.
 
 21. **Testing — see `.agents/skills/testing-guide/SKILL.md`** for: running smoke tests, analysing run output, record-replay testing, MockClient patterns, common pitfalls.
 
@@ -333,7 +306,14 @@ Block only explicit path operands — leave env-driven resolution (`HOME=.../.sa
 
 33. **Remote llama.cpp serving `.gguf` must use the LOCAL client transport** — The bootstrap client factory (`bootstrap.go`) must classify via `WorkloadClassifier.ClassifyClient(baseURL, modelID)` (endpoint-local **OR** `.gguf` artifact), never `ClassifyEndpoint` alone. A remote llama-server (e.g. `192.168.50.60:8084`) is not a local interface IP, so host-only classification picks `CloudLLMChatTransport` with its **45s response-header timeout** — but llama-server only sends headers for a non-streaming request after the FULL generation, so any non-streaming fallback (stuck-recovery `computeNextResponseNonStreaming`, finalize) longer than ~45s dies with `net/http: timeout awaiting response headers` (the Ornith repetition-loop incident, 2026-08-29, ~103s generation vs 45s timeout). The manager's workload class already calls this model local (registry name ends `.gguf`); the client must agree. Streaming never hits this (headers arrive immediately), which is why long streaming runs work while the same model's stuck-recovery path fails.
 34. **Run-lane release discipline** — Every agent run is admitted through `internal/core/runlane`; an interactive claim's returned ctx derives from the **caller's** ctx (never the lane root) or `/assistant/cancel` stops reaching the run, and a granted slot without a deferred `release()` stalls the lane. See SPEC-007 §V.
-35. **Lane state is global — one route, one poller** — the run scheduler's snapshot (`Scheduler.Snapshot()`) takes no arguments, so lane state is exposed **only** by `GET /admin/api/active-runs` (no workspace param; `lane_holders`/`queued`), polled once by `useGlobalRunActivity` and shared by the header `RunActivityPill` and AgentIde's `laneWaitingLabel`. `GET /workspaces/{ws}/active-runs` carries **only** workspace-scoped assistant fields (`assistant_running`/`automation_running`/`assistant_conversation_id`/`assistant_queued`) — do not add lane fields back to it: every workspace would fetch identical bytes. Because lane holders are global, any "which run is blocking *this* workspace" question must filter by `holder.workspace_id` (the old unfiltered `laneWaitingLabel` named blockers from other workspaces), and because a failed poll leaves the last lists in place, surfacing the failure ("run state unavailable") is mandatory — silently keeping stale counts reads as live progress.
+35. **Lane state is global — one route, one poller** — the run scheduler's snapshot (`Scheduler.Snapshot()`) takes no arguments, so lane state is exposed **only** by `GET /admin/api/active-runs` (no workspace param; `lane_holders`/`queued`, plus `lanes` — each lane's `limit`/`running`/`waiting`/`holder_keys`, idle lanes included, for the slot bars), polled once by `useGlobalRunActivity` and shared by the header `RunActivityPill` and the workspace view's `laneWaitingLabel` (`views/WorkspacesView.vue` → `MonitorPanel`). `GET /workspaces/{ws}/active-runs` carries **only** workspace-scoped assistant fields (`assistant_running`/`automation_running`/`assistant_conversation_id`/`assistant_queued`) — do not add lane fields back to it: every workspace would fetch identical bytes. Because lane holders are global, any "which run is blocking *this* workspace" question must filter by `holder.workspace_id` (the old unfiltered `laneWaitingLabel` named blockers from other workspaces), and because a failed poll leaves the last lists in place, surfacing the failure ("run state unavailable") is mandatory — silently keeping stale counts reads as live progress.
 
 36. **Model residency is a decided act, never a side effect** — `LLMRuntimeManager.GetInstance` refuses to evict the local model a run or inbound caller is using (`llm.ErrLocalModelBusy`, `llm/residency.go`), so a model is never swapped out from under live work. The single decision point is the `runlane` model gate (`modelgate.go`): the manager refuses, the transport explains (`429` + `X-LLM-Status: busy|queued` + `Retry-After`, checked by a downstream proxy before its transient-retry path), and only the operator's `POST /admin/api/queue/{key}/promote` (or the opt-in `inbound_preempt` host policy, default off) cancels the blocking run — granted only after that run unwinds. While the gate holds an entry the local lane suspends queued starts (`lane.holdStarts`), otherwise a preempted scheduled run re-queues and instantly re-takes the model ahead of the caller. See SPEC-007 §V.1.
 
+37. **`useRunningActivity()` is called by exactly one view** — its state is a module singleton, but the poll belongs to the caller and binds to that caller's workspace; a second caller would re-point or stop the one poll. Anything else reads `runningActivitySnapshot()`.
+
+38. **Edit forms must populate on identity, not object** — `useAutomationForm`'s populate watch is keyed on `editAutomation.value?.id`. The automations view polls every 10 s and replaces the object; a whole-object watch re-populated the form and wiped the operator's edits.
+
+39. **Tailwind reads `shadow-[var(--x)]` as a colour** — an arbitrary shadow built from a CSS variable is parsed as a shadow *colour*, not geometry. The one permitted shadow (the primary button's brand offset) is the `.offset-brand` class in `style.css`.
+
+40. **`v-html` only via `renderMarkdown`** — model and user markdown can carry HTML and `javascript:` links. `utils/markdown/renderMarkdown.ts` escapes raw HTML and allows only `http`/`https`/`mailto`/relative URLs; a new `v-html` fed from anything else is an XSS.

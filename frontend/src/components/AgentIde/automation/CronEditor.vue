@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from "vue"
+import { computed, ref, useId, watch } from "vue"
 import cronstrue from "cronstrue"
+import FormField from "../../common/forms/FormField.vue"
+
+// A cron schedule: a simple "every N minutes/hours/days" builder, or a custom
+// expression, always with a plain-English reading of the result.
 
 const props = defineProps<{
   modelValue: string
@@ -11,120 +15,71 @@ const emit = defineEmits<{
   (e: "update:modelValue", v: string): void
 }>()
 
-const cronType = ref("custom")
+type CronMode = "every" | "custom"
+type CronUnit = "minutes" | "hours" | "days"
+const EXPRESSION: Record<CronUnit, (n: number) => string> = {
+  minutes: (n) => `*/${n} * * * *`,
+  hours: (n) => `0 */${n} * * *`,
+  days: (n) => `0 0 */${n} * *`,
+}
+
+const cronType = ref<CronMode>("custom")
 const cronEvery = ref(1)
-const cronUnit = ref("hours")
+const cronUnit = ref<CronUnit>("hours")
+const modeId = useId()
 
 watch([cronType, cronEvery, cronUnit], () => {
   if (cronType.value === "custom") return
-  let val = ""
-  if (cronType.value === "every") {
-    if (cronUnit.value === "minutes") {
-      val = `*/${cronEvery.value} * * * *`
-    } else if (cronUnit.value === "hours") {
-      val = `0 */${cronEvery.value} * * *`
-    } else if (cronUnit.value === "days") {
-      val = `0 0 */${cronEvery.value} * *`
-    }
-  }
-  emit("update:modelValue", val)
+  emit("update:modelValue", EXPRESSION[cronUnit.value](cronEvery.value))
 })
 
 watch(
   () => props.triggerType,
-  (newVal) => {
-    if (newVal === "cron") {
-      cronType.value = "custom"
-    }
+  (type) => {
+    if (type === "cron") cronType.value = "custom"
   },
 )
 
-const cronDescription = ref("")
-watch(
-  () => props.modelValue,
-  (newVal) => {
-    if (props.triggerType === "cron" && newVal) {
-      try {
-        cronDescription.value = cronstrue.toString(newVal)
-      } catch {
-        cronDescription.value = "Invalid cron expression"
-      }
-    } else {
-      cronDescription.value = ""
-    }
-  },
-  { immediate: true },
-)
+const description = computed(() => {
+  if (props.triggerType !== "cron" || !props.modelValue) return ""
+  try {
+    return cronstrue.toString(props.modelValue)
+  } catch {
+    return "Not a valid cron expression"
+  }
+})
 </script>
 
 <template>
-  <div class="trigger-content">
-    <div class="flex gap-2">
-      <select v-model="cronType" class="select-input">
-        <option value="every">Simple Frequency</option>
-        <option value="custom">Custom Expression</option>
+  <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-end gap-2">
+      <label :for="modeId" class="sr-only">Schedule style</label>
+      <select :id="modeId" v-model="cronType" class="form-control max-w-[16rem]">
+        <option value="every">Simple frequency</option>
+        <option value="custom">Custom expression</option>
       </select>
+      <template v-if="cronType === 'every'">
+        <span class="font-mono text-[length:var(--text-small)] text-muted">every</span>
+        <input v-model.number="cronEvery" type="number" min="1" aria-label="Every how many" class="form-control w-20" />
+        <select v-model="cronUnit" aria-label="Unit" class="form-control w-32">
+          <option value="minutes">minutes</option>
+          <option value="hours">hours</option>
+          <option value="days">days</option>
+        </select>
+      </template>
     </div>
-
-    <div v-if="cronType === 'every'" class="cron-simple-row">
-      <span class="cron-simple-label">Run every</span>
-      <input type="number" v-model="cronEvery" min="1" class="cron-number-input" />
-      <select v-model="cronUnit" class="cron-unit-select">
-        <option value="minutes">Minutes</option>
-        <option value="hours">Hours</option>
-        <option value="days">Days</option>
-      </select>
-    </div>
-
-    <div class="cron-input-group">
-      <input
-        :value="modelValue"
-        @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-        placeholder="* * * * *"
-        :readonly="cronType !== 'custom'"
-        class="text-input font-mono"
-      />
-      <div class="cron-preview">{{ cronDescription }}</div>
-    </div>
+    <FormField label="Cron expression" :hint="description || 'Five fields: minute hour day month weekday, e.g. 0 7 * * *'">
+      <template #default="{ id, describedBy }">
+        <input
+          :id="id"
+          :value="modelValue"
+          :aria-describedby="describedBy"
+          :readonly="cronType !== 'custom'"
+          placeholder="0 7 * * *"
+          class="form-control font-mono text-[length:var(--text-small)]"
+          @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+        />
+      </template>
+    </FormField>
   </div>
 </template>
-
-<style scoped lang="postcss">
-.trigger-content {
-  @apply space-y-3;
-}
-
-.cron-simple-row {
-  @apply flex items-center gap-2;
-}
-
-.cron-simple-label {
-  @apply text-sm text-gray-400;
-}
-
-.cron-number-input {
-  @apply w-20 bg-gray-900 text-sm text-white px-3 py-2 rounded border border-gray-700 text-center;
-}
-
-.cron-unit-select {
-  @apply bg-gray-900 text-sm text-white px-3 py-2 rounded border border-gray-700 w-32;
-}
-
-.cron-input-group {
-  @apply space-y-1;
-}
-
-.cron-preview {
-  @apply mt-1 text-xs text-blue-400 min-h-[16px];
-}
-
-.select-input {
-  @apply w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white 
-         focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50;
-}
-
-.text-input {
-  @apply w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white 
-         focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors;
-}
-</style>

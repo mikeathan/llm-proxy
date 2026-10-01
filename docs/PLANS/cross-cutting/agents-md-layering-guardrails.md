@@ -247,7 +247,7 @@ benign content untouched), loader integration, log-on-sanitize.
 | `backend/internal/core/assistant/prompts/default_agents_md_test.go` | strengthened seed assertions |
 | `backend/internal/core/assistant/conversation_helpers_test.go` (or new) | precedence + seeding tests |
 | `backend/internal/core/tools/filesystem_test.go` | write-block tests |
-| `docs/INDEX.md` | register this plan (post-implementation) |
+| `docs/PLANS/README.md` | register this plan (post-implementation) |
 
 **Config-dir note:** the global AGENTS.md resolves to the same dir that already holds
 workspace state (`getMetadataDir`: `$LLM_PROXY_CONFIG_DIR` → `~/.config/llm-proxy` →

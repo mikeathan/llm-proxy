@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises, type DOMWrapper } from '@vue/test-utils'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 const getGlobalActiveRunsMock = vi.fn()
@@ -13,9 +13,17 @@ vi.mock('../../../services/assistant/assistantService', () => ({
     cancelQueuedRun: (...args: unknown[]) => cancelQueuedRunMock(...args),
   },
 }))
+const confirm = vi.fn()
+vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
 import RunActivityPill from '../../../components/layout/RunActivityPill.vue'
 import { useGlobalRunActivity } from '../../../composables/assistant/useGlobalRunActivity'
+
+const LANES = [
+  { lane: 'local', limit: 1, running: 1, waiting: 0, holder_keys: ['ws/a'] },
+  { lane: 'cloud', limit: 3, running: 0, waiting: 0, holder_keys: [] },
+]
+const IDLE_PAYLOAD = { lanes: [{ ...LANES[0], running: 0, holder_keys: [] }, LANES[1]] }
 
 const ACTIVE_PAYLOAD = {
   lane_holders: [
@@ -24,6 +32,7 @@ const ACTIVE_PAYLOAD = {
   queued: [
     { key: 'ws/b', lane: 'cloud', workspace_id: 'ws', automation: 'b', label: 'ws/b', position: 2, queued_at: '2026-09-20T00:00:00Z' },
   ],
+  lanes: LANES,
 }
 
 // One external caller waiting for the local model, plus an ordinary queued
@@ -31,116 +40,116 @@ const ACTIVE_PAYLOAD = {
 const INBOUND_PAYLOAD = {
   lane_holders: [],
   queued: [
-    {
-      key: 'inbound:1',
-      kind: 'inbound',
-      lane: 'local',
-      workspace_id: '',
-      label: 'model-b',
-      model: 'model-b',
-      position: 1,
-      queued_at: '2026-09-20T00:00:00Z',
-    },
-    {
-      key: 'ws/b',
-      kind: 'automation',
-      lane: 'cloud',
-      workspace_id: 'ws',
-      automation: 'b',
-      label: 'ws/b',
-      position: 1,
-      queued_at: '2026-09-20T00:00:00Z',
-    },
+    { key: 'inbound:1', kind: 'inbound', lane: 'local', workspace_id: '', label: 'model-b', model: 'model-b', position: 1, queued_at: '2026-09-20T00:00:00Z' },
+    { key: 'ws/b', kind: 'automation', lane: 'cloud', workspace_id: 'ws', automation: 'b', label: 'ws/b', position: 1, queued_at: '2026-09-20T00:00:00Z' },
   ],
+  lanes: IDLE_PAYLOAD.lanes,
+}
+
+const pillOf = (w: VueWrapper) => w.find('button[aria-controls="run-activity-panel"]')
+const panelOf = (w: VueWrapper) => w.find('#run-activity-panel')
+
+async function mountPill() {
+  const w = mount(RunActivityPill, { global: { stubs: { Icon: true } } })
+  await vi.waitFor(() => expect(pillOf(w).exists()).toBe(true))
+  return w
+}
+
+async function openPanel() {
+  const w = await mountPill()
+  await pillOf(w).trigger('click')
+  await flushPromises()
+  return w
 }
 
 describe('RunActivityPill', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    confirm.mockResolvedValue(true)
   })
 
-  it('renders nothing while no run is active', async () => {
-    getGlobalActiveRunsMock.mockResolvedValue({})
-
-    const wrapper = mount(RunActivityPill)
-    await flushPromises()
-
-    expect(wrapper.find('.run-pill').exists()).toBe(false)
-    wrapper.unmount()
+  it('renders nothing until the first answer arrives', () => {
+    getGlobalActiveRunsMock.mockReturnValue(new Promise(() => {}))
+    const w = mount(RunActivityPill, { global: { stubs: { Icon: true } } })
+    expect(pillOf(w).exists()).toBe(false)
+    w.unmount()
   })
 
-  it('summarises running and queued runs, then lists them on click', async () => {
+  it('rests as a quiet idle indicator that still shows lane capacity', async () => {
+    getGlobalActiveRunsMock.mockResolvedValue(IDLE_PAYLOAD)
+    const w = await mountPill()
+    expect(pillOf(w).attributes('data-state')).toBe('idle')
+    expect(pillOf(w).attributes('aria-label')).toBe('No runs active — show run lanes')
+    await pillOf(w).trigger('click')
+    const meters = panelOf(w).findAll('[role="meter"]')
+    expect(meters.map((m) => [m.attributes('aria-label'), m.attributes('aria-valuenow'), m.attributes('aria-valuemax')])).toEqual([
+      ['Local lane', '0', '1'],
+      ['Cloud lane', '0', '3'],
+    ])
+    w.unmount()
+  })
+
+  it('summarises running and queued runs, then lists them by lane on click', async () => {
     getGlobalActiveRunsMock.mockResolvedValue(ACTIVE_PAYLOAD)
+    const w = await mountPill()
 
-    const wrapper = mount(RunActivityPill)
-    await vi.waitFor(() => {
-      expect(wrapper.find('.run-pill').exists()).toBe(true)
-    })
-
-    const pill = wrapper.find('.run-pill')
+    const pill = pillOf(w)
+    expect(pill.attributes('data-state')).toBe('running')
     expect(pill.text()).toContain('1 running')
     expect(pill.text()).toContain('1 queued')
     expect(pill.attributes('aria-expanded')).toBe('false')
-    expect(pill.attributes('aria-controls')).toBe('run-activity-panel')
-    expect(wrapper.find('.run-panel').exists()).toBe(false)
+    expect(panelOf(w).exists()).toBe(false)
 
     await pill.trigger('click')
-
     expect(pill.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.find('.run-panel').exists()).toBe(true)
-    expect(wrapper.text()).toContain('ws/a')
-    expect(wrapper.text()).toContain('Automation')
-    // Queued runs are listed with their 1-based scheduler position.
-    expect(wrapper.text()).toContain('#2')
-    expect(wrapper.text()).toContain('Cloud')
+    const panel = panelOf(w)
+    expect(panel.attributes('role')).toBe('dialog')
 
-    wrapper.unmount()
+    const local = panel.get('[data-lane="local"]')
+    expect(local.get('[role="meter"]').attributes('aria-valuenow')).toBe('1')
+    expect(local.text()).toContain('ws/a')
+    expect(local.text()).toContain('Automation')
+    // Queued runs sit in their lane with their 1-based scheduler position.
+    const cloud = panel.get('[data-lane="cloud"]')
+    expect(cloud.text()).toContain('ws/b')
+    expect(cloud.text()).toContain('#2')
+    w.unmount()
   })
 
-  it('dismisses the panel when Escape is pressed', async () => {
+  it('closes on Escape and from its close button', async () => {
     getGlobalActiveRunsMock.mockResolvedValue(ACTIVE_PAYLOAD)
-
-    const wrapper = mount(RunActivityPill)
-    await vi.waitFor(() => {
-      expect(wrapper.find('.run-pill').exists()).toBe(true)
-    })
-    await wrapper.find('.run-pill').trigger('click')
-    expect(wrapper.find('.run-panel').exists()).toBe(true)
-
+    const w = await openPanel()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await nextTick()
+    expect(panelOf(w).exists()).toBe(false)
 
-    expect(wrapper.find('.run-panel').exists()).toBe(false)
-    wrapper.unmount()
+    await pillOf(w).trigger('click')
+    await w.get('button[aria-label="Close run activity"]').trigger('click')
+    expect(panelOf(w).exists()).toBe(false)
+    w.unmount()
   })
 
   it('reports unavailable instead of stale counts when a poll fails', async () => {
     getGlobalActiveRunsMock.mockResolvedValue(ACTIVE_PAYLOAD)
-
-    const wrapper = mount(RunActivityPill)
-    await vi.waitFor(() => {
-      expect(wrapper.find('.run-pill').text()).toContain('1 running')
-    })
+    const w = await mountPill()
+    await vi.waitFor(() => expect(pillOf(w).text()).toContain('1 running'))
 
     // A later poll fails: the last known lists must not read as live state.
     getGlobalActiveRunsMock.mockRejectedValue(new Error('connection refused'))
-    const { refresh } = useGlobalRunActivity()
-    await refresh()
+    await useGlobalRunActivity().refresh()
     await nextTick()
 
-    const pill = wrapper.find('.run-pill')
-    expect(wrapper.find('.run-pill--stale').exists()).toBe(true)
+    const pill = pillOf(w)
+    expect(pill.attributes('data-state')).toBe('unavailable')
     expect(pill.text()).toContain('Run state unavailable')
     expect(pill.text()).not.toContain('running')
 
     await pill.trigger('click')
-
-    expect(wrapper.text()).toContain('reach the run scheduler')
-    expect(wrapper.text()).toContain('connection refused')
-    // The stale running/queued lists are not shown while state is unknown.
-    expect(wrapper.find('.panel-list').exists()).toBe(false)
-
-    wrapper.unmount()
+    expect(w.text()).toContain('reach the run scheduler')
+    expect(w.text()).toContain('connection refused')
+    // Neither the stale lists nor the stale lane bars are shown.
+    expect(panelOf(w).find('[data-lane]').exists()).toBe(false)
+    w.unmount()
   })
 })
 
@@ -149,91 +158,61 @@ describe('RunActivityPill', () => {
 describe('RunActivityPill inbound callers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    confirm.mockResolvedValue(true)
     getGlobalActiveRunsMock.mockResolvedValue(INBOUND_PAYLOAD)
     promoteQueuedRunMock.mockResolvedValue(undefined)
     cancelQueuedRunMock.mockResolvedValue(undefined)
   })
 
-  async function openPanel() {
-    const wrapper = mount(RunActivityPill)
-    await vi.waitFor(() => {
-      expect(wrapper.find('.run-pill').exists()).toBe(true)
-    })
-    await wrapper.find('.run-pill').trigger('click')
-    await flushPromises()
-    return wrapper
-  }
+  const button = (w: VueWrapper, name: string) =>
+    w.findAll('button').find((b) => b.text() === name || b.attributes('aria-label') === name)
 
-  // The inbound row carries one "Serve now" and one "Dismiss" button; a missing
-  // one is a failure worth stating, not an index into undefined.
-  function actionButton(row: DOMWrapper<Element>, index: number): DOMWrapper<Element> {
-    const button = row.findAll('.row-action')[index]
-    if (!button) throw new Error(`expected an action button at index ${index}`)
-    return button
-  }
-
-  async function openInboundRow() {
-    const wrapper = await openPanel()
-    const row = wrapper.findAll('.panel-row').find((r) => r.text().includes('External'))
-    if (!row) throw new Error(`expected an inbound row, got: ${wrapper.text()}`)
-    return { wrapper, row }
-  }
-
-  it('tags a waiting external caller and offers only it the operator actions', async () => {
-    const wrapper = await openPanel()
-
-    const rows = wrapper.findAll('.panel-row')
-    expect(rows).toHaveLength(2)
-
-    const inbound = rows.find((r) => r.text().includes('External'))
-    const queued = rows.find((r) => r.text().includes('Cloud'))
-    if (!inbound || !queued) {
-      throw new Error(`expected an External row and a Cloud row, got: ${wrapper.text()}`)
-    }
-    expect(inbound.text()).toContain('model-b')
-    expect(inbound.findAll('.row-action')).toHaveLength(2)
+  it('lists waiting external callers apart, and offers only them the operator actions', async () => {
+    const w = await openPanel()
+    const external = w.get('[data-group="external"]')
+    expect(external.text()).toContain('model-b')
+    expect(button(w, 'Serve model-b now')).toBeDefined()
+    expect(button(w, 'Dismiss model-b')).toBeDefined()
     // A run queued for lane concurrency is not the operator's call to make.
-    expect(queued.findAll('.row-action')).toHaveLength(0)
+    expect(w.get('[data-lane="cloud"]').findAll('button')).toHaveLength(0)
     // The consequence is stated, not implied.
-    expect(wrapper.text()).toContain('cancels that run')
-
-    wrapper.unmount()
+    expect(external.text()).toContain('cancels that run')
+    w.unmount()
   })
 
-  it('serves a waiting caller and refreshes the lists', async () => {
-    const { wrapper, row } = await openInboundRow()
+  it('serves a waiting caller after confirming, and refreshes the lists', async () => {
+    const w = await openPanel()
     const callsBefore = getGlobalActiveRunsMock.mock.calls.length
 
-    await actionButton(row, 0).trigger('click')
+    confirm.mockResolvedValueOnce(false)
+    await button(w, 'Serve model-b now')!.trigger('click')
     await flushPromises()
+    expect(promoteQueuedRunMock).not.toHaveBeenCalled()
 
+    await button(w, 'Serve model-b now')!.trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ type: 'warning' }))
     expect(promoteQueuedRunMock).toHaveBeenCalledWith('inbound:1')
     expect(getGlobalActiveRunsMock.mock.calls.length).toBeGreaterThan(callsBefore)
-
-    wrapper.unmount()
+    w.unmount()
   })
 
   it('dismisses a waiting caller without serving it', async () => {
-    const { wrapper, row } = await openInboundRow()
-
-    await actionButton(row, 1).trigger('click')
+    const w = await openPanel()
+    await button(w, 'Dismiss model-b')!.trigger('click')
     await flushPromises()
-
     expect(cancelQueuedRunMock).toHaveBeenCalledWith('inbound:1')
     expect(promoteQueuedRunMock).not.toHaveBeenCalled()
-
-    wrapper.unmount()
+    w.unmount()
   })
 
   it('a failed action leaves the panel usable', async () => {
     promoteQueuedRunMock.mockRejectedValue(new Error('no queued caller with that key'))
-    const { wrapper, row } = await openInboundRow()
-
-    await actionButton(row, 0).trigger('click')
+    const w = await openPanel()
+    await button(w, 'Serve model-b now')!.trigger('click')
     await flushPromises()
-
     // Nothing thrown, and the row is actionable again (the busy guard cleared).
-    expect(actionButton(row, 0).attributes('disabled')).toBeUndefined()
-    wrapper.unmount()
+    expect(button(w, 'Serve model-b now')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
   })
 })

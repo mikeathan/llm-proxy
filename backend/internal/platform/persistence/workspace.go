@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +19,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// workspaceFiles are legacy metadata names reserved at the workspace root
+// (they now live in the metadata root); a nested file of the same name is
+// ordinary user content.
 var workspaceFiles = []string{
 	models.StateFilename,
 	models.ConfigFilename,
@@ -185,12 +189,39 @@ func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) er
 // Task Files
 // ============================================================================
 
-// ReadTaskFile reads an arbitrary task file from the workspace.
-func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, error) {
-	path := m.resolver.TaskFile(workspaceID, filename)
-	data, err := os.ReadFile(path)
+// Task files are addressed by workspace-relative slash paths and may be nested.
+// Every read, write, delete and listing goes through withWorkspaceRoot, so no
+// path — via ".." or a symlink — can resolve outside the workspace directory.
+
+// withWorkspaceRoot opens the workspace directory as an *os.Root and runs fn
+// with it. The root is traversal- and symlink-escape-resistant by construction
+// (no check-then-use gap). With create, a missing workspace directory is made
+// first; otherwise its absence surfaces as fs.ErrNotExist.
+func (m *WorkspaceManager) withWorkspaceRoot(workspaceID string, create bool, fn func(*os.Root) error) error {
+	dir := m.resolver.WorkspaceDir(workspaceID)
+	if create {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create workspace dir: %w", err)
+		}
+	}
+	root, err := os.OpenRoot(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		return fmt.Errorf("open workspace %s: %w", workspaceID, err)
+	}
+	defer root.Close()
+	return fn(root)
+}
+
+// ReadTaskFile reads a task file from the workspace; a missing file reads as "".
+func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, error) {
+	var data []byte
+	err := m.withWorkspaceRoot(workspaceID, false, func(root *os.Root) error {
+		var readErr error
+		data, readErr = root.ReadFile(filename)
+		return readErr
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return "", nil
 		}
 		return "", fmt.Errorf("failed to read %s: %w", filename, err)
@@ -198,9 +229,11 @@ func (m *WorkspaceManager) ReadTaskFile(workspaceID, filename string) (string, e
 	return string(data), nil
 }
 
-// WriteTaskFile writes an arbitrary task file atomically.
+// WriteTaskFile writes a task file atomically, creating parent directories.
 func (m *WorkspaceManager) WriteTaskFile(workspaceID, filename, content string) error {
-	return storage.WriteAtomic(m.resolver.TaskFile(workspaceID, filename), fmt.Sprintf("%s-*.tmp", filename), []byte(content), storage.ClassUserContent)
+	return m.withWorkspaceRoot(workspaceID, true, func(root *os.Root) error {
+		return storage.WriteAtomicInRoot(root, filename, []byte(content), storage.ClassUserContent)
+	})
 }
 
 func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
@@ -265,41 +298,11 @@ func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 	return info.ModTime(), nil
 }
 
-func (m *WorkspaceManager) ListFiles(workspaceID string) ([]string, error) {
-	dirPath := m.resolver.WorkspaceDir(workspaceID)
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, err
-	}
-
-	var files []string
-	for _, entry := range entries {
-
-		name := filepath.Base(entry.Name())
-		isWorkspaceFile := false
-		// Skip if it's a directory, empty, or hidden
-		if entry.IsDir() || name == "" || name[0] == '.' {
-			continue
-		}
-
-		// exclude known workspace files to only list task files
-		if slices.Contains(workspaceFiles, name) {
-			isWorkspaceFile = true
-		}
-
-		if !isWorkspaceFile {
-			files = append(files, name)
-		}
-	}
-	return files, nil
-}
-
+// DeleteTaskFile removes a task file from the workspace.
 func (m *WorkspaceManager) DeleteTaskFile(workspaceID, filename string) error {
-	path := m.resolver.TaskFile(workspaceID, filename)
-	return os.Remove(path)
+	return m.withWorkspaceRoot(workspaceID, false, func(root *os.Root) error {
+		return root.Remove(filename)
+	})
 }
 
 func (m *WorkspaceManager) DeleteWorkspace(workspaceID string) error {
@@ -485,9 +488,13 @@ func findRun(state *models.AgentState, runID string) *models.AutomationRun {
 // Assistant Sessions
 // ============================================================================
 
+// legacySessionsDirName is the pre-metadata-root sessions directory, still read
+// for migration at the workspace root.
+const legacySessionsDirName = "sessions"
+
 // sessionOldDir returns the legacy sessions path inside the workspace directory.
 func (m *WorkspaceManager) sessionOldDir(workspaceID string) string {
-	return filepath.Join(m.resolver.WorkspaceDir(workspaceID), "sessions")
+	return filepath.Join(m.resolver.WorkspaceDir(workspaceID), legacySessionsDirName)
 }
 
 // ReadSession reads a specific assistant session JSON file.

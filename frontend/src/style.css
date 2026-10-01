@@ -1,9 +1,69 @@
+@import './styles/fonts.css';
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Page material and native UI follow the theme (plan D17). color-scheme comes
+   from the preset block in tokens.css, so scrollbars, <select> popups, date
+   pickers and autofill match it. */
 body {
-  @apply bg-gray-900 text-gray-300;
+  @apply bg-canvas text-secondary font-sans;
+}
+
+/* Preflight colours placeholders with theme('colors.gray.400'); the theme has
+   no palette, so it would fall back to a fixed grey. Keep them on the token. */
+@layer base {
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(var(--text-muted) / 1);
+  }
+}
+
+/* Reduced motion (Phase 6): the motion tokens already drop to 0ms; this safety
+   net also stops the few animations and transitions with a fixed duration
+   (the chat's thinking dots, the spinner) and CSS smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The 1-bit dither cell of skeletons, meter tracks and slot bars (a fixed
+   geometry, not a themeable token). */
+:root {
+  --dither-size: 2px;
+}
+
+@layer components {
+  /* The primary control's hard brand offset. A Tailwind arbitrary shadow with
+     var() is read as a shadow colour, so it lives here. */
+  /* Text inputs, selects and textareas on tokens (Phase 5 form primitives). */
+  .form-control {
+    @apply w-full min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2.5 text-[length:var(--text-small)] text-primary placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-state-error;
+  }
+  input.form-control,
+  select.form-control {
+    @apply h-8;
+  }
+  textarea.form-control {
+    @apply py-2;
+  }
+
+  .offset-brand {
+    box-shadow: var(--offset-control) var(--offset-control) 0 rgb(var(--accent-brand));
+  }
+}
+
+::selection {
+  background: rgb(var(--accent-brand) / 0.35);
+  color: rgb(var(--text-primary));
 }
 
 /* Custom Scrollbar Styling */
@@ -17,11 +77,11 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-700/50 rounded-full hover:bg-gray-600 transition-colors;
+  @apply bg-border-strong rounded-full hover:bg-border-control transition-colors;
 }
 
 /* For Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(55, 65, 81, 0.5) transparent;
+  scrollbar-color: rgb(var(--border-strong)) transparent;
 }

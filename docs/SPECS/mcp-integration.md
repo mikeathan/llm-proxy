@@ -1,15 +1,21 @@
 ---
 id: SPEC-008
 title: MCP Integration
-version: "1.0"
+version: "1.1"
 status: stable
-last_updated: 2026-05-28
+last_updated: 2026-09-29
 constitution_references: []
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
 ---
 
 # SPEC: MCP Integration
+
+## Changelog
+
+- **1.1 (2026-09-29)** — Reference correction (no behavior change): the CompositeEngine fallback
+  sentinel is `ErrToolNotInternal` (not `ErrToolNotFound`); the server-lifecycle type is
+  `mcp.Orchestrator` (formerly `ClientPool`).
 
 ## I. Intent
 
@@ -34,7 +40,7 @@ the `MultiToolProvider`, making them transparent to the agent loop.
 
 ### 3. Composite Engine
 
-- `CompositeEngine` tries local tool execution first, falls back to MCP on `ErrToolNotFound`.
+- `CompositeEngine` tries local tool execution first, falls back to MCP when the local engine returns `ErrToolNotInternal`.
 - This ensures local tools take priority over MCP tools with the same name.
 - MCP-specific errors (connection, timeout) are mapped to standard tool errors.
 
@@ -53,7 +59,9 @@ the `MultiToolProvider`, making them transparent to the agent loop.
 ## III. Error Handling
 
 - MCP connection failure: MCP tools disappear from the tool list (graceful degradation).
-- MCP tool call timeout: engine returns `ErrToolNotFound` to fall back to local.
+- MCP tool call timeout: the MCP engine returns the timeout error to the caller — there is no
+  MCP→local fallback; the CompositeEngine only falls back local→MCP when the local engine returns
+  `ErrToolNotInternal`.
 - MCP SSE reconnection: automatic with exponential backoff (max 30s).
 
 ## IV. Configuration
@@ -72,5 +80,5 @@ MCP servers are configured in `registry.json`:
 }
 ```
 
-- Server lifecycle managed via `MCPOrchestrator` (start/stop/reconnect).
+- Server lifecycle managed via `mcp.Orchestrator` (formerly `ClientPool`; start/stop/reconnect).
 - Per-server enable/disable toggles tool availability.

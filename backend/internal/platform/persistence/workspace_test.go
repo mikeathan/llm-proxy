@@ -311,3 +311,72 @@ func TestFirstUserSnippet(t *testing.T) {
 		})
 	}
 }
+
+// Task files are addressed by workspace-relative slash paths; every operation is
+// contained in the workspace root (plan Phase 3): nested paths work, and neither
+// traversal nor a symlink can reach outside the workspace.
+func TestWorkspaceManager_TaskFileContainment(t *testing.T) {
+	base := t.TempDir()
+	resolver := storage.NewPathResolver(base, base, t.TempDir())
+	mgr := NewWorkspaceManager(resolver)
+	const wsID = "contained"
+	wsDir := resolver.WorkspaceDir(wsID)
+
+	t.Run("nested write, read and delete round-trip", func(t *testing.T) {
+		if err := mgr.WriteTaskFile(wsID, "sub/task.md", "nested"); err != nil {
+			t.Fatalf("WriteTaskFile: %v", err)
+		}
+		got, err := mgr.ReadTaskFile(wsID, "sub/task.md")
+		if err != nil || got != "nested" {
+			t.Fatalf("ReadTaskFile = %q, %v", got, err)
+		}
+		if err := mgr.DeleteTaskFile(wsID, "sub/task.md"); err != nil {
+			t.Fatalf("DeleteTaskFile: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(wsDir, "sub", "task.md")); !os.IsNotExist(err) {
+			t.Fatalf("file still present: %v", err)
+		}
+	})
+
+	t.Run("a missing file reads as empty", func(t *testing.T) {
+		got, err := mgr.ReadTaskFile(wsID, "nope.md")
+		if err != nil || got != "" {
+			t.Fatalf("ReadTaskFile = %q, %v", got, err)
+		}
+	})
+
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.md")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(wsDir, "leak.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wsDir, "out")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		op   func() error
+	}{
+		{"read through an escaping file link", func() error { _, err := mgr.ReadTaskFile(wsID, "leak.md"); return err }},
+		{"read through an escaping dir link", func() error { _, err := mgr.ReadTaskFile(wsID, "out/secret.md"); return err }},
+		{"write through an escaping dir link", func() error { return mgr.WriteTaskFile(wsID, "out/new.md", "x") }},
+		{"delete through an escaping dir link", func() error { return mgr.DeleteTaskFile(wsID, "out/secret.md") }},
+		{"traversal", func() error { _, err := mgr.ReadTaskFile(wsID, "../escape.md"); return err }},
+	} {
+		t.Run("rejects "+tc.name, func(t *testing.T) {
+			if err := tc.op(); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+	if data, err := os.ReadFile(secret); err != nil || string(data) != "secret" {
+		t.Fatalf("outside file changed: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "new.md")); !os.IsNotExist(err) {
+		t.Fatal("a file was written outside the workspace")
+	}
+}

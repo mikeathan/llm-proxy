@@ -1,0 +1,47 @@
+/*
+ * Self-hosted fonts (plan D17): the panel runs on a LAN and must not depend on a
+ * font CDN. Inter (variable, every weight in one file) and JetBrains Mono
+ * (static cuts; the browser fetches only the weights in use). Both OFL 1.1 —
+ * licences beside the files in src/assets/fonts/. The families are selected by
+ * --font-sans / --font-mono in tokens.css, whose stacks fall back to
+ * metric-close system fonts while these load (font-display: swap).
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/InterVariable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+}

@@ -24,12 +24,13 @@ func validateID(id string) bool {
 	return validIDRegex.MatchString(id)
 }
 
-// isUnsafeFileParam reports whether s is empty, a "." / ".." segment, or
-// normalizes differently under filepath.Clean (traversal or separator tricks).
-// Such values must be rejected before filepath.Join in path resolvers, which
-// would otherwise clean/collapse them into sibling paths.
+// isUnsafeFileParam reports whether s is empty, ".", not a local path (absolute,
+// or escaping via ".."), or normalizes differently under filepath.Clean
+// (traversal or separator tricks). Nested paths such as "sub/task.md" are
+// allowed. This is the syntactic first line only: workspace file operations are
+// also contained in an *os.Root (persistence), which stops symlink escapes.
 func isUnsafeFileParam(s string) bool {
-	return s == "" || s == "." || s == ".." || filepath.Clean(s) != s
+	return s == "" || s == "." || !filepath.IsLocal(s) || filepath.Clean(s) != s
 }
 
 type Dispatcher interface {
@@ -459,17 +460,18 @@ func (h *DispatcherHandlers) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, map[string]string{"status": "created", "id": req.ID})
 }
 
-func (h *DispatcherHandlers) ListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+// ListWorkspaceTree returns the workspace's bounded recursive file tree.
+func (h *DispatcherHandlers) ListWorkspaceTree(w http.ResponseWriter, r *http.Request) {
 	workspaceID, _, ok := h.parse(w, r, models.WorkspaceIDParam)
 	if !ok {
 		return
 	}
-	files, err := h.workspace.ListFiles(workspaceID)
+	tree, err := h.workspace.ListTree(workspaceID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, files)
+	respondJSON(w, tree)
 }
 
 func (h *DispatcherHandlers) ReadWorkspaceFile(w http.ResponseWriter, r *http.Request) {

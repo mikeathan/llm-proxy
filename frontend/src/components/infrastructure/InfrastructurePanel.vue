@@ -4,83 +4,78 @@ import { AdminApiService } from '../../services/admin/adminService'
 import { useModels } from '../../composables/models/useModels'
 import { useConfirm } from '../../composables/ui/useConfirm'
 import { useToast } from '../../composables/useToast'
+import { errorMessage } from '../../utils/errors'
+import type { ProcessInfo } from '../../types/admin'
+import type { DataTableColumn } from '../../types/ui'
+import Panel from '../common/layout/Panel.vue'
+import DataTable from '../common/display/DataTable.vue'
+import StatusTag from '../common/display/StatusTag.vue'
+import BaseButton from '../common/buttons/BaseButton.vue'
 
-const { processes, refresh } = useProcesses()
+// Settings · Model processes: llama-server processes on this machine, polled
+// while the section is showing. Stopping an orphan frees GPU memory.
+const NO_VALUE = '—'
+
+const { processes, loaded, error, refresh } = useProcesses()
 const { refresh: refreshModels } = useModels()
 const { confirm } = useConfirm()
 const toast = useToast()
 
-const handleKill = async (pid: number, model: string | undefined) => {
+const processLabel = (p: ProcessInfo) => `process ${p.pid}${p.model ? ` (${p.model})` : ''}`
+
+const handleKill = async (p: ProcessInfo) => {
   const ok = await confirm({
-    title: 'Stop Process',
-    message: `Are you sure you want to stop process ${pid}${model ? ` (${model})` : ''}?`,
+    title: `Stop ${processLabel(p)}?`,
+    message: p.active
+      ? 'This is the running model: requests to it fail until it is started again.'
+      : 'The orphaned process is killed and its GPU memory freed.',
     confirmText: 'Stop',
     type: 'error',
   })
   if (!ok) return
 
   try {
-    await AdminApiService.stopProcess(pid)
-    toast.show('Process stopped', 'success')
+    await AdminApiService.stopProcess(p.pid)
+    toast.success('Process stopped')
     await refresh()
     await refreshModels()
-  } catch (e: any) {
-    toast.show(e.message || 'Failed to stop process', 'error')
+  } catch (e) {
+    toast.error(`Could not stop ${processLabel(p)}: ${errorMessage(e)}`)
   }
 }
+
+const COLUMNS: DataTableColumn<ProcessInfo>[] = [
+  { key: 'status', label: 'Status' },
+  { key: 'pid', label: 'PID', numeric: true, value: (p) => p.pid },
+  { key: 'model', label: 'Model', value: (p) => p.model || NO_VALUE },
+  { key: 'port', label: 'Port', numeric: true, value: (p) => (p.port ? `:${p.port}` : NO_VALUE) },
+  { key: 'uptime', label: 'Uptime', numeric: true, value: (p) => p.uptime },
+  { key: 'actions', label: 'Actions' },
+]
 </script>
 
 <template>
-  <div>
-    <h2 class="text-xl font-bold text-white mb-1">Local Model Processes</h2>
-    <p class="text-sm text-gray-400 mb-6">
-      Running llama-server processes on this machine. Stopping an orphaned
-      process frees GPU memory without affecting proxy functionality.
+  <Panel title="Local model processes" flush>
+    <p class="m-0 border-b border-hairline px-4 py-3 text-[length:var(--text-small)] text-muted">
+      llama-server processes on this machine. Stopping an orphaned process frees GPU memory without affecting the proxy.
     </p>
-
-    <div v-if="processes.length === 0" class="text-center py-12 text-gray-500 bg-gray-800 rounded-lg">
-      No local model processes running.
-    </div>
-
-    <div v-else class="bg-gray-800 rounded-lg overflow-hidden">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-700 text-gray-400 uppercase text-xs tracking-wider">
-            <th class="text-left px-4 py-3">Status</th>
-            <th class="text-left px-4 py-3">PID</th>
-            <th class="text-left px-4 py-3">Model</th>
-            <th class="text-left px-4 py-3">Port</th>
-            <th class="text-left px-4 py-3">Uptime</th>
-            <th class="text-right px-4 py-3">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="p in processes" :key="p.pid" class="border-b border-gray-700/50 hover:bg-gray-750">
-            <td class="px-4 py-3">
-              <span v-if="p.active" class="inline-flex items-center gap-1.5 text-emerald-400">
-                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-                Active (Managed)
-              </span>
-              <span v-else class="inline-flex items-center gap-1.5 text-amber-400">
-                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-                Orphan
-              </span>
-            </td>
-            <td class="px-4 py-3 font-mono text-gray-300">{{ p.pid }}</td>
-            <td class="px-4 py-3">{{ p.model || '-' }}</td>
-            <td class="px-4 py-3 font-mono">{{ p.port ? ':' + p.port : '-' }}</td>
-            <td class="px-4 py-3 text-gray-400">{{ p.uptime }}</td>
-            <td class="px-4 py-3 text-right">
-              <button
-                @click="handleKill(p.pid, p.model)"
-                class="px-3 py-1.5 text-xs font-medium rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 transition-colors"
-              >
-                Stop
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+    <DataTable
+      :columns="COLUMNS"
+      :rows="processes"
+      :row-key="(p) => String(p.pid)"
+      caption="Model processes"
+      :loading="!loaded"
+      :error="processes.length ? null : error || null"
+      error-next="The list refreshes every 10 seconds; check the app log if it keeps failing."
+      empty-title="No model processes running"
+      empty-body="Start a local model from Models to see its llama-server here."
+    >
+      <template #cell-status="{ row }">
+        <StatusTag :state="row.active ? 'success' : 'running'" :label="row.active ? 'Managed' : 'Orphan'" />
+      </template>
+      <template #cell-actions="{ row }">
+        <BaseButton variant="ghost" size="sm" icon="stop" icon-only :label="`Stop ${processLabel(row)}`" @click="handleKill(row)" />
+      </template>
+    </DataTable>
+  </Panel>
 </template>

@@ -1,8 +1,6 @@
 ---
 name: task-planning
 description: "Plan and execute non-trivial changes: classify, find the governing SPEC, trace the existing code path, scope, decompose into verifiable steps, record a plan, and resume safely. Use before multi-file/multi-subsystem or ambiguous work, and to understand a subsystem before changing it."
-when_to_use: "A change spans multiple files/subsystems, is ambiguous, needs a SPEC, or will run over many steps; or you must understand how existing code works before changing it."
-status: reference
 last_reviewed: 2026-09-26
 ---
 
@@ -18,7 +16,7 @@ The execution protocol (`AGENTS.md`) is **inspect → plan → implement → ver
 Label the work **backend / frontend / cross-cutting / docs / tests** and load *only* that layer's rule file + the affected SPEC(s):
 
 - Rules: `.agents/rules/go-staff-engineer.md` (backend), `.agents/rules/frontend-vue-engineer.md` (frontend) — mandatory.
-- SPEC: `docs/INDEX.md` → `docs/SPECS/SPEC-NNN-*.md` for the affected subsystem only.
+- SPEC: `docs/SPECS/README.md` (ID → file map) for the affected subsystem only.
 
 Multi-subsystem work loads each affected subsystem's pieces, not all of them.
 

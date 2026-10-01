@@ -11,6 +11,8 @@ import svgLoader from 'vite-svg-loader'
 //    Carries the Vue plugin so .vue SFCs compile under the test runner, and the
 //    SVG loader so `?component` icon imports resolve to components instead of
 //    asset URLs (Icon.vue loads icons through a dynamic `?component` import).
+const TOKENS_CSS = /styles\/tokens\.css/
+
 export default defineConfig({
   test: {
     // Root-level: applies to all projects (not a valid per-project option in Vitest 4).
@@ -28,6 +30,9 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
+          // Vitest stubs CSS imports (even `?raw`) unless included. theme/presets.ts
+          // reads the token file as text — the single source of truth (plan D6).
+          css: { include: [TOKENS_CSS] },
           include: ['src/__TESTS__/**/*.test.ts'],
           exclude: ['src/__TESTS__/**/*.component.test.ts'],
         },
@@ -37,6 +42,7 @@ export default defineConfig({
         test: {
           name: 'component',
           environment: 'happy-dom',
+          css: { include: [TOKENS_CSS] },
           include: ['src/__TESTS__/**/*.component.test.ts'],
         },
       },

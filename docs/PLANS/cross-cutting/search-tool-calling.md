@@ -315,7 +315,7 @@ func (e *GuardrailEngine) searchDisabled(cfg models.AgentGuardrailsConfig) bool 
 - `.agents/skills/engineering-practices/SKILL.md` — add a short "When adding a search provider" recipe
   (const + enum + one table row + the `tools`-package drift test; the `search:<provider>` secret path).
 - `docs/architecture.md` — one-line pointer to that recipe (no duplicated checklist).
-- `docs/INDEX.md` + `docs/PLANS/README.md` — already registered; keep in sync if scope shifts.
+- `docs/PLANS/README.md` — already registered; keep in sync if scope shifts.
 
 ## Implementation order (TDD — Red → Green → Refactor, `.agents/skills/tdd-guide/SKILL.md`)
 0. Baseline: `cd backend && go build ./... && go test ./...`;

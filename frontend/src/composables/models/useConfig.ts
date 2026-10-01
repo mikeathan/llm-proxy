@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import type { GlobalConfig } from '../../types/admin'
 
@@ -73,6 +73,25 @@ const isSaving = ref(false)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 
+// The last loaded / saved config, serialised: the Settings page's unsaved
+// changes are the difference between it and the edited `config`.
+const saved = ref(JSON.stringify(config.value))
+const markSaved = (value: GlobalConfig = config.value) => {
+  saved.value = JSON.stringify(value)
+}
+const isDirty = computed(() => JSON.stringify(config.value) !== saved.value)
+
+/**
+ * Applies a housekeeping change (not a user edit) to both the edited config
+ * and the saved snapshot, so it never shows up as an unsaved change.
+ */
+const housekeep = (change: (cfg: GlobalConfig) => void) => {
+  const snapshot = JSON.parse(saved.value) as GlobalConfig
+  change(snapshot)
+  saved.value = JSON.stringify(snapshot)
+  change(config.value)
+}
+
 /**
  * Fetches the latest config from the backend.
  */
@@ -83,6 +102,7 @@ const fetchConfig = async (): Promise<void> => {
     const state = await AdminApiService.fetchState()
     if (state.config) {
       config.value = structuredClone(state.config)
+      markSaved()
     }
   } catch (err: any) {
     error.value = err.message || 'Failed to fetch configuration'
@@ -101,6 +121,7 @@ const updateConfig = async (payload?: GlobalConfig): Promise<void> => {
   const data = payload || config.value
   try {
     await AdminApiService.updateConfig(data)
+    markSaved(data)
   } catch (err: any) {
     error.value = err.message || 'Failed to save configuration'
     throw err
@@ -109,29 +130,32 @@ const updateConfig = async (payload?: GlobalConfig): Promise<void> => {
   }
 }
 
+/** Reverts every unsaved edit to the last loaded / saved config. */
+const discardChanges = (): void => {
+  config.value = JSON.parse(saved.value) as GlobalConfig
+}
+
 /**
  * Clears primary/fallback references that are no longer present in the model
  * catalogue, so a removed model can never be saved back as a dangling selection.
  */
 export const reconcileModelRefs = (modelNames: string[]): void => {
   const names = new Set(modelNames)
-  if (config.value.primary_model && !names.has(config.value.primary_model)) {
-    config.value.primary_model = ''
-  }
-  if (config.value.fallback_model && !names.has(config.value.fallback_model)) {
-    config.value.fallback_model = ''
-  }
+  housekeep((cfg) => {
+    if (cfg.primary_model && !names.has(cfg.primary_model)) cfg.primary_model = ''
+    if (cfg.fallback_model && !names.has(cfg.fallback_model)) cfg.fallback_model = ''
+  })
 }
 
 /**
  * Helper to ensure a specific provider exists in the config.
  */
 const ensureProvider = (type: string) => {
-  if (!config.value.providers) config.value.providers = {}
-  if (!config.value.providers[type]) {
-    config.value.providers[type] = { type: type as any, api_keys: [] }
-  }
-  return config.value.providers[type]
+  housekeep((cfg) => {
+    if (!cfg.providers) cfg.providers = {}
+    if (!cfg.providers[type]) cfg.providers[type] = { type: type as any, api_keys: [] }
+  })
+  return config.value.providers![type]
 }
 
 export function useConfig() {
@@ -139,9 +163,11 @@ export function useConfig() {
     config,
     isLoading,
     isSaving,
+    isDirty,
     error,
     fetchConfig,
     updateConfig,
+    discardChanges,
     reconcileModelRefs,
     ensureProvider
   }

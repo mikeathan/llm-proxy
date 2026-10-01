@@ -17,7 +17,6 @@ type Resolver interface {
 	State(id string) string
 	Lock(id string) string
 	ProcessLog(id string) string
-	TaskFile(id, filename string) string
 	Heartbeat(id string) string
 }
 
@@ -74,10 +73,6 @@ func (r *PathResolver) Lock(id string) string {
 
 func (r *PathResolver) ProcessLog(id string) string {
 	return filepath.Join(r.InternalDir(id), models.ProcessLogFilename)
-}
-
-func (r *PathResolver) TaskFile(id, filename string) string {
-	return filepath.Join(r.WorkspaceDir(id), filename)
 }
 
 func (r *PathResolver) WorkspacesRoot() string {

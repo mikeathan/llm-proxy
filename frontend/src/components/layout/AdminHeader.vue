@@ -1,124 +1,59 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
-import type { AppTab } from "../../types";
-import Icon from "../icons/Icon.vue";
-import RunActivityPill from "./RunActivityPill.vue";
+import { computed } from "vue"
+import { useRoute } from "vue-router"
+import BaseButton from "../common/buttons/BaseButton.vue"
+import RunActivityPill from "./RunActivityPill.vue"
+import HostStats from "./HostStats.vue"
+import BrandMark from "./BrandMark.vue"
+import { PRODUCT_NAME } from "../../config/brand"
+import { toOverview } from "../../router/routes"
+
+// The top strip: where you are, plus the host stats and the global run pill,
+// visible on every destination (plan D10). Navigation lives in AppSidebar; on mobile the strip
+// also carries the brand and the drawer toggle, since the rail is hidden.
 
 defineProps<{
-  activeTab: AppTab;
-}>();
+  mobile: boolean
+  drawerOpen: boolean
+}>()
 
-defineEmits<{
-  (e: "update:activeTab", tab: AppTab): void;
-}>();
+defineEmits<{ (e: "toggle-drawer"): void }>()
 
-const version = ref<string | null>(null);
-
-onMounted(async () => {
-  try {
-    const res = await fetch("/admin/api/version");
-    if (res.ok) {
-      const data = await res.json();
-      version.value = data.version ?? null;
-    }
-  } catch {
-    // Non-critical — silently skip
-  }
-});
+const route = useRoute()
+const title = computed(() => route.meta.title ?? "")
 </script>
 
 <template>
-  <header class="header-container">
-    <div class="header-inner">
-      <h1 class="header-title">
-        <Icon name="lightning" size="md" class="header-icon" />
-        LLM Proxy Admin
-        <span v-if="version" class="version-badge">{{ version }}</span>
-      </h1>
+  <header class="sticky top-0 z-30 flex h-12 flex-none items-center gap-3 border-b border-hairline bg-canvas px-3 lg:px-6">
+    <template v-if="mobile">
+      <BaseButton
+        data-test="drawer-toggle"
+        variant="ghost"
+        icon="menu"
+        icon-only
+        label="Open navigation"
+        aria-controls="app-sidebar"
+        :aria-expanded="drawerOpen"
+        @click="$emit('toggle-drawer')"
+      />
+      <RouterLink
+        :to="toOverview()"
+        :aria-label="`${PRODUCT_NAME} home`"
+        class="flex flex-none items-center gap-2 rounded-[var(--radius-sm)] font-mono text-[13px] font-semibold text-primary focus-visible:outline-none focus-visible:ring-2"
+      >
+        <BrandMark />
+        <span class="hidden sm:inline">{{ PRODUCT_NAME }}</span>
+      </RouterLink>
+      <span class="text-decorative" aria-hidden="true">/</span>
+    </template>
 
-      <div class="header-actions">
-        <RunActivityPill />
+    <nav aria-label="Breadcrumb" class="min-w-0 flex-1 truncate font-mono text-[length:var(--text-small)]">
+      <span aria-current="page" class="text-primary">{{ title }}</span>
+    </nav>
 
-        <nav class="nav-links">
-          <button
-            @click="$emit('update:activeTab', 'dashboard')"
-            :class="[
-              'nav-button',
-              activeTab === 'dashboard'
-                ? 'nav-button-active'
-                : 'nav-button-inactive',
-            ]"
-          >
-            Dashboard
-          </button>
-          <button
-            @click="$emit('update:activeTab', 'settings')"
-            :class="[
-              'nav-button',
-              activeTab === 'settings'
-                ? 'nav-button-active'
-                : 'nav-button-inactive',
-            ]"
-          >
-            Settings
-          </button>
-          <button
-            @click="$emit('update:activeTab', 'logs')"
-            :class="[
-              'nav-button',
-              activeTab === 'logs'
-                ? 'nav-button-active'
-                : 'nav-button-inactive',
-            ]"
-          >
-            Process Logs
-          </button>
-          <button
-            @click="$emit('update:activeTab', 'agent-ide')"
-            :class="[
-              'nav-button',
-              activeTab === 'agent-ide'
-                ? 'nav-button-active'
-                : 'nav-button-inactive',
-            ]"
-          >
-            Agent IDE
-          </button>
-        </nav>
-      </div>
-    </div>
+    <HostStats />
+    <!-- Shell-owned controls, e.g. the run-notification bell (App.vue). -->
+    <slot name="actions" />
+    <RunActivityPill />
   </header>
 </template>
-
-<style scoped lang="postcss">
-.header-container {
-  @apply bg-gray-800 border-b border-gray-700 p-4 sticky top-0 z-10;
-}
-.header-inner {
-  @apply max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4;
-}
-.header-title {
-  @apply text-xl font-bold text-white flex items-center gap-2;
-}
-.header-icon {
-  @apply w-6 h-6 text-blue-500;
-}
-.version-badge {
-  @apply text-xs font-mono font-normal text-gray-400 bg-gray-700 border border-gray-600 px-2 py-0.5 rounded-full;
-}
-.header-actions {
-  @apply flex items-center gap-3;
-}
-.nav-links {
-  @apply flex gap-2;
-}
-.nav-button {
-  @apply px-4 py-2 rounded-md text-sm font-medium transition-colors;
-}
-.nav-button-active {
-  @apply bg-blue-600 text-white;
-}
-.nav-button-inactive {
-  @apply bg-gray-800 text-gray-400 hover:bg-gray-700;
-}
-</style>

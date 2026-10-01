@@ -1,9 +1,7 @@
 ---
 name: assistant-ui-patterns
 description: "AgentIde UI shell patterns: chat shell composition, sidebar/drawer states, mobile breakpoints, the shared chat renderer, and UI gotchas. Use when working on AgentIde layout/components."
-when_to_use: "Editing AgentIde UI layout, sidebar/drawer states, mobile breakpoints, or the shared ChatMessages renderer."
-status: reference
-last_reviewed: 2026-07-11
+last_reviewed: 2026-09-30
 ---
 
 # Assistant UI Chat Patterns
@@ -16,7 +14,7 @@ last_reviewed: 2026-07-11
 
 ```
 AssistantChat.vue
-  ├── useResponsiveLayout(breakpoint)    → isMobile
+  ├── useResponsiveLayout()              → breakpoint ('base' = below sm → drawer)
   ├── useAssistant (singleton composable) → messages, sessions, currentSessionId
   ├── ChatSessionList.vue                 → sidebar / drawer (3 states)
   ├── ChatMessages.vue                    → rendered messages + tool blocks (mode: 'chat' | 'automation')
@@ -48,6 +46,18 @@ The sidebar has 3 visual states driven by the parent:
 Current implementation uses a single `sidebarOpen` boolean. Desktop aside transitions `width: 0 ↔ 260px`. Mobile drawer uses `Transition name="drawer"` with `transform: translateX(-100%)`.
 
 **Do NOT add mouseenter/mouseleave auto-expand.** The user explicitly requested manual-only toggle.
+
+### List contents (retro redesign, 2026-09-30)
+
+`ChatSessionList` groups via `utils/assistant/sessionSections.ts` (pure): Pinned ·
+Today · Yesterday · This week · Older, then webhook conversations in a foldable
+folder. Search is client-side over titles. Pins are per workspace in
+`composables/assistant/usePinnedSessions.ts` (a `usePersistedState` singleton);
+the chat calls `forget()` on delete. Row actions must stay reachable by keyboard
+(shown on hover **or** focus-within, always on mobile) and be named after the
+conversation. Destructive actions go through `ConfirmDialog`, never `window.confirm`.
+The chat header's status tag is derived from real state (approval › model busy ›
+reconnecting › working › ready) — never a fixed "online" label.
 
 ### CSS Transitions
 
@@ -96,16 +106,16 @@ Tool/reasoning segments render inside `ChatBubble.vue` via `ToolCallSegment.vue`
 
 | Breakpoint | Used By | Behavior |
 |-----------|---------|----------|
-| `< 640px` | AssistantChat.vue | Mobile sidebar drawer |
-| `< 1024px` | AgentIde.vue | Mobile panel tabs |
+| `< 640px` (`base`) | AssistantChat.vue | Mobile sidebar drawer |
+| `< 1024px` (below `lg`) | App shell, `views/WorkspacesView.vue`, `views/AutomationsView.vue` | Sidebar becomes a drawer; one pane at a time (list on the overview, the addressed page otherwise) |
 
-Always match the breakpoint to the component's context. The assistant chat uses 640px because the chat panel is narrower than the full IDE view.
+Breakpoints are named (`sm | md | lg | xl | 2xl`) and come from `src/theme/breakpoints.ts`, which also feeds Tailwind's `screens` — never hardcode a pixel width. The assistant chat switches at `sm` because the chat panel is narrower than the full view.
 
 ---
 
 ## Common Gotchas
 
-1. **`useResponsiveLayout` registers `onMounted`/`onUnmounted`** — These hooks are scoped to the calling component. If the parent unmounts, the resize listener is cleaned up. Safe to use in multiple components simultaneously (each gets its own `isMobile` ref).
+1. **`useResponsiveLayout` registers `onMounted`/`onUnmounted`** — It listens to one `matchMedia` query per breakpoint, scoped to the calling component and removed when it unmounts. Safe to use in multiple components simultaneously (each gets its own `breakpoint` / `isMobile` refs).
 
 2. **Sidebar transitions on resize** — When resizing from desktop to mobile with the sidebar open, the `<aside>` hides and the `<Transition>` drawer appears instantly. The drawer has no enter animation in this case because the component mounts already open. This is acceptable.
 

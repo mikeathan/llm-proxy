@@ -295,6 +295,10 @@ func (c NetworkGuardrailsConfig) IsActive() bool {
 	return c.Enabled || c.AllowLanAccess || c.AllowInternetAccess
 }
 
+// MergeWith overlays a workspace guardrail layer onto c. The admin UI mirrors
+// these rules to label workspace values as inherited,
+// overridden or exceptions (frontend/src/domain/guardrailLayers.ts); a shared
+// fixture keeps the two in step (config_merge_contract_test.go).
 func (c *AgentGuardrailsConfig) MergeWith(other *AgentGuardrailsConfig) {
 	if other == nil {
 		return

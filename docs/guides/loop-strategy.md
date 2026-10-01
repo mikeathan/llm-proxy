@@ -34,7 +34,7 @@ Precedence (highest wins): per-run automation override → per-model config → 
 ## Not automatic (by design)
 
 Loop selection is **manual**. There is no per-provider default table or workload
-auto-detection yet (`providerDefaultStrategy` is intentionally static react — an
-unmeasured loop-shape default changes the whole execution shape and is higher risk than
-tuning temperature/max_tokens). If you want a strategy to apply everywhere without
-per-model edits, set it explicitly on each model rather than relying on a default.
+auto-detection (selection defaults to `react` — `defaultLoopStrategy` in `loop_strategy.go` — and an
+unmeasured loop-shape default changes the whole execution shape, higher risk than tuning
+temperature/max_tokens). If you want a strategy to apply everywhere without per-model edits, set it
+explicitly on each model rather than relying on a default.

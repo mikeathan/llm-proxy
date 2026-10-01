@@ -125,15 +125,17 @@ watch(
     :class="['message-wrapper', 'message-wrapper--assistant', { 'is-loading': loading && isLastTurn, 'message-wrapper--virtualized': !(loading && isLastTurn) }]"
   >
     <div class="message-bubble message-bubble--assistant">
-      <ArcOrbitLoader v-if="!turn.canceled" :active="loading && isLastTurn && paused" radius="1rem" />
+      <ArcOrbitLoader v-if="!turn.canceled" :active="loading && isLastTurn && paused" />
 
       <button
         v-if="!turn.canceled || turn.segments.length > 0"
+        type="button"
+        :aria-expanded="!isInsetCollapsed"
         class="bubble-header"
         @click="emit('toggleInset', idx)"
         :class="{ 'bubble-header--clickable': turn.segments.length > 0 }"
       >
-        <span class="bubble-chevron" :class="{ collapsed: isInsetCollapsed }">▶</span>
+        <span class="bubble-chevron" :class="{ collapsed: isInsetCollapsed }" aria-hidden="true">▶</span>
         <span class="bubble-phase">{{ phaseLabel }}</span>
         <span v-if="showHeaderTime && seconds > 0" class="bubble-header-time">· {{ seconds }}s</span>
       </button>
@@ -251,16 +253,16 @@ watch(
 .message-wrapper--assistant { @apply justify-start; }
 .message-wrapper--virtualized { content-visibility: auto; contain-intrinsic-size: auto 120px; }
 
-.message-bubble { @apply max-w-full sm:max-w-[85%] rounded-2xl p-3 sm:p-4 flex flex-col gap-2 shadow-sm relative break-words z-0; }
-.message-bubble--assistant { @apply bg-gray-800/40 border border-white/5 text-gray-200; min-height: 60px; }
+.message-bubble { @apply max-w-full sm:max-w-[85%] rounded-[var(--radius-md)] p-3 sm:p-4 flex flex-col gap-2 relative break-words z-0; }
+.message-bubble--assistant { @apply bg-surface border border-hairline text-primary; min-height: 60px; }
 .message-bubble--assistant > :not(.arc-orbit-loader) { position: relative; z-index: 0; }
 
-.bubble-header { @apply flex items-center gap-2 select-none w-full; background: none; border: none; padding: 0; text-align: left; font-family: inherit; color: inherit; font-size: inherit; cursor: pointer; }
-.bubble-header:hover .bubble-chevron { color: #d1d5db; }
-.bubble-chevron { @apply inline-block mr-1.5 text-[10px] text-gray-500 transition-transform duration-200; }
+.bubble-header { @apply flex items-center gap-2 select-none w-full rounded-[var(--radius-sm)] focus-visible:outline-none focus-visible:ring-2; background: none; border: none; padding: 0; text-align: left; font-family: inherit; color: inherit; font-size: inherit; cursor: pointer; }
+.bubble-header:hover .bubble-chevron { color: rgb(var(--text-secondary)); }
+.bubble-chevron { @apply inline-block mr-1.5 text-[10px] text-muted transition-transform duration-200; }
 .bubble-chevron:not(.collapsed) { transform: rotate(90deg); }
-.bubble-phase { @apply text-[10px] font-bold uppercase tracking-wider text-gray-400; }
-.bubble-header-time { @apply text-[10px] text-gray-500 font-normal; }
+.bubble-phase { @apply font-mono text-[length:var(--text-micro)] font-medium uppercase tracking-[var(--tracking-micro)] text-muted; }
+.bubble-header-time { @apply font-mono text-[length:var(--text-micro)] tabular-nums text-faint font-normal; }
 
 /* ── Inset panel ──
    Single-child grid-collapse wrapper: animates to auto height smoothly
@@ -277,8 +279,8 @@ watch(
 
 .bubble-inset {
   @apply ml-2 mr-2 my-1;
-  @apply border-l-2 border-indigo-500/60;
-  @apply bg-gray-800/50 rounded-lg;
+  @apply border-l-2 border-accent-info/60;
+  @apply bg-canvas rounded-[var(--radius-sm)];
   @apply px-3 py-2;
   /* Cap height so a long reasoning run stays bounded inside the bubble and
      scrolls internally instead of overflowing the whole pane. */
@@ -289,50 +291,50 @@ watch(
 
 .inset-reasoning { @apply mb-2 pl-2; }
 .inset-reasoning--live { @apply min-h-[1.25rem]; }
-.inset-label { @apply text-[10px] uppercase tracking-wider text-indigo-400/60 mb-0.5 block; }
-.inset-label--guardrail { @apply text-red-400/80; }
+.inset-label { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-accent-info-text mb-0.5 block; }
+.inset-label--guardrail { @apply text-state-error; }
 
 .inset-guardrail {
-  @apply mb-2 pl-2 border-l-2 border-red-500/60 bg-red-500/5 rounded-r py-1.5 pr-2;
+  @apply mb-2 pl-2 border-l-2 border-state-error/60 bg-state-error/[0.05] rounded-r py-1.5 pr-2;
 }
 .inset-guardrail-body { @apply flex flex-col gap-0.5; }
 .inset-guardrail-tool {
-  @apply text-[11px] font-mono text-red-300/90;
+  @apply text-[11px] font-mono text-state-error;
 }
 .inset-guardrail-error {
-  @apply text-[11px] leading-snug text-red-200/80;
+  @apply text-[11px] leading-snug text-secondary;
 }
 
 .inset-error {
-  @apply mb-2 pl-2 border-l-2 border-red-500/70 bg-red-500/10 rounded-r py-1.5 pr-2;
+  @apply mb-2 pl-2 border-l-2 border-state-error/70 bg-state-error/10 rounded-r py-1.5 pr-2;
 }
-.inset-label--error { @apply text-red-400/80; }
+.inset-label--error { @apply text-state-error; }
 .inset-error-message {
-  @apply text-[11px] leading-snug text-red-200/90 whitespace-pre-wrap break-words;
+  @apply text-[11px] leading-snug text-secondary whitespace-pre-wrap break-words;
 }
 
 .inset-notice {
-  @apply mb-2 pl-2 border-l-2 border-amber-500/70 bg-amber-500/10 rounded-r py-1.5 pr-2;
+  @apply mb-2 pl-2 border-l-2 border-state-running/70 bg-state-running/10 rounded-r py-1.5 pr-2;
 }
-.inset-notice--resolved { @apply opacity-60 border-amber-500/40 bg-amber-500/5; }
-.inset-label--notice { @apply text-amber-400/80; }
+.inset-notice--resolved { @apply opacity-60 border-state-running/40 bg-state-running/[0.05]; }
+.inset-label--notice { @apply text-state-running; }
 .inset-notice-message {
-  @apply text-[11px] leading-snug text-amber-100/90 whitespace-pre-wrap break-words;
+  @apply text-[11px] leading-snug text-secondary whitespace-pre-wrap break-words;
 }
 
 .inset-waiting {
-  @apply mb-2 pl-2 border-l-2 border-indigo-500/40 bg-indigo-500/5 rounded-r py-1.5 pr-2;
+  @apply mb-2 pl-2 border-l-2 border-accent-info/40 bg-accent-info/[0.05] rounded-r py-1.5 pr-2;
 }
 .inset-waiting-message {
-  @apply text-[11px] leading-snug text-indigo-200/80;
+  @apply text-[11px] leading-snug text-secondary;
 }
 
 .inset-generating {
   @apply flex items-center justify-center gap-1.5 py-2 mt-1;
-  @apply text-indigo-400 text-xs border-t border-indigo-500/20;
+  @apply text-accent-info-text text-xs border-t border-accent-info/20;
 }
 .pulse-dot {
-  @apply w-1.5 h-1.5 rounded-full bg-indigo-400;
+  @apply w-1.5 h-1.5 rounded-full bg-accent-info;
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 .pulse-dot:nth-child(2) { animation-delay: 0.15s; }
@@ -344,14 +346,14 @@ watch(
 
 .bubble-result { @apply px-1 py-2 text-sm leading-relaxed; }
 
-.bubble-paused { display: flex; align-items: center; gap: 3px; padding: 2px 6px; font-size: 11px; color: rgb(107, 114, 128); }
-.thinking-gap-dot { width: 5px; height: 5px; border-radius: 50%; background: rgb(107, 114, 128); }
+.bubble-paused { display: flex; align-items: center; gap: 3px; padding: 2px 6px; font-size: 11px; color: rgb(var(--text-muted)); }
+.thinking-gap-dot { width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--text-muted)); }
 .bubble-paused:not(.bubble-paused--hidden) .thinking-gap-dot { animation: thinking-pulse 1.2s ease-in-out infinite; }
 .bubble-paused:not(.bubble-paused--hidden) .thinking-gap-dot:nth-child(2) { animation-delay: 0.2s; }
 .bubble-paused:not(.bubble-paused--hidden) .thinking-gap-dot:nth-child(3) { animation-delay: 0.4s; }
-.bubble-paused-label { color: rgb(107, 114, 128); font-size: 11px; }
+.bubble-paused-label { color: rgb(var(--text-muted)); font-size: 11px; }
 .bubble-paused--hidden { visibility: hidden; }
 @keyframes thinking-pulse { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
 
-.bubble-canceled-banner { display: flex; align-items: center; gap: 6px; padding: 6px 8px; margin: 4px 0 0; border-radius: 6px; font-size: 11px; color: #94a3b8; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); }
+.bubble-canceled-banner { display: flex; align-items: center; gap: 6px; padding: 6px 8px; margin: 4px 0 0; border-radius: var(--radius-sm); font-size: 11px; color: rgb(var(--text-muted)); background: rgb(var(--state-error) / 0.08); border: 1px solid rgb(var(--state-error) / 0.2); }
 </style>

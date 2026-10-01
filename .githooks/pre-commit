@@ -1,24 +1,39 @@
 #!/bin/sh
-# Pre-commit hook: block commits that introduce secrets.
-# Wired via `git config core.hooksPath .githooks`.
-# Requires gitleaks: `brew install gitleaks`
+# Pre-commit hooks: block secrets and agent-instruction drift.
+# Wired via `git config core.hooksPath .githooks` (see CONTRIBUTING.md).
+#
+# Optional dependency: gitleaks (`brew install gitleaks`). If it is missing the
+# secret scan is skipped, but the agent-harness check still runs.
 
-if ! command -v gitleaks >/dev/null 2>&1; then
+status=0
+
+# --- Secret scan -------------------------------------------------------------
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "[gitleaks] scanning staged changes for secrets..."
+  if ! gitleaks git --staged --redact --no-banner; then
+    echo ""
+    echo "COMMIT BLOCKED: gitleaks detected a potential secret in your staged changes."
+    echo "  - Remove the secret and re-stage, or"
+    echo "  - If it is a false positive, add an allowlist entry to .gitleaks.toml."
+    status=1
+  fi
+else
   echo "WARNING: gitleaks not installed - skipping secret scan."
   echo "         Install with: brew install gitleaks"
-  exit 0
 fi
 
-echo "[gitleaks] scanning staged changes for secrets..."
-gitleaks git --staged --redact --no-banner
-status=$?
-
-if [ $status -ne 0 ]; then
-  echo ""
-  echo "COMMIT BLOCKED: gitleaks detected a potential secret in your staged changes."
-  echo "  - Remove the secret and re-stage, or"
-  echo "  - If it is a false positive, add an allowlist entry to .gitleaks.toml."
-  exit 1
+# --- Agent harness / instruction consistency ---------------------------------
+# Only runs when instruction/doc files are staged, so backend/frontend-only
+# commits are unaffected.
+if git diff --cached --name-only \
+   | grep -qE '^(AGENTS\.md|AGENT\.md|CONTRIBUTING\.md|README\.md|docs/INDEX\.md|docs/architecture\.md|docs/(SPEC-change-management|api-reference|data-layout)\.md|docs/(SPECS|PLANS|audits|guides)/|\.agents/|scripts/check-agent-harness\.sh)'; then
+  echo "[agent-harness] checking instruction consistency..."
+  if ! bash ./scripts/check-agent-harness.sh; then
+    echo ""
+    echo "COMMIT BLOCKED: agent instructions/catalogs are inconsistent (see FAIL lines above)."
+    echo "  Fix them, or bypass with: git commit --no-verify"
+    status=1
+  fi
 fi
 
-exit 0
+exit "$status"

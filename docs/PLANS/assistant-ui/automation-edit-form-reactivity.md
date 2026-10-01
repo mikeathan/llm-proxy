@@ -1,6 +1,6 @@
 # Fix Automation Edit Form — reactive populate via derive-don't-sync refactor
 
-**Status:** `proposed`
+**Status:** `complete` — absorbed by `cross-cutting/frontend-redesign-retro.md` (Phase 5, Automations row, 2026-09-29): refactor in place, tests in `frontend/src/__TESTS__/composables/automation/useAutomationForm.test.ts`
 **Created:** 2026-08-01
 **Subsystems:** assistant-ui (SPEC-003), automation (SPEC-007)
 **Regressions from:** commit `c140c0e` ("Story/assistant redesign") — extraction of

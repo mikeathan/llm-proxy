@@ -1,8 +1,6 @@
 ---
 name: memory-system
 description: "Memory architecture: injection, three-tier storage, tags, dedup, and gotchas. Use when working on memory storage or injection."
-when_to_use: "Memory storage, injection, scopes/tags, dedup, or memory_search behaviour."
-status: reference
 last_reviewed: 2026-07-11
 ---
 
@@ -83,7 +81,7 @@ const ( ScopeUser Scope = "user"; ScopeWorkspace Scope = "workspace" )
 func (s Scope) Validate() error { ... }
 ```
 
-## Injection (`injectActiveMemory()`, stream.go:115)
+## Injection (`injectActiveMemory()`, `stream.go`)
 
 - Runs ONCE per session (first turn only, `a.memoryInjected` flag)
 - Fetches ALL entries with `tags: ["hot"]` via `SearchHot()` — no FTS5 query needed

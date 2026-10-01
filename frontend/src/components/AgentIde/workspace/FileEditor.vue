@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+// The file editor surface: a plain monospace text area. The owning panel shows
+// the file name, the unsaved state and Save; Ctrl/Cmd+S saves from here too.
 
 const props = defineProps<{
-  file: { workspace: string, filename: string }
+  filename: string
   content: string
   loading: boolean
-  saving: boolean
 }>()
 
 const emit = defineEmits<{
@@ -13,88 +13,28 @@ const emit = defineEmits<{
   (e: 'save'): void
 }>()
 
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const SAVE_KEY = 's'
 
-watch(() => props.content, (val) => {
-  if (textareaRef.value && textareaRef.value.value !== val) {
-    textareaRef.value.value = val
+function onKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === SAVE_KEY) {
+    event.preventDefault()
+    emit('save')
   }
-})
+}
 </script>
 
 <template>
-  <div class="editor-shell">
-    <div class="editor-toolbar">
-      <div class="toolbar-path">
-        <span class="path-workspace">📁 {{ file.workspace }}</span>
-        <span class="path-divider">/</span>
-        <span class="path-filename">📄 {{ file.filename }}</span>
-      </div>
-      <button 
-        @click="emit('save')" 
-        :disabled="saving || loading"
-        class="btn-save"
-      >
-        {{ saving ? 'Saving...' : 'Save File' }}
-      </button>
+  <div class="relative flex min-h-0 flex-1 flex-col">
+    <div v-if="props.loading" role="status" class="absolute inset-0 z-[1] flex items-center justify-center bg-surface/80">
+      <span class="font-mono text-[length:var(--text-small)] text-muted">loading…</span>
     </div>
-    <div class="editor-content-area">
-      <div v-if="loading" class="loader-overlay">
-        <div class="spinner"></div>
-      </div>
-      <textarea 
-        ref="textareaRef"
-        :value="props.content"
-        @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
-        class="editor-textarea"
-        spellcheck="false"
-      ></textarea>
-    </div>
+    <textarea
+      :value="props.content"
+      :aria-label="`Contents of ${props.filename}`"
+      spellcheck="false"
+      class="min-h-[50vh] flex-1 resize-none bg-canvas p-4 font-mono text-[length:var(--text-small)] leading-[1.7] text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
+      @keydown="onKeydown"
+    ></textarea>
   </div>
 </template>
-
-<style scoped lang="postcss">
-.editor-shell {
-  @apply flex-1 flex flex-col;
-}
-
-.editor-toolbar {
-  @apply p-3 border-b border-gray-700 flex justify-between items-center bg-gray-900;
-}
-
-.toolbar-path {
-  @apply flex items-center gap-2;
-}
-
-.path-workspace {
-  @apply text-gray-400 text-xs;
-}
-
-.path-divider {
-  @apply text-gray-500;
-}
-
-.path-filename {
-  @apply font-medium text-sm text-gray-200;
-}
-
-.btn-save {
-  @apply bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors;
-}
-
-.editor-content-area {
-  @apply flex-1 relative;
-}
-
-.loader-overlay {
-  @apply absolute inset-0 flex items-center justify-center bg-gray-800/80 z-10;
-}
-
-.spinner {
-  @apply animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500;
-}
-
-.editor-textarea {
-  @apply w-full h-full bg-gray-900 text-gray-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed;
-}
-</style>

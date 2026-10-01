@@ -26,4 +26,3 @@ export const TOAST_SUCCESS = "✓"
 export const TOAST_ERROR = "✕"
 export const TOAST_WARNING = "⚠"    // without variation selector — cleaner in toast
 export const TOAST_INFO = "ℹ"
-export const TOAST_CLOSE = "×"

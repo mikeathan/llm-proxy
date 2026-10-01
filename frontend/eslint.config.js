@@ -43,6 +43,19 @@ export default [
     },
   },
   {
+    // No raw palette classes (plan D21), everywhere: colours come from semantic
+    // tokens only. The Phase 5 per-directory list ended with the close-out
+    // (2026-09-30); scripts/check-palette.mjs also covers @apply and TS literals.
+    name: "no-palette-classes",
+    files: ["src/**/*.vue"],
+    rules: {
+      "vue/no-restricted-class": [
+        "error",
+        "/^(?:[a-z0-9-]+:)*(?:bg|text|border(?:-[trblxy])?|ring|ring-offset|divide(?:-[xy])?|placeholder|from|to|via|outline|fill|stroke|shadow|accent|caret|decoration)-(?:gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\\d{2,3})?(?:\\/\\d+)?$/",
+      ],
+    },
+  },
+  {
     name: "ignore-build-output",
     ignores: [
       "dist/**",

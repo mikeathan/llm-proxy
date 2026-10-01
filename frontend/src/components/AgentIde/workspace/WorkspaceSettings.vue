@@ -1,227 +1,189 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { DispatcherService } from "../../../services/automation/dispatcherService";
-import GuardrailForm from "../system/GuardrailForm.vue";
 import { useToast } from "../../../composables/useToast";
-import type { AgentGuardrailsConfig } from "../../../types/admin";
+import { useConfirm } from "../../../composables/ui/useConfirm";
+import { useUnsavedChangesGuard } from "../../../composables/ui/useUnsavedChangesGuard";
+import { GUARDRAIL_RULES, fieldSource, normalizeLayer, seedLayer } from "../../../domain/guardrailLayers";
+import { errorMessage } from "../../../utils/errors";
+import type { AgentGuardrailsConfig, GuardrailSection, GuardrailSource } from "../../../types/admin";
+import GuardrailForm from "../system/GuardrailForm.vue";
+import Panel from "../../common/layout/Panel.vue";
+import BaseButton from "../../common/buttons/BaseButton.vue";
+import LoadingState from "../../common/feedback/LoadingState.vue";
+import ErrorState from "../../common/feedback/ErrorState.vue";
+import SettingsActions from "../../settings/SettingsActions.vue";
 
+// Workspace · Settings: the workspace's own guardrail layer over the global
+// policy. Without a layer the workspace simply uses the global policy; with one
+// the form shows each effective value and whether it is inherited, overridden
+// or an exception (the backend's merge, domain/guardrailLayers). Save writes
+// the layer; "Reset to global policy" removes it — a separate, confirmed step.
+// The draft survives visits to other destinations (the page is kept alive), so
+// only leaving this section or workspace asks about unsaved edits.
 const props = defineProps<{
   workspaceId: string;
   globalGuardrails: AgentGuardrailsConfig;
 }>();
+const emit = defineEmits<{ (e: "dirty-change", dirty: boolean): void }>();
 
-const hasExternalAccess = computed(() => {
-  const paths = config.value?.guardrails?.terminal?.allowed_external_paths;
-  return Array.isArray(paths) && paths.length > 0;
-});
-
-const emit = defineEmits<{
-  (e: "close"): void;
-}>();
+const SETTINGS_SECTION = "settings";
+const WORKSPACES_DESTINATION = "workspaces";
 
 const toast = useToast();
-const config = ref<any>(null);
-const loading = ref(true);
-const saving = ref(false);
+const { confirm } = useConfirm();
 
-const loadConfig = async () => {
+// The whole workspace config (saved back whole: the endpoint replaces it).
+const stored = ref<Record<string, unknown> | null>(null);
+const savedLayer = ref<AgentGuardrailsConfig | null>(null);
+const draft = ref<AgentGuardrailsConfig | null>(null);
+const loading = ref(true);
+const loadError = ref("");
+const saving = ref(false);
+const saveError = ref("");
+const resetting = ref(false);
+
+const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const dirty = computed(() => JSON.stringify(draft.value) !== JSON.stringify(savedLayer.value));
+watch(dirty, (value) => emit("dirty-change", value), { immediate: true });
+
+useUnsavedChangesGuard(dirty, {
+  discards: (to) =>
+    to.meta.destination === WORKSPACES_DESTINATION && !(to.params.ws === props.workspaceId && to.params.section === SETTINGS_SECTION),
+});
+
+async function load() {
   loading.value = true;
+  loadError.value = "";
+  saveError.value = "";
   try {
-    config.value = await DispatcherService.getWorkspaceConfig(
-      props.workspaceId,
-    );
-    // Initialize guardrails if missing
-    if (!config.value.guardrails) {
-      config.value.guardrails = JSON.parse(
-        JSON.stringify(props.globalGuardrails),
-      );
-    }
-  } catch (err) {
-    console.error("Failed to load workspace config", err);
-    toast.error("Failed to load workspace configuration");
+    const config = (await DispatcherService.getWorkspaceConfig(props.workspaceId)) as Record<string, unknown>;
+    const layer = config.guardrails as AgentGuardrailsConfig | undefined;
+    stored.value = config;
+    savedLayer.value = layer ? normalizeLayer(layer, props.globalGuardrails) : null;
+    draft.value = copy(savedLayer.value);
+  } catch (e) {
+    loadError.value = errorMessage(e);
   } finally {
     loading.value = false;
   }
+}
+
+const customise = () => {
+  draft.value = seedLayer(props.globalGuardrails);
+};
+const discard = () => {
+  saveError.value = "";
+  draft.value = copy(savedLayer.value);
 };
 
-const handleSave = async () => {
-  if (!config.value) return;
+async function save() {
+  if (!stored.value || !draft.value) return;
   saving.value = true;
+  saveError.value = "";
+  const next = { ...stored.value, guardrails: copy(draft.value) };
   try {
-    await DispatcherService.updateWorkspaceConfig(
-      props.workspaceId,
-      config.value,
-    );
-    toast.success("Workspace security updated successfully");
-    // We don't close, just signal success
-  } catch (err) {
-    toast.error("Failed to save security settings");
+    await DispatcherService.updateWorkspaceConfig(props.workspaceId, next);
+    stored.value = next;
+    savedLayer.value = copy(draft.value);
+    toast.success(`Saved the policy of ${props.workspaceId}`);
+  } catch (e) {
+    saveError.value = `Could not save the workspace policy: ${errorMessage(e)}. Your changes are still here — try again.`;
   } finally {
     saving.value = false;
   }
-};
+}
 
-const handleReset = () => {
-  if (!config.value) return;
-  // Populate UI with a fresh copy of global guardrails
-  config.value.guardrails = JSON.parse(JSON.stringify(props.globalGuardrails));
-  toast.info("Security form reset to system baseline. Click 'Save' to apply.");
-};
+async function resetToGlobal() {
+  if (!stored.value) return;
+  const ok = await confirm({
+    title: `Reset ${props.workspaceId} to the global policy?`,
+    message: "Its own guardrail settings are removed now, including any unsaved edits. The global policy applies from the next tool call.",
+    type: "warning",
+    confirmText: "Reset",
+  });
+  if (!ok) return;
+  resetting.value = true;
+  saveError.value = "";
+  const { guardrails: _removed, ...rest } = stored.value;
+  try {
+    await DispatcherService.updateWorkspaceConfig(props.workspaceId, rest);
+    stored.value = rest;
+    savedLayer.value = null;
+    draft.value = null;
+    toast.success(`${props.workspaceId} now uses the global policy`);
+  } catch (e) {
+    saveError.value = `Could not reset the workspace policy: ${errorMessage(e)}`;
+  } finally {
+    resetting.value = false;
+  }
+}
 
-onMounted(loadConfig);
-watch(() => props.workspaceId, loadConfig);
+// ── Readouts ────────────────────────────────────────────────────────────────
+const SECTIONS = Object.keys(GUARDRAIL_RULES) as GuardrailSection[];
+const counts = computed(() => {
+  const tally: Record<GuardrailSource, number> = { inherited: 0, overridden: 0, exception: 0 };
+  for (const section of SECTIONS) {
+    for (const field of Object.keys(GUARDRAIL_RULES[section])) {
+      tally[fieldSource(section, field, props.globalGuardrails, draft.value)]++;
+    }
+  }
+  return tally;
+});
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+onMounted(load);
+watch(() => props.workspaceId, load);
 </script>
 
 <template>
-  <div class="ws-settings-shell">
-    <div class="settings-header">
-      <div class="title-group">
-        <span class="shield-icon">🛡️</span>
-        <div>
-          <h2 class="settings-title">Security Guardrails</h2>
-          <p class="settings-subtitle">
-            Workspace: <code class="ws-id">{{ workspaceId }}</code>
+  <div class="flex flex-col gap-4">
+    <LoadingState v-if="loading" label="Loading the workspace policy" />
+    <ErrorState
+      v-else-if="loadError"
+      title="Could not load the workspace policy"
+      :cause="loadError"
+      next="Check that the workspace still exists and its config file is readable, then retry."
+    >
+      <template #action><BaseButton variant="secondary" icon="refresh" @click="load">Retry</BaseButton></template>
+    </ErrorState>
+
+    <template v-else>
+      <Panel title="Guardrail policy">
+        <template v-if="savedLayer" #actions>
+          <BaseButton variant="ghost" size="sm" icon="refresh" :loading="resetting" @click="resetToGlobal">Reset to global policy</BaseButton>
+        </template>
+
+        <div v-if="!draft" class="flex flex-col items-start gap-3">
+          <p class="m-0 max-w-[72ch] text-secondary">
+            <span class="font-mono text-primary">{{ workspaceId }}</span> uses the global policy (Settings · Agent Guardrails) as it is.
           </p>
+          <p class="m-0 max-w-[72ch] text-[length:var(--text-small)] text-muted">
+            A workspace policy adds to the global one: extra list entries, switches the global policy leaves off, and its own
+            limits and network access. It cannot remove global entries or switch off what the global policy turns on.
+          </p>
+          <BaseButton variant="secondary" icon="plus" @click="customise">Customise for this workspace</BaseButton>
         </div>
-      </div>
 
-      <div class="actions">
-        <button @click="handleReset" class="btn-secondary" title="Reset to global defaults">
-          Reset to Baseline
-        </button>
-        <button @click="handleSave" :disabled="saving" class="btn-primary">
-          {{ saving ? "Saving..." : "Save Overrides" }}
-        </button>
-        <button @click="emit('close')" class="btn-ghost">Close</button>
-      </div>
-    </div>
-
-    <div v-if="loading" class="loading-state">
-      <div class="spinner"></div>
-      <span>Loading workspace policy...</span>
-    </div>
-
-    <div v-else-if="config" class="settings-scroll-area">
-      <div class="info-banner">
-        <span class="info-icon">ℹ️</span>
-        <p>
-          Changes here override the global security policy for
-          <strong>{{ workspaceId }}</strong> only. If a field is left empty, the
-          system-wide baseline is typically inherited.
-        </p>
-      </div>
-
-      <div
-        v-if="hasExternalAccess"
-        class="external-access-alert"
-      >
-        <span class="alert-icon">⚠️</span>
-        <div>
-          <p class="alert-title">External File System Access Enabled</p>
-          <p class="alert-body">
-            This workspace can access paths outside its jail:
-            <code class="alert-code">{{ config.guardrails.terminal.allowed_external_paths.join(', ') }}</code>
+        <div v-else class="flex flex-col gap-4">
+          <p data-test="policy-summary" class="m-0 text-[length:var(--text-small)] text-muted">
+            Against the global policy: {{ plural(counts.overridden, "override") }} · {{ plural(counts.exception, "exception") }} ·
+            everything else inherited. Network access is always set by a workspace policy.
           </p>
-          <p class="alert-footer">
-            Reduce scope when the task no longer requires external access.
-          </p>
+          <GuardrailForm v-model="draft" :inherited="globalGuardrails" />
         </div>
-      </div>
+      </Panel>
 
-      <GuardrailForm v-model="config.guardrails" :isWorkspaceOverride="true" />
-    </div>
+      <SettingsActions
+        v-if="draft || dirty"
+        :dirty="dirty"
+        :saving="saving"
+        :error="saveError"
+        save-label="Save workspace policy"
+        @save="save"
+        @discard="discard"
+      />
+      <p v-else-if="saveError" role="alert" class="m-0 text-right text-[length:var(--text-small)] text-state-error">{{ saveError }}</p>
+    </template>
   </div>
 </template>
-
-<style scoped lang="postcss">
-.ws-settings-shell {
-  @apply flex flex-col h-full bg-gray-900/40 animate-in fade-in duration-300;
-}
-
-.settings-header {
-  @apply px-6 py-5 border-b border-gray-700/50 bg-gray-800/20 flex items-center justify-between shrink-0;
-}
-
-.title-group {
-  @apply flex items-center gap-4;
-}
-
-.shield-icon {
-  @apply text-3xl;
-}
-
-.settings-title {
-  @apply text-lg font-black text-white leading-tight;
-}
-
-.settings-subtitle {
-  @apply text-[11px] text-gray-500 font-medium uppercase tracking-wider;
-}
-
-.ws-id {
-  @apply text-blue-400 font-mono normal-case;
-}
-
-.actions {
-  @apply flex items-center gap-3;
-}
-
-.btn-primary {
-  @apply bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-md font-bold text-xs shadow-lg 
-         active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
-}
-
-.btn-secondary {
-  @apply bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md font-bold text-xs 
-         active:scale-95 transition-all mr-2;
-}
-
-.btn-ghost {
-  @apply text-gray-400 hover:text-white px-3 py-2 text-xs font-medium transition-colors;
-}
-
-.loading-state {
-  @apply flex-1 flex flex-col items-center justify-center gap-4 text-gray-500;
-}
-
-.spinner {
-  @apply w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin;
-}
-
-.settings-scroll-area {
-  @apply flex-1 overflow-y-auto p-6 space-y-6;
-}
-
-.info-banner {
-  @apply bg-blue-900/20 border border-blue-800/30 rounded-lg p-4 flex items-start gap-3 
-         text-blue-200/80 text-xs leading-relaxed;
-}
-
-.info-icon {
-  @apply text-base grayscale;
-}
-
-.external-access-alert {
-  @apply flex items-start gap-3 bg-amber-500/10 border border-amber-500/40 rounded-lg p-4;
-}
-
-.alert-icon {
-  @apply text-xl shrink-0;
-}
-
-.alert-title {
-  @apply text-xs font-black text-amber-400 uppercase tracking-widest;
-}
-
-.alert-body {
-  @apply text-[11px] text-amber-200/80 leading-relaxed mt-1;
-}
-
-.alert-code {
-  @apply bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5 text-[10px] text-amber-300 font-mono;
-}
-
-.alert-footer {
-  @apply text-[10px] text-amber-400/50 italic mt-2;
-}
-</style>
