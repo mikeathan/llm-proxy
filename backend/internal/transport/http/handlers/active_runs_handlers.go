@@ -36,11 +36,21 @@ type ActiveRunsResponse struct {
 // Every run occupies a lane (automations via Submit, chat via ClaimInteractive),
 // so the snapshot is a complete "something is running, anywhere" signal.
 type GlobalActiveRunsResponse struct {
-	LaneHolders []runlane.Holder `json:"lane_holders,omitempty"`
-	Queued      []runlane.Entry  `json:"queued,omitempty"`
+	LaneHolders []GlobalLaneHolder `json:"lane_holders,omitempty"`
+	Queued      []runlane.Entry    `json:"queued,omitempty"`
 	// Lanes summarises every workload-class lane — idle ones too — so the UI
 	// can draw capacity (one slot per unit of limit) next to the flat lists.
 	Lanes []LaneSummary `json:"lanes,omitempty"`
+}
+
+// GlobalLaneHolder is a scheduler lane holder as the UI sees it. A running chat is
+// keyed "chat:<workspace>" and the scheduler does not know which conversation it
+// serves, so interactive holders gain the conversation id from the same source the
+// per-workspace endpoint uses; the Overview links the row straight to it. Omitted
+// when unknown (and always for automations and inbound callers).
+type GlobalLaneHolder struct {
+	runlane.Holder
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 // LaneSummary is one lane's capacity and occupancy for the UI. HolderKeys are
@@ -133,7 +143,22 @@ func (h *ActiveRunsHandler) ServeGlobalHTTP(w http.ResponseWriter, r *http.Reque
 	}
 	snap := h.sources.LaneSnapshot()
 	holders, queued := flattenLanes(snap)
-	respondJSON(w, GlobalActiveRunsResponse{LaneHolders: holders, Queued: queued, Lanes: summariseLanes(snap)})
+	respondJSON(w, GlobalActiveRunsResponse{LaneHolders: h.withConversations(holders), Queued: queued, Lanes: summariseLanes(snap)})
+}
+
+// withConversations adds the conversation id to chat (interactive) holders.
+func (h *ActiveRunsHandler) withConversations(holders []runlane.Holder) []GlobalLaneHolder {
+	if len(holders) == 0 {
+		return nil
+	}
+	out := make([]GlobalLaneHolder, len(holders))
+	for i, holder := range holders {
+		out[i] = GlobalLaneHolder{Holder: holder}
+		if holder.Kind == runlane.KindInteractive {
+			out[i].ConversationID = callString(h.sources.AssistantConversationID, holder.WorkspaceID)
+		}
+	}
+	return out
 }
 
 // ServePromoteHTTP serves a queued inbound caller now, by cancelling the run

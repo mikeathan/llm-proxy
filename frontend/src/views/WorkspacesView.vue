@@ -9,7 +9,9 @@ import { useWorkspaceHistory } from "../composables/automation/useWorkspaceHisto
 import { useResponsiveLayout } from "../composables/ui/useResponsiveLayout"
 import { useDestinationRoute } from "../composables/ui/useDestinationRoute"
 import { useUnsavedChangesGuard } from "../composables/ui/useUnsavedChangesGuard"
+import { useLastWorkspace } from "../composables/ui/useLastWorkspace"
 import UnsavedTag from "../components/common/display/UnsavedTag.vue"
+import CopyButton from "../components/common/display/CopyButton.vue"
 import { usePolling } from "../composables/ui/usePolling"
 import { useToast } from "../composables/useToast"
 import { useTemplates } from "../composables/assistant/useTemplates"
@@ -17,6 +19,7 @@ import { useAssistant } from "../composables/assistant/useAssistant"
 import { useRunningActivity } from "../composables/assistant/useRunningActivity"
 import { useGlobalRunActivity } from "../composables/assistant/useGlobalRunActivity"
 import { DispatcherService } from "../services/automation/dispatcherService"
+import { isPathWithin } from "../utils/workspace/fileTree"
 import {
   toWorkspace,
   toWorkspaceAssistant,
@@ -73,7 +76,7 @@ const {
   fetchWorkspaceState,
   fetchGlobalActivity,
   createWorkspace,
-  deleteWorkspaceFile,
+  deleteWorkspacePaths,
   deleteWorkspace,
   deleteRun,
   deleteAutomationRuns,
@@ -166,11 +169,14 @@ function handleCreateFileInTree(workspace: string, filename: string) {
   })
 }
 
-async function handleDeleteFile(workspace: string, file: string) {
-  await deleteWorkspaceFile(workspace, file)
-  if (!isBufferOf(workspace, file)) return
+// Deleting a folder takes the open file along when it lies inside it.
+async function handleDeletePaths(workspace: string, paths: string[]) {
+  const deleted = await deleteWorkspacePaths(workspace, paths)
+  const removed = (path: string) => deleted.some((gone) => isPathWithin(path, gone))
+  const open = selectedFile.value?.workspace === workspace ? selectedFile.value.filename : null
+  if (!open || !removed(open)) return
   closeFile()
-  if (location.value.filePath === file) await router.push(toWorkspaceFile(workspace))
+  if (location.value.filePath && removed(location.value.filePath)) await router.push(toWorkspaceFile(workspace))
 }
 
 // ── Workspace selection ──────────────────────────────────────────────────
@@ -193,6 +199,18 @@ watch(() => current.value.fullPath, () => {
 const workspacesLoaded = ref(false)
 const unknownWorkspace = computed(() => !!ws.value && workspacesLoaded.value && !workspaces.value.some((w) => w.id === ws.value))
 
+// The sidebar's assistant shortcut opens the workspace last viewed here; with a
+// single workspace that one is remembered as soon as the list loads, and a
+// remembered workspace that no longer exists is forgotten.
+const { lastWorkspace, remember: rememberWorkspace, forget: forgetWorkspace } = useLastWorkspace()
+watch([ws, workspacesLoaded], ([workspace, loaded]) => {
+  if (!loaded) return
+  if (workspace && !unknownWorkspace.value) rememberWorkspace(workspace)
+  const ids = workspaces.value.map((w) => w.id)
+  if (lastWorkspace.value && !ids.includes(lastWorkspace.value)) forgetWorkspace(lastWorkspace.value)
+  if (!lastWorkspace.value && ids.length === 1) rememberWorkspace(ids[0]!)
+}, { immediate: true })
+
 const section = computed<WorkspaceNavSection>(() => (location.value.assistant ? "assistant" : location.value.section ?? "files"))
 
 // Switching workspace keeps the section (a file path does not carry over).
@@ -214,6 +232,7 @@ async function handleCreateWorkspace(name: string) {
 
 async function handleDeleteWorkspace(id: string) {
   await deleteWorkspace(id)
+  forgetWorkspace(id)
   if (id === ws.value) await router.push(toWorkspaces())
 }
 
@@ -357,7 +376,7 @@ usePolling(() => {
             class="max-h-[70vh]"
             @open-file="(path: string) => openFile(ws!, path)"
             @create-file="(path: string) => handleCreateFileInTree(ws!, path)"
-            @delete-file="(path: string) => handleDeleteFile(ws!, path)"
+            @delete-paths="(paths: string[]) => handleDeletePaths(ws!, paths)"
           />
         </Panel>
 
@@ -365,6 +384,7 @@ usePolling(() => {
           <template v-if="activeMainView === 'editor' && selectedFile" #actions>
             <RouterLink :to="toWorkspaceFile(ws)" class="font-mono text-[length:var(--text-small)] text-muted hover:text-primary lg:hidden">← Files</RouterLink>
             <UnsavedTag v-if="isDirty" label="Unsaved" />
+            <CopyButton :text="fileContent" title="Copy file contents" />
             <BaseButton size="sm" :loading="savingFile" :disabled="loadingFile || !isDirty" @click="handleSaveFile()">Save</BaseButton>
             <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close file" @click="handleCloseEditor" />
           </template>

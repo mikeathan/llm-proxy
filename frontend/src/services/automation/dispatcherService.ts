@@ -47,8 +47,9 @@ export const DispatcherService = {
     return put<void>(`${BASE_URL}/workspaces/${workspace}/files/${encodeFilePath(file)}`, { content })
   },
 
-  async deleteWorkspaceFile(workspace: string, file: string): Promise<void> {
-    return del<void>(`${BASE_URL}/workspaces/${workspace}/files/${encodeFilePath(file)}`)
+  // A file, or a folder with everything under it (?recursive=true).
+  async deleteWorkspacePath(workspace: string, path: string): Promise<void> {
+    return del<void>(`${BASE_URL}/workspaces/${workspace}/files/${encodeFilePath(path)}?recursive=true`)
   },
 
   async deleteWorkspace(workspace: string): Promise<void> {

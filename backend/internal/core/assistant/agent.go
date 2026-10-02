@@ -274,21 +274,6 @@ func (a *Agent) setPrefillDisabled(v bool) {
 	}
 }
 
-// memoryInjected returns whether hot memory has been injected this session.
-func (a *Agent) memoryInjected() bool {
-	if a.runS == nil {
-		return false
-	}
-	return a.runS.prompt.memoryInjected
-}
-
-// setMemoryInjected sets the memory-injected flag.
-func (a *Agent) setMemoryInjected(v bool) {
-	if a.runS != nil {
-		a.runS.prompt.memoryInjected = v
-	}
-}
-
 type AgentOptions struct {
 	MaxSteps                 int
 	ContextBudget            int

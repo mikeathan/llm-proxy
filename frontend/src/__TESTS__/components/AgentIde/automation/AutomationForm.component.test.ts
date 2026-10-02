@@ -65,7 +65,7 @@ describe('AutomationForm', () => {
     await w.get('form').trigger('submit')
     expect(w.emitted('create-automation')).toEqual([[
       'ws',
-      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '' },
+      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '' },
     ]])
   })
 
@@ -85,8 +85,18 @@ describe('AutomationForm', () => {
     expect(w.emitted('update-automation')).toEqual([[
       'ws',
       'nightly',
-      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '' },
+      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '' },
     ]])
+  })
+
+  it('lets the operator opt an automation into hot memory, and shows it in the review', async () => {
+    const w = await mountForm(AUTO)
+    expect(control(w, 'Memory').findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'hot'])
+    await control(w, 'Memory').setValue('hot')
+    expect(w.get('[data-test="review"]').text()).toContain('Hot memory')
+    await w.get('form').trigger('submit')
+    const [, , payload] = w.emitted('update-automation')![0] as [string, string, { memory_mode: string }]
+    expect(payload.memory_mode).toBe('hot')
   })
 
   it('marks unsaved changes, and cancels', async () => {

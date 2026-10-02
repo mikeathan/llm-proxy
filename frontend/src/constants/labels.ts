@@ -5,18 +5,35 @@
 // single source of truth for copy so wording, casing and punctuation stay
 // consistent and searchable. (Symbols/emojis live in constants/icons.ts.)
 import type { InsetPhase } from '../types/inset'
+import { formatElapsedSeconds } from '../utils/format/time'
+import { formatTokenCount } from '../utils/format/units'
 
-// getPhaseLabel maps an InsetPhase to the assistant-bubble header label.
-// `toolCount` is interpolated for the working/done states, which describe how
-// many tool calls ran this turn. Unknown/idle falls back to the bare "Assistant".
-export function getPhaseLabel(phase: InsetPhase, toolCount = 0): string {
+// activityLabel is the one-line summary above an assistant answer
+// (ChatBubble): what a live run is doing, or what a finished one did. `steps`
+// counts tool calls; `seconds` is the measured run time — live, or from the
+// turn's stored run record — and 0 when there is none (older sessions); never
+// guessed.
+const ACTIVITY_SEPARATOR = ' · '
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+export function activityLabel(phase: InsetPhase, steps: number, seconds: number): string {
   switch (phase) {
-    case 'thinking':   return 'Assistant — thinking...'
-    case 'working':    return `Assistant — working (${toolCount} tools)`
-    case 'generating': return 'Assistant — generating answer...'
-    case 'done':       return `Assistant — ${toolCount} tools · completed`
-    default:           return 'Assistant'
+    case 'thinking':   return 'Thinking'
+    case 'working':    return `Working${ACTIVITY_SEPARATOR}${plural(steps, 'step')}`
+    case 'generating': return 'Writing the answer'
+    default: {
+      const parts = [seconds > 0 ? `Worked ${formatElapsedSeconds(seconds)}` : '', steps > 0 ? plural(steps, 'step') : ''].filter(Boolean)
+      return parts.length ? parts.join(ACTIVITY_SEPARATOR) : 'Reasoning'
+    }
   }
+}
+
+// The tokens a turn used, as the provider reported them: what it generated
+// in the text, with the prompt tokens it processed (the context, re-counted on
+// every call of an agent loop) in the tooltip.
+export function tokenUsageLabel(promptTokens: number, completionTokens: number): { text: string; title: string } {
+  const generated = `${formatTokenCount(completionTokens)} tokens`
+  return { text: generated, title: `${generated} generated · ${formatTokenCount(promptTokens)} prompt tokens processed` }
 }
 
 // Upstream-retry notice copy — event-driven, surfaced as an inline notice

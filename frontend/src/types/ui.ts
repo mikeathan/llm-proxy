@@ -50,6 +50,9 @@ export type StatusState = 'success' | 'running' | 'queued' | 'error' | 'info' | 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
+// MarkdownViewer: 'document' for answers and reports, 'compact' for secondary text (reasoning).
+export type MarkdownVariant = 'document' | 'compact'
+
 // A DataTable column: `value` reads the cell text from a row; a `cell-<key>`
 // slot overrides it. Numeric columns are right-aligned tabular numerals.
 export interface DataTableColumn<T> {

@@ -50,7 +50,7 @@ executor.go Execute()
 - `context_budget` in chars (default 8000, overridable per-model via settings.yml)
 - When total chars exceeds budget, `applyPhysicalSieve()` fires:
   1. Keep locked head (system message + first user message)
-  2. Insert sieve marker: `[System Note: History distilled...]`
+  2. Insert sieve marker: `[System Note: History distilled...]`, then the progress ledger message (`ledger.go`; facts only, one per prune, bounded to a share of `ContextBudget`). Each prune REPLACES earlier sieve messages (`withoutSieveMessages`); the "deliver final answer NOW" warning is sent once per run
   3. Keep priority tail (last 5-10 messages depending on stuck count)
   4. Before dropping, compress long `Content` (>4000 chars) and `ReasoningContent` (>2000 chars) with head+tail truncation
 

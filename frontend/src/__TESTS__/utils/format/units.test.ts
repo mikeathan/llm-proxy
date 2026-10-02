@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { formatContrastRatio, formatCost, formatMemoryUsage, formatPercent, formatTokenCount, formatTokenRate } from '../../../utils/format/units'
-import { asUtc, formatAbsoluteTime, formatDuration, formatRelativeTime } from '../../../utils/format/time'
+import { asUtc, formatAbsoluteTime, formatDuration, formatElapsedSeconds, formatRelativeTime } from '../../../utils/format/time'
 
 describe('D24 formatters', () => {
   it.each([
@@ -71,5 +71,16 @@ describe('host stat formatters', () => {
   it('formatMemoryUsage shows used / total in GB', () => {
     expect(formatMemoryUsage(7475.2, 47923.2)).toBe('7.3 / 46.8 GB')
     expect(formatMemoryUsage(16281.6, 16384)).toBe('15.9 / 16.0 GB')
+  })
+})
+
+describe('formatElapsedSeconds', () => {
+  it.each([
+    [0, '0s'],
+    [42, '42s'],
+    [65, '1m 5s'],
+    [3725, '1h 2m'],
+  ])('%d s → %s', (seconds, out) => {
+    expect(formatElapsedSeconds(seconds)).toBe(out)
   })
 })

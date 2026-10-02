@@ -60,4 +60,13 @@ describe('DataTable', () => {
     await w.findAll('tbody .inner')[0]!.trigger('keydown', { key: 'Enter' })
     expect(w.emitted('activate')).toBeUndefined()
   })
+
+  it('leaves a click on a link or control inside a row to it', async () => {
+    const w = mountTable({ activatable: true }, { 'cell-name': '<template #cell-name><a href="#x" class="link">open</a><button class="inner">copy</button></template>' })
+    await w.findAll('tbody .link')[0]!.trigger('click')
+    await w.findAll('tbody .inner')[0]!.trigger('click')
+    expect(w.emitted('activate')).toBeUndefined()
+    await w.findAll('tbody td')[1]!.trigger('click')
+    expect(w.emitted('activate')).toEqual([[ROWS[0]]])
+  })
 })

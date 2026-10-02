@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ChatBubble from '../../../../components/AgentIde/assistant/ChatBubble.vue'
 import type { Turn } from '../../../../types/message'
 
 const MarkdownViewerStub = {
-  props: ['content'],
-  template: '<div class="md-stub">{{ content }}</div>',
+  props: ['content', 'variant'],
+  template: '<div class="md-stub" :data-variant="variant">{{ content }}</div>',
 }
 
 const stubs = {
@@ -87,5 +87,103 @@ describe('ChatBubble live reasoning gating', () => {
     expect(live.attributes('style')).toContain('display: none')
     // ...and the new run's live text must not be visible in it.
     expect(wrapper.find('.inset-reasoning--live').text()).toContain('new run thinking…')
+  })
+})
+
+describe('ChatBubble copy', () => {
+  it('offers copying a finished answer as its markdown', () => {
+    const wrapper = mountBubble({ turn: turn({ finalAnswer: '## Done\n- a' }), loading: false, thinking: false, phase: 'done' })
+    const copy = wrapper.findComponent({ name: 'CopyButton' })
+    expect(copy.exists()).toBe(true)
+    expect(copy.props('text')).toBe('## Done\n- a')
+    expect(copy.props('title')).toBe('Copy answer')
+  })
+
+  it('offers nothing to copy while the answer is still streaming', () => {
+    const wrapper = mountBubble({ turn: turn({ finalAnswer: 'partial' }), loading: true, isLastTurn: true, phase: 'generating' })
+    expect(wrapper.findComponent({ name: 'CopyButton' }).exists()).toBe(false)
+  })
+})
+
+const tool = (name: string) => ({ kind: 'tool_call' as const, name, args: '{}', status: 'success' as const })
+
+describe('ChatBubble layout', () => {
+  afterEach(() => vi.useRealTimers())
+
+  const finished = (over: Partial<Record<string, unknown>> = {}) =>
+    mountBubble({ loading: false, thinking: false, isLastTurn: false, phase: 'done', isInsetCollapsed: true, ...over })
+
+  it('sums a finished turn up in one line that opens its steps', () => {
+    const w = finished({
+      turn: turn({ finalAnswer: 'Answer', segments: [{ kind: 'reasoning', text: 'plan' }, tool('read_file'), tool('internet_search')] }),
+    })
+    const line = w.get('button.activity-line')
+    expect(line.text()).toContain('2 steps')
+    expect(line.attributes('aria-expanded')).toBe('false')
+    expect(w.findAll('ol.timeline > :not(.inset-reasoning--live)')).toHaveLength(3)
+    expect(w.get('ol.timeline').element.closest('.bubble-inset-wrap')?.classList.contains('collapsed')).toBe(true)
+  })
+
+  it('has no activity line when a turn answered without any work', () => {
+    expect(finished({ turn: turn({ finalAnswer: 'Hi there' }) }).find('button.activity-line').exists()).toBe(false)
+  })
+
+  it('renders the answer as a document and reasoning compact', () => {
+    const w = finished({ isInsetCollapsed: false, turn: turn({ finalAnswer: 'Answer', segments: [{ kind: 'reasoning', text: 'plan' }] }) })
+    expect(w.get('.turn-answer .md-stub').attributes('data-variant')).toBe('document')
+    expect(w.get('.inset-reasoning .md-stub').attributes('data-variant')).toBe('compact')
+  })
+
+  it('leaves no empty thinking row under a finished turn', () => {
+    expect(finished({ turn: turn({ finalAnswer: 'Answer' }) }).find('.bubble-paused').exists()).toBe(false)
+  })
+
+  it('keeps the thinking row reserved while the live turn runs', () => {
+    const w = mountBubble({ turn: turn({ segments: [tool('read_file')] }), loading: true, isLastTurn: true, phase: 'working', paused: false })
+    expect(w.find('.bubble-paused').classes()).toContain('bubble-paused--hidden')
+  })
+
+  it('says how long a turn watched live worked, once it finishes', async () => {
+    vi.useFakeTimers()
+    const w = mountBubble({ turn: turn({ segments: [tool('read_file')] }), loading: true, isLastTurn: true, phase: 'working' })
+    expect(w.get('button.activity-line').text()).toContain('Working · 1 step')
+    await vi.advanceTimersByTimeAsync(75_000)
+    expect(w.get('.activity-time').text()).toBe('1m 15s')
+    await w.setProps({ loading: false, phase: 'done', turn: turn({ finalAnswer: 'Done', segments: [tool('read_file')] }) })
+    expect(w.get('button.activity-line').text()).toContain('Worked 1m 15s · 1 step')
+  })
+
+  it('shows an older turn as finished while a new run is live', () => {
+    const w = mountBubble({ turn: turn({ finalAnswer: 'Earlier answer' }), loading: true, isLastTurn: false, phase: 'thinking' })
+    expect(w.get('.turn-answer').text()).toContain('Earlier answer')
+  })
+
+  it('drops a reasoning step\'s own "Thought:" prefix, the step already says it', () => {
+    const w = finished({ isInsetCollapsed: false, turn: turn({ finalAnswer: 'A', segments: [{ kind: 'reasoning', text: 'Thought: check node first' }] }) })
+    expect(w.get('.inset-reasoning .md-stub').text()).toBe('check node first')
+  })
+})
+
+describe('ChatBubble run record', () => {
+  const run = { model: 'qwen3.6-35b', started_at: '2026-10-01T10:00:00Z', duration_ms: 42_400, prompt_tokens: 1200, completion_tokens: 85 }
+  const reloaded = (over: Partial<Record<string, unknown>> = {}) =>
+    mountBubble({ loading: false, thinking: false, isLastTurn: true, phase: 'done', isInsetCollapsed: true, ...over })
+
+  it('says how long a reloaded turn worked, from its stored record', () => {
+    const w = reloaded({ turn: turn({ finalAnswer: 'A', segments: [tool('read_file'), tool('internet_search')], run }) })
+    expect(w.get('button.activity-line').text()).toContain('Worked 42s · 2 steps')
+  })
+
+  it('names the model and the tokens it generated under the answer', () => {
+    const meta = reloaded({ turn: turn({ finalAnswer: 'A', run }) }).get('.turn-meta')
+    expect(meta.text()).toContain('qwen3.6-35b')
+    expect(meta.text()).toContain('85 tokens')
+    expect(meta.get('[title]').attributes('title')).toBe('85 tokens generated · 1.2K prompt tokens processed')
+  })
+
+  it('shows only what was recorded', () => {
+    expect(reloaded({ turn: turn({ finalAnswer: 'A' }) }).find('.turn-meta').exists()).toBe(false)
+    const noTokens = reloaded({ turn: turn({ finalAnswer: 'A', run: { model: 'gpt-x', duration_ms: 1000 } }) }).get('.turn-meta')
+    expect(noTokens.text()).toBe('gpt-x')
   })
 })

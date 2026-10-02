@@ -14,6 +14,8 @@ import PopoverPanel from '../common/layout/PopoverPanel.vue'
 import SlotBar from '../common/display/SlotBar.vue'
 import StatusTag from '../common/display/StatusTag.vue'
 import MicroLabel from '../common/display/MicroLabel.vue'
+import RunLabel from '../common/display/RunLabel.vue'
+import { runTarget, runTitle } from '../../utils/runs/runTarget'
 
 // The global run indicator (plan D14, Phase 5 Run pill). At rest it is a quiet
 // "Idle" mark; while anything runs or waits it reads "n running · m queued".
@@ -88,8 +90,8 @@ onUnmounted(stopTick)
 // Clicking outside the pill, or pressing Escape, dismisses the panel.
 useDismissable(root, open)
 
-const holderLabel = (holder: LaneHolder): string => holder.label || holder.workspace_id
-const queuedLabel = (entry: QueuedRun): string => entry.label || entry.workspace_id
+const holderLabel = (holder: LaneHolder): string => runTitle(holder) || holder.workspace_id
+const queuedLabel = (entry: QueuedRun): string => runTitle(entry) || entry.workspace_id
 const kindLabel = (kind: LaneKind | undefined): string => (kind ? RUN_KIND_LABELS[kind] : undefined) ?? FALLBACK_KIND_LABEL
 const laneLabel = (lane: LaneKey): string => LANE_LABELS[lane] ?? lane
 
@@ -180,13 +182,13 @@ const dismiss = (entry: QueuedRun) => runQueueAction(entry.key, AssistantService
           <ul v-if="holdersOf(lane).length || queuedOf(lane).length" class="m-0 flex list-none flex-col gap-1.5 p-0">
             <li v-for="holder in holdersOf(lane)" :key="holder.key" class="run-row">
               <span aria-hidden="true" class="run-dot--live h-2 w-2 flex-none rounded-full"></span>
-              <span class="min-w-0 flex-1 truncate text-primary" :title="holder.model">{{ holderLabel(holder) }}</span>
+              <RunLabel :title="holderLabel(holder)" :to="runTarget(holder)" :tip="holder.model" @navigate="open = false" />
               <span class="run-tag">{{ kindLabel(holder.kind) }}</span>
               <span class="run-time">{{ formatElapsedSince(holder.since, now) }}</span>
             </li>
             <li v-for="entry in queuedOf(lane)" :key="entry.key" class="run-row">
               <StatusTag state="queued" :label="`#${entry.position}`" />
-              <span class="min-w-0 flex-1 truncate text-secondary" :title="entry.model">{{ queuedLabel(entry) }}</span>
+              <RunLabel :title="queuedLabel(entry)" :to="runTarget(entry)" :tip="entry.model" muted @navigate="open = false" />
               <span class="run-tag">{{ kindLabel(entry.kind) }}</span>
               <span class="run-time">{{ formatElapsedSince(entry.queued_at, now) }}</span>
             </li>
@@ -199,13 +201,13 @@ const dismiss = (entry: QueuedRun) => runQueueAction(entry.key, AssistantService
           <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
             <li v-for="holder in otherHolders" :key="holder.key" class="run-row">
               <span aria-hidden="true" class="run-dot--live h-2 w-2 flex-none rounded-full"></span>
-              <span class="min-w-0 flex-1 truncate text-primary" :title="holder.model">{{ holderLabel(holder) }}</span>
+              <RunLabel :title="holderLabel(holder)" :to="runTarget(holder)" :tip="holder.model" @navigate="open = false" />
               <span class="run-tag">{{ kindLabel(holder.kind) }}</span>
               <span class="run-time">{{ formatElapsedSince(holder.since, now) }}</span>
             </li>
             <li v-for="entry in [...inboundQueued, ...unlanedQueued]" :key="entry.key" class="run-row">
               <StatusTag state="queued" :label="`#${entry.position}`" />
-              <span class="min-w-0 flex-1 truncate text-secondary" :title="entry.model">{{ queuedLabel(entry) }}</span>
+              <RunLabel :title="queuedLabel(entry)" :to="runTarget(entry)" :tip="entry.model" muted @navigate="open = false" />
               <span class="run-tag">{{ isInbound(entry) ? kindLabel('inbound') : laneLabel(entry.lane ?? 'local') }}</span>
               <template v-if="isInbound(entry)">
                 <BaseButton variant="ghost" size="sm" icon="play" icon-only :label="`Serve ${queuedLabel(entry)} now`" :disabled="busyKey !== null" @click="promote(entry)" />

@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -15,6 +16,14 @@ import (
 )
 
 func newTestMemoryStore(t *testing.T) *memory.Store {
+	t.Helper()
+	store, _ := newTestMemoryStoreAndDB(t)
+	return store
+}
+
+// newTestMemoryStoreAndDB also returns the raw database, for tests that must
+// backdate timestamps (same-second inserts tie on updated_at).
+func newTestMemoryStoreAndDB(t *testing.T) (*memory.Store, *sql.DB) {
 	t.Helper()
 	f, err := os.CreateTemp("", "agent-memory-test-*.db")
 	if err != nil {
@@ -34,7 +43,7 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 	if err != nil {
 		t.Fatalf("memory.New: %v", err)
 	}
-	return memStore
+	return memStore, p.DB()
 }
 
 func TestBuildHotInjection(t *testing.T) {
@@ -42,7 +51,7 @@ func TestBuildHotInjection(t *testing.T) {
 		{Title: "build", Content: "use go build"},
 		{Title: "test", Content: "run go test"},
 	}
-	result := buildHotInjection(entries)
+	result := injectionText(entries, hotMemoryFallbackChars)
 	expected := "- build: use go build\n- test: run go test\n"
 	if result != expected {
 		t.Errorf("got %q, want %q", result, expected)
@@ -57,7 +66,7 @@ func TestBuildHotInjection_Truncation(t *testing.T) {
 			Content: strings.Repeat("X", 400-i),
 		}
 	}
-	result := buildHotInjection(entries)
+	result := injectionText(entries, hotMemoryFallbackChars)
 	if result == "" {
 		t.Fatal("expected non-empty result")
 	}
@@ -65,7 +74,7 @@ func TestBuildHotInjection_Truncation(t *testing.T) {
 		t.Error("expected first entry to appear")
 	}
 	if strings.Contains(result, "fact-9") {
-		t.Error("last entry should not appear (exceeds maxHotInjectionChars)")
+		t.Error("last entry should not appear (exceeds the fallback budget)")
 	}
 	// Each line is "- fact-N: XXX...\n" > 400 chars, so at most 4 fit in 2000.
 	lines := strings.Count(result, "\n")
@@ -75,11 +84,11 @@ func TestBuildHotInjection_Truncation(t *testing.T) {
 }
 
 func TestBuildHotInjection_Empty(t *testing.T) {
-	result := buildHotInjection(nil)
+	result := injectionText(nil, hotMemoryFallbackChars)
 	if result != "" {
 		t.Errorf("expected empty string for nil entries, got %q", result)
 	}
-	result = buildHotInjection([]memory.MemoryEntry{})
+	result = injectionText([]memory.MemoryEntry{}, hotMemoryFallbackChars)
 	if result != "" {
 		t.Errorf("expected empty string for empty entries, got %q", result)
 	}
@@ -488,9 +497,10 @@ func TestInjectActiveMemory_HotEntriesInjected(t *testing.T) {
 	engine := &MockEngine{}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:    5,
-		WorkspaceID: "ws-1",
-		MemoryStore: store,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		EnableHotMemory: true,
 	})
 
 	prepared := []proxy.Message{
@@ -498,7 +508,9 @@ func TestInjectActiveMemory_HotEntriesInjected(t *testing.T) {
 		{Role: proxy.UserRole, Content: "Hello"},
 	}
 
-	result := agent.injectActiveMemory(prepared, prepared)
+	agent.runS = newRunSession(agent, ctx, prepared)
+	agent.snapshotHotMemory(ctx)
+	result := agent.injectActiveMemory(prepared)
 
 	var resultSystem string
 	var sb strings.Builder
@@ -530,9 +542,10 @@ func TestInjectActiveMemory_HotOnly(t *testing.T) {
 	engine := &MockEngine{}
 
 	agent := NewAgent(client, provider, engine, AgentOptions{
-		MaxSteps:    5,
-		WorkspaceID: "ws-1",
-		MemoryStore: store,
+		MaxSteps:        5,
+		WorkspaceID:     "ws-1",
+		MemoryStore:     store,
+		EnableHotMemory: true,
 	})
 
 	prepared := []proxy.Message{
@@ -540,7 +553,9 @@ func TestInjectActiveMemory_HotOnly(t *testing.T) {
 		{Role: proxy.UserRole, Content: "hello"},
 	}
 
-	result := agent.injectActiveMemory(prepared, prepared)
+	agent.runS = newRunSession(agent, ctx, prepared)
+	agent.snapshotHotMemory(ctx)
+	result := agent.injectActiveMemory(prepared)
 
 	var resultSystem string
 	var sb strings.Builder

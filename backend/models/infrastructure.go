@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 const (
@@ -97,6 +98,17 @@ type MemoryConfig struct {
 	SearchTopK     int     `yaml:"search_top_k,omitempty" json:"search_top_k,omitempty"`
 	FlushThreshold float64 `yaml:"flush_threshold,omitempty" json:"flush_threshold,omitempty"`
 	RetentionDays  int     `yaml:"retention_days,omitempty" json:"retention_days,omitempty"`
+}
+
+// SessionRetention is how long session-scoped memories are kept before the
+// reaper deletes them. Nil-safe: an absent or non-positive setting falls back to
+// the default window rather than meaning "keep forever".
+func (c *MemoryConfig) SessionRetention() time.Duration {
+	days := DefaultMemoryConfig().RetentionDays
+	if c != nil && c.RetentionDays > 0 {
+		days = c.RetentionDays
+	}
+	return time.Duration(days) * 24 * time.Hour
 }
 
 func DefaultMemoryConfig() MemoryConfig {

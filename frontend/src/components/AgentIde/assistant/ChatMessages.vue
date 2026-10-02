@@ -118,7 +118,9 @@ defineExpose({
       <p class="chat-empty-hint">Enter sends · Shift+Enter adds a line · Ctrl / ⌘ K focuses the message box.</p>
     </div>
 
-    <template v-for="(turn, idx) in turns" :key="'turn-' + idx">
+    <!-- One reading column per turn: long answers read as a document, not a
+         full-width wall of text. -->
+    <section v-for="(turn, idx) in turns" :key="'turn-' + idx" class="turn-group">
       <UserMessage
         v-if="!isAutomation"
         :content="turn.userMessage"
@@ -140,7 +142,7 @@ defineExpose({
         @toggle-inset="emit('toggleInset', idx)"
         @toggle-segment="(turnIdx, segIdx) => emit('toggleSegment', turnIdx, segIdx)"
       />
-    </template>
+    </section>
 
     <BaseButton
       v-if="!atBottom"
@@ -157,6 +159,7 @@ defineExpose({
 
 <style scoped>
 .message-container { @apply relative flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5; }
+.turn-group { @apply mx-auto flex w-full max-w-[52rem] flex-col gap-4; }
 .chat-empty { @apply mx-auto flex max-w-[56ch] flex-col gap-2 border border-dashed border-control p-5 text-[length:var(--text-small)] text-secondary; }
 .chat-empty p { @apply m-0; }
 .chat-empty-eyebrow { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }

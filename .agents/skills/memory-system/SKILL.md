@@ -24,7 +24,8 @@ TABLE memories (
     tags TEXT,               -- JSON array, e.g. '["hot"]'
     source TEXT,
     created_at TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    priority INTEGER DEFAULT 1   -- 0 low / 1 normal / 2 high; hot facts order by it, then recency
 )
 ```
 
@@ -81,14 +82,27 @@ const ( ScopeUser Scope = "user"; ScopeWorkspace Scope = "workspace" )
 func (s Scope) Validate() error { ... }
 ```
 
-## Injection (`injectActiveMemory()`, `stream.go`)
+## Injection (`hot_memory.go`)
 
-- Runs ONCE per session (first turn only, `a.memoryInjected` flag)
-- Fetches ALL entries with `tags: ["hot"]` via `SearchHot()` — no FTS5 query needed
-- Injects as `<memory>` system message right before the last user message
-- Text capped at `maxHotInjectionChars` (2000), truncated on entry boundaries
+- `snapshotHotMemory(ctx)` runs ONCE per `Execute` (in `runSession.run()`), fetches ALL entries with
+  `tags: ["hot"]` via `SearchHot()` and freezes the rendered block in `runSession.prompt.memoryBlock`
+- `injectActiveMemory()` appends the frozen block to the HEAD system message on every request —
+  byte-identical prefix = llama.cpp KV-cache reuse. Never insert it at a moving position.
+- Cap = `hotMemoryCharBudget(ContextBudget, workload)`: local 8% / cloud 5% of the resolved budget,
+  clamped 400–6000 chars (2000 when budget unresolved). Cut on entry boundaries, newest first; the
+  overflow hint (`prompts.HotMemoryOverflowHint`) says how many facts were left out
 - Non-hot entries are searchable but never injected
-- `user_profile` entries now covered by hot tag injection (no separate fetch)
+- Usage counters: `RecordInjected` (snapshot, only facts in the block) / `RecordSearched` (memory_search returns) are in-memory; `UsageFlusher` + `App.Shutdown` write them — NEVER add a DB write on the run path
+- Priority (0–2, operator-only) orders hot facts before recency, so the budget cuts high-priority facts last; `SetPriority` leaves text/tags/timestamp alone
+- Markdown import/export (`markdown.go`): `### Title` + `<!-- scope= mode= keep= priority= -->`, backslash-escaped structural lines so facts round-trip; import reuses `newMemoryRequest.route` + `saveNew` (source `import`), skips duplicates, reports bad entries by line
+- Operator notes (`MEMORY.md`, `platform/memory/notes.go`): global (config root) + per-workspace (metadata folder),
+  outside the agent jail; injected FIRST in the same block, never clipped (≤ 6000 chars/file on write); facts fill
+  the remaining budget. One renderer (`renderHotMemory`) serves both the agent and the preview
+- Automations: opt-in per automation via `memory_mode: hot` (default off). Unattended runs (`models.IsUnattendedRun`)
+  default `memory_update` to `keep: session` with `source = run:<id>`; `memory.SessionReaper` (app.New) deletes
+  only old `session` entries (`memory.retention_days`, default 90)
+- Streaming vs fallback: test with a real `MockClient.StreamFunc` — the default mock fails `Stream`
+  and takes the non-streaming fallback, which masks streaming-path defects
 
 ## Known Issues
 
@@ -103,7 +117,7 @@ func (s Scope) Validate() error { ... }
 
 ## Important Gotchas
 
-- `injectActiveMemory()` emits `<relevant_memories>` at the end of prepared messages, right before the current user turn. This keeps KV cache stable — only the `<memory>` message changes each turn (if re-injection were enabled).
+- The `<memory>` block lives in the head system message and never changes within a run (KV-cache stable). Nothing is injected before the current user turn.
 - Memory is per-workspace. `workspace_id = 'global'` is reserved for cross-workspace user profile entries.
 - The `Search` method's `sanitiseFTSQuery` wraps each term in double-quotes and joins with `OR`. Without this, FTS5 crashes on consecutive `OR` operators.
 - Stop words (`step`, `task`, `run`, `use`, `check`) are filtered from the FTS5 query to prevent generic matches.

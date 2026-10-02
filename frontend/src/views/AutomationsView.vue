@@ -59,6 +59,7 @@ const {
   createAutomation,
   updateAutomation,
   deleteAutomation,
+  deleteAutomations,
   stopAutomation,
   cancelQueued,
   deleteRun,
@@ -209,6 +210,10 @@ async function removeAutomation(auto: Automation) {
   if (automationId.value === auto.id) await router.push(toAutomations())
 }
 
+async function removeAutomations(autos: Automation[]) {
+  await deleteAutomations(autos)
+}
+
 async function confirmRemoveSelected() {
   const auto = selectedAutomation.value
   if (!auto) return
@@ -276,6 +281,7 @@ usePolling(() => {
           @run="runAutomation"
           @stop="stopRun"
           @delete="removeAutomation"
+          @delete-many="removeAutomations"
           @cancel-queued="handleCancelQueued"
         />
       </Panel>

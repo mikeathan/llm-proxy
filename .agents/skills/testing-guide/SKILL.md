@@ -31,6 +31,9 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `smoke-test.md` | LLM smoke test — multi-tool coverage (filesystem, terminal, npm, TypeScript, network, final report) |
 | `memory-cascade-test.md` | Memory cascade — persona recall & cross-reference |
 | `memory-three-tier-test.md` | Memory three-tier test (scope/mode/keep routing) |
+| `memory-store-test.md` | Memory verification step 1: the agent saves one made-up fact with explicit routing (chat or automation) |
+| `memory-recall-test.md` | Memory verification step 2: three questions answerable only from the injected memory block, tools forbidden, one unsaved control (see `docs/guides/memory-testing.md` Part A) |
+| `memory-ab-test.md` | Memory A/B comparison — goal-phrased task that fills an 8K window; run with `memory_mode` off vs hot (see `docs/guides/memory-testing.md` Part B) |
 | `sandbox-conformance-probe.md` | Sandbox conformance probe (OS-jail / run capability) |
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
 | `compliance_check_internal.md` | Compliance & high-risk port audit |

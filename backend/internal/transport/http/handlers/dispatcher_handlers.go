@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -98,6 +99,9 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 		return fmt.Errorf("invalid loop_strategy %q: valid values are %s",
 			auto.LoopStrategy, strings.Join(assistant.RegisteredLoopStrategyNames(), ", "))
 	}
+	if auto.MemoryMode != "" && !auto.MemoryMode.Valid() {
+		return fmt.Errorf("invalid memory_mode %q: valid values are off, hot (empty = off)", auto.MemoryMode)
+	}
 	// network_grant is an explicit per-run scope override; empty = inherit the
 	// workspace scope. Reject unknown values fail-fast (sandboxing plan §4.4).
 	if auto.NetworkGrant != "" && !auto.NetworkGrant.Valid() {
@@ -118,6 +122,7 @@ type AutomationInfo struct {
 	LoopStrategy string `json:"loop_strategy,omitempty"`
 	RecordingRef string `json:"recording_ref,omitempty"`
 	NetworkGrant string `json:"network_grant,omitempty"` // '' = inherit workspace scope
+	MemoryMode   string `json:"memory_mode,omitempty"`   // '' = off
 	LastOutput   string `json:"last_output,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
 	IsRunning    bool   `json:"is_running"`
@@ -156,6 +161,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			LoopStrategy: string(entry.LoopStrategy),
 			RecordingRef: entry.RecordingRef,
 			NetworkGrant: string(entry.NetworkGrant),
+			MemoryMode:   string(entry.MemoryMode),
 		}
 
 		if state, err := h.workspace.GetState(entry.Workspace); err == nil {
@@ -632,11 +638,38 @@ func (h *DispatcherHandlers) DeleteWorkspaceFile(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := h.workspace.DeleteTaskFile(workspaceID, filename); err != nil {
+	recursive, err := recursiveParam(r)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// ?recursive=true removes a folder with its content; without it a folder
+	// must be empty, as before.
+	if recursive {
+		err = h.workspace.DeleteTaskTree(r.Context(), workspaceID, filename)
+	} else {
+		err = h.workspace.DeleteTaskFile(workspaceID, filename)
+	}
+	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, map[string]string{"status": "deleted"})
+}
+
+// recursiveParam reads the optional ?recursive= flag of a file delete; absent
+// means false, anything strconv.ParseBool rejects is a client error.
+func recursiveParam(r *http.Request) (bool, error) {
+	raw := r.URL.Query().Get("recursive")
+	if raw == "" {
+		return false, nil
+	}
+	recursive, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("invalid recursive flag %q: %w", raw, err)
+	}
+	return recursive, nil
 }
 
 func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {

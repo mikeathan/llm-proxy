@@ -29,4 +29,12 @@ describe('CopyButton', () => {
     await flushPromises()
     expect(w.get('[role="status"]').text()).toBe('Copy failed')
   })
+
+  it('shows a copy icon that turns into a check once copied', async () => {
+    const w = mount(CopyButton, { props: { text: 'x' }, global: { stubs: { Icon: true } } })
+    expect(w.get('icon-stub').attributes('name')).toBe('copy')
+    await w.get('button').trigger('click')
+    await flushPromises()
+    expect(w.get('icon-stub').attributes('name')).toBe('check')
+  })
 })

@@ -2,9 +2,12 @@
 import type { AutomationRun } from "../../../types/dispatcher";
 import { useConfirm } from "../../../composables/ui/useConfirm";
 import { formatAbsoluteTime, formatDuration } from "../../../utils/format/time";
+import { automationTarget } from "../../../utils/runs/runTarget";
+import { toWorkspace } from "../../../router/routes";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
 import IdChip from "../../common/display/IdChip.vue";
+import CopyButton from "../../common/display/CopyButton.vue";
 import MicroLabel from "../../common/display/MicroLabel.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
@@ -12,6 +15,8 @@ import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
 // One finished automation run: outcome, the event trail, its error and its
 // report. Shown in a drawer (Activity, Automations) or a page panel
 // (Workspaces); `embedded` drops the close button when the container has one.
+// The automation and workspace names link to their pages; the error and the
+// report can be copied.
 
 const props = defineProps<{
   run: AutomationRun;
@@ -52,9 +57,23 @@ async function handleClearRuns() {
   <article class="flex flex-col gap-4 p-4">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div class="flex min-w-0 flex-col gap-1">
-        <h2 class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">{{ run.automation_name }}</h2>
+        <h2 class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">
+          <RouterLink
+            v-if="automationTarget(run)"
+            :to="automationTarget(run)!"
+            :aria-label="`Open automation ${run.automation_name}`"
+            class="rounded-[var(--radius-sm)] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2"
+          >{{ run.automation_name }}</RouterLink>
+          <template v-else>{{ run.automation_name }}</template>
+        </h2>
         <span class="font-mono text-[length:var(--text-small)] text-muted">
-          {{ run.workspace_id }} · finished {{ formatAbsoluteTime(run.timestamp) }}
+          <RouterLink
+            v-if="run.workspace_id"
+            :to="toWorkspace(run.workspace_id)"
+            :aria-label="`Open workspace ${run.workspace_id}`"
+            class="rounded-[var(--radius-sm)] underline-offset-2 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2"
+          >{{ run.workspace_id }}</RouterLink>
+          · finished {{ formatAbsoluteTime(run.timestamp) }}
         </span>
       </div>
       <div class="flex flex-wrap items-center gap-2">
@@ -86,12 +105,18 @@ async function handleClearRuns() {
     <ExecutionAuditTrail v-if="run.events?.length" :events="run.events" />
 
     <section v-if="run.error" class="flex flex-col gap-2">
-      <MicroLabel>Final error</MicroLabel>
+      <span class="flex items-center justify-between gap-2">
+        <MicroLabel>Final error</MicroLabel>
+        <CopyButton :text="run.error" title="Copy error" />
+      </span>
       <pre class="m-0 whitespace-pre-wrap break-words border border-state-error/40 bg-state-error/10 p-3 font-mono text-[length:var(--text-small)] text-state-error">{{ run.error }}</pre>
     </section>
 
     <section v-if="run.output" class="flex flex-col gap-2">
-      <MicroLabel>Final report</MicroLabel>
+      <span class="flex items-center justify-between gap-2">
+        <MicroLabel>Final report</MicroLabel>
+        <CopyButton :text="run.output" title="Copy report" />
+      </span>
       <div class="border border-hairline bg-canvas p-3">
         <MarkdownViewer :content="run.output" />
       </div>

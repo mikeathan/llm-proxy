@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: complete
 date: 2026-09-30
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 related_specs: [SPEC-001, SPEC-004, SPEC-005, SPEC-007]
 constitution_references: [II.2, II.12, IV.1, VI]
 evidence: docs/audits/2026-09-30-platform-scan.md (M1–M9)
@@ -10,7 +10,9 @@ related_plans: [memory/memory-improvements-implementation-plan.md (Phase 2.1 ses
 
 # Memory for Small-Context Local Models — Make It Work, Keep It Cheap, Make It Usable
 
-**Status:** proposed. Phase 0 is measurement and one correctness test; nothing else starts until it lands.
+**Status:** complete (2026-10-01) for Phases 0–4: hot memory reaches the model, is sized from the served window, survives pruning via the
+progress ledger, is opt-in for automations, and has an operator UI. Phase 5 stays in its own plan and Phase 6 was never started (see
+*Closed out*). Whether hot memory *improves* a small model's results is **unproven** (see *Closed out*).
 
 ## The goal, stated as constraints
 
@@ -207,6 +209,142 @@ do not copy them here. Changes from this analysis:
 - Do not put counters or meters in the prompt; show them in the UI.
 - Do not inject a memory block at a moving position every turn (defeats the KV cache).
 
-## Remaining Work
+## Progress log
 
-Everything. First PR: Phase 0 (M1 test + scoreboard script). It is read-only and decides whether Phase 1.1 is needed.
+**2026-10-01 — M1 confirmed and fixed (Phase 0.1 + Phase 1.1/1.2/1.3/1.5).**
+- `TestHotMemory_PresentEveryTurn` failed on the streaming path (requests 2+ had no memory); it passed on the
+  default mock only because the non-streaming fallback reset the one-shot flag and re-injected at a moving
+  position. Lesson: memory tests need a real `StreamFunc` (`streamingToolRun` in `hot_memory_test.go`).
+- Fix (`assistant/hot_memory.go`): one snapshot per run (`runSession.run`, run context — Constitution IV.1),
+  appended to the **head system message** of every request, byte-identical across turns. The
+  `setMemoryInjected(false)` reset and the one-shot flag are gone.
+- Size = share of the resolved `ContextBudget` (local 8%, cloud 5%, clamp 400–6000 chars, 2000 if unresolved).
+  `ContextBudget` is already derived from the probed serving window (SPEC-005 §II.3), so 8K/16K/32K models
+  scale automatically (`TestHotMemory_SizedFromServingContext`, `TestHotMemory_BlockScalesWithContextWindow`).
+- Overflow hint `prompts.HotMemoryOverflowHint`; newest fact always kept.
+- `preparedOverContextBudget` now measures the block (it used to switch hot memory off for the measurement).
+- Constitution II.12, SPEC-004 §4 and the memory-system skill amended (user-approved 2026-10-01, D-M2 share
+  accepted as 8% local / 5% cloud with the window taken from model metadata, not a constant).
+- **Deferred from Phase 1:** 1.4 `priority` column and 1.6 usage meter (`WorkspaceCharCount` /
+  `SoftMemoryCharLimit` stay, to be wired into the Memory panel in Phase 4 — not removed); 1.7 update of
+  `memory-improvements-implementation-plan.md` Task 1.2.
+- **Phase 0.2 done (2026-10-01):** `scripts/memory-scoreboard.sh` / `backend/tools/memory-scoreboard/` (tested).
+  Existing runs are a *no-memory* baseline (see audit "Memory scoreboard baseline"); sieve is derived because no
+  sieve event is recorded (adding one is a candidate follow-up, not done).
+- **Phase 2 implemented (2026-10-01):** `assistant/ledger.go` + sieves (`sieve.go`). Deviations from the plan text, all
+  deliberate: the ledger is its **own message** after the byte-exact note (the note is matched by equality in
+  `isAgentControlMessage`; the ledger has an owned prefix registered there); wording is **facts only** because the
+  physical sieve already appends `ContextSieveWarning` ("deliver your final answer NOW"); it is recorded in
+  `appendToolResult` (all result paths incl. guardrail denials); real tool names (`execute_terminal_command`/`command`).
+  In-place compression idempotency (plan item 4) needed no change — verified by `TestTruncateLongContent_IsIdempotent`
+  (head/tail are sliced from the ends, so re-truncation is byte-identical).
+  **Not measured:** "repeats after a sieve drop to 0" — replay cannot show it (recorded responses ignore the prompt) and
+  no existing run pruned. Needs a live 8K run with the scoreboard. Deferred: persisting the ledger to `run-meta.json`
+  (written only by `core/automation/executor.go`; assistant chats have no run-meta).
+  **Observation:** with an 8K-class budget the physical sieve can fire every turn once the 10-message tail alone exceeds the
+  budget, and each firing appends another `ContextSieveWarning` (they pile up in history). Not changed here (outside
+  Phase 2); worth a follow-up.
+- **Phase 3 steps 1+3.5 implemented (2026-10-01, user-approved: default off, reaper included):**
+  per-automation `memory_mode: off|hot` (`models.MemoryMode`; backend → registry → ExecuteRequest → agent options;
+  validated 400; UI select in AutomationForm, shown in AutomationDetails — needed so saving from the UI does not
+  erase it). Unattended runs: bare `memory_update` → `keep: session`, `source = run:<id>`. `memory.SessionReaper`
+  wired in `app.New` (tethered, store and retention re-resolved each tick; only `session` type is deleted).
+  Constitution II.12 + SPEC memory §4 amended. **Found:** `retention_days` existed but nothing read it and
+  `DeleteOlderThan` had no caller. **Side effect to know:** a hot-mode automation now also gets the pre-sieve
+  memory-flush nudge (it keys on store + hot memory). **Not done:** Phase 3 steps 1 (step-aware query) and 2
+  (point-of-need hints) — `hot+hints` is intentionally not a value; they need the scoreboard to show a win first.
+- **Phase 4 partly implemented (2026-10-01):** DONE — injection preview (4.1; backend `GET …/injection-preview`, UI
+  "Show what the model receives", model picker, size vs the model's own window, what was cut), hot switch
+  (4.2 first half) and hot filter, quick add in plain words (4.3), Session and User (global) filters, Always tag.
+  Fixed on the way: editing a fact **wiped its tags** (a hot fact silently became on-demand on any edit; the UI
+  never sent tags); user-wide facts (workspace `global`) were injected everywhere but invisible/uneditable in the
+  panel; a missing entry returned 500 not 404. Plan item 1.6 settled by **deleting** the dead usage meter
+  (`WorkspaceCharCount`, `SoftMemoryCharLimit`) — the preview supersedes it.
+  **Acceptance (plan Phase 4):** (a) see what the model received — YES; (c) add a fact in under 15 s — YES;
+  (b) protect a fact from being cut — **NO** (needs the 1.4 `priority` column; today order is newest-first and a hot
+  switch only decides membership); (d) see which facts are never used — **NO** (needs usage counters; they must not add
+  a DB write per run on the hot path, so record off-path/batched). **Not built:** 4.4 operator-authored `MEMORY.md`
+  (decision D-M1 still unanswered — ask before building), 4.5 import/export, 4.6 per-entry "why injected" (every
+  injected fact is hot; the preview shows order and what was cut).
+- **Phase 4.4 operator-authored MEMORY.md implemented (2026-10-01, D-M1 answered yes by the user):** user chose
+  "outside the agent's reach" and "goes first, never cut". Deviation from the plan text (plan said a file in the
+  workspace tree): the plan's own pointer to a workspace file would let the agent's file tools rewrite text that is
+  injected into every future prompt — a persistent prompt-injection path — so the files live in the metadata folder /
+  config root and are edited from the Memory panel. Per-workspace + global files; atomic writes; ≤ 6000 chars/file;
+  PUT is JSON-only. The preview shows the notes and warns when they alone exceed the model's budget. This also
+  delivers the "protect a fact from being cut" acceptance criterion **for operator notes** (they are never cut); the
+  agent-written facts still have no per-fact priority (the 1.4 column).
+- **Phase 1.4 priority implemented (2026-10-01):** `memories.priority` (0–2, default 1, additive migration tested
+  on a pre-existing database), hot order `priority DESC, updated_at DESC`, `Store.SetPriority`, operator-only
+  (PUT/POST `priority`, validated before any write), UI: priority control on a fact (enabled only for always-on
+  facts), "High priority" tag, priority in the add form, preview warns when a high-priority fact was cut anyway.
+  **Phase 4 acceptance now:** (a) see what the model received — YES; (b) protect a fact from being cut — YES
+  (priority, plus never-cut operator notes; protection is not absolute if protected facts alone exceed the budget);
+  (c) add a fact in under 15 s — YES; (d) see which facts are never used — **NO** (usage counters, not built).
+- **Usage counters implemented (2026-10-01; closes Phase 4 acceptance (d)):** `injected_count` / `searched_count` /
+  `last_used_at`, recorded in memory and flushed off-path (`UsageFlusher` 30 s + shutdown flush + synchronous flush in
+  `App.Shutdown`; failed flush keeps counts; `-race` test with concurrent record/flush). Only facts actually in the
+  block count as sent, once per run. UI: usage line on every fact, "Unused" filter (never sent, never found) with the
+  counting-began-late caveat, "Last used" in the detail. **Phase 4 acceptance now: (a)(b)(c)(d) all met.** Still open
+  from Phase 4: import/export (4.5) and a per-entry "why injected" line (4.6).
+- **Sieve warning fixed (2026-10-01; the Phase 2 observation):** reproduced first — up to 4 `ContextSieveWarning`
+  copies in one request and the sieve firing on every request after the first prune on a small window. Fix:
+  each prune replaces the previous note/ledger/warning (`withoutSieveMessages`), and the "deliver your final answer
+  NOW" warning is sent once per run (user decision: "warn once per run"; alternatives were never-warn and keep-as-is).
+  The warning dates from the completion rework (#27) and had no documented rationale. **Not measured live:** whether
+  small models now finish more tasks — needs the live 8K run with the scoreboard.
+- **Live comparison runbook written (2026-10-01):** `docs/guides/memory-testing.md` Part B (8K window, two automations off/hot, 3 runs each, scoreboard columns and how to read them). Found while writing it: `settings.yml → model_overrides.<model>.context_budget` (e.g. 50000 on some Qwen entries) overrides the derived budget, so an 8K test would never prune unless the override is removed. The operator runs it; I do not touch :4001.
+- **Markdown import/export implemented (2026-10-01; plan 4.5):** lossless round trip (test with `###`, `---`,
+  `<!--`, backslashes, unicode in a fact), hand-editable, strict about typos, 200-fact cap, JSON-only import, UI
+  Export/Import with a result summary (added / already saved / entries that could not be imported, by line). Operator
+  notes are separate files and not part of it. **Phase 4 remaining:** only 4.6, a per-entry "why injected" line.
+- **Assistant chats were not receiving hot memory — fixed (2026-10-01).** Found by the operator ("Never used" next to
+  an Always fact after a chat run). `conversationService.buildAgent` enabled `WithHotMemory(true)` but never called
+  `WithMemoryStore()`; since commit `ac74c0b` the store was nil, so `snapshotHotMemory` returned early and no chat
+  got memory (or counted usage). My earlier agent-level tests passed because they inject the store directly, and the
+  conversation-service test double hard-coded `MemoryStore()` to nil. Reproduced through the real service first
+  (`TestConversationService_Execute_InjectsHotMemoryAndCountsIt`), then fixed with one line. **Lesson:** my earlier
+  claim that "assistant gets hot memory" was taken from the plan and not verified end to end. Automations were
+  unaffected (their options set the store explicitly).
+- **UI follow-ups from the same review:** an open "what the model receives" preview now reloads on every change to
+  memory (`memoryRevision` in `useMemory`, not only on notes saves); the list shows Saved / Edited / Last used instead
+  of only the creation time.
+- **Comparison prompt corrected:** the first draft let a model do all file work in two shell loops (observed), so the
+  window never filled; Part B now forces one `write_file` + `read_file` per file (8 files).
+- **First real run read back (2026-10-01, chat, remote Qwen3.6 35B A3B, budget 50,000):** memory in 5/5 requests; one
+  prune fired when nine large tool results arrived in one turn (server log: `chars 60223` over 50,000); the model got
+  the note, a ledger listing all 21 finished calls, and the one-time wrap-up warning, then finalised in the next step
+  with `repeats 0`. **Memory did not change behaviour:** the model still ran `node --version`, `npm --version`,
+  `uname -s`, `uname -r` although the facts were in its head message (the instruction-hierarchy problem). Found and
+  fixed: the block printed every auto-titled fact twice (`- Title: content` with the title being the content's first
+  60 chars). **Not a valid A/B:** one run, no memory-off arm, remote model with a 50K budget (not an 8K window), and the
+  workspace still had the old template (60 lines, "one file at a time"). **My own errors in this analysis, corrected:**
+  I first called the scoreboard's `sieve = 1` a false positive and "the window could never fill" — both wrong (I had
+  measured the post-prune request, 35.9K, not the 60K history the sieve measured); the heuristic was reverted and the
+  test replaced by the real case.
+- **Live verification done and simplified (2026-10-01):** chat — stored (`memory_update`, source `agent`) and used (answers
+  from the injected block, unsaved control UNKNOWN); automation — stored (source `run:<id>`), `memory_search` works, and with
+  `memory_mode: hot` the block is injected (system message byte-identical across turns). Finding: the automation wrapper says
+  the report must be "traced to an actual tool result", which can make a model re-verify by `memory_search` even when the
+  fact is in its prompt (suggestive from one pair of runs; not measured). The long A/B marathon is now optional; the
+  recommended check is two short templates (`memory-store-test`, `memory-recall-test`; guide `memory-testing.md` Part A) that
+  forbid tools in the recall run so a correct answer can only come from the injected block.
+
+## Closed out (2026-10-01)
+
+**Delivered and verified live** (chat and automation, on a remote 35B with a 50K budget override): per-run frozen head-system
+memory block, window-scaled budget, priority, usage counters, session reaper, operator notes (`MEMORY.md`), markdown
+import/export, injection preview, memory panel, per-automation `memory_mode` (default off), progress ledger and one-time
+wrap-up warning. How to re-verify in two short runs: `docs/guides/memory-testing.md` Part A.
+
+**Not done, deliberately:**
+- **A/B benefit unproven.** No interleaved run of at least 3 per arm on the corrected prompt exists, and nothing ran on a real 8K
+  window (`docs/guides/memory-testing.md` Part B is the optional procedure). Treat "memory helps small models" as a hypothesis;
+  the shipped default (off) reflects that.
+- **Phase 0.3** replay-harness check and **Phase 1.6/1.7** were not done.
+- **Phase 5** (`session_search`, skills) remains in `memory-improvements-implementation-plan.md`.
+- **Phase 6** experiments (fact cache, background consolidation, per-model settings) were never started; D-M4 stands: decide only after
+  A/B results exist.
+- **Possible follow-up:** for `memory_mode: hot`, one extra wrapper line saying the `<memory>` block counts as a verified source,
+  so models stop re-checking by `memory_search`. Evidence is one pair of runs; measure first. It changes the automation prompt
+  contract, so it needs the user's approval.

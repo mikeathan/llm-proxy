@@ -333,3 +333,58 @@ func TestActiveRunsHandler_GlobalLaneStateWireKeys(t *testing.T) {
 		}
 	}
 }
+
+// A running chat is keyed "chat:<workspace>" and the scheduler does not know which
+// conversation it serves. The Overview lists running work as links, so the global
+// snapshot adds the conversation id for chat holders (from the same source the
+// per-workspace endpoint uses) and the UI can open exactly that conversation.
+func TestActiveRunsHandler_GlobalHoldersCarryTheChatConversation(t *testing.T) {
+	since := time.Now()
+	h := NewActiveRunsHandler(ActiveRunsSources{
+		AssistantConversationID: func(ws string) string {
+			if ws == "ws-1" {
+				return "conv-42"
+			}
+			return ""
+		},
+		LaneSnapshot: func() runlane.Snapshot {
+			return runlane.Snapshot{Lanes: []runlane.LaneState{{
+				Lane: runlane.LaneLocal, Limit: 3, Running: 3,
+				Holders: []runlane.Holder{
+					{Key: "chat:ws-1", Kind: runlane.KindInteractive, WorkspaceID: "ws-1", Label: "chat:ws-1", Since: since},
+					{Key: "ws-1/nightly", Kind: runlane.KindAutomation, WorkspaceID: "ws-1", Automation: "nightly", Label: "ws-1/nightly", Since: since},
+					{Key: "chat:ws-2", Kind: runlane.KindInteractive, WorkspaceID: "ws-2", Label: "chat:ws-2", Since: since},
+				},
+			}}}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	h.ServeGlobalHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/api/active-runs", nil))
+
+	var raw struct {
+		LaneHolders []map[string]any `json:"lane_holders"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byKey := map[string]map[string]any{}
+	for _, holder := range raw.LaneHolders {
+		byKey[holder["key"].(string)] = holder
+	}
+	if got := byKey["chat:ws-1"]["conversation_id"]; got != "conv-42" {
+		t.Errorf("chat holder conversation_id = %v, want conv-42", got)
+	}
+	if _, has := byKey["ws-1/nightly"]["conversation_id"]; has {
+		t.Error("an automation holder has no conversation")
+	}
+	if _, has := byKey["chat:ws-2"]["conversation_id"]; has {
+		t.Error("a chat whose conversation is unknown must omit the field, not send an empty id")
+	}
+	// The scheduler's own fields are still all there.
+	for _, key := range []string{"key", "kind", "workspace_id", "label", "since"} {
+		if _, ok := byKey["chat:ws-1"][key]; !ok {
+			t.Errorf("holder lost %q: %v", key, byKey["chat:ws-1"])
+		}
+	}
+}

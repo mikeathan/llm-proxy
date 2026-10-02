@@ -35,6 +35,11 @@ type MemoryRoute struct {
 	Tags        []string
 }
 
+const (
+	memorySourceAgent     = "agent"
+	memorySourceRunPrefix = "run:"
+)
+
 // RouteStrategy is a function that resolves a (scope, mode, keep) triple to a
 // MemoryRoute for the given workspace ID.
 type RouteStrategy func(wsID string) MemoryRoute
@@ -51,7 +56,9 @@ var routeStrategies = map[string]RouteStrategy{
 	"workspace_on_demand_session":   func(wsID string) MemoryRoute { return MemoryRoute{wsID, "session", nil} },
 }
 
-func resolveParams(scope memory.Scope, mode memory.Mode, keep memory.Keep, wsID string) (MemoryRoute, error) {
+// ResolveMemoryRoute translates the (scope, mode, keep) triple into store primitives.
+// Exported so the operator UI and the agent tool share one routing table.
+func ResolveMemoryRoute(scope memory.Scope, mode memory.Mode, keep memory.Keep, wsID string) (MemoryRoute, error) {
 	key := string(scope) + "_" + string(mode) + "_" + string(keep)
 	s, ok := routeStrategies[key]
 	if !ok {
@@ -114,6 +121,8 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 	if len(entries) == 0 {
 		return "no memories found matching that query", nil
 	}
+	// Used = returned to the model. In-memory; the usage flusher writes it later.
+	m.store.RecordSearched(entries)
 
 	var b strings.Builder
 	for i, e := range entries {
@@ -189,11 +198,11 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 	if args.Scope == "" || args.Mode == "" || args.Keep == "" {
 		args.Scope = memory.ScopeWorkspace
 		args.Mode = memory.ModeOnDemand
-		args.Keep = memory.KeepPermanent
+		args.Keep = defaultKeep(ctx)
 	}
 
 	wsID := models.GetWorkspaceID(ctx)
-	route, err := resolveParams(args.Scope, args.Mode, args.Keep, wsID)
+	route, err := ResolveMemoryRoute(args.Scope, args.Mode, args.Keep, wsID)
 	if err != nil {
 		return "", fmt.Errorf("invalid memory parameters — provide scope ('user'/'workspace'), mode ('always'/'on_demand'), keep ('permanent'/'session'): %w", err)
 	}
@@ -245,12 +254,32 @@ func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, content stri
 		logging.Info("memory_update result", "action", "already_saved", "match", "content_dup")
 		return fmt.Sprintf("already saved — duplicate content (type: %s)", memType), nil
 	}
-	id, err := m.store.Insert(ctx, wsID, memType, title, content, tags, "agent")
+	id, err := m.store.Insert(ctx, wsID, memType, title, content, tags, memorySource(ctx))
 	if err != nil {
 		return "", fmt.Errorf("memory update failed: %w", err)
 	}
 	logging.Info("memory_update result", "action", "created", "id", id, "memory_type", string(memType))
 	return fmt.Sprintf("saved to memory (id: %d, type: %s)", id, memType), nil
+}
+
+// defaultKeep is the retention an unspecified memory_update gets. Unattended
+// (automation) runs write with nobody watching, so their default is session
+// scope — the retention reaper clears it — while a deliberate keep=permanent
+// is still honoured.
+func defaultKeep(ctx context.Context) memory.Keep {
+	if models.IsUnattendedRun(ctx) {
+		return memory.KeepSession
+	}
+	return memory.KeepPermanent
+}
+
+// memorySource attributes a saved entry: "run:<id>" for unattended runs so the
+// operator can trace where a fact came from, "agent" otherwise.
+func memorySource(ctx context.Context) string {
+	if id := models.GetRunID(ctx); id != "" && models.IsUnattendedRun(ctx) {
+		return memorySourceRunPrefix + id
+	}
+	return memorySourceAgent
 }
 
 // deriveTitle creates a short title from the first 60 characters of content.

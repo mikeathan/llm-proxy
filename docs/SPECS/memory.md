@@ -52,12 +52,71 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 
 ### 4. Hot Memory Injection (Reading)
 
-- Once per session (first LLM turn only), `injectActiveMemory()` fetches all entries tagged
-  `["hot"]` via `SearchHot()` — no FTS5 query.
-- Entries are injected as a `<memory>` system message right before the last user message.
-- Text capped at 2000 chars (`maxHotInjectionChars`), truncated on entry boundaries.
+- Once per run (`Execute`), `snapshotHotMemory()` (`assistant/hot_memory.go`) fetches all entries
+  tagged `["hot"]` via `SearchHot()` with the run's context — no FTS5 query — and renders one
+  `<memory>` block, frozen in `runSession.prompt.memoryBlock`.
+- `injectActiveMemory()` appends that block to the **head system message** of every request in the
+  run (a system message is created if the history has none). The prefix is therefore byte-identical
+  turn to turn, which keeps the llama.cpp KV cache valid. Facts saved mid-run appear next run.
+- Each fact renders as `- Title: content`, except that an auto-derived title (empty, or the first characters of the
+  content itself — what a fact saved without a title gets) is omitted: `- content`. Printing both repeated every short
+  fact twice, found in a real run (`hotFactLine`).
+- Size cap = share of the model's resolved `ContextBudget` (SPEC-005 §II.3, derived from the probed
+  serving window for local models): local 8%, cloud 5%, clamped to 400–6000 chars; 2000 when the
+  budget is unresolved (`hotMemoryCharBudget`). Newest first, cut on entry boundaries; the newest
+  fact is always kept (clipped if it alone exceeds the cap).
+- **Operator notes (MEMORY.md)** — `memory.Store.OperatorNotes/SetOperatorNotes` (`platform/memory/notes.go`):
+  `<config root>/MEMORY.md` (all workspaces) and `<metadata>/<workspace>/MEMORY.md`, outside the agent's
+  workspace jail (asserted by `TestAppContext_OperatorNotesLiveOutsideTheWorkspaceJail`). Written atomically
+  (`storage.WriteAtomic`, ClassData), ≤ 6000 chars per file (`ErrNotesTooLong`), blank content removes the file,
+  workspace ids that could leave their folder are refused. The block becomes
+  `<memory>` + operator header + notes + (`Saved facts:` + agent facts) + `</memory>`; no notes = no extra sections.
+  Notes are NEVER clipped: they are charged first and facts fill the remainder; with < 80 chars left only the
+  overflow hint is shown. `renderHotMemory` is shared with the preview, which reports `operator_chars` and
+  `over_budget`.
+- **Priority** (`memories.priority`, 0 low / 1 normal / 2 high, default 1; additive idempotent `ALTER TABLE`
+  migration, existing rows become normal): `SearchHot` orders `priority DESC, updated_at DESC`, and the budget cuts
+  from the tail, so a high-priority fact is the last to go. Only the operator sets it (`PUT`/`POST` `priority`,
+  `Store.SetPriority`, which does not touch the text, tags or timestamp); the agent's `memory_update` cannot.
+  It is protection, not a guarantee: if the high-priority facts alone exceed the budget some are still cut and
+  the preview warns.
+- **Usage counters** (`platform/memory/usage.go`; additive columns `injected_count`, `searched_count`,
+  `last_used_at`): recorded in memory by `snapshotHotMemory` (only the entries actually in the block, once per run)
+  and by `memory_search` (only entries returned); written by `UsageFlusher` every 30 s in one transaction, on
+  shutdown, and synchronously in `App.Shutdown`. A failed flush restores the deltas. Edits, priority changes, the
+  preview and UI browsing do not count. "Unused" = both counters zero (`GET …/memory/{ws}?unused=true`); counting
+  began when this feature was added, so older facts read as unused until first used. Accuracy: at most one flush
+  interval of counts is lost on a crash.
+- When entries are cut the block ends with `prompts.HotMemoryOverflowHint`
+  (`(+N more saved facts — use memory_search to find them)`).
+- The sieve's `preparedOverContextBudget` measures the request including this block.
 - Both global (`workspace_id = 'global'`) and workspace entries with the hot tag are injected.
-- **Not injected for automation tasks** — see `docs/audits/memory-injection-investigation.md`.
+- **Automations opt in** with `memory_mode: hot` (default off/unset): `AutomationEntry.MemoryMode` →
+  `ExecuteRequest.MemoryMode` → `buildAgentOptions` sets `MemoryStore` + `EnableHotMemory`. Same frozen
+  head-system block as chats. `hot+hints` is not shipped (needs a scoreboard win; see the plan).
+  History: `docs/audits/memory-injection-investigation.md` (the old end-of-history placement is what failed).
+- **Unattended write discipline**: runs stamped `models.WithUnattendedRun` default an unspecified
+  `memory_update` to `keep: session`, and tag every entry `source = run:<run id>` (attended: `agent`).
+  Explicit `keep: permanent` is honoured.
+- **Operator view** (Workspace → Memory): filters All / Hot / Permanent / Daily / Session / User (User =
+  workspace `global`, injected into every workspace). Hot facts carry an "Always" tag and a per-fact switch
+  (`PUT … {hot}`; demoting asks for confirmation). Editing wording never changes tags. "Add memory" saves
+  through `tools.ResolveMemoryRoute` (same table as the agent). "Show what the model receives" calls
+  `GET …/injection-preview?model=` — `assistant.PreviewHotMemory` → `renderHotMemory`, the single path the agent
+  uses (asserted byte-for-byte by `TestPreviewHotMemory_MatchesWhatTheRunInjects`).
+- **Operator notes UI**: "Operator notes" in the Memory panel edits the workspace or the global file (`GET/PUT …/memory/{workspace}/notes`, JSON only); saving refreshes an open preview.
+- **Markdown import/export** (`platform/memory/markdown.go`; `GET …/memory/{ws}/export`,
+  `POST …/memory/{ws}/import`): the export is one editable file — `### Title`, a metadata comment
+  (`scope= mode= keep= priority=`), then the text; workspace facts then user-wide facts, oldest first. Lines that
+  would read as structure (`#`, `<!--`, backslash) are backslash-escaped, so any fact round-trips unchanged.
+  Import applies the same validation and routing as adding a fact by hand (`newMemoryRequest.route`, 2000-char
+  cap, `tools.ResolveMemoryRoute`), tags entries `source = import`, skips facts already saved, reports unusable
+  entries with their line (typos such as `prority=` are errors, never ignored), accepts at most 200 facts, and
+  requires a JSON body (415 otherwise — a cross-site form cannot plant facts). Operator notes are not part of the
+  export. `daily`-type entries export as permanent workspace facts (the editor cannot create `daily`).
+- **Retention**: `memory.SessionReaper` (hourly, started in `app.New`) deletes only `session` entries
+  older than `settings.yml → memory.retention_days` (default 90; `MemoryConfig.SessionRetention()`).
+  `long_term` and `user_profile` are never reaped.
 
 ### 5. Memory Tools
 

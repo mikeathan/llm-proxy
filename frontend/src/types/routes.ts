@@ -65,6 +65,8 @@ export interface ActivityFilters {
   q?: string
   from?: string
   to?: string
+  /** The run whose details are open — a link target, not a filter. */
+  run?: string
 }
 
 declare module 'vue-router' {

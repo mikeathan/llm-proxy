@@ -7,7 +7,8 @@ import { useLogLevel } from "../composables/system/useMetrics"
 import { useDestinationRoute } from "../composables/ui/useDestinationRoute"
 import { usePolling } from "../composables/ui/usePolling"
 import { useConfirm } from "../composables/ui/useConfirm"
-import { toActivity } from "../router/routes"
+import { toActivity, toWorkspace } from "../router/routes"
+import { automationTarget } from "../utils/runs/runTarget"
 import { filterRuns, runWorkspaces } from "../utils/runs/filterRuns"
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../utils/format/time"
 import { POLL_INTERVAL_MS, LOG_LEVELS } from "../constants/api"
@@ -25,12 +26,14 @@ import SearchInput from "../components/common/forms/SearchInput.vue"
 import SelectInput from "../components/common/forms/SelectInput.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
 import EmptyState from "../components/common/feedback/EmptyState.vue"
+import LoadingState from "../components/common/feedback/LoadingState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
 import ContextDrawer from "../components/layout/ContextDrawer.vue"
 import HistoricalRunDetails from "../components/AgentIde/automation/HistoricalRunDetails.vue"
 
 // Activity (plan D9, Phase 5): the automation run ledger across all workspaces
-// — searchable, with its filters in the URL (D18) — and the app and process
+// — searchable, with its filters and the open run in the URL (D18), so a run
+// row elsewhere can link straight to its details — and the app and process
 // logs. Kept alive (D19): the chosen view survives a trip elsewhere, and the
 // run and log polls pause while it is in the background.
 
@@ -126,12 +129,35 @@ const RUN_COLUMNS: DataTableColumn<AutomationRun>[] = [
 ]
 const runKey = (run: AutomationRun) => run.id
 
-// Run details open in the drawer; deleting there refreshes the list.
-const selectedRun = ref<AutomationRun | null>(null)
+// Run details open in the drawer, addressed by ?run= so they can be linked to;
+// deleting there refreshes the list. A linked run past the kept history says so.
+const openRunId = computed(() => queryText("run"))
+const selectedRun = computed(() => runs.value.find((run) => run.id === openRunId.value) ?? null)
+
+// Kept alive, the list can be older than a run linked from elsewhere (a run
+// that just finished): read the ledger once more before calling it missing.
+const fetchingLinkedRun = ref(false)
+watch(openRunId, async (id) => {
+  if (!id || runsLoading.value || selectedRun.value) return
+  fetchingLinkedRun.value = true
+  try {
+    await loadRuns()
+  } finally {
+    fetchingLinkedRun.value = false
+  }
+})
+const linkedRunMissing = computed(() => !!openRunId.value && !runsLoading.value && !fetchingLinkedRun.value && !selectedRun.value)
+
+function openRun(run: AutomationRun) {
+  void router.replace(toActivity({ ...filters.value, run: run.id }))
+}
+function closeRun() {
+  void router.replace(toActivity(filters.value))
+}
 const detailsOpen = computed({
-  get: () => selectedRun.value !== null,
+  get: () => !!openRunId.value,
   set: (open: boolean) => {
-    if (!open) selectedRun.value = null
+    if (!open) closeRun()
   },
 })
 
@@ -143,7 +169,7 @@ async function onDeleteRun(run: AutomationRun) {
   } catch {
     return
   }
-  selectedRun.value = null
+  closeRun()
   void loadRuns()
 }
 
@@ -153,7 +179,7 @@ async function onDeleteAutomationRuns(auto: { workspace: string; name: string })
   } catch {
     return
   }
-  selectedRun.value = null
+  closeRun()
   void loadRuns()
 }
 
@@ -216,7 +242,7 @@ async function clearLog() {
         caption="Automation runs"
         :loading="runsLoading"
         activatable
-        @activate="selectedRun = $event"
+        @activate="openRun"
       >
         <template #empty>
           <EmptyState
@@ -234,9 +260,23 @@ async function clearLog() {
         <template #cell-automation="{ row }">
           <!-- One block, so the stacked mobile card keeps name and error together. -->
           <span class="block min-w-0">
-            <span class="block text-primary">{{ row.automation_name }}</span>
+            <RouterLink
+              v-if="automationTarget(row)"
+              :to="automationTarget(row)!"
+              :aria-label="`Open automation ${row.automation_name}`"
+              class="block rounded-[var(--radius-sm)] text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2"
+            >{{ row.automation_name }}</RouterLink>
+            <span v-else class="block text-primary">{{ row.automation_name }}</span>
             <span v-if="row.error" class="block max-w-[48ch] truncate font-mono text-[length:var(--text-micro)] text-state-error" :title="row.error">{{ row.error }}</span>
           </span>
+        </template>
+        <template #cell-workspace="{ row }">
+          <RouterLink
+            v-if="row.workspace_id"
+            :to="toWorkspace(row.workspace_id)"
+            :aria-label="`Open workspace ${row.workspace_id}`"
+            class="rounded-[var(--radius-sm)] font-mono text-[length:var(--text-small)] underline-offset-2 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2"
+          >{{ row.workspace_id }}</RouterLink>
         </template>
         <template #cell-status="{ row }">
           <StatusTag :state="row.error ? 'error' : 'success'" :label="row.error ? 'Failed' : 'Completed'" />
@@ -279,6 +319,13 @@ async function clearLog() {
         @delete-run="onDeleteRun"
         @delete-automation-runs="onDeleteAutomationRuns"
       />
+      <ErrorState v-else-if="runsError" title="Could not load the run" :cause="runsError" next="The run history is retried automatically." />
+      <EmptyState
+        v-else-if="linkedRunMissing"
+        title="This run is no longer in the run history"
+        body="Only the most recent runs are kept; it may also have been deleted."
+      />
+      <LoadingState v-else label="Loading the run" :rows="3" />
     </ContextDrawer>
   </div>
 </template>

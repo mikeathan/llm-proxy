@@ -142,7 +142,97 @@ describe('WorkspaceFiles', () => {
     expect(w.emitted('delete-file')).toBeUndefined()
     useConfirm().handleConfirm()
     await flushPromises()
-    expect(w.emitted('delete-file')).toEqual([['plan.md']])
+    expect(w.emitted('delete-paths')).toEqual([[['plan.md']]])
+  })
+
+  it('deletes a folder with everything in it only after confirming', async () => {
+    const w = await mountFiles()
+    await button(w, 'Delete folder docs').trigger('click')
+    await flushPromises()
+    expect(useConfirm().options.value.message).toContain('everything inside it')
+    useConfirm().handleConfirm()
+    await flushPromises()
+    expect(w.emitted('delete-paths')).toEqual([[['docs']]])
+  })
+
+  it('selects files and folders, then deletes the selection together', async () => {
+    const w = await mountFiles()
+    expect(w.find('input[type="checkbox"]').exists()).toBe(false)
+    await button(w, 'Select').trigger('click')
+    await w.get('input[aria-label="Select docs"]').setValue(true)
+    await w.get('input[aria-label="Select plan.md"]').setValue(true)
+    expect(w.text()).toContain('2 selected')
+    await button(w, 'Delete selected').trigger('click')
+    await flushPromises()
+    useConfirm().handleConfirm()
+    await flushPromises()
+    expect(w.emitted('delete-paths')).toEqual([[['docs', 'plan.md']]])
+    expect(w.find('input[type="checkbox"]').exists()).toBe(false)
+  })
+
+  it('selecting a folder shows everything inside it as selected and locked', async () => {
+    const w = await mountFiles()
+    await w.get('input[type="search"]').setValue('notes') // expands docs/deep so its rows render
+    await button(w, 'Select').trigger('click')
+    const box = (path: string) => w.get<HTMLInputElement>(`input[aria-label="Select ${path}"]`)
+    await box('docs').setValue(true)
+    expect(box('docs/deep').element.checked).toBe(true)
+    expect(box('docs/deep/notes.md').element.checked).toBe(true)
+    expect(box('docs/deep').element.disabled).toBe(true)
+    expect(box('docs').element.disabled).toBe(false)
+    expect(w.text()).toContain('1 selected (+2 inside)')
+    await box('docs').setValue(false)
+    expect(box('docs/deep/notes.md').element.checked).toBe(false)
+    expect(box('docs/deep/notes.md').element.disabled).toBe(false)
+  })
+
+  it('shows a folder as partly selected when only some of its contents are', async () => {
+    const w = await mountFiles()
+    await w.get('input[type="search"]').setValue('notes')
+    await button(w, 'Select').trigger('click')
+    await w.get('input[aria-label="Select docs/deep/notes.md"]').setValue(true)
+    const docs = w.get<HTMLInputElement>('input[aria-label="Select docs"]').element
+    expect(docs.checked).toBe(false)
+    expect(docs.indeterminate).toBe(true)
+  })
+
+  it('clicking a checkbox selects the row without opening the file', async () => {
+    const w = await mountFiles()
+    await button(w, 'Select').trigger('click')
+    await w.get('input[aria-label="Select plan.md"]').trigger('click')
+    expect(w.emitted('open-file')).toBeUndefined()
+  })
+
+  it('select all ticks every top-level entry, and unticks them again', async () => {
+    const w = await mountFiles()
+    await button(w, 'Select').trigger('click')
+    const all = () => w.get<HTMLInputElement>('input[aria-label="Select all"]')
+    await all().setValue(true)
+    expect(w.text()).toContain('2 selected (+2 inside)')
+    expect(all().element.checked).toBe(true)
+    await all().setValue(false)
+    expect(w.text()).toContain('0 selected')
+  })
+
+  it('select all is partly ticked when only some entries are', async () => {
+    const w = await mountFiles()
+    await button(w, 'Select').trigger('click')
+    await w.get('input[aria-label="Select plan.md"]').setValue(true)
+    const all = w.get<HTMLInputElement>('input[aria-label="Select all"]').element
+    expect(all.checked).toBe(false)
+    expect(all.indeterminate).toBe(true)
+  })
+
+  it('select all reaches entries a filter hides, then deletes them after confirming', async () => {
+    const w = await mountFiles()
+    await w.get('input[type="search"]').setValue('notes')
+    await button(w, 'Select').trigger('click')
+    await w.get('input[aria-label="Select all"]').setValue(true)
+    await button(w, 'Delete selected').trigger('click')
+    await flushPromises()
+    useConfirm().handleConfirm()
+    await flushPromises()
+    expect(w.emitted('delete-paths')).toEqual([[['docs', 'plan.md']]])
   })
 
   it('says when the workspace has no files', async () => {

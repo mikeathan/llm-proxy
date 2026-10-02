@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRef, watch } from "vue";
 import type { Automation } from "../../../types/dispatcher";
-import type { AutomationPayload, TriggerType } from "../../../types/automation";
+import type { AutomationPayload, MemoryMode, TriggerType } from "../../../types/automation";
 import type { ChoiceOption } from "../../../types/ui";
 import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
 import { useHostNetworkState } from "../../../composables/settings/useHostNetworkState";
@@ -67,6 +67,14 @@ const NETWORK_LABEL: Record<string, string> = {
   internet: "Local network + Internet",
 };
 
+const MEMORY_LABEL: Record<MemoryMode, string> = {
+  "": "Off",
+  off: "Off",
+  hot: "Hot memory",
+};
+// 'off' is the same as unset; the form offers one "off" choice and normalises on load.
+const MEMORY_CHOICES: MemoryMode[] = ["", "hot"];
+
 const loopStrategyHelper = computed(() => {
   if (!form.value.loopStrategy) {
     return "Uses the model's configured loop strategy (react by default).";
@@ -119,6 +127,7 @@ const handleSubmit = () => {
     model: data.model,
     loop_strategy: data.loopStrategy,
     network_grant: data.networkGrant,
+    memory_mode: data.memoryMode,
   };
 
   submitted.value = true;
@@ -138,6 +147,7 @@ const review = computed(() => [
   ["Model", form.value.model || "Workspace default"],
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
+  ["Memory", MEMORY_LABEL[form.value.memoryMode]],
 ]);
 </script>
 
@@ -205,6 +215,16 @@ const review = computed(() => [
           <template #default="{ id, describedBy }">
             <select :id="id" v-model="form.networkGrant" :aria-describedby="describedBy" class="form-control">
               <option v-for="(label, value) in NETWORK_LABEL" :key="value" :value="value">{{ label }}</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField
+          label="Memory"
+          hint="Hot memory gives this automation's runs your workspace's always-on facts once per run. It costs a small share of the context window; off by default."
+        >
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="form.memoryMode" :aria-describedby="describedBy" class="form-control">
+              <option v-for="mode in MEMORY_CHOICES" :key="mode" :value="mode">{{ MEMORY_LABEL[mode] }}</option>
             </select>
           </template>
         </FormField>

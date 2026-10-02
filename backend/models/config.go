@@ -20,6 +20,7 @@ const (
 	TaskNameKey          contextKey = "task_name"
 	RunIDKey             contextKey = "run_id"
 	RunNetworkScopeKey   contextKey = "run_network_scope"
+	UnattendedRunKey     contextKey = "unattended_run"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -96,6 +97,22 @@ func GetTaskName(ctx context.Context) string {
 // The recorder uses this to create a new file per execution run.
 func WithRunID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, RunIDKey, id)
+}
+
+// WithUnattendedRun marks the context as an unattended (automation) run: no
+// operator is present, so tools that persist state pick conservative defaults
+// (memory_update writes session-scoped entries unless told otherwise).
+func WithUnattendedRun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, UnattendedRunKey, true)
+}
+
+// IsUnattendedRun reports whether the context belongs to an unattended run.
+func IsUnattendedRun(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(UnattendedRunKey).(bool)
+	return v
 }
 
 // GetRunID retrieves the execution run ID from the context.

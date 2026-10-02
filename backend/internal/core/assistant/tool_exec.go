@@ -1172,6 +1172,7 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 		ToolCallID: tc.ID,
 	})
 	a.trackGuardrailOutcome(tc, strContent)
+	a.recordLedger(tc, raw)
 	return strContent
 }
 

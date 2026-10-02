@@ -20,7 +20,7 @@ const STATE = {
 
 const AUTO = {
   id: 'ws/nightly', workspace: 'ws', name: 'nightly', task_file: 'jobs/nightly.md', strategy: 'persistent',
-  trigger: 'cron', trigger_value: '0 7 * * *', model: 'gpt-5', loop_strategy: 'react', network_grant: 'lan',
+  trigger: 'cron', trigger_value: '0 7 * * *', model: 'gpt-5', loop_strategy: 'react', network_grant: 'lan', memory_mode: 'hot',
 } as Automation
 
 // Characterisation (plan D22) — and the tests the absorbed
@@ -37,7 +37,7 @@ describe('useAutomationForm', () => {
     expect(f.selectedWorkspace.value).toBe('ws')
     expect(f.form.value).toEqual({
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
-      strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan',
+      strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'hot',
     })
   })
 

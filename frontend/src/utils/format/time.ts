@@ -38,6 +38,15 @@ export const formatDuration = (ms: number): string => {
   return h > 0 ? `${h}h ${m}m` : `${m}m ${Math.round(seconds % SECONDS_PER_MINUTE)}s`;
 };
 
+/** Whole seconds as people say them: `42s`, `1m 5s`, `1h 2m`. */
+export const formatElapsedSeconds = (total: number): string => {
+  const seconds = Math.max(0, Math.floor(total));
+  if (seconds < SECONDS_PER_MINUTE) return `${seconds}s`;
+  const h = Math.floor(seconds / SECONDS_PER_HOUR);
+  const m = Math.floor((seconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${seconds % SECONDS_PER_MINUTE}s`;
+};
+
 /**
  * Relative time in the user's locale (`5 minutes ago`) — for lists, with the
  * absolute value in a tooltip (formatAbsoluteTime).

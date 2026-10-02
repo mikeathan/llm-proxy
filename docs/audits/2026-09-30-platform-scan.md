@@ -58,7 +58,7 @@ Nothing here was changed in code. Line numbers drift; re-`grep` the symbol befor
 
 | ID | Finding | Evidence | Label |
 |---|---|---|---|
-| M1 | **Hot memory is probably visible to the model on the first request only.** `injectActiveMemory` inserts a `<memory>` message into the transient `prepared` slice, then sets a one-shot flag. `prepared` is rebuilt from `history` each turn and `history` is not modified, so later turns do not carry it. SPEC-004 §II.4 and the skill describe "once per session" without saying the block then disappears. | `core/assistant/stream.go:153-223`; flag `session.go:133`, `agent.go:277-288` | VERIFIED by reading; **confirm with a test** (MEM plan step 1) |
+| M1 | **Hot memory is probably visible to the model on the first request only.** `injectActiveMemory` inserts a `<memory>` message into the transient `prepared` slice, then sets a one-shot flag. `prepared` is rebuilt from `history` each turn and `history` is not modified, so later turns do not carry it. SPEC-004 §II.4 and the skill describe "once per session" without saying the block then disappears. | `core/assistant/stream.go:153-223`; flag `session.go:133`, `agent.go:277-288` | **CONFIRMED 2026-10-01** by `TestHotMemory_PresentEveryTurn` (`hot_memory_test.go`) on the streaming path: requests 2+ carried no memory. Only visible with a real `MockClient.StreamFunc` — the default mock fails `Stream`, takes the non-streaming fallback, and `stream.go` reset the flag there, so the fallback re-injected at a moving position every turn (also a KV-cache defect). **Fixed** by the per-run snapshot in the head system message (plan Phase 1) |
 | M2 | Injection cap is a fixed **2000 chars** regardless of context window, ordered by `updated_at DESC`, truncated on entry boundaries with no signal that entries were dropped. | `stream.go:39`, `:225-237`; skill query ordering | VERIFIED |
 | M3 | Automations get **no** hot memory and no pre-sieve flush nudge (both gated on `EnableHotMemory`, set only by the assistant path). The audit's three fixes (step-aware query, early placement, relevance filter) were never built. | `conversation_service.go:232` (only `WithHotMemory(true)`); `session.go:1373`; `memory-injection-investigation.md` "What would fix" | VERIFIED + FROM-DOC |
 | M4 | **The sieve forgets by deleting.** Over budget it truncates mid-history messages to 4000/2000 chars, then drops everything between the 3-message head and the 10-message tail and inserts a fixed note. Nothing records *what* was dropped (completed steps, files written). Audit: this is what made the smoke test repeat steps. | `assistant/sieve.go:40-83`, constants `:130-137` | VERIFIED |
@@ -113,3 +113,28 @@ Nothing here was changed in code. Line numbers drift; re-`grep` the symbol befor
 Recommended order: **authentication first** (it gates everything that could be exposed), then the
 **measurement phases** of both performance plans (cheap, and they decide whether later steps are
 needed), then memory, then UI.
+
+
+## Memory scoreboard baseline (2026-10-01)
+
+Tool: `scripts/memory-scoreboard.sh <run-dir>...` (`backend/tools/memory-scoreboard/`, reads `events.jsonl`,
+`recording.jsonl`, `run-meta.json`). Column provenance: `mem_tok`/`mem_req` = **VERIFIED** (counts `<memory>`
+blocks in recorded requests, 4 chars/token); `sieve` = **DERIVED** (no sieve event is recorded; counted when a
+request is smaller than the previous one — fewer messages or fewer characters — or a sieve note newly appears);
+`repeats` = **VERIFIED** (same tool name + raw arguments seen earlier); `after_sieve` = **APPROXIMATE**
+(maps the first sieve request to the step counter); `turn1_s` = first `step_start` → first `tool_call`
+(includes generation time; `n/a` when the run made no tool call); `steps` = `run-meta.json` `llm_calls`.
+
+Existing local runs (Ling 3.0 Tiny, `~/.config/llm-proxy/runs/workspace-1/`, all 2026-09-01):
+
+| task | runs | LLM calls | repeated calls | sieve | memory requests |
+|---|---|---|---|---|---|
+| llm-smoke-test | 6 | 16–45 | 0–4 | 0 | 0 |
+| workspace-health-test | 1 | 33 | **16** | 0 | 0 |
+| network-scan-compliance | 1 | 6 | 0 | 0 | 0 |
+
+**Findings:** (1) no recorded run carries a `<memory>` block — these predate hot memory in the recorded
+prompt, so they are a *no-memory* baseline, not a memory baseline; memory baselines need new runs after the
+2026-10-01 snapshot fix. (2) The local smoke test repeats calls (up to 16 in one run) with no sieve firing, so
+repeats here are not caused by pruning; the Phase 2 ledger's target must be re-measured on a run that does
+prune (8K window). (3) Cloud and assistant-chat baselines exist only as no-memory runs for the same reason.

@@ -76,13 +76,26 @@ const PROSE: Record<string, string> = {
   'td-borders': 'rgb(var(--border-hairline))',
 }
 
+// The plugin wraps inline code in backticks and blockquotes in curly quotes.
+// Model text brings its own, so they doubled (`` `name` ``, ""quote"").
+const NO_DECORATION = { content: 'none' }
+const PROSE_RESETS = {
+  'code::before': NO_DECORATION,
+  'code::after': NO_DECORATION,
+  'blockquote p:first-of-type::before': NO_DECORATION,
+  'blockquote p:last-of-type::after': NO_DECORATION,
+}
+
 export const typography = {
   DEFAULT: {
-    css: Object.fromEntries(
-      Object.entries(PROSE).flatMap(([key, value]) => [
-        [`--tw-prose-${key}`, value],
-        [`--tw-prose-invert-${key}`, value],
-      ]),
-    ),
+    css: {
+      ...Object.fromEntries(
+        Object.entries(PROSE).flatMap(([key, value]) => [
+          [`--tw-prose-${key}`, value],
+          [`--tw-prose-invert-${key}`, value],
+        ]),
+      ),
+      ...PROSE_RESETS,
+    },
   },
 }

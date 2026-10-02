@@ -59,7 +59,7 @@ export function useAutomationRunner(
         selectedAutomation.value.workspace,
         selectedAutomation.value.name,
       )
-      lastTriggerResult.value = `Triggered ${selectedAutomation.value.name} successfully`
+      lastTriggerResult.value = `Started ${selectedAutomation.value.name}`
     } catch {
       lastTriggerResult.value = `Failed to trigger ${selectedAutomation.value.name}`
     } finally {

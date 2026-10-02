@@ -21,7 +21,9 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: "select", path: string): void }>()
 
 defineSlots<{
-  /** Inline controls at the end of a file row (e.g. delete). */
+  /** Inline controls at the start of a row (e.g. a selection checkbox). */
+  leading?(props: { node: FileTreeNode }): unknown
+  /** Inline controls at the end of a file or folder row (e.g. delete). */
   actions?(props: { node: FileTreeNode }): unknown
   /** Content under a row (e.g. an inline delete confirmation). */
   below?(props: { node: FileTreeNode }): unknown
@@ -162,6 +164,7 @@ function setItemRef(path: string, el: unknown) {
           ]"
           :style="{ paddingLeft: `${0.5 + (row.level - 1) * INDENT_REM}rem` }"
         >
+          <slot name="leading" :node="row.node" />
           <Icon
             v-if="isExpandable(row.node)"
             name="chevron-right"
@@ -172,7 +175,7 @@ function setItemRef(path: string, el: unknown) {
           <Icon :name="row.node.type === 'dir' ? 'nav-workspaces' : 'document'" size="xs" class-name="flex-none text-muted" />
           <span class="min-w-0 flex-1 truncate">{{ row.node.name }}</span>
           <span v-if="row.node.collapsed" class="flex-none text-[length:var(--text-micro)] text-muted">not listed</span>
-          <slot v-if="row.node.type === 'file'" name="actions" :node="row.node" />
+          <slot name="actions" :node="row.node" />
         </div>
         <slot name="below" :node="row.node" />
       </li>

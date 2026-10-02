@@ -11,16 +11,16 @@ import (
 //   - workspace_id = 'global' → user-scope facts (applies to all projects)
 //   - workspace_id = ?        → workspace-scope facts (this project only)
 //
-// Uses json_each for exact tag matching (not FTS5). Ordered by recency so the
-// most recently saved facts appear first in the prompt.
+// Uses json_each for exact tag matching (not FTS5). Ordered by priority, then
+// recency: high-priority facts come first so a tight budget cuts them last.
 const searchHotSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content,
-                             m.tags, m.source, m.created_at, m.updated_at
+                             m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at
                       FROM memories m
                       WHERE (m.workspace_id = 'global'
                              AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = 'hot'))
                          OR (m.workspace_id = ?
                              AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = 'hot'))
-                      ORDER BY m.updated_at DESC`
+                      ORDER BY m.priority DESC, m.updated_at DESC`
 
 // scanRows iterates rows, scans each into MemoryEntry via scanMemoryEntry,
 // and returns the slice. The caller must still close rows on error.

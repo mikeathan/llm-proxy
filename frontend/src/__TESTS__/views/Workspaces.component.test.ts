@@ -17,7 +17,7 @@ const d = {
   fetchWorkspaceState: vi.fn().mockResolvedValue({ history: [] }),
   fetchGlobalActivity: vi.fn().mockResolvedValue([]),
   createWorkspace: vi.fn(),
-  deleteWorkspaceFile: vi.fn(),
+  deleteWorkspacePaths: vi.fn(async () => []),
   deleteWorkspace: vi.fn(),
   deleteRun: vi.fn(),
   deleteAutomationRuns: vi.fn(),
@@ -40,6 +40,8 @@ vi.mock('../../services/automation/dispatcherService', () => ({
 }))
 
 import WorkspacesView from '../../views/WorkspacesView.vue'
+import { useLastWorkspace } from '../../composables/ui/useLastWorkspace'
+import WorkspaceFiles from '../../components/AgentIde/workspace/WorkspaceFiles.vue'
 
 const STUBS = {
   Icon: true,
@@ -109,9 +111,62 @@ describe('Workspaces', () => {
     expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('# Plan')
     const save = w.findAll('button').find((b) => b.text() === 'Save')!
     expect(save.attributes('disabled')).toBeDefined()
+    const copy = w.findAllComponents({ name: 'CopyButton' }).find((c) => c.props('title') === 'Copy file contents')
+    expect(copy?.props('text')).toBe('# Plan')
     await w.get('textarea').setValue('# Plan v2')
+    expect(copy?.props('text')).toBe('# Plan v2')
     expect(w.text()).toContain('Unsaved')
     expect(save.attributes('disabled')).toBeUndefined()
+  })
+
+  it('closes the open file when a folder holding it is deleted', async () => {
+    const nested: WorkspaceTree = { entries: [{ path: 'docs', type: 'dir' }, { path: 'docs/plan.md', type: 'file' }], truncated: false }
+    d.workspaceTrees.value = { demo: nested, lab: TREE }
+    d.deleteWorkspacePaths.mockResolvedValueOnce(['docs'] as never)
+    const { w, router } = await mountAt('/workspaces/demo/files/docs/plan.md')
+    expect(w.find('textarea').exists()).toBe(true)
+    w.findComponent(WorkspaceFiles).vm.$emit('delete-paths', ['docs'])
+    await flushPromises()
+    expect(d.deleteWorkspacePaths).toHaveBeenCalledWith('demo', ['docs'])
+    expect(router.currentRoute.value.path).toBe('/workspaces/demo/files')
+    expect(w.find('textarea').exists()).toBe(false)
+    d.workspaceTrees.value = { demo: TREE, lab: TREE }
+  })
+
+  describe('last workspace (sidebar assistant shortcut)', () => {
+    const last = useLastWorkspace()
+    afterEach(() => {
+      last.forget(last.lastWorkspace.value ?? '')
+      d.workspaces.value = [{ id: 'demo' }, { id: 'lab' }]
+    })
+
+    it('remembers the workspace being viewed, but not an unknown one', async () => {
+      await mountAt('/workspaces/lab/files')
+      expect(last.lastWorkspace.value).toBe('lab')
+      await mountAt('/workspaces/ghost/files')
+      expect(last.lastWorkspace.value).toBe('lab')
+    })
+
+    it('remembers the only workspace from the list', async () => {
+      d.workspaces.value = [{ id: 'solo' }]
+      await mountAt('/workspaces')
+      expect(last.lastWorkspace.value).toBe('solo')
+    })
+
+    it('forgets a remembered workspace that is gone', async () => {
+      last.remember('deleted-elsewhere')
+      await mountAt('/workspaces')
+      expect(last.lastWorkspace.value).toBeNull()
+    })
+
+    it('forgets a workspace when it is deleted', async () => {
+      d.deleteWorkspace.mockResolvedValue(undefined)
+      last.remember('lab')
+      const { w } = await mountAt('/workspaces')
+      w.findComponent({ name: 'WorkspaceList' }).vm.$emit('delete', 'lab')
+      await flushPromises()
+      expect(last.lastWorkspace.value).toBeNull()
+    })
   })
 
   it('switches workspace within the same section', async () => {

@@ -21,6 +21,7 @@ type AutomationEntry struct {
 	AllowedTools []string
 	RecordingRef string
 	NetworkGrant models.NetworkScope // per-run network scope override (plan §4.4)
+	MemoryMode   models.MemoryMode   // hot-memory opt-in; "" = off
 }
 
 // AutomationRegistry manages registered automations.
@@ -61,6 +62,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		AllowedTools: auto.AllowedTools,
 		RecordingRef: auto.RecordingRef,
 		NetworkGrant: auto.NetworkGrant,
+		MemoryMode:   auto.MemoryMode,
 	}
 
 	r.mu.Lock()

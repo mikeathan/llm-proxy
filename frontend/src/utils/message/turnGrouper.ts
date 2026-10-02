@@ -1,15 +1,48 @@
 import type { AssistantMessage, Segment } from '../../types/assistant'
 import type { Turn } from '../../types/message'
 
-// Matches agent-internal control messages injected by the backend (format
-// errors, retry prompts, incomplete-response warnings, automation nag/retry
-// signals).  These use role:"user" so the model sees them as corrective
-// feedback, but they must not create turn boundaries — or appear at all — in
-// the UI.  New entries here must stay in sync with prompts/templates.go.
-const nagRe = /^(You returned an incomplete|⚠️\s+WARNING:|The tool call format|Your tool call|FORMAT ERROR:|You exceeded|You must not|SYSTEM:|SYSTEM CRITICAL:|TOO LONG:|\[Retry after the previous model attempt failed or timed out\])/
+// Agent-internal control messages injected by the backend (nags, retry and
+// format feedback, the context sieve's note and progress ledger, length
+// continuation). They use role:"user" so the model reads them as feedback, but
+// they must not create turn boundaries — or appear at all — in the UI. The
+// list mirrors isAgentControlMessage (backend/internal/core/assistant/
+// session.go); controlMessages.contract.test.ts reads that function and fails
+// when a prompt there is not matched here. Prompts the backend compares whole
+// are matched on their distinctive opening, not a bare tag, so an operator
+// message such as "CRITICAL: prod is down" still shows.
+const CONTROL_PREFIXES = [
+  'SYSTEM:',
+  'SYSTEM CRITICAL:',
+  'CRITICAL: You are stuck in an analysis loop',
+  '[System Note: History distilled',
+  '[System: Your previous response was truncated',
+  '[Progress ledger — recorded by the system',
+  '[Retry after the previous model attempt failed or timed out]',
+  'The conversation history is about to be compressed',
+  'TOO LONG:',
+  'JSON SYNTAX ERROR: The arguments in your tool call',
+  'XML tool calling failed. Switch to JSON PLAN MODE',
+  'STOP writing text',
+  'FORMAT ERROR:',
+  'TOOL ERROR:',
+  'THIRD ATTEMPT',
+  'You returned an incomplete',
+  'The tool call format',
+  'Your tool call',
+  'You exceeded',
+  'You must not',
+] as const
+const WARNING_PREFIX = /^⚠️\s+WARNING:/
+// The backend's placeholder for a model that stalled without output.
+const STUCK_REASONING = '[stuck]'
 
-function isInternalMessage(m: AssistantMessage): boolean {
-  return m.role === 'user' && nagRe.test(m.content)
+/** Whether a message is agent-internal and hidden from the conversation. */
+export function isInternalMessage(m: AssistantMessage): boolean {
+  if (m.role === 'assistant') {
+    return !m.content.trim() && !m.tool_calls?.length && m.reasoning_content?.trim() === STUCK_REASONING
+  }
+  if (m.role !== 'user') return false
+  return CONTROL_PREFIXES.some((prefix) => m.content.startsWith(prefix)) || WARNING_PREFIX.test(m.content)
 }
 
 export function groupTurns(messages: AssistantMessage[]): Turn[] {
@@ -25,6 +58,7 @@ export function groupTurns(messages: AssistantMessage[]): Turn[] {
       finalAnswer: '',
       segments: [],
       messages: [],
+      ...(m.run ? { run: m.run } : {}),
     }
     i++
 
@@ -32,7 +66,7 @@ export function groupTurns(messages: AssistantMessage[]): Turn[] {
     while (i < messages.length) {
       const msg = messages[i]
       if (!msg || (msg.role === 'user' && !isInternalMessage(msg))) break
-      if (msg.role === 'assistant') {
+      if (msg.role === 'assistant' && !isInternalMessage(msg)) {
         assistantMsgs.push(msg)
         turn.messages.push(msg)
       }

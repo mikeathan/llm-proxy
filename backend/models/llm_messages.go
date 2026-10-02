@@ -1,6 +1,9 @@
 package models
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 type ChatRole string
 type ToolChoice string
@@ -44,6 +47,24 @@ type Message struct {
 	// unknown message keys when history is replayed (mirrors Hermes's
 	// finish_reason stripping in chat_completion_helpers.py).
 	FinishReason string `json:"-"`
+	// Run records how the turn this user message started was run (model,
+	// start, duration), for the chat UI. Set on the turn's user message so it
+	// survives history truncation with it. Never sent to the model:
+	// proxy.SanitizeHistory keeps only role, content and tool fields.
+	Run *TurnRun `json:"run,omitempty"`
+}
+
+// TurnRun is the run record of one chat turn (Message.Run). Old sessions have
+// none; every field is optional so a partial record still reads.
+type TurnRun struct {
+	Model      string    `json:"model,omitempty"`
+	StartedAt  time.Time `json:"started_at,omitzero"`
+	DurationMs int64     `json:"duration_ms,omitempty"`
+	// Token counts as the provider reported them, summed over the turn's LLM
+	// calls; absent when the provider reports none (no estimate is stored).
+	// Prompt tokens re-count the context on every call of an agent loop.
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
 }
 
 // ReasoningDetail models openrouter-style structured reasoning parts
@@ -189,6 +210,16 @@ type Choice struct {
 // Chat Response
 type ChatResponse struct {
 	Choices []Choice `json:"choices"`
+	// Usage is the token count the provider reports, when it does: llama.cpp
+	// on its final stream chunk, OpenAI-style APIs on a trailing chunk with no
+	// choices (only when asked), non-stream responses always. Nil otherwise.
+	Usage *TokenUsage `json:"usage,omitempty"`
+}
+
+// TokenUsage is a provider-reported token count for one LLM call.
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
 }
 
 type Tool struct {

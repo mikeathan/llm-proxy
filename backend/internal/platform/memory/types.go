@@ -4,6 +4,7 @@
 package memory
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -85,8 +86,16 @@ type MemoryEntry struct {
 	Content     string     `json:"content"`
 	Tags        []string   `json:"tags"`
 	Source      string     `json:"source"`
-	CreatedAt   string     `json:"created_at"`
-	UpdatedAt   string     `json:"updated_at"`
+	// Priority orders hot facts when the budget cuts the tail: higher survives
+	// longer. Default PriorityNormal; only the operator changes it.
+	Priority int `json:"priority"`
+	// Usage counters (usage.go): runs the fact was sent in, times memory_search
+	// returned it, and when it was last used ("" = never).
+	InjectedCount int    `json:"injected_count"`
+	SearchedCount int    `json:"searched_count"`
+	LastUsedAt    string `json:"last_used_at"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 // scanMemoryEntry is a shared row scanner for all Store methods to avoid
@@ -94,10 +103,13 @@ type MemoryEntry struct {
 func scanMemoryEntry(row interface{ Scan(dest ...any) error }) (MemoryEntry, error) {
 	var e MemoryEntry
 	var tagsStr string
+	var lastUsed sql.NullString
 	if err := row.Scan(&e.ID, &e.WorkspaceID, &e.MemoryType, &e.Title,
-		&e.Content, &tagsStr, &e.Source, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		&e.Content, &tagsStr, &e.Source, &e.Priority, &e.InjectedCount, &e.SearchedCount, &lastUsed,
+		&e.CreatedAt, &e.UpdatedAt); err != nil {
 		return MemoryEntry{}, err
 	}
+	e.LastUsedAt = lastUsed.String
 	if tagsStr != "" && tagsStr != "[]" {
 		json.Unmarshal([]byte(tagsStr), &e.Tags)
 	}
@@ -124,4 +136,17 @@ func parseMemoryTime(s string) (time.Time, error) {
 		return t, nil
 	}
 	return time.Time{}, fmt.Errorf("cannot parse time %q: SQLite and RFC3339 both failed", s)
+}
+
+// Priority levels for hot facts (0–2). High facts are injected first, so they are
+// the last to be cut when a small window leaves little room; Low ones go first.
+const (
+	PriorityLow    = 0
+	PriorityNormal = 1
+	PriorityHigh   = 2
+)
+
+// ValidPriority reports whether p is a defined priority level.
+func ValidPriority(p int) bool {
+	return p >= PriorityLow && p <= PriorityHigh
 }

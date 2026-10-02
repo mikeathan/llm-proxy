@@ -1,7 +1,7 @@
 ---
 name: assistant-ui-chat
 description: "Assistant chat UI architecture: event handlers, the segment system, inactivity timer, SSE timing, scroll behavior, and common pitfalls. Use when changing the chat view or its SSE handling."
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-01
 ---
 
 # Assistant UI Chat Architecture
@@ -12,38 +12,50 @@ last_reviewed: 2026-07-11
 
 ---
 
-## Layout (3 bubbles per turn)
+## Layout (document + step timeline, 2026-10-01)
 
-Each user message produces a "turn" rendered as three visual elements:
+Each turn renders inside one reading column (`.turn-group`, max 52rem, centred by `ChatMessages.vue`):
 
-1. **User message** — plain bubble with the user's text
-2. **Assistant bubble** — single bubble containing:
-   - A collapsible **work section** (reasoning text + tool call items, interleaved in order)
-   - A permanently visible **result section** (formatted final answer)
-3. **Result bubble** — separate bubble for the final answer (only shown when different from agent output)
+1. **User message** — right-aligned pill (`UserMessage.vue`) with hover actions (send again, copy).
+2. **Assistant turn** (`ChatBubble.vue`) — no box; reads like a document:
+   - an **activity line** button (`aria-expanded`): `Thinking` / `Working · N steps` / `Writing the answer`
+     while live, `Worked 42s · 3 steps` when finished. Wording: `activityLabel()` in
+     `constants/labels.ts`. The duration shows **only when measured**: live by the turn's timer, after a
+     reload from its stored run record (`turn.run.duration_ms`); sessions from before 2026-10-01
+     have none and show no duration — never an estimate. A turn that answered without any
+     work has no activity line.
+   - the **step timeline** (`<ol class="timeline">`): reasoning (`Thought`, compact markdown) and tool
+     calls (`ToolCallSegment.vue`) in the order they happened, plus guardrail / error / upstream
+     notice items. Each tool step reads as a plain verb + target + outcome in words
+     (`utils/assistant/toolSteps.ts`: `describeToolStep`, icon per `ToolKind`); opened, it shows the
+     arguments and the result decoded for reading (`formatToolResult`: JSON-encoded strings → real
+     lines, `[{title,url}]` → search-hit links limited to http(s), other JSON pretty-printed,
+     >4000 chars → "Show all"). Results are untrusted: text only, never `v-html`.
+   - the **answer** — `MarkdownViewer variant="document"` (14px, 1.65 line height).
+   - a **footer** — copy answer (finished turns only) and the turn's stored run record: model and
+     tokens generated (prompt tokens processed in the tooltip, `tokenUsageLabel()`). The record is
+     `Message.run` on the turn's user message (`groupTurns` copies it to `turn.run`); the activity
+     line uses its `duration_ms` after a reload. Old sessions have none — show only what was
+     recorded.
 
 ```
-┌─────────────────────────────────────────────┐
-│ User message                                │
-├─────────────────────────────────────────────┤
-│ Assistant ▾  9 steps completed              │  ← clickable header
-├─────────────────────────────────────────────┤
-│ Let me check the file...                    │  ← reasoning segment
-│   ✓ list_directory .                        │  ← tool call segment
-│   ✓ read_file memory-three-tier-test.md     │
-│   ✓ read_file ts-logic-interface-test.md    │
-│ ...                                         │
-├─────────────────────────────────────────────┤
-│ RESULT                                      │
-│ Workspace Summary...                        │
-└─────────────────────────────────────────────┘
+                              ┌────────────────────────────┐
+                              │ search latest on haiku 5.5 │
+                              └────────────────────────────┘
+ › • Worked 42s · 3 steps                         ← activity line (toggles timeline)
+   ◌ Thought  The user wants the latest news…
+   ⌕ Searched the web  Claude Haiku 5.5 news   ✓ ›
+   ◍ Read a web page   cellcog.ai/blog/…       ✓ ›
+ Here's a summary of the latest on **Claude Haiku 5.5**…   ← answer (document)
+ ⧉                                                ← footer
 ```
 
 ### Key design rules
-- Work section auto-expands when session is active (`loading = true`), auto-collapses when finished (`loading → false`)
-- User can manually toggle work section via the header
-- Tool call items are collapsed by default (click to expand and see args + result)
-- Result section is always visible, never collapsed by the work-section toggle
+- The timeline auto-expands while the session is active (`loading = true`) and auto-collapses when finished (`loading → false`); the user can toggle it via the activity line.
+- Tool steps are collapsed by default (click to see arguments + result).
+- The answer is always visible, never collapsed by the timeline toggle.
+- Only the **live** turn (`loading && isLastTurn`) uses the run's `phase`; every earlier turn renders as finished, so a new run's `thinking` phase never hides older answers.
+- The timeline is height-capped (320px, internal scroll) **only while live**; a finished turn opens in full.
 
 ## MessageBuilder (`messageBuilder.ts`)
 
@@ -235,7 +247,7 @@ The dots NEVER appear while text is streaming. The user needs to see the text, n
 
 | Element | Loading | Not Loading |
 |---------|---------|-------------|
-| Arc-orbit loader (input + last bubble) | Rotates (`arc-orbit`) **only while `.is-active`** (thinking-gaps) | Inert (`opacity: 0`, animation stopped) |
+| Arc-orbit loader (message input only; the assistant turn has no box to ring since 2026-10-01) | Static accent ring **only while `.is-active`** (thinking-gaps) | Inert (`opacity: 0`) |
 | Thinking-gap dots | `thinking-pulse` opacity animation **only while visible** (`.bubble-paused:not(.bubble-paused--hidden)`) | Inert (`visibility: hidden`, animation stopped) |
 | Generating pulse-dots | Only rendered while `phase === 'generating'` | Not in DOM |
 
@@ -276,6 +288,10 @@ The `.bubble-inset` (reasoning/tool panel) is shown via **`v-show` (kept mounted
 
 The `groupTurns()` function converts the flat `messages[]` array into structured `Turn[]` objects for rendering. Each turn is anchored by a user-role message followed by zero or more assistant-role messages.
 
+### Agent control messages (contract test)
+
+The backend injects control messages as `role: "user"` (nags, format/retry feedback, the context sieve's `[System Note: …]` and `[Progress ledger …]`, length continuation) plus an empty `[stuck]` assistant placeholder. `isInternalMessage()` hides them and keeps them from starting a turn — when it missed the sieve note and ledger (2026-10-01) they showed as the operator's own messages and split one run into fake turns with a lone "Thought:" as the answer. `CONTROL_PREFIXES` mirrors `isAgentControlMessage` (`backend/internal/core/assistant/session.go`); `__TESTS__/utils/message/controlMessages.contract.test.ts` reads that Go function and `prompts/templates.go` and fails for any control prompt the UI does not hide. **Adding a control prompt in Go → add its prefix here.**
+
 ### Single-message turn edge case
 
 When `assistantMsgs.length === 1` (e.g., for webhook-triggered runs or direct text responses), `turn.finalAnswer` must be set explicitly from the single message's content. The `> 1` branch sets `finalAnswer = last.content` automatically, but the `=== 1` branch historically left it empty — causing the "Result" section to be hidden.
@@ -315,7 +331,7 @@ This makes the user message available for `groupTurns()` to anchor the turn, and
 - **Do NOT reset pause timer on non-stream events** — `tool_call`/`tool_result`/`message` should NOT call `resetPauseTimer()`. Only `tool_stream` resets the timer.
 - **Do NOT call `forceUpdate()` during pure text streaming** — `scheduleFlush()` (100ms) updates only `liveReasoning.value`; committed turns stay frozen (memoized-list pattern). `forceUpdate()` is reserved for segment mutations.
 - **Throttle auto-scroll (~250ms) and never deep-watch `turns`** — per-flush pane scrolling + `deep: true` history traversal are the GPU/CPU hot path during streaming.
-- **Use `visibility: hidden` for the thinking-gap**, not `v-if` or `v-show`. The space must be reserved to prevent bubble height changes.
+- **Use `visibility: hidden` for the thinking-gap on the live turn**, not `v-show`: its space is reserved so the answer does not jump while the run streams. Finished turns do not render the row at all (`v-if="live"`), so history has no empty gap under each answer.
 - **Start the pause timer at agent startup** — call `builder.resetPauseTimer()` after `sse.connect()`.
 - **SSE must be connected before HTTP POST** — wait for "ping" event before sending the agent request.
 - **Do NOT use `watch(messages, scrollToBottom)`** — it causes flickering. Only scroll on new segments.

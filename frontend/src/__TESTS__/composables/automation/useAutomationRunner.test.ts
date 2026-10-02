@@ -35,7 +35,7 @@ describe('useAutomationRunner', () => {
     r.selectAutomation(A)
     await r.handleTrigger()
     expect(deps.trigger).toHaveBeenCalledWith('ws', 'a')
-    expect(r.lastTriggerResult.value).toBe('Triggered a successfully')
+    expect(r.lastTriggerResult.value).toBe('Started a')
     expect(r.triggering.value).toBe(false)
     expect(deps.fetchAutomations).toHaveBeenCalled()
     expect(deps.refreshHistory).toHaveBeenCalled()

@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.2"
+version: "2.3"
 status: stable
-last_updated: 2026-09-30
+last_updated: 2026-10-01
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,18 @@ supersedes:
 
 ## Changelog
 
+- **2.3 (2026-10-01)** — Navigation shortcuts and bulk file delete. The
+  sidebar's Workspaces row gains an assistant shortcut (a hover-revealed chat
+  icon) that opens the assistant of the last-opened workspace; it is not a
+  seventh destination.
+  Finished runs are links: the Activity drawer is addressed by `?run=<id>`,
+  Overview's recent runs open it, and the run's automation and workspace link
+  to their pages. The file tree deletes folders (with their content), a
+  selection, or every file (`DELETE …/files/{path}?recursive=true`). The
+  assistant message box grows with its text and can be expanded for a long
+  paste. Assistant and automation output reads as a document (unboxed answer
+  in a reading column) with a one-line activity summary that opens a step
+  timeline; agent-internal control messages never show as the operator's.
 - **2.2 (2026-09-30)** — The top strip carries host stats again (CPU, memory,
   GPU core, token throughput), on every destination, expandable to the detail
   card. The redesign had moved them to the Overview only, so they were missing
@@ -48,6 +60,15 @@ account model, and makes no network request outside the proxy's own origin.
 - Six destinations in a persistent, collapsible left sidebar: **Overview,
   Workspaces, Automations, Models, Activity, Settings**. The collapse state
   persists; below the mobile breakpoint the sidebar becomes a drawer.
+- The sidebar's Workspaces row carries an **assistant shortcut**: a chat icon
+  at the row's end linking to `/workspaces/<ws>/assistant` for the workspace
+  last opened (remembered through `usePersistedState`, validated as a
+  workspace name). When only one workspace exists, that one is remembered as
+  soon as the list loads. A remembered workspace that no longer exists is
+  forgotten. The icon is revealed on hover or keyboard focus. It stays shown
+  while that assistant is open, and always in the mobile drawer, which has no
+  hover. It is absent until a workspace is known and in the collapsed rail.
+  It is a shortcut, not a destination.
 - A header carries the **host stats strip** (§II.8), the run-activity pill
   (global lane state, see §II.5) and the notification bell. A context drawer (Monitor) is available at every
   width.
@@ -67,7 +88,11 @@ account model, and makes no network request outside the proxy's own origin.
   history, create/edit form, recordings.
 - **Models** — local runtimes and remote provider catalogues.
 - **Activity** — the global run ledger; filters live in the query string so
-  a filtered view is shareable.
+  a filtered view is shareable, and so does the open run (`?run=<id>`), so
+  any finished-run row elsewhere (Overview's recent runs) links straight to
+  its details. A linked run no longer in the kept history says so. In the
+  ledger and the run details, the automation and workspace names link to
+  their pages.
 - **Settings** — global configuration by section (`/settings/<section>`),
   including provider keys, security, MCP servers (SPEC-008) and Appearance.
 
@@ -82,6 +107,14 @@ account model, and makes no network request outside the proxy's own origin.
 - The open file's path is part of the URL. Filtering shows at most **200
   matches** with a "showing N of M" status, so a filter over the full cap
   never blocks the main thread.
+- Deleting is always confirmed. A file or a folder can be deleted from its row,
+  and a folder is deleted with everything inside it. **Select** mode adds a
+  checkbox to each row so several files and folders can be deleted together,
+  and offers **Delete all files**. That removes every listed top-level entry,
+  whatever the filter shows. Dotfiles are not listed, so they are kept.
+  Deletes go through `DELETE …/files/{path}?recursive=true`, and the
+  workspace root itself is refused. Deleting a folder that holds the open
+  file closes the file.
 
 ### 4. Run notifications
 - Only **terminal** transitions notify: a run ending or an automation

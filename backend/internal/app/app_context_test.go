@@ -16,6 +16,7 @@ import (
 	"llm-proxy/internal/app"
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
@@ -1139,5 +1140,33 @@ func TestApplySystemUpdate_IdleTimeout(t *testing.T) {
 	}
 	if got := srv.GetSystem().Server.IdleTimeoutSecs; got != 3600 {
 		t.Fatalf("expected idle timeout 3600, got %d", got)
+	}
+}
+
+// Operator notes (MEMORY.md) must land where the agent cannot reach them: the
+// per-workspace metadata folder (outside the workspace jail) and the config root.
+func TestAppContext_OperatorNotesLiveOutsideTheWorkspaceJail(t *testing.T) {
+	ctx := createTestServer(t, &mocks.MockManager{ListModelsFunc: func() []models.ModelConfig { return nil }}, nil)
+	store := ctx.MemoryStore()
+	if store == nil {
+		t.Skip("memory store unavailable in this environment")
+	}
+	if err := store.SetOperatorNotes(context.Background(), memory.NotesWorkspace, "ws-1", "Use tabs."); err != nil {
+		t.Fatalf("workspace notes: %v", err)
+	}
+	if err := store.SetOperatorNotes(context.Background(), memory.NotesGlobal, "", "British English."); err != nil {
+		t.Fatalf("global notes: %v", err)
+	}
+
+	wsFile := filepath.Join(ctx.MetadataDir(), "ws-1", "MEMORY.md")
+	if data, err := os.ReadFile(wsFile); err != nil || !strings.Contains(string(data), "Use tabs.") {
+		t.Errorf("workspace notes not at %s: %v", wsFile, err)
+	}
+	globalFile := filepath.Join(ctx.RootDir(), "MEMORY.md")
+	if data, err := os.ReadFile(globalFile); err != nil || !strings.Contains(string(data), "British English.") {
+		t.Errorf("global notes not at %s: %v", globalFile, err)
+	}
+	if strings.HasPrefix(wsFile, ctx.WorkspacesDir()) {
+		t.Errorf("notes at %s are inside the workspaces folder the agent can write to", wsFile)
 	}
 }

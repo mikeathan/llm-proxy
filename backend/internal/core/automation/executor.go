@@ -63,6 +63,8 @@ type ExecuteRequest struct {
 	// Empty = inherit the workspace scope. Resolved against host (L0) + merged
 	// workspace guardrails (L1) in Execute via GuardrailEngine.ResolveRunScope.
 	NetworkGrant models.NetworkScope
+	// MemoryMode opts the run into hot-memory injection; "" = off.
+	MemoryMode models.MemoryMode
 }
 
 type ExecuteResponse struct {
@@ -183,9 +185,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
-	execCtx := models.WithTaskName(ctx, req.AutomationName)
-	execCtx = models.WithRunID(execCtx, generateRunID())
-	execCtx = usage.WithTracker(execCtx)
+	execCtx := usage.WithTracker(newRunContext(ctx, req.AutomationName, generateRunID()))
 
 	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
 
@@ -362,6 +362,14 @@ func (e *LLMTaskExecutor) runNetworkScope(req ExecuteRequest) models.NetworkScop
 	return e.svc.GuardrailEngine().ResolveRunScope(req.WorkspaceID, req.NetworkGrant)
 }
 
+// newRunContext stamps a run's identity and marks it unattended: no operator is
+// present, so tools that persist state choose conservative defaults.
+func newRunContext(ctx context.Context, automationName, runID string) context.Context {
+	ctx = models.WithTaskName(ctx, automationName)
+	ctx = models.WithRunID(ctx, runID)
+	return models.WithUnattendedRun(ctx)
+}
+
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
 func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, eventSink *eventbus.Sink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
@@ -390,6 +398,10 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 		// AllowedTools restricts the exposed tool schema for unattended runs
 		// (allow ∩ guardrail-disabled, resolved in NewAgent).
 		AllowedTools: req.AllowedTools,
+	}
+	if req.MemoryMode.HotEnabled() {
+		opts.MemoryStore = e.svc.MemoryStore()
+		opts.EnableHotMemory = opts.MemoryStore != nil
 	}
 	if req.Model == "" {
 		return opts
@@ -564,17 +576,7 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 		Warnings:       outcome.warnings,
 	}
 
-	// Add to full history (capped to last 50 for performance)
-	state.History = append(state.History, run)
-	if len(state.History) > 30 { // Reduced from 50 to 30 for extra safety
-		state.History = state.History[len(state.History)-30:]
-	}
-
-	// Update per-automation latest run
-	if state.LastRuns == nil {
-		state.LastRuns = make(map[string]*models.AutomationRun)
-	}
-	state.LastRuns[req.AutomationName] = &run
+	state.AppendRun(run)
 }
 
 func generateRunID() string {

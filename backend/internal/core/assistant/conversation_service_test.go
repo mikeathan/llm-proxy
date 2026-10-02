@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/orchestrator"
@@ -23,6 +24,8 @@ type mockConvDeps struct {
 	store     *GuardrailDecisionStore
 	events    EventPublisher
 	log       logging.Logger
+
+	memoryStore *memory.Store // nil unless a test seeds one
 }
 
 func (m *mockConvDeps) SelectModels() (string, string) { return m.modelName, "" }
@@ -34,7 +37,7 @@ func (m *mockConvDeps) ProcessLogger(string) logging.Logger                    {
 func (m *mockConvDeps) GuardrailEngine() *guardrails.GuardrailEngine           { return m.guardrail }
 func (m *mockConvDeps) GuardrailDecisionStore() *GuardrailDecisionStore        { return m.store }
 func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator               { return nil }
-func (m *mockConvDeps) MemoryStore() *memory.Store                             { return nil }
+func (m *mockConvDeps) MemoryStore() *memory.Store                             { return m.memoryStore }
 func (m *mockConvDeps) Events() EventPublisher                                 { return m.events }
 func (m *mockConvDeps) RunLoggingEnabled() bool                                { return false }
 func (m *mockConvDeps) RootDir() string                                        { return "" }
@@ -751,5 +754,142 @@ func TestExecute_SessionStartedPublishedAfterClear(t *testing.T) {
 	}
 	if startedIdx < clearIdx {
 		t.Errorf("session_started published at %d BEFORE recent clear at %d — it would be dropped from replay", startedIdx, clearIdx)
+	}
+}
+
+// The assistant must hand the memory store to its agent: hot memory is only
+// injected (and usage only counted) when the agent has a store. Before this
+// test, buildAgent enabled hot memory but never passed the store, so chats got
+// no memory at all while the unit tests of the agent itself stayed green.
+func TestConversationService_Execute_InjectsHotMemoryAndCountsIt(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := context.Background()
+	if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{memory.HotTag}, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	deps := newMockConvDeps()
+	deps.memoryStore = store
+	svc := NewConversationService(deps, newTestPersistence(t))
+
+	var head string
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			if head == "" && len(req.Messages) > 0 {
+				head = req.Messages[0].Content
+			}
+			ch := make(chan *proxy.ChatResponse, 1)
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Here is a helpful response"}}}}
+			close(ch)
+			return ch, nil
+		},
+	}
+	if _, err := svc.Execute(ctx, "ws-1", "", "how do I build?", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{Tools: []proxy.Tool{}}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if !strings.Contains(head, "<memory>") || !strings.Contains(head, "go build") {
+		t.Fatalf("the assistant's first request carries no hot memory in its head message: %q", head)
+	}
+	if err := store.FlushUsage(ctx); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := store.List(ctx, "ws-1", "", 10, 0)
+	if len(all) != 1 || all[0].InjectedCount != 1 {
+		t.Errorf("the chat run must count as one use of the fact: %+v", all)
+	}
+}
+
+// Every turn records how it ran on its user message — the model, when it
+// started and how long it took — whether it finishes, fails or is cancelled,
+// so a reloaded conversation can say "Worked 42s · model". Earlier turns keep
+// their record when later turns run.
+func TestConversationService_RecordsTurnRun(t *testing.T) {
+	answer := func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "Here is a helpful response"}}}}, nil
+	}
+	cases := []struct {
+		name string
+		chat func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error)
+	}{
+		{"finished", answer},
+		{"failed", func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) { return nil, errors.New("model unavailable") }},
+		{"cancelled", func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) { return nil, context.Canceled }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pm := newTestPersistence(t)
+			svc := NewConversationService(newMockConvDeps(), pm)
+			client := &MockClient{
+				StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
+				ChatFunc:   tc.chat,
+			}
+			before := time.Now()
+			_, _ = svc.Execute(context.Background(), "ws-1", "conv_run", "hello", "v1", "UTC",
+				nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{}, &mockEventPublisher{}, nil)
+
+			session, err := pm.ReadSession("ws-1", "conv_run")
+			if err != nil || session == nil {
+				t.Fatalf("ReadSession: %v, %v", session, err)
+			}
+			run := turnRunOf(t, session.History, "hello")
+			if run.Model != "test-model" {
+				t.Errorf("model = %q, want test-model", run.Model)
+			}
+			if run.StartedAt.Before(before.Add(-time.Second)) || run.DurationMs < 0 {
+				t.Errorf("run = %+v, want a start time from this run and a duration", run)
+			}
+		})
+	}
+
+	t.Run("an earlier turn keeps its record", func(t *testing.T) {
+		pm := newTestPersistence(t)
+		svc := NewConversationService(newMockConvDeps(), pm)
+		client := &MockClient{
+			StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
+			ChatFunc:   answer,
+		}
+		for _, msg := range []string{"first", "second"} {
+			_, _ = svc.Execute(context.Background(), "ws-1", "conv_two", msg, "v1", "UTC",
+				nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{}, &mockEventPublisher{}, nil)
+		}
+		session, _ := pm.ReadSession("ws-1", "conv_two")
+		turnRunOf(t, session.History, "first")
+		turnRunOf(t, session.History, "second")
+	})
+}
+
+func turnRunOf(t *testing.T, history []proxy.Message, userText string) *models.TurnRun {
+	t.Helper()
+	for _, m := range history {
+		if m.Role == proxy.UserRole && m.Content == userText {
+			if m.Run == nil {
+				t.Fatalf("user message %q has no run record", userText)
+			}
+			return m.Run
+		}
+	}
+	t.Fatalf("user message %q not in history", userText)
+	return nil
+}
+
+// A provider's reported token counts land on the turn's run record.
+func TestConversationService_RecordsReportedTokens(t *testing.T) {
+	pm := newTestPersistence(t)
+	svc := NewConversationService(newMockConvDeps(), pm)
+	client := &MockClient{
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
+		ChatFunc: func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{
+				Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "Here is a helpful response"}}},
+				Usage:   &proxy.TokenUsage{PromptTokens: 1200, CompletionTokens: 85},
+			}, nil
+		},
+	}
+	_, _ = svc.Execute(context.Background(), "ws-1", "conv_tok", "hello", "v1", "UTC",
+		nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{}, &mockEventPublisher{}, nil)
+	session, _ := pm.ReadSession("ws-1", "conv_tok")
+	run := turnRunOf(t, session.History, "hello")
+	if run.PromptTokens != 1200 || run.CompletionTokens != 85 {
+		t.Errorf("run tokens = %d/%d, want 1200/85", run.PromptTokens, run.CompletionTokens)
 	}
 }

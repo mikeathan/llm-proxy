@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { createMemoryHistory } from 'vue-router'
+import { createAppRouter } from '../../../../router'
 import { useConfirm } from '../../../../composables/ui/useConfirm'
 import HistoricalRunDetails from '../../../../components/AgentIde/automation/HistoricalRunDetails.vue'
 import type { AutomationRun } from '../../../../types/dispatcher'
@@ -15,7 +17,8 @@ const STUBS = {
 }
 const mounted: VueWrapper[] = []
 function mountRun(props: Record<string, unknown> = {}) {
-  const w = mount(HistoricalRunDetails, { props: { run: RUN, ...props }, global: { stubs: STUBS }, attachTo: document.body })
+  const router = createAppRouter(createMemoryHistory())
+  const w = mount(HistoricalRunDetails, { props: { run: RUN, ...props }, global: { plugins: [router], stubs: STUBS }, attachTo: document.body })
   mounted.push(w)
   return w
 }
@@ -35,6 +38,20 @@ describe('HistoricalRunDetails', () => {
     }
     expect(w.find('button[aria-label="Copy ID run_0001abcdef"]').exists()).toBe(true)
     expect(w.find('[data-test="audit"]').exists()).toBe(true)
+  })
+
+  it('links to the automation and the workspace the run belongs to', () => {
+    const w = mountRun()
+    expect(decodeURIComponent(w.get('a[aria-label="Open automation nightly"]').attributes('href')!)).toBe('/automations/ws/nightly')
+    expect(w.get('a[aria-label="Open workspace ws"]').attributes('href')).toBe('/workspaces/ws')
+  })
+
+  it('copies the final report and the final error', () => {
+    const copies = mountRun().findAllComponents({ name: 'CopyButton' })
+    expect(copies.map((c) => [c.props('title'), c.props('text')])).toEqual([
+      ['Copy error', 'model timed out'],
+      ['Copy report', 'Partial report'],
+    ])
   })
 
   it('deletes the run, or all runs of the automation, only after confirming', async () => {

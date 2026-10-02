@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../../../router'
 import AppSidebar from '../../../components/layout/AppSidebar.vue'
+import { useLastWorkspace } from '../../../composables/ui/useLastWorkspace'
 import { memoryStorage } from '../../helpers/memoryStorage'
 
 vi.mock('../../../services/admin/adminService', () => ({
@@ -22,11 +23,15 @@ async function mountAt(path: string, props: Record<string, unknown> = {}) {
   return { wrapper, router }
 }
 
-const navLinks = (wrapper: Awaited<ReturnType<typeof mountAt>>['wrapper']) => wrapper.findAll('nav a')
+const navLinks = (wrapper: Awaited<ReturnType<typeof mountAt>>['wrapper']) => wrapper.findAll('nav a[data-destination]')
+const shortcut = (wrapper: Awaited<ReturnType<typeof mountAt>>['wrapper']) => wrapper.find('nav a[data-test="assistant-shortcut"]')
 
 describe('AppSidebar', () => {
   beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    useLastWorkspace().forget('demo')
+    vi.unstubAllGlobals()
+  })
 
   it('links the six destinations in order under the versioned brand', async () => {
     const { wrapper } = await mountAt('/overview')
@@ -81,5 +86,51 @@ describe('AppSidebar', () => {
     const link = wrapper.get('nav a[href="/automations"]')
     expect(link.attributes('aria-label')).toBe('Automations, 2 unread run notifications')
     expect(link.find('.notif-count').text()).toBe('2')
+  })
+
+  describe('assistant shortcut', () => {
+    it('is absent until a workspace has been opened', async () => {
+      const { wrapper } = await mountAt('/overview')
+      expect(shortcut(wrapper).exists()).toBe(false)
+    })
+
+    it('goes straight to the last workspace\'s assistant, from any page', async () => {
+      useLastWorkspace().remember('demo')
+      const { wrapper } = await mountAt('/models')
+      const a = shortcut(wrapper)
+      expect(a.attributes('href')).toBe('/workspaces/demo/assistant')
+      expect(a.attributes('aria-label')).toBe('Assistant in demo')
+      expect(a.attributes('aria-current')).toBeUndefined()
+    })
+
+    it('sits on the Workspaces row, revealed on hover or keyboard focus', async () => {
+      useLastWorkspace().remember('demo')
+      const { wrapper } = await mountAt('/models')
+      const row = wrapper.get('[data-test="workspaces-row"]')
+      expect(row.find('a[data-destination="workspaces"]').exists()).toBe(true)
+      expect(row.find('a[data-test="assistant-shortcut"]').exists()).toBe(true)
+      expect(shortcut(wrapper).attributes('title')).toBe('Assistant in demo')
+      expect(shortcut(wrapper).classes()).toEqual(expect.arrayContaining(['opacity-0', 'group-hover:opacity-100', 'focus-visible:opacity-100']))
+    })
+
+    it('stays visible while that assistant is open, and is current', async () => {
+      useLastWorkspace().remember('demo')
+      const { wrapper } = await mountAt('/workspaces/demo/assistant/conv-1')
+      expect(shortcut(wrapper).attributes('aria-current')).toBe('page')
+      expect(shortcut(wrapper).classes()).not.toContain('opacity-0')
+    })
+
+    it('stays visible in the mobile drawer, which has no hover', async () => {
+      useLastWorkspace().remember('demo')
+      const { wrapper } = await mountAt('/models', { mobile: true, open: true })
+      expect(shortcut(wrapper).classes()).not.toContain('opacity-0')
+    })
+
+    it('leaves the collapsed icon rail alone', async () => {
+      useLastWorkspace().remember('demo')
+      const { wrapper } = await mountAt('/models')
+      await wrapper.get('[data-test="sidebar-collapse"]').trigger('click')
+      expect(shortcut(wrapper).exists()).toBe(false)
+    })
   })
 })
