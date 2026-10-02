@@ -41,23 +41,23 @@ func TestResolveParams_AllCombos(t *testing.T) {
 		{memory.ScopeWorkspace, memory.ModeOnDemand, memory.KeepSession, "my-ws", "session", nil},
 	}
 	for _, c := range cases {
-		route, err := resolveParams(c.scope, c.mode, c.keep, "my-ws")
+		route, err := ResolveMemoryRoute(c.scope, c.mode, c.keep, "my-ws")
 		if err != nil {
-			t.Errorf("resolveParams(%s, %s, %s) unexpected error: %v", c.scope, c.mode, c.keep, err)
+			t.Errorf("ResolveMemoryRoute(%s, %s, %s) unexpected error: %v", c.scope, c.mode, c.keep, err)
 			continue
 		}
 		if route.WorkspaceID != c.wantWS {
-			t.Errorf("resolveParams(%s, %s, %s) WorkspaceID = %q, want %q", c.scope, c.mode, c.keep, route.WorkspaceID, c.wantWS)
+			t.Errorf("ResolveMemoryRoute(%s, %s, %s) WorkspaceID = %q, want %q", c.scope, c.mode, c.keep, route.WorkspaceID, c.wantWS)
 		}
 		if route.MemoryType != c.wantMemType {
-			t.Errorf("resolveParams(%s, %s, %s) MemoryType = %q, want %q", c.scope, c.mode, c.keep, route.MemoryType, c.wantMemType)
+			t.Errorf("ResolveMemoryRoute(%s, %s, %s) MemoryType = %q, want %q", c.scope, c.mode, c.keep, route.MemoryType, c.wantMemType)
 		}
 		if len(route.Tags) != len(c.wantTags) {
-			t.Errorf("resolveParams(%s, %s, %s) tags = %v, want %v", c.scope, c.mode, c.keep, route.Tags, c.wantTags)
+			t.Errorf("ResolveMemoryRoute(%s, %s, %s) tags = %v, want %v", c.scope, c.mode, c.keep, route.Tags, c.wantTags)
 		} else {
 			for i := range route.Tags {
 				if route.Tags[i] != c.wantTags[i] {
-					t.Errorf("resolveParams(%s, %s, %s) tags[%d] = %q, want %q", c.scope, c.mode, c.keep, i, route.Tags[i], c.wantTags[i])
+					t.Errorf("ResolveMemoryRoute(%s, %s, %s) tags[%d] = %q, want %q", c.scope, c.mode, c.keep, i, route.Tags[i], c.wantTags[i])
 				}
 			}
 		}
@@ -65,7 +65,7 @@ func TestResolveParams_AllCombos(t *testing.T) {
 }
 
 func TestResolveParams_InvalidCombination(t *testing.T) {
-	_, err := resolveParams("garbage", "garbage", "garbage", "ws-1")
+	_, err := ResolveMemoryRoute("garbage", "garbage", "garbage", "ws-1")
 	if err == nil {
 		t.Fatal("expected error for invalid combination")
 	}
@@ -671,5 +671,111 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry (duplicate content deduped), got %d", len(entries))
+	}
+}
+
+type updateArgs = struct {
+	Content string       `json:"content"`
+	Scope   memory.Scope `json:"scope"`
+	Mode    memory.Mode  `json:"mode"`
+	Keep    memory.Keep  `json:"keep"`
+	OldText string       `json:"old_text"`
+}
+
+func firstEntry(t *testing.T, store *memory.Store, memType memory.MemoryType) memory.MemoryEntry {
+	t.Helper()
+	entries, err := store.List(context.Background(), "ws-1", memType, 10, 0)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("List(%s) = %d entries, err %v; want exactly 1", memType, len(entries), err)
+	}
+	return entries[0]
+}
+
+// Unattended runs fill the store with nobody watching. A bare memory_update
+// (no explicit routing) must therefore land as a session entry tagged with the
+// run id, so the retention reaper can clear it and the operator can trace it.
+func TestMemoryUpdate_UnattendedRunDefaultsToSessionWithRunSource(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithUnattendedRun(models.WithRunID(models.WithWorkspaceID(context.Background(), "ws-1"), "20260901T174541Z_abc"))
+
+	if _, err := provider.Update(ctx, updateArgs{Content: "TypeScript version is 6.0.3"}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got := firstEntry(t, store, memory.Session)
+	if got.Source != "run:20260901T174541Z_abc" {
+		t.Errorf("source = %q, want run:<run id>", got.Source)
+	}
+}
+
+func TestMemoryUpdate_AttendedDefaultStaysPermanentFromAgent(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+
+	if _, err := provider.Update(ctx, updateArgs{Content: "user likes concise answers"}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got := firstEntry(t, store, memory.LongTerm)
+	if got.Source != "agent" {
+		t.Errorf("source = %q, want agent", got.Source)
+	}
+}
+
+// A model that explicitly asks for permanent memory is making a deliberate
+// choice; only the unspecified default changes for unattended runs.
+func TestMemoryUpdate_UnattendedExplicitPermanentIsHonoured(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithUnattendedRun(models.WithRunID(models.WithWorkspaceID(context.Background(), "ws-1"), "r1"))
+
+	args := updateArgs{Content: "deploy target is staging", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}
+	if _, err := provider.Update(ctx, args); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := firstEntry(t, store, memory.LongTerm); got.Source != "run:r1" {
+		t.Errorf("source = %q, want run:r1 (still traceable to the run)", got.Source)
+	}
+}
+
+func searchArgs(query string) struct {
+	Query interface{}  `json:"query"`
+	Limit int          `json:"limit"`
+	Scope memory.Scope `json:"scope"`
+	Tags  []string     `json:"tags"`
+} {
+	return struct {
+		Query interface{}  `json:"query"`
+		Limit int          `json:"limit"`
+		Scope memory.Scope `json:"scope"`
+		Tags  []string     `json:"tags"`
+	}{Query: query}
+}
+
+// Only what memory_search actually returned to the model counts as used.
+func TestMemorySearch_RecordsTheFactsItReturned(t *testing.T) {
+	store := newRealTestStore(t)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	hit, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "tsc", "TypeScript version 6.0.3", nil, "agent")
+	miss, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "tea", "likes green tea", nil, "agent")
+	provider := NewMemoryToolProvider(store)
+
+	if _, err := provider.Search(ctx, searchArgs("TypeScript")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Search(ctx, searchArgs("zzzz-nothing-matches")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FlushUsage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	gotHit, _ := store.Get(ctx, "ws-1", hit)
+	gotMiss, _ := store.Get(ctx, "ws-1", miss)
+	if gotHit.SearchedCount != 1 || gotMiss.SearchedCount != 0 {
+		t.Errorf("searched counts: hit=%d miss=%d, want 1 and 0", gotHit.SearchedCount, gotMiss.SearchedCount)
+	}
+	if gotHit.InjectedCount != 0 {
+		t.Error("a search is not an injection")
 	}
 }

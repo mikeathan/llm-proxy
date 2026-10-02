@@ -3,7 +3,8 @@ import { onUnmounted, ref } from 'vue'
 import BaseButton from '../buttons/BaseButton.vue'
 
 // Copies a value (text as-is, anything else as pretty JSON). Icon-only, named
-// by `title`; the result is announced politely, like IdChip.
+// by `title`: a copy icon that turns into a green check for a moment once
+// copied; the result is announced politely, like IdChip.
 const props = defineProps<{
   text: unknown
   /** Accessible name and tooltip. */
@@ -38,9 +39,10 @@ onUnmounted(() => {
     <BaseButton
       variant="ghost"
       size="sm"
-      :icon="feedback === COPIED ? 'check' : 'document'"
+      :icon="feedback === COPIED ? 'check' : 'copy'"
       icon-only
       :label="title || DEFAULT_LABEL"
+      :class-name="feedback === COPIED ? '!text-state-success' : ''"
       @click.stop.prevent="copy"
     />
     <span role="status" class="font-mono text-[length:var(--text-micro)] text-muted">{{ feedback }}</span>

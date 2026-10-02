@@ -30,6 +30,7 @@ export function useAutomationForm(
       model: "",
       loopStrategy: "",
       networkGrant: "",
+      memoryMode: "",
     }
   }
 
@@ -118,6 +119,7 @@ export function useAutomationForm(
         model: target.model || "",
         loopStrategy: target.loop_strategy || "",
         networkGrant: target.network_grant || "",
+        memoryMode: target.memory_mode === "hot" ? "hot" : "", // "off" and unset are the same choice
       }
     },
     { immediate: true },

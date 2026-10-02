@@ -21,7 +21,6 @@ import (
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/memory"
 )
 
 const (
@@ -34,9 +33,8 @@ const (
 	streamReasoningBudgetDivisor = 3 // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
 	stuckNonReasoningDivisor     = 1 // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
 	streamNotifyCoalesceInterval = 50 * time.Millisecond
-	stuckThresholdMultiplier     = 2    // stuck threshold = max_tokens * 2
-	streamCharCapMultiplier      = 4    // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
-	maxHotInjectionChars         = 2000 // character cap for hot memory injection
+	stuckThresholdMultiplier     = 2 // stuck threshold = max_tokens * 2
+	streamCharCapMultiplier      = 4 // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
 	// emptyToolCallSpiralLimit: closed empty <tool_call></tool_call> blocks in pure-reasoning
 	// streams trigger stuck early. Qwen 3.5 observed looping 100+ empty tags (~19s) before the
 	// char threshold; abort at 3 closed empties so recovery (nag) starts in ~1s. Does not kill
@@ -162,11 +160,10 @@ func (a *Agent) prepareMessagesForTurn(
 		prepared = a.injectNativeToolReference(prepared, tools)
 	}
 
-	// Hot memory (<memory> block) is injected right before the last user
-	// message for KV cache stability.  See docs/audits/memory-injection-investigation.md.
-	if a.config.EnableHotMemory {
-		prepared = a.injectActiveMemory(prepared, history)
-	}
+	// Hot memory rides in the head system message from the run's frozen
+	// snapshot, so the prompt prefix is byte-identical every turn (KV cache).
+	// See hot_memory.go and docs/audits/memory-injection-investigation.md.
+	prepared = a.injectActiveMemory(prepared)
 
 	var prefill string
 	if a.shouldPrefill() {
@@ -177,63 +174,6 @@ func (a *Agent) prepareMessagesForTurn(
 		})
 	}
 	return prepared, prefill
-}
-
-// injectActiveMemory fetches all hot (mode:"always") entries via SearchHot
-// and injects them as a <memory> system message before the last user message.
-// Runs ONCE per session (first turn only).  The hot tag query replaces the old
-// FTS5 search + separate user_profile fetch.  See docs/audits/memory-injection-investigation.md
-// for the rationale and alternatives tried.
-func (a *Agent) injectActiveMemory(prepared []proxy.Message, history []proxy.Message) []proxy.Message {
-	if a.deps.MemoryStore == nil {
-		return prepared
-	}
-
-	if a.memoryInjected() {
-		return prepared
-	}
-	a.setMemoryInjected(true)
-
-	ctx := context.Background()
-	entries, err := a.deps.MemoryStore.SearchHot(ctx, a.config.WorkspaceID)
-	if err != nil || len(entries) == 0 {
-		return prepared
-	}
-
-	content := buildHotInjection(entries)
-	if content == "" {
-		return prepared
-	}
-
-	msg := proxy.Message{
-		Role:    proxy.SystemRole,
-		Content: "<memory>\n" + content + "\n</memory>",
-	}
-
-	// Insert right before the last user message for KV cache stability.
-	insertIdx := len(prepared) - 1
-	if insertIdx < 0 {
-		insertIdx = 0
-	}
-	result := make([]proxy.Message, 0, len(prepared)+1)
-	result = append(result, prepared[:insertIdx]...)
-	result = append(result, msg)
-	result = append(result, prepared[insertIdx:]...)
-	return result
-}
-
-// buildHotInjection formats hot memory entries as "- Title: Content\n" lines.
-// Truncates at maxHotInjectionChars on entry boundaries — never splits a fact.
-func buildHotInjection(entries []memory.MemoryEntry) string {
-	var b strings.Builder
-	for _, e := range entries {
-		line := fmt.Sprintf("- %s: %s\n", e.Title, e.Content)
-		if b.Len()+len(line) > maxHotInjectionChars {
-			break
-		}
-		b.WriteString(line)
-	}
-	return b.String()
 }
 
 func (a *Agent) doPreflightCheck(
@@ -478,7 +418,6 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 			} else {
 				a.deps.Logger.Warn("streaming not supported, falling back to non-streaming", "error", streamErr)
 			}
-			a.setMemoryInjected(false) // retry injection on the non-streaming path
 			return a.computeNextResponseNonStreaming(ctx, history, tools, toolChoice)
 		}
 	}
@@ -760,6 +699,7 @@ func (a *Agent) processStream(ctx context.Context, ch <-chan *proxy.ChatResponse
 		startTime:       time.Now(),
 	}
 	defer st.flushPendingNotify()
+	defer st.recordReportedUsage(ctx)
 
 	hb := core.NewHeartbeat()
 	hb.Start(ctx, streamHeartbeatInterval)
@@ -794,6 +734,10 @@ type streamRun struct {
 	priorToolResult bool
 	toolsAvailable  bool
 	startTime       time.Time
+
+	// The provider's token count for this call; the last one reported wins, so
+	// a provider repeating it on several chunks is not counted twice.
+	reportedUsage *proxy.TokenUsage
 
 	tokUsed          int
 	reasonUsed       int
@@ -875,6 +819,10 @@ func (s *streamRun) handleTick() (stop bool) {
 // handleChunk processes one stream chunk in the fixed guard order and reports
 // whether the stream must stop (the caller then returns nil).
 func (s *streamRun) handleChunk(ctx context.Context, resp *proxy.ChatResponse) (stop bool) {
+	if resp.Usage != nil {
+		s.reportedUsage = resp.Usage
+	}
+	// A usage-only chunk (OpenAI-style) has no choices.
 	if len(resp.Choices) == 0 {
 		return false
 	}
@@ -1080,7 +1028,9 @@ func (a *Agent) abortStreamAsStuck(reason string, fullMsg *proxy.Message, logStr
 func (a *Agent) retryWithoutTools(ctx context.Context, history []proxy.Message) (*proxy.ChatResponse, error) {
 	chatCtx, cancel := context.WithTimeout(ctx, AgentRetryTimeout)
 	defer cancel()
-	return a.deps.Client.Chat(chatCtx, proxy.ChatRequest{Messages: history, MaxTokens: a.config.MaxTokens})
+	// Sanitized like every other request: persisted UI fields (a run's error,
+	// a turn's run record) and reasoning never reach the provider (II.8).
+	return a.deps.Client.Chat(chatCtx, proxy.ChatRequest{Messages: proxy.SanitizeHistory(history), MaxTokens: a.config.MaxTokens})
 }
 
 func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool, toolChoice proxy.ToolChoice) (proxy.Message, error) {
@@ -1149,6 +1099,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 	msg := resp.Choices[0].Message
 	msg.FinishReason = resp.Choices[0].FinishReason
+	recordReportedUsage(ctx, resp.Usage)
 	if prefill != "" {
 		msg.Content = prefill + msg.Content
 	}
@@ -1274,4 +1225,18 @@ func normalizeContent(content string) string {
 	}
 
 	return strings.TrimSpace(content)
+}
+
+// recordReportedUsage adds the stream's provider-reported token count, if
+// any, to the run's tracker once the stream ends.
+func (s *streamRun) recordReportedUsage(ctx context.Context) {
+	recordReportedUsage(ctx, s.reportedUsage)
+}
+
+// recordReportedUsage adds one call's provider-reported token count to the
+// run's tracker; nothing when the provider reported none.
+func recordReportedUsage(ctx context.Context, reported *proxy.TokenUsage) {
+	if t := usage.FromContext(ctx); t != nil && reported != nil {
+		t.AddReportedUsage(reported.PromptTokens, reported.CompletionTokens)
+	}
 }

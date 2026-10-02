@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -338,6 +339,37 @@ func TestWorkspaceManager_TaskFileContainment(t *testing.T) {
 		}
 	})
 
+	t.Run("a tree delete removes a folder and everything under it", func(t *testing.T) {
+		for _, p := range []string{"tree/a.md", "tree/deep/b.md", "keep.md"} {
+			if err := mgr.WriteTaskFile(wsID, p, "x"); err != nil {
+				t.Fatalf("WriteTaskFile %s: %v", p, err)
+			}
+		}
+		if err := mgr.DeleteTaskTree(context.Background(), wsID, "tree"); err != nil {
+			t.Fatalf("DeleteTaskTree: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(wsDir, "tree")); !os.IsNotExist(err) {
+			t.Fatalf("folder still present: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(wsDir, "keep.md")); err != nil {
+			t.Fatalf("sibling removed: %v", err)
+		}
+	})
+
+	t.Run("a tree delete stops on a cancelled context", func(t *testing.T) {
+		if err := mgr.WriteTaskFile(wsID, "kept/a.md", "x"); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := mgr.DeleteTaskTree(ctx, wsID, "kept"); err == nil {
+			t.Fatal("expected the cancelled context's error")
+		}
+		if _, err := os.Stat(filepath.Join(wsDir, "kept", "a.md")); err != nil {
+			t.Fatalf("file removed despite cancellation: %v", err)
+		}
+	})
+
 	t.Run("a missing file reads as empty", func(t *testing.T) {
 		got, err := mgr.ReadTaskFile(wsID, "nope.md")
 		if err != nil || got != "" {
@@ -365,6 +397,8 @@ func TestWorkspaceManager_TaskFileContainment(t *testing.T) {
 		{"read through an escaping dir link", func() error { _, err := mgr.ReadTaskFile(wsID, "out/secret.md"); return err }},
 		{"write through an escaping dir link", func() error { return mgr.WriteTaskFile(wsID, "out/new.md", "x") }},
 		{"delete through an escaping dir link", func() error { return mgr.DeleteTaskFile(wsID, "out/secret.md") }},
+		{"tree delete through an escaping dir link", func() error { return mgr.DeleteTaskTree(context.Background(), wsID, "out/secret.md") }},
+		{"tree delete by traversal", func() error { return mgr.DeleteTaskTree(context.Background(), wsID, "../"+wsID) }},
 		{"traversal", func() error { _, err := mgr.ReadTaskFile(wsID, "../escape.md"); return err }},
 	} {
 		t.Run("rejects "+tc.name, func(t *testing.T) {
@@ -373,6 +407,21 @@ func TestWorkspaceManager_TaskFileContainment(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a tree delete removes a link inside the folder, never its outside target", func(t *testing.T) {
+		if err := mgr.WriteTaskFile(wsID, "linked/a.md", "x"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(wsDir, "linked", "escape")); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.DeleteTaskTree(context.Background(), wsID, "linked"); err != nil {
+			t.Fatalf("DeleteTaskTree: %v", err)
+		}
+		if _, err := os.Lstat(filepath.Join(wsDir, "linked")); !os.IsNotExist(err) {
+			t.Fatalf("folder still present: %v", err)
+		}
+	})
+
 	if data, err := os.ReadFile(secret); err != nil || string(data) != "secret" {
 		t.Fatalf("outside file changed: %q, %v", data, err)
 	}

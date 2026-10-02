@@ -18,6 +18,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
@@ -288,5 +289,171 @@ func TestRecordRun_PersistsWarnings(t *testing.T) {
 	}
 	if state.LastRuns["nightly"] == nil || len(state.LastRuns["nightly"].Warnings) != 1 {
 		t.Fatalf("warnings not persisted on LastRuns: %+v", state.LastRuns["nightly"])
+	}
+}
+
+// memory_mode is opt-in per automation: unset/off leaves the agent without a
+// memory store (the long-standing behaviour); hot gives it the store and turns
+// on the frozen head-system hot-memory block.
+func TestBuildAgentOptions_MemoryMode(t *testing.T) {
+	store := newTestMemoryStore(t)
+	cases := []struct {
+		mode    models.MemoryMode
+		wantHot bool
+	}{
+		{"", false},
+		{models.MemoryModeOff, false},
+		{models.MemoryModeHot, true},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.mode)+"_mode", func(t *testing.T) {
+			executor := NewLLMTaskExecutor(&mockSvc{memoryStore: store}).(*LLMTaskExecutor)
+			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", MemoryMode: tc.mode}, logging.NewNopLogger(), nil)
+			if opts.EnableHotMemory != tc.wantHot {
+				t.Errorf("EnableHotMemory = %v, want %v", opts.EnableHotMemory, tc.wantHot)
+			}
+			if gotStore := opts.MemoryStore != nil; gotStore != tc.wantHot {
+				t.Errorf("MemoryStore set = %v, want %v", gotStore, tc.wantHot)
+			}
+		})
+	}
+}
+
+func TestNewRunContext_StampsIdentityAndUnattended(t *testing.T) {
+	ctx := newRunContext(context.Background(), "nightly", "run-42")
+	if models.GetTaskName(ctx) != "nightly" || models.GetRunID(ctx) != "run-42" {
+		t.Errorf("task/run id not stamped: %q / %q", models.GetTaskName(ctx), models.GetRunID(ctx))
+	}
+	if !models.IsUnattendedRun(ctx) {
+		t.Error("an automation run is unattended: memory_update must default to session scope")
+	}
+}
+
+// ── Execute end to end ──────────────────────────────────────────────────────
+//
+// buildAgentOptions is tested above, but the question that matters is whether the
+// text a real automation run SENDS contains the memory. The chat path once enabled
+// hot memory without ever handing the agent its store, and every unit test that
+// injected the store directly stayed green. This drives the real Execute with a
+// scripted model and records what it was sent.
+
+type noopPublisher struct{}
+
+func (noopPublisher) Publish(string, assistant.AgentEvent) {}
+func (noopPublisher) Clear(string, assistant.EventChannel) {}
+
+type probeTools struct{}
+
+func (probeTools) ListTools(context.Context) ([]proxy.Tool, error) {
+	return []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "probe_tool"}}}, nil
+}
+func (probeTools) GetSystemPrompt() (string, error) { return "", nil }
+func (probeTools) UseNativeTools() bool             { return true }
+
+type probeEngine struct{}
+
+func (probeEngine) ExecuteTool(context.Context, proxy.ToolCall) (any, error) { return "ok", nil }
+
+// recordingClient scripts a two-request run (one tool call, then an answer) and
+// keeps the messages of every request it receives.
+type recordingClient struct{ requests [][]proxy.Message }
+
+func (c *recordingClient) Chat(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+	return nil, fmt.Errorf("streaming only")
+}
+func (c *recordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	c.requests = append(c.requests, append([]proxy.Message(nil), req.Messages...))
+	ch := make(chan *proxy.ChatResponse, 1)
+	if len(c.requests) == 1 {
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
+			ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "probe_tool", Arguments: `{"path":"a"}`},
+		}}}}}}
+	} else {
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "# Done\nTask finished successfully"}}}}
+	}
+	close(ch)
+	return ch, nil
+}
+func (c *recordingClient) ReasoningField() string { return proxy.DefaultReasoningField }
+
+type execSvc struct {
+	mockSvc
+	client      *recordingClient
+	persistence *persistence.WorkspaceManager
+	guardrails  *guardrails.GuardrailEngine
+	decisions   *assistant.GuardrailDecisionStore
+}
+
+func (s *execSvc) GetClientForModel(context.Context, string) (proxy.Client, error) {
+	return s.client, nil
+}
+func (s *execSvc) ToolProvider() assistant.ToolProvider                      { return probeTools{} }
+func (s *execSvc) Engine() assistant.Engine                                  { return probeEngine{} }
+func (s *execSvc) GuardrailEngine() *guardrails.GuardrailEngine              { return s.guardrails }
+func (s *execSvc) GuardrailDecisionStore() *assistant.GuardrailDecisionStore { return s.decisions }
+func (s *execSvc) ProcessLogger(string) logging.Logger                       { return logging.NewNopLogger() }
+func (s *execSvc) Logger() logging.Logger                                    { return logging.NewNopLogger() }
+func (s *execSvc) Persistence() *persistence.WorkspaceManager                { return s.persistence }
+func (s *execSvc) Events() assistant.EventPublisher                          { return noopPublisher{} }
+
+func newExecSvc(t *testing.T, store *memory.Store) *execSvc {
+	t.Helper()
+	root := t.TempDir()
+	resolver := storage.NewPathResolver(root, root, root)
+	if err := os.MkdirAll(resolver.WorkspaceDir("ws"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return &execSvc{
+		mockSvc:     mockSvc{memoryStore: store, modelCfg: models.ModelConfig{Name: "m", MaxSteps: 5, MaxTokens: 512, ContextBudget: 21848, WorkloadClass: models.WorkloadLocal}},
+		client:      &recordingClient{},
+		persistence: persistence.NewWorkspaceManager(resolver),
+		guardrails:  guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig { return models.AgentGuardrailsConfig{} }, resolver, nil, nil),
+		decisions:   assistant.NewGuardrailDecisionStore(),
+	}
+}
+
+func TestExecute_HotMemoryReachesTheModelOnlyWhenTheAutomationOptsIn(t *testing.T) {
+	cases := []struct {
+		mode     models.MemoryMode
+		wantFact bool
+	}{
+		{"", false},
+		{models.MemoryModeOff, false},
+		{models.MemoryModeHot, true},
+	}
+	for _, tc := range cases {
+		t.Run("memory_mode="+string(tc.mode), func(t *testing.T) {
+			store := newTestMemoryStore(t)
+			ctx := context.Background()
+			if _, err := store.Insert(ctx, "ws", memory.LongTerm, "codename", "The project codename is BLUEHERON-7.", []string{memory.HotTag}, "operator"); err != nil {
+				t.Fatal(err)
+			}
+			svc := newExecSvc(t, store)
+
+			req := ExecuteRequest{WorkspaceID: "ws", AutomationName: "nightly", TaskContent: "Say the codename.", Model: "m", MemoryMode: tc.mode}
+			_, _ = NewLLMTaskExecutor(svc).Execute(ctx, req)
+
+			if len(svc.client.requests) == 0 {
+				t.Fatal("the model was never called")
+			}
+			for i, msgs := range svc.client.requests {
+				head := msgs[0].Content
+				if got := strings.Contains(head, "BLUEHERON-7"); got != tc.wantFact {
+					t.Errorf("request %d: fact in the system message = %v, want %v", i+1, got, tc.wantFact)
+				}
+			}
+
+			if err := store.FlushUsage(ctx); err != nil {
+				t.Fatal(err)
+			}
+			all, _ := store.List(ctx, "ws", "", 10, 0)
+			wantCount := 0
+			if tc.wantFact {
+				wantCount = 1 // once per run, however many turns it takes
+			}
+			if len(all) != 1 || all[0].InjectedCount != wantCount {
+				t.Errorf("usage count = %+v, want %d", all, wantCount)
+			}
+		})
 	}
 }

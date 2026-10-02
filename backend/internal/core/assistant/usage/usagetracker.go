@@ -20,7 +20,11 @@ type Tracker struct {
 	ToolCalls       int
 	UsedTools       []string
 	ExecutionTime   time.Duration
-	mu              sync.Mutex
+	// Token counts the provider itself reported (TokenUsage), summed over the
+	// run. InputTokens/OutputTokens above are local size counts, not tokens.
+	reportedPrompt     int
+	reportedCompletion int
+	mu                 sync.Mutex
 }
 
 // WithTracker installs a fresh tracker on ctx unless one is already present.
@@ -46,6 +50,22 @@ func (t *Tracker) AddLLMCall(inputTokens, outputTokens, reasoningTokens int) {
 	t.InputTokens += inputTokens
 	t.OutputTokens += outputTokens
 	t.ReasoningTokens += reasoningTokens
+}
+
+// AddReportedUsage adds one LLM call's provider-reported token counts.
+func (t *Tracker) AddReportedUsage(promptTokens, completionTokens int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.reportedPrompt += promptTokens
+	t.reportedCompletion += completionTokens
+}
+
+// ReportedUsage returns the provider-reported prompt and completion tokens
+// summed over the run (0, 0 when the provider reported none).
+func (t *Tracker) ReportedUsage() (promptTokens, completionTokens int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reportedPrompt, t.reportedCompletion
 }
 
 func (t *Tracker) AddToolCall(name string) {

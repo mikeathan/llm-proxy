@@ -20,6 +20,7 @@ async function mountList(automations: Automation[]) {
 }
 const row = (w: VueWrapper, name: string) => w.findAll('tbody tr').find((r) => r.text().includes(name))!
 const named = (w: VueWrapper, label: string) => w.find(`button[aria-label="${label}"]`)
+const byText = (w: VueWrapper, text: string) => w.findAll('button').find((b) => b.text() === text)!
 
 describe('AutomationList', () => {
   afterEach(() => {
@@ -85,6 +86,68 @@ describe('AutomationList', () => {
     await w.get('select[aria-label="Workspace"]').setValue('')
     await w.get('input[type="search"]').setValue('night')
     expect(w.findAll('tbody tr').map((r) => r.text())).toEqual([expect.stringContaining('nightly')])
+  })
+
+  describe('select mode', () => {
+    const tick = (w: VueWrapper, label: string) => w.get<HTMLInputElement>(`input[aria-label="${label}"]`)
+    const fleet = () => [
+      auto('a'),
+      auto('b'),
+      auto('c', { workspace: 'lab', id: 'lab/c' }),
+      auto('d', { workspace: 'busy', id: 'busy/d', is_running: true }),
+      auto('e', { workspace: 'busy', id: 'busy/e' }),
+    ]
+
+    it('shows checkboxes only after Select, and swaps the row actions for them', async () => {
+      const w = await mountList(fleet())
+      expect(w.find('tbody input[type="checkbox"]').exists()).toBe(false)
+      await w.get('button[aria-label="Select automations"]').trigger('click')
+      expect(w.findAll('tbody input[type="checkbox"]')).toHaveLength(5)
+      expect(named(w, 'Delete a').exists()).toBe(false)
+    })
+
+    it('locks rows that cannot be deleted, and select all skips them', async () => {
+      const w = await mountList(fleet())
+      await w.get('button[aria-label="Select automations"]').trigger('click')
+      expect(tick(w, 'Select d').element.disabled).toBe(true)
+      expect(tick(w, 'Select e').element.disabled).toBe(true)
+      await tick(w, 'Select all').setValue(true)
+      expect(w.text()).toContain('3 selected')
+      expect(tick(w, 'Select all').element.checked).toBe(true)
+      expect(tick(w, 'Select e').element.checked).toBe(false)
+    })
+
+    it('shows select all as partly ticked for a partial pick', async () => {
+      const w = await mountList(fleet())
+      await w.get('button[aria-label="Select automations"]').trigger('click')
+      await tick(w, 'Select a').setValue(true)
+      expect(tick(w, 'Select all').element.indeterminate).toBe(true)
+    })
+
+    it('deletes the selection together, only after confirming, then leaves select mode', async () => {
+      const w = await mountList(fleet())
+      await w.get('button[aria-label="Select automations"]').trigger('click')
+      await tick(w, 'Select a').setValue(true)
+      await tick(w, 'Select c').setValue(true)
+      await byText(w, 'Delete selected').trigger('click')
+      await flushPromises()
+      expect(w.emitted('delete-many')).toBeUndefined()
+      expect(useConfirm().options.value.title).toBe('Delete 2 automations?')
+      expect(useConfirm().options.value.message).toContain('c, a') // table order: workspace, then name
+      useConfirm().handleConfirm()
+      await flushPromises()
+      expect(w.emitted('delete-many')).toEqual([[[expect.objectContaining({ name: 'c' }), expect.objectContaining({ name: 'a' })]]])
+      expect(w.find('tbody input[type="checkbox"]').exists()).toBe(false)
+    })
+
+    it('never deletes a ticked row the filter has hidden', async () => {
+      const w = await mountList(fleet())
+      await w.get('button[aria-label="Select automations"]').trigger('click')
+      await tick(w, 'Select a').setValue(true)
+      await w.get('input[type="search"]').setValue('b')
+      expect(w.text()).toContain('0 selected')
+      expect(byText(w, 'Delete selected').attributes('disabled')).toBeDefined()
+    })
   })
 
   it('invites creating the first automation', async () => {

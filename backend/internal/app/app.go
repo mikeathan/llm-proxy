@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/internal/platform/storage"
@@ -54,6 +55,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 		logging.Info("Stopping automation dispatcher...")
 		a.dispatcher.Stop(ctx)
 	}
+
+	// 2.4 Runs have stopped recording: write the pending memory usage counts now,
+	// synchronously, rather than trusting a background goroutine to finish before
+	// the process exits.
+	a.flushMemoryUsage(ctx)
 
 	// 2.5 Close the run scheduler: cancels run contexts and drains the lanes
 	// before the shell pool / runtime are torn down (bounded by ctx).
@@ -111,6 +117,10 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		rundir.DefaultRunRetention,
 	).Start(ctx)
 
+	startMemoryJobs(ctx, svc.AppCtx.MemoryStore, func() time.Duration {
+		return dataMgr.Settings().Get().Memory.SessionRetention()
+	})
+
 	// Tether the watcher restarted after factory reset to the app lifecycle
 	// (Constitution II.2/II.14) instead of an untethered context.
 	svc.AppCtx.SetRootContext(ctx)
@@ -149,5 +159,34 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		dispatcher:   container.Dispatcher,
 		runLane:      container.RunLane,
 		serverCancel: serverCancel,
+	}
+}
+
+// startMemoryJobs starts the memory store's background jobs, tethered to ctx
+// (Constitution II.2/II.14):
+//   - the session reaper deletes old session-scoped entries (unattended runs
+//     write them by default; long_term and user_profile are never touched);
+//   - the usage flusher writes the in-memory use counts to the database off the
+//     run path, and once more on shutdown.
+//
+// Providers, not values: the store is replaced on factory reset and may be nil
+// when the database failed to open; retention can change while running.
+func startMemoryJobs(ctx context.Context, store func() *memory.Store, retention func() time.Duration) {
+	go memory.NewSessionReaper(store, retention, memory.DefaultSessionReaperInterval).Start(ctx)
+	go memory.NewUsageFlusher(store, memory.DefaultUsageFlushInterval).Start(ctx)
+}
+
+// flushMemoryUsage writes pending memory usage counts. Nil-safe: the app may
+// have no services or no memory store (database failed to open).
+func (a *App) flushMemoryUsage(ctx context.Context) {
+	if a.services == nil || a.services.AppCtx == nil {
+		return
+	}
+	store := a.services.AppCtx.MemoryStore()
+	if store == nil {
+		return
+	}
+	if err := store.FlushUsage(ctx); err != nil {
+		logging.Warn("memory usage flush on shutdown failed", "error", err)
 	}
 }

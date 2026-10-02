@@ -96,11 +96,51 @@ describe('Activity', () => {
     expect(rows(w)).toHaveLength(1)
   })
 
-  it('opens a run in the drawer', async () => {
-    const { w } = await mountActivity()
-    await rows(w)[1]!.trigger('click')
+  it('opens a run in the drawer, with the run in the URL until it closes', async () => {
+    const { w, router } = await mountActivity('/activity?status=failed')
+    await rows(w)[0]!.trigger('click')
     await flushPromises()
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('run_2')
+    expect(router.currentRoute.value.query).toEqual({ status: 'failed', run: 'run_2' })
+    ;(document.body.querySelector('button[aria-label="Close Run details"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(router.currentRoute.value.query).toEqual({ status: 'failed' })
+  })
+
+  it('opens the run a link names', async () => {
+    await mountActivity('/activity?run=run_3')
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('run_3')
+  })
+
+  it('says when a linked run is no longer in the history', async () => {
+    const { w } = await mountActivity('/activity?run=run_gone')
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('no longer in the run history')
+    expect(rows(w)).toHaveLength(3)
+  })
+
+  it('fetches again for a linked run newer than the list it holds', async () => {
+    const { router } = await mountActivity()
+    d.fetchGlobalActivity.mockResolvedValue([...RUNS, run('4')])
+    await router.push('/activity?run=run_4')
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).not.toContain('no longer in the run history')
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('run_4')
+  })
+
+  it('follows a row\'s automation link without opening the run', async () => {
+    const { w, router } = await mountActivity()
+    await rows(w)[2]!.get('td[data-label="Automation"] a').trigger('click')
+    // The automation route is a lazy chunk: navigation settles after its import.
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('automation'))
+    expect(router.currentRoute.value.query).toEqual({})
+  })
+
+  it('links each run to its automation and its workspace', async () => {
+    const { w } = await mountActivity()
+    const row = rows(w)[2]!
+    expect(decodeURIComponent(row.get('td[data-label="Automation"] a').attributes('href')!)).toBe('/automations/ws/auto-1')
+    expect(row.get('td[data-label="Workspace"] a').attributes('href')).toBe('/workspaces/ws')
   })
 
   it('reports a failed load with a retry, and an empty ledger', async () => {

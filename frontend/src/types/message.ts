@@ -1,4 +1,4 @@
-import type { AssistantMessage, Segment } from './assistant'
+import type { AssistantMessage, Segment, TurnRun } from './assistant'
 
 // Turn is a grouped unit of the conversation shown in the assistant chat /
 // automation views. Matches agent-internal control messages injected by the
@@ -12,6 +12,8 @@ export interface Turn {
   segments: Segment[]
   messages: AssistantMessage[]
   canceled?: boolean
+  // How the turn ran (model, duration, tokens), when the backend recorded it.
+  run?: TurnRun
 }
 
 // MessageBuilderOptions configures useMessageBuilder (chat vs automation,

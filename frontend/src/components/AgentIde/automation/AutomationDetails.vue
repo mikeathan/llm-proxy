@@ -14,6 +14,7 @@ import Panel from "../../common/layout/Panel.vue";
 import DataTable from "../../common/display/DataTable.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
 import IdChip from "../../common/display/IdChip.vue";
+import CopyButton from "../../common/display/CopyButton.vue";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import EmptyState from "../../common/feedback/EmptyState.vue";
@@ -95,6 +96,7 @@ const config = computed(() => [
   ["Model", props.automation.model || "Workspace default"],
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],
   ["Network", props.automation.network_grant || "Inherits the workspace"],
+  ["Memory", props.automation.memory_mode === "hot" ? "Hot memory" : "Off"],
 ]);
 
 async function deleteRun(run: AutomationRun) {
@@ -151,10 +153,18 @@ const runKey = (run: AutomationRun) => run.id;
 
     <Panel v-if="!showLiveUI && (automation.last_error || automation.last_output)" title="Last result">
       <div v-if="automation.last_error" class="mb-3 flex flex-col gap-2">
-        <StatusTag state="error" label="Failed" />
+        <span class="flex items-center justify-between gap-2">
+          <StatusTag state="error" label="Failed" />
+          <CopyButton :text="automation.last_error" title="Copy last error" />
+        </span>
         <pre class="m-0 whitespace-pre-wrap break-words font-mono text-[length:var(--text-small)] text-state-error">{{ automation.last_error }}</pre>
       </div>
-      <MarkdownViewer v-if="automation.last_output" :content="automation.last_output" />
+      <div v-if="automation.last_output" class="flex flex-col gap-1">
+        <span class="flex justify-end">
+          <CopyButton :text="automation.last_output" title="Copy last output" />
+        </span>
+        <MarkdownViewer :content="automation.last_output" />
+      </div>
     </Panel>
 
     <Panel title="Console">

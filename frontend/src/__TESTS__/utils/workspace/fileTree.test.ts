@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFileTree, filterTreeEntries, treeFilePaths } from '../../../utils/workspace/fileTree'
+import { buildFileTree, filterTreeEntries, hasSelectionWithin, isCoveredBySelection, isPathWithin, topLevelPaths, treeFilePaths, withoutNestedPaths } from '../../../utils/workspace/fileTree'
 import type { FileTreeNode, TreeEntry } from '../../../types/workspace'
 
 const file = (path: string): TreeEntry => ({ path, type: 'file' })
@@ -76,5 +76,37 @@ describe('filterTreeEntries', () => {
     const { entries: kept, total } = filterTreeEntries(entries, '.', 2)
     expect(kept).toHaveLength(2)
     expect(total).toBe(4)
+  })
+})
+
+describe('deletion helpers', () => {
+  it('drops a path whose folder is also listed, keeping the first-listed order', () => {
+    expect(withoutNestedPaths(['docs/deep/notes.md', 'plan.md', 'docs', 'docs/deep', 'docsx/a.md'])).toEqual(['plan.md', 'docs', 'docsx/a.md'])
+  })
+
+  it('lists the top-level entries a "delete all" removes', () => {
+    expect(topLevelPaths([dir('docs'), file('docs/a.md'), file('plan.md'), dir('node_modules', true)])).toEqual(['docs', 'plan.md', 'node_modules'])
+  })
+
+  it('tells whether a path is a removed path or inside one', () => {
+    expect(isPathWithin('docs/a.md', 'docs')).toBe(true)
+    expect(isPathWithin('docs', 'docs')).toBe(true)
+    expect(isPathWithin('docsx/a.md', 'docs')).toBe(false)
+  })
+})
+
+describe('selection coverage', () => {
+  const picked = new Set(['docs', 'src/app/main.ts'])
+
+  it('covers only what lies strictly inside a picked folder', () => {
+    expect(isCoveredBySelection('docs/deep/notes.md', picked)).toBe(true)
+    expect(isCoveredBySelection('docs', picked)).toBe(false)
+    expect(isCoveredBySelection('docsx/a.md', picked)).toBe(false)
+  })
+
+  it('finds a pick inside a folder, never the folder itself', () => {
+    expect(hasSelectionWithin('src', picked)).toBe(true)
+    expect(hasSelectionWithin('src/app/main.ts', picked)).toBe(false)
+    expect(hasSelectionWithin('lib', picked)).toBe(false)
   })
 })

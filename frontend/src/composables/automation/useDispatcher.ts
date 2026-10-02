@@ -4,7 +4,7 @@ import { useAppBanner } from '../ui/useAppBanner'
 import { DispatcherService } from '../../services/automation/dispatcherService'
 import type { WorkspaceTree } from '../../types/workspace'
 import type { AutomationPayload } from '../../types/automation'
-import { treeFilePaths } from '../../utils/workspace/fileTree'
+import { treeFilePaths, withoutNestedPaths } from '../../utils/workspace/fileTree'
 
 const { show: showBanner, clear: clearBanner } = useAppBanner()
 
@@ -141,6 +141,30 @@ async function deleteAutomation(workspace: string, automation: string) {
   }
 }
 
+/**
+ * Deletes several automations, one request each. A failure does not stop the
+ * rest; the failures are named in one banner and the list is refreshed once.
+ * Returns the names that were deleted.
+ */
+async function deleteAutomations(targets: { workspace: string; name: string }[]): Promise<string[]> {
+  const deleted: string[] = []
+  const failed: string[] = []
+  for (const { workspace, name } of targets) {
+    try {
+      await DispatcherService.deleteAutomation(workspace, name)
+      deleted.push(name)
+    } catch (e) {
+      failed.push(`${name} (${e instanceof Error ? e.message : 'unknown error'})`)
+      console.error('deleteAutomations error:', e)
+    }
+  }
+  if (failed.length) {
+    showBanner({ severity: 'error', message: `Could not delete ${failed.length} of ${targets.length}: ${failed.join(', ')}` })
+  }
+  await fetchAutomations()
+  return deleted
+}
+
 async function createAutomation(workspace: string, automation: AutomationPayload) {
   try {
     await DispatcherService.createAutomation(workspace, automation)
@@ -152,15 +176,30 @@ async function createAutomation(workspace: string, automation: AutomationPayload
   }
 }
 
-async function deleteWorkspaceFile(workspace: string, file: string) {
-  try {
-    await DispatcherService.deleteWorkspaceFile(workspace, file)
-    await fetchWorkspaceTree(workspace)
-  } catch (e) {
-    showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to delete file' })
-    console.error('deleteWorkspaceFile error:', e)
-    throw e
+/**
+ * Deletes files and folders (a folder with its content), one request each,
+ * skipping paths a deleted folder takes along. A failure does not stop the
+ * rest; the failures are named in one banner and the tree is refreshed once.
+ * Returns the paths that were deleted.
+ */
+async function deleteWorkspacePaths(workspace: string, paths: string[]): Promise<string[]> {
+  const targets = withoutNestedPaths(paths)
+  const deleted: string[] = []
+  const failed: string[] = []
+  for (const path of targets) {
+    try {
+      await DispatcherService.deleteWorkspacePath(workspace, path)
+      deleted.push(path)
+    } catch (e) {
+      failed.push(`${path} (${e instanceof Error ? e.message : 'unknown error'})`)
+      console.error('deleteWorkspacePaths error:', e)
+    }
   }
+  if (failed.length) {
+    showBanner({ severity: 'error', message: `Could not delete ${failed.length} of ${targets.length}: ${failed.join(', ')}` })
+  }
+  await fetchWorkspaceTree(workspace)
+  return deleted
 }
 
 async function deleteWorkspace(workspace: string) {
@@ -222,8 +261,9 @@ export function useDispatcher() {
     fetchWorkspaceState,
     fetchGlobalActivity,
     createWorkspace,
-    deleteWorkspaceFile,
+    deleteWorkspacePaths,
     deleteWorkspace,
+    deleteAutomations,
     createAutomation,
     deleteAutomation,
     updateAutomation,

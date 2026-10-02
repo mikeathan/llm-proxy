@@ -2,10 +2,11 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import type { RouteLocationNamedRaw } from "vue-router"
-import type { Destination } from "../../types/routes"
+import { ROUTE_NAMES, type Destination } from "../../types/routes"
 import { usePersistedState } from "../../composables/ui/usePersistedState"
+import { useLastWorkspace } from "../../composables/ui/useLastWorkspace"
 import { AdminApiService } from "../../services/admin/adminService"
-import { toActivity, toAutomations, toModels, toOverview, toSettings, toWorkspaces } from "../../router/routes"
+import { toActivity, toAutomations, toModels, toOverview, toSettings, toWorkspaceAssistant, toWorkspaces } from "../../router/routes"
 import { PRODUCT_NAME } from "../../config/brand"
 import Icon from "../icons/Icon.vue"
 import BrandMark from "./BrandMark.vue"
@@ -14,6 +15,10 @@ import NotificationDot from "../common/NotificationDot.vue"
 // Persistent left rail (plan D10): six destinations, expanded ↔ collapsed on
 // desktop (persisted), an overlay drawer on mobile. The current item is derived
 // from the matched route's `meta.destination` — there is no active-tab state.
+// On the Workspaces row, a chat icon (not a seventh destination) opens the
+// assistant of the workspace last opened, so the chat is one click from any
+// page. It shows on hover / keyboard focus, while that assistant is open, and
+// always in the mobile drawer (no hover); the collapsed rail leaves it out.
 
 const props = defineProps<{
   /** Below `lg`: render as an overlay drawer instead of a rail. */
@@ -59,6 +64,18 @@ const accessibleName = (item: NavItem) => {
 
 const route = useRoute()
 const current = computed(() => route.meta.destination)
+
+const { lastWorkspace } = useLastWorkspace()
+const assistantShortcut = computed(() => {
+  const ws = lastWorkspace.value
+  if (!ws) return null
+  return {
+    to: toWorkspaceAssistant(ws),
+    label: `Assistant in ${ws}`,
+    ws,
+    current: route.name === ROUTE_NAMES.workspaceAssistant && route.params.ws === ws,
+  }
+})
 
 const version = ref<string | null>(null)
 onMounted(async () => {
@@ -125,26 +142,48 @@ function onKeydown(event: KeyboardEvent) {
     </div>
 
     <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3">
-      <RouterLink
+      <div
         v-for="item in NAV"
         :key="item.id"
-        :to="item.to"
-        :aria-label="accessibleName(item)"
-        :title="collapsed ? item.label : undefined"
-        :aria-current="current === item.id ? 'page' : undefined"
-        :class="[
-          'flex h-8 items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 font-mono text-[length:var(--text-small)] transition-colors duration-fast ease-standard focus-visible:outline-none focus-visible:ring-2',
-          current === item.id
-            ? 'bg-surface-active text-primary shadow-[inset_2px_0_0_rgb(var(--accent-brand))]'
-            : 'text-muted hover:bg-surface-hover hover:text-primary',
-        ]"
+        class="group relative"
+        :data-test="item.id === 'workspaces' ? 'workspaces-row' : undefined"
       >
-        <span class="relative flex-none">
-          <Icon :name="item.icon" size="sm" class-name="flex-none" />
-          <NotificationDot v-if="badgeFor(item.id)" :count="badgeFor(item.id)" />
-        </span>
-        <span v-if="!collapsed" aria-hidden="true">{{ item.label }}</span>
-      </RouterLink>
+        <RouterLink
+          :to="item.to"
+          :data-destination="item.id"
+          :aria-label="accessibleName(item)"
+          :title="collapsed ? item.label : undefined"
+          :aria-current="current === item.id ? 'page' : undefined"
+          :class="[
+            'flex h-8 items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 font-mono text-[length:var(--text-small)] transition-colors duration-fast ease-standard focus-visible:outline-none focus-visible:ring-2',
+            current === item.id
+              ? 'bg-surface-active text-primary shadow-[inset_2px_0_0_rgb(var(--accent-brand))]'
+              : 'text-muted hover:bg-surface-hover hover:text-primary group-hover:bg-surface-hover group-hover:text-primary',
+          ]"
+        >
+          <span class="relative flex-none">
+            <Icon :name="item.icon" size="sm" class-name="flex-none" />
+            <NotificationDot v-if="badgeFor(item.id)" :count="badgeFor(item.id)" />
+          </span>
+          <span v-if="!collapsed" aria-hidden="true">{{ item.label }}</span>
+        </RouterLink>
+        <!-- A sibling, not a child: a link inside a link is invalid HTML. -->
+        <RouterLink
+          v-if="item.id === 'workspaces' && assistantShortcut && !collapsed"
+          :to="assistantShortcut.to"
+          data-test="assistant-shortcut"
+          :aria-label="assistantShortcut.label"
+          :title="assistantShortcut.label"
+          :aria-current="assistantShortcut.current ? 'page' : undefined"
+          :class="[
+            'absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] transition-[opacity,background-color,color] duration-fast ease-standard focus-visible:outline-none focus-visible:ring-2',
+            assistantShortcut.current ? 'text-primary' : 'text-muted hover:bg-surface-raised hover:text-primary',
+            assistantShortcut.current || mobile ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+          ]"
+        >
+          <Icon name="chat" size="sm" />
+        </RouterLink>
+      </div>
     </nav>
 
     <div v-if="!mobile" class="flex-none border-t border-hairline p-2">

@@ -8,7 +8,8 @@ import LoadingState from "../feedback/LoadingState.vue"
 // and below `sm` each row stacks into a labelled card (the header is visually
 // hidden and every cell shows its column label). Loading, error and empty
 // replace the rows. With `activatable`, rows are focusable and Enter / click
-// emits `activate`.
+// emits `activate`; a `header-<key>` slot replaces a column's header text (the
+// label stays the card label on mobile); a link or control inside a row keeps its own clicks and keys.
 
 const props = withDefaults(
   defineProps<{
@@ -38,7 +39,7 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: "activate", row: T): void }>()
 
 defineSlots<
-  { [K in `cell-${string}`]?: (props: { row: T }) => unknown } & {
+  { [K in `cell-${string}`]?: (props: { row: T }) => unknown } & { [K in `header-${string}`]?: () => unknown } & {
     empty?(): unknown
   }
 >()
@@ -46,6 +47,16 @@ defineSlots<
 const cellText = (column: DataTableColumn<T>, row: T) => {
   const value = column.value?.(row)
   return value === null || value === undefined ? "" : String(value)
+}
+
+// What a click inside a row may land on that is not the row itself.
+const ROW_CONTROLS = "a, button, input, select, textarea, label"
+
+function onClick(event: MouseEvent, row: T) {
+  if (!props.activatable) return
+  const control = event.target instanceof Element ? event.target.closest(ROW_CONTROLS) : null
+  if (control && event.currentTarget instanceof Element && event.currentTarget.contains(control)) return
+  emit("activate", row)
 }
 
 function onKeydown(event: KeyboardEvent, row: T) {
@@ -74,7 +85,7 @@ function onKeydown(event: KeyboardEvent, row: T) {
               'sticky top-0 z-[1] whitespace-nowrap border-b border-hairline bg-surface px-4 py-2 font-mono text-[length:var(--text-micro)] font-medium uppercase tracking-[var(--tracking-micro)] text-muted',
               column.numeric ? 'text-right' : 'text-left',
             ]"
-          >{{ column.label }}</th>
+          ><slot :name="`header-${column.key}`">{{ column.label }}</slot></th>
         </tr>
       </thead>
       <tbody class="max-sm:block">
@@ -86,7 +97,7 @@ function onKeydown(event: KeyboardEvent, row: T) {
             'group border-b border-hairline last:border-b-0 max-sm:block max-sm:px-3.5 max-sm:py-2.5',
             activatable ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset' : '',
           ]"
-          @click="activatable && emit('activate', row)"
+          @click="onClick($event, row)"
           @keydown="onKeydown($event, row)"
         >
           <td

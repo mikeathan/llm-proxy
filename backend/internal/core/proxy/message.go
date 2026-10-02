@@ -29,6 +29,7 @@ type Choice = models.Choice
 
 // Chat Response
 type ChatResponse = models.ChatResponse
+type TokenUsage = models.TokenUsage
 
 type Tool = models.Tool
 type FunctionSchema = models.FunctionSchema

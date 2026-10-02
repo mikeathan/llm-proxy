@@ -73,6 +73,7 @@ type runSession struct {
 	guardrail guardrailState
 	finalize  finalizeState
 	sieve     sieveState
+	ledger    runLedger // deterministic record of finished tool calls, rendered by the sieves
 	prompt    promptState
 	stopGuard stopGuardState
 }
@@ -125,12 +126,13 @@ type sieveState struct {
 	sieveStreak     int
 	starvationCount int
 	warnedAdvisory  bool
+	contextWarned   bool // the one-time "wrap up now" sieve warning has been sent this run
 }
 
 // promptState tracks per-run prompt/request overrides.
 type promptState struct {
 	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
-	memoryInjected       bool   // gates hot-memory injection to first turn only
+	memoryBlock          string // frozen <memory> block for the whole run (hot_memory.go)
 	prefillDisabled      bool   // runtime override to skip prefill on retry
 	lastContentWithTools string // content saved from a turn that had both text and tool calls
 }
@@ -720,7 +722,7 @@ func isAgentControlMessage(m proxy.Message) bool {
 		prompts.LengthContinuationPrompt:
 		return true
 	}
-	if strings.HasPrefix(content, prompts.RetrySignal) {
+	if strings.HasPrefix(content, prompts.RetrySignal) || strings.HasPrefix(content, prompts.SieveLedgerHeader) {
 		return true
 	}
 	// ParseError.Feedback / escalation — owned prefixes with dynamic tool lists.
@@ -764,6 +766,10 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 	s.agent.runS = s
 	// Only clear the back-pointer when run() exits (not panics).
 	defer func() { s.agent.runS = nil }()
+
+	// Freeze hot memory once per run, before any strategy builds a request, so a
+	// delegating strategy (plan-execute -> react) never re-snapshots.
+	s.agent.snapshotHotMemory(s.ctx)
 
 	// Resolve and dispatch to the configured loop strategy. The runS
 	// back-pointer setup/teardown lives here (exactly once per Execute); a

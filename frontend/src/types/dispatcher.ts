@@ -1,6 +1,7 @@
 // Global configuration types and automation read models.
 import type { LoopStrategy } from './model'
 import type { NetworkGrant } from './admin'
+import type { MemoryMode } from './automation'
 
 export interface AutomationRun {
   id: string
@@ -39,6 +40,7 @@ export interface Automation {
   queue_position?: number
   history?: AutomationRun[]
   network_grant?: NetworkGrant
+  memory_mode?: MemoryMode
 }
 
 export interface RecordingMeta {

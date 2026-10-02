@@ -236,39 +236,6 @@ func TestMemoryStore_FindByContentSubstring(t *testing.T) {
 	})
 }
 
-func TestMemoryStore_WorkspaceCharCount(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	count, err := store.WorkspaceCharCount(ctx, "ws-1")
-	if err != nil {
-		t.Fatalf("WorkspaceCharCount on empty store: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0 for empty workspace, got %d", count)
-	}
-
-	store.Insert(ctx, "ws-1", LongTerm, "a", "hello", nil, "agent")
-	store.Insert(ctx, "ws-1", LongTerm, "b", "world", nil, "agent")
-
-	count, err = store.WorkspaceCharCount(ctx, "ws-1")
-	if err != nil {
-		t.Fatalf("WorkspaceCharCount: %v", err)
-	}
-	if count != 10 {
-		t.Errorf("expected 10 chars (hello+world), got %d", count)
-	}
-
-	// Different workspace should return 0
-	count, err = store.WorkspaceCharCount(ctx, "ws-other")
-	if err != nil {
-		t.Fatalf("WorkspaceCharCount on other ws: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0 for other workspace, got %d", count)
-	}
-}
-
 func TestMemoryStore_List(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

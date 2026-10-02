@@ -1,9 +1,9 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.1"
+version: "1.2"
 status: stable
-last_updated: 2026-09-29
+last_updated: 2026-10-01
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -12,6 +12,13 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.2 (2026-10-01)** — Turn run records and provider-reported tokens. Each chat turn's user
+  message carries `run` (`models.TurnRun`: model, start, duration, and the provider's own prompt /
+  completion token counts when it reports them). Streams read an optional `usage` (llama.cpp's
+  final chunk, an OpenAI-style usage-only chunk) without asking for it. The tool-support fallback
+  now sends `SanitizeHistory`'d messages: it used to resend raw history, leaking persisted `error`
+  and `reasoning_content` to the provider.
 
 - **1.1 (2026-09-29)** — Reference corrections (no behavior change): the guardrail decision store
   lives in `assistant/agent.go` (there is no `guardrail_decision.go`); the streaming markup filter
@@ -39,6 +46,21 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Default budget: 8,000 characters (overridable via `ModelConfig.ContextBudget`).
 - When exceeded, first attempt **compression**: truncate long Content (>4000 chars) and ReasoningContent (>2000 chars) in older messages to head+tail with `...[Truncated]...` marker.
 - If compression not enough: keep system message + first user message (Locked Head), insert sieve marker, keep last 10 messages (Priority Tail).
+- **Progress ledger**: every sieve inserts, immediately after the byte-exact sieve note, ONE ledger message
+  (`prompts.SieveLedgerHeader` + lines like `✓ write_file smoke/hello.txt`, `✓ execute_terminal_command "uname -a" → Darwin …`,
+  `✗ execute_terminal_command "npx tsc" → exit status 1`). Recorded in `appendToolResult` (the single choke point for every
+  tool result, including guardrail denials, which are ✗); a result is a failure only when it is a JSON object with a non-empty
+  `error` field. Consecutive identical lines collapse to `×N`; capped at 5% of `ContextBudget` (300–2000 chars, 1200 if
+  unresolved), newest kept with a `(+N earlier steps omitted)` line. A new prune removes the old ledger first. No LLM call;
+  ~10 µs per record+render (`BenchmarkRunLedger_RecordAndRender`). File contents/arguments never enter the ledger.
+- **Sieve messages are replaced, not stacked** (`withoutSieveMessages`): each prune first removes the previous
+  sieve note, progress ledger and context warning. On a small window the physical sieve fires on every turn after
+  the first prune (the 10-message tail alone can exceed the budget); before this, up to four copies of the warning
+  accumulated in one request.
+- **One-time wrap-up warning**: `ContextSieveWarning` ("deliver your final answer NOW …") is appended by the first
+  physical prune of a run only (`runSession.sieve.contextWarned`, decision 2026-10-01); later prunes add the note and
+  ledger but no warning, so a run that keeps working is not told to stop each turn. The reactive and aggressive
+  sieves (context-overflow recovery) never added it.
 - **Critical**: `recentCalls` (repetition detector) MUST survive the sieve boundary.
 - **Reactive Sieve**: When the LLM returns a context-size overflow error (e.g. `request exceeds the available context size`), the agent applies an aggressive sieve (keep only system + task + last 3 turns) and retries.  This catches cases where the character-budget sieve didn't fire because the model's actual token context is smaller than expected (e.g. llama.cpp with `--ctx-size 8192` but `n_ctx_train` reporting 262K).
 
@@ -138,7 +160,22 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 12. History Normalization (Constitution II.8)
 - `NormalizeHistory()`: strips `ToolCalls` when `useNativeTools=false`. Converts `tool` role → `user` role with `tool_call_id` embedded in content (`Tool result [call_N]: <json>`) to avoid Jinja template errors in llama.cpp while preserving call/result association. No auto-nags. Consolidates consecutive same-role messages.
-- `SanitizeHistory()`: preserves `role`, `content`, `tool_calls`, `tool_call_id`.
+- `SanitizeHistory()`: preserves `role`, `content`, `tool_calls`, `tool_call_id`. Every outbound
+  request goes through it — including the tool-support fallback (`retryWithoutTools`) — so
+  persisted UI fields on `Message` (`error`, `run`) and reasoning never reach the provider
+  (`TestNormalizeHistory_UIOnlyFieldsNeverReachTheWire`, `TestAgent_ToolSupportFallback_SendsSanitizedHistory`).
+
+### 12a. Turn Run Record
+- `conversationService.Execute` sets `Message.Run` (`models.TurnRun`) on the turn's user message
+  right after the session is initialised (so mid-run checkpoints carry model and start) and stamps
+  `duration_ms` and the reported tokens when the agent returns — on success, error and cancel alike.
+  Queue time is excluded (the run lane admits the chat before `Execute`). The record rides on the
+  message, so `TruncateHistory` cannot misalign it the way an index would.
+- Token counts come only from what the provider reports (`ChatResponse.Usage`): the last usage seen
+  in a stream is recorded once when it ends, a non-stream response's directly, summed per run in
+  `usage.Tracker.ReportedUsage()`. Nothing is estimated; no request option asks for usage (cloud
+  OpenAI-style providers therefore report none). `Tracker.InputTokens`/`OutputTokens` are local size
+  counts (messages / characters), not tokens.
 
 ### 13. Per-Model Temperature and Timeout Overrides
 - `ModelConfig.Temperature` (float64) overrides the hardcoded `DefaultAutomationTemperature` (0.1) for automation tasks. 0 = use default.

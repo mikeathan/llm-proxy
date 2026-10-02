@@ -114,6 +114,10 @@ type Automation struct {
 	// none/lan/internet_only/internet tighten or loosen for this automation. The
 	// host L0 switch remains the ceiling (plan §4.4 grant model).
 	NetworkGrant NetworkScope `yaml:"network_grant,omitempty" json:"network_grant,omitempty"`
+	// MemoryMode opts this automation into hot-memory injection. Empty/off (the
+	// default) leaves the run without memory; hot injects the workspace's hot
+	// entries once per run in the head system message.
+	MemoryMode MemoryMode `yaml:"memory_mode,omitempty" json:"memory_mode,omitempty"`
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml
@@ -170,6 +174,22 @@ func (s *AgentState) IsRunning() bool {
 // Pass an empty string to clear the active status.
 func (s *AgentState) SetRunning(name string) {
 	s.ActiveAutomation = name
+}
+
+// MaxStateHistory caps AgentState.History so state.json stays small.
+const MaxStateHistory = 30
+
+// AppendRun records a finished run: it joins the capped history and becomes the
+// automation's latest run (what the UI's "Last result" reads).
+func (s *AgentState) AppendRun(run AutomationRun) {
+	s.History = append(s.History, run)
+	if len(s.History) > MaxStateHistory {
+		s.History = s.History[len(s.History)-MaxStateHistory:]
+	}
+	if s.LastRuns == nil {
+		s.LastRuns = make(map[string]*AutomationRun)
+	}
+	s.LastRuns[run.AutomationName] = &run
 }
 
 // Workspace represents an entire workspace object

@@ -68,3 +68,31 @@ export function filterTreeEntries(entries: TreeEntry[], query: string, limit: nu
   const matches = entries.filter((e) => e.type === 'file' && e.path.toLowerCase().includes(q))
   return { entries: matches.slice(0, limit), total: matches.length }
 }
+
+/** Whether `path` is `base` itself or lies inside the folder `base`. */
+export function isPathWithin(path: string, base: string): boolean {
+  return path === base || path.startsWith(base + SEPARATOR)
+}
+
+/**
+ * The paths a delete actually has to send: a path inside a folder that is
+ * itself being deleted is dropped (the folder takes it along). Order is kept.
+ */
+export function withoutNestedPaths(paths: string[]): string[] {
+  return paths.filter((path) => !paths.some((other) => other !== path && isPathWithin(path, other)))
+}
+
+/** Whether a folder above `path` is in `selected` — the delete takes `path` along with it. */
+export function isCoveredBySelection(path: string, selected: ReadonlySet<string>): boolean {
+  return [...selected].some((other) => other !== path && isPathWithin(path, other))
+}
+
+/** Whether something strictly inside the folder `path` is in `selected`. */
+export function hasSelectionWithin(path: string, selected: ReadonlySet<string>): boolean {
+  return [...selected].some((other) => other !== path && isPathWithin(other, path))
+}
+
+/** The workspace's top-level entries — what "delete all files" removes. */
+export function topLevelPaths(entries: TreeEntry[]): string[] {
+  return entries.filter((entry) => !entry.path.includes(SEPARATOR)).map((entry) => entry.path)
+}

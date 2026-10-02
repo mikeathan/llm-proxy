@@ -62,6 +62,10 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 		return ExecuteResult{}, fmt.Errorf("init session: %w", err)
 	}
 
+	// The turn's run record rides on its user message: set now so mid-run
+	// checkpoints carry the model and start, finished when the agent returns.
+	run := startTurnRun(session.History, modelName)
+
 	// 4. Run setup
 	execCtx, clean := s.setupRun(ctx, session.ID, workspaceID, events)
 	defer clean()
@@ -86,6 +90,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// 6. Execute agent
 	llmHistory := FilterCancelledTurns(session.History, session.CancelledIndices)
 	reply, updatedHistory, agErr := agent.Execute(execCtx, llmHistory)
+	finishTurnRun(run, usage.FromContext(execCtx))
 
 	// 8. Handle result
 	if agErr != nil {
@@ -98,6 +103,30 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 
 	// 9. Persist final history
 	return s.handleSuccessResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log), nil
+}
+
+// startTurnRun attaches a run record to the turn's user message — the last
+// message after initSession — and returns it (nil when there is none). Queue
+// wait is not counted: the run lane admits the chat before Execute.
+func startTurnRun(history []proxy.Message, modelName string) *models.TurnRun {
+	if len(history) == 0 || history[len(history)-1].Role != proxy.UserRole {
+		return nil
+	}
+	run := &models.TurnRun{Model: modelName, StartedAt: time.Now()}
+	history[len(history)-1].Run = run
+	return run
+}
+
+// finishTurnRun stamps how long the turn ran and the tokens the provider
+// reported; a nil record is a no-op.
+func finishTurnRun(run *models.TurnRun, tracker *usage.Tracker) {
+	if run == nil {
+		return
+	}
+	run.DurationMs = time.Since(run.StartedAt).Milliseconds()
+	if tracker != nil {
+		run.PromptTokens, run.CompletionTokens = tracker.ReportedUsage()
+	}
 }
 
 // NormalizeConversationID returns the given conversation ID, or generates a
@@ -229,6 +258,7 @@ func (s *conversationService) buildAgent(ctx context.Context, modelName, workspa
 		WithModelName(modelName).
 		WithChannel(ChannelAssistant).
 		WithConversationID(sessionID).
+		WithMemoryStore().
 		WithHotMemory(true).
 		WithObserver(observer).
 		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer, ChannelAssistant)).

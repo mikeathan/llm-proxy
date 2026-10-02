@@ -663,6 +663,31 @@ func TestWorkspaceFileHandlers_NestedAndContained(t *testing.T) {
 		t.Fatalf("DELETE nested: %d %s", rr.Code, rr.Body.String())
 	}
 
+	// A folder with content: a plain DELETE refuses it, ?recursive=true removes it.
+	if rr := serveFile(mux, "PUT", "/ws/"+wsID+"/files/docs/deep/a.md", `{"content":"x"}`); rr.Code != http.StatusOK {
+		t.Fatalf("PUT deep: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := serveFile(mux, "DELETE", "/ws/"+wsID+"/files/docs", ""); rr.Code == http.StatusOK {
+		t.Fatalf("plain DELETE of a non-empty folder succeeded: %s", rr.Body.String())
+	}
+	if rr := serveFile(mux, "DELETE", "/ws/"+wsID+"/files/docs?recursive=true", ""); rr.Code != http.StatusOK {
+		t.Fatalf("recursive DELETE: %d %s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(resolver.WorkspaceDir(wsID), "docs")); !os.IsNotExist(err) {
+		t.Fatalf("folder still present after recursive DELETE: %v", err)
+	}
+	for _, root := range []string{".", "%2E", ""} {
+		if rr := serveFile(mux, "DELETE", "/ws/"+wsID+"/files/"+root+"?recursive=true", ""); rr.Code == http.StatusOK {
+			t.Fatalf("recursive DELETE of the workspace root %q succeeded", root)
+		}
+	}
+	if _, err := os.Stat(resolver.WorkspaceDir(wsID)); err != nil {
+		t.Fatalf("workspace root removed: %v", err)
+	}
+	if rr := serveFile(mux, "DELETE", "/ws/"+wsID+"/files/docs?recursive=maybe", ""); rr.Code != http.StatusBadRequest {
+		t.Fatalf("recursive=maybe: %d — want 400", rr.Code)
+	}
+
 	outside := t.TempDir()
 	secret := filepath.Join(outside, "secret.md")
 	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
@@ -676,6 +701,8 @@ func TestWorkspaceFileHandlers_NestedAndContained(t *testing.T) {
 		{"GET", "out/secret.md", ""},
 		{"PUT", "out/new.md", `{"content":"x"}`},
 		{"DELETE", "out/secret.md", ""},
+		{"DELETE", "out/secret.md?recursive=true", ""},
+		{"DELETE", "..%2F" + wsID + "?recursive=true", ""},
 	} {
 		rr := serveFile(mux, tc.method, "/ws/"+wsID+"/files/"+tc.file, tc.body)
 		if rr.Code == http.StatusOK || strings.Contains(rr.Body.String(), "secret\"") {
@@ -687,5 +714,33 @@ func TestWorkspaceFileHandlers_NestedAndContained(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "new.md")); !os.IsNotExist(err) {
 		t.Fatal("a file was written outside the workspace")
+	}
+}
+
+// memory_mode is fail-fast validated like loop_strategy: empty (unset = off),
+// off and hot pass; anything else is rejected with the valid-values hint.
+func TestValidateAutomation_MemoryMode(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	cases := []struct {
+		name    string
+		mode    models.MemoryMode
+		wantErr bool
+	}{
+		{"empty passes (off)", "", false},
+		{"off passes", models.MemoryModeOff, false},
+		{"hot passes", models.MemoryModeHot, false},
+		{"unknown rejected", "hot+hints", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", MemoryMode: tc.mode})
+			if tc.wantErr && (err == nil || !strings.Contains(err.Error(), "memory_mode")) {
+				t.Fatalf("expected memory_mode error, got %v", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
 	}
 }

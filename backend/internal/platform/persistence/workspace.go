@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -302,6 +303,21 @@ func (m *WorkspaceManager) LastModified(workspaceID string) (time.Time, error) {
 func (m *WorkspaceManager) DeleteTaskFile(workspaceID, filename string) error {
 	return m.withWorkspaceRoot(workspaceID, false, func(root *os.Root) error {
 		return root.Remove(filename)
+	})
+}
+
+// DeleteTaskTree removes a task file or a folder with everything under it. The
+// removal stays inside the workspace root; the caller must refuse the root
+// itself ("" or ".").
+func (m *WorkspaceManager) DeleteTaskTree(ctx context.Context, workspaceID, path string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("delete %s: %w", path, err)
+	}
+	return m.withWorkspaceRoot(workspaceID, false, func(root *os.Root) error {
+		if err := root.RemoveAll(path); err != nil {
+			return fmt.Errorf("delete %s: %w", path, err)
+		}
+		return nil
 	})
 }
 

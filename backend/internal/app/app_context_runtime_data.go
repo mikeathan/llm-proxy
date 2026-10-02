@@ -18,6 +18,9 @@ import (
 	"llm-proxy/models"
 )
 
+// operatorNotesFile is the operator-written memory file (MEMORY.md).
+const operatorNotesFile = "MEMORY.md"
+
 func (s *AppContext) initOrchestrator() {
 	dbPath := s.dataMgr.Paths().DatabaseFile()
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
@@ -44,6 +47,15 @@ func (s *AppContext) initOrchestrator() {
 		logging.Error("failed to initialize memory store, memory disabled — all memory features unavailable", "error", memErr)
 		return
 	}
+	// Operator notes (MEMORY.md) sit beside config, outside the workspace jail the
+	// agent can write to: the global file in the config root, the per-workspace
+	// file in that workspace's metadata folder.
+	memStore.SetNotesLocations(
+		filepath.Join(s.resolver.RootDir(), operatorNotesFile),
+		func(workspaceID string) string {
+			return filepath.Join(s.resolver.InternalDir(workspaceID), operatorNotesFile)
+		},
+	)
 	s.memoryStore = memStore
 	logging.Info("Memory store initialized", "db", dbPath)
 }

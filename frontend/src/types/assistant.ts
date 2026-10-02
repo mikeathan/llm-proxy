@@ -16,6 +16,17 @@ export type Segment =
   | { kind: 'error', message: string }
   | { kind: 'notice', message: string, status?: 'pending' | 'resolved' }
 
+// How a chat turn ran, stored by the backend on the turn's user message
+// (models.TurnRun). Old sessions have none; every field is optional. Token
+// counts are the provider's own, absent when it reported none.
+export interface TurnRun {
+  model?: string
+  started_at?: string
+  duration_ms?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+}
+
 export interface AssistantMessage {
   role: AssistantRole
   content: string
@@ -28,6 +39,8 @@ export interface AssistantMessage {
   // error carries a persisted terminal run failure (assistant-role message
   // written by the backend) and renders as a kind:'error' segment on reload.
   error?: string
+  // On a user message: how the turn it started ran.
+  run?: TurnRun
 }
 
 export interface SessionBrief {
@@ -96,6 +109,8 @@ export interface LaneHolder {
   kind: LaneKind
   workspace_id: string
   automation?: string
+  // The conversation a running chat serves (chat holders only; absent while unknown).
+  conversation_id?: string
   label: string
   // model is the local model the holder is using (absent for cloud runs); the
   // residency gate refuses evicting it out from under the holder.

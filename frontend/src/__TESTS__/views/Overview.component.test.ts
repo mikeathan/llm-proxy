@@ -149,6 +149,13 @@ describe('Overview', () => {
     expect(rows[1]!.text()).toContain('Failed')
   })
 
+  it('links each recent run to its details', async () => {
+    const w = await mountOverview()
+    const a = w.findAll('tbody tr')[0]!.find('a')
+    expect(a.attributes('href')).toBe('/activity?run=r-nightly')
+    expect(a.attributes('aria-label')).toMatch(/^Open /)
+  })
+
   it('reports a failed or empty run history', async () => {
     state.fetchGlobalActivity.mockImplementation(async () => {
       throw new Error('The server did not respond.')
@@ -156,5 +163,47 @@ describe('Overview', () => {
     expect((await mountOverview()).text()).toContain('The server did not respond.')
     state.fetchGlobalActivity.mockReset().mockResolvedValue([])
     expect((await mountOverview()).text()).toContain('No runs yet')
+  })
+
+  describe('running work links', () => {
+    const since = '2026-09-29T10:00:00Z'
+    const link = (w: Awaited<ReturnType<typeof mountOverview>>, name: RegExp) => w.findAll('a').find((a) => name.test(a.text()))
+
+    it('links a running chat to its conversation', async () => {
+      state.laneHolders.value = [{ key: 'chat:workspace-1', kind: 'interactive', workspace_id: 'workspace-1', label: 'chat:workspace-1', conversation_id: 'conv-42', since }]
+      const w = await mountOverview()
+      const a = link(w, /Chat in workspace-1/)
+      expect(a, 'the running chat is a link').toBeDefined()
+      expect(a!.attributes('href')).toBe('/workspaces/workspace-1/assistant/conv-42')
+      expect(w.text()).not.toContain('chat:workspace-1')
+    })
+
+    it('links a running automation to its page', async () => {
+      state.laneHolders.value = [{ key: 'workspace-1/nightly', kind: 'automation', workspace_id: 'workspace-1', automation: 'nightly', label: 'workspace-1/nightly', since }]
+      const w = await mountOverview()
+      const a = link(w, /workspace-1\/nightly/)
+      expect(a, 'the running automation is a link').toBeDefined()
+      expect(a!.attributes('href')).toContain('/automations/')
+      expect(decodeURIComponent(a!.attributes('href')!)).toContain('workspace-1/nightly')
+    })
+
+    it('links a queued automation too', async () => {
+      state.queuedRuns.value = [{ key: 'workspace-1/report', kind: 'automation', workspace_id: 'workspace-1', automation: 'report', label: 'workspace-1/report', position: 1, queued_at: since }]
+      const w = await mountOverview()
+      expect(link(w, /workspace-1\/report/)).toBeDefined()
+    })
+
+    it('shows an API caller as plain text, not a dead link', async () => {
+      state.laneHolders.value = [{ key: 'inbound:1', kind: 'inbound', workspace_id: '', label: 'curl/8.4', since }]
+      const w = await mountOverview()
+      expect(w.text()).toContain('curl/8.4')
+      expect(link(w, /curl\/8\.4/)).toBeUndefined()
+    })
+
+    it('tells the operator the row is a link', async () => {
+      state.laneHolders.value = [{ key: 'chat:workspace-1', kind: 'interactive', workspace_id: 'workspace-1', label: 'chat:workspace-1', conversation_id: 'c', since }]
+      const w = await mountOverview()
+      expect(link(w, /Chat in workspace-1/)!.attributes('aria-label')).toMatch(/^Open /)
+    })
   })
 })

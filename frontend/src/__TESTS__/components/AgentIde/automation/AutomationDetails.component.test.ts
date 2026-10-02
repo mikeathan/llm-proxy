@@ -57,6 +57,14 @@ describe('AutomationDetails', () => {
     expect(connect).toHaveBeenCalled()
   })
 
+  it('copies the last error and the last output', async () => {
+    const copies = (await mountDetails()).findAllComponents({ name: 'CopyButton' })
+    expect(copies.map((c) => [c.props('title'), c.props('text')])).toEqual([
+      ['Copy last error', 'model timed out'],
+      ['Copy last output', 'All good'],
+    ])
+  })
+
   it('says the console is idle instead of showing an empty stream', async () => {
     const w = await mountDetails()
     expect(w.find('[data-test="console"]').exists()).toBe(false)

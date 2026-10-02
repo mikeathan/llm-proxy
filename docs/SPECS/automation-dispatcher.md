@@ -91,6 +91,7 @@ Each run produces:
       model: gemma-4-4b-it
       task_file: llm-smoke-test.md
       strategy: isolated
+      memory_mode: hot   # optional; off (default) | hot — inject the workspace's hot memory once per run
   ```
 
 ## V. Run Scheduler (global-run-lane plan)

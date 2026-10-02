@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -71,4 +72,29 @@ func tagClause(tags []string, query string) (string, []any) {
 		args = append(args, t)
 	}
 	return b.String(), args
+}
+
+// HotTag marks an entry for injection into every prompt (mode "always"). The
+// injection query (searchHotSQL) matches this exact tag.
+const HotTag = "hot"
+
+// WithHot returns tags with the hot tag present or absent, normalised and
+// sorted like every other tag write; other tags are untouched.
+func WithHot(tags []string, hot bool) []string {
+	rest := make([]string, 0, len(tags))
+	for _, t := range normalizeTags(tags) {
+		if t != HotTag {
+			rest = append(rest, t)
+		}
+	}
+	if hot {
+		rest = append(rest, HotTag)
+	}
+	sort.Strings(rest)
+	return rest
+}
+
+// IsHot reports whether the entry is injected into every prompt.
+func (e MemoryEntry) IsHot() bool {
+	return slices.Contains(e.Tags, HotTag)
 }

@@ -5,6 +5,9 @@
 package assistant
 
 import (
+	"slices"
+	"strings"
+
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -33,6 +36,9 @@ func messageChars(m proxy.Message) int {
 type physicalSieve struct {
 	logger        logging.Logger
 	contextBudget int
+	ledger        *proxy.Message // progress ledger inserted after the note; nil when nothing has run
+	warn          bool           // append the one-time "wrap up now" warning
+	warned        bool           // set when the warning was actually appended
 }
 
 func (p *physicalSieve) Name() string { return "physical" }
@@ -64,42 +70,86 @@ func (p *physicalSieve) Sieve(history []proxy.Message) []proxy.Message {
 		}
 	}
 
-	if len(history) <= sieveLockedHead+sievePhysicalTail {
+	// A previous firing's note, ledger and warning are replaced, never stacked:
+	// they would otherwise pile up in the kept tail, one more per firing, on a
+	// small window where the sieve fires every turn.
+	clean := withoutSieveMessages(history)
+	if len(clean) <= sieveLockedHead+sievePhysicalTail {
 		return history
 	}
 
-	newHistory := make([]proxy.Message, 0, len(history))
-	newHistory = append(newHistory, history[:sieveLockedHead]...)
-	newHistory = append(newHistory, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
-	newHistory = append(newHistory, history[len(history)-sievePhysicalTail:]...)
-	newHistory = append(newHistory, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.ContextSieveWarning,
-	})
+	newHistory := make([]proxy.Message, 0, len(clean))
+	newHistory = append(newHistory, clean[:sieveLockedHead]...)
+	newHistory = appendNoteAndLedger(newHistory, p.ledger)
+	newHistory = append(newHistory, clean[len(clean)-sievePhysicalTail:]...)
+	if p.warn {
+		newHistory = append(newHistory, proxy.Message{
+			Role:    proxy.UserRole,
+			Content: prompts.ContextSieveWarning,
+		})
+		p.warned = true
+	}
 	return newHistory
 }
 
 // sieveHistory keeps the locked head, inserts the sieve note, and retains the
 // most recent tail messages. Both sieves share this shape; only the tail size
 // and the reactive pre-check differ.
-func sieveHistory(history []proxy.Message, tail int) []proxy.Message {
+func sieveHistory(history []proxy.Message, tail int, ledger *proxy.Message) []proxy.Message {
+	history = withoutSieveMessages(history)
 	if len(history) < tail+sieveLockedHead {
 		tail = len(history) - sieveLockedHead
 	}
 	sieved := make([]proxy.Message, 0, len(history))
 	sieved = append(sieved, history[:sieveLockedHead]...)
-	sieved = append(sieved, proxy.Message{
-		Role:    proxy.UserRole,
-		Content: prompts.SieveSystemNote,
-	})
+	sieved = appendNoteAndLedger(sieved, ledger)
 	return append(sieved, history[len(history)-tail:]...)
+}
+
+// appendNoteAndLedger appends the byte-exact sieve note followed by the
+// progress ledger (when there is one). The note stays its own message so the
+// control-message allowlist matches it exactly.
+func appendNoteAndLedger(history []proxy.Message, ledger *proxy.Message) []proxy.Message {
+	history = append(history, proxy.Message{Role: proxy.UserRole, Content: prompts.SieveSystemNote})
+	if ledger != nil {
+		history = append(history, *ledger)
+	}
+	return history
+}
+
+// withoutSieveMessages drops the messages an earlier sieve inserted — the sieve
+// note, the progress ledger and the context warning — so a new prune replaces
+// them instead of stacking beside them. It returns history unchanged (no copy)
+// when there are none.
+func withoutSieveMessages(history []proxy.Message) []proxy.Message {
+	if !slices.ContainsFunc(history, isSieveMessage) {
+		return history
+	}
+	return slices.DeleteFunc(slices.Clone(history), isSieveMessage)
+}
+
+// isSieveMessage reports the agent-injected messages a sieve adds to a history.
+func isSieveMessage(m proxy.Message) bool {
+	if m.Role != proxy.UserRole {
+		return false
+	}
+	return m.Content == prompts.SieveSystemNote ||
+		m.Content == prompts.ContextSieveWarning ||
+		strings.HasPrefix(m.Content, prompts.SieveLedgerHeader)
+}
+
+// sieveLedger returns the ledger message for a sieve, or nil when nothing ran.
+func (a *Agent) sieveLedger() *proxy.Message {
+	msg, ok := a.ledgerMessage()
+	if !ok {
+		return nil
+	}
+	return &msg
 }
 
 type reactiveSieve struct {
 	logger logging.Logger
+	ledger *proxy.Message
 }
 
 func (r *reactiveSieve) Name() string { return "reactive" }
@@ -109,18 +159,19 @@ func (r *reactiveSieve) Sieve(history []proxy.Message) []proxy.Message {
 	if len(history) <= sieveLockedHead+sieveReactiveTail {
 		return history
 	}
-	return sieveHistory(history, sieveReactiveTail)
+	return sieveHistory(history, sieveReactiveTail, r.ledger)
 }
 
 type aggressiveSieve struct {
 	logger logging.Logger
+	ledger *proxy.Message
 }
 
 func (a *aggressiveSieve) Name() string { return "aggressive" }
 
 func (a *aggressiveSieve) Sieve(history []proxy.Message) []proxy.Message {
 	a.logger.Warn("aggressive sieve applied — model stuck after prior recovery attempt")
-	return sieveHistory(history, sieveAggressiveTail)
+	return sieveHistory(history, sieveAggressiveTail, a.ledger)
 }
 
 // Sieve constants — shared between compression and message-dropping sieves.
@@ -144,9 +195,18 @@ func truncateLongContent(s string, limit int) string {
 	return proxy.TruncateResult(s, limit, "\n...[Truncated]...\n")
 }
 
+// applyPhysicalSieve prunes an over-budget history. The "wrap up now" warning is
+// a one-time cue per run: on a small window the sieve fires on later turns too,
+// and a run that keeps working must not be told to stop every turn (the note and
+// the progress ledger are refreshed each time regardless).
 func (a *Agent) applyPhysicalSieve(history []proxy.Message) []proxy.Message {
-	s := &physicalSieve{logger: a.deps.Logger, contextBudget: a.config.ContextBudget}
-	return s.Sieve(history)
+	warn := a.runS == nil || !a.runS.sieve.contextWarned
+	s := &physicalSieve{logger: a.deps.Logger, contextBudget: a.config.ContextBudget, ledger: a.sieveLedger(), warn: warn}
+	pruned := s.Sieve(history)
+	if s.warned && a.runS != nil {
+		a.runS.sieve.contextWarned = true
+	}
+	return pruned
 }
 
 // preparedOverContextBudget reports whether the prepared request — history
@@ -164,15 +224,7 @@ func (a *Agent) preparedOverContextBudget(history []proxy.Message, tools []proxy
 	if !a.config.UseNativeTools {
 		llmTools = nil
 	}
-	// Measure WITHOUT hot-memory injection: the injection is one-shot (a
-	// memoryInjected flag) and belongs to the real request prepared inside
-	// computeNextResponse — consuming it here for the measurement would starve
-	// the actual turn. The memory block is small; skipping it in the estimate
-	// only under-counts by that amount.
-	enabled := a.config.EnableHotMemory
-	a.config.EnableHotMemory = false
 	prepared, _ := a.prepareMessagesForTurn(history, tools, llmTools)
-	a.config.EnableHotMemory = enabled
 	total := 0
 	for _, m := range prepared {
 		total += messageChars(m)
@@ -181,11 +233,11 @@ func (a *Agent) preparedOverContextBudget(history []proxy.Message, tools []proxy
 }
 
 func (a *Agent) applyReactiveSieve(history []proxy.Message) []proxy.Message {
-	s := &reactiveSieve{logger: a.deps.Logger}
+	s := &reactiveSieve{logger: a.deps.Logger, ledger: a.sieveLedger()}
 	return s.Sieve(history)
 }
 
 func (a *Agent) applyAggressiveSieve(history []proxy.Message) []proxy.Message {
-	s := &aggressiveSieve{logger: a.deps.Logger}
+	s := &aggressiveSieve{logger: a.deps.Logger, ledger: a.sieveLedger()}
 	return s.Sieve(history)
 }

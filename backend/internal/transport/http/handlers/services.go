@@ -118,6 +118,7 @@ type WorkspaceService interface {
 	ReadTaskFile(workspaceID, filename string) (string, error)
 	WriteTaskFile(workspaceID, filename, content string) error
 	DeleteTaskFile(workspaceID, filename string) error
+	DeleteTaskTree(ctx context.Context, workspaceID, path string) error
 	DeleteWorkspace(workspaceID string) error
 	DeleteAutomationRuns(workspaceID, automation string) error
 	DeleteRunByID(workspaceID, runID string) error
@@ -194,6 +195,10 @@ func (s *workspaceService) WriteTaskFile(workspaceID, filename, content string) 
 
 func (s *workspaceService) DeleteTaskFile(workspaceID, filename string) error {
 	return s.mgr.DeleteTaskFile(workspaceID, filename)
+}
+
+func (s *workspaceService) DeleteTaskTree(ctx context.Context, workspaceID, path string) error {
+	return s.mgr.DeleteTaskTree(ctx, workspaceID, path)
 }
 
 func (s *workspaceService) DeleteWorkspace(workspaceID string) error {

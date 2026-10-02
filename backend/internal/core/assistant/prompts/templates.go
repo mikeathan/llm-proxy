@@ -397,6 +397,15 @@ const ReasoningStuckEscalatedNag = "CRITICAL: You are stuck in an analysis loop 
 	automationNagFormatExample
 
 // AutomationTaskPrompt is the user-facing task message for autonomous agents.
+// SieveLedgerHeader opens the progress-ledger message a sieve inserts after
+// SieveSystemNote. It states facts only — the physical sieve's ContextSieveWarning
+// carries the instruction. It is also the owned prefix isAgentControlMessage
+// matches, so it must stay the first line of the message.
+const SieveLedgerHeader = "[Progress ledger — recorded by the system, not by you. Already done in this run:]"
+
+// SieveLedgerOmitted leads a ledger whose older steps were cut to fit; %d is the count.
+const SieveLedgerOmitted = "(+%d earlier steps omitted)"
+
 // ContextSieveWarning is injected after the physical sieve prunes intermediate history.
 const ContextSieveWarning = "SYSTEM: HISTORY PRUNED — context window full. Deliver your final answer NOW as an assistant message. Do NOT call more tools — write what you have and stop."
 
@@ -410,7 +419,17 @@ const UserProfileFooter = "\n</user_profile>"
 
 const PreSieveMemoryNudge = "The conversation history is about to be compressed. Save any important facts, decisions, or preferences to memory using `" + models.ToolMemoryUpdate + "` before they are lost."
 
-const SoftMemoryCharLimit = 4000 // denominator for memory usage meter percentage
+// HotMemoryOperatorHeader opens the operator-notes section of the <memory> block
+// (the operator's own MEMORY.md). The notes outrank the agent-written facts.
+const HotMemoryOperatorHeader = "Operator notes (written by the operator; they take precedence over the saved facts below):"
+
+// HotMemorySavedHeader precedes the agent-written hot facts when operator notes
+// are present, so the two sources stay distinguishable.
+const HotMemorySavedHeader = "Saved facts:"
+
+// HotMemoryOverflowHint ends the injected <memory> block when entries were cut
+// to fit the context-derived budget; %d is the number of facts left out.
+const HotMemoryOverflowHint = "(+%d more saved facts — use `" + models.ToolMemorySearch + "` to find them)"
 
 // RetrySignal is prepended to the last user message when the agent retries after
 // an empty-stream or timeout failure.  It tells the model the previous attempt

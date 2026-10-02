@@ -78,7 +78,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore)
 
 	if store := s.AppCtx.MemoryStore(); store != nil {
-		hs.Memory = handlers.NewMemoryHandlers(store)
+		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig)
 	}
 
 	// Extract CommunicationTools from the tool provider chain
@@ -277,6 +277,12 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	// Memory API
 	if hs.Memory != nil {
 		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}", hs.Memory.ListMemories, jsonMethodNotAllowed)
+		router.Post("/admin/api/memory/{"+models.WorkspaceIDParam+"}", hs.Memory.CreateMemory, jsonMethodNotAllowed)
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/injection-preview", hs.Memory.InjectionPreview, jsonMethodNotAllowed)
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/export", hs.Memory.ExportMemory, jsonMethodNotAllowed)
+		router.Post("/admin/api/memory/{"+models.WorkspaceIDParam+"}/import", hs.Memory.ImportMemory, jsonMethodNotAllowed)
+		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/notes", hs.Memory.GetNotes, jsonMethodNotAllowed)
+		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/notes", hs.Memory.PutNotes, jsonMethodNotAllowed)
 		router.Post("/admin/api/memory/{"+models.WorkspaceIDParam+"}/search", hs.Memory.SearchMemories, jsonMethodNotAllowed)
 		router.Get("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.GetMemory, jsonMethodNotAllowed)
 		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.UpdateMemory, jsonMethodNotAllowed)

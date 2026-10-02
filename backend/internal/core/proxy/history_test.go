@@ -1,7 +1,11 @@
 package proxy
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
+
+	"llm-proxy/models"
 )
 
 func TestNormalizeHistory_Empty(t *testing.T) {
@@ -276,5 +280,27 @@ func TestNormalizeHistory_XMLMode_ContentAndToolCallPreservesContent(t *testing.
 	}
 	if len(got[0].ToolCalls) != 0 {
 		t.Fatal("tool calls should still be stripped")
+	}
+}
+
+// Fields the UI persists on messages (a run's failure, a turn's run record)
+// never reach the provider: strict OpenAI-compatible endpoints reject unknown
+// message keys, and Constitution II.8 keeps only role/content/tool fields.
+func TestNormalizeHistory_UIOnlyFieldsNeverReachTheWire(t *testing.T) {
+	history := []Message{
+		{Role: UserRole, Content: "check the env", Run: &models.TurnRun{Model: "qwen", DurationMs: 4200}},
+		{Role: AssistantRole, Content: "", Error: "upstream failed", ReasoningContent: "thinking"},
+		{Role: UserRole, Content: "again"},
+	}
+	for _, native := range []bool{true, false} {
+		raw, err := json.Marshal(ChatRequest{Model: "m", Messages: NormalizeHistory(history, native)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{`"run"`, `"error"`, `"reasoning_content"`} {
+			if strings.Contains(string(raw), key) {
+				t.Errorf("native=%v: request carries %s: %s", native, key, raw)
+			}
+		}
 	}
 }

@@ -85,6 +85,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	stratCtx, state, taskContent, err := d.prepareRun(execCtx, entry)
 	if err != nil {
 		d.metrics.RecordExecution(false, false, time.Since(start))
+		d.reportPrepareFailure(entry, err, start)
 		return err
 	}
 
@@ -92,19 +93,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	if recordingRefOverride != "" {
 		recordingRef = recordingRefOverride
 	}
-	req := ExecuteRequest{
-		WorkspaceID:    entry.Workspace,
-		AutomationName: entry.Name,
-		TaskFile:       entry.TaskFile,
-		TaskContent:    taskContent,
-		Strategy:       entry.Strategy,
-		State:          state,
-		Model:          entry.Model,
-		LoopStrategy:   string(entry.LoopStrategy),
-		AllowedTools:   entry.AllowedTools,
-		RecordingRef:   recordingRef,
-		NetworkGrant:   entry.NetworkGrant,
-	}
+	req := newExecuteRequest(entry, state, taskContent, recordingRef)
 
 	resp, err := d.executor.Execute(stratCtx, req)
 	elapsed := time.Since(start)
@@ -138,6 +127,55 @@ func (d *Dispatcher) recoverRunPanic(entry *AutomationEntry, start time.Time, re
 	*retErr = fmt.Errorf("automation panicked: %v", rec)
 }
 
+// reportPrepareFailure makes a run that failed before the executor started
+// (missing task file, unreadable state) visible. The run lane discards a job's
+// returned error, so without this a manual trigger that dies in prepareRun
+// leaves no log line and no UI feedback. The failure is persisted as the
+// automation's latest run (the UI's "Last result" card and Activity read it)
+// before the live event is published, so it survives a page reload.
+func (d *Dispatcher) reportPrepareFailure(entry *AutomationEntry, err error, start time.Time) {
+	d.logger.Error("automation run failed before start",
+		"workspace", entry.Workspace, "automation", entry.Name, "error", err.Error())
+	d.recordPrepareFailure(entry, err, time.Since(start))
+
+	fi := failures.ClassifyRunFailure(err)
+	payload := map[string]string{"error": fi.Error}
+	if fi.Hint != "" {
+		payload["hint"] = fi.Hint
+	}
+	d.events.Publish(entry.Workspace, assistant.AgentEvent{
+		Type:    assistant.EventError,
+		Channel: assistant.ChannelAutomation,
+		Payload: payload,
+	})
+}
+
+// recordPrepareFailure appends the failed run to the workspace state and the
+// global ledger. Best-effort: when the state itself is unreadable (the likely
+// cause of the failure) there is nothing to append to; the log line remains.
+func (d *Dispatcher) recordPrepareFailure(entry *AutomationEntry, runErr error, elapsed time.Duration) {
+	state, err := d.persistence.ReadState(entry.Workspace)
+	if err != nil {
+		return
+	}
+	run := models.AutomationRun{
+		ID:             fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		WorkspaceID:    entry.Workspace,
+		AutomationName: entry.Name,
+		Timestamp:      time.Now(),
+		Error:          runErr.Error(),
+		DurationMs:     elapsed.Milliseconds(),
+		Model:          entry.Model,
+	}
+	state.AppendRun(run)
+	state.SetRunning("")
+	if err := d.persistence.WriteState(entry.Workspace, state); err != nil {
+		d.logger.Error("could not record failed run", "workspace", entry.Workspace, "error", err.Error())
+		return
+	}
+	d.RecordActivity(run)
+}
+
 // prepareRun reads the persisted state and task file, marks the workspace
 // running, publishes the boot event and prepares the run strategy. The caller
 // records the failure and clears the run when it returns an error.
@@ -152,7 +190,7 @@ func (d *Dispatcher) prepareRun(execCtx context.Context, entry *AutomationEntry)
 		return nil, nil, "", fmt.Errorf("failed to read task file %s: %w", entry.TaskFile, err)
 	}
 	if taskContent == "" {
-		return nil, nil, "", fmt.Errorf("task file %s is empty", entry.TaskFile)
+		return nil, nil, "", fmt.Errorf("task file %s is missing or empty", entry.TaskFile)
 	}
 
 	state.SetRunning(entry.Name)
@@ -350,5 +388,28 @@ func (d *Dispatcher) pollShellPGID(ctx context.Context, workspaceID string) {
 			d.runMu.Unlock()
 			return
 		}
+	}
+}
+
+// newExecuteRequest assembles the executor request from the registered entry.
+// recordingRef is the already-resolved playback reference (entry default or the
+// caller's override).
+func newExecuteRequest(entry *AutomationEntry, state *models.AgentState, taskContent, recordingRef string) ExecuteRequest {
+	if recordingRef == "" {
+		recordingRef = entry.RecordingRef
+	}
+	return ExecuteRequest{
+		WorkspaceID:    entry.Workspace,
+		AutomationName: entry.Name,
+		TaskFile:       entry.TaskFile,
+		TaskContent:    taskContent,
+		Strategy:       entry.Strategy,
+		State:          state,
+		Model:          entry.Model,
+		LoopStrategy:   string(entry.LoopStrategy),
+		AllowedTools:   entry.AllowedTools,
+		RecordingRef:   recordingRef,
+		NetworkGrant:   entry.NetworkGrant,
+		MemoryMode:     entry.MemoryMode,
 	}
 }

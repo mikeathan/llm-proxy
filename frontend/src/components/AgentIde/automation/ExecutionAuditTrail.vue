@@ -52,6 +52,7 @@ defineProps<{
           <MarkdownViewer
             v-if="getMsgPayload(ev).role === 'assistant'"
             class="message-text"
+            variant="compact"
             :content="getMsgPayload(ev).content"
           />
           <p v-else class="message-text">{{ getMsgPayload(ev).content }}</p>

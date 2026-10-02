@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { AssistantService } from '../../services/assistant/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../../utils/message/messageBuilder'
@@ -87,6 +87,15 @@ export function useAssistant() {
     },
     applySessionUpdate,
   )
+
+  // Every useAssistant() call owns its own live connection and message builder,
+  // while messages / sessions / currentSessionId are shared module state. A chat
+  // that unmounts (the user moves to another page) must therefore stop listening:
+  // otherwise its connection stays open, and when the chat is opened again the old
+  // and the new connection each feed their own builder into the same messages —
+  // steps appear twice and the two builders reset each other's turn. The run itself
+  // is unaffected: it lives on the server, and the next connect() replays it.
+  if (getCurrentScope()) onScopeDispose(() => sse.disconnect())
 
   const liveEvents = sse.liveEvents
   const pendingDecision = sse.pendingDecision

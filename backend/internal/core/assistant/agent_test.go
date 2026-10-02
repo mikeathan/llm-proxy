@@ -2,11 +2,13 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
@@ -5212,4 +5214,92 @@ func TestApplyReasoningEnabledOverride_LocalLoopbackOpenaiSlug(t *testing.T) {
 	if out != in {
 		t.Errorf("local workload override must not mutate spec: in %+v out %+v", in, out)
 	}
+}
+
+// The "model does not support tools" fallback resends the history without
+// tools. It must send it sanitized like every other request: UI-only fields
+// (a turn's run record, a persisted failure) and reasoning never reach the
+// provider (Constitution II.8; strict endpoints reject unknown message keys).
+func TestAgent_ToolSupportFallback_SendsSanitizedHistory(t *testing.T) {
+	var retried *proxy.ChatRequest
+	client := &MockClient{ChatFunc: func(_ context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		if retried == nil && len(req.Tools) > 0 {
+			return nil, errors.New("400: tools is not currently supported by this model")
+		}
+		r := req
+		retried = &r
+		return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "# Summary\nNothing else to do here."}}}}, nil
+	}}
+	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "read_file"}}}}
+	agent := NewAgent(client, provider, &MockEngine{}, AgentOptions{MaxSteps: 1})
+
+	history := []proxy.Message{
+		{Role: proxy.UserRole, Content: "earlier task", Run: &models.TurnRun{Model: "qwen", DurationMs: 900}},
+		{Role: proxy.AssistantRole, Content: "", Error: "upstream failed", ReasoningContent: "old thought"},
+		{Role: proxy.UserRole, Content: "Hi"},
+	}
+	_, _, _ = agent.Execute(context.Background(), history)
+
+	if retried == nil {
+		t.Fatal("the tool-support fallback never resent the request")
+	}
+	raw, err := json.Marshal(retried)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"run"`, `"error"`, `"reasoning_content"`} {
+		if strings.Contains(string(raw), key) {
+			t.Errorf("fallback request carries %s: %s", key, raw)
+		}
+	}
+}
+
+// Token counts are taken only from what the provider reports (no request
+// option asks for them): llama.cpp puts `usage` on its final chunk, OpenAI-style
+// APIs send a trailing usage-only chunk with no choices. Either way the run's
+// tracker records them and the answer is untouched; the non-stream path too.
+func TestAgent_RecordsReportedTokenUsage(t *testing.T) {
+	const answer = "Here is the complete answer to your question."
+	reported := &proxy.TokenUsage{PromptTokens: 120, CompletionTokens: 30}
+	streams := map[string][]*proxy.ChatResponse{
+		"on the final chunk (llama.cpp)": {
+			{Choices: []proxy.Choice{{Delta: proxy.Message{Content: answer}}}},
+			{Choices: []proxy.Choice{{FinishReason: "stop"}}, Usage: reported},
+		},
+		"in a trailing usage-only chunk (OpenAI)": {
+			{Choices: []proxy.Choice{{Delta: proxy.Message{Content: answer}, FinishReason: "stop"}}},
+			{Choices: []proxy.Choice{}, Usage: reported},
+		},
+	}
+	for name, chunks := range streams {
+		t.Run(name, func(t *testing.T) {
+			client := &MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+				ch := make(chan *proxy.ChatResponse, len(chunks))
+				for _, c := range chunks {
+					ch <- c
+				}
+				close(ch)
+				return ch, nil
+			}}
+			ctx := usage.WithTracker(context.Background())
+			reply, _, err := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 2}).Execute(ctx, []proxy.Message{{Role: "user", Content: "Hi"}})
+			if err != nil || reply != answer {
+				t.Fatalf("reply = %q, err = %v", reply, err)
+			}
+			if p, c := usage.FromContext(ctx).ReportedUsage(); p != 120 || c != 30 {
+				t.Errorf("reported usage = %d/%d, want 120/30", p, c)
+			}
+		})
+	}
+
+	t.Run("on a non-stream response", func(t *testing.T) {
+		client := &MockClient{ChatFunc: func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: answer}}}, Usage: reported}, nil
+		}}
+		ctx := usage.WithTracker(context.Background())
+		_, _, _ = NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 2}).Execute(ctx, []proxy.Message{{Role: "user", Content: "Hi"}})
+		if p, c := usage.FromContext(ctx).ReportedUsage(); p != 120 || c != 30 {
+			t.Errorf("reported usage = %d/%d, want 120/30", p, c)
+		}
+	})
 }

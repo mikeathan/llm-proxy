@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestSchedulerConfigValidate(t *testing.T) {
@@ -81,5 +82,29 @@ func TestIsSchedulerConfigError(t *testing.T) {
 	}
 	if IsSchedulerConfigError(errors.New("unrelated")) {
 		t.Fatal("IsSchedulerConfigError(unrelated) = true, want false")
+	}
+}
+
+// A settings.yml without the retention key (or without a memory block at all)
+// must still reap session entries on the default window — "keep forever" would
+// silently let unattended runs grow the store without bound.
+func TestMemoryConfig_SessionRetention(t *testing.T) {
+	def := time.Duration(DefaultMemoryConfig().RetentionDays) * 24 * time.Hour
+	cases := []struct {
+		name string
+		cfg  *MemoryConfig
+		want time.Duration
+	}{
+		{"nil config uses default", nil, def},
+		{"unset days uses default", &MemoryConfig{}, def},
+		{"negative days uses default", &MemoryConfig{RetentionDays: -5}, def},
+		{"explicit days honoured", &MemoryConfig{RetentionDays: 7}, 7 * 24 * time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.SessionRetention(); got != tc.want {
+				t.Errorf("SessionRetention() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

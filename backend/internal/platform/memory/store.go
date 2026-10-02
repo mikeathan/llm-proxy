@@ -69,20 +69,20 @@ const insertSQL = `INSERT INTO memories (workspace_id, memory_type, title, conte
 
 // searchFTSandTagsSQL performs FTS5 full-text search with optional tag filter
 // (EXISTS clause appended dynamically). Ordered by BM25 relevance (rank ASC).
-const searchFTSandTagsSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.created_at, m.updated_at
+const searchFTSandTagsSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at
 FROM memories m
 JOIN memories_fts f ON m.id = f.rowid
 WHERE %s AND memories_fts MATCH ?`
 
 // searchTagsOnlySQL lists entries filtered by tag without an FTS query.
 // Used when the agent provides tags but no text query.
-const searchTagsOnlySQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.created_at, m.updated_at
+const searchTagsOnlySQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at
 FROM memories m
 WHERE %s`
 
 // selectColumnsSQL is the shared column projection used by list/get/find queries,
 // now including the tags column.
-const selectColumnsSQL = `SELECT id, workspace_id, memory_type, title, content, tags, source, created_at, updated_at`
+const selectColumnsSQL = `SELECT id, workspace_id, memory_type, title, content, tags, source, priority, injected_count, searched_count, last_used_at, created_at, updated_at`
 
 // listByTypeSQL lists memories filtered by type, most recently updated first.
 const listByTypeSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND memory_type = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`
@@ -96,6 +96,9 @@ const getSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND id 
 // updateSQL updates the title, content, and tags of a memory entry and bumps its timestamp.
 const updateSQL = `UPDATE memories SET title = ?, content = ?, tags = ?, updated_at = datetime('now') WHERE workspace_id = ? AND id = ?`
 
+// setPrioritySQL changes priority only — no timestamp bump, so recency ordering is undisturbed.
+const setPrioritySQL = `UPDATE memories SET priority = ? WHERE workspace_id = ? AND id = ?`
+
 // deleteSQL removes a single memory entry by ID within a workspace.
 const deleteSQL = `DELETE FROM memories WHERE workspace_id = ? AND id = ?`
 
@@ -107,9 +110,6 @@ const findByTitleSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ?
 
 // findSubstringSQL locates the single memory entry containing a content substring.
 const findSubstringSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND content LIKE ?`
-
-// charCountSQL returns the total character count of all memory content in a workspace.
-const charCountSQL = `SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE workspace_id = ?`
 
 // deleteAllWorkspaceSQL removes all memories for a workspace (or filtered by type).
 const deleteAllWorkspaceSQL = `DELETE FROM memories WHERE workspace_id = ?`
@@ -127,6 +127,14 @@ const sqliteDateTimeFormat = "2006-01-02 15:04:05"
 
 type Store struct {
 	db *sql.DB
+
+	// Operator notes (MEMORY.md) live in files, not rows: see notes.go. Set once
+	// at startup by SetNotesLocations, before the store is shared.
+	notesGlobalPath    string
+	notesWorkspacePath func(workspaceID string) string
+
+	// Pending usage counts, flushed by UsageFlusher (usage.go).
+	usage usageRecorder
 }
 
 func New(p db.Provider) (*Store, error) {
@@ -138,6 +146,24 @@ func New(p db.Provider) (*Store, error) {
 	if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("memory migrate tags: %w", err)
+		}
+	}
+	// Priority (0–2, default normal) orders hot facts under budget pressure.
+	if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN priority INTEGER NOT NULL DEFAULT 1`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("memory migrate priority: %w", err)
+		}
+	}
+	// Usage counters (see usage.go): additive, existing facts start at zero.
+	for _, col := range []string{
+		`injected_count INTEGER NOT NULL DEFAULT 0`,
+		`searched_count INTEGER NOT NULL DEFAULT 0`,
+		`last_used_at DATETIME`,
+	} {
+		if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN ` + col); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return nil, fmt.Errorf("memory migrate usage: %w", err)
+			}
 		}
 	}
 	// Rebuild FTS index for entries that existed before the drop/create above.
@@ -192,6 +218,25 @@ func (s *Store) Update(ctx context.Context, workspaceID string, id int64, title,
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return fmt.Errorf("memory update: not found")
+	}
+	return nil
+}
+
+// ErrInvalidPriority is returned for a priority outside PriorityLow..PriorityHigh.
+var ErrInvalidPriority = fmt.Errorf("invalid priority: must be %d–%d", PriorityLow, PriorityHigh)
+
+// SetPriority changes how long a hot fact survives when the budget cuts the
+// tail. It does not touch the fact's text, tags or timestamp.
+func (s *Store) SetPriority(ctx context.Context, workspaceID string, id int64, priority int) error {
+	if !ValidPriority(priority) {
+		return ErrInvalidPriority
+	}
+	res, err := s.db.ExecContext(ctx, setPrioritySQL, priority, workspaceID, id)
+	if err != nil {
+		return fmt.Errorf("memory set priority: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("memory set priority: not found")
 	}
 	return nil
 }
@@ -280,15 +325,6 @@ func (s *Store) FindByContentSubstring(ctx context.Context, workspaceID, substr 
 	default:
 		return nil, fmt.Errorf("substring %q matches %d entries — be more specific", substr, len(entries))
 	}
-}
-
-func (s *Store) WorkspaceCharCount(ctx context.Context, workspaceID string) (int, error) {
-	var total sql.NullInt64
-	err := s.db.QueryRowContext(ctx, charCountSQL, workspaceID).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("memory char count: %w", err)
-	}
-	return int(total.Int64), nil
 }
 
 // ──────────────────────────────────────────────────────────────

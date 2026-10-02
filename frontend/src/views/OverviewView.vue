@@ -6,6 +6,7 @@ import { summariseHost } from "../domain/hostStats"
 import { useGlobalRunActivity } from "../composables/assistant/useGlobalRunActivity"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { toAutomations, toModels } from "../router/routes"
+import { historicalRunTarget, runTarget, runTitle } from "../utils/runs/runTarget"
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../utils/format/time"
 import type { AutomationRun } from "../types/dispatcher"
 import { LANE_LABELS, RUN_KIND_LABELS } from "../constants/runs"
@@ -17,6 +18,7 @@ import Sparkline from "../components/common/display/Sparkline.vue"
 import Meter from "../components/common/display/Meter.vue"
 import SlotBar from "../components/common/display/SlotBar.vue"
 import StatusTag from "../components/common/display/StatusTag.vue"
+import RunRow from "../components/common/display/RunRow.vue"
 import DataTable from "../components/common/display/DataTable.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
@@ -155,14 +157,17 @@ const runKey = (run: AutomationRun) => run.id
           body="Automations, chats and API callers appear here while they hold a model slot."
         />
         <ul v-else class="m-0 flex list-none flex-col gap-2 p-0">
-          <li v-for="holder in laneHolders" :key="holder.key" class="flex min-w-0 flex-wrap items-center gap-2">
-            <StatusTag :state="holder.kind === 'inbound' ? 'info' : 'running'" :label="RUN_KIND_LABELS[holder.kind]" />
-            <span class="min-w-0 flex-1 truncate font-mono text-[length:var(--text-small)] text-primary">{{ holder.label }}</span>
-            <span class="font-mono text-[length:var(--text-small)] tabular-nums text-muted">{{ runningFor(holder.since) }}</span>
+          <li v-for="holder in laneHolders" :key="holder.key" class="flex min-w-0">
+            <RunRow
+              :state="holder.kind === 'inbound' ? 'info' : 'running'"
+              :tag="RUN_KIND_LABELS[holder.kind]"
+              :title="runTitle(holder)"
+              :note="runningFor(holder.since)"
+              :to="runTarget(holder)"
+            />
           </li>
-          <li v-for="entry in queuedRuns" :key="entry.key" class="flex min-w-0 flex-wrap items-center gap-2">
-            <StatusTag state="queued" :label="`Queued #${entry.position}`" />
-            <span class="min-w-0 flex-1 truncate font-mono text-[length:var(--text-small)] text-secondary">{{ entry.label }}</span>
+          <li v-for="entry in queuedRuns" :key="entry.key" class="flex min-w-0">
+            <RunRow state="queued" :tag="`Queued #${entry.position}`" :title="runTitle(entry)" :to="runTarget(entry)" muted />
           </li>
         </ul>
       </Panel>
@@ -183,6 +188,13 @@ const runKey = (run: AutomationRun) => run.id
         >
           <template #cell-time="{ row }">
             <time :datetime="row.timestamp" :title="formatAbsoluteTime(row.timestamp)" class="font-mono text-[length:var(--text-small)] text-muted">{{ formatRelativeTime(row.timestamp) }}</time>
+          </template>
+          <template #cell-run="{ row }">
+            <RouterLink
+              :to="historicalRunTarget(row)"
+              :aria-label="`Open run ${runLabel(row)}`"
+              class="rounded-[var(--radius-sm)] font-mono text-[length:var(--text-small)] text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2"
+            >{{ runLabel(row) }}</RouterLink>
           </template>
           <template #cell-status="{ row }">
             <StatusTag :state="runState(row)" :label="row.error ? 'Failed' : 'Completed'" />
