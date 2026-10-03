@@ -25,6 +25,8 @@ export interface TurnRun {
   duration_ms?: number
   prompt_tokens?: number
   completion_tokens?: number
+  // Facts saved from the user's message before the run (an explicit "remember …").
+  memory_saved?: string[]
 }
 
 export interface AssistantMessage {

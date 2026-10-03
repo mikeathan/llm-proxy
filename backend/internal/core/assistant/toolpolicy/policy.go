@@ -34,3 +34,45 @@ func FailurePolicyFor(name string) FailurePolicy {
 	}
 	return FatalOnTerminalError
 }
+
+// ToolEffect classifies what a tool call can change. The agent loop uses it to
+// decide whether the rest of a tool-call batch may still run after one call
+// fails, and whether a turn's text beside its calls can be the run's report.
+type ToolEffect int
+
+const (
+	// EffectMutating means the call may change workspace, host or external
+	// state (files, shell, notifications, MCP servers). This is the default, so
+	// an unlisted or unknown tool is never assumed safe to run past.
+	EffectMutating ToolEffect = iota
+	// EffectReadOnly means the call only reads: a later call in the same batch
+	// cannot depend on what it changed, because it changes nothing.
+	EffectReadOnly
+	// EffectHousekeeping means the call records run bookkeeping (saving a
+	// memory, writing the automation journal) rather than doing the task, so
+	// text written beside it may be the run's report.
+	EffectHousekeeping
+)
+
+// toolEffects is the explicit per-tool side-effect table. Only built-in tools
+// whose behaviour is known appear here; everything else defaults to mutating.
+var toolEffects = map[string]ToolEffect{
+	models.ToolNetworkFetch:      EffectReadOnly,
+	models.ToolInternetSearch:    EffectReadOnly,
+	models.ToolFileRead:          EffectReadOnly,
+	models.ToolDirectoryList:     EffectReadOnly,
+	models.ToolMemorySearch:      EffectReadOnly,
+	models.ToolNetworkInfo:       EffectReadOnly,
+	models.ToolNetworkScan:       EffectReadOnly,
+	models.ToolMemoryUpdate:      EffectHousekeeping,
+	models.ToolAutomationJournal: EffectHousekeeping,
+}
+
+// EffectFor returns the side-effect class of a tool. An unlisted tool
+// (including every MCP tool) is EffectMutating.
+func EffectFor(name string) ToolEffect {
+	if e, ok := toolEffects[name]; ok {
+		return e
+	}
+	return EffectMutating
+}

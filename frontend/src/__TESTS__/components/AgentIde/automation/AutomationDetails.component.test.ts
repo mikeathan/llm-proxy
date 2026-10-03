@@ -14,6 +14,11 @@ vi.mock('../../../../composables/automation/useLiveConsole', () => ({
   }),
 }))
 
+const { getJournal, clearJournal } = vi.hoisted(() => ({ getJournal: vi.fn(), clearJournal: vi.fn() }))
+vi.mock('../../../../services/automation/dispatcherService', () => ({
+  DispatcherService: { getAutomationJournal: getJournal, clearAutomationJournal: clearJournal },
+}))
+
 import AutomationDetails from '../../../../components/AgentIde/automation/AutomationDetails.vue'
 
 const run = (id: string, over: Partial<AutomationRun> = {}): AutomationRun =>
@@ -46,6 +51,16 @@ describe('AutomationDetails', () => {
   afterEach(() => {
     mounted.splice(0).forEach((w) => w.unmount())
     document.body.innerHTML = ''
+  })
+
+  it('says what memory the runs get: an override as itself, an inherited value as the default', async () => {
+    const memoryLine = async (memory_mode: Automation['memory_mode']) => {
+      const w = await mountDetails({ automation: { ...AUTO, memory_mode } })
+      return w.text()
+    }
+    expect(await memoryLine('on')).toMatch(/Memory\s*On/)
+    expect(await memoryLine('off')).toMatch(/Memory\s*Off/)
+    expect(await memoryLine('')).toMatch(/Memory\s*Default \(off\)/)
   })
 
   it('shows the configuration, the last error and the last output, and connects the live console', async () => {
@@ -115,5 +130,52 @@ describe('AutomationDetails', () => {
   it('says when it has never run', async () => {
     const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
     expect(w.text()).toContain('No runs yet')
+  })
+
+  describe('learning journal', () => {
+    const KEEPS = { ...AUTO, journal: true }
+    const headings = (w: VueWrapper) => w.findAll('h2').map((h) => h.text())
+
+    it('shows no Journal panel and never fetches while the automation keeps none', async () => {
+      getJournal.mockClear()
+      const w = await mountDetails()
+      expect(headings(w)).not.toContain('Journal')
+      expect(w.text()).toContain('Off')
+      expect(getJournal).not.toHaveBeenCalled()
+    })
+
+    it('shows the notes the automation left for itself', async () => {
+      getJournal.mockResolvedValue({ journal: '- query: llm release notes' })
+      const w = await mountDetails({ automation: KEEPS })
+      expect(headings(w)).toContain('Journal')
+      expect(w.text()).toContain('Keeps notes between runs')
+      expect(w.findAll('.md').map((m) => m.text())).toContain('- query: llm release notes')
+    })
+
+    it('says so when nothing has been written yet', async () => {
+      getJournal.mockResolvedValue({ journal: '' })
+      const w = await mountDetails({ automation: KEEPS })
+      expect(w.text()).toContain('No notes yet')
+      expect(w.findAll('button').some((b) => b.text().includes('Clear journal'))).toBe(false)
+    })
+
+    it('clears the journal only after confirming', async () => {
+      getJournal.mockResolvedValue({ journal: '- query A' })
+      clearJournal.mockResolvedValue(undefined)
+      const w = await mountDetails({ automation: KEEPS })
+      await w.findAll('button').find((b) => b.text().includes('Clear journal'))!.trigger('click')
+      await flushPromises()
+      expect(clearJournal).not.toHaveBeenCalled()
+      useConfirm().handleConfirm()
+      await flushPromises()
+      expect(clearJournal).toHaveBeenCalledWith('ws', 'nightly')
+      expect(w.text()).toContain('No notes yet')
+    })
+
+    it('explains a journal that could not be loaded', async () => {
+      getJournal.mockRejectedValue(new Error('boom'))
+      const w = await mountDetails({ automation: KEEPS })
+      expect(w.get('[role="alert"]').text()).toContain('Could not load the journal')
+    })
   })
 })

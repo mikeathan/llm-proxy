@@ -1,0 +1,20 @@
+{
+  "tool_name": "automation",
+  "version": "1.0",
+  "description": "Tools for unattended automation runs.",
+  "runtime": {
+    "automation_journal": {
+      "description": "Replace your journal: short notes this automation keeps for its future runs. Write what to do differently next time — queries that surfaced new items, sources worth or not worth checking, topics already saturated. Your current journal is shown at the top of the task; write the full updated text, not only the changes. Keep it short.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The complete new journal text (markdown). It replaces the previous journal."
+          }
+        },
+        "required": ["content"]
+      }
+    }
+  }
+}

@@ -11,6 +11,7 @@ package reasoning
 import (
 	"fmt"
 
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/models"
 )
 
@@ -173,10 +174,26 @@ type thinkTokensResolver struct{}
 
 func (thinkTokensResolver) Apply(req *models.ChatRequest, spec ReasoningSpec) {
 	req.ThinkingBudgetTokens = spec.Budget
+	req.ReasoningBudgetMessage = ""
+	if spec.Budget > 0 {
+		// llama.cpp appends the message to the reasoning when the budget is reached,
+		// on any turn, so the model closes its thought instead of carrying on in the visible reply.
+		req.ReasoningBudgetMessage = prompts.ThinkBudgetWrapUp
+	}
 	req.ReasoningEffort = ""
 	req.Reasoning = nil
 	req.ChatTemplateKwargs = nil
 	req.ReasoningBudget = 0
+}
+
+// DisableThinking turns thinking off for one request (llama.cpp / Qwen-style
+// templates read chat_template_kwargs.enable_thinking), dropping any budget. It
+// is the recovery step after a stuck stream: an answer without thinking cannot
+// loop in thinking.
+func DisableThinking(req *models.ChatRequest) {
+	req.ChatTemplateKwargs = &models.ChatTemplateKwargs{EnableThinking: false}
+	req.ThinkingBudgetTokens = 0
+	req.ReasoningBudgetMessage = ""
 }
 
 type noopResolver struct{}

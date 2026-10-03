@@ -20,7 +20,7 @@ const STATE = {
 
 const AUTO = {
   id: 'ws/nightly', workspace: 'ws', name: 'nightly', task_file: 'jobs/nightly.md', strategy: 'persistent',
-  trigger: 'cron', trigger_value: '0 7 * * *', model: 'gpt-5', loop_strategy: 'react', network_grant: 'lan', memory_mode: 'hot',
+  trigger: 'cron', trigger_value: '0 7 * * *', model: 'gpt-5', loop_strategy: 'react', network_grant: 'lan', memory_mode: 'on',
 } as Automation
 
 // Characterisation (plan D22) — and the tests the absorbed
@@ -37,9 +37,14 @@ describe('useAutomationForm', () => {
     expect(f.selectedWorkspace.value).toBe('ws')
     expect(f.form.value).toEqual({
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
-      strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'hot',
-      notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false,
+      strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'on',
+      notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false, journal: false,
     })
+  })
+
+  it('reads a stale or unknown memory mode as the default instead of carrying it into the form', () => {
+    const edit = (memory_mode: string) => useAutomationForm(ref({ ...AUTO, memory_mode } as Automation), vi.fn()).form.value.memoryMode
+    expect([edit('on'), edit('off'), edit(''), edit('hot'), edit('bogus')]).toEqual(['on', 'off', '', '', ''])
   })
 
   it('repopulates when a different automation is edited, and resets when editing stops', async () => {
@@ -104,6 +109,11 @@ describe('useAutomationForm', () => {
   it('populates delivery and busy behaviour from the automation', () => {
     const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'my-tg', dedup: true, dedup_days: 14, send_empty: true }, skip_if_busy: true }), vi.fn())
     expect(f.form.value).toMatchObject({ notifyConnector: 'my-tg', notifyDedup: true, notifyDedupDays: '14', notifySendEmpty: true, skipIfBusy: true })
+  })
+
+  it('populates the learning journal flag, off by default', () => {
+    expect(useAutomationForm(ref(AUTO), vi.fn()).form.value.journal).toBe(false)
+    expect(useAutomationForm(ref({ ...AUTO, journal: true }), vi.fn()).form.value.journal).toBe(true)
   })
 
   it('lists configured connectors and keeps the form\'s own connector selectable', () => {

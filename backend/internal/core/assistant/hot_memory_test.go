@@ -534,3 +534,89 @@ func TestBuildHotInjection_DoesNotRepeatAnAutoDerivedTitle(t *testing.T) {
 		t.Errorf("block =\n%q\nwant\n%q", got, want)
 	}
 }
+
+// firstRequestHead runs one turn and returns the head system message of the first model request.
+func firstRequestHead(t *testing.T, store *memory.Store, opts AgentOptions) string {
+	t.Helper()
+	var head string
+	client := &MockClient{
+		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			if head == "" && len(req.Messages) > 0 {
+				head = req.Messages[0].Content
+			}
+			ch := make(chan *proxy.ChatResponse, 1)
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "# Done\nTask finished successfully"}}}}
+			close(ch)
+			return ch, nil
+		},
+	}
+	opts.MemoryStore = store
+	if opts.MaxSteps == 0 {
+		opts.MaxSteps = 4
+	}
+	agent := NewAgent(client, &MockProvider{}, &MockEngine{Result: "ok"}, opts)
+	if _, _, err := agent.Execute(context.Background(), []proxy.Message{
+		{Role: proxy.SystemRole, Content: "test prompt"},
+		{Role: proxy.UserRole, Content: "how should I build?"},
+	}); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	return head
+}
+
+// The save guidance steers a model that can follow it, so it reaches only the operator's own assistant chats with
+// memory on: not automations (unattended), not connector chats (an outside sender must not be able to push the model
+// into saving), not a run without memory.
+func TestSaveGuidance_ReachesOnlyTheOperatorsOwnChatsWithMemoryOn(t *testing.T) {
+	cases := []struct {
+		name string
+		opts AgentOptions
+		want bool
+	}{
+		{"the operator's chat", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, ConversationID: "conv_1"}, true},
+		{"a chat with no conversation id yet", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true}, true},
+		{"memory switched off", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: false, ConversationID: "conv_1"}, false},
+		{"an automation", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, Channel: ChannelAutomation}, false},
+		{"a connector chat", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, ConversationID: "wb_telegram_chat42"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			head := firstRequestHead(t, newTestMemoryStore(t), tc.opts)
+			if got := strings.Contains(head, prompts.MemorySaveGuidance); got != tc.want {
+				t.Errorf("guidance present = %v, want %v: %q", got, tc.want, head)
+			}
+		})
+	}
+}
+
+// It must not depend on memory already holding a hot fact (the first save would never be nudged), and it follows the
+// memory block so the block stays the stable head of the memory text.
+func TestSaveGuidance_FollowsTheMemoryBlockAndNeedsNoHotFact(t *testing.T) {
+	opts := AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, ConversationID: "conv_1"}
+	if head := firstRequestHead(t, newTestMemoryStore(t), opts); !strings.Contains(head, prompts.MemorySaveGuidance) || strings.Contains(head, "<memory>") {
+		t.Errorf("with no hot facts the head must carry the guidance and no empty block: %q", head)
+	}
+
+	store := newTestMemoryStore(t)
+	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	head := firstRequestHead(t, store, opts)
+	block, guidance := strings.Index(head, "</memory>"), strings.Index(head, prompts.MemorySaveGuidance)
+	if block < 0 || guidance < block {
+		t.Errorf("the guidance must come after the memory block (block %d, guidance %d)", block, guidance)
+	}
+}
+
+// Within a run the head must be byte-identical on every request, or the server's prompt cache is lost.
+func TestSaveGuidance_IsByteStableAcrossARunsRequests(t *testing.T) {
+	requests := streamingToolRun(t, newTestMemoryStore(t), AgentOptions{WorkspaceID: "ws-1", ConversationID: "conv_1"}, 2)
+	for i := 1; i < len(requests); i++ {
+		if requests[i][0].Content != requests[0][0].Content {
+			t.Fatalf("request %d head differs from request 1", i+1)
+		}
+	}
+	if !strings.Contains(requests[0][0].Content, prompts.MemorySaveGuidance) {
+		t.Error("the guidance is missing from the head")
+	}
+}

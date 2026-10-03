@@ -1,7 +1,7 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.2"
+version: "1.3"
 status: stable
 last_updated: 2026-10-03
 constitution_references: [II.4, II.5, V]
@@ -12,6 +12,11 @@ supersedes:
 # SPEC: Communication Connector System
 
 ## Changelog
+
+- **1.3 (2026-10-03)** — Telegram hardening: part size is counted in UTF-16 units (Telegram's own
+  measure, so emoji count twice); a 429 is retried once when `retry_after` is at most 10 s (a
+  longer wait is returned as the error); transport errors no longer include the bot token in the
+  request URL.
 
 - **1.2 (2026-10-03)** — Telegram `Send` splits text over 4000 characters on line boundaries and
   retries a part as plain text when Telegram answers 400 "can't parse entities" (model-written
@@ -134,8 +139,9 @@ for name, cfg := range reg.Communication.Connectors {
 Implementation details:
 - POST to `https://api.telegram.org/bot{token}/sendMessage`
 - Form-encoded body with `chat_id`, `text`, `parse_mode=Markdown`
-- Parts over 4000 characters are split on line boundaries (a single longer line is hard-split);
-  a 400 "can't parse entities" reply is retried once without `parse_mode`
+- Parts over 4000 UTF-16 units are split on line boundaries (a single longer line is hard-split);
+  a 400 "can't parse entities" reply is retried once without `parse_mode`; a 429 with
+  `retry_after` <= 10 s is retried once after that wait
 - Response body read (up to 1KB) on error for diagnostic detail
 - Uses injected `*http.Client`, never `http.DefaultClient`
 

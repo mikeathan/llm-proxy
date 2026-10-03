@@ -3,7 +3,7 @@ package automation
 import (
 	"context"
 	"errors"
-	"strings"
+	"sync"
 	"time"
 
 	"llm-proxy/internal/core/assistant/failures"
@@ -12,13 +12,59 @@ import (
 )
 
 const (
-	// deliveryTimeout bounds one connector send. It is a fresh child of the
-	// dispatcher's context, not of the run's: a run that used its whole timeout
-	// must still be able to report that it finished.
+	// deliveryTimeout bounds one connector send. The send derives from the
+	// lane context handed to executeAutomation, not from the run's own
+	// timeout context: a run that used its whole timeout can still report that
+	// it finished, while lane preemption or shutdown cancels the send.
 	deliveryTimeout = 30 * time.Second
 	// seenPromptLimit caps how many already-reported titles are put in the prompt.
 	seenPromptLimit = 25
+	// failureNoticeCooldown is the minimum gap between failure notices for one
+	// automation, so a frequent schedule against a dead model does not flood
+	// the connector. A successful run re-arms the notice immediately.
+	failureNoticeCooldown = time.Hour
 )
+
+// failureNoticeLimiter remembers when each automation last sent a failure
+// notice. The zero value is ready to use; entries are removed on recovery, so
+// it is bounded by the number of currently failing automations.
+type failureNoticeLimiter struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+// reserve claims the right to send a notice for key: it reports whether one may
+// be sent now and, when it may, records the send so a concurrent failure of the
+// same automation cannot also pass. A send that then fails calls release.
+func (l *failureNoticeLimiter) reserve(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if at, ok := l.last[key]; ok && now.Sub(at) < failureNoticeCooldown {
+		return false
+	}
+	if l.last == nil {
+		l.last = map[string]time.Time{}
+	}
+	l.last[key] = now
+	return true
+}
+
+// release gives back a reservation whose send failed, so the next failure may try again.
+func (l *failureNoticeLimiter) release(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.last, key)
+}
+
+func (l *failureNoticeLimiter) reset(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.last, key)
+}
+
+func failureNoticeKey(entry *AutomationEntry) string {
+	return entry.Workspace + "/" + entry.Name
+}
 
 // Notifier delivers a message through a named communication connector. It is
 // an operator-configured, system-side send (like replying to an inbound
@@ -63,14 +109,6 @@ func withSeenHint(entry *AutomationEntry, task string, ledger models.SeenLedger)
 	return task + prompts.AutomationSeenBlock(titles)
 }
 
-// isQuietHeartbeat reports whether a report is the "nothing to report" signal.
-// Delivery is stricter than the UI's smart skip (which matches the marker
-// anywhere): only a report that STARTS with the marker is quiet, so a real
-// alert that merely mentions it is never swallowed.
-func isQuietHeartbeat(report string) bool {
-	return strings.HasPrefix(strings.TrimSpace(report), heartbeatOKMarker)
-}
-
 // deliverReport sends a finished run's report and, only once the send has
 // succeeded, remembers the newly reported items — a failed delivery therefore
 // re-offers the same items on the next run instead of losing them.
@@ -101,14 +139,21 @@ func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, 
 	}
 }
 
-// notifyFailure tells the operator an unattended run failed. A user-requested
-// stop is not a failure worth a message.
+// notifyFailure tells the operator an unattended run failed, at most once per
+// failureNoticeCooldown per automation. A user-requested stop is not a failure
+// worth a message.
 func (d *Dispatcher) notifyFailure(ctx context.Context, entry *AutomationEntry, runErr error) {
 	if !d.wantsDelivery(entry) || runErr == nil || errors.Is(runErr, context.Canceled) {
 		return
 	}
+	key := failureNoticeKey(entry)
+	if !d.failureNotices.reserve(key, time.Now()) {
+		return
+	}
 	msg := "⚠️ Automation " + entry.Name + " failed: " + failures.ClassifyRunFailure(runErr).Error
-	_ = d.send(ctx, entry, msg)
+	if d.send(ctx, entry, msg) != nil {
+		d.failureNotices.release(key)
+	}
 }
 
 // send delivers one message and logs (never propagates) a failure: delivery is

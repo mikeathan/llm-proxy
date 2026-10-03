@@ -1,7 +1,7 @@
 ---
 name: automation
 description: "Automation system: dispatcher, executor, run lifecycle, and templates. Use when working on scheduled tasks or automations."
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-04
 ---
 
 # Automation System — Dispatcher, Executor & Task Lifecycle
@@ -117,9 +117,17 @@ templates. Gotchas:
 - `Dispatcher` only delivers when built with `WithNotifier` (`app.BuildDispatcher` wires it from the
   tool provider's `CommunicationTools`); tests set `d.notifier` directly.
 
-### `skip_if_busy` and `HEARTBEAT_OK`
+### The workspace heartbeat, `skip_if_busy` and `HEARTBEAT_OK`
 
-- `skip_if_busy` is a `runlane.Job` flag (set in `admitRun` only for non-manual fires). `Submit`
+- The heartbeat is `WorkspaceConfig.Heartbeat` (off by default), compiled to a reserved-name
+  (`models.HeartbeatAutomationName`) interval automation in `registerWorkspaceAutomations`; never
+  hand-write one. Its runtime rules live in `automation/heartbeat.go`: `admitRun` skips a tick whose
+  `heartbeat.md` has no checks (`models.HeartbeatBody`) before touching the lane, `prepareRun` sends
+  `prompts.HeartbeatTask` (checks + reply rules), and outcomes go to `meta/<ws>/heartbeat-status.json`.
+  The starter file is comments only. `cron_schedule` no longer exists.
+- `skip_if_busy` is a `runlane.Job` flag (set in `admitRun` only for non-manual fires) via
+  `Dispatcher.skipIfBusy`: the heartbeat derives it from its model's lane (local → on), others use
+  their own flag. `Submit`
   removes the just-queued entry and returns `DispositionSkipped`; `shouldRequeueLocked` returns false
   for it, so a preempted heartbeat is dropped. Skips are metrics-only (no history).
 - A report containing `HEARTBEAT_OK` is blanked in `Output` by `ApplyPulseLogic` and must also be

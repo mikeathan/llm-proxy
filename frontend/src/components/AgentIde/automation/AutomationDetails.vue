@@ -3,12 +3,15 @@ import { computed, onMounted, onUnmounted, watch } from "vue";
 import type { Automation, AutomationRun } from "../../../types/dispatcher";
 import type { DataTableColumn } from "../../../types/ui";
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
+import { useAutomationJournal } from "../../../composables/automation/useAutomationJournal";
 import { useConfirm } from "../../../composables/ui/useConfirm";
+import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
-import { busyLabel, deliveryLabel } from "../../../utils/automation/delivery";
+import { memoryModeLabel } from "../../../utils/automation/memoryMode";
+import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
 import { toWorkspaceFile } from "../../../router/routes";
 import Panel from "../../common/layout/Panel.vue";
@@ -29,7 +32,8 @@ const props = defineProps<{
   automation: Automation;
   lastTriggerResult?: string | null;
   isExecuting?: boolean;
-}>();
+}>()
+const { automationDefaultOn } = useMemoryDefaults();;
 
 const emit = defineEmits<{
   (e: "open-run", run: AutomationRun): void;
@@ -38,6 +42,14 @@ const emit = defineEmits<{
 }>();
 
 const { confirm } = useConfirm();
+
+// The notes this automation keeps for its future runs (only fetched when it
+// keeps a journal).
+const journal = useAutomationJournal(
+  () => props.automation.workspace,
+  () => props.automation.name,
+  () => !!props.automation.journal,
+);
 
 const runs = computed(() =>
   [...(props.automation.history ?? [])].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)),
@@ -97,9 +109,10 @@ const config = computed(() => [
   ["Model", props.automation.model || "Workspace default"],
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],
   ["Network", props.automation.network_grant || "Inherits the workspace"],
-  ["Memory", props.automation.memory_mode === "hot" ? "Hot memory" : "Off"],
+  ["Memory", memoryModeLabel(props.automation.memory_mode, automationDefaultOn.value)],
   ["Delivery", deliveryLabel(props.automation.notify)],
   ["When busy", busyLabel(props.automation.skip_if_busy)],
+  ["Journal", journalLabel(props.automation.journal)],
 ]);
 
 async function deleteRun(run: AutomationRun) {
@@ -110,6 +123,16 @@ async function deleteRun(run: AutomationRun) {
     confirmText: "Delete run",
   });
   if (ok) emit("delete-run", run);
+}
+
+async function clearJournal() {
+  const ok = await confirm({
+    title: `Clear the journal of ${props.automation.name}?`,
+    message: "Its next run starts without notes from earlier runs. This cannot be undone.",
+    type: "error",
+    confirmText: "Clear journal",
+  });
+  if (ok) await journal.clear();
 }
 
 async function clearRuns() {
@@ -168,6 +191,18 @@ const runKey = (run: AutomationRun) => run.id;
         </span>
         <MarkdownViewer :content="automation.last_output" />
       </div>
+    </Panel>
+
+    <Panel v-if="automation.journal" title="Journal">
+      <template v-if="journal.journal.value" #actions>
+        <CopyButton :text="journal.journal.value" title="Copy journal" />
+        <BaseButton variant="danger" size="sm" icon="trash" @click="clearJournal">Clear journal</BaseButton>
+      </template>
+      <p v-if="journal.error.value" role="alert" class="m-0 mb-3 text-[length:var(--text-small)] text-state-error">{{ journal.error.value }}</p>
+      <MarkdownViewer v-if="journal.journal.value" :content="journal.journal.value" />
+      <p v-else-if="!journal.loading.value && !journal.error.value" class="m-0 text-[length:var(--text-small)] text-muted">
+        No notes yet. The run writes its journal when it finishes, and reads it at the start of the next run.
+      </p>
     </Panel>
 
     <Panel title="Console">

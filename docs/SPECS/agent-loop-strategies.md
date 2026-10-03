@@ -3,7 +3,7 @@ id: SPEC-010
 title: Agent Loop Strategies
 version: "1.0"
 status: stable
-last_updated: 2026-08-16
+last_updated: 2026-10-08
 constitution_references: [II.4, II.5, II.6, II.7, II.10, II.13]
 related_specs: [SPEC-001, SPEC-005]
 supersedes:
@@ -124,7 +124,11 @@ appended the failure to history as a tool result; `executePlan` logs
 `plan step failed, continuing` and proceeds to the next step, so the final report can note
 the failure and no earlier successful step is discarded. This mirrors
 `processToolCalls` (react loop) and `TestReactStrategy_ToolErrorContinues`; a single
-failed step never aborts the run, regardless of which model produced the plan. Only
+failed step never aborts the run, regardless of which model produced the plan. Each plan step
+is its own one-call assistant message, so the react loop's batch rules (SPEC-001 §II.6: continue
+past a failed read-only call, answer every unrun call with `prompts.ToolCallNotExecuted`, count
+one failure per batch toward `toolFailureStreakLimit`) reduce here to per-step counting with
+nothing left unanswered. Only
 **structural** plan errors abort: args marshal failure, `validateToolArgs` failure
 (guessed/missing parameter), `MaxPlanSteps` exceeded, and plan-context deadline exceeded —
 those mean the plan itself is malformed, not that a step's outcome failed. Guardrail-denied

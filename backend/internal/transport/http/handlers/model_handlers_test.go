@@ -335,3 +335,28 @@ func TestHasModelOverrides_LoopStrategy(t *testing.T) {
 	}
 }
 
+
+// A model chosen from a listing whose entry identified a llama.cpp server is a
+// local workload even behind an OpenAI-style URL: the fingerprint is classified
+// on and persisted with the model, so budgets and the reasoning wire follow.
+func TestEnrichPersistsLlamaCppFingerprint(t *testing.T) {
+	req := &modelFormRequest{
+		Provider:       "openai",
+		Name:           "Qwen3.6 35B A3B",
+		MaxTokens:      8192,
+		ContextBudget:  50000,
+		ProviderConfig: models.ProviderConfig{BaseURL: "https://models.example.net/v1"},
+		Meta:           &models.ModelMeta{Serving: models.ServingLlamaCpp, Nctx: 16384},
+	}
+	req.enrichMetadataFromProviders(nil)
+
+	if req.Metadata == nil || req.Metadata.Serving != models.ServingLlamaCpp {
+		t.Fatalf("fingerprint not persisted: %+v", req.Metadata)
+	}
+	if req.Metadata.Nctx != 16384 {
+		t.Errorf("serving context = %d, want 16384", req.Metadata.Nctx)
+	}
+	if req.MaxTokens != 0 || req.ContextBudget != 0 {
+		t.Errorf("local workload must clear submitted budgets, got max_tokens=%d ctx_budget=%d", req.MaxTokens, req.ContextBudget)
+	}
+}

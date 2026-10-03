@@ -14,6 +14,7 @@ import BaseButton from '../../common/buttons/BaseButton.vue'
 import LoadingState from '../../common/feedback/LoadingState.vue'
 import EmptyState from '../../common/feedback/EmptyState.vue'
 import MemoryAddForm from './MemoryAddForm.vue'
+import MemoryAssistantSwitch from './MemoryAssistantSwitch.vue'
 import MemoryImportExport from './MemoryImportExport.vue'
 import MemoryNotesEditor from './MemoryNotesEditor.vue'
 import MemoryInjectionPreview from './MemoryInjectionPreview.vue'
@@ -160,6 +161,8 @@ const snippet = (content: string) => (content.length > SNIPPET_CHARS ? `${conten
 
 <template>
   <div class="flex min-h-0 flex-col gap-3">
+    <MemoryAssistantSwitch v-if="workspaceId" :workspace-id="workspaceId" class="border-b border-hairline pb-3" />
+
     <form class="flex flex-wrap items-center gap-2" role="search" @submit.prevent="handleSearch">
       <SearchInput v-model="searchQuery" label="Search memories" class="min-w-[12rem] flex-1" />
       <BaseButton v-if="isSearching" variant="ghost" size="sm" @click="clearSearch">Clear search</BaseButton>

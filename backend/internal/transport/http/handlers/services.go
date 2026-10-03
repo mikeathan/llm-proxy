@@ -121,7 +121,10 @@ type WorkspaceService interface {
 	DeleteTaskTree(ctx context.Context, workspaceID, path string) error
 	DeleteWorkspace(workspaceID string) error
 	DeleteAutomationRuns(workspaceID, automation string) error
+	ReadJournal(workspaceID, automation string) (string, error)
+	DeleteJournal(workspaceID, automation string) error
 	DeleteRunByID(workspaceID, runID string) error
+	RecentRuns(ctx context.Context) ([]models.AutomationRun, error)
 }
 
 type workspaceService struct {
@@ -209,8 +212,20 @@ func (s *workspaceService) DeleteAutomationRuns(workspaceID, automation string) 
 	return s.mgr.DeleteAutomationRuns(workspaceID, automation)
 }
 
+func (s *workspaceService) ReadJournal(workspaceID, automation string) (string, error) {
+	return s.mgr.ReadJournal(workspaceID, automation)
+}
+
+func (s *workspaceService) DeleteJournal(workspaceID, automation string) error {
+	return s.mgr.DeleteJournal(workspaceID, automation)
+}
+
 func (s *workspaceService) DeleteRunByID(workspaceID, runID string) error {
 	return s.mgr.DeleteRunByID(workspaceID, runID)
+}
+
+func (s *workspaceService) RecentRuns(ctx context.Context) ([]models.AutomationRun, error) {
+	return s.mgr.RecentRuns(ctx)
 }
 
 type AssistantService interface {
@@ -240,6 +255,7 @@ type AssistantService interface {
 	RootDir() string
 	Events() assistant.EventPublisher
 	MemoryStore() *memory.Store
+	MemorySettings() *models.MemoryConfig
 	RecordDir() string
 	RunLoggingEnabled() bool
 }

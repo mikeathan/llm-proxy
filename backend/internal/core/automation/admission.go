@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/runlane"
+	"llm-proxy/models"
 )
 
 // flockRetryInterval is the polling interval while waiting for the workspace
@@ -44,6 +45,12 @@ func (d *Dispatcher) Trigger(workspaceID, automationName, recordingRef string) (
 // position — never an error. The entry is re-resolved at dequeue so a deleted or
 // renamed automation is dropped instead of running a stale definition.
 func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef string) (TriggerResult, error) {
+	if isHeartbeat(entry) && !d.heartbeatHasChecks(entry.Workspace) {
+		d.metrics.RecordExecution(false, true, 0)
+		d.recordHeartbeat(entry, models.HeartbeatSkippedNoChecks)
+		d.logger.Info("heartbeat tick skipped: no checks in heartbeat.md", "workspace", entry.Workspace)
+		return TriggerResult{Status: TriggerSkipped}, nil
+	}
 	sub, err := d.lane.Submit(runlane.Job{
 		Key:         key(entry.Workspace, entry.Name),
 		LaneKey:     d.laneKeyFor(entry.Model),
@@ -52,7 +59,7 @@ func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef 
 		Label:       entry.Workspace + "/" + entry.Name,
 		Kind:        runlane.KindAutomation,
 		Manual:      manual,
-		SkipIfBusy:  entry.SkipIfBusy && !manual,
+		SkipIfBusy:  d.skipIfBusy(entry) && !manual,
 		Model:       entry.Model,
 		Run: func(ctx context.Context) error {
 			live, ok := d.registry.Get(entry.Workspace, entry.Name)
@@ -69,6 +76,7 @@ func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef 
 		return TriggerResult{}, err
 	case sub.Disposition == runlane.DispositionSkipped:
 		d.metrics.RecordExecution(false, true, 0)
+		d.recordHeartbeat(entry, models.HeartbeatSkippedBusy)
 		d.logger.Info("automation tick skipped: run lane busy",
 			"workspace", entry.Workspace, "automation", entry.Name)
 		return TriggerResult{Status: TriggerSkipped}, nil

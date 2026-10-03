@@ -11,7 +11,8 @@ import {
   stringToEnvMap,
 } from "../../utils/config";
 import { LOG_LEVELS } from "../../constants/api";
-import type { GlobalConfig, ProviderItem, SchedulerConfig } from "../../types/admin";
+import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig } from "../../types/admin";
+import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
 import type { Model } from "../../types/model";
 import type { ChoiceOption } from "../../types/ui";
 
@@ -125,6 +126,16 @@ function schedulerField<K extends keyof SchedulerConfig>(
   });
 }
 const wholeAtLeast = (min: number, fallback: number) => (value: number) => Math.max(min, Math.floor(value) || fallback);
+
+/** A global hot-memory default as a v-model target; the pair is always written whole. */
+function memoryField(key: keyof MemoryHotDefaults) {
+  return computed<boolean>({
+    get: () => props.editConfig.memory?.[key] ?? SHIPPED_MEMORY_DEFAULTS[key],
+    set: (value) => replaceConfig({ memory: { ...SHIPPED_MEMORY_DEFAULTS, ...props.editConfig.memory, [key]: value } }),
+  });
+}
+const assistantHot = memoryField("assistant_hot");
+const automationHot = memoryField("automation_hot");
 
 const localConcurrency = schedulerField("local_concurrency", wholeAtLeast(1, 1));
 const cloudConcurrency = schedulerField("cloud_concurrency", wholeAtLeast(1, 1));
@@ -315,6 +326,26 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
         <FormField label="Interrupting">
           <template #default="{ id }">
             <BaseToggle :id="id" v-model="inboundPreempt" label="A waiting request may interrupt the running job" />
+          </template>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel title="Memory">
+      <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
+        Hot memory puts the facts you marked "always" in front of the model at the start of a run. It uses a small
+        share of the context window, and only when such facts exist. These are the defaults: a workspace's assistant
+        and each automation can override them.
+      </p>
+      <div class="form-grid">
+        <FormField label="Assistant" hint="Chats in every workspace unless the workspace overrides it.">
+          <template #default="{ id, describedBy }">
+            <BaseToggle :id="id" v-model="assistantHot" :described-by="describedBy" label="Assistant remembers" />
+          </template>
+        </FormField>
+        <FormField label="Automations" hint="Scheduled and manual runs. Off by default: each run spends part of its context on it.">
+          <template #default="{ id, describedBy }">
+            <BaseToggle :id="id" v-model="automationHot" :described-by="describedBy" label="Automations remember" />
           </template>
         </FormField>
       </div>

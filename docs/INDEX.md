@@ -34,6 +34,7 @@ follow the link — do not maintain a second copy here.
 | assistant-ui-patterns | `.agents/skills/assistant-ui-patterns/SKILL.md` |
 | automation | `.agents/skills/automation/SKILL.md` |
 | clean-code | `.agents/skills/clean-code/SKILL.md` |
+| config-persistence | `.agents/skills/config-persistence/SKILL.md` |
 | connector-patterns | `.agents/skills/connector-patterns/SKILL.md` |
 | debugging | `.agents/skills/debugging/SKILL.md` |
 | documentation-stewardship | `.agents/skills/documentation-stewardship/SKILL.md` |
@@ -42,6 +43,8 @@ follow the link — do not maintain a second copy here.
 | lifecycle-events | `.agents/skills/lifecycle-events/SKILL.md` |
 | llamacpp-setup | `.agents/skills/llamacpp-setup/SKILL.md` |
 | memory-system | `.agents/skills/memory-system/SKILL.md` |
+| pr-commit-message | `.agents/skills/pr-commit-message/SKILL.md` |
+| provider-integration | `.agents/skills/provider-integration/SKILL.md` |
 | task-planning | `.agents/skills/task-planning/SKILL.md` |
 | tdd-guide | `.agents/skills/tdd-guide/SKILL.md` |
 | testing-guide | `.agents/skills/testing-guide/SKILL.md` |

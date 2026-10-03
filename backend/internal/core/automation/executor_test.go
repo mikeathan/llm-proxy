@@ -69,6 +69,7 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 // mockSvc implements a minimal LLMServiceProvider for testing.
 type mockSvc struct {
 	memoryStore *memory.Store
+	memory      *models.MemoryConfig
 	modelCfg    models.ModelConfig
 }
 
@@ -93,6 +94,7 @@ func (m *mockSvc) Persistence() *persistence.WorkspaceManager                   
 func (m *mockSvc) Events() assistant.EventPublisher                                     { return nil }
 func (m *mockSvc) Orchestrator() *orchestrator.Orchestrator                             { return nil }
 func (m *mockSvc) MemoryStore() *memory.Store                                           { return m.memoryStore }
+func (m *mockSvc) MemorySettings() *models.MemoryConfig                                 { return m.memory }
 func (m *mockSvc) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
 	return nil, fmt.Errorf("not implemented")
 }
@@ -292,22 +294,24 @@ func TestRecordRun_PersistsWarnings(t *testing.T) {
 	}
 }
 
-// memory_mode is opt-in per automation: unset/off leaves the agent without a
-// memory store (the long-standing behaviour); hot gives it the store and turns
-// on the frozen head-system hot-memory block.
+// memory_mode overrides the global automation default: inherit follows it, on/off beat it. Hot memory needs the
+// store and turns on the frozen head-system block; without it the agent has no memory store at all.
 func TestBuildAgentOptions_MemoryMode(t *testing.T) {
 	store := newTestMemoryStore(t)
 	cases := []struct {
-		mode    models.MemoryMode
-		wantHot bool
+		mode          models.MemoryMode
+		globalDefault bool
+		wantHot       bool
 	}{
-		{"", false},
-		{models.MemoryModeOff, false},
-		{models.MemoryModeHot, true},
+		{models.MemoryModeInherit, false, false},
+		{models.MemoryModeInherit, true, true},
+		{models.MemoryModeOff, true, false},
+		{models.MemoryModeOn, false, true},
 	}
 	for _, tc := range cases {
-		t.Run(string(tc.mode)+"_mode", func(t *testing.T) {
-			executor := NewLLMTaskExecutor(&mockSvc{memoryStore: store}).(*LLMTaskExecutor)
+		t.Run(fmt.Sprintf("mode=%q/global=%v", tc.mode, tc.globalDefault), func(t *testing.T) {
+			svc := &mockSvc{memoryStore: store, memory: &models.MemoryConfig{AutomationHot: new(tc.globalDefault)}}
+			executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
 			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", MemoryMode: tc.mode}, logging.NewNopLogger(), nil)
 			if opts.EnableHotMemory != tc.wantHot {
 				t.Errorf("EnableHotMemory = %v, want %v", opts.EnableHotMemory, tc.wantHot)
@@ -419,7 +423,7 @@ func TestExecute_HotMemoryReachesTheModelOnlyWhenTheAutomationOptsIn(t *testing.
 	}{
 		{"", false},
 		{models.MemoryModeOff, false},
-		{models.MemoryModeHot, true},
+		{models.MemoryModeOn, true},
 	}
 	for _, tc := range cases {
 		t.Run("memory_mode="+string(tc.mode), func(t *testing.T) {
@@ -453,6 +457,30 @@ func TestExecute_HotMemoryReachesTheModelOnlyWhenTheAutomationOptsIn(t *testing.
 			}
 			if len(all) != 1 || all[0].InjectedCount != wantCount {
 				t.Errorf("usage count = %+v, want %d", all, wantCount)
+			}
+		})
+	}
+}
+
+func TestApplyPulseLogic(t *testing.T) {
+	const header = "⏱ **Duration:** 1s\n\n### Final Report\n\n"
+	cases := []struct {
+		name, report string
+		wantQuiet    bool
+	}{
+		{"bare marker", "HEARTBEAT_OK", true},
+		{"bold marker", "**HEARTBEAT_OK**", true},
+		{"an alert that merely mentions the marker stays visible", "Not HEARTBEAT_OK: GPT-6 shipped", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := &ExecuteResponse{Output: header + tc.report, Report: tc.report, State: &models.AgentState{}}
+			ApplyPulseLogic(resp)
+			if quiet := resp.Output == ""; quiet != tc.wantQuiet {
+				t.Errorf("output blanked = %v, want %v", quiet, tc.wantQuiet)
+			}
+			if got := !resp.State.LastPulse.IsZero(); got != tc.wantQuiet {
+				t.Errorf("LastPulse set = %v, want %v", got, tc.wantQuiet)
 			}
 		})
 	}

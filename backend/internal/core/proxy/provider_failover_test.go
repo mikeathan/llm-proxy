@@ -40,7 +40,7 @@ func (m *mockRuntime) GetInstance(ctx context.Context, name string) (llm.ModelIn
 func (m *mockRuntime) RecordActivity(name string) {}
 
 func TestRuntimeClientProvider_Failover(t *testing.T) {
-	newClient := func(url string, model string, headers http.Header) Client {
+	newClient := func(url string, model string, headers http.Header, local bool) Client {
 		return nil // Client doesn't matter for these tests as we check GetClient result
 	}
 

@@ -52,6 +52,17 @@ describe('useDispatcher', () => {
     expect(show).toHaveBeenCalledWith({ severity: 'error', message: 'boom' })
   })
 
+  it('triggerAutomation says so when the run was skipped (a heartbeat with no checks), instead of doing nothing', async () => {
+    triggerAutomationMock.mockResolvedValue({ status: 'skipped', workspace: 'ws', automation: 'heartbeat' })
+
+    await useDispatcher().triggerAutomation('ws', 'heartbeat')
+
+    expect(show).toHaveBeenCalledWith({
+      severity: 'notice',
+      message: 'heartbeat was skipped: it has nothing to run yet. Add checks to heartbeat.md.',
+    })
+  })
+
   it('triggerAutomation announces the queue position when the run waits', async () => {
     triggerAutomationMock.mockResolvedValue({ status: 'queued', position: 2, workspace: 'ws', automation: 'nightly' })
 

@@ -185,16 +185,41 @@ func PreviewHotMemory(entries []memory.MemoryEntry, notes memory.OperatorNotes, 
 // it reads the snapshot and never queries the store, so it is safe to call for
 // sieve measurement as well as for the real request.
 func (a *Agent) injectActiveMemory(prepared []proxy.Message) []proxy.Message {
-	if a.runS == nil || a.runS.prompt.memoryBlock == "" {
+	text := a.memorySystemText()
+	if text == "" {
 		return prepared
 	}
-	block := a.runS.prompt.memoryBlock
 	out := append([]proxy.Message(nil), prepared...)
 	if len(out) > 0 && out[0].Role == proxy.SystemRole {
-		out[0].Content += "\n\n" + block
+		out[0].Content += "\n\n" + text
 		return out
 	}
-	return append([]proxy.Message{{Role: proxy.SystemRole, Content: block}}, out...)
+	return append([]proxy.Message{{Role: proxy.SystemRole, Content: text}}, out...)
+}
+
+// memorySystemText is what memory adds to the head system message: the run's frozen <memory> block, then — for the
+// operator's own assistant chats — the save guidance. Both are fixed for the run, so the head stays byte-identical.
+func (a *Agent) memorySystemText() string {
+	if a.runS == nil {
+		return ""
+	}
+	var parts []string
+	if block := a.runS.prompt.memoryBlock; block != "" {
+		parts = append(parts, block)
+	}
+	if a.guidesMemorySaves() {
+		parts = append(parts, prompts.MemorySaveGuidance)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// guidesMemorySaves reports whether the model should be told when to save: memory is on and there is a store, the agent
+// serves the assistant channel, and the conversation is the operator's own — a connector chat is an outside sender
+// whose messages must not steer what gets remembered.
+func (a *Agent) guidesMemorySaves() bool {
+	return a.config.EnableHotMemory && a.deps.MemoryStore != nil &&
+		a.config.Channel == ChannelAssistant &&
+		models.SessionSource(a.config.ConversationID) == models.SessionSourceManual
 }
 
 // hotFactLine renders one fact as a bullet. A fact saved without an explicit title

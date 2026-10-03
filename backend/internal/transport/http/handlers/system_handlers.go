@@ -57,6 +57,7 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 		Communication: reg.Communication,
 		Search:        reg.Search,
 		RunLogging:    &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
+		Memory:        settings.Memory.HotDefaults(),
 	}
 	respondJSON(w, cfg)
 }
@@ -133,7 +134,7 @@ func (h *SystemHandlers) AdminRestartHandler(w http.ResponseWriter, r *http.Requ
 	h.logger.Info("Restart requested via Admin UI")
 	respondJSON(w, map[string]string{"status": "restarting", "message": "Backend is restarting..."})
 
-	go shutdownAfterResponse()
+	go shutdownAfterResponse(exitCodeRestart)
 }
 
 // AdminHostSettingsHandler handles GET /admin/api/host
@@ -218,13 +219,24 @@ func (h *SystemHandlers) AdminWipeoutHandler(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, res)
 
 	// The data the process depends on is gone; stop it after the response flushes.
-	go shutdownAfterResponse()
+	go shutdownAfterResponse(exitCodeStop)
 }
 
+const (
+	// exitCodeStop is a clean, intentional stop: supervisors (systemd
+	// Restart=on-failure, launchd KeepAlive SuccessfulExit=false) leave it down.
+	exitCodeStop = 0
+	// exitCodeRestart is EX_TEMPFAIL. The process has no way to re-exec itself
+	// under a service manager, so a restart exits non-zero and relies on the
+	// supervisor to relaunch it — exit 0 would be treated as a deliberate stop
+	// and the service would never come back.
+	exitCodeRestart = 75
+)
+
 // shutdownAfterResponse waits briefly for the HTTP response to flush, then exits
-// the process. It is a package variable so tests can stub the process exit (a
-// real os.Exit would terminate the test binary).
-var shutdownAfterResponse = func() {
+// the process with code. It is a package variable so tests can stub the process
+// exit (a real os.Exit would terminate the test binary).
+var shutdownAfterResponse = func(code int) {
 	time.Sleep(500 * time.Millisecond)
-	os.Exit(0)
+	os.Exit(code)
 }

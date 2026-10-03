@@ -48,6 +48,7 @@ func (f *fakeRuntime) TestProviderConnection(context.Context, string, string, st
 }
 func (f *fakeRuntime) ProbeModelAvailability(context.Context, models.ModelConfig) error { return nil }
 func (f *fakeRuntime) SelectModels() (string, string)                                   { return "", "" }
+func (f *fakeRuntime) RefreshServingFingerprints(context.Context)                       {}
 func (f *fakeRuntime) ApplyModelOverrides(map[string]models.ModelOverride)              {}
 func (f *fakeRuntime) ClassifyModel(models.ModelConfig) models.WorkloadClass            { return "" }
 
@@ -55,9 +56,9 @@ func TestModelsListHandler_ServesMetadata(t *testing.T) {
 	rt := &fakeRuntime{models: []models.ModelConfig{
 		// Serving window comes from the launch args (--ctx-size), training
 		// context from the metadata/registry.
-		{Name: "Qwen3.6-35B-A3B", MaxTokens: 87381, Args: []string{"-m", "/models/Qwen.gguf", "--ctx-size", "8192", "--threads", "8"}},
+		{Name: "Qwen3.6-35B-A3B", Provider: models.ProviderLocal, MaxTokens: 87381, Args: []string{"-m", "/models/Qwen.gguf", "--ctx-size", "8192", "--threads", "8"}},
 		// No --ctx-size → falls back to the training context.
-		{Name: "Gpt Oss 20b", MaxTokens: 43690, Metadata: &models.ModelMetadata{ContextLength: 65536}},
+		{Name: "Gpt Oss 20b", Provider: models.ProviderLocal, MaxTokens: 43690, Metadata: &models.ModelMetadata{ContextLength: 65536}},
 	}}
 	h := NewProxyHandlers(rt)
 
@@ -112,6 +113,36 @@ func TestModelsListHandler_ServesMetadata(t *testing.T) {
 	}
 	if secondMeta["n_ctx"] != float64(65536) {
 		t.Errorf("no --ctx-size → n_ctx falls back to training context, got %v", secondMeta["n_ctx"])
+	}
+}
+
+// The listing is what a client uses to decide a model is a local llama.cpp
+// workload, so a cloud model this proxy fronts must not be stamped as one.
+func TestModelsListHandler_CloudModelIsNotLlamaCpp(t *testing.T) {
+	rt := &fakeRuntime{models: []models.ModelConfig{
+		{Name: "glm-5.3-flash", Provider: models.ProviderOpenRouter, MaxTokens: 131072, Metadata: &models.ModelMetadata{ContextLength: 1310720, Nctx: 1048576}},
+	}}
+	h := NewProxyHandlers(rt)
+
+	rec := httptest.NewRecorder()
+	h.ModelsListHandler(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+
+	var resp struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Data) != 1 {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	entry := resp.Data[0]
+	if entry["owned_by"] != models.ProviderOpenRouter {
+		t.Errorf("owned_by = %v, want the provider (%s)", entry["owned_by"], models.ProviderOpenRouter)
+	}
+	meta, _ := entry["meta"].(map[string]any)
+	if _, ok := meta["n_ctx_train"]; ok {
+		t.Errorf("cloud entry carries n_ctx_train: %v", meta)
+	}
+	if entry["max_tokens"] != float64(131072) {
+		t.Errorf("max_tokens = %v, want the published output cap", entry["max_tokens"])
 	}
 }
 

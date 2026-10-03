@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { effectScope, nextTick, ref } from 'vue'
+import { effectScope, nextTick, ref, watch } from 'vue'
 import type { AgentEvent } from '../../../types'
 
 // A fake of the live stream that behaves like the real one where it matters for
@@ -10,6 +10,7 @@ import type { AgentEvent } from '../../../types'
 interface FakeConnection {
   onMessage: (ev: AgentEvent) => void
   open: boolean
+  connects?: number
   isConnected: ReturnType<typeof ref<boolean>>
 }
 const connections: FakeConnection[] = []
@@ -22,6 +23,7 @@ vi.mock('../../../composables/network/useSSEConnection', () => ({
     return {
       isConnected: conn.isConnected,
       connect: () => {
+        conn.connects = (conn.connects ?? 0) + 1
         conn.open = true
         conn.isConnected.value = true
         // The server replays the run so far to a NEW subscriber, then streams live.
@@ -163,5 +165,57 @@ describe('returning to a chat whose run is still going', () => {
     for (const e of live) for (const c of connections.filter((c) => c.open)) c.onMessage(e)
     await nextTick()
     expect(JSON.stringify(second.assistant.messages.value)).toBe(expected)
+  })
+})
+
+// Opening the chat while a run is going: the chat must connect to the live
+// stream once. Connecting, then clearing the turn and connecting again to load
+// the same run, replays it twice and blanks the screen in between.
+describe('opening the chat panel while a run is going', () => {
+  beforeEach(async () => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    connections.length = 0
+    nextId = 0
+    recent = runSoFar()
+    service.listSessions.mockResolvedValue([{ id: 'run-1', snippet: 'do the long task', updated_at: '2026-10-01T10:00:00Z' }])
+    service.getSession.mockResolvedValue(null)
+  })
+
+  const replays = () => connections.reduce((n, c) => n + (c.connects ?? 0), 0)
+
+  it('with no conversation selected, adopts the running run from one replay', async () => {
+    const { assistant } = await visit()
+    assistant.reconcileRunningConversation('run-1')
+    await assistant.openWorkspace('ws', null)
+
+    expect(replays()).toBe(1)
+    expect(assistant.currentSessionId.value).toBe('run-1')
+    expect(userAnchors(assistant)).toBe(1)
+  })
+
+  it('with the running conversation in the URL, loads it from one replay', async () => {
+    const { assistant } = await visit()
+    assistant.reconcileRunningConversation('run-1')
+    const snapshots: number[] = []
+    const stop = watch(assistant.messages, (m) => snapshots.push(m.length), { deep: true, flush: 'sync' })
+    await assistant.openWorkspace('ws', 'run-1')
+    stop()
+
+    expect(replays()).toBe(1)
+    expect(userAnchors(assistant)).toBe(1)
+    // The screen is cleared once when the chat opens and never again afterwards.
+    const wiped = snapshots.slice(snapshots.findIndex((n) => n > 0)).filter((n) => n === 0)
+    expect(wiped, 'the running turn must not be wiped after it appeared').toHaveLength(0)
+  })
+
+  it('with a finished conversation in the URL, loads it from disk', async () => {
+    service.getSession.mockResolvedValue({ id: 'done-1', history: [{ role: 'user', content: 'earlier question' }, { role: 'assistant', content: 'earlier answer' }] })
+    const { assistant } = await visit()
+    await assistant.openWorkspace('ws', 'done-1')
+
+    expect(service.getSession).toHaveBeenCalledWith('ws', 'done-1')
+    expect(assistant.messages.value.length).toBeGreaterThan(0)
+    expect(replays()).toBe(0)
   })
 })

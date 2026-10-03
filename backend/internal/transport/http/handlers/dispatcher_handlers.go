@@ -45,9 +45,8 @@ type Dispatcher interface {
 	StopAutomation(workspaceID string) error
 	Metrics() *automation.DispatcherMetrics
 	Events() *eventbus.Bus
-	GlobalActivity() []models.AutomationRun
 	UnregisterWorkspace(workspaceID string)
-	ClearWorkspaceHistory(workspaceID string)
+	HeartbeatState(workspaceID string) (models.HeartbeatState, error)
 }
 
 type DispatcherHandlers struct {
@@ -89,6 +88,9 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 	if !validateID(auto.Name) {
 		return fmt.Errorf("invalid automation name in payload")
 	}
+	if auto.Name == models.HeartbeatAutomationName {
+		return fmt.Errorf("the name %q is reserved: set the heartbeat up in the workspace's Heartbeat section", auto.Name)
+	}
 	// task_file is joined into the workspace path and its content becomes the
 	// LLM prompt — reject empty/absolute/traversing values so a crafted
 	// automation cannot read arbitrary files outside the workspace.
@@ -102,10 +104,18 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 	return validateRunOptions(auto)
 }
 
+// validateMemoryMode accepts an explicit override or empty (inherit the global default).
+func validateMemoryMode(field string, mode models.MemoryMode) error {
+	if mode != models.MemoryModeInherit && !mode.Valid() {
+		return fmt.Errorf("invalid %s %q: valid values are on, off (empty = inherit the global default)", field, mode)
+	}
+	return nil
+}
+
 // validateRunOptions fail-fast checks the optional per-run settings.
 func validateRunOptions(auto *models.Automation) error {
-	if auto.MemoryMode != "" && !auto.MemoryMode.Valid() {
-		return fmt.Errorf("invalid memory_mode %q: valid values are off, hot (empty = off)", auto.MemoryMode)
+	if err := validateMemoryMode("memory_mode", auto.MemoryMode); err != nil {
+		return err
 	}
 	// network_grant is an explicit per-run scope override; empty = inherit the
 	// workspace scope. Reject unknown values fail-fast (sandboxing plan §4.4).
@@ -148,6 +158,8 @@ type AutomationInfo struct {
 	Notify *models.NotifyConfig `json:"notify,omitempty"`
 	// SkipIfBusy: scheduled fires are skipped, not queued, while the lane is busy.
 	SkipIfBusy bool `json:"skip_if_busy,omitempty"`
+	// Journal: the automation keeps a learning journal (read it with GetAutomationJournal).
+	Journal bool `json:"journal,omitempty"`
 }
 
 func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +191,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			MemoryMode:   string(entry.MemoryMode),
 			Notify:       entry.Notify,
 			SkipIfBusy:   entry.SkipIfBusy,
+			Journal:      entry.Journal,
 		}
 
 		if state, err := h.workspace.GetState(entry.Workspace); err == nil {
@@ -332,6 +345,17 @@ func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if err := validateMemoryMode("assistant_memory", cfg.AssistantMemory); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if cfg.Heartbeat != nil {
+		if err := cfg.Heartbeat.Validate(); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	// Validate before persisting: this endpoint historically bypassed
 	// validateAutomation, letting a crafted task_file/name escape the
 	// workspace path and read arbitrary files into the LLM prompt.
@@ -427,9 +451,16 @@ func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *htt
 	}
 }
 
+// GetGlobalActivity returns the most recent automation runs across every
+// workspace, read from the persisted run history (the same source the run
+// delete endpoints purge).
 func (h *DispatcherHandlers) GetGlobalActivity(w http.ResponseWriter, r *http.Request) {
-	history := h.dispatcher.GlobalActivity()
-	respondJSON(w, history)
+	runs, err := h.workspace.RecentRuns(r.Context())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, runs)
 }
 
 func (h *DispatcherHandlers) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -703,9 +734,8 @@ func (h *DispatcherHandlers) DeleteWorkspace(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Clear from memory first
+	// Unregister its automations first so the scheduler stops firing them
 	h.dispatcher.UnregisterWorkspace(workspaceID)
-	h.dispatcher.ClearWorkspaceHistory(workspaceID)
 
 	if err := h.workspace.DeleteWorkspace(workspaceID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -780,6 +810,35 @@ func (h *DispatcherHandlers) DeleteRun(w http.ResponseWriter, r *http.Request) {
 // DeleteAutomationRuns removes every run directory for an automation across all
 // model subdirs and purges the matching history from state.json, so a user can
 // clear an automation's entire runs folder from the UI.
+// GetAutomationJournal returns the automation's learning journal; an automation
+// that never wrote one has an empty journal.
+func (h *DispatcherHandlers) GetAutomationJournal(w http.ResponseWriter, r *http.Request) {
+	workspaceID, automation, ok := h.parse(w, r, models.WorkspaceIDParam, "automation")
+	if !ok {
+		return
+	}
+	journal, err := h.workspace.ReadJournal(workspaceID, automation)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"journal": journal})
+}
+
+// ClearAutomationJournal erases the automation's learning journal so its next
+// run starts without notes.
+func (h *DispatcherHandlers) ClearAutomationJournal(w http.ResponseWriter, r *http.Request) {
+	workspaceID, automation, ok := h.parse(w, r, models.WorkspaceIDParam, "automation")
+	if !ok {
+		return
+	}
+	if err := h.workspace.DeleteJournal(workspaceID, automation); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, map[string]string{"status": "cleared"})
+}
+
 func (h *DispatcherHandlers) DeleteAutomationRuns(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	automation := r.PathValue("automation")

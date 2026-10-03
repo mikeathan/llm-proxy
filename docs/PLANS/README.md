@@ -64,9 +64,12 @@ Organized by subsystem:
 | [`cross-cutting/sqlite-session-storage.md`](cross-cutting/sqlite-session-storage.md) | SQLite session storage (future work, proposed) | proposed | 2026-08-20 | SPEC-001 |
 | [`cross-cutting/xdg-config-data-relocation.md`](cross-cutting/xdg-config-data-relocation.md) | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
 | [`memory/memory-improvements-implementation-plan.md`](memory/memory-improvements-implementation-plan.md) | Memory Improvements | partial | — | SPEC-004 |
+| [`automation/automation-learning-journal.md`](automation/automation-learning-journal.md) | Automation Learning Journal (bullet dedup, per-automation journal, memory-first, active hours) | partial | 2026-10-03 | SPEC-007, SPEC-004 |
+| [`automation/memory-and-heartbeat-simplification.md`](automation/memory-and-heartbeat-simplification.md) | Memory defaults + overrides (assistant/automation) and a simple per-workspace Heartbeat section | complete | 2026-10-04 | SPEC-004, SPEC-007, SPEC-003 |
 | [`cross-cutting/admin-api-authentication.md`](cross-cutting/admin-api-authentication.md) | Admin / API Authentication and Control-Plane Hardening (no auth today; Host/Origin checks, operator token, `/v1` keys, safer bind) | proposed | 2026-09-30 | SPEC-003, SPEC-006, SPEC-007, SPEC-009 |
 | [`cross-cutting/sandbox-and-egress-residuals.md`](cross-cutting/sandbox-and-egress-residuals.md) | Sandbox and Egress Residual Hardening (`0.0.0.0` guard gap, port-kill ownership, shell→loopback, platform residuals) | proposed | 2026-09-30 | SPEC-006, SPEC-008, SPEC-009 |
 | [`memory/small-context-memory.md`](memory/small-context-memory.md) | Memory for Small-Context Local Models (per-run injection, window-scaled budget, progress ledger, step-aware hints, operator UX) | complete | 2026-10-01 | SPEC-001, SPEC-004, SPEC-005, SPEC-007 |
+| [`memory/assistant-memory-capture.md`](memory/assistant-memory-capture.md) | Assistant Memory Capture (A: explicit capture, C: per-chat review, D: gated guidance) | active | 2026-10-05 | SPEC-004, SPEC-001, SPEC-003 |
 | [`orchestrator/local-and-cloud-inference-performance.md`](orchestrator/local-and-cloud-inference-performance.md) | Local and Cloud Inference Performance (measure first; KV-cache/prefix stability, timings capture, cloud TTFT) | proposed | 2026-09-30 | SPEC-001, SPEC-005, SPEC-007 |
 | [`cross-cutting/backend-hot-paths-and-leak-hardening.md`](cross-cutting/backend-hot-paths-and-leak-hardening.md) | Backend Hot Paths, Memory Growth and Leak Hardening (gauges, soak test, session checkpoint, list endpoints) | proposed | 2026-09-30 | SPEC-001, SPEC-007 |
 | [`assistant-ui/assistant-automation-workbench-layout.md`](assistant-ui/assistant-automation-workbench-layout.md) | Assistant and Automation Workbench Layout (chat+editor split, automation master-detail, one run renderer, context meter) | proposed | 2026-09-30 | SPEC-001, SPEC-003, SPEC-007 |
@@ -91,6 +94,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
+| partial | Automation Learning Journal | Phases 3–4 (memory-search-first, active hours) + Phase 2 live smoke run; Phases 1–2 (bullet dedup, journal + tool) done |
 | approved | Unattended Run Safety Hardening | Steps 6–9 (context-aware I/O hardening, unattended tool restriction & spiral detection, perf optimizations, docs sync) |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Assistant UI Overhaul | Phase 5 backend SSE-bleed fix only (Phase 4 and the chat chrome delivered by the retro redesign, 2026-09-30) |

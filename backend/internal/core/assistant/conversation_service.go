@@ -9,8 +9,10 @@ import (
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/usage"
+	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
@@ -30,6 +32,7 @@ type ConversationDeps interface {
 	GuardrailDecisionStore() *GuardrailDecisionStore
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
+	MemorySettings() *models.MemoryConfig
 	Events() EventPublisher
 	RunLoggingEnabled() bool
 }
@@ -37,10 +40,11 @@ type ConversationDeps interface {
 type conversationService struct {
 	deps        ConversationDeps
 	persistence *persistence.WorkspaceManager
+	extractor   *memorycapture.Extractor
 }
 
 func NewConversationService(deps ConversationDeps, persistence *persistence.WorkspaceManager) ConversationService {
-	return &conversationService{deps: deps, persistence: persistence}
+	return &conversationService{deps: deps, persistence: persistence, extractor: memorycapture.NewExtractor(tools.ContainsSecret)}
 }
 
 func (s *conversationService) Execute(ctx context.Context, workspaceID, conversationID, message, contextVersion, timezone string, excludeTools []string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, events EventPublisher, recorder EventRecorder) (ExecuteResult, error) {
@@ -65,6 +69,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// The turn's run record rides on its user message: set now so mid-run
 	// checkpoints carry the model and start, finished when the agent returns.
 	run := startTurnRun(session.History, modelName)
+	s.captureMemories(ctx, run, workspaceID, session.ID, message, log)
 
 	// 4. Run setup
 	execCtx, clean := s.setupRun(ctx, session.ID, workspaceID, events)
@@ -220,6 +225,13 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 	sessionStep := 0
 
 	obs := func(ev AgentEvent) {
+		// Keep the newest snapshot of a stream only: reasoning and tool_stream
+		// carry the text so far, and buildPartialHistory rescans this log on every
+		// tool result, so keeping each one cost ~11 MB and a quadratic rescan on
+		// a four-minute run.
+		if n := len(collectedEvents); n > 0 && SupersedesSnapshot(collectedEvents[n-1], ev) {
+			collectedEvents = collectedEvents[:n-1]
+		}
 		collectedEvents = append(collectedEvents, ev)
 		events.Publish(workspaceID, ev)
 		if recorder != nil {
@@ -249,6 +261,15 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 	return obs, func() []AgentEvent { return collectedEvents }
 }
 
+// hotMemoryEnabled resolves the workspace's assistant override against the global assistant default.
+func (s *conversationService) hotMemoryEnabled(workspaceID string) bool {
+	var override models.MemoryMode
+	if cfg, err := s.persistence.ReadConfig(workspaceID); err == nil {
+		override = cfg.AssistantMemory
+	}
+	return override.Effective(s.deps.MemorySettings().AssistantHotDefault())
+}
+
 func (s *conversationService) buildAgent(ctx context.Context, modelName, workspaceID, sessionID string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, observer Observer, excludeTools []string) *Agent {
 	builder := NewAgentBuilder(s).
 		WithLogger(log).
@@ -259,7 +280,7 @@ func (s *conversationService) buildAgent(ctx context.Context, modelName, workspa
 		WithChannel(ChannelAssistant).
 		WithConversationID(sessionID).
 		WithMemoryStore().
-		WithHotMemory(true).
+		WithHotMemory(s.hotMemoryEnabled(workspaceID)).
 		WithObserver(observer).
 		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer, ChannelAssistant)).
 		WithOrchestrator().

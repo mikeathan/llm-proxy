@@ -23,6 +23,7 @@ export function useViewManager(deps: {
     if (at.ws && at.assistant) return "assistant"
     if (at.section === "settings") return "settings"
     if (at.section === "playbooks") return "playbooks"
+    if (at.section === "heartbeat") return "heartbeat"
     if (at.section === "memory") return deps.selectedMemory.value ? "memory-detail" : "memory"
     if (at.filePath) return "editor"
     return "overview"

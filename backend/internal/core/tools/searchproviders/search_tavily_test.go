@@ -37,7 +37,7 @@ func TestTavilyProvider_Search_Success(t *testing.T) {
 		t.Fatalf("newTavilyProvider() error = %v", err)
 	}
 
-	results, err := p.Search(context.Background(), "golang generics")
+	results, err := p.Search(context.Background(), "golang generics", "")
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
@@ -89,7 +89,7 @@ func TestTavilyProvider_Search_DefaultsMaxResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTavilyProvider() error = %v", err)
 	}
-	if _, err := p.Search(context.Background(), "q"); err != nil {
+	if _, err := p.Search(context.Background(), "q", ""); err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
 	if body["max_results"] != float64(5) {
@@ -108,7 +108,7 @@ func TestTavilyProvider_Search_Non2xx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTavilyProvider() error = %v", err)
 	}
-	_, err = p.Search(context.Background(), "q")
+	_, err = p.Search(context.Background(), "q", "")
 	if err == nil {
 		t.Fatal("expected an error for a non-2xx response")
 	}
@@ -140,7 +140,7 @@ func TestTavilyProvider_Search_SkipsMalformedURLsAndCapsResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTavilyProvider() error = %v", err)
 	}
-	got, err := p.Search(context.Background(), "q")
+	got, err := p.Search(context.Background(), "q", "")
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}

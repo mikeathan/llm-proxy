@@ -15,6 +15,8 @@ const adminState = ref<AdminState | null>({
 } as unknown as AdminState)
 vi.mock('../../../../composables/models/useModels', () => ({ useModels: () => ({ state: adminState }) }))
 
+const INITIAL_STATE = adminState.value
+
 import AutomationForm from '../../../../components/AgentIde/automation/AutomationForm.vue'
 
 const PROPS = { workspaces: [{ id: 'ws' }], workspaceFiles: { ws: ['jobs/nightly.md', 'task.md'] } }
@@ -37,6 +39,7 @@ const submitButton = (w: VueWrapper) => w.findAll('button').find((b) => /Create 
 // grouped edit page: the create / update payloads are unchanged.
 describe('AutomationForm', () => {
   afterEach(() => {
+    adminState.value = INITIAL_STATE
     mounted.splice(0).forEach((w) => w.unmount())
     document.body.innerHTML = ''
   })
@@ -44,6 +47,17 @@ describe('AutomationForm', () => {
   it('groups the form into Basics, Model & access, Delivery, Schedule and Review', async () => {
     const w = await mountForm()
     expect(w.findAll('h2').map((h) => h.text())).toEqual(['Basics', 'Model & access', 'Delivery', 'Schedule', 'Review'])
+  })
+
+  it('warns that a scheduled run on the workspace default or a local model starts the local model', async () => {
+    const w = await mountForm()
+    await control(w, 'Workspace').setValue('ws')
+    await w.findAll('[role="radio"]').find((r) => r.text() === 'Interval')!.trigger('click')
+    expect(w.get('[data-test="wake-notice"]').text()).toMatch(/default/i)
+    await control(w, 'Connection').setValue('local')
+    expect(w.get('[data-test="wake-notice"]').text()).toMatch(/start the local model/i)
+    await w.findAll('[role="radio"]').find((r) => r.text() === 'Manual')!.trigger('click')
+    expect(w.find('[data-test="wake-notice"]').exists()).toBe(false)
   })
 
   it('offers nested task files of the chosen workspace', async () => {
@@ -65,7 +79,7 @@ describe('AutomationForm', () => {
     await w.get('form').trigger('submit')
     expect(w.emitted('create-automation')).toEqual([[
       'ws',
-      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false },
+      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false, journal: false },
     ]])
   })
 
@@ -85,18 +99,25 @@ describe('AutomationForm', () => {
     expect(w.emitted('update-automation')).toEqual([[
       'ws',
       'nightly',
-      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false },
+      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false, journal: false },
     ]])
   })
 
-  it('lets the operator opt an automation into hot memory, and shows it in the review', async () => {
+  it('lets the operator override the memory default per automation, and shows it in the review', async () => {
     const w = await mountForm(AUTO)
-    expect(control(w, 'Memory').findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'hot'])
-    await control(w, 'Memory').setValue('hot')
-    expect(w.get('[data-test="review"]').text()).toContain('Hot memory')
+    const memory = () => w.get('[role="radiogroup"][aria-label="Memory"]').findAll('[role="radio"]')
+    expect(memory().map((r) => r.text())).toEqual(['Default (off)', 'On', 'Off'])
+    await memory()[1]!.trigger('click')
+    expect(w.get('[data-test="review"]').text()).toContain('On')
     await w.get('form').trigger('submit')
     const [, , payload] = w.emitted('update-automation')![0] as [string, string, { memory_mode: string }]
-    expect(payload.memory_mode).toBe('hot')
+    expect(payload.memory_mode).toBe('on')
+  })
+
+  it('names the live global default in the memory control', async () => {
+    adminState.value = { ...adminState.value!, config: { ...adminState.value!.config, memory: { assistant_hot: true, automation_hot: true } } } as AdminState
+    const w = await mountForm(AUTO)
+    expect(w.get('[role="radiogroup"][aria-label="Memory"]').findAll('[role="radio"]')[0]!.text()).toBe('Default (on)')
   })
 
   it('marks unsaved changes, and cancels', async () => {
@@ -184,6 +205,24 @@ describe('AutomationForm', () => {
       await w.findAll('[role="radio"]').find((r) => r.text() === 'Manual')!.trigger('click')
       await w.get('form').trigger('submit')
       expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({ skip_if_busy: false })
+    })
+  })
+
+  describe('learning journal', () => {
+    const toggle = (w: VueWrapper) => w.findAll('input[role="switch"]').find((i) => i.element.closest('label')?.textContent?.includes('Keep a journal between runs'))!
+
+    it('is off by default and sent when switched on', async () => {
+      const w = await mountForm(AUTO)
+      expect((toggle(w).element as HTMLInputElement).checked).toBe(false)
+      expect(w.get('[data-test="review"]').text()).toContain('Journal')
+      await toggle(w).setValue(true)
+      await w.get('form').trigger('submit')
+      expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({ journal: true })
+    })
+
+    it('shows an automation that already keeps a journal as on', async () => {
+      const w = await mountForm({ ...AUTO, journal: true })
+      expect((toggle(w).element as HTMLInputElement).checked).toBe(true)
     })
   })
 })

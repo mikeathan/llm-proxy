@@ -3,7 +3,7 @@
 **ID:** `memory-ab-test`
 **Category:** memory
 
-Measures whether hot memory helps a small local model. Run it in two automations that are identical except for `memory_mode` (off vs hot), on a model served with a small window (`--ctx-size 8192`). See `docs/guides/memory-testing.md` (Part B) for the setup, the facts to seed and how to read the results.
+Measures whether hot memory helps a small local model. Run it in two automations that are identical except for `memory_mode` (off vs on), on a model served with a small window (`--ctx-size 8192`). See `docs/guides/memory-testing.md` (Part B) for the setup, the facts to seed and how to read the results.
 
 TASK: You are an autonomous agent working in this workspace. Complete every part below, then write the
 final report as your reply.

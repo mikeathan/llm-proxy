@@ -38,8 +38,8 @@ func TestAdminWipeoutHandler_Error(t *testing.T) {
 
 func TestAdminWipeoutHandler_SuccessStopsProcess(t *testing.T) {
 	orig := shutdownAfterResponse
-	exitCalled := make(chan struct{}, 1)
-	shutdownAfterResponse = func() { exitCalled <- struct{}{} }
+	exitCalled := make(chan int, 1)
+	shutdownAfterResponse = func(code int) { exitCalled <- code }
 	t.Cleanup(func() { shutdownAfterResponse = orig })
 
 	admin := &mocks.MockAdminService{
@@ -57,7 +57,39 @@ func TestAdminWipeoutHandler_SuccessStopsProcess(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	select {
-	case <-exitCalled:
+	case code := <-exitCalled:
+		if code != 0 {
+			t.Fatalf("wipeout must exit 0 so the supervisor does not relaunch it, got %d", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected the process-shutdown to be scheduled")
+	}
+}
+
+// TestAdminRestartHandler_ExitsNonZeroSoSupervisorRelaunches guards the
+// "Restart now never came back" bug: systemd (Restart=on-failure) and launchd
+// (KeepAlive SuccessfulExit=false) treat exit 0 as an intentional stop and do
+// not relaunch, so a restart must exit non-zero.
+func TestAdminRestartHandler_ExitsNonZeroSoSupervisorRelaunches(t *testing.T) {
+	orig := shutdownAfterResponse
+	exitCalled := make(chan int, 1)
+	shutdownAfterResponse = func(code int) { exitCalled <- code }
+	t.Cleanup(func() { shutdownAfterResponse = orig })
+
+	h := NewSystemHandlers(&mocks.MockAdminService{}, &mocks.MockLogger{}, &buildinfo.Info{})
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/system/restart", nil)
+	rr := httptest.NewRecorder()
+	h.AdminRestartHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	select {
+	case code := <-exitCalled:
+		if code == 0 {
+			t.Fatal("restart must exit non-zero; exit 0 is treated as a clean stop and never relaunched")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("expected the process-shutdown to be scheduled")
 	}

@@ -34,7 +34,7 @@ func TestBraveProvider_Search_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newBraveProvider() error = %v", err)
 	}
-	results, err := p.Search(context.Background(), "go generics")
+	results, err := p.Search(context.Background(), "go generics", "")
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
@@ -70,7 +70,7 @@ func TestBraveProvider_Search_Non2xx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newBraveProvider() error = %v", err)
 	}
-	_, err = p.Search(context.Background(), "q")
+	_, err = p.Search(context.Background(), "q", "")
 	if err == nil {
 		t.Fatal("expected an error for a non-2xx response")
 	}
@@ -100,7 +100,7 @@ func TestBraveProvider_Search_SkipsMalformedAndCaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newBraveProvider() error = %v", err)
 	}
-	got, err := p.Search(context.Background(), "q")
+	got, err := p.Search(context.Background(), "q", "")
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}

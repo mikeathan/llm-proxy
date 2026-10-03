@@ -21,6 +21,7 @@ import (
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -85,12 +86,16 @@ func DefaultReasoningBudget(maxTokens int) int {
 // tracks the context size the user launched the server with. Derivation is NEVER
 // based on model name (the old name-heuristic gate was removed — it caused
 // false positives/negatives). Explicit configuration always wins.
-func resolveReasoningSpec(providerType string, configuredBudget, maxTokens int) reasoning.ReasoningSpec {
-	tier, ok := providerTiers[providerType]
-	if !ok {
-		return reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}
+func resolveReasoningSpec(providerType string, workload models.WorkloadClass, configuredBudget, maxTokens int) reasoning.ReasoningSpec {
+	// A local workload always reasons through think tokens, whatever the
+	// provider label says (an "openai" slug can front a llama.cpp server), the
+	// same rule NewReasoningResolver applies to the wire (SPEC-005 §4).
+	spec := reasoning.ReasoningSpec{Mode: reasoning.ModeEffort, Effort: reasoning.EffortMedium}
+	if workload == models.WorkloadLocal {
+		spec = reasoning.ReasoningSpec{Mode: reasoning.ModeThinkTokens, Effort: reasoning.EffortMedium}
+	} else if tier, ok := providerTiers[providerType]; ok {
+		spec = tier.Reasoning
 	}
-	spec := tier.Reasoning
 	if spec.Mode == reasoning.ModeThinkTokens {
 		if configuredBudget > 0 {
 			spec.Budget = configuredBudget
@@ -248,6 +253,11 @@ type Agent struct {
 	deps   AgentRuntimeDeps
 
 	runS *runSession // current execution session; nil outside Execute
+
+	// answerWithoutThinking is the recovery step after a local stream got stuck
+	// thinking: the next request turns thinking off so it cannot loop in thinking
+	// again. One-shot (consumed by applyRequestConfig); never set for cloud.
+	answerWithoutThinking atomic.Bool
 
 	cachedToolManual    string // cached BuildToolManual output
 	cachedToolReference string // cached BuildNativeToolReference output
@@ -616,7 +626,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			MaxSteps:                 opts.MaxSteps,
 			ContextBudget:            opts.ContextBudget,
 			MaxTokens:                opts.MaxResponseTokens,
-			ReasoningSpec:            applyReasoningEnabledOverride(resolveReasoningSpec(opts.ProviderType, opts.ReasoningBudget, opts.MaxResponseTokens), opts.ReasoningEnabled, opts.WorkloadClass),
+			ReasoningSpec:            applyReasoningEnabledOverride(resolveReasoningSpec(opts.ProviderType, opts.WorkloadClass, opts.ReasoningBudget, opts.MaxResponseTokens), opts.ReasoningEnabled, opts.WorkloadClass),
 			ReasoningBudget:          opts.ReasoningBudget,
 			Temperature:              opts.Temperature,
 			ICUWeight:                opts.ICUWeight,
@@ -672,6 +682,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 	execCtx = usage.WithTracker(execCtx)
 	a.toolFailure.reset()
+	a.answerWithoutThinking.Store(false) // a recovery armed by an earlier run must not leak into this one
 	execCtx = proxy.WithRetryObserver(execCtx, func(info proxy.RetryInfo) { a.notifyUpstream(info) })
 
 	// Stamp the resolved run network scope so the guardrail engine, network

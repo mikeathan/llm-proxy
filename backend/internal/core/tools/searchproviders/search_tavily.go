@@ -44,11 +44,15 @@ func newTavilyProvider(cfg tools.SearchProviderConfig) (tools.SearchProvider, er
 	}, nil
 }
 
-func (t *TavilyProvider) Search(ctx context.Context, query string) ([]tools.SearchResult, error) {
+func (t *TavilyProvider) Search(ctx context.Context, query string, timeRange tools.SearchTimeRange) ([]tools.SearchResult, error) {
 	payload := map[string]any{
 		"query":        query,
 		"search_depth": tavilySearchDepth,
 		"max_results":  t.maxResults,
+	}
+	// Tavily names its windows exactly like ours.
+	if timeRange != tools.SearchRangeAny {
+		payload["time_range"] = string(timeRange)
 	}
 
 	jsonData, err := json.Marshal(payload)

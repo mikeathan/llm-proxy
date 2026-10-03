@@ -18,6 +18,7 @@ describe('route table (D18)', () => {
     ['/workspaces/ws/memory', ROUTE_NAMES.workspaceSection],
     ['/workspaces/ws/settings', ROUTE_NAMES.workspaceSection],
     ['/workspaces/ws/playbooks', ROUTE_NAMES.workspaceSection],
+    ['/workspaces/ws/heartbeat', ROUTE_NAMES.workspaceSection],
     ['/automations', ROUTE_NAMES.automations],
     ['/automations/new', ROUTE_NAMES.automationNew],
     ['/automations/recordings', ROUTE_NAMES.automationRecordings],

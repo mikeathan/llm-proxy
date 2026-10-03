@@ -43,6 +43,13 @@ export interface Automation {
   memory_mode?: MemoryMode
   notify?: NotifyConfig
   skip_if_busy?: boolean
+  // The automation keeps a learning journal (read it via DispatcherService.getAutomationJournal).
+  journal?: boolean
+}
+
+// AutomationJournal is the learning journal an automation keeps between runs.
+export interface AutomationJournal {
+  journal: string
 }
 
 export interface RecordingMeta {
@@ -78,8 +85,9 @@ export interface DispatcherMetrics {
 }
 
 // TriggerStatus is the dispatch admission outcome reported by the trigger
-// endpoint: started immediately, or queued behind running work.
-export type TriggerStatus = 'started' | 'queued'
+// endpoint: started immediately, queued behind running work, or skipped
+// (a heartbeat with no checks has nothing to run).
+export type TriggerStatus = 'started' | 'queued' | 'skipped'
 
 export interface TriggerResponse {
   status: TriggerStatus

@@ -114,9 +114,7 @@ type Automation struct {
 	// none/lan/internet_only/internet tighten or loosen for this automation. The
 	// host L0 switch remains the ceiling (plan §4.4 grant model).
 	NetworkGrant NetworkScope `yaml:"network_grant,omitempty" json:"network_grant,omitempty"`
-	// MemoryMode opts this automation into hot-memory injection. Empty/off (the
-	// default) leaves the run without memory; hot injects the workspace's hot
-	// entries once per run in the head system message.
+	// MemoryMode overrides the global automation hot-memory default for this automation; empty inherits it.
 	MemoryMode MemoryMode `yaml:"memory_mode,omitempty" json:"memory_mode,omitempty"`
 	// Notify delivers each successful run's report (and failures) through a
 	// communication connector, optionally skipping items already reported.
@@ -128,18 +126,24 @@ type Automation struct {
 	// heartbeat-style checks whose next tick repeats the work; manual triggers
 	// always queue. Default false.
 	SkipIfBusy bool `yaml:"skip_if_busy,omitempty" json:"skip_if_busy,omitempty"`
+	// Journal gives the automation a learning journal: short notes it rewrites at
+	// the end of each run and sees at the start of the next (queries that worked,
+	// sources to skip). Off by default; see models.SanitizeJournal.
+	Journal bool `yaml:"journal,omitempty" json:"journal,omitempty"`
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml
 type WorkspaceConfig struct {
-	// Legacy single cron schedule (for backward compatibility)
-	CronSchedule string  `yaml:"cron_schedule" json:"cron_schedule"`
-	Model        string  `yaml:"model" json:"model"`
-	Temperature  float64 `yaml:"temperature" json:"temperature"`
+	Model       string  `yaml:"model" json:"model"`
+	Temperature float64 `yaml:"temperature" json:"temperature"`
 	// automations array (N:M model)
 	Automations []*Automation `yaml:"automations" json:"automations"`
 	// per-workspace guardrail overrides
 	Guardrails *AgentGuardrailsConfig `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
+	// Heartbeat is the workspace's frequent low-cost check; nil or disabled schedules nothing.
+	Heartbeat *HeartbeatConfig `yaml:"heartbeat,omitempty" json:"heartbeat,omitempty"`
+	// AssistantMemory overrides the global assistant hot-memory default for this workspace's chats; empty inherits it.
+	AssistantMemory MemoryMode `yaml:"assistant_memory,omitempty" json:"assistant_memory,omitempty"`
 }
 
 // AutomationRun represents a single execution of an automation.

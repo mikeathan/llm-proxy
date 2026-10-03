@@ -121,6 +121,13 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		return dataMgr.Settings().Get().Memory.SessionRetention()
 	})
 
+	// An OpenAI-style model whose server listing identifies llama.cpp is a local
+	// workload; models saved before the listing said so are marked here, off the
+	// startup path, tethered to the app context.
+	if rt := container.Core.Runtime; rt != nil {
+		go rt.RefreshServingFingerprints(ctx)
+	}
+
 	// Tether the watcher restarted after factory reset to the app lifecycle
 	// (Constitution II.2/II.14) instead of an untethered context.
 	svc.AppCtx.SetRootContext(ctx)

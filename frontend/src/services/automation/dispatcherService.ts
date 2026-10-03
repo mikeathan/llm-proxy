@@ -1,5 +1,6 @@
-import type { Automation, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../../types/dispatcher'
+import type { Automation, AutomationJournal, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../../types/dispatcher'
 import type { WorkspaceTree } from '../../types/workspace'
+import type { HeartbeatConfig, HeartbeatState } from '../../types/heartbeat'
 import type { AutomationPayload } from '../../types/automation'
 import { get, post, put, del } from '../httpClient'
 import { encodeFilePath } from '../../utils/workspace/filePath'
@@ -18,6 +19,14 @@ export const DispatcherService = {
       url += `?recording_ref=${encodeURIComponent(recordingRef)}`
     }
     return post<TriggerResponse>(url)
+  },
+
+  async getAutomationJournal(workspace: string, automation: string): Promise<AutomationJournal> {
+    return get<AutomationJournal>(`${BASE_URL}/workspaces/${workspace}/automations/${automation}/journal`)
+  },
+
+  async clearAutomationJournal(workspace: string, automation: string): Promise<void> {
+    return del<void>(`${BASE_URL}/workspaces/${workspace}/automations/${automation}/journal`)
   },
 
   async getMetrics(): Promise<DispatcherMetrics> {
@@ -91,6 +100,15 @@ export const DispatcherService = {
 
   async updateWorkspaceConfig(workspace: string, config: any): Promise<void> {
     return put<void>(`${BASE_URL}/workspaces/${workspace}/config`, config)
+  },
+
+  async getHeartbeat(workspace: string): Promise<HeartbeatState> {
+    return get<HeartbeatState>(`${BASE_URL}/workspaces/${workspace}/heartbeat`)
+  },
+
+  // Saves the settings and returns the state they produce (lane, checks, last check).
+  async putHeartbeat(workspace: string, config: HeartbeatConfig): Promise<HeartbeatState> {
+    return put<HeartbeatState>(`${BASE_URL}/workspaces/${workspace}/heartbeat`, config)
   },
 
   async getAllWorkspaceConfigs(): Promise<Record<string, any>> {

@@ -1,11 +1,15 @@
 package searchproviders
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
 )
 
@@ -89,5 +93,64 @@ func TestValidResultURL(t *testing.T) {
 		if got := validResultURL(tt.raw); got != tt.want {
 			t.Errorf("validResultURL(%q) = %v, want %v", tt.raw, got, tt.want)
 		}
+	}
+}
+
+// Each provider expresses the recency window in its own vocabulary; an unset
+// range must send no filter at all (a stray default would silently narrow every
+// search).
+func TestProviders_MapTimeRange(t *testing.T) {
+	ranges := []struct {
+		in                  tools.SearchTimeRange
+		tavily, brave, serp string
+	}{
+		{tools.SearchRangeAny, "", "", ""},
+		{tools.SearchRangeDay, "day", "pd", "qdr:d"},
+		{tools.SearchRangeWeek, "week", "pw", "qdr:w"},
+		{tools.SearchRangeMonth, "month", "pm", "qdr:m"},
+		{tools.SearchRangeYear, "year", "py", "qdr:y"},
+	}
+
+	for _, rc := range ranges {
+		t.Run("range="+string(rc.in), func(t *testing.T) {
+			var tavilyBody map[string]any
+			var braveQ, serpQ map[string][]string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/search": // tavily
+					raw, _ := io.ReadAll(r.Body)
+					tavilyBody = map[string]any{}
+					_ = json.Unmarshal(raw, &tavilyBody)
+					io.WriteString(w, `{"results":[]}`)
+				case "/res/v1/web/search":
+					braveQ = r.URL.Query()
+					io.WriteString(w, `{"web":{"results":[]}}`)
+				default:
+					serpQ = r.URL.Query()
+					io.WriteString(w, `{"organic_results":[]}`)
+				}
+			}))
+			defer srv.Close()
+			cfg := tools.SearchProviderConfig{APIKey: "k", Client: newTestClient(srv)}
+
+			tav, _ := newTavilyProvider(cfg)
+			brv, _ := newBraveProvider(cfg)
+			srp, _ := newSerpAPIProvider(cfg)
+			for name, p := range map[string]tools.SearchProvider{"tavily": tav, "brave": brv, "serpapi": srp} {
+				if _, err := p.Search(context.Background(), "llm news", rc.in); err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+			}
+
+			if got, _ := tavilyBody["time_range"].(string); got != rc.tavily {
+				t.Errorf("tavily time_range = %q, want %q", got, rc.tavily)
+			}
+			if got := braveQ["freshness"]; (rc.brave == "") != (len(got) == 0) || (len(got) > 0 && got[0] != rc.brave) {
+				t.Errorf("brave freshness = %v, want %q", got, rc.brave)
+			}
+			if got := serpQ["tbs"]; (rc.serp == "") != (len(got) == 0) || (len(got) > 0 && got[0] != rc.serp) {
+				t.Errorf("serpapi tbs = %v, want %q", got, rc.serp)
+			}
+		})
 	}
 }

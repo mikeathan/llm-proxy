@@ -24,6 +24,7 @@ type AutomationEntry struct {
 	MemoryMode   models.MemoryMode    // hot-memory opt-in; "" = off
 	Notify       *models.NotifyConfig // result delivery; nil = none
 	SkipIfBusy   bool                 // scheduled fires skip instead of queueing behind busy work
+	Journal      bool                 // the run keeps a learning journal (automation_journal tool)
 }
 
 // AutomationRegistry manages registered automations.
@@ -67,6 +68,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		MemoryMode:   auto.MemoryMode,
 		Notify:       copyNotify(auto.Notify),
 		SkipIfBusy:   auto.SkipIfBusy,
+		Journal:      auto.Journal,
 	}
 
 	r.mu.Lock()

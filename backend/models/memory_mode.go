@@ -1,28 +1,30 @@
-// memory_mode.go — the MemoryMode value object: the per-automation switch for
-// hot-memory injection (docs/PLANS/memory/small-context-memory.md, Phase 3).
-// It lives in the leaf models package because Automation persists it.
+// memory_mode.go — the MemoryMode value object: an override of the global hot-memory default.
+// It lives in the leaf models package because Automation and WorkspaceConfig persist it.
 package models
 
-// MemoryMode selects whether an automation run receives the frozen hot-memory
-// block in its head system message. The empty string means unset and behaves
-// as MemoryModeOff, so existing automations are unchanged. Unknown non-empty
-// values are rejected at the HTTP boundary (400).
-//
-// "hot+hints" (step-aware hints delivered with tool results) is deliberately not
-// a value yet: it ships only after a measured win on the memory scoreboard.
+// MemoryMode overrides the global hot-memory default for one surface (an automation, or a workspace's assistant).
+// Unknown non-empty values are rejected at the HTTP boundary (400).
 type MemoryMode string
 
 const (
-	MemoryModeOff MemoryMode = "off"
-	MemoryModeHot MemoryMode = "hot"
+	MemoryModeInherit MemoryMode = ""
+	MemoryModeOn      MemoryMode = "on"
+	MemoryModeOff     MemoryMode = "off"
 )
 
-// Valid reports whether the value is a registered, non-empty memory mode.
+// Valid reports whether the value is an explicit override; inherit is resolved by Effective instead.
 func (m MemoryMode) Valid() bool {
-	return m == MemoryModeOff || m == MemoryModeHot
+	return m == MemoryModeOn || m == MemoryModeOff
 }
 
-// HotEnabled reports whether the run should receive hot memory.
-func (m MemoryMode) HotEnabled() bool {
-	return m == MemoryModeHot
+// Effective resolves the override against the global default; an unreadable value reads as inherit.
+func (m MemoryMode) Effective(globalDefault bool) bool {
+	switch m {
+	case MemoryModeOn:
+		return true
+	case MemoryModeOff:
+		return false
+	default:
+		return globalDefault
+	}
 }

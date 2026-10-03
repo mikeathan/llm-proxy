@@ -8,6 +8,8 @@ export const MAX_DEDUP_DAYS = 3650
 const DELIVERY_OFF_LABEL = 'Not sent'
 const WAITS_LABEL = 'Waits its turn'
 const SKIPS_LABEL = 'Skips the run'
+const JOURNAL_ON_LABEL = 'Keeps notes between runs'
+const JOURNAL_OFF_LABEL = 'Off'
 
 /**
  * The retention typed into the form: undefined when empty (use the default),
@@ -45,4 +47,9 @@ export function deliveryLabel(notify: NotifyConfig | null | undefined): string {
 /** What a scheduled run does when the model is busy. */
 export function busyLabel(skipIfBusy: boolean | undefined): string {
   return skipIfBusy ? SKIPS_LABEL : WAITS_LABEL
+}
+
+/** Whether the automation keeps a learning journal, for the review and details panels. */
+export function journalLabel(journal: boolean | undefined): string {
+  return journal ? JOURNAL_ON_LABEL : JOURNAL_OFF_LABEL
 }

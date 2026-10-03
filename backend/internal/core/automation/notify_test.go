@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,12 +17,14 @@ type scriptedExecutor struct {
 	report string
 	err    error
 	tasks  []string
+	reqs   []ExecuteRequest
 }
 
 func (e *scriptedExecutor) Execute(_ context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.tasks = append(e.tasks, req.TaskContent)
+	e.reqs = append(e.reqs, req)
 	if e.err != nil {
 		return nil, e.err
 	}
@@ -151,6 +154,8 @@ func TestDispatcher_NotifyHeartbeatOK(t *testing.T) {
 	}{
 		{"bare marker is quiet", "HEARTBEAT_OK", false},
 		{"marker with a trailing note is quiet", "HEARTBEAT_OK\n\nNothing new today.", false},
+		{"bold marker is quiet", "**HEARTBEAT_OK**", false},
+		{"code-span marker is quiet", "`HEARTBEAT_OK`", false},
 		{"an alert that merely mentions the marker is delivered", "GPT-6 shipped. Not HEARTBEAT_OK: https://openai.com/blog/gpt-6", true},
 	}
 	for _, tc := range cases {
@@ -198,4 +203,74 @@ func TestDispatcher_SkipIfBusy(t *testing.T) {
 		t.Fatalf("a manual trigger must still queue, got %+v, %v", res, err)
 	}
 	close(exec.proceed)
+}
+
+func TestDispatcher_FailureNoticeIsRateLimited(t *testing.T) {
+	exec := &scriptedExecutor{err: errors.New("model unavailable")}
+	n := &fakeNotifier{}
+	d, entry := newNotifyDispatcher(t, exec, n, &models.NotifyConfig{Connector: "tg"})
+	run := func() { _ = d.executeAutomation(context.Background(), entry, "") }
+
+	run()
+	run()
+	if len(n.sent) != 1 {
+		t.Fatalf("repeated failures must send one notice, sent %q", n.sent)
+	}
+
+	// A successful run ends the outage: the next failure is news again.
+	exec.mu.Lock()
+	exec.err, exec.report = nil, "HEARTBEAT_OK"
+	exec.mu.Unlock()
+	run()
+	exec.mu.Lock()
+	exec.err = errors.New("model unavailable again")
+	exec.mu.Unlock()
+	run()
+	if len(n.sent) != 2 {
+		t.Fatalf("a failure after recovery must notify again, sent %q", n.sent)
+	}
+}
+
+func TestFailureNoticeLimiter_CooldownExpires(t *testing.T) {
+	var l failureNoticeLimiter
+	now := time.Now()
+	if !l.reserve("k", now) {
+		t.Fatal("first notice must be allowed")
+	}
+	if l.reserve("k", now.Add(failureNoticeCooldown-time.Second)) {
+		t.Error("notice inside the cooldown must be suppressed")
+	}
+	if !l.reserve("k", now.Add(failureNoticeCooldown)) {
+		t.Error("notice after the cooldown must be allowed")
+	}
+	l.reset("k")
+	if !l.reserve("k", now) {
+		t.Error("reset must re-arm the notice")
+	}
+}
+
+// Two failures of one automation at the same moment must send one notice, and a
+// send that fails must not use up the cooldown.
+func TestFailureNoticeLimiter_ReserveIsExclusiveAndReleasable(t *testing.T) {
+	var l failureNoticeLimiter
+	now := time.Now()
+	var wins int32
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if l.reserve("k", now) {
+				atomic.AddInt32(&wins, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 {
+		t.Fatalf("%d concurrent failures each reserved a notice, want exactly 1", wins)
+	}
+	l.release("k")
+	if !l.reserve("k", now) {
+		t.Error("a failed send must give the reservation back")
+	}
 }

@@ -431,3 +431,93 @@ func (f *fakeSecrets) GetResolvedProviderKeyInfo(provider, name string) (*models
 	return nil, nil
 }
 func (f *fakeSecrets) ResolveMaskedKey(provider, maskedKey string) (string, error) { return "", nil }
+
+// A transport failure's *url.Error embeds the request URL, which carries the
+// bot token; none of the Telegram calls may return or log it.
+func TestTelegramNotifier_TransportErrorsDoNotLeakToken(t *testing.T) {
+	const secret = "123456:SECRET-TOKEN"
+	boom := errors.New("connection refused")
+	newNotifier := func() *TelegramNotifier {
+		return &TelegramNotifier{
+			Token:  secret,
+			ChatID: "12345",
+			client: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				return nil, boom
+			})},
+		}
+	}
+	ctx := context.Background()
+	calls := map[string]func(*TelegramNotifier) error{
+		"send":    func(n *TelegramNotifier) error { return n.Send(ctx, "msg") },
+		"set":     func(n *TelegramNotifier) error { return n.RegisterWebhook(ctx, "https://x.example/hook", "") },
+		"delete":  func(n *TelegramNotifier) error { return n.DeleteWebhook(ctx) },
+		"getinfo": func(n *TelegramNotifier) error { _, err := n.GetWebhookInfo(ctx); return err },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			err := call(newNotifier())
+			if err == nil {
+				t.Fatal("expected a transport error")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("error leaks the bot token: %v", err)
+			}
+			if !errors.Is(err, boom) {
+				t.Errorf("redaction must keep the error chain, got %v", err)
+			}
+		})
+	}
+}
+
+// Telegram counts UTF-16 code units, so an emoji is 2: a part of 4000 emoji
+// would be 8000 units and be rejected as too long.
+func TestSplitMessage_CountsUTF16Units(t *testing.T) {
+	text := strings.Repeat("😀", 3000) // 3000 runes, 6000 UTF-16 units
+	parts := splitMessage(text, telegramChunkSize)
+	if len(parts) < 2 {
+		t.Fatalf("emoji text of 6000 units must be split, got %d part(s)", len(parts))
+	}
+	for i, p := range parts {
+		if n := utf16Len(p); n > telegramChunkSize {
+			t.Errorf("part %d is %d UTF-16 units, over the %d limit", i, n, telegramChunkSize)
+		}
+	}
+	if strings.Join(parts, "") != text {
+		t.Error("splitting lost or altered characters")
+	}
+}
+
+func TestTelegramNotifier_Send_RetriesOnceAfterRateLimit(t *testing.T) {
+	calls := 0
+	n := newTelegramTestNotifier(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"ok":false,"error_code":429,"parameters":{"retry_after":0}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	if err := n.Send(context.Background(), "hello"); err != nil {
+		t.Fatalf("a rate-limited send must succeed after the retry: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+}
+
+func TestTelegramNotifier_Send_DoesNotWaitOutALongRateLimit(t *testing.T) {
+	calls := 0
+	n := newTelegramTestNotifier(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":429,"parameters":{"retry_after":3600}}`))
+	})
+	err := n.Send(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("expected a 429 error, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("a wait over the cap must not be retried, calls = %d", calls)
+	}
+}

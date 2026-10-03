@@ -182,7 +182,10 @@ type InternetTools struct{ resolve ProviderResolver }
 func NewInternetTools(resolve ProviderResolver) *InternetTools
 
 // nil-safe (Null Object): nil receiver or nil resolver → ErrSearchNotConfigured.
-func (i *InternetTools) Search(ctx context.Context, query string) ([]SearchResult, error)
+func (i *InternetTools) Search(ctx context.Context, query string, timeRange SearchTimeRange) ([]SearchResult, error)
+// Added 2026-10: the optional `time_range` tool argument (day|week|month|year, empty = no filter) is parsed
+// by ParseSearchTimeRange, rejected with the allowed values if unknown, and mapped per provider (Tavily
+// `time_range`, Brave `freshness=pd|pw|pm|py`, SerpAPI `tbs=qdr:d|w|m|y`). SearchProvider.Search takes it too.
 ```
 - `Search`: reject empty/whitespace query; resolve; wrap provider errors with `%w`. No
   `http.DefaultClient` fallback (Constitution I.1). **No provider-level timeout const** — the tool

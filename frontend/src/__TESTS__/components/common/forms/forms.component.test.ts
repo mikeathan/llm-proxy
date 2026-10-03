@@ -6,6 +6,7 @@ import SelectInput from '../../../../components/common/forms/SelectInput.vue'
 import LogViewer from '../../../../components/common/display/LogViewer.vue'
 import FormField from '../../../../components/common/forms/FormField.vue'
 import ListField from '../../../../components/common/forms/ListField.vue'
+import InheritField from '../../../../components/common/forms/InheritField.vue'
 
 const OPTIONS = [{ value: 'runs', label: 'Runs' }, { value: 'app', label: 'App log' }, { value: 'process', label: 'Process log' }]
 
@@ -26,6 +27,27 @@ describe('SegmentedControl', () => {
     await w.findAll('[role="radio"]')[0]!.trigger('keydown', { key: 'ArrowRight' })
     expect(w.emitted('update:modelValue')).toEqual([['process'], ['process'], ['app']])
     w.unmount()
+  })
+})
+
+describe('InheritField', () => {
+  const radios = (w: ReturnType<typeof mount>) => w.findAll('[role="radio"]')
+
+  it('offers default, on and off, and names the live default in the first option', () => {
+    const on = mount(InheritField, { props: { modelValue: '', defaultOn: true, label: 'Memory' } })
+    expect(radios(on).map((r) => r.text())).toEqual(['Default (on)', 'On', 'Off'])
+    expect(radios(on).map((r) => r.attributes('aria-checked'))).toEqual(['true', 'false', 'false'])
+    const off = mount(InheritField, { props: { modelValue: 'off', defaultOn: false, label: 'Memory' } })
+    expect(radios(off).map((r) => r.text())).toEqual(['Default (off)', 'On', 'Off'])
+    expect(radios(off).map((r) => r.attributes('aria-checked'))).toEqual(['false', 'false', 'true'])
+  })
+
+  it('is a labelled radio group that emits inherit as an empty string', async () => {
+    const w = mount(InheritField, { props: { modelValue: 'on', defaultOn: false, label: 'Memory' } })
+    expect(w.get('[role="radiogroup"]').attributes('aria-label')).toBe('Memory')
+    await radios(w)[2]!.trigger('click')
+    await radios(w)[0]!.trigger('click')
+    expect(w.emitted('update:modelValue')).toEqual([['off'], ['']])
   })
 })
 

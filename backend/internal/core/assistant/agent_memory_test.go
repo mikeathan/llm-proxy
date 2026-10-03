@@ -220,6 +220,7 @@ func TestAgent_WritesMemoryBeforeSieve(t *testing.T) {
 		MemoryStore:     store,
 		ContextBudget:   100,
 		EnableHotMemory: true,
+		Channel:         ChannelAutomation, // an unguided run: the operator chat has its own save guidance
 	})
 
 	history := []proxy.Message{
@@ -292,6 +293,7 @@ func TestAgent_NoPreSieveNudgeForAutomation(t *testing.T) {
 		MemoryStore:     store,
 		ContextBudget:   100,
 		EnableHotMemory: true,
+		Channel:         ChannelAutomation,
 	})
 
 	history := []proxy.Message{
@@ -568,5 +570,34 @@ func TestInjectActiveMemory_HotOnly(t *testing.T) {
 
 	if strings.Contains(resultSystem, "TypeScript") {
 		t.Error("non-hot memory should NOT be injected")
+	}
+}
+
+// The generic pre-sieve "save anything important" nudge must not contradict the
+// operator chat's narrower save guidance, and is pointless once the run has saved.
+func TestPreSieveNudge_SkippedWhenGuidedOrAlreadySaved(t *testing.T) {
+	long := strings.Repeat("filler text to push the history past the memory flush ratio. ", 10)
+	newSession := func(channel EventChannel, conversationID string, history []proxy.Message) *runSession {
+		agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+			MaxSteps: 5, WorkspaceID: "ws-1", MemoryStore: newTestMemoryStore(t), ContextBudget: 100,
+			EnableHotMemory: true, Channel: channel, ConversationID: conversationID,
+		})
+		return newRunSession(agent, context.Background(), history)
+	}
+	base := []proxy.Message{{Role: proxy.SystemRole, Content: long}, {Role: proxy.UserRole, Content: "task"}}
+	nudged := func(s *runSession) bool {
+		s.maybeFlushMemoryBeforeTurn()
+		return s.prompt.memoryFlushSent
+	}
+
+	if !nudged(newSession(ChannelAutomation, "", base)) {
+		t.Error("an unguided run past the ratio should still be nudged")
+	}
+	if nudged(newSession(ChannelAssistant, "conv_20261005120000", base)) {
+		t.Error("the operator chat has save guidance: the generic nudge must be skipped")
+	}
+	saved := append(append([]proxy.Message{}, base...), proxy.Message{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{Function: proxy.FunctionCall{Name: models.ToolMemoryUpdate}}}})
+	if nudged(newSession(ChannelAutomation, "", saved)) {
+		t.Error("a run that already saved must not be nudged to save")
 	}
 }

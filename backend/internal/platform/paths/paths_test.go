@@ -246,8 +246,8 @@ func TestSeedDefaults_EmptyHome(t *testing.T) {
 	if !cfg.Sandboxing.Enabled {
 		t.Error("default sandboxing should be enabled")
 	}
-	if cfg.Memory == nil || !cfg.Memory.Enabled {
-		t.Error("default memory should be enabled")
+	if cfg.Memory == nil || cfg.Memory.RetentionDays != 90 {
+		t.Error("default memory config should carry the 90-day session retention")
 	}
 
 	// registry.json loads.

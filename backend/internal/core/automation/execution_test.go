@@ -134,10 +134,10 @@ func TestNewExecuteRequest_CarriesPerRunSettings(t *testing.T) {
 		AllowedTools: []string{"read_file"},
 		RecordingRef: "rec-1",
 		NetworkGrant: models.NetworkScopeLan,
-		MemoryMode:   models.MemoryModeHot,
+		MemoryMode:   models.MemoryModeOn,
 	}
 	req := newExecuteRequest(entry, nil, "do it", "")
-	if req.MemoryMode != models.MemoryModeHot || req.NetworkGrant != models.NetworkScopeLan || req.LoopStrategy != "react" {
+	if req.MemoryMode != models.MemoryModeOn || req.NetworkGrant != models.NetworkScopeLan || req.LoopStrategy != "react" {
 		t.Errorf("per-run settings dropped: %+v", req)
 	}
 	if req.RecordingRef != "rec-1" {

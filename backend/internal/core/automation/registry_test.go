@@ -12,7 +12,7 @@ func TestRegistry_RegisterCarriesMemoryMode(t *testing.T) {
 		Name:       "nightly",
 		TaskFile:   "task.md",
 		Trigger:    models.TriggerConfig{Type: "manual"},
-		MemoryMode: models.MemoryModeHot,
+		MemoryMode: models.MemoryModeOn,
 	}
 	if err := reg.Register("ws", auto); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -21,7 +21,7 @@ func TestRegistry_RegisterCarriesMemoryMode(t *testing.T) {
 	if !ok {
 		t.Fatal("automation not registered")
 	}
-	if entry.MemoryMode != models.MemoryModeHot {
+	if entry.MemoryMode != models.MemoryModeOn {
 		t.Errorf("entry.MemoryMode = %q, want hot", entry.MemoryMode)
 	}
 }

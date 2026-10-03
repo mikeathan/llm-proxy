@@ -20,7 +20,7 @@ The single root contains:
 ```
 {root}/
 ├── settings.yml, registry.json, secrets.json, master.key(.hash), orchestrator.db
-├── templates/          task-template library
+├── templates/          task-template library (+ .shipped.json: hashes of the shipped copies, so untouched ones refresh on upgrade)
 ├── meta/               per-workspace metadata (sessions, state, config)
 ├── runs/               automation run dirs + LLM recordings
 └── logs/               application logs
@@ -44,7 +44,7 @@ The single root contains:
   files the agent creates. They are kept **outside** the data root so they never
   sit beside `master.key`/`secrets.json`, and `wipeout`/`factory-reset`/
   `clear-runtime-data` never touch them.
-- The per-workspace `meta/` (config, state, lock, process.log) and `sessions/`
+- The per-workspace `meta/` (config, state, lock, process.log, heartbeat-status.json) and `sessions/`
   still live under `{root}/meta/{workspaceID}/`, separate from these files.
 
 ## meta/ — conversation sessions (assistant)
@@ -68,6 +68,8 @@ The single root contains:
   (`--enable-runs` / `--record`), or via the recording client.
 - A single run directory contains: `events.jsonl`, `run-meta.json`,
   `final-report.md`, and (when `--record` is active) `recording.jsonl`.
+  `events.jsonl` keeps the newest snapshot of each reasoning / content stream (plus a checkpoint every
+  10 s of a long stream), not every streamed chunk; nothing in the app reads it back.
 - Cleanup surfaces:
   - **Per-recording** (removes the whole run dir when nested):
     `DELETE /admin/api/recordings/{id}` (UI: `RecordingsPanel.vue`).

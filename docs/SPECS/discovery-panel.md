@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.3"
+version: "2.5"
 status: stable
-last_updated: 2026-10-01
+last_updated: 2026-10-05
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -12,6 +12,17 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.5 (2026-10-05)** — Saving from chats (SPEC-004 §II.8). A turn that saved an explicit "remember …" shows
+  **Saved to memory** under its answer (from the turn's run record, so it survives a reload). The assistant header gains
+  **Review for memories** (enabled for a saved, idle conversation): a drawer lists the model's proposed facts with where
+  each applies and how it is recalled, already-saved ones disabled, and saves only the ticked ones.
+- **2.4 (2026-10-04)** — Heartbeat and memory controls. Workspaces gain a **Heartbeat** section
+  (`/workspaces/:ws/heartbeat`); the automation form's Heartbeat preset panel is gone. Memory defaults
+  live in Settings → Local Engine and are overridden per automation (form) and per workspace
+  assistant (Memory section) through one `InheritField` (Default (on|off) / On / Off). **New file** from a
+  playbook asks before replacing an existing file. Markdown tables in model output scroll inside their own
+  box instead of widening the page.
 
 - **2.3 (2026-10-01)** — Navigation shortcuts and bulk file delete. The
   sidebar's Workspaces row gains an assistant shortcut (a hover-revealed chat
@@ -83,7 +94,11 @@ account model, and makes no network request outside the proxy's own origin.
   lane slot bars, recent runs.
 - **Workspaces** — list page; per workspace: **Files** (tree + editor),
   **Assistant** (sessions with search, pins and time groups), **Memory**,
-  **Playbooks**, **Settings** (the workspace guardrail layer, §II.6).
+  **Playbooks**, **Heartbeat** (on/off, interval, model, alert connector, last check; warns when
+  a check would wake the local model), **Settings** (the workspace guardrail layer, §II.6).
+  The Memory section opens with the workspace's assistant-memory override, and Settings → Local
+  Engine holds the two global hot-memory defaults. **New file** from a playbook asks before
+  replacing a file that has different content (a missing or empty file is simply written).
 - **Automations** — list without a workspace requirement, detail with run
   history, create/edit form, recordings.
 - **Models** — local runtimes and remote provider catalogues.
@@ -212,7 +227,7 @@ History mode under Vite's `base` (`/admin/`). Route names are constants in
 | `/workspaces/:ws` | `workspace` | redirect → files |
 | `/workspaces/:ws/files/:path(.*)*` | `workspace-files` | nested path in the URL |
 | `/workspaces/:ws/assistant/:conversationId?` | `workspace-assistant` | notification target |
-| `/workspaces/:ws/:section(memory\|playbooks\|settings)` | `workspace-section` | `/security` redirects to `settings` |
+| `/workspaces/:ws/:section(memory\|playbooks\|heartbeat\|settings)` | `workspace-section` | `/security` redirects to `settings` |
 | `/automations` | `automations` | |
 | `/automations/new` | `automation-new` | |
 | `/automations/recordings` | `automation-recordings` | static segment ranks above `:id` |
@@ -293,7 +308,9 @@ loudly instead of receiving HTML.
 - The UI respects `CONSTITUTION.md`; it talks only to its own origin.
 - Model and user markdown is rendered only through
   `utils/markdown/renderMarkdown.ts`: raw HTML is escaped and only
-  `http`, `https`, `mailto` and relative URLs become links.
+  `http`, `https`, `mailto` and relative URLs become links. Each table is wrapped in a
+  horizontally scrollable box (`.md-table-scroll`, keyboard-focusable) so a wide table never widens
+  the page; columns keep a readable width and long URLs wrap.
 - Secrets (provider keys) are write-only in the UI: shown masked, replaced,
   never read back in clear.
 - Guardrail approvals from the UI go through the same `GuardrailEngine`

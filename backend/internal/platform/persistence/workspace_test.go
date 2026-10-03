@@ -2,6 +2,8 @@ package persistence
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -431,6 +433,31 @@ func TestWorkspaceManager_TaskFileContainment(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManager_HeartbeatStatus(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+
+	if got, err := mgr.ReadHeartbeatStatus("ws"); err != nil || got != nil {
+		t.Fatalf("no status yet must read as nil, got %v, %v", got, err)
+	}
+	at := time.Date(2026, 10, 4, 14, 30, 0, 0, time.UTC)
+	if err := mgr.WriteHeartbeatStatus("ws", models.HeartbeatStatus{At: at, Result: models.HeartbeatQuiet}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := mgr.ReadHeartbeatStatus("ws")
+	if err != nil || got == nil || got.Result != models.HeartbeatQuiet || !got.At.Equal(at) {
+		t.Fatalf("round-trip failed: %+v, %v", got, err)
+	}
+
+	path := filepath.Join(mgr.resolver.InternalDir("ws"), heartbeatStatusFile)
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := mgr.ReadHeartbeatStatus("ws"); err == nil || got != nil {
+		t.Errorf("a corrupt status must be reported, not guessed: %v, %v", got, err)
+	}
+}
+
 func TestWorkspaceManager_SeenLedger(t *testing.T) {
 	tmp := t.TempDir()
 	mgr := NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
@@ -458,4 +485,159 @@ func TestWorkspaceManager_SeenLedger(t *testing.T) {
 	if p := mgr.seenPath("ws", "../../evil"); !strings.HasPrefix(p, filepath.Join(mgr.resolver.InternalDir("ws"), seenDirName)+string(filepath.Separator)) {
 		t.Errorf("seen path escaped its directory: %s", p)
 	}
+}
+
+func TestWorkspaceManager_SeenLedgerCorruptIsQuarantined(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	path := mgr.seenPath("ws", "nightly")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mgr.ReadSeen("ws", "nightly"); err == nil {
+		t.Fatal("corrupt ledger must report an error")
+	}
+	// The unreadable file is set aside, so the next WriteSeen cannot silently
+	// destroy it.
+	if _, err := os.Stat(path + seenCorruptSuffix); err != nil {
+		t.Errorf("corrupt ledger was not preserved: %v", err)
+	}
+	if got, err := mgr.ReadSeen("ws", "nightly"); err != nil || len(got) != 0 {
+		t.Errorf("after quarantine the ledger must read as empty, got %v, %v", got, err)
+	}
+}
+
+func TestWorkspaceManager_DeleteAutomationRunsRemovesSeenLedger(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	ledger := models.SeenLedger{"https://a.com/x": {Title: "A", At: time.Now()}}
+	for _, name := range []string{"nightly", "weekly"} {
+		if err := mgr.WriteSeen("ws", name, ledger); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := mgr.DeleteAutomationRuns("ws", "nightly"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, _ := mgr.ReadSeen("ws", "nightly"); len(got) != 0 {
+		t.Errorf("deleted automation kept its seen ledger: %v", got)
+	}
+	if got, _ := mgr.ReadSeen("ws", "weekly"); len(got) != 1 {
+		t.Errorf("another automation's ledger must survive, got %v", got)
+	}
+}
+
+// newRunsTestManager returns a manager whose workspaces each have a content
+// dir (what makes them a workspace) and the given persisted run history.
+func newRunsTestManager(t *testing.T, histories map[string][]models.AutomationRun) *WorkspaceManager {
+	t.Helper()
+	base := t.TempDir()
+	mgr := NewWorkspaceManager(storage.NewPathResolver(base, filepath.Join(base, "workspaces"), filepath.Join(base, "meta")))
+	for id, history := range histories {
+		if err := os.MkdirAll(mgr.resolver.WorkspaceDir(id), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.WriteState(id, &models.AgentState{History: history}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return mgr
+}
+
+func TestWorkspaceManager_RecentRuns(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	at := func(minutes int) time.Time { return t0.Add(time.Duration(minutes) * time.Minute) }
+
+	t.Run("merges workspaces oldest first and fills a missing workspace id", func(t *testing.T) {
+		mgr := newRunsTestManager(t, map[string][]models.AutomationRun{
+			"a": {{ID: "a1", WorkspaceID: "a", Timestamp: at(1)}, {ID: "a3", Timestamp: at(3)}},
+			"b": {{ID: "b2", WorkspaceID: "b", Timestamp: at(2)}},
+		})
+
+		runs, err := mgr.RecentRuns(context.Background())
+		if err != nil {
+			t.Fatalf("RecentRuns: %v", err)
+		}
+		var ids []string
+		for _, run := range runs {
+			ids = append(ids, run.ID)
+		}
+		if strings.Join(ids, ",") != "a1,b2,a3" {
+			t.Fatalf("want a1,b2,a3 (oldest first), got %v", ids)
+		}
+		if runs[2].WorkspaceID != "a" {
+			t.Fatalf("a run stored without a workspace id must report its workspace, got %q", runs[2].WorkspaceID)
+		}
+	})
+
+	t.Run("keeps only the newest MaxRecentRuns", func(t *testing.T) {
+		histories := map[string][]models.AutomationRun{}
+		for i := range MaxRecentRuns + 5 {
+			id := fmt.Sprintf("ws%03d", i)
+			histories[id] = []models.AutomationRun{{ID: id, Timestamp: at(i)}}
+		}
+		mgr := newRunsTestManager(t, histories)
+
+		runs, err := mgr.RecentRuns(context.Background())
+		if err != nil {
+			t.Fatalf("RecentRuns: %v", err)
+		}
+		if len(runs) != MaxRecentRuns {
+			t.Fatalf("want %d runs, got %d", MaxRecentRuns, len(runs))
+		}
+		if runs[0].ID != "ws005" || runs[len(runs)-1].ID != fmt.Sprintf("ws%03d", MaxRecentRuns+4) {
+			t.Fatalf("want the newest runs kept, got first=%s last=%s", runs[0].ID, runs[len(runs)-1].ID)
+		}
+	})
+
+	t.Run("reflects deletions with no extra bookkeeping", func(t *testing.T) {
+		mgr := newRunsTestManager(t, map[string][]models.AutomationRun{
+			"a": {{ID: "r1", AutomationName: "x", Timestamp: at(1)}, {ID: "r2", AutomationName: "y", Timestamp: at(2)}},
+		})
+		if err := mgr.DeleteAutomationRuns("a", "x"); err != nil {
+			t.Fatalf("DeleteAutomationRuns: %v", err)
+		}
+
+		runs, err := mgr.RecentRuns(context.Background())
+		if err != nil {
+			t.Fatalf("RecentRuns: %v", err)
+		}
+		if len(runs) != 1 || runs[0].ID != "r2" {
+			t.Fatalf("want only r2 after clearing x, got %+v", runs)
+		}
+	})
+
+	t.Run("skips a workspace whose state cannot be read", func(t *testing.T) {
+		mgr := newRunsTestManager(t, map[string][]models.AutomationRun{
+			"good": {{ID: "g1", Timestamp: at(1)}},
+			"bad":  nil,
+		})
+		if err := os.WriteFile(mgr.resolver.State("bad"), []byte("{not json"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		runs, err := mgr.RecentRuns(context.Background())
+		if err != nil {
+			t.Fatalf("one unreadable workspace must not fail the whole feed: %v", err)
+		}
+		if len(runs) != 1 || runs[0].ID != "g1" {
+			t.Fatalf("want the readable workspace's runs, got %+v", runs)
+		}
+	})
+
+	t.Run("stops on a cancelled context", func(t *testing.T) {
+		mgr := newRunsTestManager(t, map[string][]models.AutomationRun{"a": {{ID: "a1"}}})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		if _, err := mgr.RecentRuns(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("want context.Canceled, got %v", err)
+		}
+	})
 }

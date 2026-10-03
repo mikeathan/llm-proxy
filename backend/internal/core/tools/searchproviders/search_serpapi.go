@@ -41,12 +41,23 @@ func newSerpAPIProvider(cfg tools.SearchProviderConfig) (tools.SearchProvider, e
 	}, nil
 }
 
-func (s *SerpAPIProvider) Search(ctx context.Context, query string) ([]tools.SearchResult, error) {
+// serpAPIRecency maps our windows to Google's "qdr" (query date range) filter.
+var serpAPIRecency = map[tools.SearchTimeRange]string{
+	tools.SearchRangeDay:   "qdr:d",
+	tools.SearchRangeWeek:  "qdr:w",
+	tools.SearchRangeMonth: "qdr:m",
+	tools.SearchRangeYear:  "qdr:y",
+}
+
+func (s *SerpAPIProvider) Search(ctx context.Context, query string, timeRange tools.SearchTimeRange) ([]tools.SearchResult, error) {
 	params := url.Values{}
 	params.Set("engine", serpAPIEngine)
 	params.Set("q", query)
 	params.Set("api_key", s.apiKey)
 	params.Set("num", strconv.Itoa(s.maxResults))
+	if tbs, ok := serpAPIRecency[timeRange]; ok {
+		params.Set("tbs", tbs)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serpAPIURL+"?"+params.Encode(), nil)
 	if err != nil {

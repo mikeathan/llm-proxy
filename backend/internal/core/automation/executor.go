@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,8 +64,10 @@ type ExecuteRequest struct {
 	// Empty = inherit the workspace scope. Resolved against host (L0) + merged
 	// workspace guardrails (L1) in Execute via GuardrailEngine.ResolveRunScope.
 	NetworkGrant models.NetworkScope
-	// MemoryMode opts the run into hot-memory injection; "" = off.
+	// MemoryMode overrides the global automation hot-memory default; "" inherits it.
 	MemoryMode models.MemoryMode
+	// Journal enables the automation_journal tool for this run.
+	Journal bool
 }
 
 type ExecuteResponse struct {
@@ -93,6 +96,7 @@ type LLMServiceProvider interface {
 	Events() assistant.EventPublisher
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
+	MemorySettings() *models.MemoryConfig
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 	RecordDir() string
 	RootDir() string
@@ -188,7 +192,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
-	execCtx := usage.WithTracker(newRunContext(ctx, req.AutomationName, generateRunID()))
+	execCtx := usage.WithTracker(runContextFor(ctx, req, generateRunID()))
 
 	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
 
@@ -365,6 +369,27 @@ func (e *LLMTaskExecutor) runNetworkScope(req ExecuteRequest) models.NetworkScop
 	return e.svc.GuardrailEngine().ResolveRunScope(req.WorkspaceID, req.NetworkGrant)
 }
 
+// runContextFor is the run context for one request: the run identity plus, for
+// an automation that keeps a journal, the flag that makes the journal tool
+// visible and callable.
+func runContextFor(ctx context.Context, req ExecuteRequest, runID string) context.Context {
+	ctx = newRunContext(ctx, req.AutomationName, runID)
+	if req.Journal {
+		ctx = models.WithJournalRun(ctx)
+	}
+	return ctx
+}
+
+// allowedToolsFor is the request's tool allowlist. An automation that restricts
+// its tools still gets the journal tool when the journal is on; no allowlist
+// stays unrestricted (the journal tool is then scoped by the run context alone).
+func allowedToolsFor(req ExecuteRequest) []string {
+	if len(req.AllowedTools) == 0 || !req.Journal {
+		return req.AllowedTools
+	}
+	return append(slices.Clone(req.AllowedTools), models.ToolAutomationJournal)
+}
+
 // newRunContext stamps a run's identity and marks it unattended: no operator is
 // present, so tools that persist state choose conservative defaults.
 func newRunContext(ctx context.Context, automationName, runID string) context.Context {
@@ -400,9 +425,9 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 		),
 		// AllowedTools restricts the exposed tool schema for unattended runs
 		// (allow ∩ guardrail-disabled, resolved in NewAgent).
-		AllowedTools: req.AllowedTools,
+		AllowedTools: allowedToolsFor(req),
 	}
-	if req.MemoryMode.HotEnabled() {
+	if req.MemoryMode.Effective(e.svc.MemorySettings().AutomationHotDefault()) {
 		opts.MemoryStore = e.svc.MemoryStore()
 		opts.EnableHotMemory = opts.MemoryStore != nil
 	}
@@ -600,15 +625,42 @@ func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) st
 // Pulse Logic (Smart Skip)
 // ============================================================================
 
-const heartbeatOKMarker = "HEARTBEAT_OK"
+const (
+	heartbeatOKMarker = "HEARTBEAT_OK"
+	// heartbeatMarkupChars are markdown emphasis characters a model may wrap
+	// around the marker (**HEARTBEAT_OK**, `HEARTBEAT_OK`).
+	heartbeatMarkupChars = "*_`# \t\r\n"
+)
 
-func isHeartbeatOK(output string) bool {
-	return strings.Contains(output, heartbeatOKMarker)
+// isQuietHeartbeat reports whether a report is the "nothing to report" signal:
+// it must START with the marker (ignoring markdown emphasis), so a real alert
+// that merely mentions the marker is never swallowed. The UI's smart skip and
+// connector delivery share this one definition.
+func isQuietHeartbeat(report string) bool {
+	return strings.HasPrefix(strings.TrimLeft(report, heartbeatMarkupChars), heartbeatOKMarker)
+}
+
+// isQuietResponse judges the agent's report alone when there is one — Output
+// carries a run header and would match a marker mentioned anywhere. A response
+// without a Report (legacy executors) falls back to scanning Output.
+func isQuietResponse(resp *ExecuteResponse) bool {
+	if resp.Report != "" {
+		return isQuietHeartbeat(resp.Report)
+	}
+	return strings.Contains(resp.Output, heartbeatOKMarker)
+}
+
+// heartbeatResultOf classifies a finished heartbeat check by its report.
+func heartbeatResultOf(resp *ExecuteResponse) models.HeartbeatResult {
+	if isQuietResponse(resp) {
+		return models.HeartbeatQuiet
+	}
+	return models.HeartbeatAlert
 }
 
 // ApplyPulseLogic applies the Smart Skip logic to suppress noisy heartbeat output.
 func ApplyPulseLogic(resp *ExecuteResponse) {
-	if isHeartbeatOK(resp.Output) {
+	if isQuietResponse(resp) {
 		resp.Output = ""
 		resp.State.LastPulse = time.Now()
 	}

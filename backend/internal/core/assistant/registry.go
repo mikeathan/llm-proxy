@@ -114,12 +114,16 @@ func registerTool[T any](r *LocalToolRegistry, category, toolName string, fn fun
 type LocalToolRegistry struct {
 	toolDefinitions []proxy.Tool
 	handlers        map[string]ToolHandler
-	Terminal        *tools.TerminalTools
-	Communication   *tools.CommunicationTools
-	Search          *tools.InternetTools
-	FileSystem      *tools.FileSystemTools
-	Network         *tools.NetworkTools
-	Memory          *tools.MemoryToolProvider
+	// scoped holds tools that are listed and callable only while their
+	// predicate accepts the run context (see registerScopedTool).
+	scoped        map[string]func(context.Context) bool
+	Terminal      *tools.TerminalTools
+	Communication *tools.CommunicationTools
+	Search        *tools.InternetTools
+	FileSystem    *tools.FileSystemTools
+	Network       *tools.NetworkTools
+	Memory        *tools.MemoryToolProvider
+	Journal       *tools.AutomationJournalTools
 }
 
 func NewLocalToolRegistry(
@@ -446,6 +450,9 @@ func InitializeAgentStack(
 	memTools := initMemoryTools(appCtx.MemoryStore())
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, searchTools, fsTools, network, memTools)
+	if deps.Persistence != nil {
+		localRegistry.WithJournal(deps.Persistence)
+	}
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, deps.Logger)
 	engine := NewCompositeEngine(localRegistry, mcpEngine)
@@ -455,7 +462,17 @@ func InitializeAgentStack(
 
 // ListTools satisfies the ToolProvider interface.
 func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error) {
-	return r.toolDefinitions, nil
+	if len(r.scoped) == 0 {
+		return r.toolDefinitions, nil
+	}
+	visible := make([]proxy.Tool, 0, len(r.toolDefinitions))
+	for _, t := range r.toolDefinitions {
+		if available, scoped := r.scoped[t.Function.Name]; scoped && !available(ctx) {
+			continue
+		}
+		visible = append(visible, t)
+	}
+	return visible, nil
 }
 
 // GetSystemPrompt satisfies the ToolProvider interface.
@@ -567,11 +584,16 @@ func (r *LocalToolRegistry) registerCommunicationTools() {
 
 func (r *LocalToolRegistry) registerSearchTools() {
 	registerTool(r, "search", models.ToolInternetSearch, func(ctx context.Context, args struct {
-		Query string `json:"query"`
+		Query     string `json:"query"`
+		TimeRange string `json:"time_range"`
 	}) (any, error) {
+		timeRange, err := tools.ParseSearchTimeRange(args.TimeRange)
+		if err != nil {
+			return nil, err
+		}
 		// InternetTools is nil-safe (nil receiver or resolver ⇒
 		// ErrSearchNotConfigured), so no nil check is needed here.
-		return r.Search.Search(ctx, args.Query)
+		return r.Search.Search(ctx, args.Query, timeRange)
 	})
 }
 
@@ -641,6 +663,32 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 		return r.Network.GetNetworkInfo(ctx)
 	})
 }
+
+// registerScopedTool registers a tool that exists only for runs whose context
+// satisfies available: it is left out of ListTools (so out of the schema, the
+// tool manual and argument validation) and its handler refuses other contexts.
+func registerScopedTool[T any](r *LocalToolRegistry, category, toolName string, available func(context.Context) bool, fn func(context.Context, T) (any, error)) {
+	if r.scoped == nil {
+		r.scoped = make(map[string]func(context.Context) bool)
+	}
+	r.scoped[toolName] = available
+	registerTool(r, category, toolName, func(ctx context.Context, args T) (any, error) {
+		if !available(ctx) {
+			return nil, ErrToolNotInternal
+		}
+		return fn(ctx, args)
+	})
+}
+
+// WithJournal enables the automation_journal tool, visible only to runs of
+// automations that keep a journal (models.WithJournalRun). It is attached after
+// construction so the constructor's signature does not grow.
+func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegistry {
+	r.Journal = tools.NewAutomationJournalTools(store)
+	registerScopedTool(r, models.CategoryAutomation, models.ToolAutomationJournal, models.IsJournalRun, r.Journal.Write)
+	return r
+}
+
 func (r *LocalToolRegistry) registerMemoryTools() {
 	if r.Memory == nil {
 		return

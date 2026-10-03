@@ -8,6 +8,7 @@ import (
 
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
 )
 
 type testLogger struct {
@@ -302,5 +303,63 @@ func TestFlagSplit_HardCapIndependent(t *testing.T) {
 	}
 	if stopped, _, _ := s.checkForcedCompletion(); stopped {
 		t.Error("hard cap should stay latched after the recovery reset")
+	}
+}
+
+// A playbook that saves before it answers makes the model write its report in
+// the same turn as memory_update; the next turn is a short sign-off. Driven
+// through the real turn handlers: handleToolTurn must save the report beside a
+// housekeeping-only call, handleTextTurn must keep it over the sign-off, and a
+// later work turn must drop the saved text (it is stale narration by then).
+func TestHandleToolTurn_ReportBesideMemoryUpdateSurvivesSignOff(t *testing.T) {
+	report := "# Brief\n" + strings.Repeat("| item | detail |\n", 20)
+	signOff := proxy.Message{Role: proxy.AssistantRole, Content: "Saved to memory. Done, see above.", FinishReason: "stop"}
+	saveTurn := proxy.Message{Role: proxy.AssistantRole, Content: report, ToolCalls: []proxy.ToolCall{
+		{ID: "s1", Type: "function", Function: proxy.FunctionCall{Name: models.ToolMemoryUpdate, Arguments: `{"content":"brief saved"}`}},
+	}}
+	workTurn := proxy.Message{Role: proxy.AssistantRole, Content: "Checking one more source.", ToolCalls: []proxy.ToolCall{
+		{ID: "w1", Type: "function", Function: proxy.FunctionCall{Name: models.ToolMemorySearch, Arguments: `{"query":"more"}`}},
+	}}
+	journalTurn := proxy.Message{Role: proxy.AssistantRole, Content: "Recording this run in the journal now.", ToolCalls: []proxy.ToolCall{
+		{ID: "j1", Type: "function", Function: proxy.FunctionCall{Name: models.ToolAutomationJournal, Arguments: `{"entry":"brief done"}`}},
+	}}
+	toolsList := []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemoryUpdate}},
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemorySearch}},
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolAutomationJournal}},
+	}
+
+	tests := []struct {
+		name      string
+		toolTurns []proxy.Message
+		want      string
+	}{
+		{"report beside memory_update survives the sign-off", []proxy.Message{saveTurn}, report},
+		{"a later work turn drops the saved text", []proxy.Message{saveTurn, workTurn}, signOff.Content},
+		{"a later housekeeping narration does not replace the report", []proxy.Message{saveTurn, journalTurn}, report},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &MockEngine{Result: "ok"}
+			agent := NewAgent(&MockClient{}, &MockProvider{Tools: toolsList}, engine, AgentOptions{})
+			s := newRunSession(agent, context.Background(), []proxy.Message{{Role: proxy.UserRole, Content: "write the brief"}})
+			agent.runS = s
+
+			for _, turn := range tt.toolTurns {
+				if done, _, err := s.handleToolTurn(turn, toolsList); done || err != nil {
+					t.Fatalf("tool turn ended the run: done=%v err=%v", done, err)
+				}
+			}
+			if engine.Calls != len(tt.toolTurns) {
+				t.Fatalf("engine calls = %d, want %d (every tool turn must execute)", engine.Calls, len(tt.toolTurns))
+			}
+			done, reply, err := s.handleTextTurn(signOff, nil, toolsList)
+			if err != nil || !done {
+				t.Fatalf("expected natural completion, got done=%v err=%v", done, err)
+			}
+			if strings.TrimSpace(reply) != strings.TrimSpace(tt.want) {
+				t.Errorf("reply = %q, want %q", clip(reply, 60), clip(tt.want, 60))
+			}
+		})
 	}
 }

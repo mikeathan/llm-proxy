@@ -97,8 +97,8 @@ Returns full admin state: active model, available models, guardrails config, pro
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/admin/api/version` | Build info (version, commit, date) |
-| GET | `/admin/api/config` | Full config |
-| PUT | `/admin/api/config` | Update config |
+| GET | `/admin/api/config` | Full config. `memory` is always present: `{assistant_hot, automation_hot}`, the resolved global hot-memory defaults (shipped: assistant on, automations off) |
+| PUT | `/admin/api/config` | Update config. `memory: {assistant_hot, automation_hot}` writes both defaults and leaves the other memory settings alone; omit `memory` to leave them unchanged |
 | GET | `/admin/api/system` | System settings |
 | PUT | `/admin/api/system` | Update system |
 | POST | `/admin/api/system/restart` | Restart server |
@@ -173,7 +173,9 @@ Returns full admin state: active model, available models, guardrails config, pro
 | DELETE | `/admin/api/dispatcher/workspaces/{workspace}` | Delete workspace |
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/state` | Get workspace state |
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/config` | Get workspace config |
-| PUT | `/admin/api/dispatcher/workspaces/{workspace}/config` | Update workspace config |
+| GET | `/admin/api/dispatcher/workspaces/{workspace}/heartbeat` | The workspace heartbeat: `{config, status?, lane, wakes_local_model, has_checks}` (SPEC-007 §II.6) |
+| PUT | `/admin/api/dispatcher/workspaces/{workspace}/heartbeat` | Save `{enabled, every, model, notify}` (`every` 1m–24h, `notify` as on an automation; invalid → 400) into the workspace config and schedule it at once; returns the same state as GET. The name `heartbeat` is reserved for this and cannot be used for an automation |
+| PUT | `/admin/api/dispatcher/workspaces/{workspace}/config` | Update workspace config (replaces the document). `assistant_memory` (`""` inherit, `"on"`, `"off"`) overrides the global assistant hot-memory default for this workspace's chats; any other value → 400 |
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/live` | SSE event stream |
 | POST | `/admin/api/dispatcher/trigger/{workspace}/{automation}` | Trigger automation |
 | POST | `/admin/api/dispatcher/stop/{workspace}` | Stop automation |
@@ -189,17 +191,21 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 ### Workspace Automations
 
-Optional per-automation `memory_mode`: `""`/`"off"` (default) or `"hot"` (inject the workspace's hot memory once per run). Any other value → 400. Echoed as `memory_mode` in `GET …/dispatcher/automations`.
+Optional per-automation `memory_mode` overrides the global automation hot-memory default (`memory.automation_hot`): `""` (inherit), `"on"` or `"off"`. Any other value, including the old `"hot"`, → 400. Echoed as `memory_mode` in `GET …/dispatcher/automations`.
 
 Optional per-automation `notify` `{connector, dedup, dedup_days, send_empty}` delivers each run's report through a communication connector (SPEC-007 §II.6). `connector` is required when `notify` is present and `dedup_days` must not be negative; otherwise → 400. Echoed as `notify` in `GET …/dispatcher/automations`. Sending `"notify": null` on update clears delivery.
 
 Optional per-automation `skip_if_busy` (bool, default false): a scheduled fire that cannot start immediately is skipped instead of queued, and a run preempted by a chat is dropped instead of restarted (SPEC-007 §V). Manual triggers ignore it. Echoed as `skip_if_busy`.
+
+Optional per-automation `journal` (bool, default false): the automation keeps notes between runs — its runs see them in the task and rewrite them with the `automation_journal` tool (SPEC-007 §II.7). Echoed as `journal`; read or clear the text with the journal endpoints below.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/admin/api/dispatcher/workspaces/{workspace}/automations` | Create automation |
 | PUT | `/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}` | Update automation |
 | DELETE | `/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}` | Delete automation |
+| GET | `/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}/journal` | Read the automation's learning journal (`{"journal": "..."}`; empty when none) |
+| DELETE | `/admin/api/dispatcher/workspaces/{workspace}/automations/{automation}/journal` | Clear the learning journal |
 
 ### Recordings
 
@@ -250,6 +256,8 @@ Supports streaming (SSE) with `stream: true`.
 | PUT | `/admin/api/memory/{workspace}/{id}` | Update memory `{title, content, hot?, priority?}` (priority 0 low / 1 normal / 2 high, else 400 and nothing is written). Tags are preserved; `hot: true/false` promotes/demotes the fact in the every-run set. 404 if missing |
 | DELETE | `/admin/api/memory/{workspace}/{id}` | Delete memory |
 | DELETE | `/admin/api/memory/{workspace}` | Clear workspace memories |
+
+`POST /admin/api/conversation/sessions/{workspace}/{session}/memory-review` — ask the chat's model, once, which facts in a saved conversation are worth remembering (SPEC-004 §II.8). No body. 200 `{suggestions:[{content, scope, mode, duplicate}]}` (at most 5; `duplicate` marks a fact memory already holds; an unusable model reply is an empty list); 404 unknown session; 503 `The model is busy…` when the interactive run lane is not free within the 120 s limit; 502 when the model call fails. It reads only the user's and assistant's text, **saves nothing**, and never changes the conversation: the UI saves the facts the operator approves through `POST /admin/api/memory/{workspace}`. An explicit "remember …" in a chat message is saved by the backend itself before the run and reported on the turn's run record as `memory_saved`.
 
 User-wide facts (scope `user`) are stored under the reserved workspace `global`; every endpoint above accepts `global` as `{workspace}` to list, edit, promote or delete them (creating always targets a real workspace).
 

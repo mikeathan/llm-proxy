@@ -1,15 +1,38 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.0"
+version: "2.4"
 status: stable
-last_updated: 2026-06-09
+last_updated: 2026-10-06
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
 ---
 
 # SPEC: Memory System
+
+## Changelog
+
+- **2.4 (2026-10-06)** — Alignment with local-model work (SPEC-001 1.3, SPEC-005 1.3). The generic pre-sieve
+  "save anything important" nudge is skipped in the operator's own chat (which has the narrower save guidance and
+  may be running a playbook that governs saving) and once the run has called `memory_update`. The per-chat review
+  turns thinking off for a local model and treats an empty reply as a failed review (502). A model behind an
+  OpenAI-style URL that is identified as llama.cpp is a local workload, so its hot-memory share is the local 8% of
+  its serving-derived `context_budget` (not the cloud 5% of an override).
+- **2.3 (2026-10-05)** — Save guidance for the model (§II.8) in the operator's own assistant chats, and run safety for
+  repeated saves: identical repeated `memory_update` calls nudge instead of ending the run.
+- **2.2 (2026-10-05)** — Saving from chats (§II.8). An explicit "remember …" / "from now on …" in the operator's own
+  chat message is saved by code before the run (no model call), and shown on the turn; a per-chat "review for memories"
+  action asks the chat's model once for proposals that the operator approves. New package `memorycapture`. Pasted
+  documents are never scanned, and bare "always/never" imperatives are not captured (a pasted playbook once saved
+  "Never reuse items … from memory" as an always-on fact).
+- **2.1 (2026-10-04)** — Hot-memory defaults and overrides (§II.3). Two global defaults,
+  `memory.assistant_hot` (on) and `memory.automation_hot` (off), with a per-surface override
+  `MemoryMode` (`""` inherit | `on` | `off`) on each automation (`memory_mode`) and each workspace's
+  assistant (`assistant_memory`). **Breaking, deliberately without migration**: the old `memory_mode: hot`
+  is rejected (use `on`); the unread `memory.enabled` setting is removed. Assistant chats can now be
+  switched off per workspace or globally (previously always on).
+
 
 ## I. Intent
 
@@ -91,8 +114,14 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   (`(+N more saved facts — use memory_search to find them)`).
 - The sieve's `preparedOverContextBudget` measures the request including this block.
 - Both global (`workspace_id = 'global'`) and workspace entries with the hot tag are injected.
-- **Automations opt in** with `memory_mode: hot` (default off/unset): `AutomationEntry.MemoryMode` →
-  `ExecuteRequest.MemoryMode` → `buildAgentOptions` sets `MemoryStore` + `EnableHotMemory`. Same frozen
+- **Global defaults, per-surface overrides.** `settings.yml → memory.assistant_hot` (default on) and
+  `memory.automation_hot` (default off) are the defaults; `MemoryMode` (`""` inherit, `on`, `off`) overrides one surface:
+  `Automation.memory_mode` for an automation, `WorkspaceConfig.assistant_memory` for that workspace's chats.
+  `MemoryMode.Effective(globalDefault)` resolves it, the dispatcher/conversation service read the defaults live
+  (`MemorySettings()`), so a Settings change applies to the next run. Why these defaults: cost is prefill on every
+  run and the benefit for small models is unproven (`docs/PLANS/memory/small-context-memory.md`), so only the
+  interactive surface is on. Automation path: `AutomationEntry.MemoryMode` →
+  `ExecuteRequest.MemoryMode` → `buildAgentOptions` sets `MemoryStore` + `EnableHotMemory` when effective. Same frozen
   head-system block as chats. `hot+hints` is not shipped (needs a scoreboard win; see the plan).
   History: `docs/audits/memory-injection-investigation.md` (the old end-of-history placement is what failed).
 - **Unattended write discipline**: runs stamped `models.WithUnattendedRun` default an unspecified
@@ -137,6 +166,44 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   nudge: "The conversation history is about to be compressed. Save any important facts before
   they are lost."
 - `memoryFlushSent` flag prevents duplicate nudges; resets when the physical sieve prunes history.
+
+### 8. Saving from chats (explicit capture and review)
+
+Package `internal/core/memorycapture` (domain logic only; the keyword table is `phrases.go`, extended by adding a phrase
+and, when its behaviour is new, a golden case in `extract_test.go`).
+
+- **Explicit capture** (`Extractor`, `Capture`): before an assistant turn starts, the **user's own message** is scanned
+  for a sentence that begins (after filler words) with a store verb (remember, don't forget, keep in mind, note that,
+  for future reference, …) or a "for later" marker (from now on, going forward, in the future, from here on, …). The
+  user's words are saved through the same path as `memory_update` (`MemoryToolProvider.SaveFact`: one routing and dedup
+  rule set), as workspace facts: store verbs on demand, "from now on" instructions `always`. Plain imperatives
+  ("always …", "never …", "whenever …") are **not** captured: they often apply to one task only, so the review decides.
+  A message that looks like pasted material (over 1000 chars, more than 8 lines, or a heading, table or list of 3+
+  items) is never scanned. Questions, code spans, quoted lines, bodies under 2 words or over 500 chars, a body that is a
+  bare pronoun/interrogative, any sentence mentioning a password/secret/token/key, and secret-shaped text are never
+  captured; at most 5 per message.
+  - Runs only for the operator's own sessions (`models.SessionSource(id) == "manual"`) and only while assistant memory is
+    effectively on; connector sessions never capture. It runs before the agent starts, so an `always` fact is already in
+    that run's memory block. A store error is logged and never affects the chat.
+  - What was saved is recorded on the turn's run record (`TurnRun.memory_saved`) and shown under the answer, so it
+    survives a reload and the operator can remove it in the Memory panel. Source is `capture`.
+- **Review** (`Reviewer`): `POST /admin/api/conversation/sessions/{ws}/{session}/memory-review` asks the chat's model once,
+  only on the operator's click, which facts in the conversation are worth remembering. It reads only user and assistant
+  text (never tool results or the agent's control messages), claims the interactive run lane like a chat (time limit
+  120 s; busy → 503), sends no reasoning params to a cloud model but turns thinking off for a local one (a thinking
+  model would otherwise spend the whole 2048-token allowance on it), expects a JSON array of at most 5 `{content, scope, mode}` and tolerates fences, prose and a
+  thinking block around it. Every item is validated in code (length, secrets, sensitive words, duplicates flagged) and
+  **nothing is saved by the endpoint**: the UI saves approved items through the normal Add-memory endpoint. An unusable
+  reply is an empty list; a failing model call, or one that returns no answer at all, is a 502; neither touches the conversation.
+- **Save guidance** (`prompts.MemorySaveGuidance`): one fixed paragraph appended beside the run's `<memory>` block in the head
+  system message — also when the block is empty — telling the model when `memory_update` is worth calling (lasting
+  preferences, project conventions, decisions, tool-verified facts; save **before** answering, because a message with a
+  tool call is never the final answer; one self-contained fact per call; never task results, lookups or secrets; pass
+  `old_text` to replace a fact; do not repeat after "already saved"). Only for the operator's own assistant chats with
+  memory on (`Agent.guidesMemorySaves`: `EnableHotMemory`, a store, `ChannelAssistant`, `SessionSource == manual`) — never
+  automations, the heartbeat or connector chats. It is fixed for the run, so the head stays byte-identical. Run safety:
+  three identical consecutive `memory_update` calls give the duplicate nudge instead of the loop error, and "already
+  saved" results say not to call again.
 
 ## III. Error Handling
 

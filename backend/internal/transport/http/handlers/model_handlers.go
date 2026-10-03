@@ -199,6 +199,9 @@ func (r *modelFormRequest) workloadClass(classify func(models.ModelConfig) model
 			BaseURL:    r.ProviderConfig.BaseURL,
 		},
 	}
+	if r.Meta != nil && r.Meta.Serving != "" {
+		cfg.Metadata = &models.ModelMetadata{Serving: r.Meta.Serving}
+	}
 	if classify != nil {
 		return classify(cfg)
 	}
@@ -254,6 +257,12 @@ func (r *modelFormRequest) enrichMetadataFromProviders(classify func(models.Mode
 
 	if r.Metadata == nil && metaCtx > 0 {
 		r.Metadata = &models.ModelMetadata{ContextLength: r.Meta.ContextLength, Nctx: metaCtx, Parameters: r.Meta.Parameters}
+	}
+	if r.Meta != nil && r.Meta.Serving != "" {
+		if r.Metadata == nil {
+			r.Metadata = &models.ModelMetadata{}
+		}
+		r.Metadata.Serving = r.Meta.Serving
 	}
 	if r.Metadata != nil && metaCtx > 0 {
 		if r.Meta != nil {

@@ -49,6 +49,17 @@ describe('GlobalSettings', () => {
     expect(last().scheduler?.cloud_concurrency).toBe(5)
   })
 
+  it('writes the memory defaults as a pair, starting from assistant on and automations off', async () => {
+    // The parent owns the config, so each interaction starts from the props as mounted.
+    const { w, last } = mountGlobal()
+    expect(fieldByLabel(w, /assistant remembers/i).element).toHaveProperty('checked', true)
+    expect(fieldByLabel(w, /automations remember/i).element).toHaveProperty('checked', false)
+    await fieldByLabel(w, /assistant remembers/i).setValue(false)
+    expect(last().memory).toEqual({ assistant_hot: false, automation_hot: false })
+    await fieldByLabel(w, /automations remember/i).setValue(true)
+    expect(last().memory).toEqual({ assistant_hot: true, automation_hot: true })
+  })
+
   it('clamps the inbound wait at -1 (no limit)', async () => {
     const { w, last } = mountGlobal()
     await fieldByLabel(w, /wait up to/i).setValue('-5')

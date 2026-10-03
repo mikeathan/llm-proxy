@@ -8,6 +8,11 @@
       "query": {
         "type": "string",
         "description": "The search query to perform."
+      },
+      "time_range": {
+        "type": "string",
+        "enum": ["day", "week", "month", "year"],
+        "description": "Only return results from the past day, week, month or year. Omit for no recency filter. For news or release tasks, use the window the task specifies."
       }
     },
     "required": [

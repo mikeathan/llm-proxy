@@ -21,6 +21,7 @@ const (
 	RunIDKey             contextKey = "run_id"
 	RunNetworkScopeKey   contextKey = "run_network_scope"
 	UnattendedRunKey     contextKey = "unattended_run"
+	JournalRunKey        contextKey = "journal_run"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -112,6 +113,23 @@ func IsUnattendedRun(ctx context.Context) bool {
 		return false
 	}
 	v, _ := ctx.Value(UnattendedRunKey).(bool)
+	return v
+}
+
+// WithJournalRun marks the context as a run of an automation that keeps a
+// learning journal. It is the only thing that makes the journal tool visible and
+// callable (see automation_journal), so chat and journal-less automations never
+// get it.
+func WithJournalRun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, JournalRunKey, true)
+}
+
+// IsJournalRun reports whether the context belongs to a journal-enabled run.
+func IsJournalRun(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(JournalRunKey).(bool)
 	return v
 }
 
@@ -621,10 +639,14 @@ type ModelMetadata struct {
 	Architecture  string `json:"architecture"`
 	ContextLength int    `json:"context_length"`
 	Nctx          int    `json:"n_ctx,omitempty"`
-	Parameters    int64  `json:"parameters"`
-	Quantization  string `json:"quantization"`
-	Author        string `json:"author,omitempty"`
-	Description   string `json:"description,omitempty"`
+	// Serving names the server software the model's listing entry identified at
+	// discovery ("llamacpp"), empty when it did not. It is what lets a llama.cpp
+	// server behind an OpenAI-style URL be classified as a local workload.
+	Serving      string `json:"serving,omitempty"`
+	Parameters   int64  `json:"parameters"`
+	Quantization string `json:"quantization"`
+	Author       string `json:"author,omitempty"`
+	Description  string `json:"description,omitempty"`
 	// MaxOutputTokens is the published per-model output cap from the provider's
 	// live catalog, persisted with the model so the cloud clamp survives a
 	// restart (Phase 2 — "carry MaxOutputTokens into ModelMetadata").  0 means

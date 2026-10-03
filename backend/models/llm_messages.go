@@ -65,6 +65,8 @@ type TurnRun struct {
 	// Prompt tokens re-count the context on every call of an agent loop.
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
+	// MemorySaved lists the facts saved from the user's message before the run started (an explicit "remember …").
+	MemorySaved []string `json:"memory_saved,omitempty"`
 }
 
 // ReasoningDetail models openrouter-style structured reasoning parts
@@ -76,22 +78,25 @@ type ReasoningDetail struct {
 
 // Chat Request
 type ChatRequest struct {
-	Model                string              `json:"model"`
-	Messages             []Message           `json:"messages"`
-	MaxTokens            int                 `json:"max_tokens,omitempty"`
-	Temperature          float64             `json:"temperature,omitempty"`
-	ReasoningBudget      int                 `json:"reasoning_budget,omitempty"`
-	ThinkingBudgetTokens int                 `json:"thinking_budget_tokens,omitempty"`
-	ReasoningEffort      string              `json:"reasoning_effort,omitempty"`     // openai / gemini
-	Reasoning            *ReasoningObject    `json:"reasoning,omitempty"`            // openrouter
-	ChatTemplateKwargs   *ChatTemplateKwargs `json:"chat_template_kwargs,omitempty"` // nvidia
-	Tools                []Tool              `json:"tools,omitempty"`
-	ToolChoice           ToolChoice          `json:"tool_choice,omitempty"`
-	Stream               bool                `json:"stream,omitempty"`
-	ResponseFormat       *ResponseFormat     `json:"response_format,omitempty"`
-	Grammar              *string             `json:"grammar,omitempty"`        // llama.cpp / TGI: GBNF grammar string
-	GuidedJSON           *string             `json:"guided_json,omitempty"`    // vLLM: JSON schema for guided decoding
-	GuidedGrammar        *string             `json:"guided_grammar,omitempty"` // vLLM: GBNF grammar alternative
+	Model                string    `json:"model"`
+	Messages             []Message `json:"messages"`
+	MaxTokens            int       `json:"max_tokens,omitempty"`
+	Temperature          float64   `json:"temperature,omitempty"`
+	ReasoningBudget      int       `json:"reasoning_budget,omitempty"`
+	ThinkingBudgetTokens int       `json:"thinking_budget_tokens,omitempty"`
+	// ReasoningBudgetMessage is llama.cpp's per-request wrap-up text appended to
+	// the reasoning when ThinkingBudgetTokens is reached.
+	ReasoningBudgetMessage string              `json:"reasoning_budget_message,omitempty"`
+	ReasoningEffort        string              `json:"reasoning_effort,omitempty"`     // openai / gemini
+	Reasoning              *ReasoningObject    `json:"reasoning,omitempty"`            // openrouter
+	ChatTemplateKwargs     *ChatTemplateKwargs `json:"chat_template_kwargs,omitempty"` // nvidia
+	Tools                  []Tool              `json:"tools,omitempty"`
+	ToolChoice             ToolChoice          `json:"tool_choice,omitempty"`
+	Stream                 bool                `json:"stream,omitempty"`
+	ResponseFormat         *ResponseFormat     `json:"response_format,omitempty"`
+	Grammar                *string             `json:"grammar,omitempty"`        // llama.cpp / TGI: GBNF grammar string
+	GuidedJSON             *string             `json:"guided_json,omitempty"`    // vLLM: JSON schema for guided decoding
+	GuidedGrammar          *string             `json:"guided_grammar,omitempty"` // vLLM: GBNF grammar alternative
 }
 
 // ReasoningObject is the openrouter reasoning-enable payload.

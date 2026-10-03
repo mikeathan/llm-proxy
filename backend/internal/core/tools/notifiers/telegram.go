@@ -3,11 +3,14 @@ package notifiers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+	"unicode/utf16"
 
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/models"
@@ -23,11 +26,33 @@ func NewTelegramNotifier(token, chatID string, client *http.Client) *TelegramNot
 	return &TelegramNotifier{Token: token, ChatID: chatID, client: client}
 }
 
+// redactedToken replaces the bot token wherever an error would print it.
+const redactedToken = "<redacted>"
+
+// redact strips the bot token from a transport error. net/http's *url.Error
+// embeds the full request URL, and the Telegram URL carries the token, so an
+// unredacted error would leak it into logs and tool output. The wrapped cause
+// is kept so errors.Is (context cancellation, timeouts) still works.
+func (t *TelegramNotifier) redact(err error) error {
+	var ue *url.Error
+	if t.Token == "" || !errors.As(err, &ue) {
+		return err
+	}
+	return &url.Error{Op: ue.Op, URL: strings.ReplaceAll(ue.URL, t.Token, redactedToken), Err: ue.Err}
+}
+
 func (t *TelegramNotifier) Name() string { return "Telegram" }
 
 // telegramChunkSize is the largest part Send posts. Telegram rejects text over
-// 4096 characters; the margin absorbs characters it counts as two units.
+// 4096 UTF-16 units; splitMessage counts in those units.
 const telegramChunkSize = 4000
+
+const (
+	// telegramMaxRetryWait is the longest 429 wait worth blocking a run for.
+	telegramMaxRetryWait = 10 * time.Second
+	// telegramDefaultRetryWait applies when a 429 carries no retry_after.
+	telegramDefaultRetryWait = time.Second
+)
 
 // Send delivers message, split on line boundaries when it exceeds Telegram's
 // size limit. Markdown is tried first; if Telegram cannot parse the markup
@@ -46,9 +71,9 @@ func (t *TelegramNotifier) Send(ctx context.Context, message string) error {
 }
 
 func (t *TelegramNotifier) sendPart(ctx context.Context, text string) error {
-	status, body, err := t.post(ctx, text, "Markdown")
+	status, body, err := t.postRateLimited(ctx, text, "Markdown")
 	if err == nil && status == http.StatusBadRequest && strings.Contains(body, "can't parse entities") {
-		status, body, err = t.post(ctx, text, "")
+		status, body, err = t.postRateLimited(ctx, text, "")
 	}
 	if err != nil {
 		return err
@@ -65,6 +90,42 @@ func (t *TelegramNotifier) sendPart(ctx context.Context, text string) error {
 	return err
 }
 
+// postRateLimited is post with one retry when Telegram answers 429 and asks for
+// a wait within telegramMaxRetryWait, so a burst of chunks does not drop the rest
+// of a digest. A longer wait is returned as the 429 error rather than blocking
+// the run (which holds its lane slot while delivering).
+func (t *TelegramNotifier) postRateLimited(ctx context.Context, text, parseMode string) (int, string, error) {
+	status, body, err := t.post(ctx, text, parseMode)
+	if err != nil || status != http.StatusTooManyRequests {
+		return status, body, err
+	}
+	wait, ok := retryAfter(body)
+	if !ok {
+		return status, body, err
+	}
+	select {
+	case <-ctx.Done():
+		return 0, "", ctx.Err()
+	case <-time.After(wait):
+	}
+	return t.post(ctx, text, parseMode)
+}
+
+// retryAfter reads Telegram's retry_after (seconds) from a 429 body; ok is
+// false when the wait exceeds telegramMaxRetryWait.
+func retryAfter(body string) (time.Duration, bool) {
+	var resp struct {
+		Parameters struct {
+			RetryAfter *int `json:"retry_after"`
+		} `json:"parameters"`
+	}
+	wait := telegramDefaultRetryWait
+	if json.Unmarshal([]byte(body), &resp) == nil && resp.Parameters.RetryAfter != nil && *resp.Parameters.RetryAfter >= 0 {
+		wait = time.Duration(*resp.Parameters.RetryAfter) * time.Second
+	}
+	return wait, wait <= telegramMaxRetryWait
+}
+
 // post performs one sendMessage call; an empty parseMode sends plain text. The
 // response body is read (capped) only for a non-200 status.
 func (t *TelegramNotifier) post(ctx context.Context, text, parseMode string) (int, string, error) {
@@ -78,13 +139,13 @@ func (t *TelegramNotifier) post(ctx context.Context, text, parseMode string) (in
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(formData.Encode()))
 	if err != nil {
-		return 0, "", err
+		return 0, "", t.redact(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return 0, "", err
+		return 0, "", t.redact(err)
 	}
 	defer resp.Body.Close()
 
@@ -95,10 +156,39 @@ func (t *TelegramNotifier) post(ctx context.Context, text, parseMode string) (in
 	return resp.StatusCode, string(body), nil
 }
 
-// splitMessage cuts text into parts of at most limit characters, breaking on
+// utf16Len is the length Telegram enforces: UTF-16 code units, so a character
+// outside the Basic Multilingual Plane (most emoji) counts as two.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// hardSplit cuts one line into pieces of at most limit UTF-16 units; a line
+// that already fits is returned whole.
+func hardSplit(line string, limit int) []string {
+	if utf16Len(line) <= limit {
+		return []string{line}
+	}
+	var pieces []string
+	start, units := 0, 0
+	for i, r := range line {
+		w := utf16.RuneLen(r)
+		if units+w > limit {
+			pieces = append(pieces, line[start:i])
+			start, units = i, 0
+		}
+		units += w
+	}
+	return append(pieces, line[start:])
+}
+
+// splitMessage cuts text into parts of at most limit UTF-16 units, breaking on
 // line boundaries; a single line longer than limit is hard-split.
 func splitMessage(text string, limit int) []string {
-	if len([]rune(text)) <= limit {
+	if utf16Len(text) <= limit {
 		return []string{text}
 	}
 	var parts []string
@@ -111,22 +201,18 @@ func splitMessage(text string, limit int) []string {
 		}
 	}
 	for _, line := range strings.Split(text, "\n") {
-		runes := []rune(line)
-		for len(runes) > limit {
-			flush()
-			parts = append(parts, string(runes[:limit]))
-			runes = runes[limit:]
+		for _, seg := range hardSplit(line, limit) {
+			add := utf16Len(seg)
+			if len(cur) > 0 {
+				add++ // joining newline
+			}
+			if curLen+add > limit {
+				flush()
+				add = utf16Len(seg)
+			}
+			cur = append(cur, seg)
+			curLen += add
 		}
-		add := len(runes)
-		if len(cur) > 0 {
-			add++ // joining newline
-		}
-		if curLen+add > limit {
-			flush()
-			add = len(runes)
-		}
-		cur = append(cur, string(runes))
-		curLen += add
 	}
 	flush()
 	return parts
@@ -160,7 +246,7 @@ func (t *TelegramNotifier) RegisterWebhook(ctx context.Context, webhookURL, secr
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram setWebhook request failed: %w", err)
+		return fmt.Errorf("telegram setWebhook request failed: %w", t.redact(err))
 	}
 	defer resp.Body.Close()
 
@@ -191,7 +277,7 @@ func (t *TelegramNotifier) GetWebhookInfo(ctx context.Context) (*WebhookInfo, er
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("telegram getWebhookInfo failed: %w", err)
+		return nil, fmt.Errorf("telegram getWebhookInfo failed: %w", t.redact(err))
 	}
 	defer resp.Body.Close()
 
@@ -232,7 +318,7 @@ func (t *TelegramNotifier) DeleteWebhook(ctx context.Context) error {
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram deleteWebhook failed: %w", err)
+		return fmt.Errorf("telegram deleteWebhook failed: %w", t.redact(err))
 	}
 	defer resp.Body.Close()
 

@@ -29,14 +29,15 @@ type RuntimeClientProvider struct {
 	url     string
 	model   string
 	headers http.Header
+	local   bool
 
-	newClient func(baseURL string, model string, headers http.Header) Client
+	newClient func(baseURL string, model string, headers http.Header, local bool) Client
 }
 
 func NewRuntimeClientProvider(
 	selector ModelSelector,
 	runtime llm.RuntimeManager,
-	newClient func(baseURL string, model string, headers http.Header) Client) LLMClientProvider {
+	newClient func(baseURL string, model string, headers http.Header, local bool) Client) LLMClientProvider {
 
 	return &RuntimeClientProvider{
 		selector:  selector,
@@ -90,11 +91,13 @@ func (p *RuntimeClientProvider) ensureClient(inst llm.ModelInstance, modelName s
 	// - requested model differs from cached model
 	// - URL changed (port/host changed)
 	// - headers changed
-	if p.client == nil || p.model != modelName || p.url != baseURL || !compareHeaders(p.headers, inst.Headers) {
-		p.client = p.newClient(baseURL, inst.ModelID, inst.Headers)
+	// - workload class changed (the client's transport and reasoning field follow it)
+	if p.client == nil || p.model != modelName || p.url != baseURL || !compareHeaders(p.headers, inst.Headers) || p.local != inst.Local {
+		p.client = p.newClient(baseURL, inst.ModelID, inst.Headers, inst.Local)
 		p.model = modelName
 		p.url = baseURL
 		p.headers = inst.Headers
+		p.local = inst.Local
 	}
 }
 

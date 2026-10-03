@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
@@ -1235,5 +1236,330 @@ func TestToolPolicy_SuccessResetsFailureStreak(t *testing.T) {
 	}
 	if agent.toolFailure.streak != 0 {
 		t.Errorf("toolFailure streak = %d, want 0 after a successful call", agent.toolFailure.streak)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Batch semantics: every call of one assistant turn is emitted before any
+// result, so no call depends on another's output — only on its side effects.
+// ---------------------------------------------------------------------------
+
+// scriptedEngine fails the calls listed in errs (keyed by tool_call id, then by
+// tool name) and succeeds every other call, recording the ids it executed.
+type scriptedEngine struct {
+	errs     map[string]error
+	executed []string
+}
+
+func (e *scriptedEngine) ExecuteTool(_ context.Context, call proxy.ToolCall) (any, error) {
+	e.executed = append(e.executed, call.ID)
+	if err, ok := e.errs[call.ID]; ok {
+		return nil, err
+	}
+	if err, ok := e.errs[call.Function.Name]; ok {
+		return nil, err
+	}
+	return "ok", nil
+}
+
+// newBatchAgent is newToolPolicyAgent with network tools allowed and secret
+// blocking on, so a fetch_url failure is the engine's (not a guardrail's) and a
+// secret in the arguments drives a guardrail denial.
+func newBatchAgent(channel EventChannel, engine Engine) *Agent {
+	a := newToolPolicyAgent(channel, engine)
+	a.deps.Guardrails = guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{
+			Global:  models.GlobalGuardrailsConfig{BlockSecrets: true},
+			Network: models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true},
+		}
+	}, storage.NewPathResolver("", "", ""), nil, nil)
+	return a
+}
+
+func batchCall(id, name, args string) proxy.ToolCall {
+	return proxy.ToolCall{ID: id, Type: "function", Function: proxy.FunctionCall{Name: name, Arguments: args}}
+}
+
+func fetchCall(id string) proxy.ToolCall {
+	return batchCall(id, models.ToolNetworkFetch, `{"url":"https://example.com/`+id+`"}`)
+}
+
+// batchTools lists the tools a batch may call; fetch_url requires "url" so a
+// call without it fails argument validation.
+func batchTools() []proxy.Tool {
+	return []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolNetworkFetch, Parameters: map[string]any{
+			"type": "object", "required": []any{"url"},
+			"properties": map[string]any{"url": map[string]any{"type": "string"}},
+		}}},
+		{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemorySearch}},
+		{Type: "function", Function: proxy.FunctionSchema{Name: "create_issue"}},
+	}
+}
+
+func runBatch(t *testing.T, agent *Agent, calls ...proxy.ToolCall) (proxy.Message, []proxy.Message, error) {
+	t.Helper()
+	msg := proxy.Message{Role: proxy.AssistantRole, ToolCalls: calls}
+	history := []proxy.Message{{Role: proxy.UserRole, Content: "task"}, msg}
+	_, err := agent.processToolCalls(context.Background(), msg, &history, batchTools())
+	return msg, history, err
+}
+
+// wireAnswerCount counts the results for one tool_call id in a request as the
+// provider receives it: a tool-role message on the native path, a user message
+// "Tool result [id]: ..." on the XML/text path (NormalizeHistory).
+func wireAnswerCount(wire []proxy.Message, id string, native bool) int {
+	n := 0
+	for _, m := range wire {
+		if native && m.Role == proxy.ToolRole && m.ToolCallID == id {
+			n++
+		}
+		if !native && m.Role == proxy.UserRole && strings.HasPrefix(m.Content, "Tool result ["+id+"]") {
+			n++
+		}
+	}
+	return n
+}
+
+// assertEveryCallAnswered checks, on both the native and the XML/text wire
+// shape, that each tool_call id of msg has exactly one result.
+func assertEveryCallAnswered(t *testing.T, msg proxy.Message, history []proxy.Message) {
+	t.Helper()
+	for _, native := range []bool{true, false} {
+		wire := proxy.NormalizeHistory(history, native)
+		for _, tc := range msg.ToolCalls {
+			if n := wireAnswerCount(wire, tc.ID, native); n != 1 {
+				t.Errorf("native=%v: tool_call %s has %d results, want 1", native, tc.ID, n)
+			}
+		}
+	}
+}
+
+func toolResultFor(history []proxy.Message, id string) string {
+	for _, m := range history {
+		if m.Role == proxy.ToolRole && m.ToolCallID == id {
+			return m.Content
+		}
+	}
+	return ""
+}
+
+func skippedResult(t *testing.T) string {
+	t.Helper()
+	raw, err := json.Marshal(prompts.ToolCallNotExecuted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// A 403 on one read-only call must not cost the batch its other reads (the
+// 2026-10-07 brief: the second fetch_url was dropped and its id resent
+// unanswered on every later request).
+func TestProcessToolCalls_ReadOnlyFailureContinuesBatch(t *testing.T) {
+	forbidden := errors.New("server returned unexpected status: 403 Forbidden")
+	for _, channel := range []EventChannel{ChannelAssistant, ChannelAutomation} {
+		t.Run(string(channel), func(t *testing.T) {
+			engine := &scriptedEngine{errs: map[string]error{"c1": forbidden}}
+			agent := newBatchAgent(channel, engine)
+
+			msg, history, err := runBatch(t, agent, fetchCall("c1"), fetchCall("c2"))
+			if err != nil {
+				t.Fatalf("a read-only failure must not fail the run, got %v", err)
+			}
+			if got := strings.Join(engine.executed, ","); got != "c1,c2" {
+				t.Errorf("executed = %q, want both calls", got)
+			}
+			if toolResultFor(history, "c2") != `"ok"` {
+				t.Errorf("c2 must carry its real result, got %q", toolResultFor(history, "c2"))
+			}
+			assertEveryCallAnswered(t, msg, history)
+		})
+	}
+}
+
+// A failed call that may have changed state stops the batch (a later call may
+// rely on its side effect), and so does a run-fatal error even on a read-only
+// tool; the calls left unrun still get a result.
+func TestProcessToolCalls_MutatingFailureStopsBatchButAnswersEveryCall(t *testing.T) {
+	tests := []struct {
+		name    string
+		channel EventChannel
+		first   proxy.ToolCall
+		err     error
+		wantErr error
+	}{
+		{"mutating tool error", ChannelAssistant, batchCall("c1", "create_issue", `{}`), errors.New("boom"), nil},
+		{"run-fatal read-only error", ChannelAutomation, fetchCall("c1"), fmt.Errorf("auth: %w", models.ErrToolUnavailable), models.ErrToolUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &scriptedEngine{errs: map[string]error{"c1": tt.err}}
+			agent := newBatchAgent(tt.channel, engine)
+
+			msg, history, err := runBatch(t, agent, tt.first, fetchCall("c2"), batchCall("c3", models.ToolMemorySearch, `{}`))
+			if !errors.Is(err, tt.wantErr) || (tt.wantErr == nil && err != nil) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if got := strings.Join(engine.executed, ","); got != "c1" {
+				t.Errorf("executed = %q, want only c1", got)
+			}
+			for _, id := range []string{"c2", "c3"} {
+				if got := toolResultFor(history, id); got != skippedResult(t) {
+					t.Errorf("%s result = %q, want the not-executed result", id, got)
+				}
+			}
+			assertEveryCallAnswered(t, msg, history)
+		})
+	}
+}
+
+// Argument-validation failures and guardrail denials keep stopping the batch;
+// the remaining calls are answered without counting as allowed calls (a skipped
+// result must not reset the guardrail denial streak).
+func TestProcessToolCalls_InvalidArgsAndGuardrailDenialAnswerRemainingCalls(t *testing.T) {
+	tests := []struct {
+		name            string
+		first           proxy.ToolCall
+		wantBlockStreak int
+	}{
+		{"invalid arguments", batchCall("c1", models.ToolNetworkFetch, `{}`), 0},
+		{"guardrail denial", batchCall("c1", models.ToolNetworkFetch,
+			`{"url":"https://example.com","note":"sk-12345678901234567890123456789012"}`), 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &scriptedEngine{}
+			agent := newBatchAgent(ChannelAutomation, engine)
+
+			msg, history, err := runBatch(t, agent, tt.first, fetchCall("c2"), fetchCall("c3"))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(engine.executed) != 0 {
+				t.Errorf("no call may execute, got %v", engine.executed)
+			}
+			if toolResultFor(history, "c1") == skippedResult(t) {
+				t.Error("c1 must carry its own failure, not the not-executed result")
+			}
+			for _, id := range []string{"c2", "c3"} {
+				if got := toolResultFor(history, id); got != skippedResult(t) {
+					t.Errorf("%s result = %q, want the not-executed result", id, got)
+				}
+			}
+			if got := agent.runS.guardrail.blockStreak; got != tt.wantBlockStreak {
+				t.Errorf("guardrail blockStreak = %d, want %d", got, tt.wantBlockStreak)
+			}
+			assertEveryCallAnswered(t, msg, history)
+		})
+	}
+}
+
+// Several failures in one batch are one failed step: they count once toward
+// the consecutive-failure bound, so a batch of three 403s neither fails an
+// automation run nor suppresses the next call.
+func TestProcessToolCalls_BatchOfReadOnlyFailuresCountsOneStreak(t *testing.T) {
+	forbidden := errors.New("server returned unexpected status: 403 Forbidden")
+	tests := []struct {
+		name string
+		errs map[string]error
+	}{
+		{"three failures", map[string]error{"c1": forbidden, "c2": forbidden, "c3": forbidden}},
+		{"failure, success, failure", map[string]error{"c1": forbidden, "c3": forbidden}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &scriptedEngine{errs: tt.errs}
+			agent := newBatchAgent(ChannelAutomation, engine)
+
+			if _, _, err := runBatch(t, agent, fetchCall("c1"), fetchCall("c2"), fetchCall("c3")); err != nil {
+				t.Fatalf("one failed batch must not fail the run, got %v", err)
+			}
+			if got := strings.Join(engine.executed, ","); got != "c1,c2,c3" {
+				t.Errorf("executed = %q, want every read-only call of the batch", got)
+			}
+			if got := agent.toolFailure.streak; got != 1 {
+				t.Errorf("streak after one failed batch = %d, want 1", got)
+			}
+
+			if _, _, err := runBatch(t, agent, fetchCall("c4")); err != nil {
+				t.Fatalf("next batch: %v", err)
+			}
+			if got := engine.executed[len(engine.executed)-1]; got != "c4" {
+				t.Errorf("the next call must execute, not be suppressed; executed = %v", engine.executed)
+			}
+			if agent.toolFailure.suppressed {
+				t.Error("tool calls must not be suppressed after a single failed batch")
+			}
+		})
+	}
+}
+
+// End to end on both tool paths: after a batch stops early, the next request
+// sent to the model carries a result for every tool_call id of that batch.
+func TestProcessToolCalls_NextRequestAnswersEveryCallID(t *testing.T) {
+	const xmlBatch = "<tool_call>\n{\"tool\": \"create_issue\", \"args\": {\"title\": \"x\"}}\n</tool_call>\n" +
+		"<tool_call>\n{\"tool\": \"memory_search\", \"args\": {\"query\": \"x\"}}\n</tool_call>"
+	for _, native := range []bool{true, false} {
+		t.Run(fmt.Sprintf("native=%v", native), func(t *testing.T) {
+			var next []proxy.Message
+			turns := 0
+			client := &MockClient{ChatFunc: func(_ context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+				turns++
+				msg := proxy.Message{Role: proxy.AssistantRole, Content: "# Report\nThe issue could not be created; nothing else ran."}
+				if turns == 1 {
+					msg.Content = xmlBatch
+					if native {
+						msg.Content = ""
+						msg.ToolCalls = []proxy.ToolCall{
+							batchCall("call_a", "create_issue", `{"title":"x"}`),
+							batchCall("call_b", models.ToolMemorySearch, `{"query":"x"}`),
+						}
+					}
+				} else if next == nil {
+					next = req.Messages
+				}
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: msg}}}, nil
+			}}
+			provider := &MockProvider{UseNative: &native, Tools: []proxy.Tool{
+				{Type: "function", Function: proxy.FunctionSchema{Name: "create_issue"}},
+				{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolMemorySearch}},
+			}}
+			engine := &scriptedEngine{errs: map[string]error{"create_issue": errors.New("boom")}}
+			// Cloud-style native path vs local-style XML path; both tiers send no prefill.
+			providerType := models.ProviderOpenAI
+			if !native {
+				providerType = models.ProviderLocal
+			}
+			agent := NewAgent(client, provider, engine, AgentOptions{MaxSteps: 5, UseNativeTools: &native, ProviderType: providerType})
+
+			_, history, err := agent.Execute(context.Background(), []proxy.Message{{Role: proxy.UserRole, Content: "file an issue"}})
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if len(engine.executed) != 1 {
+				t.Fatalf("only the failing mutating call may run, executed = %v", engine.executed)
+			}
+			var batch proxy.Message
+			for _, m := range history {
+				if len(m.ToolCalls) == 2 {
+					batch = m
+				}
+			}
+			if len(batch.ToolCalls) != 2 {
+				for i, m := range history {
+					t.Logf("history[%d] role=%s calls=%d content=%q", i, m.Role, len(m.ToolCalls), clip(m.Content, 80))
+				}
+				t.Fatal("the two-call batch is missing from the run history")
+			}
+			if next == nil {
+				t.Fatal("no follow-up request was sent")
+			}
+			for _, tc := range batch.ToolCalls {
+				if n := wireAnswerCount(next, tc.ID, native); n != 1 {
+					t.Errorf("next request has %d results for tool_call %s, want 1", n, tc.ID)
+				}
+			}
+		})
 	}
 }

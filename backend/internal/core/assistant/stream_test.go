@@ -532,11 +532,13 @@ func TestProcessStream_NotifyCoalescing_Reasoning(t *testing.T) {
 	const chunks = 200
 	const chunkLen = 11
 	deltas := make([]proxy.Message, chunks)
+	want := ""
 	for i := range deltas {
-		deltas[i] = proxy.Message{ReasoningContent: strings.Repeat("r", chunkLen)}
+		// Distinct per chunk (letters: the loop guard ignores digits) so the guard must not truncate it.
+		deltas[i] = proxy.Message{ReasoningContent: fmt.Sprintf("%c%c%c-%s", 'a'+i/676%26, 'a'+i/26%26, 'a'+i%26, strings.Repeat("q", chunkLen-4))}
+		want += deltas[i].ReasoningContent
 	}
 	reasoning, _, _ := runNotifyCoalescingFeed(t, deltas)
-	want := strings.Repeat("r", chunks*chunkLen)
 	assertOrderedSnapshots(t, "EventReasoning", reasoning, want)
 	if len(reasoning) >= chunks {
 		t.Errorf("reasoning notify was not coalesced: got %d events for %d chunks (want < %d)", len(reasoning), chunks, chunks)

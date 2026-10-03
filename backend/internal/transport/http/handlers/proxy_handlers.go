@@ -84,7 +84,7 @@ type openAIModelList struct {
 // llama-server directly) discovers the same metadata a llama.cpp server would
 // publish, so metadata keeps being "calculated" from the real model:
 //   - owned_by "llamacpp" + meta.n_ctx_train keep the client's local-workload
-//     fingerprint (provider_openai_compatible.listingServesLocalWorkload);
+//     fingerprint (provider_openai_compatible.entryServesLocalWorkload);
 //   - meta.n_ctx / context_length is the REAL serving window (the model's
 //     launch --ctx-size, or Metadata.Nctx when a /slots probe recorded it) —
 //     the client's budget keys on the serving context, not n_ctx_train;
@@ -96,45 +96,69 @@ func (h *ProxyHandlers) ModelsListHandler(w http.ResponseWriter, r *http.Request
 	managed := h.runtime.ListModels()
 	list := openAIModelList{Object: "list", Data: make([]openAIModelEntry, 0, len(managed))}
 	for _, m := range managed {
-		meta := openAIModelMeta{}
-
-		trainCtx := m.MaxTokens
-		if m.Metadata != nil && m.Metadata.ContextLength > 0 {
-			trainCtx = m.Metadata.ContextLength
-		}
-		if trainCtx > 0 {
-			meta.NctxTrain = trainCtx
-		}
-
-		servingCtx := 0
-		if m.Metadata != nil && m.Metadata.Nctx > 0 {
-			servingCtx = m.Metadata.Nctx
-		} else if ctx := servingCtxFromArgs(m.Args); ctx > 0 {
-			servingCtx = ctx
-		}
-		if servingCtx > 0 {
-			meta.Nctx = servingCtx
-			meta.ContextLength = servingCtx
-		} else if trainCtx > 0 {
-			meta.Nctx = trainCtx
-			meta.ContextLength = trainCtx
-		}
-
 		entry := openAIModelEntry{
 			ID:      m.Name,
 			Object:  "model",
 			Created: time.Now().Unix(),
-			OwnedBy: "llamacpp",
-			Meta:    meta,
+			OwnedBy: m.Provider,
+		}
+		// Only a model served by llama.cpp here is listed as one: a client reads
+		// owned_by and meta.n_ctx_train as the local-workload fingerprint, so a
+		// cloud model this proxy fronts must not carry them.
+		if h.isLocalWorkload(m) {
+			entry.OwnedBy = "llamacpp"
+			entry.Meta = llamaCppModelMeta(m)
 		}
 		if m.MaxTokens > 0 {
 			entry.MaxTokens = m.MaxTokens
 			entry.MaxCompletionTokens = m.MaxTokens
-			meta.MaxTokens = m.MaxTokens
+			entry.Meta.MaxTokens = m.MaxTokens
 		}
 		list.Data = append(list.Data, entry)
 	}
 	respondJSON(w, list)
+}
+
+// isLocalWorkload classifies m with the runtime's hydrated classifier, falling
+// back to the class resolved at the last Sync, then to the config's own signals.
+func (h *ProxyHandlers) isLocalWorkload(m models.ModelConfig) bool {
+	class := h.runtime.ClassifyModel(m)
+	if class == "" {
+		class = m.WorkloadClass
+	}
+	if class == "" {
+		class = models.ClassifyConfig(m)
+	}
+	return class == models.WorkloadLocal
+}
+
+// llamaCppModelMeta is the llama.cpp-style meta block for a model served here:
+// the training context, and the REAL serving window (launch --ctx-size, or
+// Metadata.Nctx when a /slots probe recorded it).
+func llamaCppModelMeta(m models.ModelConfig) openAIModelMeta {
+	meta := openAIModelMeta{}
+	trainCtx := m.MaxTokens
+	if m.Metadata != nil && m.Metadata.ContextLength > 0 {
+		trainCtx = m.Metadata.ContextLength
+	}
+	if trainCtx > 0 {
+		meta.NctxTrain = trainCtx
+	}
+
+	servingCtx := 0
+	if m.Metadata != nil && m.Metadata.Nctx > 0 {
+		servingCtx = m.Metadata.Nctx
+	} else if ctx := servingCtxFromArgs(m.Args); ctx > 0 {
+		servingCtx = ctx
+	}
+	if servingCtx == 0 {
+		servingCtx = trainCtx
+	}
+	if servingCtx > 0 {
+		meta.Nctx = servingCtx
+		meta.ContextLength = servingCtx
+	}
+	return meta
 }
 
 // servingCtxFromArgs extracts the serving context window from a local model's

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import { useConfirm } from "../../../composables/ui/useConfirm"
-import { toAutomation, toAutomationEdit, toAutomationNew } from "../../../router/routes"
+import { toAutomation, toAutomationEdit, toAutomationNew, toWorkspaceSection } from "../../../router/routes"
 import { automationStatus, triggerLabel } from "../../../utils/automation/automationDisplay"
+import { HEARTBEAT_NAME } from "../../../utils/automation/heartbeat"
 import type { Automation } from "../../../types/dispatcher"
 import type { ChoiceOption, DataTableColumn } from "../../../types/ui"
 import DataTable from "../../common/display/DataTable.vue"
@@ -59,7 +60,9 @@ const MAX_NAMED_IN_CONFIRM = 5
 const selecting = ref(false)
 const selected = ref(new Set<string>())
 
-const isDeletable = (auto: Automation) => !auto.is_running && !lockedBy(auto)
+// The workspace heartbeat is configured in its own section, so it is never edited or deleted from this list.
+const isHeartbeat = (auto: Automation) => auto.name === HEARTBEAT_NAME
+const isDeletable = (auto: Automation) => !isHeartbeat(auto) && !auto.is_running && !lockedBy(auto)
 const deletableRows = computed(() => rows.value.filter(isDeletable))
 // The ticked rows still on screen: a row the filter hides drops out of the pick.
 const picked = computed(() => deletableRows.value.filter((a) => selected.value.has(a.id)))
@@ -192,13 +195,20 @@ const rowKey = (a: Automation) => a.id
           <BaseButton v-else variant="ghost" size="sm" icon="play" icon-only :label="`Run ${row.name}`" :disabled="lockedBy(row)" @click="emit('run', row)" />
           <BaseButton v-if="row.queued && !row.is_running" variant="ghost" size="sm" icon="close" icon-only :label="`Cancel queued run of ${row.name}`" @click="cancelQueued(row)" />
           <RouterLink
-            v-if="!lockedBy(row) && !row.is_running"
+            v-if="isHeartbeat(row)"
+            :to="toWorkspaceSection(row.workspace, 'heartbeat')"
+            :aria-label="`Heartbeat settings of ${row.workspace}`"
+            :title="`Heartbeat settings of ${row.workspace}`"
+            class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-[var(--radius-sm)] text-muted hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2"
+          ><Icon name="edit" size="sm" /></RouterLink>
+          <RouterLink
+            v-else-if="!lockedBy(row) && !row.is_running"
             :to="toAutomationEdit(row.id)"
             :aria-label="`Edit ${row.name}`"
             :title="`Edit ${row.name}`"
             class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-[var(--radius-sm)] text-muted hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2"
           ><Icon name="edit" size="sm" /></RouterLink>
-          <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete ${row.name}`" :disabled="lockedBy(row) || !!row.is_running" @click="remove(row)" />
+          <BaseButton v-if="!isHeartbeat(row)" variant="ghost" size="sm" icon="trash" icon-only :label="`Delete ${row.name}`" :disabled="lockedBy(row) || !!row.is_running" @click="remove(row)" />
         </span>
       </template>
     </DataTable>

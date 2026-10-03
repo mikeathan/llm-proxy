@@ -29,6 +29,8 @@ var (
 	urlPattern = regexp.MustCompile(`https?://[^\s)|>\]]+`)
 	mdLinkRe   = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
 	mdNoiseRe  = regexp.MustCompile("[*`]")
+	// bulletMarkerRe matches a list marker (-, *, •, 1. or 1)) after any indent.
+	bulletMarkerRe = regexp.MustCompile(`^\s*(?:[-*•]|\d+[.)])\s+`)
 	// trackingKey matches pure tracking parameters only; "ref" is deliberately
 	// absent because code hosts use it to select a different page (?ref=main).
 	trackingKey = regexp.MustCompile(`^(utm_.*|fbclid|gclid|ref_src)$`)
@@ -44,48 +46,110 @@ type digest struct {
 }
 
 // buildDigest turns an agent report into a chat message. Markdown tables become
-// bullet lists (chat clients do not render tables); when cfg.Dedup is set, rows
-// whose link is in the ledger (and younger than the retention window) are
-// dropped. Rows without a link cannot be identified, so they are always kept.
+// bullet lists (chat clients do not render tables); when cfg.Dedup is set, table
+// rows and link bullets whose link is in the ledger (and younger than the
+// retention window) are dropped. Items without a link cannot be identified, so
+// they are always kept.
 func buildDigest(report string, ledger models.SeenLedger, cfg models.NotifyConfig, now time.Time) digest {
-	d := digest{NewItems: map[string]string{}}
+	b := digestBuilder{
+		cfg:      cfg,
+		ledger:   ledger,
+		cutoff:   now.AddDate(0, 0, -cfg.RetentionDays()),
+		reported: map[string]bool{},
+		d:        digest{NewItems: map[string]string{}},
+	}
 	lines := strings.Split(strings.TrimSpace(report), "\n")
-	cutoff := now.AddDate(0, 0, -cfg.RetentionDays())
-
-	var out []string
-	rows, kept := 0, 0
-	reported := map[string]bool{}
 	for i := 0; i < len(lines); {
-		end := tableEnd(lines, i)
-		if end == i {
-			out = append(out, lines[i])
-			i++
+		if end := tableEnd(lines, i); end > i {
+			b.addTable(lines[i+2 : end])
+			i = end
 			continue
 		}
-		for _, line := range lines[i+2 : end] {
-			rows++
-			row := parseRow(line)
-			if cfg.Dedup && row.key != "" {
-				if e, seen := ledger[row.key]; (seen && e.At.After(cutoff)) || reported[row.key] {
-					continue
-				}
-				reported[row.key] = true
-				d.NewItems[row.key] = clipTitle(row.title)
-			}
-			kept++
-			out = append(out, row.render())
-		}
-		i = end
+		i = b.addLine(lines, i)
 	}
+	return b.finish()
+}
 
-	if rows > 0 && kept == 0 {
-		if cfg.SendEmpty {
-			d.Message = noNewItemsMessage
+// digestBuilder accumulates the chat message and the deduplication state that
+// table rows and link bullets share.
+type digestBuilder struct {
+	cfg      models.NotifyConfig
+	ledger   models.SeenLedger
+	cutoff   time.Time
+	reported map[string]bool // keys already seen in this report
+	d        digest
+	out      []string
+	items    int // link-bearing items found (rows and bullets)
+	kept     int
+}
+
+// admit reports whether an item is kept. With dedup on, an item whose link is in
+// the ledger (inside the retention window) or already appeared in this report is
+// dropped; a kept item with a link is remembered as new.
+func (b *digestBuilder) admit(item tableRow) bool {
+	b.items++
+	if b.cfg.Dedup && item.key != "" {
+		if e, seen := b.ledger[item.key]; (seen && e.At.After(b.cutoff)) || b.reported[item.key] {
+			return false
 		}
-		return d
+		b.reported[item.key] = true
+		b.d.NewItems[item.key] = clipTitle(item.title)
 	}
-	d.Message = collapseBlankLines(strings.Join(out, "\n"))
-	return d
+	b.kept++
+	return true
+}
+
+func (b *digestBuilder) addTable(rows []string) {
+	for _, line := range rows {
+		if row := parseRow(line); b.admit(row) {
+			b.out = append(b.out, row.render())
+		}
+	}
+}
+
+// addLine handles a non-table line at lines[i] and returns the index of the next
+// unprocessed line. A bullet with a link is one item: when it is dropped, its
+// more-deeply indented detail lines go with it.
+func (b *digestBuilder) addLine(lines []string, i int) int {
+	line := lines[i]
+	item, ok := parseBullet(line)
+	if !ok {
+		b.out = append(b.out, line)
+		return i + 1
+	}
+	keep := b.admit(item)
+	if keep {
+		b.out = append(b.out, line)
+	}
+	indent := indentOf(line)
+	i++
+	for i < len(lines) && strings.TrimSpace(lines[i]) != "" && indentOf(lines[i]) > indent {
+		// Under a kept bullet, a nested link bullet is an item in its own right:
+		// judged and remembered like any other, so it is not re-sent next run.
+		// Under a dropped bullet everything nested goes with it.
+		if _, nested := parseBullet(lines[i]); keep && nested {
+			i = b.addLine(lines, i)
+			continue
+		}
+		if keep {
+			b.out = append(b.out, lines[i])
+		}
+		i++
+	}
+	return i
+}
+
+// finish returns the digest. A report whose every item was already reported is
+// not delivered (or becomes the "no new items" line when SendEmpty is set).
+func (b *digestBuilder) finish() digest {
+	if b.items > 0 && b.kept == 0 {
+		if b.cfg.SendEmpty {
+			b.d.Message = noNewItemsMessage
+		}
+		return b.d
+	}
+	b.d.Message = collapseBlankLines(strings.Join(b.out, "\n"))
+	return b.d
 }
 
 // tableEnd returns the exclusive end of a markdown table starting at lines[i]
@@ -140,6 +204,30 @@ func parseRow(line string) tableRow {
 	}
 	row.rest = strings.Join(rest, " · ")
 	return row
+}
+
+// parseBullet recognises a markdown bullet or numbered item that carries a link
+// and identifies it by that link, like a table row. The title is the item's text
+// with link markup removed.
+func parseBullet(line string) (tableRow, bool) {
+	loc := bulletMarkerRe.FindStringIndex(line)
+	if loc == nil {
+		return tableRow{}, false
+	}
+	text := line[loc[1]:]
+	m := urlPattern.FindString(text)
+	if m == "" {
+		return tableRow{}, false
+	}
+	row := tableRow{url: strings.TrimRight(m, ".,;")}
+	row.key = canonicalURL(row.url)
+	row.title = cleanCell(urlPattern.ReplaceAllString(mdLinkRe.ReplaceAllString(text, "$1"), ""))
+	return row, true
+}
+
+// indentOf counts a line's leading whitespace; a tab counts as one column.
+func indentOf(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
 func (r tableRow) render() string {

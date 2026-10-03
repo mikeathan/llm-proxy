@@ -40,7 +40,7 @@ export type Breakpoint = 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 // The Workspaces main pane: the workspace overview (run pulse), a run's
 // details, the file editor, the assistant, memory (list or entry), security
 // or the playbook library.
-export type WorkspaceMainView = 'overview' | 'history' | 'editor' | 'assistant' | 'memory' | 'memory-detail' | 'settings' | 'playbooks'
+export type WorkspaceMainView = 'overview' | 'history' | 'editor' | 'assistant' | 'memory' | 'memory-detail' | 'settings' | 'playbooks' | 'heartbeat'
 
 // StatusState is the fixed set of run / health states a StatusTag shows; the
 // state → token styling lives in one place (constants/status.ts).

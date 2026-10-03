@@ -6,15 +6,18 @@ import type { ChoiceOption } from "../../../types/ui";
 import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
 import { useHostNetworkState } from "../../../composables/settings/useHostNetworkState";
 import { useUnsavedChangesGuard } from "../../../composables/ui/useUnsavedChangesGuard";
+import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults";
 import UnsavedTag from "../../common/display/UnsavedTag.vue";
 import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
-import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
+import { memoryModeLabel } from "../../../utils/automation/memoryMode";
+import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, journalLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
 import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
 import Panel from "../../common/layout/Panel.vue";
 import FormField from "../../common/forms/FormField.vue";
 import ToggleField from "../../common/forms/ToggleField.vue";
+import InheritField from "../../common/forms/InheritField.vue";
 import SegmentedControl from "../../common/forms/SegmentedControl.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import CronEditor from "./CronEditor.vue";
@@ -52,6 +55,7 @@ const {
   loopStrategyOptions,
   connectorOptions,
   noConnectors,
+  wakeNotice,
   handleSubmit: validateSubmit,
   resetForm,
 } = useAutomationForm(
@@ -72,13 +76,8 @@ const NETWORK_LABEL: Record<string, string> = {
   internet: "Local network + Internet",
 };
 
-const MEMORY_LABEL: Record<MemoryMode, string> = {
-  "": "Off",
-  off: "Off",
-  hot: "Hot memory",
-};
-// 'off' is the same as unset; the form offers one "off" choice and normalises on load.
-const MEMORY_CHOICES: MemoryMode[] = ["", "hot"];
+const { automationDefaultOn } = useMemoryDefaults();
+const memoryLabel = (mode: MemoryMode) => memoryModeLabel(mode, automationDefaultOn.value);
 
 const loopStrategyHelper = computed(() => {
   if (!form.value.loopStrategy) {
@@ -141,6 +140,7 @@ const handleSubmit = () => {
     memory_mode: data.memoryMode,
     notify: notifyFromForm(data),
     skip_if_busy: data.triggerType !== "manual" && data.skipIfBusy,
+    journal: data.journal,
   };
 
   submitted.value = true;
@@ -160,9 +160,10 @@ const review = computed(() => [
   ["Model", form.value.model || "Workspace default"],
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
-  ["Memory", MEMORY_LABEL[form.value.memoryMode]],
+  ["Memory", memoryLabel(form.value.memoryMode)],
   ["Delivery", deliveryLabel(notifyFromForm(form.value))],
   ["When busy", busyLabel(form.value.triggerType !== "manual" && form.value.skipIfBusy)],
+  ["Journal", journalLabel(form.value.journal)],
 ]);
 </script>
 
@@ -235,15 +236,20 @@ const review = computed(() => [
         </FormField>
         <FormField
           label="Memory"
-          hint="Hot memory gives this automation's runs your workspace's always-on facts once per run. It costs a small share of the context window; off by default."
+          hint="Gives each run your workspace's always-on facts, once per run. It costs a small share of the context window. The default is set in Settings."
         >
-          <template #default="{ id, describedBy }">
-            <select :id="id" v-model="form.memoryMode" :aria-describedby="describedBy" class="form-control">
-              <option v-for="mode in MEMORY_CHOICES" :key="mode" :value="mode">{{ MEMORY_LABEL[mode] }}</option>
-            </select>
+          <template #default="{ describedBy }">
+            <InheritField v-model="form.memoryMode" :default-on="automationDefaultOn" label="Memory" :aria-describedby="describedBy" />
           </template>
         </FormField>
       </div>
+      <ToggleField
+        v-model="form.journal"
+        class="mt-3"
+        label="Keep a journal between runs"
+        hint="The run reads its own notes from earlier runs and rewrites them before it finishes: queries that surfaced new items, sources to skip, topics already covered. You can read or clear the journal on the automation's page."
+      />
+      <p v-if="wakeNotice" data-test="wake-notice" role="note" class="m-0 mt-3 text-[length:var(--text-small)] text-state-running">{{ wakeNotice }}</p>
       <p v-if="hostNetworkKnown && hostNetworkOff" role="note" class="m-0 mt-3 text-[length:var(--text-small)] text-state-running">
         The host network is off (Settings → Security &amp; Sandboxing), so runs resolve to "No network" until it is enabled. The grant is kept for then.
       </p>
@@ -329,7 +335,7 @@ const review = computed(() => [
           v-if="form.triggerType !== 'manual'"
           v-model="form.skipIfBusy"
           label="Skip a run if the model is busy"
-          hint="For heartbeat checks: if a chat or another run is using the model when this fires, skip it and wait for the next one. Manual runs always wait their turn."
+          hint="If a chat or another run is using the model when this fires, skip it and wait for the next one. Manual runs always wait their turn. The workspace Heartbeat does this on its own."
         />
       </div>
     </Panel>

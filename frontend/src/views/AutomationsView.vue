@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { HEARTBEAT_NAME } from "../utils/automation/heartbeat"
 import { computed, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { useDispatcher } from "../composables/automation/useDispatcher"
@@ -9,7 +10,7 @@ import { usePolling } from "../composables/ui/usePolling"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
 import { DispatcherService } from "../services/automation/dispatcherService"
-import { toAutomation, toAutomationEdit, toAutomationNew, toAutomationRecordings, toAutomations } from "../router/routes"
+import { toAutomation, toAutomationEdit, toAutomationNew, toAutomationRecordings, toAutomations, toWorkspaceSection } from "../router/routes"
 import { automationStatus, triggerLabel } from "../utils/automation/automationDisplay"
 import { ROUTE_NAMES } from "../types/routes"
 import type { Automation, AutomationRun, RecordingMeta } from "../types/dispatcher"
@@ -311,8 +312,9 @@ usePolling(() => {
           <StatusTag v-if="headerStatus" v-bind="headerStatus" />
           <BaseButton v-if="selectedAutomation.is_running" variant="danger" icon="stop" @click="handleStop">Stop</BaseButton>
           <BaseButton v-else icon="play" :loading="triggering" :disabled="busy" @click="handleTrigger">Run now</BaseButton>
-          <RouterLink v-if="!selectedAutomation.is_running && !busy" :to="toAutomationEdit(selectedAutomation.id)" class="header-link">Edit</RouterLink>
-          <BaseButton variant="ghost" icon="trash" icon-only :label="`Delete ${selectedAutomation.name}`" :disabled="busy || !!selectedAutomation.is_running" @click="confirmRemoveSelected" />
+          <RouterLink v-if="selectedAutomation.name === HEARTBEAT_NAME" :to="toWorkspaceSection(selectedAutomation.workspace, 'heartbeat')" class="header-link">Heartbeat settings</RouterLink>
+          <RouterLink v-else-if="!selectedAutomation.is_running && !busy" :to="toAutomationEdit(selectedAutomation.id)" class="header-link">Edit</RouterLink>
+          <BaseButton v-if="selectedAutomation.name !== HEARTBEAT_NAME" variant="ghost" icon="trash" icon-only :label="`Delete ${selectedAutomation.name}`" :disabled="busy || !!selectedAutomation.is_running" @click="confirmRemoveSelected" />
         </template>
       </PageHeader>
       <p v-if="busy" role="note" class="m-0 text-[length:var(--text-small)] text-muted">

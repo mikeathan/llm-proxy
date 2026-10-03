@@ -35,6 +35,29 @@ const (
 	EventUpstream             AgentEventType = "upstream"
 )
 
+// IsSnapshot reports whether events of this type carry the full text streamed
+// so far rather than a delta, so a newer one supersedes an older one.
+func (t AgentEventType) IsSnapshot() bool {
+	return t == EventReasoning || t == EventToolStream
+}
+
+// SupersedesSnapshot reports whether next is a newer snapshot of the same
+// stream as prev: both are snapshot events of one type with string payloads
+// (the text so far) for one conversation, with no other event between them (a
+// step, tool call or message always separates two model requests). Events
+// without a conversation id (automation runs share a workspace and carry none)
+// or with a structured payload are never merged: nothing says they belong to one
+// stream. The replay buffer, the run's event file and the in-memory run log all
+// keep only the newest snapshot of a stream.
+func SupersedesSnapshot(prev, next AgentEvent) bool {
+	if !next.Type.IsSnapshot() || prev.Type != next.Type || next.ConversationID == "" || prev.ConversationID != next.ConversationID {
+		return false
+	}
+	_, prevText := prev.Payload.(string)
+	_, nextText := next.Payload.(string)
+	return prevText && nextText
+}
+
 // EventChannel isolates event streams by producer so a frontend subscriber
 // only receives events for the mode it is viewing. Assistant chat and
 // automation runs share one per-workspace SSE topic; the channel discriminator

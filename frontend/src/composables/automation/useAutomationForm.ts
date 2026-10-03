@@ -4,8 +4,9 @@ import type { Model } from "../../types/model"
 import type { ProviderItem } from "../../types/admin"
 import type { Automation } from "../../types/dispatcher"
 import type { AutomationFormData, TriggerType } from "../../types/automation"
-import type { ChoiceOption } from "../../types/ui"
 import { loopStrategyOptions as buildLoopStrategyOptions } from "../../utils/model/modelUtils"
+import { modelWakeNotice } from "../../utils/automation/heartbeat"
+import { useConnectorOptions } from "./useConnectorOptions"
 
 export function useAutomationForm(
   editAutomation: Ref<Automation | null>,
@@ -37,6 +38,7 @@ export function useAutomationForm(
       notifyDedupDays: "",
       notifySendEmpty: false,
       skipIfBusy: false,
+      journal: false,
     }
   }
 
@@ -98,26 +100,7 @@ export function useAutomationForm(
     return result
   })
 
-  // Connectors an automation can deliver through, from the shared config. The
-  // connector already on the form stays selectable even if it was since
-  // removed, so editing never silently drops it.
-  const connectorOptions = computed<ChoiceOption[]>(() => {
-    const configured = state.value?.config?.communication?.connectors ?? {}
-    const options = Object.entries(configured).map(([name, c]) => ({
-      value: name,
-      label: c.enabled ? name : `${name} (disabled)`,
-    }))
-    const current = form.value.notifyConnector
-    if (current && !(current in configured)) {
-      options.push({ value: current, label: `${current} (not configured)` })
-    }
-    return options
-  })
-  // True only once the admin state has loaded and it lists no connector, so the
-  // "add one" note never flashes while the state is still loading.
-  const noConnectors = computed(
-    () => !!state.value && Object.keys(state.value.config?.communication?.connectors ?? {}).length === 0,
-  )
+  const { connectorOptions, noConnectors } = useConnectorOptions(computed(() => form.value.notifyConnector))
 
   // ---- workspace ---------------------------------------------------------
   watch(selectedWorkspace, (ws) => {
@@ -146,12 +129,13 @@ export function useAutomationForm(
         model: target.model || "",
         loopStrategy: target.loop_strategy || "",
         networkGrant: target.network_grant || "",
-        memoryMode: target.memory_mode === "hot" ? "hot" : "", // "off" and unset are the same choice
+        memoryMode: target.memory_mode === "on" || target.memory_mode === "off" ? target.memory_mode : "", // anything else reads as the default
         notifyConnector: target.notify?.connector ?? "",
         notifyDedup: !!target.notify?.dedup,
         notifyDedupDays: target.notify?.dedup_days ? String(target.notify.dedup_days) : "",
         notifySendEmpty: !!target.notify?.send_empty,
         skipIfBusy: !!target.skip_if_busy,
+        journal: !!target.journal,
       }
     },
     { immediate: true },
@@ -170,6 +154,9 @@ export function useAutomationForm(
     },
   )
 
+  // Shown while a scheduled run would start the local model.
+  const wakeNotice = computed(() => modelWakeNotice(form.value.triggerType, selectedProviderKey.value))
+
   const handleSubmit = (): AutomationFormData | null => {
     if (!selectedWorkspace.value || !form.value.name) return null
 
@@ -185,6 +172,7 @@ export function useAutomationForm(
     loopStrategyOptions,
     connectorOptions,
     noConnectors,
+    wakeNotice,
     handleSubmit,
     resetForm,
   }

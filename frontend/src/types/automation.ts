@@ -1,9 +1,9 @@
 import type { LoopStrategy } from './model'
 import type { NetworkGrant } from './admin'
 
-// MemoryMode opts an automation into hot-memory injection ('' = off). Mirrors
-// the backend models.MemoryMode; 'hot+hints' is not shipped yet.
-export type MemoryMode = '' | 'off' | 'hot'
+// MemoryMode overrides the global hot-memory default for one surface ('' = use the default).
+// Mirrors the backend models.MemoryMode.
+export type MemoryMode = '' | 'on' | 'off'
 
 // NotifyConfig delivers an automation's report through a communication
 // connector (backend models.NotifyConfig). dedup_days 0 = the backend default.
@@ -31,6 +31,7 @@ export interface AutomationPayload {
   // null clears delivery on update.
   notify: NotifyConfig | null
   skip_if_busy: boolean
+  journal: boolean
 }
 
 // AutomationFormData is the editable shape of the automation form. See
@@ -52,4 +53,5 @@ export interface AutomationFormData {
   notifyDedupDays: string
   notifySendEmpty: boolean
   skipIfBusy: boolean
+  journal: boolean
 }

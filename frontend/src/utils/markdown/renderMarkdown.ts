@@ -38,6 +38,16 @@ const markdown = new Marked(
   },
 )
 
+// A wide table must scroll inside its own box instead of widening the card (or
+// the page) it sits in. Safe to do on the output string: text and raw HTML are
+// escaped above, so a literal <table> tag can only come from marked's renderer.
+// tabindex lets keyboard users scroll the region.
+function wrapTables(html: string): string {
+  return html
+    .replace(/<table>/g, '<div class="md-table-scroll" tabindex="0"><table>')
+    .replace(/<\/table>/g, '</table></div>')
+}
+
 export function renderMarkdown(source: string): string {
-  return markdown.parse(source, { async: false })
+  return wrapTables(markdown.parse(source, { async: false }))
 }

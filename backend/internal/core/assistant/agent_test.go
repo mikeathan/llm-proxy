@@ -2877,40 +2877,43 @@ I should use the read_file tool to complete this.
 	}
 }
 
-func TestCheckStreamStuck_NonReasoningModel(t *testing.T) {
+// A model with no reasoning budget (any thinking model behind an OpenAI-style
+// URL) is held to the same ceiling as every other model: the budget says nothing
+// about whether it thinks, and its thinking is legitimate.
+func TestCheckStreamStuck_NoReasoningBudget(t *testing.T) {
 	agent := &Agent{
 		config: AgentConfig{
 			MaxTokens:       2730,
-			ReasoningBudget: 0, // non-reasoning model
+			ReasoningBudget: 0,
 			SkipStuckCheck:  false,
 		},
 	}
 
-	t.Run("under threshold not stuck", func(t *testing.T) {
-		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 1000)}
+	t.Run("thinking past max_tokens chars is not stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 2731)}
 		if agent.checkStreamStuck(msg) {
-			t.Error("1000 chars should not trigger early stuck")
+			t.Error("2731 chars must not trigger stuck: the ceiling is max_tokens/2 tokens (5460 chars)")
 		}
 	})
 
-	t.Run("above threshold stuck", func(t *testing.T) {
-		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 2731)}
+	t.Run("above the ceiling stuck", func(t *testing.T) {
+		msg := &proxy.Message{ReasoningContent: strings.Repeat("x", 5461)}
 		if !agent.checkStreamStuck(msg) {
-			t.Error("2731 chars should trigger early stuck for non-reasoning model (threshold = maxTokens = 2730)")
+			t.Error("5461 chars should hit the ceiling")
 		}
 	})
 
 	t.Run("has content not stuck", func(t *testing.T) {
-		msg := &proxy.Message{Content: "text", ReasoningContent: strings.Repeat("x", 2731)}
+		msg := &proxy.Message{Content: "text", ReasoningContent: strings.Repeat("x", 5461)}
 		if agent.checkStreamStuck(msg) {
-			t.Error("has content -> not stuck even above early threshold")
+			t.Error("has content -> not stuck")
 		}
 	})
 
 	t.Run("has tool calls not stuck", func(t *testing.T) {
-		msg := &proxy.Message{ToolCalls: []proxy.ToolCall{{}}, ReasoningContent: strings.Repeat("x", 2731)}
+		msg := &proxy.Message{ToolCalls: []proxy.ToolCall{{}}, ReasoningContent: strings.Repeat("x", 5461)}
 		if agent.checkStreamStuck(msg) {
-			t.Error("has tool calls -> not stuck even above early threshold")
+			t.Error("has tool calls -> not stuck")
 		}
 	})
 }
@@ -3791,7 +3794,7 @@ func TestPrepareChatRequest_CloudProviderDoesNotSendThinkingBudgetTokens(t *test
 // via DefaultReasoningBudget (max_tokens/3), tying it to the server's serving
 // context. No name matching involved.
 func TestResolveReasoningSpec_LocalAutoBudget(t *testing.T) {
-	spec := resolveReasoningSpec("local", 0, 2730)
+	spec := resolveReasoningSpec("local", models.WorkloadLocal, 0, 2730)
 	if spec.Mode != reasoning.ModeThinkTokens {
 		t.Fatalf("local should resolve to ModeThinkTokens, got %v", spec.Mode)
 	}
@@ -3804,9 +3807,21 @@ func TestResolveReasoningSpec_LocalAutoBudget(t *testing.T) {
 // TestResolveReasoningSpec_LocalExplicitWins verifies an explicit reasoning
 // budget overrides the context-derived default.
 func TestResolveReasoningSpec_LocalExplicitWins(t *testing.T) {
-	spec := resolveReasoningSpec("local", 2048, 2730)
+	spec := resolveReasoningSpec("local", models.WorkloadLocal, 2048, 2730)
 	if spec.Budget != 2048 {
 		t.Errorf("explicit budget should win, got %d", spec.Budget)
+	}
+}
+
+// A local workload reached through an OpenAI-style slug (a llama.cpp server
+// behind a URL) gets the same think-token budget as one run directly.
+func TestResolveReasoningSpec_LocalWorkloadBehindOpenAISlug(t *testing.T) {
+	spec := resolveReasoningSpec("openai", models.WorkloadLocal, 0, 5461)
+	if spec.Mode != reasoning.ModeThinkTokens {
+		t.Fatalf("local workload should resolve to ModeThinkTokens, got %v", spec.Mode)
+	}
+	if want := DefaultReasoningBudget(5461); spec.Budget != want {
+		t.Errorf("budget = %d, want %d", spec.Budget, want)
 	}
 }
 
@@ -3814,7 +3829,7 @@ func TestResolveReasoningSpec_LocalExplicitWins(t *testing.T) {
 // tier Mode and are never given a numeric think-token budget.
 func TestResolveReasoningSpec_CloudUnaffected(t *testing.T) {
 	for _, pt := range []string{"openai", "gemini", "openrouter", "nvidia"} {
-		spec := resolveReasoningSpec(pt, 0, 4096)
+		spec := resolveReasoningSpec(pt, models.WorkloadCloud, 0, 4096)
 		if spec.Mode == reasoning.ModeThinkTokens {
 			t.Errorf("%s should not resolve to think-tokens mode", pt)
 		}
@@ -3827,7 +3842,7 @@ func TestResolveReasoningSpec_CloudUnaffected(t *testing.T) {
 // TestResolveReasoningSpec_UnknownFallsBackToEffort verifies an unknown provider
 // defaults to the effort mode (no reasoning params sent) rather than crashing.
 func TestResolveReasoningSpec_UnknownFallsBackToEffort(t *testing.T) {
-	spec := resolveReasoningSpec("does-not-exist", 0, 4096)
+	spec := resolveReasoningSpec("does-not-exist", models.WorkloadCloud, 0, 4096)
 	if spec.Mode != reasoning.ModeEffort {
 		t.Errorf("unknown provider should default to ModeEffort, got %v", spec.Mode)
 	}
@@ -5075,6 +5090,50 @@ func TestHandleTextTurn_CleanStopUnchanged(t *testing.T) {
 	}
 	if !strings.Contains(reply, "All steps complete") {
 		t.Errorf("expected the full report as reply, got %q", reply)
+	}
+}
+
+// A playbook that saves before answering makes the model write its report in the SAME turn as the housekeeping
+// memory_update call; the next turn is then a short sign-off. The report must survive that sign-off (2026-10-07 run:
+// a 1006-char table was replaced by a 126-char "PASS" line as the completed reply).
+func TestHandleTextTurn_ShortSignOffKeepsReportWrittenWithHousekeepingTool(t *testing.T) {
+	s := newTextTurnSession()
+	report := "As of: 2026-10-07 | Window: day | Searches: 4\n\n| Item | Date |\n|---|---|\n" + strings.Repeat("| Row | n/d |\n", 40)
+	s.prompt.lastContentWithTools = report
+
+	turnMsg := proxy.Message{
+		Role:         proxy.AssistantRole,
+		Content:      "**PASS** - brief delivered, table above.",
+		FinishReason: "stop",
+	}
+	done, reply, err := s.handleTextTurn(turnMsg, nil, nil)
+	if err != nil || !done {
+		t.Fatalf("expected natural completion, got done=%v err=%v", done, err)
+	}
+	if reply != strings.TrimSpace(report) && reply != report {
+		t.Errorf("the report written beside the save was replaced by the sign-off: %q", reply)
+	}
+	if s.prompt.lastContentWithTools != "" {
+		t.Error("the saved report must be consumed once used")
+	}
+}
+
+// A later answer that is as long as (or longer than) the housekeeping-turn text is a real answer, not a sign-off.
+func TestHandleTextTurn_FullerFinalAnswerWinsOverEarlierNarration(t *testing.T) {
+	s := newTextTurnSession()
+	s.prompt.lastContentWithTools = "Saving what I have found so far to memory first."
+
+	turnMsg := proxy.Message{
+		Role:         proxy.AssistantRole,
+		Content:      "# Report\nAll steps complete. Here is the final report with full details of every finding.",
+		FinishReason: "stop",
+	}
+	done, reply, err := s.handleTextTurn(turnMsg, nil, nil)
+	if err != nil || !done {
+		t.Fatalf("expected natural completion, got done=%v err=%v", done, err)
+	}
+	if !strings.Contains(reply, "All steps complete") {
+		t.Errorf("the final answer must win over earlier narration, got %q", reply)
 	}
 }
 

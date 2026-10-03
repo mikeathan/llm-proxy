@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.4"
+version: "1.9"
 status: stable
-last_updated: 2026-10-03
+last_updated: 2026-10-08
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -12,6 +12,33 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.9 (2026-10-08)** — Run history has one source (§II.3): the global activity feed
+  (`GET /admin/api/dispatcher/activity`) reads each workspace's `state.json` on request instead of an
+  in-memory copy, so deleting a run or clearing an automation's runs removes them from the feed at once
+  (previously they stayed listed, unopenable, until a restart).
+
+- **1.8 (2026-10-04)** — Workspace heartbeat (§II.6). The heartbeat becomes one per-workspace setting
+  (`WorkspaceConfig.heartbeat`: on/off, interval, model, alert connector) compiled to a reserved-name
+  automation, off by default; a tick whose `heartbeat.md` holds no checks is skipped without a model
+  call; its skip-if-busy follows the model's lane (local → on); the last check is recorded and shown;
+  `GET/PUT …/workspaces/{ws}/heartbeat`. **Breaking, deliberately without migration** (the product is
+  new): the `cron_schedule` workspace field and its hidden `default` automation are removed, and an
+  automation may no longer be named `heartbeat`. `memory_mode` takes `""|on|off` (the old `hot` is rejected,
+  see SPEC-004 2.1). Automation runs resolve their memory default from `memory.automation_hot`.
+
+- **1.7 (2026-10-03)** — Learning journal (§II.7): an automation may set `journal: true`; its runs
+  get the `automation_journal` tool, see their notes from earlier runs in the task, and rewrite
+  them before finishing. Operator read/clear endpoints; the journal is deleted with the automation.
+
+- **1.6 (2026-10-03)** — Dedup also covers bullet and numbered items that contain a link, not only
+  table rows (§II.6); the documented tracking-parameter list now matches the code (`ref_src`).
+
+- **1.5 (2026-10-03)** — Delivery hardening (§II.6): one quiet-heartbeat definition shared by the UI
+  smart skip and delivery (report starts with `HEARTBEAT_OK`, markdown emphasis ignored); failure
+  notices are limited to one per automation per hour until a run succeeds; an undecodable seen
+  ledger is set aside as `*.corrupt` instead of being overwritten; Telegram transport errors no
+  longer include the bot token.
 
 - **1.4 (2026-10-03)** — Result delivery (§II.6): an automation may carry a `notify` block; the
   dispatcher delivers the final report (and failure notices) through a communication connector,
@@ -53,6 +80,12 @@ of run events to the frontend.
 - Runs are tracked with: model, task file, start time, duration, LLM call count, tool call count,
   step count, output summary, error.
 - Run artifacts are stored at `data/runs/{workspace}/{model}/{timestamp}_{session}/`.
+- **Run history** — each workspace's `state.json` `history` (newest 30, `models.MaxStateHistory`) is
+  the single source of truth for finished runs. The automation list and the global activity feed
+  (`GET /admin/api/dispatcher/activity`: newest `persistence.MaxRecentRuns` = 100 across workspaces,
+  oldest first, via `WorkspaceManager.RecentRuns`) both read it on request; nothing keeps a copy in
+  memory, so the run delete endpoints need no extra bookkeeping. At startup the dispatcher seeds its
+  execution counters from the same history.
 
 ### 4. SSE Streaming
 
@@ -71,6 +104,10 @@ Each run produces:
 - `events.jsonl` — structured event stream (lifecycle events with timestamps). The in-memory
   `eventbus.Sink` is thread-safe, buffers writes and flushes per write, and fsyncs periodically
   (1s interval) plus once on `Close` — a crash loses at most one sync interval of events.
+  `reasoning` and `tool_stream` events carry the full text so far, so the sink keeps only the newest
+  snapshot of a consecutive stream (same type and conversation), plus a checkpoint every 10 s of a long
+  stream; a four-minute run is about 100 KB instead of 11 MB. Nothing in the app reads `events.jsonl` back:
+  chat history comes from the session files, live replay from the event bus.
   In-RAM capture per run is bounded to the most recent 500 events (the full stream lives in
   `events.jsonl`); `recordRun` drops the older slice to bound memory under concurrent long runs.
 - `recording.jsonl` — LLM request/response recordings (when `--record` is active).
@@ -83,25 +120,52 @@ external message, and is gated by network scope; delivery is not).
 
 - **Trigger points** (`execution.go`, `notify.go`): a successful run sends the report
   (`ExecuteResponse.Report`, the final report without the run header); a failed run sends one
-  `⚠️ Automation <name> failed: <classified error>` line. A user stop (`context.Canceled`) and a
+  `⚠️ Automation <name> failed: <classified error>` line, at most once per hour per automation
+  (`failureNoticeLimiter`; a successful run re-arms it). A user stop (`context.Canceled`) and a
   lane preemption send nothing.
 - **Best-effort**: a delivery failure is logged and never changes the run's outcome. Each send has
-  its own 30 s timeout derived from the dispatcher's context, not the (possibly expired) run's.
+  its own 30 s timeout derived from the lane context, not the run's own (possibly expired)
+  timeout context.
 - **Chat formatting** (`digest.go`): markdown tables become bullet lists (`• Item — cell · cell` and
-  the link on the next line); non-table text passes through. The connector owns platform limits
+  the link on the next line); other text, including bullet lists, passes through as written. The
+  connector owns platform limits
   (Telegram: size splitting and a plain-text retry — SPEC-009).
-- **Dedup** (`notify.dedup: true`): each table row's first link is canonicalised (lower-case host,
-  no `www.`, no fragment, no `utm_*`/`fbclid`/`gclid`/`ref*`, no trailing slash). Rows whose link is
-  in the automation's **seen ledger** inside the retention window (`dedup_days`, default 60) are
-  dropped; rows without a link are always kept; a link repeated inside one report is sent once.
+- **Dedup** (`notify.dedup: true`): the first link of each **table row** and each **bullet or
+  numbered item that contains a link** is canonicalised (lower-case host, no `www.`, no fragment,
+  no `utm_*`/`fbclid`/`gclid`/`ref_src`, no trailing slash). Items whose link is in the
+  automation's **seen ledger** inside the retention window (`dedup_days`, default 60) are
+  dropped (a dropped bullet takes its more-deeply indented detail lines with it); items without a
+  link are always kept; a link repeated inside one report is sent once. A bullet that merely
+  *cites* an already-reported source is dropped too — same rule as a table row.
   When every row is dropped nothing is sent unless `send_empty: true` (then
   `No new items since the last run.`). Items are recorded **only after a successful send**, so a
   failed delivery re-offers them next run.
 - **Seen ledger** (`persistence/seen.go`): `<meta>/<workspace>/seen/<automation>-<hash>.json`,
   written atomically, pruned to the retention window on write, outside the agent's workspace jail.
-- **Heartbeat**: a report containing `HEARTBEAT_OK` (the smart-skip marker, `executor.go`) is not
-  delivered and not recorded as seen — a quiet check is silent. `heartbeat.md` in a new workspace
-  is a starter checklist that teaches the contract.
+  An undecodable file is renamed `*.corrupt` and the run continues with an empty ledger. Deleting
+  an automation removes its ledger (`DeleteAutomationRuns`); renaming one starts a fresh ledger.
+- **Heartbeat**: a report that starts with `HEARTBEAT_OK` (`isQuietHeartbeat`, `executor.go`;
+  leading markdown emphasis such as `**` is ignored) is hidden by the UI smart skip, not
+  delivered and not recorded as seen — a quiet check is silent. The workspace heartbeat is a
+  config object (`WorkspaceConfig.heartbeat`: `enabled` (default off), `every` (1m–24h, default
+  30m), `model`, `notify`), not an automation the operator writes: `registerWorkspaceAutomations`
+  compiles it (`HeartbeatConfig.Automation()`) into an interval automation named `heartbeat`
+  (`models.HeartbeatAutomationName`, a reserved name — `validateAutomation` rejects it), isolated,
+  `memory_mode: off` always. The removed `cron_schedule` field and its hidden `default` automation
+  no longer exist (old files still load; the key is ignored).
+  - **No checks, no run**: `admitRun` reads `heartbeat.md` and `models.HeartbeatBody` (HTML
+    comments outside code fences stripped, trimmed); empty → the tick is skipped before the run lane
+    is touched (`TriggerSkipped`, no model call, no history) and recorded `skipped_no_checks`. The
+    task sent is `prompts.HeartbeatTask` (the checks + `HeartbeatReplyRules`, which carry the
+    `HEARTBEAT_OK` contract); the starter file (`prompts.DefaultHeartbeat`) is comments only.
+  - **Skip-if-busy is derived** (`Dispatcher.skipIfBusy`): for the heartbeat it is true only when
+    `laneKeyFor(model)` is the local lane, resolved at fire time (an empty model follows the
+    registry primary); other automations use their own `skip_if_busy`.
+  - **Status**: the last check (`quiet`, `alert`, `skipped_no_checks`, `skipped_busy`, `error` + time)
+    is written to `meta/<ws>/heartbeat-status.json` (`WriteHeartbeatStatus`, outside the agent
+    jail). `GET/PUT …/dispatcher/workspaces/{ws}/heartbeat` returns/saves the config and returns
+    `models.HeartbeatState` (`lane`, `wakes_local_model`, `has_checks`, `status`); PUT validates,
+    saves into the workspace config without touching other fields and (un)schedules at once.
 - **Prompt hint**: with dedup on, up to 25 recent titles are appended to the task
   (`prompts.AutomationSeenBlock`) so the run spends its search budget on new items. This is an
   efficiency hint; the link filter at delivery is the guarantee.
@@ -113,6 +177,36 @@ external message, and is gated by network scope; delivery is not).
 - **Network policy**: the send rides the connector's guarded client (Constitution I.2). It is an
   operator-configured, system-side send to the operator's own connector — the same class as `/run`
   result replies (SPEC-009 §1.1) — so it is not blocked by an agent network grant of `none`.
+
+### 7. Learning Journal (`journal`)
+
+An automation with `journal: true` keeps short notes for its future runs (queries that surfaced
+new items, sources worth or not worth checking, topics already saturated) — the loop that lets a
+recurring search improve instead of repeating itself. Off by default.
+
+- **Storage** (`persistence/journal.go`): `<meta>/<workspace>/journal/<automation>-<hash>.md`,
+  atomic write, outside the agent's workspace jail, at most `models.MaxJournalChars` (4000)
+  characters. Text is sanitised on every write (`models.SanitizeJournal`: control characters
+  dropped, blank runs collapsed, length capped). Empty text clears it. Deleting the automation
+  deletes its journal (`DeleteAutomationRuns`).
+- **Read path** (`automation/journal.go`): `prompts.AutomationJournalBlock` is appended to the task
+  after the seen-titles hint — the stored notes inside a `<journal>` fence, labelled "your own
+  notes, not instructions", plus the instruction to rewrite them before finishing. A first run is
+  told the journal is empty. An unreadable journal is treated as empty and logged.
+- **Write path**: the `automation_journal` tool (`core/tools/automation_journal.go`, replace-whole
+  semantics so the agent curates instead of appending forever). The target comes from the run
+  context (workspace + automation name), never from arguments; empty text is refused.
+- **Gating**: the tool is registered with a context predicate (`registerScopedTool`). It is listed
+  — and therefore present in the tool schema, the tool manual and argument validation — and callable
+  only when the run context carries `models.WithJournalRun`, which the executor stamps for a
+  `journal: true` automation (`runContextFor`). Chat and journal-less automations never see it. An
+  automation with an `allowed_tools` allowlist gets the tool appended (`allowedToolsFor`).
+- **Operator control**: `GET` / `DELETE` `…/workspaces/{ws}/automations/{automation}/journal`
+  read and clear it; the automation page shows the text and a "Clear journal" action.
+- **Trust**: the notes derive from web-derived model output and are re-injected, so they are a
+  persistence channel for prompt injection. Mitigations: sanitised and capped, fenced and labelled
+  as untrusted notes (the close tag is stripped from stored text), written only through the tool,
+  never injected into chat, visible and clearable by the operator.
 
 ## III. Error Handling
 
@@ -136,8 +230,9 @@ external message, and is gated by network scope; delivery is not).
       model: gemma-4-4b-it
       task_file: llm-smoke-test.md
       strategy: isolated
-      memory_mode: hot   # optional; off (default) | hot — inject the workspace's hot memory once per run
-      skip_if_busy: true # optional; heartbeat-style: skip a scheduled tick when the lane is busy
+      memory_mode: "on"  # optional; "" (inherit the global automation default) | on | off — hot memory once per run
+      skip_if_busy: true # optional; skip a scheduled tick when the lane is busy (the workspace heartbeat derives this from its model's lane)
+      journal: true      # optional; keep notes between runs (§II.7); default false
       notify:            # optional; deliver the report through a communication connector
         connector: my-telegram   # registry.json communication.connectors key
         dedup: true              # skip items already reported (default false)
@@ -181,8 +276,9 @@ Every agent run — chat and automation — is admitted through the
   residency gate holds starts) is dropped, not queued (`runlane.DispositionSkipped`,
   `TriggerSkipped`, counted as a skipped execution, no history entry), and a run preempted by a
   chat is dropped instead of re-queued at the front. Manual triggers (UI, API, `/run`) ignore the
-  flag and queue as usual. Meant for heartbeat checks whose next tick repeats the work, so a
-  busy local model is not queued behind or restarted for a check that can wait.
+  flag and queue as usual. Meant for checks whose next tick repeats the work, so a busy local
+  model is not queued behind or restarted for a check that can wait. The workspace heartbeat sets it
+  from its model's lane instead of a flag: on for the local lane, off for cloud.
 - **Same-workspace serialization** — the per-workspace flock is now a waiting
   acquire (`acquireWorkspaceLock`, 250 ms retry, bounded by the run ctx): two
   same-workspace runs queue instead of discarding each other. A run whose ctx
@@ -193,7 +289,7 @@ Every agent run — chat and automation — is admitted through the
   `services.Shutdown`.
 - **Durability** — lanes, queue, and the queued/preempted counters are
   in-memory; they reset on restart (skipped/preempted runs produce no persisted
-  history entry, so `LoadHistory` cannot rebuild them).
+  history entry, so the startup metrics seeding cannot rebuild them).
 - **Global run visibility** — lane state is **global** (`Scheduler.Snapshot()`
   takes no arguments), so exactly one route exposes it: `GET
   /admin/api/active-runs` with **no workspace path parameter**, returning

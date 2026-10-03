@@ -166,12 +166,12 @@ func (c *Container) initRunScheduler(s *AppServices) {
 }
 
 // newClientFactory routes each model to its client by the actual upstream
-// destination and artifact — a remote llama.cpp serving GGUF is a local workload
-// (SPEC-005) — and wraps every client in the recorder.
-func (c *Container) newClientFactory(classifier models.WorkloadClassifier) func(string, string, http.Header) proxy.Client {
-	return func(baseURL string, model string, headers http.Header) proxy.Client {
+// destination, artifact and the model's own workload class — a remote llama.cpp
+// is a local workload (SPEC-005) — and wraps every client in the recorder.
+func (c *Container) newClientFactory(classifier models.WorkloadClassifier) func(string, string, http.Header, bool) proxy.Client {
+	return func(baseURL string, model string, headers http.Header, local bool) proxy.Client {
 		var client proxy.Client
-		if classifier.ClassifyClient(baseURL, model) {
+		if local || classifier.ClassifyClient(baseURL, model) {
 			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
 		} else {
 			client = proxy.NewLLMClient(baseURL, model, nil, headers)
@@ -437,6 +437,10 @@ func (s AppServices) RecordDir() string {
 		return s.RecordingStore.RecordDir()
 	}
 	return ""
+}
+
+func (s AppServices) MemorySettings() *models.MemoryConfig {
+	return s.AppCtx.GetSettings().Memory
 }
 
 func (s AppServices) RunLoggingEnabled() bool {

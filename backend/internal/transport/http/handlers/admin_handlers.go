@@ -205,6 +205,7 @@ type adminConfigView struct {
 	SearchProviders      []string                       `json:"search_providers"`
 	RunLogging           *models.RunLoggingConfig       `json:"run_logging,omitempty"`
 	Scheduler            *models.SchedulerConfig        `json:"scheduler,omitempty"`
+	Memory               models.MemoryHotDefaults       `json:"memory"`
 }
 
 type adminSystemView struct {
@@ -352,6 +353,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			// Backend-driven search-provider option list (canonical enum order).
 			SearchProviders: searchProviderOptions(),
 			Scheduler:       settings.Scheduler,
+			Memory:          settings.Memory.HotDefaults(),
 			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}
