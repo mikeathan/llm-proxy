@@ -5,6 +5,15 @@
 > build-only / uninstall / **full purge** / preview options, and is idempotent —
 > safe to re-run; it skips what's already done.
 
+The setup UI follows the admin UI's retro style: warm cream text, persimmon
+accent, the split-disc brand mark, and terminal equivalents of the action
+icons. ANSI terminals with truecolour support use the web palette; dialog and
+whiptail approximate it using their sixteen colour slots. No icon font is
+required. `NO_COLOR` disables the custom palette.
+
+UI checks (no root privileges or service changes):
+`bash scripts/test-setup-ui.sh`.
+
 ## Subcommands
 
 | Command | Purpose |

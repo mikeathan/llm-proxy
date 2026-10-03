@@ -85,43 +85,76 @@ else
   UI_BACKEND="ansi"
 fi
 
-# Shared ANSI palette + toolchain discovery. The palette lives in
-# scripts/lib/ui.sh so setup.sh, build.sh and the other dev scripts cannot drift
-# apart; ui.sh also honors NO_COLOR. Alias it to the short names this file uses.
+# Shared status helpers stay available for build output; setup owns its brand
+# palette, matching frontend/src/styles/tokens.css (retro-dark-soft).
 # shellcheck source=scripts/lib/ui.sh
 source "$PRJ_ROOT/scripts/lib/ui.sh"
 # shellcheck source=scripts/lib/toolchain.sh
 source "$PRJ_ROOT/scripts/lib/toolchain.sh"
-BOLD=$UI_BOLD; ACCENT=$UI_MAUVE; TEXT=$UI_TEXT
-GREEN=$UI_GREEN; YELLOW=$UI_YELLOW; RED=$UI_RED; DIM=$UI_DIM; NC=$UI_NC
-
-# --- whiptail theme ---------------------------------------------------------
-# Pin a Catppuccin Macchiato look (the theme this repo's opencode TUI uses):
-# black panels, mauve borders/titles, light text, teal highlights. newt only
-# takes the 16-colour names, so these are the nearest ANSI slots. Honor
-# NO_COLOR to keep the system palette. (dialog uses dialogrc, not newt, so this
-# only applies to the whiptail backend.)
-if [[ $UI_BACKEND == whiptail && -z "${NO_COLOR:-}" ]]; then
-  export NEWT_COLORS='
-    root=white,black
-    window=white,black
-    border=magenta,black
-    title=magenta,black
-    textbox=white,black
-    button=black,magenta
-    compactbutton=black,magenta
-    actbutton=black,cyan
-    checkbox=white,black
-    actcheckbox=black,cyan
-    entry=white,black
-    actentry=black,cyan
-    label=white,black
-    listbox=white,black
-    actlistbox=black,cyan
-    helpline=cyan,black
-    roottext=cyan,black
-  '
+BOLD=; TEXT=; GREEN=; YELLOW=; RED=; DIM=; NC=
+UI_BRAND=; UI_SELECTED=
+if [[ -t 2 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
+  BOLD=$'\033[1m'; NC=$'\033[0m'
+  if [[ ${COLORTERM:-} == *truecolor* || ${COLORTERM:-} == *24bit* || ${TERM:-} == *-direct* ]]; then
+    TEXT=$'\033[38;2;242;237;227m'
+    DIM=$'\033[38;2;178;172;162m'
+    UI_BRAND=$'\033[38;2;255;106;61m'
+    UI_SELECTED=$'\033[48;2;59;57;54m'
+    GREEN=$'\033[38;2;47;212;163m'
+    YELLOW=$'\033[38;2;232;207;74m'
+    RED=$'\033[38;2;255;112;124m'
+  else
+    TEXT=$'\033[37m'; DIM=$'\033[37m'
+    UI_BRAND=$'\033[33m'; UI_SELECTED=$'\033[40m'
+    GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'
+  fi
 fi
+ACCENT=$UI_BRAND
+UI_MARK='◖◗'
+UI_IDENTITY="$UI_MARK llm-proxy / HOST SETUP"
+
+# Native widgets have only sixteen colour slots: yellow is the nearest
+# distinct approximation of persimmon; ANSI uses the exact brand RGB above.
+if [[ -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
+  if [[ $UI_BACKEND == whiptail ]]; then
+    export NEWT_COLORS='
+      root=white,black
+      window=white,black
+      border=white,black
+      title=yellow,black
+      textbox=white,black
+      button=white,black
+      compactbutton=white,black
+      actbutton=black,yellow
+      checkbox=white,black
+      actcheckbox=black,yellow
+      entry=white,black
+      actentry=black,white
+      label=white,black
+      listbox=white,black
+      actlistbox=black,white
+      helpline=white,black
+      roottext=yellow,black
+    '
+  elif [[ $UI_BACKEND == dialog ]]; then
+    export DIALOGRC="$PRJ_ROOT/scripts/lib/setup.dialogrc"
+  fi
+fi
+
+# Text equivalents of the web UI's line icons; no special icon font needed.
+setup_icon() {
+  case "$1" in
+    install|start) printf '⊕' ;;
+    register|status) printf '≡' ;;
+    build|logs|follow) printf '>_' ;;
+    service|restart) printf '⚙' ;;
+    access) printf '↗' ;;
+    uninstall|stop) printf '−' ;;
+    purge) printf '!' ;;
+    quit|back) printf '×' ;;
+    *) printf '·' ;;
+  esac
+}
 
 info()    { printf '  %s•%s %s%s%s\n' "$ACCENT" "$NC" "$TEXT" "$1" "$NC"; }
 success() { printf '  %s✓%s %s%s%s\n' "$GREEN" "$NC" "$TEXT" "$1" "$NC"; }
@@ -136,11 +169,14 @@ fail()    { printf '  %s✗%s %s%s%s\n' "$RED" "$NC" "$TEXT" "$1" "$NC" >&2; exi
 
 ui_menu() { # $1 title, then tag/desc pairs
   local title="$1"; shift
-  local items=("$@") list_h
+  local items=("$@") list_h i
+  for ((i=0; i<${#items[@]}; i+=2)); do
+    items[$((i+1))]="$(setup_icon "${items[$i]}")  ${items[$((i+1))]}"
+  done
   list_h=$(( (${#items[@]} / 2) > 12 ? 12 : ${#items[@]} / 2 ))
   case "$UI_BACKEND" in
-    whiptail) whiptail --title "$title" --menu "" 20 70 "$list_h" "${items[@]}" 3>&1 1>&2 2>&3 ;;
-    dialog)   dialog --clear --title "$title" --menu "" 20 70 "$list_h" "${items[@]}" 3>&1 1>&2 2>&3; clear ;;
+    whiptail) whiptail --backtitle "$UI_IDENTITY" --title "$title" --menu "" 20 70 "$list_h" "${items[@]}" 3>&1 1>&2 2>&3 ;;
+    dialog)   dialog --backtitle "$UI_IDENTITY" --clear --title "$title" --menu "" 20 70 "$list_h" "${items[@]}" 3>&1 1>&2 2>&3; clear ;;
     ansi)     ansi_menu "$title" "${items[@]}" ;;
   esac
 }
@@ -153,16 +189,16 @@ ansi_menu() {
   if [[ $INTERACTIVE == 0 ]]; then echo "${items[0]}"; return; fi
   local esc_t=1; (( BASH_VERSINFO[0] > 3 )) && esc_t=0.1
   while true; do
-    printf '%s%s%s%s\n' "$ACCENT" "$BOLD" "$title" "$NC" >&2
+    printf '%s┌─ %s%s / %s%s\n' "$DIM" "$TEXT" "$UI_IDENTITY" "$title" "$NC" >&2
     for ((i=0; i<n; i++)); do
       local tag="${items[$((i*2))]}" desc="${items[$((i*2+1))]}"
       if (( i+1 == sel )); then
-        printf '  %s%s▌ %s%s\n' "$ACCENT" "$BOLD" "$desc" "$NC" >&2
+        printf '%s│ %s%s%s▌ %s%s\n' "$DIM" "$UI_SELECTED" "$ACCENT" "$BOLD" "$desc" "$NC" >&2
       else
-        printf '%s    %s%s\n' "$TEXT" "$desc" "$NC" >&2
+        printf '%s│   %s%s%s\n' "$DIM" "$TEXT" "$desc" "$NC" >&2
       fi
     done
-    printf '%s  (↑/↓ + Enter, q to quit)%s\n' "$DIM" "$NC" >&2
+    printf '%s└─ ↑/↓ navigate · Enter select · q quit%s\n' "$DIM" "$NC" >&2
     IFS= read -rsn1 key || exit 0
     if [[ $key == $'\x1b' ]]; then
       read -rsn2 -t "$esc_t" seq || true
@@ -182,8 +218,8 @@ ansi_menu() {
 
 ui_input() { # $1 prompt, $2 default
   case "$UI_BACKEND" in
-    whiptail) whiptail --title "llm-proxy" --inputbox "$1" 9 65 "$2" 3>&1 1>&2 2>&3 ;;
-    dialog)   dialog --clear --title "llm-proxy" --inputbox "$1" 9 65 "$2" 3>&1 1>&2 2>&3; clear ;;
+    whiptail) whiptail --backtitle "$UI_IDENTITY" --title "llm-proxy" --inputbox "$1" 9 65 "$2" 3>&1 1>&2 2>&3 ;;
+    dialog)   dialog --backtitle "$UI_IDENTITY" --clear --title "llm-proxy" --inputbox "$1" 9 65 "$2" 3>&1 1>&2 2>&3; clear ;;
     ansi)     local val; read -r -e -p "$1 [$2] " val || true; echo "${val:-$2}" ;;
   esac
 }
@@ -197,8 +233,8 @@ ui_confirm() {
     local ans; read -r -p "  $1 " ans; [[ ! "$ans" =~ ^[Nn] ]]
   else
     case "$UI_BACKEND" in
-      whiptail) whiptail --title "llm-proxy" --yesno "$1" 8 65 3>&1 1>&2 2>&3 ;;
-      dialog)   dialog --clear --title "llm-proxy" --yesno "$1" 8 65 3>&1 1>&2 2>&3 ;;
+      whiptail) whiptail --backtitle "$UI_IDENTITY" --title "llm-proxy" --yesno "$1" 8 65 3>&1 1>&2 2>&3 ;;
+      dialog)   dialog --backtitle "$UI_IDENTITY" --clear --title "llm-proxy" --yesno "$1" 8 65 3>&1 1>&2 2>&3 ;;
     esac
   fi
 }
@@ -211,8 +247,8 @@ ui_msgbox() { # $1 text
   # the swap the widget renders into a command-substitution pipe (invisible)
   # and the script appears to hang. 20x70 so longer texts fit comfortably.
   case "$UI_BACKEND" in
-    whiptail) whiptail --title "llm-proxy" --msgbox "$1" 20 70 3>&1 1>&2 2>&3 ;;
-    dialog)   dialog --clear --title "llm-proxy" --msgbox "$1" 20 70 3>&1 1>&2 2>&3; clear ;;
+    whiptail) whiptail --backtitle "$UI_IDENTITY" --title "llm-proxy" --msgbox "$1" 20 70 3>&1 1>&2 2>&3 ;;
+    dialog)   dialog --backtitle "$UI_IDENTITY" --clear --title "llm-proxy" --msgbox "$1" 20 70 3>&1 1>&2 2>&3; clear ;;
   esac
 }
 
@@ -222,8 +258,8 @@ ui_msgbox() { # $1 text
 ui_textbox() { # $1 = file, $2 = title
   local file="$1" title="${2:-llm-proxy}"
   case "$UI_BACKEND" in
-    whiptail) whiptail --title "$title" --textbox "$file" 24 76 3>&1 1>&2 2>&3 ;;
-    dialog)   dialog --clear --title "$title" --textbox "$file" 24 76 3>&1 1>&2 2>&3; clear ;;
+    whiptail) whiptail --backtitle "$UI_IDENTITY" --title "$title" --textbox "$file" 24 76 3>&1 1>&2 2>&3 ;;
+    dialog)   dialog --backtitle "$UI_IDENTITY" --clear --title "$title" --textbox "$file" 24 76 3>&1 1>&2 2>&3; clear ;;
     ansi)
       cat "$file"
       read -r -p "  (Enter to continue)" _ || true
@@ -925,14 +961,11 @@ step() {
 }
 
 print_header() {
-  if [[ $UI_BACKEND == ansi ]]; then
-    printf '\n%s╭─%s %s%sllm-proxy%s %s· host setup%s\n' \
-      "$ACCENT" "$NC" "$BOLD" "$TEXT" "$NC" "$DIM" "$NC"
-    printf '%s│%s  %ssystemd installer · Linux only%s\n' "$ACCENT" "$NC" "$DIM" "$NC"
-    printf '%s╰%s' "$ACCENT" "$NC"; ui_rule 54
-  else
-    echo "llm-proxy — host setup (UI: $UI_BACKEND)"
-  fi
+  printf '\n%s┌──────────────────────────────────────────────┐%s\n' "$DIM" "$NC"
+  printf '%s│%s  %s◖%s◗%s  %sllm-proxy%s / HOST SETUP                  %s│%s\n' \
+    "$DIM" "$NC" "$TEXT" "$ACCENT" "$NC" "$BOLD$TEXT" "$NC" "$DIM" "$NC"
+  printf '%s│  Linux / systemd · installation & maintenance│%s\n' "$DIM" "$NC"
+  printf '%s└──────────────────────────────────────────────┘%s\n\n' "$DIM" "$NC"
 }
 
 main() {
