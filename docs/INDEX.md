@@ -71,6 +71,7 @@ follow the link — do not maintain a second copy here.
 | `CONSTITUTION.md` | Architectural Invariants — The Law | Everyone |
 | `docs/architecture.md` | Architecture Reference (mappings, contracts, checklists, pitfalls) | Developers |
 | `docs/guides/loop-strategy.md` | Loop Strategy — operator guide (which archetype to pick) | Operators |
+| `docs/guides/automation-digest.md` | Automation Digest — deliver a recurring research run to Telegram without repeats | Operators |
 | `docs/guides/memory-testing.md` | Memory — verify it works (store then recall runs) and the optional live A/B comparison on a small local model | Operators |
 
 ## Other documents

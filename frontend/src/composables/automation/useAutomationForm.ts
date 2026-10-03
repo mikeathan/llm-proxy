@@ -4,6 +4,7 @@ import type { Model } from "../../types/model"
 import type { ProviderItem } from "../../types/admin"
 import type { Automation } from "../../types/dispatcher"
 import type { AutomationFormData, TriggerType } from "../../types/automation"
+import type { ChoiceOption } from "../../types/ui"
 import { loopStrategyOptions as buildLoopStrategyOptions } from "../../utils/model/modelUtils"
 
 export function useAutomationForm(
@@ -31,6 +32,11 @@ export function useAutomationForm(
       loopStrategy: "",
       networkGrant: "",
       memoryMode: "",
+      notifyConnector: "",
+      notifyDedup: false,
+      notifyDedupDays: "",
+      notifySendEmpty: false,
+      skipIfBusy: false,
     }
   }
 
@@ -92,6 +98,27 @@ export function useAutomationForm(
     return result
   })
 
+  // Connectors an automation can deliver through, from the shared config. The
+  // connector already on the form stays selectable even if it was since
+  // removed, so editing never silently drops it.
+  const connectorOptions = computed<ChoiceOption[]>(() => {
+    const configured = state.value?.config?.communication?.connectors ?? {}
+    const options = Object.entries(configured).map(([name, c]) => ({
+      value: name,
+      label: c.enabled ? name : `${name} (disabled)`,
+    }))
+    const current = form.value.notifyConnector
+    if (current && !(current in configured)) {
+      options.push({ value: current, label: `${current} (not configured)` })
+    }
+    return options
+  })
+  // True only once the admin state has loaded and it lists no connector, so the
+  // "add one" note never flashes while the state is still loading.
+  const noConnectors = computed(
+    () => !!state.value && Object.keys(state.value.config?.communication?.connectors ?? {}).length === 0,
+  )
+
   // ---- workspace ---------------------------------------------------------
   watch(selectedWorkspace, (ws) => {
     if (ws) onFetchFiles(ws)
@@ -120,6 +147,11 @@ export function useAutomationForm(
         loopStrategy: target.loop_strategy || "",
         networkGrant: target.network_grant || "",
         memoryMode: target.memory_mode === "hot" ? "hot" : "", // "off" and unset are the same choice
+        notifyConnector: target.notify?.connector ?? "",
+        notifyDedup: !!target.notify?.dedup,
+        notifyDedupDays: target.notify?.dedup_days ? String(target.notify.dedup_days) : "",
+        notifySendEmpty: !!target.notify?.send_empty,
+        skipIfBusy: !!target.skip_if_busy,
       }
     },
     { immediate: true },
@@ -151,6 +183,8 @@ export function useAutomationForm(
     filteredModels,
     cloudProvidersWithKeys,
     loopStrategyOptions,
+    connectorOptions,
+    noConnectors,
     handleSubmit,
     resetForm,
   }

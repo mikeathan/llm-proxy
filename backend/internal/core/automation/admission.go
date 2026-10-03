@@ -25,6 +25,8 @@ type TriggerResult struct {
 const (
 	TriggerStarted string = "started"
 	TriggerQueued  string = "queued"
+	// TriggerSkipped: a skip_if_busy fire found the lane busy and was dropped.
+	TriggerSkipped string = "skipped"
 )
 
 func (d *Dispatcher) Trigger(workspaceID, automationName, recordingRef string) (TriggerResult, error) {
@@ -50,6 +52,7 @@ func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef 
 		Label:       entry.Workspace + "/" + entry.Name,
 		Kind:        runlane.KindAutomation,
 		Manual:      manual,
+		SkipIfBusy:  entry.SkipIfBusy && !manual,
 		Model:       entry.Model,
 		Run: func(ctx context.Context) error {
 			live, ok := d.registry.Get(entry.Workspace, entry.Name)
@@ -64,6 +67,11 @@ func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef 
 		return TriggerResult{Status: TriggerQueued, Position: sub.Position}, nil
 	case err != nil:
 		return TriggerResult{}, err
+	case sub.Disposition == runlane.DispositionSkipped:
+		d.metrics.RecordExecution(false, true, 0)
+		d.logger.Info("automation tick skipped: run lane busy",
+			"workspace", entry.Workspace, "automation", entry.Name)
+		return TriggerResult{Status: TriggerSkipped}, nil
 	case sub.Disposition == runlane.DispositionQueued:
 		d.metrics.RecordQueued()
 		return TriggerResult{Status: TriggerQueued, Position: sub.Position}, nil

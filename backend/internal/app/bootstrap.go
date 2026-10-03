@@ -535,13 +535,17 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 // BuildDispatcher creates the new dispatcher subsystem.
 // It uses the persistence layer directly (not the old workspace.Manager).
 func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.Dispatcher, error) {
+	var opts []automation.Option
+	if comm := communicationTools(svc.ToolProvider()); comm != nil {
+		opts = append(opts, automation.WithNotifier(connectorNotifier{comm: comm}))
+	}
 	d, err := automation.NewDispatcher(automation.DispatcherDeps{
 		Persistence: svc.Persistence(),
 		Executor:    c.BuildTaskExecutor(svc),
 		Logger:      c.Infra.Logger,
 		Lane:        c.RunLane,
 		LaneKeyFor:  svc.LaneKeyFor,
-	})
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}

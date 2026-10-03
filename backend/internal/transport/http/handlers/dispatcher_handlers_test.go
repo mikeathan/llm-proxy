@@ -744,3 +744,34 @@ func TestValidateAutomation_MemoryMode(t *testing.T) {
 		})
 	}
 }
+
+// notify is fail-fast validated: a delivery block must name a connector and
+// carry a sane retention.
+func TestValidateAutomation_Notify(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	cases := []struct {
+		name    string
+		notify  *models.NotifyConfig
+		wantErr bool
+	}{
+		{"absent passes", nil, false},
+		{"connector only passes", &models.NotifyConfig{Connector: "my-telegram"}, false},
+		{"dedup with retention passes", &models.NotifyConfig{Connector: "tg", Dedup: true, DedupDays: 30}, false},
+		{"missing connector rejected", &models.NotifyConfig{Dedup: true}, true},
+		{"negative retention rejected", &models.NotifyConfig{Connector: "tg", DedupDays: -1}, true},
+		{"absurd retention rejected", &models.NotifyConfig{Connector: "tg", DedupDays: models.MaxDedupDays + 1}, true},
+		{"maximum retention passes", &models.NotifyConfig{Connector: "tg", DedupDays: models.MaxDedupDays}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", Notify: tc.notify})
+			if tc.wantErr && (err == nil || !strings.Contains(err.Error(), "notify")) {
+				t.Fatalf("expected notify error, got %v", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}

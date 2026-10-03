@@ -83,6 +83,10 @@ func (s *Scheduler) Submit(j Job) (Submission, error) {
 	l.queue = append(l.queue, qj)
 	l.pumpLocked()
 	if pos := l.positionLocked(qj); pos > 0 {
+		if j.SkipIfBusy {
+			l.removeQueuedLocked(j.Key)
+			return Submission{Disposition: DispositionSkipped}, nil
+		}
 		return Submission{Disposition: DispositionQueued, Position: pos}, nil
 	}
 	return Submission{Disposition: DispositionStarted}, nil

@@ -333,6 +333,72 @@ func TestScheduler(t *testing.T) {
 		}
 	})
 
+	t.Run("skip-if-busy job is skipped, not queued, when the lane is full", func(t *testing.T) {
+		s := newStarted(t, 1, 1, true)
+		started := make(chan string, 4)
+		proceed := make(chan struct{})
+		defer close(proceed)
+		if _, err := s.Submit(autoJob("a", started, proceed, nil)); err != nil {
+			t.Fatal(err)
+		}
+		waitStarted(t, started, "a")
+
+		beat := autoJob("beat", started, proceed, nil)
+		beat.SkipIfBusy = true
+		sub, err := s.Submit(beat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sub.Disposition != DispositionSkipped {
+			t.Fatalf("disposition = %q, want %q", sub.Disposition, DispositionSkipped)
+		}
+		if got := laneState(t, s, LaneLocal); len(got.Queued) != 0 {
+			t.Fatalf("a skipped job must not occupy the queue, got %d entries", len(got.Queued))
+		}
+	})
+
+	t.Run("skip-if-busy job starts normally when the lane is free", func(t *testing.T) {
+		s := newStarted(t, 1, 1, true)
+		started := make(chan string, 1)
+		proceed := make(chan struct{})
+		defer close(proceed)
+		beat := autoJob("beat", started, proceed, nil)
+		beat.SkipIfBusy = true
+		sub, err := s.Submit(beat)
+		if err != nil || sub.Disposition != DispositionStarted {
+			t.Fatalf("sub = %+v, err = %v; want started", sub, err)
+		}
+		waitStarted(t, started, "beat")
+	})
+
+	t.Run("drops skip-if-busy jobs on preemption", func(t *testing.T) {
+		s := newStarted(t, 1, 1, true)
+		started := make(chan string, 4)
+		proceed := make(chan struct{})
+		defer close(proceed)
+		preempted := make(chan bool, 1)
+		beat := autoJob("beat", started, proceed, preempted)
+		beat.SkipIfBusy = true
+		if _, err := s.Submit(beat); err != nil {
+			t.Fatal(err)
+		}
+		waitStarted(t, started, "beat")
+
+		releaseCh, errCh := claim(t, s, LaneLocal)
+		select {
+		case release := <-releaseCh:
+			<-preempted
+			eventually(t, func() bool {
+				return len(laneState(t, s, LaneLocal).Queued) == 0
+			}, "skip-if-busy job should be dropped, not re-queued")
+			release()
+		case err := <-errCh:
+			t.Fatalf("claim failed: %v", err)
+		case <-time.After(testWait):
+			t.Fatal("timed out waiting for the interactive claim")
+		}
+	})
+
 	t.Run("returns ErrPreemptTimeout when the preempted run ignores cancellation", func(t *testing.T) {
 		oldGrace := preemptGrace
 		preemptGrace = 25 * time.Millisecond

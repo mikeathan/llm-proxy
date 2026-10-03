@@ -38,6 +38,7 @@ describe('useAutomationForm', () => {
     expect(f.form.value).toEqual({
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
       strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'hot',
+      notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false,
     })
   })
 
@@ -99,5 +100,26 @@ describe('useAutomationForm', () => {
     f.selectedWorkspace.value = 'ws'
     f.form.value.name = 'x'
     expect(f.handleSubmit()).toMatchObject({ name: 'x' })
+  })
+  it('populates delivery and busy behaviour from the automation', () => {
+    const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'my-tg', dedup: true, dedup_days: 14, send_empty: true }, skip_if_busy: true }), vi.fn())
+    expect(f.form.value).toMatchObject({ notifyConnector: 'my-tg', notifyDedup: true, notifyDedupDays: '14', notifySendEmpty: true, skipIfBusy: true })
+  })
+
+  it('lists configured connectors and keeps the form\'s own connector selectable', () => {
+    adminState.value = { ...STATE, config: { ...STATE.config, communication: { connectors: { 'my-tg': { type: 'telegram', enabled: true, settings: {} } } } } } as unknown as AdminState
+    const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'removed' } }), vi.fn())
+    expect(f.noConnectors.value).toBe(false)
+    expect(f.connectorOptions.value).toEqual([
+      { value: 'my-tg', label: 'my-tg' },
+      { value: 'removed', label: 'removed (not configured)' },
+    ])
+  })
+  it('reports "no connectors" only once the admin state has loaded', () => {
+    adminState.value = null
+    const f = useAutomationForm(ref(AUTO), vi.fn())
+    expect(f.noConnectors.value).toBe(false)
+    adminState.value = STATE
+    expect(f.noConnectors.value).toBe(true)
   })
 })

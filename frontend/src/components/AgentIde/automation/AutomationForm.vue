@@ -9,9 +9,12 @@ import { useUnsavedChangesGuard } from "../../../composables/ui/useUnsavedChange
 import UnsavedTag from "../../common/display/UnsavedTag.vue";
 import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
+import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
+import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
 import Panel from "../../common/layout/Panel.vue";
 import FormField from "../../common/forms/FormField.vue";
+import ToggleField from "../../common/forms/ToggleField.vue";
 import SegmentedControl from "../../common/forms/SegmentedControl.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import CronEditor from "./CronEditor.vue";
@@ -47,6 +50,8 @@ const {
   filteredModels,
   cloudProvidersWithKeys,
   loopStrategyOptions,
+  connectorOptions,
+  noConnectors,
   handleSubmit: validateSubmit,
   resetForm,
 } = useAutomationForm(
@@ -82,6 +87,11 @@ const loopStrategyHelper = computed(() => {
   return loopStrategyDescription(form.value.loopStrategy);
 });
 
+const DEDUP_DAYS_RULE = `Enter a whole number of days from 1 to ${MAX_DEDUP_DAYS}, or leave it empty for ${DEFAULT_DEDUP_DAYS}.`;
+const dedupDaysError = computed(() =>
+  form.value.notifyDedup && parseDedupDays(form.value.notifyDedupDays) === null ? DEDUP_DAYS_RULE : "",
+);
+
 const taskFiles = computed(() => (selectedWorkspace.value ? props.workspaceFiles[selectedWorkspace.value] ?? [] : []));
 
 // ── Validation ───────────────────────────────────────────────────────────
@@ -91,6 +101,7 @@ const missing = computed(() => {
   if (!form.value.name) return "Name the automation.";
   if (!form.value.taskFile) return "Choose a task file.";
   if (form.value.triggerType !== "manual" && !form.value.triggerValue) return "Set when it runs.";
+  if (dedupDaysError.value) return dedupDaysError.value;
   return "";
 });
 
@@ -128,6 +139,8 @@ const handleSubmit = () => {
     loop_strategy: data.loopStrategy,
     network_grant: data.networkGrant,
     memory_mode: data.memoryMode,
+    notify: notifyFromForm(data),
+    skip_if_busy: data.triggerType !== "manual" && data.skipIfBusy,
   };
 
   submitted.value = true;
@@ -148,6 +161,8 @@ const review = computed(() => [
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
   ["Memory", MEMORY_LABEL[form.value.memoryMode]],
+  ["Delivery", deliveryLabel(notifyFromForm(form.value))],
+  ["When busy", busyLabel(form.value.triggerType !== "manual" && form.value.skipIfBusy)],
 ]);
 </script>
 
@@ -234,6 +249,61 @@ const review = computed(() => [
       </p>
     </Panel>
 
+    <Panel title="Delivery">
+      <div class="flex flex-col gap-3">
+        <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-4">
+          <FormField
+            label="Send results to"
+            hint="After each run the report goes to this connector. You also get a short message if a run fails."
+          >
+            <template #default="{ id, describedBy }">
+              <select :id="id" v-model="form.notifyConnector" :aria-describedby="describedBy" class="form-control">
+                <option value="">Don't send results</option>
+                <option v-for="opt in connectorOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </template>
+          </FormField>
+        </div>
+        <p v-if="noConnectors" role="note" class="m-0 text-[length:var(--text-small)] text-muted">
+          No connectors yet.
+          <RouterLink :to="toSettings('communication')" class="text-accent-info-text hover:underline">Add one in Settings → Communication</RouterLink>
+          to receive results in Telegram.
+        </p>
+        <template v-if="form.notifyConnector">
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-x-6 gap-y-1">
+            <ToggleField
+              v-model="form.notifyDedup"
+              label="Skip items already reported"
+              hint="Rows whose link you already received are left out, so recurring digests stay fresh."
+            />
+            <ToggleField
+              v-model="form.notifySendEmpty"
+              label="Message me when nothing is new"
+              hint="Off keeps quiet runs silent. The run still appears in its history."
+            />
+          </div>
+          <FormField
+            v-if="form.notifyDedup"
+            label="Remember reported items for (days)"
+            :hint="`Empty uses ${DEFAULT_DEDUP_DAYS} days.`"
+            :error="dedupDaysError"
+          >
+            <template #default="{ id, describedBy, invalid }">
+              <input
+                :id="id"
+                v-model="form.notifyDedupDays"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid ? 'true' : undefined"
+                :placeholder="String(DEFAULT_DEDUP_DAYS)"
+                inputmode="numeric"
+                class="form-control max-w-[12rem] font-mono text-[length:var(--text-small)]"
+              />
+            </template>
+          </FormField>
+        </template>
+      </div>
+    </Panel>
+
     <Panel title="Schedule">
       <div class="flex flex-col gap-3">
         <SegmentedControl
@@ -255,6 +325,12 @@ const review = computed(() => [
           </template>
         </FormField>
         <p v-else class="m-0 text-[length:var(--text-small)] text-muted">Runs only when started from this page, the list, or the API.</p>
+        <ToggleField
+          v-if="form.triggerType !== 'manual'"
+          v-model="form.skipIfBusy"
+          label="Skip a run if the model is busy"
+          hint="For heartbeat checks: if a chat or another run is using the model when this fires, skip it and wait for the next one. Manual runs always wait their turn."
+        />
       </div>
     </Panel>
 
