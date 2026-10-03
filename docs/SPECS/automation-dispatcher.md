@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.3"
+version: "1.4"
 status: stable
-last_updated: 2026-09-29
+last_updated: 2026-10-03
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -12,6 +12,12 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.4 (2026-10-03)** — Result delivery (§II.6): an automation may carry a `notify` block; the
+  dispatcher delivers the final report (and failure notices) through a communication connector,
+  optionally skipping items already reported (seen ledger). A quiet `HEARTBEAT_OK` report is never
+  delivered. `skip_if_busy` (§V): a scheduled fire that cannot start at once is skipped instead of
+  queued, and a preempted run is dropped instead of re-queued.
 
 - **1.3 (2026-09-29)** — Reference correction (no behavior change): the SSE / `events.jsonl` event
   vocabulary now lists the actual `assistant.AgentEvent` types + `lifecycle` phases (there is no
@@ -69,6 +75,40 @@ Each run produces:
   `events.jsonl`); `recordRun` drops the older slice to bound memory under concurrent long runs.
 - `recording.jsonl` — LLM request/response recordings (when `--record` is active).
 
+### 6. Result Delivery (`notify`)
+
+An automation with `notify: {connector: <name>}` has its result delivered by the **dispatcher**
+after the run — not by the agent (`notify_user` stays reserved for tasks that explicitly request an
+external message, and is gated by network scope; delivery is not).
+
+- **Trigger points** (`execution.go`, `notify.go`): a successful run sends the report
+  (`ExecuteResponse.Report`, the final report without the run header); a failed run sends one
+  `⚠️ Automation <name> failed: <classified error>` line. A user stop (`context.Canceled`) and a
+  lane preemption send nothing.
+- **Best-effort**: a delivery failure is logged and never changes the run's outcome. Each send has
+  its own 30 s timeout derived from the dispatcher's context, not the (possibly expired) run's.
+- **Chat formatting** (`digest.go`): markdown tables become bullet lists (`• Item — cell · cell` and
+  the link on the next line); non-table text passes through. The connector owns platform limits
+  (Telegram: size splitting and a plain-text retry — SPEC-009).
+- **Dedup** (`notify.dedup: true`): each table row's first link is canonicalised (lower-case host,
+  no `www.`, no fragment, no `utm_*`/`fbclid`/`gclid`/`ref*`, no trailing slash). Rows whose link is
+  in the automation's **seen ledger** inside the retention window (`dedup_days`, default 60) are
+  dropped; rows without a link are always kept; a link repeated inside one report is sent once.
+  When every row is dropped nothing is sent unless `send_empty: true` (then
+  `No new items since the last run.`). Items are recorded **only after a successful send**, so a
+  failed delivery re-offers them next run.
+- **Seen ledger** (`persistence/seen.go`): `<meta>/<workspace>/seen/<automation>-<hash>.json`,
+  written atomically, pruned to the retention window on write, outside the agent's workspace jail.
+- **Heartbeat**: a report containing `HEARTBEAT_OK` (the smart-skip marker, `executor.go`) is not
+  delivered and not recorded as seen — a quiet check is silent. `heartbeat.md` in a new workspace
+  is a starter checklist that teaches the contract.
+- **Prompt hint**: with dedup on, up to 25 recent titles are appended to the task
+  (`prompts.AutomationSeenBlock`) so the run spends its search budget on new items. This is an
+  efficiency hint; the link filter at delivery is the guarantee.
+- **Network policy**: the send rides the connector's guarded client (Constitution I.2). It is an
+  operator-configured, system-side send to the operator's own connector — the same class as `/run`
+  result replies (SPEC-009 §1.1) — so it is not blocked by an agent network grant of `none`.
+
 ## III. Error Handling
 
 - Model not found: run fails with `ErrUnknownModel`.
@@ -92,6 +132,12 @@ Each run produces:
       task_file: llm-smoke-test.md
       strategy: isolated
       memory_mode: hot   # optional; off (default) | hot — inject the workspace's hot memory once per run
+      skip_if_busy: true # optional; heartbeat-style: skip a scheduled tick when the lane is busy
+      notify:            # optional; deliver the report through a communication connector
+        connector: my-telegram   # registry.json communication.connectors key
+        dedup: true              # skip items already reported (default false)
+        dedup_days: 60           # ledger retention (default 60)
+        send_empty: false        # send "no new items" when dedup removes everything (default false)
   ```
 
 ## V. Run Scheduler (global-run-lane plan)
@@ -125,6 +171,13 @@ Every agent run — chat and automation — is admitted through the
   the run is recorded skipped, its failed tail history entry dropped, and an
   informational event published — never `EventError`). Scheduled runs re-queue
   at the front; manual runs are dropped.
+- **Skip-if-busy** — an automation with `skip_if_busy: true` is *disposable*: a scheduled (cron /
+  interval) fire that cannot start immediately (the lane is full, a chat is waiting, or the
+  residency gate holds starts) is dropped, not queued (`runlane.DispositionSkipped`,
+  `TriggerSkipped`, counted as a skipped execution, no history entry), and a run preempted by a
+  chat is dropped instead of re-queued at the front. Manual triggers (UI, API, `/run`) ignore the
+  flag and queue as usual. Meant for heartbeat checks whose next tick repeats the work, so a
+  busy local model is not queued behind or restarted for a check that can wait.
 - **Same-workspace serialization** — the per-workspace flock is now a waiting
   acquire (`acquireWorkspaceLock`, 250 ms retry, bounded by the run ctx): two
   same-workspace runs queue instead of discarding each other. A run whose ctx

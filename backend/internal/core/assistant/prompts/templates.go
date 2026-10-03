@@ -202,10 +202,23 @@ func AssembleSystemPrompt(agentsFileContent string, useNativeTools bool) string 
 	return prompt
 }
 
-// DefaultHeartbeat defines a generic placeholder automation task.
-const DefaultHeartbeat = `# Heartbeat Task
-# Add your instructions here.
-Example: Scan the local directory and list files.
+// DefaultHeartbeat is the starter task a new workspace gets in heartbeat.md: a
+// quiet-by-default checklist. Replying exactly HEARTBEAT_OK is the dispatcher's
+// smart-skip signal (nothing is shown or delivered); anything else is a report.
+const DefaultHeartbeat = `# Heartbeat
+
+Run each check below, then decide whether anything needs the operator's attention.
+
+## Checks
+- Replace this list with what to watch, for example: new releases from the labs you follow.
+
+## Importance bar
+Report an item only if it is new and clearly important to the operator.
+Routine or minor items are not worth an interruption.
+
+## Output
+- If nothing clears the bar, reply with exactly: HEARTBEAT_OK
+- Otherwise reply with a short alert: one line per item, each with a source link.
 `
 
 // LocalAssistantPrompt defines the persona for the LocalToolRegistry.
@@ -600,5 +613,22 @@ func BuildExecutionPlanPrompt(tools []ToolInfo, task string) string {
 	sb.WriteString("\n\nMake each step self-contained: do not assume working directory, environment, or session state persists from one step to the next unless a tool's description explicitly guarantees it.\n")
 	sb.WriteString("\nReturn ONLY a JSON object with \"description\" (string) and \"steps\" (array). ")
 	sb.WriteString("Each step has \"tool\" (tool name), \"description\" (string), and \"args\" (object with parameter values).")
+	return sb.String()
+}
+
+// AutomationSeenBlock is appended to an automation's task when seen-item
+// dedup is on: it names items already delivered so the run spends its bounded
+// search budget on new ones. Delivery still filters by link, so this block is
+// an efficiency hint, not the guarantee.
+func AutomationSeenBlock(titles []string) string {
+	if len(titles) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n## Already reported (do not list these again)\n")
+	for _, t := range titles {
+		sb.WriteString("- " + t + "\n")
+	}
+	sb.WriteString("Report only items that are not in this list. If nothing new turns up, say so in one line instead of repeating old items.\n")
 	return sb.String()
 }

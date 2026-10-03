@@ -20,8 +20,10 @@ type AutomationEntry struct {
 	LoopStrategy models.LoopStrategy // per-run loop archetype override; "" = model config default
 	AllowedTools []string
 	RecordingRef string
-	NetworkGrant models.NetworkScope // per-run network scope override (plan §4.4)
-	MemoryMode   models.MemoryMode   // hot-memory opt-in; "" = off
+	NetworkGrant models.NetworkScope  // per-run network scope override (plan §4.4)
+	MemoryMode   models.MemoryMode    // hot-memory opt-in; "" = off
+	Notify       *models.NotifyConfig // result delivery; nil = none
+	SkipIfBusy   bool                 // scheduled fires skip instead of queueing behind busy work
 }
 
 // AutomationRegistry manages registered automations.
@@ -63,6 +65,8 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		RecordingRef: auto.RecordingRef,
 		NetworkGrant: auto.NetworkGrant,
 		MemoryMode:   auto.MemoryMode,
+		Notify:       copyNotify(auto.Notify),
+		SkipIfBusy:   auto.SkipIfBusy,
 	}
 
 	r.mu.Lock()
@@ -135,4 +139,13 @@ func (r *AutomationRegistry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.automations)
+}
+
+// copyNotify detaches the entry from the config the caller may later mutate.
+func copyNotify(n *models.NotifyConfig) *models.NotifyConfig {
+	if n == nil {
+		return nil
+	}
+	c := *n
+	return &c
 }

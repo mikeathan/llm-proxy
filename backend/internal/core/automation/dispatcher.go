@@ -31,6 +31,9 @@ type Dispatcher struct {
 	logger      logging.Logger
 	lane        *runlane.Scheduler
 	laneKeyFor  func(model string) runlane.LaneKey
+	// notifier delivers reports for automations with a notify block; nil
+	// disables delivery (WithNotifier).
+	notifier Notifier
 
 	mu      sync.RWMutex
 	jobs    map[string]cron.EntryID // automationID -> cron.EntryID

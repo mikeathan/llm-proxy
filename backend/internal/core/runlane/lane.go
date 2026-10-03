@@ -184,9 +184,10 @@ func (l *lane) freeAndPump(rj *runningJob, requeue bool) {
 
 // shouldRequeueLocked reports whether a finished run must restart from the
 // front of the queue: a preempted scheduled automation (not a user-initiated
-// manual run) that is not already waiting, on a lane still admitting work.
+// manual run, not a disposable SkipIfBusy run) that is not already waiting, on
+// a lane still admitting work.
 func (l *lane) shouldRequeueLocked(rj *runningJob) bool {
-	if l.closed || !rj.preempted || rj.job.Kind != KindAutomation || rj.job.Manual {
+	if l.closed || !rj.preempted || rj.job.Kind != KindAutomation || rj.job.Manual || rj.job.SkipIfBusy {
 		return false
 	}
 	return l.findQueuedLocked(rj.job.Key) == nil

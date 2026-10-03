@@ -118,6 +118,16 @@ type Automation struct {
 	// default) leaves the run without memory; hot injects the workspace's hot
 	// entries once per run in the head system message.
 	MemoryMode MemoryMode `yaml:"memory_mode,omitempty" json:"memory_mode,omitempty"`
+	// Notify delivers each successful run's report (and failures) through a
+	// communication connector, optionally skipping items already reported.
+	// nil (default) = no delivery.
+	Notify *NotifyConfig `yaml:"notify,omitempty" json:"notify,omitempty"`
+	// SkipIfBusy makes a scheduled fire disposable: if the run lane cannot start
+	// it immediately (a chat or another run holds it) the tick is skipped, not
+	// queued, and a run preempted by a chat is dropped, not restarted. Meant for
+	// heartbeat-style checks whose next tick repeats the work; manual triggers
+	// always queue. Default false.
+	SkipIfBusy bool `yaml:"skip_if_busy,omitempty" json:"skip_if_busy,omitempty"`
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml

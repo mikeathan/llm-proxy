@@ -191,6 +191,10 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 Optional per-automation `memory_mode`: `""`/`"off"` (default) or `"hot"` (inject the workspace's hot memory once per run). Any other value → 400. Echoed as `memory_mode` in `GET …/dispatcher/automations`.
 
+Optional per-automation `notify` `{connector, dedup, dedup_days, send_empty}` delivers each run's report through a communication connector (SPEC-007 §II.6). `connector` is required when `notify` is present and `dedup_days` must not be negative; otherwise → 400. Echoed as `notify` in `GET …/dispatcher/automations`. Sending `"notify": null` on update clears delivery.
+
+Optional per-automation `skip_if_busy` (bool, default false): a scheduled fire that cannot start immediately is skipped instead of queued, and a run preempted by a chat is dropped instead of restarted (SPEC-007 §V). Manual triggers ignore it. Echoed as `skip_if_busy`.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/admin/api/dispatcher/workspaces/{workspace}/automations` | Create automation |

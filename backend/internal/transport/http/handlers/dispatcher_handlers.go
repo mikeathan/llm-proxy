@@ -99,6 +99,11 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 		return fmt.Errorf("invalid loop_strategy %q: valid values are %s",
 			auto.LoopStrategy, strings.Join(assistant.RegisteredLoopStrategyNames(), ", "))
 	}
+	return validateRunOptions(auto)
+}
+
+// validateRunOptions fail-fast checks the optional per-run settings.
+func validateRunOptions(auto *models.Automation) error {
 	if auto.MemoryMode != "" && !auto.MemoryMode.Valid() {
 		return fmt.Errorf("invalid memory_mode %q: valid values are off, hot (empty = off)", auto.MemoryMode)
 	}
@@ -106,6 +111,11 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 	// workspace scope. Reject unknown values fail-fast (sandboxing plan §4.4).
 	if auto.NetworkGrant != "" && !auto.NetworkGrant.Valid() {
 		return fmt.Errorf("invalid network_grant %q: valid values are none, lan, internet_only, internet (empty = inherit)", auto.NetworkGrant)
+	}
+	if auto.Notify != nil {
+		if err := auto.Notify.Validate(); err != nil {
+			return fmt.Errorf("invalid notify: %w", err)
+		}
 	}
 	return nil
 }
@@ -133,6 +143,11 @@ type AutomationInfo struct {
 	Queued        bool                   `json:"queued,omitempty"`
 	QueuePosition int                    `json:"queue_position,omitempty"`
 	History       []models.AutomationRun `json:"history,omitempty"`
+
+	// Notify is the automation's result-delivery config; nil = none.
+	Notify *models.NotifyConfig `json:"notify,omitempty"`
+	// SkipIfBusy: scheduled fires are skipped, not queued, while the lane is busy.
+	SkipIfBusy bool `json:"skip_if_busy,omitempty"`
 }
 
 func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +177,8 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			RecordingRef: entry.RecordingRef,
 			NetworkGrant: string(entry.NetworkGrant),
 			MemoryMode:   string(entry.MemoryMode),
+			Notify:       entry.Notify,
+			SkipIfBusy:   entry.SkipIfBusy,
 		}
 
 		if state, err := h.workspace.GetState(entry.Workspace); err == nil {

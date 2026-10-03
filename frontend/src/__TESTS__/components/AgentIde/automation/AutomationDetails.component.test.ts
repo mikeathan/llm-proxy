@@ -57,6 +57,16 @@ describe('AutomationDetails', () => {
     expect(connect).toHaveBeenCalled()
   })
 
+  it('shows where results are delivered and what a busy model does', async () => {
+    const quiet = await mountDetails()
+    expect(quiet.text()).toContain('Not sent')
+    expect(quiet.text()).toContain('Waits its turn')
+
+    const w = await mountDetails({ automation: { ...AUTO, notify: { connector: 'my-telegram', dedup: true }, skip_if_busy: true } })
+    expect(w.text()).toContain('my-telegram · skips repeats')
+    expect(w.text()).toContain('Skips the run')
+  })
+
   it('copies the last error and the last output', async () => {
     const copies = (await mountDetails()).findAllComponents({ name: 'CopyButton' })
     expect(copies.map((c) => [c.props('title'), c.props('text')])).toEqual([

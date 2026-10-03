@@ -11,7 +11,7 @@ vi.mock('../../../../composables/settings/useHostNetworkState', () => ({
 }))
 const adminState = ref<AdminState | null>({
   models: [{ name: 'qwen', provider: 'local', endpoint: '', active: false, ready: false }],
-  config: { providers: {} },
+  config: { providers: {}, communication: { connectors: { 'my-telegram': { type: 'telegram', enabled: true, settings: {} }, 'old-bot': { type: 'telegram', enabled: false, settings: {} } } } },
 } as unknown as AdminState)
 vi.mock('../../../../composables/models/useModels', () => ({ useModels: () => ({ state: adminState }) }))
 
@@ -41,9 +41,9 @@ describe('AutomationForm', () => {
     document.body.innerHTML = ''
   })
 
-  it('groups the form into Basics, Model & access, Schedule and Review', async () => {
+  it('groups the form into Basics, Model & access, Delivery, Schedule and Review', async () => {
     const w = await mountForm()
-    expect(w.findAll('h2').map((h) => h.text())).toEqual(['Basics', 'Model & access', 'Schedule', 'Review'])
+    expect(w.findAll('h2').map((h) => h.text())).toEqual(['Basics', 'Model & access', 'Delivery', 'Schedule', 'Review'])
   })
 
   it('offers nested task files of the chosen workspace', async () => {
@@ -65,7 +65,7 @@ describe('AutomationForm', () => {
     await w.get('form').trigger('submit')
     expect(w.emitted('create-automation')).toEqual([[
       'ws',
-      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '' },
+      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false },
     ]])
   })
 
@@ -85,7 +85,7 @@ describe('AutomationForm', () => {
     expect(w.emitted('update-automation')).toEqual([[
       'ws',
       'nightly',
-      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '' },
+      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false },
     ]])
   })
 
@@ -106,5 +106,76 @@ describe('AutomationForm', () => {
     expect(w.text()).toContain('Unsaved changes')
     await w.findAll('button').find((b) => b.text() === 'Cancel')!.trigger('click')
     expect(w.emitted('cancel')).toHaveLength(1)
+  })
+  describe('delivery', () => {
+    const submitUpdate = async (w: VueWrapper) => {
+      await w.get('form').trigger('submit')
+      return (w.emitted('update-automation')![0] as [string, string, { notify: unknown; skip_if_busy: boolean }])[2]
+    }
+
+    it('offers the configured connectors, marking disabled ones, and sends nothing by default', async () => {
+      const w = await mountForm(AUTO)
+      const options = control(w, 'Send results to').findAll('option').map((o) => [o.attributes('value'), o.text()])
+      expect(options).toEqual([['', "Don't send results"], ['my-telegram', 'my-telegram'], ['old-bot', 'old-bot (disabled)']])
+      expect(w.text()).not.toContain('Skip items already reported')
+      expect((await submitUpdate(w)).notify).toBeNull()
+    })
+
+    it('reveals the delivery options once a connector is chosen and sends them', async () => {
+      const w = await mountForm(AUTO)
+      await control(w, 'Send results to').setValue('my-telegram')
+      await w.findAll('input[role="switch"]').find((i) => i.element.closest('label')?.textContent?.includes('Skip items already reported'))!.setValue(true)
+      await control(w, 'Remember reported items for (days)').setValue('30')
+      expect(w.get('[data-test="review"]').text()).toContain('my-telegram · skips repeats')
+      expect((await submitUpdate(w)).notify).toEqual({ connector: 'my-telegram', dedup: true, dedup_days: 30, send_empty: false })
+    })
+
+    it('rejects a retention that is not a whole number and does not send', async () => {
+      const w = await mountForm(AUTO)
+      await control(w, 'Send results to').setValue('my-telegram')
+      await w.findAll('input[role="switch"]').find((i) => i.element.closest('label')?.textContent?.includes('Skip items already reported'))!.setValue(true)
+      await control(w, 'Remember reported items for (days)').setValue('soon')
+      expect(w.text()).toContain('Enter a whole number of days')
+      expect(submitButton(w).attributes('disabled')).toBeDefined()
+      await w.get('form').trigger('submit')
+      expect(w.emitted('update-automation')).toBeUndefined()
+    })
+
+    it('keeps a connector that is no longer configured selectable when editing', async () => {
+      const w = await mountForm({ ...AUTO, notify: { connector: 'gone', dedup: true } })
+      expect(control(w, 'Send results to').findAll('option').map((o) => o.text())).toContain('gone (not configured)')
+      expect((control(w, 'Send results to').element as HTMLSelectElement).value).toBe('gone')
+    })
+
+    it('points to Settings when no connector exists yet', async () => {
+      const original = adminState.value
+      adminState.value = { ...original!, config: { providers: {} } } as unknown as AdminState
+      const w = await mountForm(AUTO)
+      expect(w.text()).toContain('No connectors yet')
+      expect(w.get('a[href*="communication"]').text()).toContain('Settings')
+      adminState.value = original
+    })
+  })
+
+  describe('skip when busy', () => {
+    it('is offered for scheduled runs only, and sent when switched on', async () => {
+      const w = await mountForm(AUTO)
+      const toggle = () => w.findAll('input[role="switch"]').find((i) => i.element.closest('label')?.textContent?.includes('Skip a run if the model is busy'))
+      await toggle()!.setValue(true)
+      expect(w.get('[data-test="review"]').text()).toContain('Skips the run')
+      await w.get('form').trigger('submit')
+      expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({ skip_if_busy: true })
+
+      await w.findAll('[role="radio"]').find((r) => r.text() === 'Manual')!.trigger('click')
+      expect(toggle()).toBeUndefined()
+      expect(w.get('[data-test="review"]').text()).toContain('Waits its turn')
+    })
+
+    it('never sends skip_if_busy for a manual automation, even if it was switched on before', async () => {
+      const w = await mountForm({ ...AUTO, skip_if_busy: true })
+      await w.findAll('[role="radio"]').find((r) => r.text() === 'Manual')!.trigger('click')
+      await w.get('form').trigger('submit')
+      expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({ skip_if_busy: false })
+    })
   })
 })
