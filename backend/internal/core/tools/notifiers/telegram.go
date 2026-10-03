@@ -25,41 +25,111 @@ func NewTelegramNotifier(token, chatID string, client *http.Client) *TelegramNot
 
 func (t *TelegramNotifier) Name() string { return "Telegram" }
 
+// telegramChunkSize is the largest part Send posts. Telegram rejects text over
+// 4096 characters; the margin absorbs characters it counts as two units.
+const telegramChunkSize = 4000
+
+// Send delivers message, split on line boundaries when it exceeds Telegram's
+// size limit. Markdown is tried first; if Telegram cannot parse the markup
+// (model-written text often has stray `_` or `*`), the same part is re-sent as
+// plain text rather than losing the message.
 func (t *TelegramNotifier) Send(ctx context.Context, message string) error {
 	if t.Token == "" || t.ChatID == "" || t.client == nil {
 		return fmt.Errorf("telegram connector not fully configured")
 	}
+	for _, part := range splitMessage(message, telegramChunkSize) {
+		if err := t.sendPart(ctx, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
+func (t *TelegramNotifier) sendPart(ctx context.Context, text string) error {
+	status, body, err := t.post(ctx, text, "Markdown")
+	if err == nil && status == http.StatusBadRequest && strings.Contains(body, "can't parse entities") {
+		status, body, err = t.post(ctx, text, "")
+	}
+	if err != nil {
+		return err
+	}
+	if status == http.StatusOK {
+		return nil
+	}
+	err = fmt.Errorf("telegram API error: status %d, body: %s", status, body)
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		// Rejected bot token — operator-actionable, so classify terminal for
+		// the agent loop (see tool-error-classification).
+		return fmt.Errorf("%w: %v", models.ErrToolUnavailable, err)
+	}
+	return err
+}
+
+// post performs one sendMessage call; an empty parseMode sends plain text. The
+// response body is read (capped) only for a non-200 status.
+func (t *TelegramNotifier) post(ctx context.Context, text, parseMode string) (int, string, error) {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.Token)
 	formData := url.Values{}
 	formData.Set("chat_id", t.ChatID)
-	formData.Set("text", message)
-	formData.Set("parse_mode", "Markdown")
+	formData.Set("text", text)
+	if parseMode != "" {
+		formData.Set("parse_mode", parseMode)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(formData.Encode()))
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		err := fmt.Errorf("telegram API error: status %d, body: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			// Rejected bot token — operator-actionable, so classify terminal for
-			// the agent loop (see tool-error-classification).
-			return fmt.Errorf("%w: %v", models.ErrToolUnavailable, err)
-		}
-		return err
+	if resp.StatusCode == http.StatusOK {
+		return resp.StatusCode, "", nil
 	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	return resp.StatusCode, string(body), nil
+}
 
-	return nil
+// splitMessage cuts text into parts of at most limit characters, breaking on
+// line boundaries; a single line longer than limit is hard-split.
+func splitMessage(text string, limit int) []string {
+	if len([]rune(text)) <= limit {
+		return []string{text}
+	}
+	var parts []string
+	var cur []string
+	curLen := 0
+	flush := func() {
+		if len(cur) > 0 {
+			parts = append(parts, strings.Join(cur, "\n"))
+			cur, curLen = nil, 0
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		runes := []rune(line)
+		for len(runes) > limit {
+			flush()
+			parts = append(parts, string(runes[:limit]))
+			runes = runes[limit:]
+		}
+		add := len(runes)
+		if len(cur) > 0 {
+			add++ // joining newline
+		}
+		if curLen+add > limit {
+			flush()
+			add = len(runes)
+		}
+		cur = append(cur, string(runes))
+		curLen += add
+	}
+	flush()
+	return parts
 }
 
 type WebhookInfo struct {

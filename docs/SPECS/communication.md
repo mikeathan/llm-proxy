@@ -1,9 +1,9 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.1"
+version: "1.2"
 status: stable
-last_updated: 2026-09-06
+last_updated: 2026-10-03
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,12 @@ supersedes:
 # SPEC: Communication Connector System
 
 ## Changelog
+
+- **1.2 (2026-10-03)** — Telegram `Send` splits text over 4000 characters on line boundaries and
+  retries a part as plain text when Telegram answers 400 "can't parse entities" (model-written
+  text with stray `_`/`*` previously lost the whole message). Automation result delivery
+  (`notify`, SPEC-007 §II.6) uses `Connector.Send` from the dispatcher; it is system-side, like
+  the inbound reply path in 1.1, not agent egress.
 
 - **1.1 (2026-09-06)** — Connector SEND gating under host network policy
   (SPEC-006 §II.7). Agent-initiated sends — the `notify_user` tool (including
@@ -128,6 +134,8 @@ for name, cfg := range reg.Communication.Connectors {
 Implementation details:
 - POST to `https://api.telegram.org/bot{token}/sendMessage`
 - Form-encoded body with `chat_id`, `text`, `parse_mode=Markdown`
+- Parts over 4000 characters are split on line boundaries (a single longer line is hard-split);
+  a 400 "can't parse entities" reply is retried once without `parse_mode`
 - Response body read (up to 1KB) on error for diagnostic detail
 - Uses injected `*http.Client`, never `http.DefaultClient`
 

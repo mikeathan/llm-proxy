@@ -8,6 +8,7 @@ import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
+import { busyLabel, deliveryLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
 import { toWorkspaceFile } from "../../../router/routes";
 import Panel from "../../common/layout/Panel.vue";
@@ -97,6 +98,8 @@ const config = computed(() => [
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],
   ["Network", props.automation.network_grant || "Inherits the workspace"],
   ["Memory", props.automation.memory_mode === "hot" ? "Hot memory" : "Off"],
+  ["Delivery", deliveryLabel(props.automation.notify)],
+  ["When busy", busyLabel(props.automation.skip_if_busy)],
 ]);
 
 async function deleteRun(run: AutomationRun) {

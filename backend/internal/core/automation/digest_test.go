@@ -1,0 +1,138 @@
+package automation
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"llm-proxy/models"
+)
+
+const briefReport = `As of: 2026-10-03 | Searches: 3 | Window: latest available
+
+| Item | Date | Type | Why it matters | Source |
+|---|---|---|---|---|
+| GPT-6 | 2026-10-02 | model | Big jump in reasoning | [OpenAI](https://openai.com/blog/gpt-6?utm_source=x) |
+| Qwen4 | 2026-10-01 | model | Open weights, strong coding | https://qwen.ai/blog/qwen4#intro |
+| Gizmo | n/d | tool | No link row | |
+
+Read: GPT-6 changes pricing.`
+
+func TestCanonicalURL(t *testing.T) {
+	cases := map[string]string{
+		"https://OpenAI.com/blog/gpt-6/?utm_source=x&b=1#top": "https://openai.com/blog/gpt-6?b=1",
+		"https://www.example.com/a":                           "https://example.com/a",
+		"https://example.com/a.":                              "https://example.com/a",
+		"not a url":                                           "not a url",
+	}
+	for in, want := range cases {
+		if got := canonicalURL(in); got != want {
+			t.Errorf("canonicalURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBuildDigest(t *testing.T) {
+	now := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	gptKey := canonicalURL("https://openai.com/blog/gpt-6")
+	cfgDedup := models.NotifyConfig{Connector: "tg", Dedup: true}
+
+	t.Run("formats table as list and records new items", func(t *testing.T) {
+		d := buildDigest(briefReport, nil, cfgDedup, now)
+		for _, want := range []string{"• GPT-6 — 2026-10-02 · model · Big jump in reasoning", "https://openai.com/blog/gpt-6?utm_source=x", "• Gizmo", "Read: GPT-6 changes pricing.", "As of: 2026-10-03"} {
+			if !strings.Contains(d.Message, want) {
+				t.Errorf("message missing %q:\n%s", want, d.Message)
+			}
+		}
+		if strings.Contains(d.Message, "|---") {
+			t.Errorf("table markup leaked into chat message:\n%s", d.Message)
+		}
+		if len(d.NewItems) != 2 || d.NewItems[gptKey] != "GPT-6" {
+			t.Errorf("NewItems = %v, want GPT-6 and Qwen4 keyed by canonical URL", d.NewItems)
+		}
+	})
+
+	t.Run("drops rows already reported", func(t *testing.T) {
+		ledger := models.SeenLedger{gptKey: {Title: "GPT-6", At: now.Add(-24 * time.Hour)}}
+		d := buildDigest(briefReport, ledger, cfgDedup, now)
+		if strings.Contains(d.Message, "GPT-6 —") {
+			t.Errorf("seen row was not dropped:\n%s", d.Message)
+		}
+		if !strings.Contains(d.Message, "Qwen4") || !strings.Contains(d.Message, "Gizmo") {
+			t.Errorf("fresh rows must survive:\n%s", d.Message)
+		}
+		if _, ok := d.NewItems[gptKey]; ok {
+			t.Error("a seen item must not be re-recorded as new")
+		}
+	})
+
+	t.Run("expired ledger entries count as unseen", func(t *testing.T) {
+		ledger := models.SeenLedger{gptKey: {Title: "GPT-6", At: now.Add(-61 * 24 * time.Hour)}}
+		d := buildDigest(briefReport, ledger, cfgDedup, now)
+		if !strings.Contains(d.Message, "• GPT-6") {
+			t.Errorf("expired entry must not suppress the row:\n%s", d.Message)
+		}
+	})
+
+	t.Run("nothing new stays silent unless SendEmpty", func(t *testing.T) {
+		allSeen := models.SeenLedger{
+			gptKey: {At: now},
+			canonicalURL("https://qwen.ai/blog/qwen4"): {At: now},
+		}
+		report := strings.Replace(briefReport, "| Gizmo | n/d | tool | No link row | |\n", "", 1)
+		if d := buildDigest(report, allSeen, cfgDedup, now); d.Message != "" {
+			t.Errorf("expected no message, got %q", d.Message)
+		}
+		cfg := cfgDedup
+		cfg.SendEmpty = true
+		if d := buildDigest(report, allSeen, cfg, now); d.Message != "No new items since the last run." {
+			t.Errorf("SendEmpty message = %q", d.Message)
+		}
+	})
+
+	t.Run("dedup off keeps everything and records nothing", func(t *testing.T) {
+		ledger := models.SeenLedger{gptKey: {At: now}}
+		d := buildDigest(briefReport, ledger, models.NotifyConfig{Connector: "tg"}, now)
+		if !strings.Contains(d.Message, "• GPT-6") || len(d.NewItems) != 0 {
+			t.Errorf("dedup off must not filter or record: %q %v", d.Message, d.NewItems)
+		}
+	})
+
+	t.Run("report without a table is sent whole", func(t *testing.T) {
+		d := buildDigest("Nothing notable happened today.", nil, cfgDedup, now)
+		if d.Message != "Nothing notable happened today." {
+			t.Errorf("message = %q", d.Message)
+		}
+	})
+
+	t.Run("duplicate link inside one report is sent once", func(t *testing.T) {
+		report := "| Item | Source |\n|---|---|\n| A | https://x.com/a |\n| A again | https://x.com/a/ |\n"
+		d := buildDigest(report, nil, cfgDedup, now)
+		if strings.Count(d.Message, "https://x.com/a") != 1 {
+			t.Errorf("duplicate row not collapsed:\n%s", d.Message)
+		}
+	})
+}
+
+func TestLedgerHelpers(t *testing.T) {
+	now := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	ledger := models.SeenLedger{
+		"old":  {Title: "Old", At: now.Add(-90 * 24 * time.Hour)},
+		"mid":  {Title: "Mid", At: now.Add(-5 * 24 * time.Hour)},
+		"new":  {Title: "New", At: now.Add(-1 * time.Hour)},
+		"dupe": {Title: "New", At: now.Add(-2 * time.Hour)},
+	}
+
+	merged := mergeSeen(ledger, map[string]string{"fresh": "Fresh"}, now, 60)
+	if _, ok := merged["old"]; ok {
+		t.Error("entries past retention must be pruned")
+	}
+	if merged["fresh"].Title != "Fresh" || !merged["fresh"].At.Equal(now) {
+		t.Errorf("new item not recorded: %+v", merged["fresh"])
+	}
+
+	got := recentTitles(ledger, now, 60, 2)
+	if len(got) != 2 || got[0] != "New" || got[1] != "Mid" {
+		t.Errorf("recentTitles = %v, want [New Mid] (newest first, titles unique, capped)", got)
+	}
+}

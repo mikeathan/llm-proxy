@@ -102,6 +102,31 @@ message via `waitForModelReady` rather than falsely proceeding on a dead model.
 - `executeTurn()` — sieve → computeNextResponse → parse tools → execute → check repetition
 - Returns final answer via natural completion (content-only message)
 
+## Result Delivery (`notify`)
+
+An automation's `notify:` block (`connector`, `dedup`, `dedup_days`, `send_empty`) makes the
+**dispatcher** deliver the final report through a communication connector (SPEC-007 §II.6;
+`automation/notify.go`, `digest.go`). The agent never sends it — keep `notify_user` out of task
+templates. Gotchas:
+
+- `ExecuteResponse.Report` (not `Output`) is what gets delivered; `Output` carries the run header.
+- Dedup keys are canonical link URLs from markdown-table rows, so templates that want dedup must
+  produce a table with a real link per row (`llm_ai_release_brief.md` does).
+- The seen ledger is recorded **after** a successful send; never move that write before `send`.
+- Delivery uses a fresh 30 s context off the dispatcher ctx — don't derive it from `execCtx`.
+- `Dispatcher` only delivers when built with `WithNotifier` (`app.BuildDispatcher` wires it from the
+  tool provider's `CommunicationTools`); tests set `d.notifier` directly.
+
+### `skip_if_busy` and `HEARTBEAT_OK`
+
+- `skip_if_busy` is a `runlane.Job` flag (set in `admitRun` only for non-manual fires). `Submit`
+  removes the just-queued entry and returns `DispositionSkipped`; `shouldRequeueLocked` returns false
+  for it, so a preempted heartbeat is dropped. Skips are metrics-only (no history).
+- A report containing `HEARTBEAT_OK` is blanked in `Output` by `ApplyPulseLogic` and must also be
+  withheld from delivery (`deliverReport` checks it) — `Report` is not blanked.
+- `AutomationRun`/state `LastPulse` is **per workspace**, not per automation; do not present it as
+  an automation's own "last quiet check".
+
 ## Run Output Structure
 
 ```

@@ -69,6 +69,9 @@ type ExecuteRequest struct {
 
 type ExecuteResponse struct {
 	Output string
+	// Report is the agent's final report alone (no run header), the text a
+	// notify delivery is built from. Empty when the run produced none.
+	Report string
 	Error  error
 	State  *models.AgentState
 }
@@ -499,6 +502,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 	elapsed := time.Since(outcome.startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
 	outcome.resp.Output = fullOutput
+	outcome.resp.Report = output
 	runResult = fullOutput
 	outcome.resp.State.SetRunning("")
 

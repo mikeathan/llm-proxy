@@ -93,17 +93,21 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	if recordingRefOverride != "" {
 		recordingRef = recordingRefOverride
 	}
-	req := newExecuteRequest(entry, state, taskContent, recordingRef)
+	ledger := d.seenLedger(entry)
+	req := newExecuteRequest(entry, state, withSeenHint(entry, taskContent, ledger), recordingRef)
 
 	resp, err := d.executor.Execute(stratCtx, req)
 	elapsed := time.Since(start)
 
 	if err != nil {
-		return d.failRun(entry, state, execCtx, err, elapsed)
+		runErr := d.failRun(entry, state, execCtx, err, elapsed)
+		d.notifyFailure(ctx, entry, runErr)
+		return runErr
 	}
 
 	d.succeedRun(entry, state, resp)
 	d.metrics.RecordExecution(true, false, elapsed)
+	d.deliverReport(ctx, entry, resp, ledger)
 	return nil
 }
 

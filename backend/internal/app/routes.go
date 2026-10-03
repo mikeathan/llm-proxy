@@ -4,9 +4,7 @@ import (
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
-	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
 	handlers "llm-proxy/internal/transport/http/handlers"
@@ -81,16 +79,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig)
 	}
 
-	// Extract CommunicationTools from the tool provider chain
-	var commTools *tools.CommunicationTools
-	if mtp, ok := s.ToolProvider().(*assistantPkg.MultiToolProvider); ok {
-		for _, p := range mtp.Providers {
-			if ltr, ok := p.(*assistantPkg.LocalToolRegistry); ok {
-				commTools = ltr.Communication
-				break
-			}
-		}
-	}
+	commTools := communicationTools(s.ToolProvider())
 
 	hs.Webhook = &handlers.WebhookHandler{
 		Registry:    s.AppCtx.GetRegistry,

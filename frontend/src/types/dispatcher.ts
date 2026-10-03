@@ -1,7 +1,7 @@
 // Global configuration types and automation read models.
 import type { LoopStrategy } from './model'
 import type { NetworkGrant } from './admin'
-import type { MemoryMode } from './automation'
+import type { MemoryMode, NotifyConfig } from './automation'
 
 export interface AutomationRun {
   id: string
@@ -41,6 +41,8 @@ export interface Automation {
   history?: AutomationRun[]
   network_grant?: NetworkGrant
   memory_mode?: MemoryMode
+  notify?: NotifyConfig
+  skip_if_busy?: boolean
 }
 
 export interface RecordingMeta {

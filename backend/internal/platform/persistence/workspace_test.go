@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -427,5 +428,34 @@ func TestWorkspaceManager_TaskFileContainment(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "new.md")); !os.IsNotExist(err) {
 		t.Fatal("a file was written outside the workspace")
+	}
+}
+
+func TestWorkspaceManager_SeenLedger(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+
+	got, err := mgr.ReadSeen("ws", "nightly")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("missing ledger must read as empty, got %v, %v", got, err)
+	}
+
+	at := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	want := models.SeenLedger{"https://a.com/x": {Title: "A", At: at}}
+	if err := mgr.WriteSeen("ws", "nightly", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err = mgr.ReadSeen("ws", "nightly")
+	if err != nil || got["https://a.com/x"].Title != "A" || !got["https://a.com/x"].At.Equal(at) {
+		t.Fatalf("round-trip failed: %v, %v", got, err)
+	}
+
+	// Names that sanitise alike must not share a ledger.
+	if other, _ := mgr.ReadSeen("ws", "nightly!"); len(other) != 0 {
+		t.Errorf("distinct automation names shared a ledger: %v", other)
+	}
+	// A traversing name must stay inside the seen directory.
+	if p := mgr.seenPath("ws", "../../evil"); !strings.HasPrefix(p, filepath.Join(mgr.resolver.InternalDir("ws"), seenDirName)+string(filepath.Separator)) {
+		t.Errorf("seen path escaped its directory: %s", p)
 	}
 }
