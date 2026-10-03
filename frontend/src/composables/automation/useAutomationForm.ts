@@ -113,7 +113,11 @@ export function useAutomationForm(
     }
     return options
   })
-  const hasConnectors = computed(() => Object.keys(state.value?.config?.communication?.connectors ?? {}).length > 0)
+  // True only once the admin state has loaded and it lists no connector, so the
+  // "add one" note never flashes while the state is still loading.
+  const noConnectors = computed(
+    () => !!state.value && Object.keys(state.value.config?.communication?.connectors ?? {}).length === 0,
+  )
 
   // ---- workspace ---------------------------------------------------------
   watch(selectedWorkspace, (ws) => {
@@ -180,7 +184,7 @@ export function useAutomationForm(
     cloudProvidersWithKeys,
     loopStrategyOptions,
     connectorOptions,
-    hasConnectors,
+    noConnectors,
     handleSubmit,
     resetForm,
   }

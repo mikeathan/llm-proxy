@@ -14,6 +14,10 @@ import (
 // release-brief template asks the agent to search within.
 const DefaultDedupDays = 60
 
+// MaxDedupDays caps the retention (ten years) so a typo cannot make the ledger
+// effectively unbounded.
+const MaxDedupDays = 3650
+
 // NotifyConfig delivers an automation's final report through a configured
 // communication connector once the run succeeds. Delivery is performed by the
 // dispatcher, not by the agent, so it works under any network grant and never
@@ -33,13 +37,13 @@ type NotifyConfig struct {
 }
 
 // Validate rejects a delivery block that cannot work: it needs a connector
-// name, and a negative retention is meaningless (0 = default).
+// name, and a retention outside 0..MaxDedupDays is meaningless (0 = default).
 func (n NotifyConfig) Validate() error {
 	if n.Connector == "" {
 		return errors.New("connector is required")
 	}
-	if n.DedupDays < 0 {
-		return fmt.Errorf("dedup_days must not be negative, got %d", n.DedupDays)
+	if n.DedupDays < 0 || n.DedupDays > MaxDedupDays {
+		return fmt.Errorf("dedup_days must be between 0 and %d, got %d", MaxDedupDays, n.DedupDays)
 	}
 	return nil
 }

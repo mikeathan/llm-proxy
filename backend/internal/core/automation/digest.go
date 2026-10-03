@@ -6,8 +6,19 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"llm-proxy/models"
+)
+
+const (
+	// maxTitleRunes bounds a stored title. Titles come from web-derived model
+	// output and are later put back into prompts, so they are kept short and
+	// single-line.
+	maxTitleRunes = 100
+	// maxSeenEntries bounds a seen ledger so a runaway report cannot grow the
+	// file (and the prompt hint source) without limit; the oldest entries go.
+	maxSeenEntries = 2000
 )
 
 // noNewItemsMessage is sent in place of an empty digest when NotifyConfig.SendEmpty
@@ -15,10 +26,12 @@ import (
 const noNewItemsMessage = "No new items since the last run."
 
 var (
-	urlPattern  = regexp.MustCompile(`https?://[^\s)|>\]]+`)
-	mdLinkRe    = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
-	mdNoiseRe   = regexp.MustCompile("[*`]")
-	trackingKey = regexp.MustCompile(`^(utm_.*|fbclid|gclid|ref|ref_src)$`)
+	urlPattern = regexp.MustCompile(`https?://[^\s)|>\]]+`)
+	mdLinkRe   = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	mdNoiseRe  = regexp.MustCompile("[*`]")
+	// trackingKey matches pure tracking parameters only; "ref" is deliberately
+	// absent because code hosts use it to select a different page (?ref=main).
+	trackingKey = regexp.MustCompile(`^(utm_.*|fbclid|gclid|ref_src)$`)
 )
 
 // digest is the chat-ready form of a report plus the items to remember once it
@@ -41,6 +54,7 @@ func buildDigest(report string, ledger models.SeenLedger, cfg models.NotifyConfi
 
 	var out []string
 	rows, kept := 0, 0
+	reported := map[string]bool{}
 	for i := 0; i < len(lines); {
 		end := tableEnd(lines, i)
 		if end == i {
@@ -52,10 +66,11 @@ func buildDigest(report string, ledger models.SeenLedger, cfg models.NotifyConfi
 			rows++
 			row := parseRow(line)
 			if cfg.Dedup && row.key != "" {
-				if e, seen := ledger[row.key]; (seen && e.At.After(cutoff)) || d.NewItems[row.key] != "" {
+				if e, seen := ledger[row.key]; (seen && e.At.After(cutoff)) || reported[row.key] {
 					continue
 				}
-				d.NewItems[row.key] = row.title
+				reported[row.key] = true
+				d.NewItems[row.key] = clipTitle(row.title)
 			}
 			kept++
 			out = append(out, row.render())
@@ -139,6 +154,22 @@ func (r tableRow) render() string {
 	return b.String()
 }
 
+// clipTitle makes a title safe to store and to put back into a prompt: control
+// characters dropped, whitespace collapsed to single spaces, length bounded.
+func clipTitle(title string) string {
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, title)
+	clean = strings.Join(strings.Fields(clean), " ")
+	if r := []rune(clean); len(r) > maxTitleRunes {
+		clean = string(r[:maxTitleRunes])
+	}
+	return clean
+}
+
 func cleanCell(c string) string {
 	c = mdLinkRe.ReplaceAllString(c, "$1")
 	return strings.TrimSpace(mdNoiseRe.ReplaceAllString(c, ""))
@@ -186,7 +217,23 @@ func mergeSeen(ledger models.SeenLedger, items map[string]string, now time.Time,
 	for k, title := range items {
 		merged[k] = models.SeenEntry{Title: title, At: now}
 	}
-	return merged
+	return capLedger(merged)
+}
+
+// capLedger drops the oldest entries beyond maxSeenEntries.
+func capLedger(ledger models.SeenLedger) models.SeenLedger {
+	if len(ledger) <= maxSeenEntries {
+		return ledger
+	}
+	keys := make([]string, 0, len(ledger))
+	for k := range ledger {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return ledger[keys[i]].At.After(ledger[keys[j]].At) })
+	for _, k := range keys[maxSeenEntries:] {
+		delete(ledger, k)
+	}
+	return ledger
 }
 
 // recentTitles lists up to limit distinct titles still inside the retention
