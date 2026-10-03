@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,15 @@ func TestCanonicalURL(t *testing.T) {
 		if got := canonicalURL(in); got != want {
 			t.Errorf("canonicalURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCanonicalURL_KeepsMeaningfulParams(t *testing.T) {
+	// "ref" selects a different page on code hosts; only pure tracking params go.
+	a := canonicalURL("https://github.com/a/b?ref=main")
+	b := canonicalURL("https://github.com/a/b?ref=dev")
+	if a == b {
+		t.Errorf("distinct ?ref values must stay distinct, both became %q", a)
 	}
 }
 
@@ -105,6 +115,27 @@ func TestBuildDigest(t *testing.T) {
 		}
 	})
 
+	t.Run("duplicate link with an empty title is still sent once", func(t *testing.T) {
+		report := "| Item | Source |\n|---|---|\n|  | https://x.com/a |\n|  | https://x.com/a |\n"
+		d := buildDigest(report, nil, cfgDedup, now)
+		if strings.Count(d.Message, "https://x.com/a") != 1 {
+			t.Errorf("empty-title duplicate not collapsed:\n%s", d.Message)
+		}
+	})
+
+	t.Run("stored titles are clipped and stripped of control characters", func(t *testing.T) {
+		long := strings.Repeat("A", 500) + "\x07\x1b[31m"
+		report := "| Item | Source |\n|---|---|\n| " + long + " | https://x.com/a |\n"
+		d := buildDigest(report, nil, cfgDedup, now)
+		title := d.NewItems[canonicalURL("https://x.com/a")]
+		if n := len([]rune(title)); n == 0 || n > maxTitleRunes {
+			t.Errorf("stored title has %d chars, want 1..%d", n, maxTitleRunes)
+		}
+		if strings.ContainsAny(title, "\x07\x1b") {
+			t.Errorf("control characters survived: %q", title)
+		}
+	})
+
 	t.Run("duplicate link inside one report is sent once", func(t *testing.T) {
 		report := "| Item | Source |\n|---|---|\n| A | https://x.com/a |\n| A again | https://x.com/a/ |\n"
 		d := buildDigest(report, nil, cfgDedup, now)
@@ -131,8 +162,21 @@ func TestLedgerHelpers(t *testing.T) {
 		t.Errorf("new item not recorded: %+v", merged["fresh"])
 	}
 
+	capped := mergeSeen(models.SeenLedger{}, manyItems(maxSeenEntries+50), now, 60)
+	if len(capped) != maxSeenEntries {
+		t.Errorf("ledger grew to %d entries, want it capped at %d", len(capped), maxSeenEntries)
+	}
+
 	got := recentTitles(ledger, now, 60, 2)
 	if len(got) != 2 || got[0] != "New" || got[1] != "Mid" {
 		t.Errorf("recentTitles = %v, want [New Mid] (newest first, titles unique, capped)", got)
 	}
+}
+
+func manyItems(n int) map[string]string {
+	items := make(map[string]string, n)
+	for i := 0; i < n; i++ {
+		items[fmt.Sprintf("https://x.com/%d", i)] = "t"
+	}
+	return items
 }

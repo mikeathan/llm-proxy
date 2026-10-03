@@ -9,7 +9,7 @@ import { useUnsavedChangesGuard } from "../../../composables/ui/useUnsavedChange
 import UnsavedTag from "../../common/display/UnsavedTag.vue";
 import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
-import { DEFAULT_DEDUP_DAYS, busyLabel, deliveryLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
+import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
 import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
 import Panel from "../../common/layout/Panel.vue";
@@ -51,7 +51,7 @@ const {
   cloudProvidersWithKeys,
   loopStrategyOptions,
   connectorOptions,
-  hasConnectors,
+  noConnectors,
   handleSubmit: validateSubmit,
   resetForm,
 } = useAutomationForm(
@@ -87,7 +87,7 @@ const loopStrategyHelper = computed(() => {
   return loopStrategyDescription(form.value.loopStrategy);
 });
 
-const DEDUP_DAYS_RULE = `Enter a whole number of days, or leave it empty for ${DEFAULT_DEDUP_DAYS}.`;
+const DEDUP_DAYS_RULE = `Enter a whole number of days from 1 to ${MAX_DEDUP_DAYS}, or leave it empty for ${DEFAULT_DEDUP_DAYS}.`;
 const dedupDaysError = computed(() =>
   form.value.notifyDedup && parseDedupDays(form.value.notifyDedupDays) === null ? DEDUP_DAYS_RULE : "",
 );
@@ -162,7 +162,7 @@ const review = computed(() => [
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
   ["Memory", MEMORY_LABEL[form.value.memoryMode]],
   ["Delivery", deliveryLabel(notifyFromForm(form.value))],
-  ["When busy", form.value.triggerType === "manual" ? "Waits its turn" : busyLabel(form.value.skipIfBusy)],
+  ["When busy", busyLabel(form.value.triggerType !== "manual" && form.value.skipIfBusy)],
 ]);
 </script>
 
@@ -264,7 +264,7 @@ const review = computed(() => [
             </template>
           </FormField>
         </div>
-        <p v-if="!hasConnectors" role="note" class="m-0 text-[length:var(--text-small)] text-muted">
+        <p v-if="noConnectors" role="note" class="m-0 text-[length:var(--text-small)] text-muted">
           No connectors yet.
           <RouterLink :to="toSettings('communication')" class="text-accent-info-text hover:underline">Add one in Settings → Communication</RouterLink>
           to receive results in Telegram.

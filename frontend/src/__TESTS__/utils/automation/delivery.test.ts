@@ -13,6 +13,8 @@ describe('parseDedupDays', () => {
     ['-3', null],
     ['2.5', null],
     ['abc', null],
+    ['3650', 3650],
+    ['3651', null],
   ])('%j → %j', (text, want) => {
     expect(parseDedupDays(text)).toBe(want)
   })

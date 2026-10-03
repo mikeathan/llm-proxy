@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/core/assistant/failures"
@@ -62,6 +63,14 @@ func withSeenHint(entry *AutomationEntry, task string, ledger models.SeenLedger)
 	return task + prompts.AutomationSeenBlock(titles)
 }
 
+// isQuietHeartbeat reports whether a report is the "nothing to report" signal.
+// Delivery is stricter than the UI's smart skip (which matches the marker
+// anywhere): only a report that STARTS with the marker is quiet, so a real
+// alert that merely mentions it is never swallowed.
+func isQuietHeartbeat(report string) bool {
+	return strings.HasPrefix(strings.TrimSpace(report), heartbeatOKMarker)
+}
+
 // deliverReport sends a finished run's report and, only once the send has
 // succeeded, remembers the newly reported items — a failed delivery therefore
 // re-offers the same items on the next run instead of losing them.
@@ -69,8 +78,7 @@ func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, 
 	if !d.wantsDelivery(entry) || resp == nil || resp.Report == "" {
 		return
 	}
-	// A quiet heartbeat ("HEARTBEAT_OK") is the smart-skip signal: nothing to say.
-	if isHeartbeatOK(resp.Report) {
+	if isQuietHeartbeat(resp.Report) {
 		return
 	}
 	now := time.Now()

@@ -760,6 +760,8 @@ func TestValidateAutomation_Notify(t *testing.T) {
 		{"dedup with retention passes", &models.NotifyConfig{Connector: "tg", Dedup: true, DedupDays: 30}, false},
 		{"missing connector rejected", &models.NotifyConfig{Dedup: true}, true},
 		{"negative retention rejected", &models.NotifyConfig{Connector: "tg", DedupDays: -1}, true},
+		{"absurd retention rejected", &models.NotifyConfig{Connector: "tg", DedupDays: models.MaxDedupDays + 1}, true},
+		{"maximum retention passes", &models.NotifyConfig{Connector: "tg", DedupDays: models.MaxDedupDays}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

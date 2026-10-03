@@ -144,15 +144,26 @@ func TestDispatcher_NotifyFailure(t *testing.T) {
 	})
 }
 
-func TestDispatcher_NotifySkipsHeartbeatOK(t *testing.T) {
-	n := &fakeNotifier{}
-	cfg := &models.NotifyConfig{Connector: "tg"}
-	d, entry := newNotifyDispatcher(t, &scriptedExecutor{report: "HEARTBEAT_OK"}, n, cfg)
-	if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
-		t.Fatal(err)
+func TestDispatcher_NotifyHeartbeatOK(t *testing.T) {
+	cases := []struct {
+		name, report string
+		wantSent     bool
+	}{
+		{"bare marker is quiet", "HEARTBEAT_OK", false},
+		{"marker with a trailing note is quiet", "HEARTBEAT_OK\n\nNothing new today.", false},
+		{"an alert that merely mentions the marker is delivered", "GPT-6 shipped. Not HEARTBEAT_OK: https://openai.com/blog/gpt-6", true},
 	}
-	if len(n.sent) != 0 {
-		t.Errorf("a quiet heartbeat must not be delivered, sent %q", n.sent)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := &fakeNotifier{}
+			d, entry := newNotifyDispatcher(t, &scriptedExecutor{report: tc.report}, n, &models.NotifyConfig{Connector: "tg"})
+			if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+				t.Fatal(err)
+			}
+			if got := len(n.sent) == 1; got != tc.wantSent {
+				t.Errorf("delivered = %v, want %v (sent %q)", got, tc.wantSent, n.sent)
+			}
+		})
 	}
 }
 
@@ -176,8 +187,10 @@ func TestDispatcher_SkipIfBusy(t *testing.T) {
 	if err != nil || res.Status != TriggerSkipped {
 		t.Fatalf("scheduled fire on a busy lane = %+v, %v; want skipped", res, err)
 	}
-	if snap := d.LaneSnapshot(); len(snap.Lanes) > 0 && len(snap.Lanes[0].Queued) != 0 {
-		t.Fatalf("a skipped tick must not be queued: %+v", snap.Lanes[0].Queued)
+	for _, lane := range d.LaneSnapshot().Lanes {
+		if len(lane.Queued) != 0 {
+			t.Fatalf("a skipped tick must not be queued (lane %s): %+v", lane.Lane, lane.Queued)
+		}
 	}
 
 	res, err = d.admitRun(entry, true, "")

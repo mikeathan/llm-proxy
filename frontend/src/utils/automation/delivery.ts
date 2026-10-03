@@ -2,6 +2,8 @@ import type { AutomationFormData, NotifyConfig } from '../../types/automation'
 
 /** Days a reported item is remembered when the field is left empty (backend default). */
 export const DEFAULT_DEDUP_DAYS = 60
+/** The longest retention the backend accepts (models.MaxDedupDays). */
+export const MAX_DEDUP_DAYS = 3650
 
 const DELIVERY_OFF_LABEL = 'Not sent'
 const WAITS_LABEL = 'Waits its turn'
@@ -9,14 +11,14 @@ const SKIPS_LABEL = 'Skips the run'
 
 /**
  * The retention typed into the form: undefined when empty (use the default),
- * null when it is not a positive whole number.
+ * null when it is not a whole number from 1 to MAX_DEDUP_DAYS.
  */
 export function parseDedupDays(text: string): number | null | undefined {
   const trimmed = text.trim()
   if (trimmed === '') return undefined
   if (!/^\d+$/.test(trimmed)) return null
   const days = Number(trimmed)
-  return days > 0 ? days : null
+  return days > 0 && days <= MAX_DEDUP_DAYS ? days : null
 }
 
 /** The notify block the form describes; null when results are not delivered. */

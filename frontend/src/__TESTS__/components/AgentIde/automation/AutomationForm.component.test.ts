@@ -147,6 +147,14 @@ describe('AutomationForm', () => {
       expect((control(w, 'Send results to').element as HTMLSelectElement).value).toBe('gone')
     })
 
+    it('does not claim there are no connectors while the admin state is still loading', async () => {
+      const original = adminState.value
+      adminState.value = null
+      const w = await mountForm(AUTO)
+      expect(w.text()).not.toContain('No connectors yet')
+      adminState.value = original
+    })
+
     it('points to Settings when no connector exists yet', async () => {
       const original = adminState.value
       adminState.value = { ...original!, config: { providers: {} } } as unknown as AdminState

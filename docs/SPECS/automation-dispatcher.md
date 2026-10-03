@@ -105,6 +105,11 @@ external message, and is gated by network scope; delivery is not).
 - **Prompt hint**: with dedup on, up to 25 recent titles are appended to the task
   (`prompts.AutomationSeenBlock`) so the run spends its search budget on new items. This is an
   efficiency hint; the link filter at delivery is the guarantee.
+- **Known limits**: delivery runs inside the run (lane slot and workspace lock held for at most
+  the 30 s send timeout); a chat that preempts in that window aborts the send and the scheduled run
+  restarts from its task file (the ledger was not written, so nothing is lost). An automation run
+  from Telegram with `/run` gets the webhook's own result reply in addition to its `notify`
+  delivery. An unreadable seen ledger is treated as empty and rewritten after the next delivery.
 - **Network policy**: the send rides the connector's guarded client (Constitution I.2). It is an
   operator-configured, system-side send to the operator's own connector — the same class as `/run`
   result replies (SPEC-009 §1.1) — so it is not blocked by an agent network grant of `none`.

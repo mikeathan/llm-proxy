@@ -109,10 +109,17 @@ describe('useAutomationForm', () => {
   it('lists configured connectors and keeps the form\'s own connector selectable', () => {
     adminState.value = { ...STATE, config: { ...STATE.config, communication: { connectors: { 'my-tg': { type: 'telegram', enabled: true, settings: {} } } } } } as unknown as AdminState
     const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'removed' } }), vi.fn())
-    expect(f.hasConnectors.value).toBe(true)
+    expect(f.noConnectors.value).toBe(false)
     expect(f.connectorOptions.value).toEqual([
       { value: 'my-tg', label: 'my-tg' },
       { value: 'removed', label: 'removed (not configured)' },
     ])
+  })
+  it('reports "no connectors" only once the admin state has loaded', () => {
+    adminState.value = null
+    const f = useAutomationForm(ref(AUTO), vi.fn())
+    expect(f.noConnectors.value).toBe(false)
+    adminState.value = STATE
+    expect(f.noConnectors.value).toBe(true)
   })
 })
