@@ -69,6 +69,11 @@ Organized by subsystem:
 | [`orchestrator/local-and-cloud-inference-performance.md`](orchestrator/local-and-cloud-inference-performance.md) | Local and Cloud Inference Performance (measure first; KV-cache/prefix stability, timings capture, cloud TTFT) | proposed | 2026-09-30 | SPEC-001, SPEC-005, SPEC-007 |
 | [`cross-cutting/backend-hot-paths-and-leak-hardening.md`](cross-cutting/backend-hot-paths-and-leak-hardening.md) | Backend Hot Paths, Memory Growth and Leak Hardening (gauges, soak test, session checkpoint, list endpoints) | proposed | 2026-09-30 | SPEC-001, SPEC-007 |
 | [`assistant-ui/assistant-automation-workbench-layout.md`](assistant-ui/assistant-automation-workbench-layout.md) | Assistant and Automation Workbench Layout (chat+editor split, automation master-detail, one run renderer, context meter) | proposed | 2026-09-30 | SPEC-001, SPEC-003, SPEC-007 |
+| [`automation/event-driven-triggers.md`](automation/event-driven-triggers.md) | Event-Driven Automation Triggers (`file` drop, `watch` for change, `after` run chaining) | proposed | 2026-10-04 | SPEC-007, SPEC-006, SPEC-003 |
+| [`automation/chat-to-automation.md`](automation/chat-to-automation.md) | "Turn This Chat Into an Automation" (trace → least-privilege draft; Phase 0 fixes `CreateAutomation` duplicate-name bug) | proposed | 2026-10-04 | SPEC-007, SPEC-001, SPEC-003, SPEC-006 |
+| [`orchestrator/cost-and-savings-ledger.md`](orchestrator/cost-and-savings-ledger.md) | Usage, Cost and "Saved by Running Locally" Ledger (chat + automation + inbound `/v1`) | proposed | 2026-10-04 | SPEC-005, SPEC-007, SPEC-003, SPEC-001 |
+| [`orchestrator/auto-model-router.md`](orchestrator/auto-model-router.md) | `model: "auto"` — Runtime-Aware Model Router for `/v1` | proposed | 2026-10-04 | SPEC-005, SPEC-007, SPEC-003 |
+| [`cross-cutting/cloud-privacy-firewall.md`](cross-cutting/cloud-privacy-firewall.md) | Cloud Privacy Firewall (reversible redaction of secrets/PII on cloud egress, or keep it local) | proposed | 2026-10-04 | SPEC-006, SPEC-005, SPEC-001, SPEC-003 |
 
 Completed, superseded, and not-implemented plans live in [`ARCHIVE/`](ARCHIVE/) — loaded only when their specific topic is relevant. The detailed plan archive/consolidation changelog (previously in `docs/INDEX.md`) is retained in that file's git history.
 
@@ -99,6 +104,11 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Local/Cloud Inference Performance | Phase 0 measurement (llama.cpp `timings`, cloud TTFT, prefix-stability test) gates every optimisation |
 | proposed | Backend Hot Paths and Leaks | Phase 0 gauges + build-tagged soak + benchmarks → session-checkpoint decision (A/B/C) → list endpoints |
 | proposed | Assistant/Automation Workbench Layout | Phase 0 wireframes + SPEC-003 amendment draft need sign-off → `context_usage` event + SSE-bleed backend fix → automation master-detail/one renderer → workspace workbench |
+| proposed | Event-Driven Automation Triggers | Phase 0 characterisation → Phase 1 `EventSource` + `after` → Phase 2 `file` (needs D1) → Phase 3 `watch` (needs D2) → Phase 4 API/UI/SPEC-007 |
+| proposed | Chat → Automation | Phase 0 `CreateAutomation` duplicate-name fix (independent, ship first) → trace extraction → draft endpoint → UI → docs |
+| proposed | Cost and Savings Ledger | Phase 0 measure provider usage reporting → automation token capture → store/API → inbound `/v1` capture → prices/UI → alerts (D4) |
+| proposed | Auto Model Router | Phase 0 characterise → pure router core → `/v1` wiring (needs D1, D2) → pre-first-byte failover → UI/docs → ledger prices |
+| proposed | Cloud Privacy Firewall | Phase 0 detector corpus → pure engine → agent path (needs D1–D3) → `/v1` path → `ask` mode/UI/audit → router integration → docs |
 
 > **2026-09-05 hygiene pass:** archived as complete — `knight-rider-arc-bubble.md` (extraction to `ArcOrbitLoader` verified in code), `cloud-provider-token-budgets.md` (all phases incl. merged Phase 7 + M8 probe verified). Archived as merged — `cancel-stale-turn-bleed.md` (backend SSE bleed now homed in overhaul Phase 5). `xdg-config-data-relocation.md` removed from this table (already complete, row was stale).
 >
