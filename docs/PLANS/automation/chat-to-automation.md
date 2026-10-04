@@ -4,7 +4,7 @@ date: 2026-10-04
 last_reviewed: 2026-10-04
 related_specs: [SPEC-007, SPEC-001, SPEC-003, SPEC-006]
 constitution_references: [II.3, II.13, III.2, III.3, V.2, V.3]
-related_plans: [../memory/memory-improvements-implementation-plan.md, event-driven-triggers.md, ../assistant-ui/assistant-automation-workbench-layout.md]
+related_plans: [../memory/memory-improvements-implementation-plan.md, ../autonomy/event-driven-triggers.md, ../autonomy/standing-goals.md, ../autonomy/autonomy-roadmap.md, ../assistant-ui/assistant-automation-workbench-layout.md]
 ---
 
 # "Turn This Chat Into an Automation"
@@ -66,7 +66,12 @@ include secrets (the trace is passed through `tools.RedactSecrets` first —
 
 ### Step 4 — Suggest a trigger (deterministic heuristics, user confirms)
 "every morning/daily" in user messages → `cron 0 7 * * *`; mentions of a folder → `file` trigger
-(if `event-driven-triggers.md` has landed); otherwise `manual`.
+(if `../autonomy/event-driven-triggers.md` has landed); otherwise `manual`.
+
+**Automation or goal?** If the chat was about reaching an *outcome* rather than repeating a *task*
+("find me…", "keep an eye on … until …"), the draft offers **"make this a standing goal instead"**,
+which pre-fills the new-goal form from the same trace and least-privilege defaults
+(`../autonomy/standing-goals.md` Phase 5). The trace extraction in Phase 1 below is shared by both.
 
 ### API
 `POST /admin/api/conversation/sessions/{ws}/{session}/automation-draft` → returns

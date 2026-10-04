@@ -4,7 +4,7 @@ date: 2026-10-04
 last_reviewed: 2026-10-04
 related_specs: [SPEC-005, SPEC-007, SPEC-003, SPEC-001]
 constitution_references: [II.2, II.14, III.2, IV.1, IV.2, V.2, V.3]
-related_plans: [../agent-loop/agent-improvements.md, local-and-cloud-inference-performance.md, auto-model-router.md]
+related_plans: [../agent-loop/agent-improvements.md, local-and-cloud-inference-performance.md, auto-model-router.md, ../autonomy/attention-policy.md, ../autonomy/autonomy-roadmap.md]
 ---
 
 # Usage, Cost and "Saved by Running Locally" Ledger
@@ -21,6 +21,7 @@ automation runs and external `/v1` traffic — the parts that run unattended —
 |---|---|
 | **See spend** per provider, model, workspace and automation, per day/week/month. | One durable usage record feeds the budget orchestrator, the router (`auto-model-router.md`) and future quotas — instead of each feature counting on its own. |
 | **Catch runaway automations** — a looping scheduled job on a paid key shows up as a spike, with an optional alert via `notify_user`. | Hard numbers for performance work (`local-and-cloud-inference-performance.md` Phase 0 needs per-call token data). |
+| **Cap autonomous spend** — the autonomy program's attention policy stops agenda runs and goal ticks for the day at your limit (`../autonomy/attention-policy.md` Phase 3). | The ledger is the single spend source for that cap; Phase 2 (store + query API) is its prerequisite. |
 | **"Saved by running locally: $X"** — local tokens priced at a reference cloud model the user picks. Makes the value of local-first concrete. | Closes the open UsageTracker item (`../agent-loop/agent-improvements.md` Phase 5) with a real consumer. |
 
 ## Ground truth (verified in code, 2026-10-04)
@@ -121,7 +122,7 @@ block a request).
 - **Acceptance:** `npm test && npm run build && npm run test:visual`; Go handler tests for the new field.
 
 ### Phase 5 — Alerts (needs D4)
-- Daily per-automation spend threshold → `notify_user`.
+- Daily per-automation spend threshold → a `normal` notice through the attention policy (`../autonomy/attention-policy.md`), or `notify_user` directly if that plan has not landed yet.
 - **Acceptance:** test with a fake clock and a fake connector.
 
 ### Phase 6 — Docs

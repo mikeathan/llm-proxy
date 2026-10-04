@@ -117,7 +117,7 @@ in the app log at INFO. Values are **never** stored.
   `docs/architecture.md#adding-a-frontend-settings-tab-checklist`); audit list view.
 - **Acceptance:** `npm test && npm run build && npm run test:visual`; handler tests for settings.
 
-### Phase 5 — Router integration (after `auto-model-router.md` Phase 2)
+### Phase 5 — Router integration (after `../orchestrator/auto-model-router.md` Phase 2)
 - `local_only` + `auto` → local candidates only.
 
 ### Phase 6 — Docs

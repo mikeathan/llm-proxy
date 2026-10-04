@@ -9,6 +9,12 @@ last_reviewed: 2026-07-11
 **SPEC:** `docs/SPECS/communication.md`  
 **Depends on:** Phase 1 (connector-system.md), Phase 2 (connector-inbound-webhook.md) — both complete
 
+> **Amended 2026-10-04 by [`../autonomy/cross-channel-conversations-and-remote-approvals.md`](../autonomy/cross-channel-conversations-and-remote-approvals.md):**
+> inbound messages must come from the owner's linked chat (sender verification, its Phase 0 — not
+> enforced today), the fresh-session-per-message rule is replaced by conversation continuity (its
+> Phase 2), and "multiple chat IDs per connector" from Future Work becomes owner channel links (its
+> Phase 1). Remaining work here that touches those areas should follow that plan.
+
 ---
 
 ## Goal
