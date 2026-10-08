@@ -43,6 +43,31 @@ func TestBuildPrompt_IncludesTaskContent(t *testing.T) {
 	}
 }
 
+// An automation whose memory is active is told to consult memory_search before it
+// acts; with memory off — or no store to search — the instruction is withheld,
+// since the tool would not exist.
+func TestBuildPrompt_MemorySearchInstruction(t *testing.T) {
+	store := newTestMemoryStore(t)
+	for _, tc := range []struct {
+		name string
+		svc  *mockSvc
+		mode models.MemoryMode
+		want bool
+	}{
+		{"memory on with a store", &mockSvc{memoryStore: store}, models.MemoryModeOn, true},
+		{"memory off", &mockSvc{memoryStore: store}, models.MemoryModeOff, false},
+		{"on but no store", &mockSvc{}, models.MemoryModeOn, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := NewLLMTaskExecutor(tc.svc).(*LLMTaskExecutor)
+			got := executor.buildPrompt("do the thing", ExecuteRequest{WorkspaceID: "ws", TaskFile: "t.md", MemoryMode: tc.mode})
+			if has := strings.Contains(got, models.ToolMemorySearch); has != tc.want {
+				t.Errorf("prompt mentions %s = %v, want %v:\n%s", models.ToolMemorySearch, has, tc.want, got)
+			}
+		})
+	}
+}
+
 func newTestMemoryStore(t *testing.T) *memory.Store {
 	t.Helper()
 	f, err := os.CreateTemp("", "memory-test-*.db")

@@ -94,7 +94,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| partial | Automation Learning Journal | Phases 3–4 (memory-search-first, active hours) + Phase 2 live smoke run; Phases 1–2 (bullet dedup, journal + tool) done |
+| partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |

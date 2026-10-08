@@ -1,9 +1,9 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.4"
+version: "2.5"
 status: stable
-last_updated: 2026-10-06
+last_updated: 2026-10-08
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,11 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **2.5 (2026-10-08)** — Corrected §5: there is no `memory_delete` tool (only `memory_search` and `memory_update`);
+  entries are removed through the operator UI/API. An automation whose memory is active is now told, in its task
+  prompt, to call `memory_search` for the task's topics before acting (`prompts.AutomationMemoryBlock`; an
+  instruction, not enforcement).
 
 - **2.4 (2026-10-06)** — Alignment with local-model work (SPEC-001 1.3, SPEC-005 1.3). The generic pre-sieve
   "save anything important" nudge is skipped in the operator's own chat (which has the narrower save guidance and
@@ -151,7 +156,6 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 
 - `memory_search(query, limit, scope, tags)` — FTS5 search with BM25 ranking, capped at 20 results.
 - `memory_update(topic, content, scope, mode, keep)` — Save a new memory entry with three-tier params.
-- `memory_delete(id)` — Delete by ID.
 - All gated by workspace ID.
 
 ### 6. Deduplication
