@@ -136,5 +136,5 @@ memory consolidation job, event triggers, additional connectors, per-automation 
 
 ## Remaining Work
 
-Phases 1, 2, 4 done; Phase 3 built. Open: the live-model checks — Phase 3's "does a small model call `memory_search` first" and Phase 2 acceptance (e) — the record/replay smoke run of the LLM-news template against a real model — which has not been run. Update `SPEC-007` (automation fields, journal, active hours)
+Phases 1, 2, 4 done; Phase 3 built. Live checks on 2026-10-08 (this branch run locally, model Qwen3.6 35B A3B served remotely): a memory-on automation called `memory_search` among its first tool calls; a `journal: true` automation run twice wrote its journal through the tool on run 1, and run 2 read it (no repeated names) and rewrote it. That was a live two-run creative task without web search, so it only partly meets Phase 2 acceptance (e). Still open: Phase 2 acceptance (e) — the record/replay smoke run of the LLM-news template against a real model — which has not been run. Update `SPEC-007` (automation fields, journal, active hours)
 and run `./scripts/check-agent-harness.sh` as each phase lands.

@@ -44,23 +44,27 @@ func TestBuildPrompt_IncludesTaskContent(t *testing.T) {
 }
 
 // An automation whose memory is active is told to consult memory_search before it
-// acts; with memory off — or no store to search — the instruction is withheld,
-// since the tool would not exist.
+// acts; with memory off, no store to search, or an allow-list that excludes the
+// tool, the instruction is withheld — the model must never be told to call a tool
+// it was not given (and the allow-list is never widened for it).
 func TestBuildPrompt_MemorySearchInstruction(t *testing.T) {
 	store := newTestMemoryStore(t)
 	for _, tc := range []struct {
-		name string
-		svc  *mockSvc
-		mode models.MemoryMode
-		want bool
+		name    string
+		svc     *mockSvc
+		mode    models.MemoryMode
+		allowed []string
+		want    bool
 	}{
-		{"memory on with a store", &mockSvc{memoryStore: store}, models.MemoryModeOn, true},
-		{"memory off", &mockSvc{memoryStore: store}, models.MemoryModeOff, false},
-		{"on but no store", &mockSvc{}, models.MemoryModeOn, false},
+		{"memory on with a store", &mockSvc{memoryStore: store}, models.MemoryModeOn, nil, true},
+		{"memory off", &mockSvc{memoryStore: store}, models.MemoryModeOff, nil, false},
+		{"on but no store", &mockSvc{}, models.MemoryModeOn, nil, false},
+		{"allow-list without memory_search", &mockSvc{memoryStore: store}, models.MemoryModeOn, []string{"read_file"}, false},
+		{"allow-list with memory_search", &mockSvc{memoryStore: store}, models.MemoryModeOn, []string{"read_file", models.ToolMemorySearch}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			executor := NewLLMTaskExecutor(tc.svc).(*LLMTaskExecutor)
-			got := executor.buildPrompt("do the thing", ExecuteRequest{WorkspaceID: "ws", TaskFile: "t.md", MemoryMode: tc.mode})
+			got := executor.buildPrompt("do the thing", ExecuteRequest{WorkspaceID: "ws", TaskFile: "t.md", MemoryMode: tc.mode, AllowedTools: tc.allowed})
 			if has := strings.Contains(got, models.ToolMemorySearch); has != tc.want {
 				t.Errorf("prompt mentions %s = %v, want %v:\n%s", models.ToolMemorySearch, has, tc.want, got)
 			}

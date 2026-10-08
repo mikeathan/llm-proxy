@@ -625,10 +625,16 @@ func (e *LLMTaskExecutor) memoryActive(req ExecuteRequest) bool {
 func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) string {
 	prompt := fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
-	if e.memoryActive(req) {
+	if e.memoryActive(req) && toolOffered(req, models.ToolMemorySearch) {
 		prompt += prompts.AutomationMemoryBlock()
 	}
 	return prompt
+}
+
+// toolOffered reports whether the run's resolved allow-list includes a tool (no list means every tool).
+func toolOffered(req ExecuteRequest, name string) bool {
+	allowed := allowedToolsFor(req)
+	return len(allowed) == 0 || slices.Contains(allowed, name)
 }
 
 // ============================================================================
