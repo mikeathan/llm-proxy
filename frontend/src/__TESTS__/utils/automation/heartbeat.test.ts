@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { heartbeatEveryOptions, heartbeatStatusText, modelWakeNotice } from '../../../utils/automation/heartbeat'
+import {
+  activeHoursIncomplete,
+  heartbeatEveryOptions,
+  heartbeatStatusText,
+  joinActiveHours,
+  modelWakeNotice,
+  splitActiveHours,
+} from '../../../utils/automation/heartbeat'
 import type { HeartbeatResult } from '../../../types/heartbeat'
 
 describe('heartbeatEveryOptions', () => {
@@ -21,6 +28,7 @@ describe('heartbeatStatusText', () => {
     ['alert', /alert/i],
     ['skipped_no_checks', /no checks/i],
     ['skipped_busy', /busy/i],
+    ['skipped_outside_hours', /active hours/i],
     ['error', /failed/i],
   ])('says in words how a %s check ended', (result, words) => {
     expect(heartbeatStatusText(result)).toMatch(words)
@@ -43,5 +51,26 @@ describe('modelWakeNotice', () => {
   it('warns that the workspace default may be local and points at a cloud connection', () => {
     expect(modelWakeNotice('interval', '')).toMatch(/default/i)
     expect(modelWakeNotice('interval', '')).toMatch(/cloud/i)
+  })
+})
+
+describe('active hours', () => {
+  it('splits the stored window into its two times, and an unset window into two empties', () => {
+    expect(splitActiveHours('08:00-22:00')).toEqual({ from: '08:00', to: '22:00' })
+    expect(splitActiveHours('22:00-06:00')).toEqual({ from: '22:00', to: '06:00' })
+    expect(splitActiveHours(undefined)).toEqual({ from: '', to: '' })
+    expect(splitActiveHours('')).toEqual({ from: '', to: '' })
+  })
+
+  it('joins two times into the stored window, and nothing for an all-day heartbeat', () => {
+    expect(joinActiveHours('08:00', '22:00')).toBe('08:00-22:00')
+    expect(joinActiveHours('', '')).toBeUndefined()
+  })
+
+  it('flags a half-filled window, which cannot be saved', () => {
+    expect(activeHoursIncomplete('08:00', '')).toBe(true)
+    expect(activeHoursIncomplete('', '22:00')).toBe(true)
+    expect(activeHoursIncomplete('08:00', '22:00')).toBe(false)
+    expect(activeHoursIncomplete('', '')).toBe(false)
   })
 })

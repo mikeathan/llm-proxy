@@ -51,6 +51,8 @@ type Dispatcher struct {
 	// (overridable via WithAutomationTimeout); the effective bound is max(this,
 	// the pinned model's timeout_minutes).
 	automationTimeout time.Duration
+	// now is the dispatcher's wall clock (server local time, like cron triggers); tests replace it.
+	now func() time.Time
 
 	stopOnce sync.Once
 }
@@ -86,6 +88,7 @@ func NewDispatcher(
 	}
 	d := &Dispatcher{
 		registry:    NewAutomationRegistry(),
+		now:         time.Now,
 		persistence: deps.Persistence,
 		executor:    deps.Executor,
 		// cron.Recover wraps every scheduled job so a panic inside a run can

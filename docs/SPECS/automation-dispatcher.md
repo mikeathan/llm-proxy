@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.9"
+version: "1.10"
 status: stable
 last_updated: 2026-10-08
 constitution_references: []
@@ -12,6 +12,12 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.10 (2026-10-08)** — Heartbeat active hours (§II.6): `heartbeat.active_hours` (`HH:MM-HH:MM`, server
+  local time, the zone cron triggers use; overnight windows such as `22:00-06:00` wrap) limits scheduled
+  checks to a daily window. A scheduled tick outside it is dropped in `admitRun` before the run lane
+  (no model call, recorded `skipped_outside_hours`); a manual run ignores the window. Backed by the
+  reusable `models.DailyWindow`.
 
 - **1.9 (2026-10-08)** — Run history has one source (§II.3): the global activity feed
   (`GET /admin/api/dispatcher/activity`) reads each workspace's `state.json` on request instead of an
@@ -153,6 +159,14 @@ external message, and is gated by network scope; delivery is not).
   (`models.HeartbeatAutomationName`, a reserved name — `validateAutomation` rejects it), isolated,
   `memory_mode: off` always. The removed `cron_schedule` field and its hidden `default` automation
   no longer exist (old files still load; the key is ignored).
+  - **Active hours**: `heartbeat.active_hours` (`HH:MM-HH:MM`, half-open — start included, end excluded —
+    in server local time, the same zone cron triggers use; start after end wraps past midnight; empty =
+    always active). `admitRun` reads the workspace config at fire time (`heartbeatActive`), so a changed
+    window applies to the next tick; a scheduled tick outside it is skipped before the run lane and
+    recorded `skipped_outside_hours`, a manual run ignores the window. It is checked before the no-checks
+    rule. An unparsable stored window never silences the heartbeat (`HeartbeatConfig.ActiveAt`); save
+    rejects it (`heartbeat.active_hours`, 400). A per-owner timezone is an autonomy-roadmap decision (R2);
+    when it lands this window should read it.
   - **No checks, no run**: `admitRun` reads `heartbeat.md` and `models.HeartbeatBody` (HTML
     comments outside code fences stripped, trimmed); empty → the tick is skipped before the run lane
     is touched (`TriggerSkipped`, no model call, no history) and recorded `skipped_no_checks`. The

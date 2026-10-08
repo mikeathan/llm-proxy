@@ -206,3 +206,64 @@ func TestHeartbeat_StateTellsTheUIWhatItNeedsToWarn(t *testing.T) {
 		t.Errorf("state = %+v, want cloud lane and checks present", state)
 	}
 }
+
+// saveActiveHours stores the workspace heartbeat config the admission check reads at fire time.
+func saveActiveHours(t *testing.T, d *Dispatcher, hours string) {
+	t.Helper()
+	cfg := &models.WorkspaceConfig{Heartbeat: &models.HeartbeatConfig{Enabled: true, ActiveHours: hours}}
+	if err := d.persistence.WriteConfig("ws", cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Active hours are enforced at admission: a scheduled tick outside the window is
+// dropped before the lane (no model call, status recorded), the window edges are
+// start-inclusive/end-exclusive, and a manual run ignores the window.
+func TestHeartbeat_ActiveHoursGateScheduledTicks(t *testing.T) {
+	plus5 := time.FixedZone("UTC+5", 5*60*60)
+	at := func(h, m int, loc *time.Location) time.Time { return time.Date(2026, 10, 8, h, m, 0, 0, loc) }
+
+	for _, tc := range []struct {
+		name    string
+		hours   string
+		now     time.Time
+		manual  bool
+		wantRun bool
+	}{
+		{"no window always runs", "", at(3, 0, time.UTC), false, true},
+		{"a minute before start is skipped", "08:00-22:00", at(7, 59, time.UTC), false, false},
+		{"exactly at start runs", "08:00-22:00", at(8, 0, time.UTC), false, true},
+		{"a minute before end runs", "08:00-22:00", at(21, 59, time.UTC), false, true},
+		{"exactly at end is skipped", "08:00-22:00", at(22, 0, time.UTC), false, false},
+		{"wrapping window late evening runs", "22:00-06:00", at(23, 0, time.UTC), false, true},
+		{"wrapping window early morning runs", "22:00-06:00", at(5, 0, time.UTC), false, true},
+		{"wrapping window midday is skipped", "22:00-06:00", at(12, 0, time.UTC), false, false},
+		{"reads the wall clock of the clock's zone", "08:00-22:00", at(23, 0, plus5), false, false},
+		{"a manual run outside the window still runs", "08:00-22:00", at(3, 0, time.UTC), true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := newRecordingExecutor("HEARTBEAT_OK", nil)
+			d, entry := heartbeatDispatcher(t, exec, "Watch: new Claude releases\n")
+			saveActiveHours(t, d, tc.hours)
+			d.now = func() time.Time { return tc.now }
+
+			res, err := d.admitRun(entry, tc.manual, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.wantRun {
+				if res.Status != TriggerSkipped || exec.count() != 0 {
+					t.Fatalf("admitRun = %+v with %d model calls; want skipped without a model call", res, exec.count())
+				}
+				if s := statusOf(t, d); s == nil || s.Result != models.HeartbeatSkippedOutsideHours {
+					t.Errorf("status = %+v, want skipped_outside_hours", s)
+				}
+				return
+			}
+			if res.Status == TriggerSkipped {
+				t.Fatalf("admitRun skipped a tick that should run: %+v", res)
+			}
+			<-exec.done
+		})
+	}
+}

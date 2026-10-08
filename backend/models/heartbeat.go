@@ -26,6 +26,9 @@ type HeartbeatConfig struct {
 	Every   string        `yaml:"every,omitempty" json:"every,omitempty"`
 	Model   string        `yaml:"model,omitempty" json:"model,omitempty"`
 	Notify  *NotifyConfig `yaml:"notify,omitempty" json:"notify,omitempty"`
+	// ActiveHours ("HH:MM-HH:MM", server local time — the zone cron triggers use) limits scheduled
+	// checks to a daily window; empty means always active.
+	ActiveHours string `yaml:"active_hours,omitempty" json:"active_hours,omitempty"`
 }
 
 // HeartbeatResult is how the most recent heartbeat check ended.
@@ -36,7 +39,9 @@ const (
 	HeartbeatAlert           HeartbeatResult = "alert"
 	HeartbeatSkippedNoChecks HeartbeatResult = "skipped_no_checks"
 	HeartbeatSkippedBusy     HeartbeatResult = "skipped_busy"
-	HeartbeatError           HeartbeatResult = "error"
+	// HeartbeatSkippedOutsideHours: a scheduled tick fell outside ActiveHours.
+	HeartbeatSkippedOutsideHours HeartbeatResult = "skipped_outside_hours"
+	HeartbeatError               HeartbeatResult = "error"
 )
 
 // HeartbeatStatus is the last check: when it happened and how it ended.
@@ -55,16 +60,30 @@ type HeartbeatState struct {
 	HasChecks       bool             `json:"has_checks"`
 }
 
-// Validate checks the interval; empty takes the default.
+// Validate checks the interval (empty takes the default) and the active-hours window (empty is always active).
 func (h HeartbeatConfig) Validate() error {
-	if h.Every == "" {
-		return nil
+	if h.Every != "" {
+		every, err := time.ParseDuration(h.Every)
+		if err != nil || every < minHeartbeatEvery || every > maxHeartbeatEvery {
+			return fmt.Errorf("invalid heartbeat.every %q: use a duration between 1m and 24h, such as 30m", h.Every)
+		}
 	}
-	every, err := time.ParseDuration(h.Every)
-	if err != nil || every < minHeartbeatEvery || every > maxHeartbeatEvery {
-		return fmt.Errorf("invalid heartbeat.every %q: use a duration between 1m and 24h, such as 30m", h.Every)
+	if h.ActiveHours != "" {
+		if _, err := ParseDailyWindow(h.ActiveHours); err != nil {
+			return fmt.Errorf("invalid heartbeat.active_hours: %w", err)
+		}
 	}
 	return nil
+}
+
+// ActiveAt reports whether a scheduled check may run at t. A window that fails to parse (Validate rejects it on
+// save) never silences the heartbeat: a monitor that quietly stops is worse than one that runs off-hours.
+func (h HeartbeatConfig) ActiveAt(t time.Time) bool {
+	if h.ActiveHours == "" {
+		return true
+	}
+	window, err := ParseDailyWindow(h.ActiveHours)
+	return err != nil || window.Contains(t)
 }
 
 // Automation compiles the heartbeat to the automation the dispatcher schedules. It never injects

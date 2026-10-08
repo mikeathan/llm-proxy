@@ -3,6 +3,7 @@ package models
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -75,8 +76,48 @@ func TestHeartbeatConfig_Automation(t *testing.T) {
 }
 
 // A workspace file written before the heartbeat section existed (with the old cron field) still loads.
+func TestHeartbeatConfig_ValidateActiveHours(t *testing.T) {
+	for _, c := range []struct {
+		hours   string
+		wantErr bool
+	}{
+		{"", false}, // unset means always active
+		{"08:00-22:00", false},
+		{"22:00-06:00", false},
+		{"08:00-08:00", true},
+		{"late", true},
+	} {
+		err := HeartbeatConfig{ActiveHours: c.hours}.Validate()
+		if (err != nil) != c.wantErr {
+			t.Errorf("Validate(active_hours=%q) error = %v, wantErr %v", c.hours, err, c.wantErr)
+		}
+		if err != nil && !strings.Contains(err.Error(), "heartbeat.active_hours") {
+			t.Errorf("error should name the field: %v", err)
+		}
+	}
+}
+
+func TestHeartbeatConfig_ActiveAt(t *testing.T) {
+	at := func(h int) time.Time { return time.Date(2026, 10, 8, h, 0, 0, 0, time.UTC) }
+	for _, c := range []struct {
+		name  string
+		hours string
+		hour  int
+		want  bool
+	}{
+		{"no window is always active", "", 3, true},
+		{"inside the window", "08:00-22:00", 12, true},
+		{"outside the window", "08:00-22:00", 3, false},
+		{"an unparsable window never silences the heartbeat", "garbage", 3, true},
+	} {
+		if got := (HeartbeatConfig{ActiveHours: c.hours}).ActiveAt(at(c.hour)); got != c.want {
+			t.Errorf("%s: ActiveAt = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestWorkspaceConfig_HeartbeatYAML(t *testing.T) {
-	cfg := WorkspaceConfig{Heartbeat: &HeartbeatConfig{Enabled: true, Every: "1h", Model: "gpt-5"}}
+	cfg := WorkspaceConfig{Heartbeat: &HeartbeatConfig{Enabled: true, Every: "1h", Model: "gpt-5", ActiveHours: "08:00-22:00"}}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)

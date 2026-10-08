@@ -45,10 +45,10 @@ func (d *Dispatcher) Trigger(workspaceID, automationName, recordingRef string) (
 // position — never an error. The entry is re-resolved at dequeue so a deleted or
 // renamed automation is dropped instead of running a stale definition.
 func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef string) (TriggerResult, error) {
-	if isHeartbeat(entry) && !d.heartbeatHasChecks(entry.Workspace) {
+	if reason, skip := d.heartbeatSkip(entry, manual); skip {
 		d.metrics.RecordExecution(false, true, 0)
-		d.recordHeartbeat(entry, models.HeartbeatSkippedNoChecks)
-		d.logger.Info("heartbeat tick skipped: no checks in heartbeat.md", "workspace", entry.Workspace)
+		d.recordHeartbeat(entry, reason)
+		d.logger.Info("heartbeat tick skipped", "workspace", entry.Workspace, "reason", string(reason))
 		return TriggerResult{Status: TriggerSkipped}, nil
 	}
 	sub, err := d.lane.Submit(runlane.Job{

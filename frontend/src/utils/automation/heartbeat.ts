@@ -35,6 +35,7 @@ const RESULT_TEXT: Record<HeartbeatResult, string> = {
   alert: 'an alert was sent',
   skipped_no_checks: 'skipped, no checks defined',
   skipped_busy: 'skipped, the model was busy',
+  skipped_outside_hours: 'skipped, outside the active hours',
   error: 'failed',
 }
 
@@ -57,4 +58,22 @@ export function modelWakeNotice(triggerType: TriggerType, providerKey: string): 
   if (triggerType === 'manual') return ''
   if (providerKey === LOCAL_CONNECTION) return LOCAL_MODEL_NOTICE
   return providerKey === '' ? DEFAULT_MODEL_NOTICE : ''
+}
+
+const ACTIVE_HOURS_SEPARATOR = '-'
+
+/** The two ends of a stored "HH:MM-HH:MM" window; an unset window is two empty strings. */
+export function splitActiveHours(value: string | undefined): { from: string; to: string } {
+  const [from = '', to = ''] = (value ?? '').split(ACTIVE_HOURS_SEPARATOR)
+  return { from, to }
+}
+
+/** The stored window for two times; undefined (all day) when both are empty. */
+export function joinActiveHours(from: string, to: string): string | undefined {
+  return from && to ? `${from}${ACTIVE_HOURS_SEPARATOR}${to}` : undefined
+}
+
+/** Exactly one end is set: the window is ambiguous and cannot be saved. */
+export function activeHoursIncomplete(from: string, to: string): boolean {
+  return (from === '') !== (to === '')
 }

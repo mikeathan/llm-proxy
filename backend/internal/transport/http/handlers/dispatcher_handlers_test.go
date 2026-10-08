@@ -782,6 +782,10 @@ func TestUpdateWorkspaceConfig_ValidatesHeartbeat(t *testing.T) {
 		{"disabled needs no interval", `{"heartbeat":{"enabled":false}}`, http.StatusOK},
 		{"too frequent", `{"heartbeat":{"enabled":true,"every":"10s"}}`, http.StatusBadRequest},
 		{"not a duration", `{"heartbeat":{"enabled":true,"every":"often"}}`, http.StatusBadRequest},
+		{"active hours window", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"08:00-22:00"}}`, http.StatusOK},
+		{"active hours wrapping midnight", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"22:00-06:00"}}`, http.StatusOK},
+		{"empty active hours window", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"08:00-08:00"}}`, http.StatusBadRequest},
+		{"malformed active hours", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"daytime"}}`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(tc.body))
@@ -791,7 +795,7 @@ func TestUpdateWorkspaceConfig_ValidatesHeartbeat(t *testing.T) {
 			if rr.Code != tc.want {
 				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
 			}
-			if tc.want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "heartbeat.every") {
+			if tc.want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "heartbeat.") {
 				t.Errorf("error should name the field: %s", rr.Body.String())
 			}
 		})
