@@ -73,7 +73,11 @@ export function joinActiveHours(from: string, to: string): string | undefined {
   return from && to ? `${from}${ACTIVE_HOURS_SEPARATOR}${to}` : undefined
 }
 
-/** Exactly one end is set: the window is ambiguous and cannot be saved. */
-export function activeHoursIncomplete(from: string, to: string): boolean {
-  return (from === '') !== (to === '')
+/**
+ * The window cannot be saved: exactly one end is set, or start equals end (an empty window the server rejects).
+ * Both empty is valid — it means all day.
+ */
+export function activeHoursInvalid(from: string, to: string): boolean {
+  const halfFilled = (from === '') !== (to === '')
+  return halfFilled || (from !== '' && from === to)
 }

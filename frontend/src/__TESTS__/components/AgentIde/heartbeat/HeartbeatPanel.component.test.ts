@@ -113,9 +113,27 @@ describe('HeartbeatPanel', () => {
     const w = await mountPanel(stateWith({ config: { enabled: true } }))
     await control(w, 'Only check from').setValue('08:00')
     expect(saveButton(w).attributes('disabled')).toBeDefined()
-    expect(w.text()).toMatch(/set both times/i)
+    expect(w.text()).toMatch(/two different times/i)
     await control(w, 'Only check until').setValue('22:00')
     expect(saveButton(w).attributes('disabled')).toBeUndefined()
+  })
+
+  it('will not save a window whose start equals its end', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true } }))
+    await control(w, 'Only check from').setValue('09:00')
+    await control(w, 'Only check until').setValue('09:00')
+    expect(saveButton(w).attributes('disabled')).toBeDefined()
+    expect(w.text()).toMatch(/two different times/i)
+  })
+
+  it('keeps a half-filled window editable after the heartbeat is switched off, so it can be fixed', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true } }))
+    await control(w, 'Only check from').setValue('08:00')
+    await toggle(w).setValue(false)
+    expect(control(w, 'Only check from').attributes('disabled')).toBeUndefined()
+    await control(w, 'Only check from').setValue('')
+    expect(saveButton(w).attributes('disabled')).toBeUndefined()
+    expect(control(w, 'Only check from').attributes('disabled')).toBeDefined()
   })
 
   it('warns that every check wakes the local model, only when it would', async () => {

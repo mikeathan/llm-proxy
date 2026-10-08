@@ -163,7 +163,9 @@ external message, and is gated by network scope; delivery is not).
     in server local time, the same zone cron triggers use; start after end wraps past midnight; empty =
     always active). `admitRun` reads the workspace config at fire time (`heartbeatActive`), so a changed
     window applies to the next tick; a scheduled tick outside it is skipped before the run lane and
-    recorded `skipped_outside_hours`, a manual run ignores the window. It is checked before the no-checks
+    recorded `skipped_outside_hours`, a manual run ignores the window. The same check
+    (`skipHeartbeatTick`) runs again when a queued tick leaves the lane queue, so a tick admitted just before
+    the window closed does not run after it. It is checked before the no-checks
     rule. An unparsable stored window never silences the heartbeat (`HeartbeatConfig.ActiveAt`); save
     rejects it (`heartbeat.active_hours`, 400). A per-owner timezone is an autonomy-roadmap decision (R2);
     when it lands this window should read it.

@@ -45,10 +45,7 @@ func (d *Dispatcher) Trigger(workspaceID, automationName, recordingRef string) (
 // position — never an error. The entry is re-resolved at dequeue so a deleted or
 // renamed automation is dropped instead of running a stale definition.
 func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef string) (TriggerResult, error) {
-	if reason, skip := d.heartbeatSkip(entry, manual); skip {
-		d.metrics.RecordExecution(false, true, 0)
-		d.recordHeartbeat(entry, reason)
-		d.logger.Info("heartbeat tick skipped", "workspace", entry.Workspace, "reason", string(reason))
+	if d.skipHeartbeatTick(entry, manual) {
 		return TriggerResult{Status: TriggerSkipped}, nil
 	}
 	sub, err := d.lane.Submit(runlane.Job{
@@ -65,6 +62,11 @@ func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef 
 			live, ok := d.registry.Get(entry.Workspace, entry.Name)
 			if !ok {
 				return nil // automation deleted/renamed while queued — drop
+			}
+			// A queued tick may leave the queue after its window closed (or its
+			// checks were removed): the same rule applies again at dequeue.
+			if d.skipHeartbeatTick(live, manual) {
+				return nil
 			}
 			return d.executeAutomation(ctx, live, recordingRef)
 		},

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -266,4 +267,50 @@ func TestHeartbeat_ActiveHoursGateScheduledTicks(t *testing.T) {
 			<-exec.done
 		})
 	}
+}
+
+// A scheduled tick admitted inside the window but queued behind other work must
+// re-check the window when it leaves the queue: if the window closed meanwhile,
+// it is dropped there instead of running (and maybe alerting) off-hours.
+func TestHeartbeat_QueuedTickRechecksActiveHoursAtDequeue(t *testing.T) {
+	exec := &blockingExecutor{started: make(chan string, 8), proceed: make(chan struct{})}
+	d := newLaneDispatcher(t, exec)
+	d.laneKeyFor = func(string) runlane.LaneKey { return runlane.LaneCloud } // cloud: a busy lane queues the tick
+	if err := d.persistence.WriteTaskFile("ws", models.HeartbeatFilename, "Watch: new Claude releases\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Register("ws", models.HeartbeatConfig{Enabled: true}.Automation()); err != nil {
+		t.Fatal(err)
+	}
+	hb, _ := d.registry.Get("ws", models.HeartbeatAutomationName)
+	saveActiveHours(t, d, "08:00-22:00")
+	registerManualAutomation(t, d, "ws", "a")
+
+	inside := time.Date(2026, 10, 8, 21, 59, 0, 0, time.UTC)
+	var now atomic.Value
+	now.Store(inside)
+	d.now = func() time.Time { return now.Load().(time.Time) }
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, exec.started, "a") // the lane is now busy
+
+	res, err := d.admitRun(hb, false, "")
+	if err != nil || res.Status != TriggerQueued {
+		t.Fatalf("tick inside the window behind a busy lane = %+v, %v; want queued", res, err)
+	}
+
+	now.Store(time.Date(2026, 10, 8, 23, 30, 0, 0, time.UTC)) // the window closes while it waits
+	close(exec.proceed)
+
+	select {
+	case name := <-exec.started:
+		t.Fatalf("%q ran after the window closed", name)
+	case <-time.After(500 * time.Millisecond):
+	}
+	eventuallySettled(t, func() bool {
+		s, _ := d.persistence.ReadHeartbeatStatus("ws")
+		return s != nil && s.Result == models.HeartbeatSkippedOutsideHours
+	}, "the dequeued tick was not recorded as skipped_outside_hours")
 }

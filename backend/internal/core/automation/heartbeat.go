@@ -29,6 +29,19 @@ func (d *Dispatcher) heartbeatSkip(entry *AutomationEntry, manual bool) (models.
 	return "", false
 }
 
+// skipHeartbeatTick applies heartbeatSkip and, when the tick is dropped, records why. It is checked when a tick is
+// admitted and again when it leaves the queue, so a queued tick cannot run after its window closed.
+func (d *Dispatcher) skipHeartbeatTick(entry *AutomationEntry, manual bool) bool {
+	reason, skip := d.heartbeatSkip(entry, manual)
+	if !skip {
+		return false
+	}
+	d.metrics.RecordExecution(false, true, 0)
+	d.recordHeartbeat(entry, reason)
+	d.logger.Info("heartbeat tick skipped", "workspace", entry.Workspace, "reason", string(reason))
+	return true
+}
+
 // heartbeatActive reads the workspace's current active hours at fire time, so a changed window applies to the
 // very next tick without re-registering. An unreadable config keeps the heartbeat running.
 func (d *Dispatcher) heartbeatActive(workspaceID string) bool {

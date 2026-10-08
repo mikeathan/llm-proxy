@@ -2,7 +2,7 @@ import { computed, ref, watch, type Ref } from 'vue'
 import { DispatcherService } from '../../services/automation/dispatcherService'
 import {
   HEARTBEAT_DEFAULT_EVERY,
-  activeHoursIncomplete,
+  activeHoursInvalid,
   joinActiveHours,
   splitActiveHours,
 } from '../../utils/automation/heartbeat'
@@ -37,9 +37,9 @@ export function useHeartbeat(workspaceId: Readonly<Ref<string>>) {
     () => !!state.value && !!draft.value && JSON.stringify(draft.value) !== JSON.stringify(draftFrom(state.value.config)),
   )
 
-  // Half a window cannot be saved; the panel says to set both or neither.
-  const activeHoursIncompleteNow = computed(
-    () => !!draft.value && activeHoursIncomplete(draft.value.activeFrom, draft.value.activeTo),
+  // A half-filled or empty window cannot be saved; the panel says to set two different times or neither.
+  const activeHoursInvalidNow = computed(
+    () => !!draft.value && activeHoursInvalid(draft.value.activeFrom, draft.value.activeTo),
   )
 
   function adopt(next: HeartbeatState) {
@@ -71,7 +71,7 @@ export function useHeartbeat(workspaceId: Readonly<Ref<string>>) {
   }
 
   async function save() {
-    if (!state.value || !draft.value || activeHoursIncompleteNow.value) return
+    if (!state.value || !draft.value || activeHoursInvalidNow.value) return
     saving.value = true
     saveError.value = ''
     try {
@@ -97,7 +97,7 @@ export function useHeartbeat(workspaceId: Readonly<Ref<string>>) {
     saving,
     saveError,
     dirty,
-    activeHoursIncomplete: activeHoursIncompleteNow,
+    activeHoursInvalid: activeHoursInvalidNow,
     load,
     save,
     discard,

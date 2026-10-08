@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  activeHoursIncomplete,
+  activeHoursInvalid,
   heartbeatEveryOptions,
   heartbeatStatusText,
   joinActiveHours,
@@ -67,10 +67,12 @@ describe('active hours', () => {
     expect(joinActiveHours('', '')).toBeUndefined()
   })
 
-  it('flags a half-filled window, which cannot be saved', () => {
-    expect(activeHoursIncomplete('08:00', '')).toBe(true)
-    expect(activeHoursIncomplete('', '22:00')).toBe(true)
-    expect(activeHoursIncomplete('08:00', '22:00')).toBe(false)
-    expect(activeHoursIncomplete('', '')).toBe(false)
+  it('flags a window that cannot be saved: half filled, or start equal to end', () => {
+    expect(activeHoursInvalid('08:00', '')).toBe(true)
+    expect(activeHoursInvalid('', '22:00')).toBe(true)
+    expect(activeHoursInvalid('09:00', '09:00')).toBe(true)
+    expect(activeHoursInvalid('08:00', '22:00')).toBe(false)
+    expect(activeHoursInvalid('22:00', '06:00')).toBe(false)
+    expect(activeHoursInvalid('', '')).toBe(false)
   })
 })
