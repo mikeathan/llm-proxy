@@ -1,12 +1,12 @@
 ---
-status: approved
+status: complete
 date: 2026-07-22
 related_specs: [SPEC-001, SPEC-006, SPEC-007]
 ---
 
 # Unattended Run Safety Hardening Plan
 
-**Status:** approved — Steps 0–5 complete (2026-07-22)
+**Status:** complete — Steps 0–9 verified implemented 2026-10-08 (Steps 6–9 landed with later work; audited against code, tests and docs). Step 6 note: file reads are bounded by the tool-call context deadline (`FilesystemToolTimeout`) plus the 10-slot semaphore rather than a second internal timer; the unused `fileReadTimeout` constant was removed.
 **Date:** 2026-07-22
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-006 (Guardrails)
 

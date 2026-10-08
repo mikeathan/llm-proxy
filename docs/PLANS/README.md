@@ -30,7 +30,7 @@ Organized by subsystem:
 
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
-| [`unattended-run-safety-hardening.md`](unattended-run-safety-hardening.md) | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | approved | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
+| [`unattended-run-safety-hardening.md`](unattended-run-safety-hardening.md) | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | complete | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
 | [`gpu-performance.md`](gpu-performance.md) | GPU Performance (consolidated: completed + next steps) | active | 2026-08-06 | — |
 | [`primary-model-warning-banner.md`](primary-model-warning-banner.md) | Remove model auto-bootstrap; explicit primary/fallback selection + banners | complete | 2026-08-14 | SPEC-003, CONSTITUTION III.4 |
 | [`agent-loop/agent-improvements.md`](agent-loop/agent-improvements.md) | Agent Improvements (7-phase; re-scoped 2026-09-05 — Phases 3/6 superseded by SPEC-010, Phase 4/5/7-remainder open) | partial | — | SPEC-001 |
@@ -95,7 +95,6 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | Status | Plan | Open scope |
 |--------|-------|-----------|
 | partial | Automation Learning Journal | Phases 3–4 (memory-search-first, active hours) + Phase 2 live smoke run; Phases 1–2 (bullet dedup, journal + tool) done |
-| approved | Unattended Run Safety Hardening | Steps 6–9 (context-aware I/O hardening, unattended tool restriction & spiral detection, perf optimizations, docs sync) |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Assistant UI Overhaul | Phase 5 backend SSE-bleed fix only (Phase 4 and the chat chrome delivered by the retro redesign, 2026-09-30) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
