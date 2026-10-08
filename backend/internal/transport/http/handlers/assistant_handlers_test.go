@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -616,7 +617,51 @@ func TestAssistant_FinishRun_LeavesNewerRunRegistered(t *testing.T) {
 	}
 }
 
-func TestAssistant_CancelPriorForWorkspace_WaitsForDone(t *testing.T) {
+// newTestRun is a registrable run whose cancel and done are inert.
+func newTestRun() *runningAgent {
+	return &runningAgent{cancel: func() {}, done: make(chan struct{})}
+}
+
+// Two runs starting at once on one workspace: registration is a single atomic
+// swap, so exactly one ends up registered and the one it replaced is cancelled.
+// Neither can be left running unregistered, where Stop could not reach it.
+func TestAssistant_ReplaceRun_ConcurrentStartsLeaveOneRegistered(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		handler := NewAssistantMessageHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
+		var cancelled [2]atomic.Bool
+		runs := [2]*runningAgent{}
+		for k := range runs {
+			done := make(chan struct{})
+			runs[k] = &runningAgent{done: done, cancel: func() {
+				if cancelled[k].CompareAndSwap(false, true) {
+					close(done)
+				}
+			}}
+		}
+		var wg sync.WaitGroup
+		for k := range runs {
+			wg.Add(1)
+			go func() { defer wg.Done(); handler.replaceRun("ws-1", runs[k], &noopLogger{}) }()
+		}
+		wg.Wait()
+
+		v, ok := handler.running.Load("ws-1")
+		if !ok {
+			t.Fatal("no run registered")
+		}
+		kept := v.(*runningAgent)
+		for k, ra := range runs {
+			if ra != kept && !cancelled[k].Load() {
+				t.Fatalf("iteration %d: run %d was replaced but never cancelled — it would run unreachable", i, k)
+			}
+			if ra == kept && cancelled[k].Load() {
+				t.Fatalf("iteration %d: the registered run %d was cancelled", i, k)
+			}
+		}
+	}
+}
+
+func TestAssistant_ReplaceRun_WaitsForDone(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	handler := NewAssistantMessageHandler(service)
 
@@ -635,29 +680,29 @@ func TestAssistant_CancelPriorForWorkspace_WaitsForDone(t *testing.T) {
 	}()
 
 	start := time.Now()
-	handler.cancelPriorForWorkspace("ws-1", &noopLogger{})
+	handler.replaceRun("ws-1", newTestRun(), &noopLogger{})
 	elapsed := time.Since(start)
 
 	if elapsed < 50*time.Millisecond {
-		t.Errorf("cancelPriorForWorkspace returned before prior agent finished; elapsed=%v", elapsed)
+		t.Errorf("replaceRun returned before prior agent finished; elapsed=%v", elapsed)
 	}
 	if elapsed > 2*time.Second {
-		t.Errorf("cancelPriorForWorkspace took too long; elapsed=%v", elapsed)
+		t.Errorf("replaceRun took too long; elapsed=%v", elapsed)
 	}
 }
 
-func TestAssistant_CancelPriorForWorkspace_TimesOut(t *testing.T) {
+func TestAssistant_ReplaceRun_TimesOut(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	handler := NewAssistantMessageHandler(service)
 
-	// Prior never closes done; cancelPriorForWorkspace should time out at 2s.
+	// Prior never closes done; replaceRun should time out at 2s.
 	handler.running.Store("ws-1", &runningAgent{
 		cancel: func() {},
 		done:   make(chan struct{}),
 	})
 
 	start := time.Now()
-	handler.cancelPriorForWorkspace("ws-1", &noopLogger{})
+	handler.replaceRun("ws-1", newTestRun(), &noopLogger{})
 	elapsed := time.Since(start)
 
 	if elapsed < 2*time.Second {
@@ -665,13 +710,13 @@ func TestAssistant_CancelPriorForWorkspace_TimesOut(t *testing.T) {
 	}
 }
 
-func TestAssistant_CancelPriorForWorkspace_NoOp(t *testing.T) {
+func TestAssistant_ReplaceRun_NoOp(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	handler := NewAssistantMessageHandler(service)
 
 	// No prior; should return immediately.
 	start := time.Now()
-	handler.cancelPriorForWorkspace("ws-1", &noopLogger{})
+	handler.replaceRun("ws-1", newTestRun(), &noopLogger{})
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Errorf("expected immediate return, got %v", elapsed)
 	}
