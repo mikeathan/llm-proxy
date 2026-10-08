@@ -67,6 +67,15 @@ const SECTIONS: GuardrailSectionSpec[] = [
     ],
   },
   {
+    section: "communication",
+    title: "Communication",
+    switchField: "enabled",
+    fields: [
+      { field: "require_review", label: "Approve each notification", control: "toggle", hint: "Pause agent-initiated sends for approval. Turn off for unattended notifications." },
+      { field: "max_messages_per_task", label: "Max messages per task", control: "number", hint: "Saved policy value; currently not enforced for agent notifications." },
+    ],
+  },
+  {
     section: "network",
     title: "Agent network access",
     switchField: "enabled",
@@ -126,8 +135,11 @@ const source = (section: GuardrailSection, field: string): GuardrailSource | nul
 const lockedOn = (section: GuardrailSection, field: string) =>
   layered.value && GUARDRAIL_RULES[section][field]?.kind === "on-wins" && base(section, field) === true;
 
+const lockedOff = (section: GuardrailSection, field: string) =>
+  layered.value && GUARDRAIL_RULES[section][field]?.kind === "off-wins" && base(section, field) === false;
+
 const toggleValue = (section: GuardrailSection, field: string) =>
-  lockedOn(section, field) ? true : own(section, field) === true;
+  lockedOn(section, field) ? true : lockedOff(section, field) ? false : own(section, field) === true;
 
 const sectionOpen = (spec: GuardrailSectionSpec) => !spec.switchField || shown(spec.section, spec.switchField) === true;
 
@@ -146,8 +158,9 @@ const numberPlaceholder = (section: GuardrailSection, field: string) =>
 
 function fieldHint(section: GuardrailSection, spec: GuardrailFieldSpec): string | undefined {
   if (lockedOn(section, spec.field)) return "On in the global policy — a workspace cannot turn it off.";
+  if (lockedOff(section, spec.field)) return "Off in the global policy — a workspace cannot turn it on.";
   if (layered.value && spec.control === "list") return "Added for this workspace; the global entries above always apply.";
-  if (layered.value && spec.control === "number") return "Empty uses the global value.";
+  if (layered.value && spec.control === "number") return spec.hint ? `Empty uses the global value. ${spec.hint}` : "Empty uses the global value.";
   return spec.hint;
 }
 
@@ -190,6 +203,9 @@ const tagOf = (section: GuardrailSection, field: string) => {
           />
         </span>
       </div>
+      <p v-if="spec.section === 'communication'" class="m-0 text-[length:var(--text-small)] text-muted">
+        Allow the agent to send through connectors configured in Settings · Communication, using notify_user. Enabling a connector alone does not grant this permission. Host network access must also be on.
+      </p>
       <p v-if="spec.switchField && lockedOn(spec.section, spec.switchField)" class="m-0 text-[length:var(--text-small)] text-faint">
         On in the global policy — a workspace cannot turn it off.
       </p>
@@ -214,7 +230,7 @@ const tagOf = (section: GuardrailSection, field: string) => {
                 :id="id"
                 :described-by="describedBy"
                 :model-value="toggleValue(spec.section, field.field)"
-                :disabled="lockedOn(spec.section, field.field)"
+                :disabled="lockedOn(spec.section, field.field) || lockedOff(spec.section, field.field)"
                 :label="field.label"
                 hide-label
                 @update:model-value="set(spec.section, field.field, $event)"

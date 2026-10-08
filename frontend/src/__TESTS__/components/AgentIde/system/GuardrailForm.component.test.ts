@@ -25,6 +25,14 @@ const ENABLED: AgentGuardrailsConfig = {
 }
 
 describe('GuardrailForm', () => {
+  it('enables communication and edits approval and message limits', async () => {
+    const { w, last } = mountForm()
+    await fieldByLabel(w, /^communication$/i).setValue(true)
+    expect(last().communication.enabled).toBe(true)
+    await fieldByLabel(w, /approve each notification/i).setValue(false)
+    await fieldByLabel(w, /max messages per task/i).setValue('3')
+    expect(last().communication).toEqual({ enabled: true, require_review: false, max_messages_per_task: 3 })
+  })
   it('reports a switched setting', async () => {
     const { w, last } = mountForm()
     await fieldByLabel(w, /block secrets/i).setValue(false)
@@ -62,6 +70,26 @@ function mountLayer(global: AgentGuardrailsConfig = structuredClone(ENABLED)) {
 }
 
 describe('GuardrailForm over the global policy', () => {
+  it('enables communication just for the workspace and can waive inherited approval', async () => {
+    const { w, last } = mountLayer()
+    await fieldByLabel(w, /^communication$/i).setValue(true)
+    expect(last().communication.enabled).toBe(true)
+    await fieldByLabel(w, /approve each notification/i).setValue(false)
+    await w.setProps({ modelValue: last() })
+    expect(w.get('[data-test="source-communication-require_review"]').text()).toBe('Exception')
+  })
+
+  it('shows globally waived communication approval as off and prevents re-enabling it in a workspace', () => {
+    const global = structuredClone(ENABLED)
+    global.communication = { enabled: true, require_review: false, max_messages_per_task: 5 }
+    const { w } = mountLayer(global)
+    const enabled = fieldByLabel(w, /^communication$/i)
+    expect((enabled.element as HTMLInputElement).checked).toBe(true)
+    expect(enabled.attributes('disabled')).toBeDefined()
+    const review = fieldByLabel(w, /approve each notification/i)
+    expect((review.element as HTMLInputElement).checked).toBe(false)
+    expect(review.attributes('disabled')).toBeDefined()
+  })
   it('shows global list entries as fixed, and edits only what the workspace adds', async () => {
     const { w, last } = mountLayer()
     const field = fieldByLabel(w, /allowed commands/i)

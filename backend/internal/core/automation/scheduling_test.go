@@ -146,3 +146,43 @@ func TestDispatcher_StartWatcher_WatchesWorkspaceMetadataDirs(t *testing.T) {
 		}
 	}
 }
+
+// The workspace heartbeat is scheduled as an ordinary interval automation, only while enabled; the removed
+// cron_schedule field no longer creates a hidden "default" automation.
+func TestDispatcher_RegisterWorkspaceAutomations_Heartbeat(t *testing.T) {
+	cases := []struct {
+		name      string
+		heartbeat *models.HeartbeatConfig
+		wantEntry bool
+	}{
+		{"absent", nil, false},
+		{"disabled", &models.HeartbeatConfig{Every: "15m"}, false},
+		{"enabled", &models.HeartbeatConfig{Enabled: true, Every: "15m", Model: "gpt-5"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newLaneDispatcher(t, &mockExecutor{})
+			ws := &models.Workspace{ID: "ws", Config: models.WorkspaceConfig{Heartbeat: tc.heartbeat}}
+			if err := d.registerWorkspaceAutomations(ws); err != nil {
+				t.Fatal(err)
+			}
+			entry, ok := d.registry.Get("ws", models.HeartbeatAutomationName)
+			if ok != tc.wantEntry {
+				t.Fatalf("registered = %v, want %v", ok, tc.wantEntry)
+			}
+			if got := len(d.jobs); got != btoi(tc.wantEntry) {
+				t.Errorf("scheduled jobs = %d, want %d", got, btoi(tc.wantEntry))
+			}
+			if tc.wantEntry && (entry.TaskFile != models.HeartbeatFilename || entry.Model != "gpt-5" || entry.MemoryMode != models.MemoryModeOff) {
+				t.Errorf("entry = %+v", entry)
+			}
+		})
+	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

@@ -29,7 +29,7 @@ export type Destination = 'overview' | 'workspaces' | 'automations' | 'models' |
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the
 // assistant have their own routes; `settings` is the workspace guardrail layer.
-export const WORKSPACE_SECTIONS = ['memory', 'playbooks', 'settings'] as const
+export const WORKSPACE_SECTIONS = ['memory', 'playbooks', 'heartbeat', 'settings'] as const
 export type WorkspaceSection = (typeof WORKSPACE_SECTIONS)[number]
 
 // What a Workspaces route addresses (parsed by router/routes.ts →

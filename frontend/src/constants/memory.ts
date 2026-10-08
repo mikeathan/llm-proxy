@@ -8,6 +8,9 @@ export const MEMORY_TYPE_LABEL: Record<MemoryType, string> = {
   user_profile: 'User profile',
 }
 
+// The shipped global hot-memory defaults (backend models.MemoryConfig), used until the config has loaded.
+export const SHIPPED_MEMORY_DEFAULTS = { assistant_hot: true, automation_hot: false } as const
+
 // The tag that puts a fact in every run's prompt (backend memory.HotTag).
 export const HOT_TAG = 'hot'
 

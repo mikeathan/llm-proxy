@@ -155,4 +155,16 @@ describe('AutomationList', () => {
     expect(w.text()).toContain('No automations yet')
     expect(w.find('a[href="/automations/new"]').exists()).toBe(true)
   })
+
+  // The compiled heartbeat is configured in the workspace's Heartbeat section: editing or deleting it here would
+  // only collide with that, so its row points there instead.
+  it('sends the heartbeat to its own settings instead of offering edit and delete', async () => {
+    const w = await mountList([auto('heartbeat'), auto('nightly')])
+    const heartbeat = row(w, 'heartbeat')
+    expect(heartbeat.find('a[aria-label="Heartbeat settings of ws"]').attributes('href')).toBe('/workspaces/ws/heartbeat')
+    expect(heartbeat.find('a[aria-label="Edit heartbeat"]').exists()).toBe(false)
+    expect(named(w, 'Delete heartbeat').exists()).toBe(false)
+    expect(named(w, 'Delete nightly').exists()).toBe(true)
+    expect(row(w, 'nightly').find('a[aria-label="Edit nightly"]').exists()).toBe(true)
+  })
 })

@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import type { GlobalConfig } from '../../types/admin'
+import { SHIPPED_MEMORY_DEFAULTS } from '../../constants/memory'
 
 export const DEFAULT_CONFIG: GlobalConfig = {
   providers: {
@@ -65,6 +66,7 @@ export const DEFAULT_CONFIG: GlobalConfig = {
     loop_strategy: '',
   },
   run_logging: { enabled: true },
+  memory: { ...SHIPPED_MEMORY_DEFAULTS },
 }
 
 // Global state to share across components

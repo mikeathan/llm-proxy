@@ -84,6 +84,9 @@ type ModelMeta struct {
 	ContextLength int   `json:"n_ctx_train,omitempty"`
 	Nctx          int   `json:"n_ctx,omitempty"`
 	Parameters    int64 `json:"n_params,omitempty"`
+	// Serving is set by the listing parser when this entry carries the llama.cpp
+	// fingerprint (see ModelMetadata.Serving).
+	Serving string `json:"serving,omitempty"`
 }
 
 type ProviderModelInfo struct {

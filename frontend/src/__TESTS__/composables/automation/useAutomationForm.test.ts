@@ -20,7 +20,7 @@ const STATE = {
 
 const AUTO = {
   id: 'ws/nightly', workspace: 'ws', name: 'nightly', task_file: 'jobs/nightly.md', strategy: 'persistent',
-  trigger: 'cron', trigger_value: '0 7 * * *', model: 'gpt-5', loop_strategy: 'react', network_grant: 'lan', memory_mode: 'hot',
+  trigger: 'cron', trigger_value: '0 7 * * *', model: 'gpt-5', loop_strategy: 'react', network_grant: 'lan', memory_mode: 'on',
 } as Automation
 
 // Characterisation (plan D22) — and the tests the absorbed
@@ -37,8 +37,14 @@ describe('useAutomationForm', () => {
     expect(f.selectedWorkspace.value).toBe('ws')
     expect(f.form.value).toEqual({
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
-      strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'hot',
+      strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'on',
+      notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false, journal: false,
     })
+  })
+
+  it('reads a stale or unknown memory mode as the default instead of carrying it into the form', () => {
+    const edit = (memory_mode: string) => useAutomationForm(ref({ ...AUTO, memory_mode } as Automation), vi.fn()).form.value.memoryMode
+    expect([edit('on'), edit('off'), edit(''), edit('hot'), edit('bogus')]).toEqual(['on', 'off', '', '', ''])
   })
 
   it('repopulates when a different automation is edited, and resets when editing stops', async () => {
@@ -99,5 +105,31 @@ describe('useAutomationForm', () => {
     f.selectedWorkspace.value = 'ws'
     f.form.value.name = 'x'
     expect(f.handleSubmit()).toMatchObject({ name: 'x' })
+  })
+  it('populates delivery and busy behaviour from the automation', () => {
+    const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'my-tg', dedup: true, dedup_days: 14, send_empty: true }, skip_if_busy: true }), vi.fn())
+    expect(f.form.value).toMatchObject({ notifyConnector: 'my-tg', notifyDedup: true, notifyDedupDays: '14', notifySendEmpty: true, skipIfBusy: true })
+  })
+
+  it('populates the learning journal flag, off by default', () => {
+    expect(useAutomationForm(ref(AUTO), vi.fn()).form.value.journal).toBe(false)
+    expect(useAutomationForm(ref({ ...AUTO, journal: true }), vi.fn()).form.value.journal).toBe(true)
+  })
+
+  it('lists configured connectors and keeps the form\'s own connector selectable', () => {
+    adminState.value = { ...STATE, config: { ...STATE.config, communication: { connectors: { 'my-tg': { type: 'telegram', enabled: true, settings: {} } } } } } as unknown as AdminState
+    const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'removed' } }), vi.fn())
+    expect(f.noConnectors.value).toBe(false)
+    expect(f.connectorOptions.value).toEqual([
+      { value: 'my-tg', label: 'my-tg' },
+      { value: 'removed', label: 'removed (not configured)' },
+    ])
+  })
+  it('reports "no connectors" only once the admin state has loaded', () => {
+    adminState.value = null
+    const f = useAutomationForm(ref(AUTO), vi.fn())
+    expect(f.noConnectors.value).toBe(false)
+    adminState.value = STATE
+    expect(f.noConnectors.value).toBe(true)
   })
 })

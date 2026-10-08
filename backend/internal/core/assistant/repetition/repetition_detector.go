@@ -78,6 +78,10 @@ func (rd *Detector) Check(logger logging.Logger, toolCalls []proxy.ToolCall) (bo
 			if rd.duplicateStreak >= DuplicateStreakThreshold {
 				rd.duplicateStreak = 0
 				rd.recentCalls = nil
+				// A repeated save is idempotent ("already saved"), so it is a nudge, never a reason to end the run.
+				if key.name == models.ToolMemoryUpdate {
+					return true, prompts.AutomationDuplicateNagPrompt, nil
+				}
 				return true, "", fmt.Errorf(errFmtDuplicateLoop, key.name, DuplicateStreakThreshold)
 			}
 			return true, prompts.AutomationDuplicateNagPrompt, nil

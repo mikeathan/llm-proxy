@@ -9,9 +9,33 @@ import (
 	"llm-proxy/models"
 )
 
+// SearchTimeRange limits results to a recent window; empty means no recency filter.
+type SearchTimeRange string
+
+const (
+	SearchRangeAny   SearchTimeRange = ""
+	SearchRangeDay   SearchTimeRange = "day"
+	SearchRangeWeek  SearchTimeRange = "week"
+	SearchRangeMonth SearchTimeRange = "month"
+	SearchRangeYear  SearchTimeRange = "year"
+)
+
+// allowedSearchRanges is the model-facing list, in message order.
+const allowedSearchRanges = "day, week, month, year"
+
+// ParseSearchTimeRange normalizes model text; the error names the allowed windows so the model can retry.
+func ParseSearchTimeRange(raw string) (SearchTimeRange, error) {
+	r := SearchTimeRange(strings.ToLower(strings.TrimSpace(raw)))
+	switch r {
+	case SearchRangeAny, SearchRangeDay, SearchRangeWeek, SearchRangeMonth, SearchRangeYear:
+		return r, nil
+	}
+	return SearchRangeAny, fmt.Errorf("invalid time_range %q: use one of %s, or omit it", raw, allowedSearchRanges)
+}
+
 // SearchProvider defines the interface for various search engines.
 type SearchProvider interface {
-	Search(ctx context.Context, query string) ([]SearchResult, error)
+	Search(ctx context.Context, query string, timeRange SearchTimeRange) ([]SearchResult, error)
 }
 
 type SearchResult struct {
@@ -59,12 +83,15 @@ func NewInternetTools(resolve ProviderResolver) *InternetTools {
 	return &InternetTools{resolve: resolve}
 }
 
-// Search validates the query, resolves the live provider, and runs the search.
-// Provider errors are wrapped so the loop records them as a non-approvable tool
-// result.
-func (i *InternetTools) Search(ctx context.Context, query string) ([]SearchResult, error) {
+// Search validates the query and time range, resolves the live provider, and
+// runs the search. Provider errors are wrapped so the loop records them as a
+// non-approvable tool result.
+func (i *InternetTools) Search(ctx context.Context, query string, timeRange SearchTimeRange) ([]SearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("search query must not be empty")
+	}
+	if _, err := ParseSearchTimeRange(string(timeRange)); err != nil {
+		return nil, err
 	}
 	if i == nil || i.resolve == nil {
 		return nil, ErrSearchNotConfigured
@@ -73,7 +100,7 @@ func (i *InternetTools) Search(ctx context.Context, query string) ([]SearchResul
 	if err != nil {
 		return nil, err
 	}
-	results, err := provider.Search(ctx, query)
+	results, err := provider.Search(ctx, query, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("internet search failed: %w", err)
 	}

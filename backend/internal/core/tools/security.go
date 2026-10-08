@@ -17,6 +17,16 @@ var SecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),
 }
 
+// ContainsSecret reports whether text holds a secret-shaped string.
+func ContainsSecret(s string) bool {
+	for _, re := range SecretPatterns {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
 // RedactSecrets replaces secret-shaped substrings with a placeholder so
 // sensitive values cannot leak out through tool output.
 func RedactSecrets(s string) string {

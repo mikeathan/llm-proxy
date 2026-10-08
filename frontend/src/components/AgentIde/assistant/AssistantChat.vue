@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onMounted } from "vue";
+import { ref, watch, computed, nextTick, onMounted, toRef } from "vue";
 import { useAssistant } from "../../../composables/assistant/useAssistant";
+import { useMemoryReview } from "../../../composables/memory/useMemoryReview";
+import { useToast } from "../../../composables/useToast";
+import MemoryReviewDialog from "../memory/MemoryReviewDialog.vue";
 import { AssistantService } from "../../../services/assistant/assistantService";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useResponsiveLayout } from "../../../composables/ui/useResponsiveLayout";
@@ -43,12 +46,23 @@ const isMobile = computed(() => breakpoint.value === "base");
 const {
   loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
   thinking, liveReasoning, paused, phase, modelBusy, dismissModelBusy,
-  fetchSessions, loadSession, newSession, sendMessage, deleteSession,
-  deleteSessionsByIds, cancelSession, connectSSE, activeWorkspaceId, cancel,
+  fetchSessions, loadSession, newSession, openWorkspace, sendMessage, deleteSession,
+  deleteSessionsByIds, cancelSession, cancel,
   liveEvents, sseConnected,
 } = useAssistant();
 const { confirm } = useConfirm();
 const { forget: forgetPins } = usePinnedSessions(() => props.workspaceId);
+
+// "Review for memories": the model proposes facts from this conversation, the operator ticks what to keep.
+const toast = useToast();
+const {
+  open: reviewOpen, loading: reviewLoading, saving: reviewSaving, error: reviewError, items: reviewItems,
+  selectedCount: reviewSelected, start: startReview, toggle: toggleReviewItem, save: saveReview, close: closeReview,
+} = useMemoryReview(toRef(props, "workspaceId"), currentSessionId);
+const handleSaveReview = async () => {
+  const saved = await saveReview();
+  if (saved > 0) toast.success(saved === 1 ? "Saved 1 memory" : `Saved ${saved} memories`);
+};
 
 // The thin status strip (plan D14): what the assistant is doing, from the real
 // run state — never a fixed "online".
@@ -123,11 +137,9 @@ onMounted(() => { if (props.workspaceId) initWorkspace(); });
 watch(() => props.workspaceId, () => initWorkspace());
 
 const initWorkspace = async () => {
-  activeWorkspaceId.value = props.workspaceId;
-  newSession();
-  await fetchSessions(props.workspaceId);
-  connectSSE();
-  if (props.conversationId) await handleLoadSession(props.conversationId);
+  resetInsets();
+  await openWorkspace(props.workspaceId, props.conversationId ?? null);
+  if (props.conversationId) await settleLoadedSession();
 };
 
 // Route → chat: a deep link or back/forward to another conversation loads it.
@@ -181,14 +193,20 @@ const handleModelBusyCancel = () => {
   void cancel();
 };
 
-  const handleLoadSession = async (sessionId: string) => {
-    resetInsets();
-    await loadSession(props.workspaceId, sessionId);
+  // The view settles after a conversation is loaded: finished turns collapse,
+  // the latest is in view, and the mobile sidebar gets out of the way.
+  const settleLoadedSession = async () => {
     collapseAllInsets();
     await scrollToLatest();
     if (isMobile.value) {
       sidebarOpen.value = false;
     }
+  };
+
+  const handleLoadSession = async (sessionId: string) => {
+    resetInsets();
+    await loadSession(props.workspaceId, sessionId);
+    await settleLoadedSession();
   };
 
 const handleDeleteSession = async (sessionId: string) => {
@@ -302,7 +320,16 @@ const handleDeleteGroup = async (ids: string[]) => {
           <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ workspaceId }}</h2>
           <StatusTag data-test="chat-status" :state="status.state" :label="status.label" />
         </div>
-        <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
+        <div class="flex flex-none items-center gap-1">
+          <BaseButton
+            variant="ghost"
+            size="sm"
+            :disabled="!currentSessionId || loading"
+            title="Ask the model which facts in this conversation are worth remembering"
+            @click="startReview()"
+          >Review for memories</BaseButton>
+          <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
+        </div>
       </header>
 
       <div v-if="pendingDecision" class="guardrail-banner-wrapper">
@@ -341,6 +368,19 @@ const handleDeleteGroup = async (ids: string[]) => {
         @update:input-message="inputMessage = $event"
       />
     </div>
+
+    <MemoryReviewDialog
+      :open="reviewOpen"
+      :loading="reviewLoading"
+      :saving="reviewSaving"
+      :error="reviewError"
+      :items="reviewItems"
+      :selected-count="reviewSelected"
+      @update:open="(open: boolean) => { if (!open) closeReview(); }"
+      @toggle="toggleReviewItem"
+      @save="handleSaveReview"
+      @retry="startReview()"
+    />
 
     <ConfirmDialog
       v-model="showModelBusy"

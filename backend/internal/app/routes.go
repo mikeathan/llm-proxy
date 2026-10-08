@@ -4,9 +4,7 @@ import (
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
-	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
 	handlers "llm-proxy/internal/transport/http/handlers"
@@ -81,16 +79,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig)
 	}
 
-	// Extract CommunicationTools from the tool provider chain
-	var commTools *tools.CommunicationTools
-	if mtp, ok := s.ToolProvider().(*assistantPkg.MultiToolProvider); ok {
-		for _, p := range mtp.Providers {
-			if ltr, ok := p.(*assistantPkg.LocalToolRegistry); ok {
-				commTools = ltr.Communication
-				break
-			}
-		}
-	}
+	commTools := communicationTools(s.ToolProvider())
 
 	hs.Webhook = &handlers.WebhookHandler{
 		Registry:    s.AppCtx.GetRegistry,
@@ -231,6 +220,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Post("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations", hs.Dispatcher.CreateAutomation, jsonMethodNotAllowed)
 		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", hs.Dispatcher.UpdateAutomation, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", hs.Dispatcher.DeleteAutomation, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}/journal", hs.Dispatcher.GetAutomationJournal, jsonMethodNotAllowed)
+		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}/journal", hs.Dispatcher.ClearAutomationJournal, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/tree", hs.Dispatcher.ListWorkspaceTree, jsonMethodNotAllowed)
 		// {file...} matches nested workspace-relative paths (plan D4).
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file...}", hs.Dispatcher.ReadWorkspaceFile, jsonMethodNotAllowed)
@@ -239,6 +230,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/state", hs.Dispatcher.GetWorkspaceState, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", hs.Dispatcher.GetWorkspaceConfig, jsonMethodNotAllowed)
 		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/config", hs.Dispatcher.UpdateWorkspaceConfig, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/heartbeat", hs.Dispatcher.GetHeartbeat, jsonMethodNotAllowed)
+		router.Put("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/heartbeat", hs.Dispatcher.PutHeartbeat, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/live", hs.Dispatcher.StreamWorkspaceEvents, textMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/processlogs", hs.Process.AdminWorkspaceProcessLogsHandler, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}", hs.Dispatcher.DeleteWorkspace, jsonMethodNotAllowed)
@@ -266,6 +259,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", hs.Assistant.DeleteSession, jsonMethodNotAllowed)
 	router.Delete("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}", hs.Assistant.DeleteAllSessions, jsonMethodNotAllowed)
 	router.Patch("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}", hs.Assistant.RenameSession, jsonMethodNotAllowed)
+	router.Post("/admin/api/conversation/sessions/{"+models.WorkspaceIDParam+"}/{session}/memory-review", hs.Assistant.ReviewMemories, jsonMethodNotAllowed)
 	router.Get("/admin/api/workspaces/{"+models.WorkspaceIDParam+"}/active-runs", hs.ActiveRuns.ServeHTTP, jsonMethodNotAllowed)
 	// Workspace-independent lane state for the always-visible header indicator.
 	router.Get("/admin/api/active-runs", hs.ActiveRuns.ServeGlobalHTTP, jsonMethodNotAllowed)

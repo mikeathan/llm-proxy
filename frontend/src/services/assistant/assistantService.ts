@@ -7,6 +7,7 @@ import type {
   ActiveRunsResponse,
   GlobalActiveRunsResponse,
 } from '../../types/assistant'
+import type { MemorySuggestion } from '../../types/memory'
 import { API_ENDPOINTS } from '../../constants/api'
 
 export class AssistantService {
@@ -49,6 +50,18 @@ export class AssistantService {
       throw new Error(`Failed to load session: ${res.status} - ${text}`)
     }
     return res.json()
+  }
+
+  // Asks the chat's model which facts in the conversation are worth remembering. Saves nothing. A failure carries the
+  // backend's own sentence ("The model is busy right now…"), not a status line.
+  static async reviewMemories(workspaceId: string, sessionId: string): Promise<MemorySuggestion[]> {
+    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}/memory-review`, { method: 'POST' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(body?.error || `The review failed (${res.status}).`)
+    }
+    const data = await res.json() as { suggestions?: MemorySuggestion[] }
+    return data.suggestions ?? []
   }
 
   static async deleteSession(workspaceId: string, sessionId: string): Promise<void> {

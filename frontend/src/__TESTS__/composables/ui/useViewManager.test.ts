@@ -29,6 +29,7 @@ describe('useViewManager', () => {
     [{ ws: 'ws', section: 'memory' }, 'memory'],
     [{ ws: 'ws', section: 'settings' }, 'settings'],
     [{ ws: 'ws', section: 'playbooks' }, 'playbooks'],
+    [{ ws: 'ws', section: 'heartbeat' }, 'heartbeat'],
   ])('%o → %s', (at, view) => {
     expect(setup(at).vm.activeMainView.value).toBe(view)
   })

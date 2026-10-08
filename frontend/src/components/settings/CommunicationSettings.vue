@@ -13,6 +13,7 @@ import DataTable from "../common/display/DataTable.vue"
 import FormField from "../common/forms/FormField.vue"
 import SettingsActions from "./SettingsActions.vue"
 import WebhookPanel from "./WebhookPanel.vue"
+import TelegramSetupHelp from "./TelegramSetupHelp.vue"
 
 // Settings · Communication: connectors the agent sends notifications and
 // reports through. Connectors live in the shared configuration; each bot token
@@ -35,6 +36,11 @@ const emit = defineEmits<{
 
 const CONNECTOR_TYPES = [{ value: "telegram", label: "Telegram" }]
 const EMPTY_FORM: ConnectorForm = { name: "", type: "telegram", chat_id: "", workspace_id: "", token: "", webhook_token: "" }
+const SECRET_MASK = "********"
+const SECRET_NOT_SET = "Not set"
+const SECRET_STORED = "Stored"
+const SECRET_CONFIGURED = "Configured"
+const SECRET_PENDING = "Pending save"
 
 const connectors = computed({
   get: () => props.editConfig.communication?.connectors ?? {},
@@ -46,6 +52,7 @@ const connectorNames = computed(() => Object.keys(connectors.value))
 const withInbound = computed(() => connectorNames.value.filter((name) => connectors.value[name]?.settings?.workspace_id))
 
 const showForm = ref(false)
+const showTelegramHelp = ref(false)
 const editingName = ref<string | null>(null)
 const form = ref<ConnectorForm>({ ...EMPTY_FORM })
 
@@ -64,6 +71,12 @@ provide("connectors", connectors)
 provide("saveError", saveError)
 
 const isEditing = computed(() => editingName.value !== null)
+const editedConnector = computed(() => editingName.value ? connectors.value[editingName.value] : undefined)
+const editedToken = computed(() => editingName.value ? tokenMgr.tokens.value[editingName.value] : undefined)
+const botTokenPlaceholder = computed(() => editedToken.value?.dirty ? SECRET_MASK : editedToken.value?.masked || SECRET_NOT_SET)
+const botTokenStatus = computed(() => form.value.token || editedToken.value?.dirty ? SECRET_PENDING : editedToken.value?.masked ? SECRET_STORED : SECRET_NOT_SET)
+const webhookSecretPlaceholder = computed(() => editedConnector.value?.settings?.webhook_token ? SECRET_MASK : SECRET_NOT_SET)
+const webhookSecretStatus = computed(() => form.value.webhook_token ? SECRET_PENDING : editedConnector.value?.settings?.webhook_token ? SECRET_CONFIGURED : SECRET_NOT_SET)
 // Adding under an existing name would silently replace that connector.
 const nameTaken = computed(() => !isEditing.value && form.value.name.trim() in connectors.value)
 const canSubmit = computed(() => !!form.value.name.trim() && !nameTaken.value)
@@ -103,12 +116,13 @@ function applyForm() {
   const name = form.value.name.trim()
   if (!canSubmit.value) return
 
+  const existing = connectors.value[name]
   const settings: Record<string, string> = {}
   if (form.value.chat_id) settings.chat_id = form.value.chat_id
   if (form.value.workspace_id) settings.workspace_id = form.value.workspace_id
   if (form.value.webhook_token) settings.webhook_token = form.value.webhook_token
+  else if (isEditing.value && existing?.settings?.webhook_token) settings.webhook_token = existing.settings.webhook_token
 
-  const existing = connectors.value[name]
   const updated = { ...connectors.value }
   updated[name] = existing && isEditing.value
     ? { ...existing, settings }
@@ -123,22 +137,31 @@ function applyForm() {
 }
 
 async function removeConnector(name: string) {
+  const cfg = connectors.value[name]
+  if (!cfg) return
   const ok = await confirm({
     title: `Remove ${name}?`,
-    message: "Its stored bot token is deleted now; the connector itself is removed when you save.",
+    message: "Its saved webhook is unregistered before its stored bot token is deleted. These actions happen now; the connector itself is removed when you save.",
     type: "warning",
     confirmText: "Remove",
   })
   if (!ok) return
-  const updated = { ...connectors.value }
-  delete updated[name]
-  connectors.value = updated
-  delete tokenMgr.tokens.value[name]
-  clearWebhookState(name)
+  saveError.value = ""
   try {
+    if (cfg.webhook_url) {
+      await AdminApiService.deleteConnectorWebhook(name)
+      connectors.value = { ...connectors.value, [name]: { ...cfg, webhook_url: undefined } }
+      clearWebhookState(name)
+    }
     await AdminApiService.deleteToolSecret("connector", name)
-  } catch {
-    // secret may not exist — that's fine
+    const updated = { ...connectors.value }
+    delete updated[name]
+    connectors.value = updated
+    delete tokenMgr.tokens.value[name]
+    clearWebhookState(name)
+  } catch (err) {
+    // Keep the connector and its token available when cleanup fails.
+    saveError.value = `Failed to remove ${name}: ${err instanceof Error ? err.message : String(err)}`
   }
 }
 
@@ -180,6 +203,7 @@ const COLUMNS: DataTableColumn<string>[] = [
   <div class="flex flex-col gap-4">
     <Panel title="Connectors" flush>
       <template #actions>
+        <BaseButton variant="ghost" size="sm" @click="showTelegramHelp = true">Telegram setup help</BaseButton>
         <BaseButton v-if="!showForm" variant="ghost" size="sm" icon="plus" @click="startAdd">Add connector</BaseButton>
       </template>
       <DataTable
@@ -209,10 +233,13 @@ const COLUMNS: DataTableColumn<string>[] = [
 
     <Panel v-if="showForm" :title="isEditing ? `Edit ${editingName}` : 'New connector'" preserve-case>
       <form class="flex flex-col gap-4" @submit.prevent="applyForm">
+        <p class="m-0 text-[length:var(--text-small)] text-muted">
+          For outgoing notifications, enter a bot token and a destination Chat ID. To receive messages too, add a workspace and register an inbound webhook after saving.
+        </p>
         <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-4">
           <FormField
             label="Connector name"
-            :hint="isEditing ? 'The name identifies the connector and cannot change.' : 'Identifies the connector, e.g. my-telegram.'"
+            :hint="isEditing ? 'Your label for this connector. The name cannot change and is used in its webhook URL.' : 'A label you choose, e.g. my-telegram. The app uses it in the webhook URL; it does not need to match your Telegram bot name.'"
             :error="nameTaken ? `A connector named ${form.name.trim()} already exists — edit it instead.` : undefined"
           >
             <template #default="{ id, describedBy, invalid }">
@@ -226,27 +253,49 @@ const COLUMNS: DataTableColumn<string>[] = [
               </select>
             </template>
           </FormField>
-          <FormField label="Chat ID" hint="Where outbound messages go.">
+          <FormField label="Chat ID" hint="The destination chat, e.g. 987654321 or -1001234567890 for a group. This is separate from the bot token and its numeric prefix.">
             <template #default="{ id, describedBy }">
               <input :id="id" v-model="form.chat_id" :aria-describedby="describedBy" type="text" class="form-control font-mono" autocomplete="off" />
             </template>
           </FormField>
-          <FormField label="Workspace for inbound messages" hint="Optional. Messages sent to the bot run in this workspace.">
+          <FormField label="Workspace for inbound messages" hint="Optional. Enter an existing workspace ID where incoming messages should run. Leave blank for outgoing notifications only.">
             <template #default="{ id, describedBy }">
               <input :id="id" v-model="form.workspace_id" :aria-describedby="describedBy" type="text" class="form-control font-mono" autocomplete="off" />
             </template>
           </FormField>
-          <FormField label="Bot token" :hint="isEditing ? 'Leave empty to keep the stored token.' : 'Stored encrypted when you save.'">
+          <FormField label="Bot token" :hint="isEditing ? 'Paste the full BotFather token, including the colon, to replace it. Leave empty to keep the stored token.' : 'Paste the full token from @BotFather, including the colon: 123456789:example-token. Stored encrypted when you save.'">
+            <template #tag><span class="font-mono text-[length:var(--text-micro)] text-faint">{{ botTokenStatus }}</span></template>
             <template #default="{ id, describedBy }">
-              <input :id="id" v-model="form.token" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" data-1p-ignore data-lpignore="true" />
+              <input :id="id" v-model="form.token" :placeholder="botTokenPlaceholder" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" data-1p-ignore data-lpignore="true" />
             </template>
           </FormField>
-          <FormField label="Webhook secret token" hint="Optional. Telegram sends it with every inbound message.">
+          <FormField label="Webhook secret token" :hint="isEditing ? 'Optional. Leave empty to keep the configured secret, or enter a new one to replace it. Save, then register the webhook again to apply a replacement at Telegram.' : 'Optional. A separate secret you choose to verify incoming webhook requests. Use letters, numbers, underscores or hyphens (1–256 characters).'">
+            <template #tag><span class="font-mono text-[length:var(--text-micro)] text-faint">{{ webhookSecretStatus }}</span></template>
             <template #default="{ id, describedBy }">
-              <input :id="id" v-model="form.webhook_token" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" data-1p-ignore data-lpignore="true" />
+              <input :id="id" v-model="form.webhook_token" :placeholder="webhookSecretPlaceholder" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" data-1p-ignore data-lpignore="true" />
             </template>
           </FormField>
         </div>
+        <details class="text-[length:var(--text-small)] text-muted">
+          <summary class="cursor-pointer text-secondary focus-visible:outline-none focus-visible:ring-2">How to find your Telegram values</summary>
+          <ol class="m-0 mt-3 list-decimal space-y-2 pl-5">
+            <li>
+              <strong class="text-secondary">Bot token:</strong> Open @BotFather in Telegram and use /mybots to select your bot, then API Token. Copy the entire token with its numeric prefix, colon and remaining characters.
+            </li>
+            <li>
+              <strong class="text-secondary">Chat ID:</strong> Open a chat with your bot, press Start and send a message. Before registering a webhook, call Telegram's getUpdates API using your bot token and copy message.chat.id from that message. For a group, add the bot and send it a command in that group, then copy that message's chat ID, including the minus sign.
+              Use <code class="break-all font-mono">https://api.telegram.org/bot&lt;YOUR_BOT_TOKEN&gt;/getUpdates</code>, replacing &lt;YOUR_BOT_TOKEN&gt; with the full token.
+              <a href="https://core.telegram.org/bots/api#getupdates" target="_blank" rel="noopener noreferrer" class="text-accent-brand underline">Telegram getUpdates instructions</a>.
+              getUpdates is unavailable while a webhook is registered; reuse your saved chat ID or obtain it from the incoming webhook payload.
+            </li>
+            <li>
+              <strong class="text-secondary">Workspace ID:</strong> Open the workspace in this app. Its ID is the part of the address immediately after /workspaces/.
+            </li>
+          </ol>
+        </details>
+        <p class="m-0 text-[length:var(--text-small)] text-muted">
+          {{ isEditing ? 'Click Apply changes' : 'Click Add connector' }}, then Save communication settings. If you entered a workspace, use the Inbound webhook panel's Public host and Register button to register with Telegram.
+        </p>
         <div class="flex flex-wrap justify-end gap-2">
           <BaseButton variant="ghost" @click="closeForm">Cancel</BaseButton>
           <BaseButton type="submit" variant="secondary" :disabled="!canSubmit">{{ isEditing ? "Apply changes" : "Add connector" }}</BaseButton>
@@ -259,5 +308,6 @@ const COLUMNS: DataTableColumn<string>[] = [
     </template>
 
     <SettingsActions :dirty="dirty" :saving="saving" :error="saveError || configError" save-label="Save communication settings" @save="save" @discard="discard" />
+    <TelegramSetupHelp v-model:open="showTelegramHelp" />
   </div>
 </template>

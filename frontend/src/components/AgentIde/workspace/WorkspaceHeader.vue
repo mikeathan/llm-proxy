@@ -30,6 +30,7 @@ const SECTIONS: SectionLink[] = [
   { id: "assistant", label: "Assistant", to: (ws) => toWorkspaceAssistant(ws) },
   { id: "memory", label: "Memory", to: (ws) => toWorkspaceSection(ws, "memory") },
   { id: "playbooks", label: "Playbooks", to: (ws) => toWorkspaceSection(ws, "playbooks") },
+  { id: "heartbeat", label: "Heartbeat", to: (ws) => toWorkspaceSection(ws, "heartbeat") },
   { id: "settings", label: "Settings", to: (ws) => toWorkspaceSection(ws, "settings") },
 ]
 </script>

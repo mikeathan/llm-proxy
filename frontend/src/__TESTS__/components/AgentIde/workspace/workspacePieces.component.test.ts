@@ -82,6 +82,7 @@ describe('WorkspaceHeader', () => {
       ['Assistant', '/workspaces/demo/assistant'],
       ['Memory', '/workspaces/demo/memory'],
       ['Playbooks', '/workspaces/demo/playbooks'],
+      ['Heartbeat', '/workspaces/demo/heartbeat'],
       ['Settings', '/workspaces/demo/settings'],
     ])
     expect(links.filter((a) => a.attributes('aria-current') === 'page').map((a) => a.text())).toEqual(['Memory'])

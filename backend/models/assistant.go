@@ -33,6 +33,9 @@ type SessionBrief struct {
 	Source string `json:"source"`
 }
 
+// SessionSourceManual is the source of a session the operator opened in the admin UI.
+const SessionSourceManual = "manual"
+
 // SessionSource derives the origin from a session ID.  It is the single source
 // of truth: webhook IDs embed the connector platform type (wb_{type}_...), so
 // the value is extracted from the connector rather than hardcoded per platform.
@@ -40,11 +43,11 @@ type SessionBrief struct {
 // the ID itself.
 func SessionSource(id string) string {
 	if !strings.HasPrefix(id, "wb_") {
-		return "manual"
+		return SessionSourceManual
 	}
 	platform := strings.SplitN(strings.TrimPrefix(id, "wb_"), "_", 2)[0]
 	if platform == "" {
-		return "manual"
+		return SessionSourceManual
 	}
 	return "webhook-" + platform
 }

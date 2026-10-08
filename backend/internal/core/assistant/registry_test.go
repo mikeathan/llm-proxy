@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -609,7 +610,92 @@ func TestInitSearchTools_AvailabilityGatesResidualCalls(t *testing.T) {
 	}
 	// A residual call (schema-hide is the only gate) must reach the tool and
 	// return a clear error, never panic or hit the network.
-	if _, err := internet.Search(context.Background(), "query"); !errors.Is(err, tools.ErrSearchNotConfigured) {
+	if _, err := internet.Search(context.Background(), "query", ""); !errors.Is(err, tools.ErrSearchNotConfigured) {
 		t.Fatalf("residual Search() err = %v, want ErrSearchNotConfigured", err)
+	}
+}
+
+type journalStoreStub struct{ content string }
+
+func (s *journalStoreStub) WriteJournal(_, _, content string) error {
+	s.content = content
+	return nil
+}
+
+func listedToolNames(t *testing.T, r *LocalToolRegistry, ctx context.Context) []string {
+	t.Helper()
+	list, err := r.ListTools(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(list))
+	for _, tool := range list {
+		names = append(names, tool.Function.Name)
+	}
+	return names
+}
+
+func TestLocalToolRegistry_JournalToolIsRunScoped(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
+	store := &journalStoreStub{}
+	r.WithJournal(store)
+
+	journalCtx := models.WithTaskName(models.WithWorkspaceID(models.WithJournalRun(context.Background()), "ws"), "nightly")
+	plainCtx := models.WithTaskName(models.WithWorkspaceID(context.Background(), "ws"), "nightly")
+
+	t.Run("listed only for a journal run", func(t *testing.T) {
+		if !slices.Contains(listedToolNames(t, r, journalCtx), models.ToolAutomationJournal) {
+			t.Error("journal run must see the journal tool")
+		}
+		if slices.Contains(listedToolNames(t, r, plainCtx), models.ToolAutomationJournal) {
+			t.Error("a run without the journal (and chat) must not see the journal tool")
+		}
+		if slices.Contains(listedToolNames(t, r, context.Background()), models.ToolAutomationJournal) {
+			t.Error("a bare context must not see the journal tool")
+		}
+	})
+
+	t.Run("executes for a journal run and is refused otherwise", func(t *testing.T) {
+		call := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolAutomationJournal, Arguments: `{"content":"notes"}`}}
+		if _, err := r.ExecuteTool(journalCtx, call); err != nil || store.content != "notes" {
+			t.Fatalf("journal run: err=%v stored=%q", err, store.content)
+		}
+		store.content = ""
+		if _, err := r.ExecuteTool(plainCtx, call); err == nil || store.content != "" {
+			t.Errorf("plain run must be refused without writing: err=%v stored=%q", err, store.content)
+		}
+	})
+}
+
+type rangeRecordingProvider struct{ got []tools.SearchTimeRange }
+
+func (p *rangeRecordingProvider) Search(_ context.Context, _ string, r tools.SearchTimeRange) ([]tools.SearchResult, error) {
+	p.got = append(p.got, r)
+	return nil, nil
+}
+
+func TestLocalToolRegistry_SearchToolTimeRange(t *testing.T) {
+	p := &rangeRecordingProvider{}
+	internet := tools.NewInternetTools(func(context.Context) (tools.SearchProvider, error) { return p, nil })
+	r := NewLocalToolRegistry(nil, nil, internet, nil, nil, nil)
+	call := func(args string) error {
+		_, err := r.ExecuteTool(context.Background(), proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolInternetSearch, Arguments: args}})
+		return err
+	}
+
+	if err := call(`{"query":"llm news","time_range":"Day"}`); err != nil {
+		t.Fatalf("valid range: %v", err)
+	}
+	if err := call(`{"query":"llm news"}`); err != nil {
+		t.Fatalf("omitted range: %v", err)
+	}
+	if len(p.got) != 2 || p.got[0] != tools.SearchRangeDay || p.got[1] != tools.SearchRangeAny {
+		t.Fatalf("ranges reaching the provider = %v, want [day, any]", p.got)
+	}
+	if err := call(`{"query":"llm news","time_range":"fortnight"}`); err == nil {
+		t.Fatal("an unknown range must be rejected, not silently searched unfiltered")
+	}
+	if len(p.got) != 2 {
+		t.Fatalf("provider ran for an invalid range: %v", p.got)
 	}
 }

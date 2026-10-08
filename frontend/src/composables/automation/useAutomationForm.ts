@@ -5,6 +5,8 @@ import type { ProviderItem } from "../../types/admin"
 import type { Automation } from "../../types/dispatcher"
 import type { AutomationFormData, TriggerType } from "../../types/automation"
 import { loopStrategyOptions as buildLoopStrategyOptions } from "../../utils/model/modelUtils"
+import { modelWakeNotice } from "../../utils/automation/heartbeat"
+import { useConnectorOptions } from "./useConnectorOptions"
 
 export function useAutomationForm(
   editAutomation: Ref<Automation | null>,
@@ -31,6 +33,12 @@ export function useAutomationForm(
       loopStrategy: "",
       networkGrant: "",
       memoryMode: "",
+      notifyConnector: "",
+      notifyDedup: false,
+      notifyDedupDays: "",
+      notifySendEmpty: false,
+      skipIfBusy: false,
+      journal: false,
     }
   }
 
@@ -92,6 +100,8 @@ export function useAutomationForm(
     return result
   })
 
+  const { connectorOptions, noConnectors } = useConnectorOptions(computed(() => form.value.notifyConnector))
+
   // ---- workspace ---------------------------------------------------------
   watch(selectedWorkspace, (ws) => {
     if (ws) onFetchFiles(ws)
@@ -119,7 +129,13 @@ export function useAutomationForm(
         model: target.model || "",
         loopStrategy: target.loop_strategy || "",
         networkGrant: target.network_grant || "",
-        memoryMode: target.memory_mode === "hot" ? "hot" : "", // "off" and unset are the same choice
+        memoryMode: target.memory_mode === "on" || target.memory_mode === "off" ? target.memory_mode : "", // anything else reads as the default
+        notifyConnector: target.notify?.connector ?? "",
+        notifyDedup: !!target.notify?.dedup,
+        notifyDedupDays: target.notify?.dedup_days ? String(target.notify.dedup_days) : "",
+        notifySendEmpty: !!target.notify?.send_empty,
+        skipIfBusy: !!target.skip_if_busy,
+        journal: !!target.journal,
       }
     },
     { immediate: true },
@@ -138,6 +154,9 @@ export function useAutomationForm(
     },
   )
 
+  // Shown while a scheduled run would start the local model.
+  const wakeNotice = computed(() => modelWakeNotice(form.value.triggerType, selectedProviderKey.value))
+
   const handleSubmit = (): AutomationFormData | null => {
     if (!selectedWorkspace.value || !form.value.name) return null
 
@@ -151,6 +170,9 @@ export function useAutomationForm(
     filteredModels,
     cloudProvidersWithKeys,
     loopStrategyOptions,
+    connectorOptions,
+    noConnectors,
+    wakeNotice,
     handleSubmit,
     resetForm,
   }

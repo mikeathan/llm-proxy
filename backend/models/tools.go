@@ -40,6 +40,9 @@ const (
 	ToolMemorySearch = "memory_search"
 	ToolMemoryUpdate = "memory_update"
 
+	// Automation (unattended runs only)
+	ToolAutomationJournal = "automation_journal"
+
 	// System
 	ToolSystemError = "system_error"
 )
@@ -53,6 +56,7 @@ const (
 	CategoryNetwork       = "network"
 	CategoryGlobal        = "security"
 	CategoryMemory        = "memory"
+	CategoryAutomation    = "automation"
 	CategorySystem        = "system"
 )
 

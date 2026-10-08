@@ -41,10 +41,10 @@ const urlMismatch = computed(
 
 async function remove() {
   const ok = await confirm({
-    title: `Delete the webhook of ${props.name}?`,
-    message: "Telegram stops delivering inbound messages to this connector until a webhook is created again.",
+    title: `Unregister the webhook of ${props.name}?`,
+    message: "Telegram stops delivering inbound messages to this connector until a webhook is registered again.",
     type: "warning",
-    confirmText: "Delete webhook",
+    confirmText: "Unregister webhook",
   })
   if (ok) await deleteWebhook(props.name)
 }
@@ -55,6 +55,9 @@ async function remove() {
     <template #actions>
       <StatusTag v-if="verifyTag" v-bind="verifyTag" />
     </template>
+    <p class="m-0 mb-4 text-[length:var(--text-small)] text-muted">
+      Save the connector and any secret changes first, then click Register to register this app with Telegram. This is needed to receive messages; outgoing notifications work without a webhook. Register replaces any existing webhook for this bot.
+    </p>
     <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-2">
       <dt><MicroLabel>Registered</MicroLabel></dt>
       <dd class="m-0 flex min-w-0 items-center gap-2">
@@ -70,14 +73,14 @@ async function remove() {
     </dl>
 
     <div class="mt-4 flex flex-wrap items-end gap-2">
-      <FormField label="Public host" hint="A tunnel host or full URL that reaches this server." class="min-w-[220px] max-w-sm flex-1">
+      <FormField label="Public host" hint="A public HTTPS host that reaches this server, e.g. my-tunnel.ngrok.app. Enter the host or base URL; the app adds /api/v1/webhooks/ and your connector name. Telegram cannot reach localhost or a private LAN address." class="min-w-[220px] max-w-sm flex-1">
         <template #default="{ id, describedBy }">
           <input :id="id" v-model="s.host" :aria-describedby="describedBy" :placeholder="defaultHost" type="text" class="form-control font-mono" autocomplete="off" />
         </template>
       </FormField>
-      <BaseButton variant="secondary" size="sm" icon="play" :loading="s.creating" @click="createWebhook(name)">Create</BaseButton>
+      <BaseButton variant="secondary" size="sm" icon="play" :loading="s.creating" @click="createWebhook(name)">Register</BaseButton>
       <BaseButton variant="secondary" size="sm" icon="check" :loading="s.verifying" @click="verifyWebhook(name)">Verify</BaseButton>
-      <BaseButton variant="danger" size="sm" icon="trash" :loading="s.deleting" @click="remove">Delete</BaseButton>
+      <BaseButton variant="danger" size="sm" icon="trash" :loading="s.deleting" @click="remove">Unregister</BaseButton>
     </div>
 
     <p v-if="s.verifyMsg" class="mb-0 mt-3 text-[length:var(--text-small)] text-muted">{{ s.verifyMsg }}</p>

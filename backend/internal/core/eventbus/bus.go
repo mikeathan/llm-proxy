@@ -279,6 +279,7 @@ func (b *Bus) Publish(workspaceID string, event assistant.AgentEvent) {
 			}
 		}
 	}
+	b.dropSupersededSnapshot(workspaceID, channel, event)
 	b.recent[workspaceID][channel] = append(b.recent[workspaceID][channel], event)
 	b.recentBytes[workspaceID][channel] += approxEventSize(event)
 	// Cap the buffer per workspace/channel by event count AND by approximate
@@ -317,6 +318,24 @@ func (b *Bus) Publish(workspaceID string, event assistant.AgentEvent) {
 			b.warnSlowSubscriber(workspaceID, channel, "event bus subscriber too slow, dropping event")
 		}
 	}
+}
+
+// dropSupersededSnapshot removes the newest buffered event when the incoming
+// event supersedes it. A long run publishes thousands of snapshots; keeping
+// them all filled the buffer in minutes and evicted session_started and the
+// tool cycles, so a reopened chat could not rebuild the running turn. The
+// caller holds b.mu.
+func (b *Bus) dropSupersededSnapshot(workspaceID string, channel assistant.EventChannel, event assistant.AgentEvent) {
+	recent := b.recent[workspaceID][channel]
+	if len(recent) == 0 {
+		return
+	}
+	last := recent[len(recent)-1]
+	if !assistant.SupersedesSnapshot(last, event) {
+		return
+	}
+	b.recent[workspaceID][channel] = recent[:len(recent)-1]
+	b.recentBytes[workspaceID][channel] -= approxEventSize(last)
 }
 
 // approxEventSize estimates the memory an event occupies in the recent replay

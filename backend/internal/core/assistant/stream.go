@@ -21,6 +21,7 @@ import (
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/models"
 )
 
 const (
@@ -31,7 +32,6 @@ const (
 	// generation budget, going lower than 3 causes the planning-cutoff loop.
 	// See docs/audits/memory-injection-investigation.md for the investigation.
 	streamReasoningBudgetDivisor = 3 // reasoning_budget = max_tokens / 3 — gives ~910 tokens for 2730 max_tokens, enough to review history and plan next tool call
-	stuckNonReasoningDivisor     = 1 // early stuck threshold for non-reasoning models: maxTokens / divisor chars of pure reasoning triggers stuck. Divisor=1 gives threshold at maxTokens (e.g. 2048 for local models). Divisor=2 was too tight — Gemma 4 produces ~1371 chars of legitimate reasoning before outputting, causing false positives. Divisor=1 catches stuck 2x faster than the pre-change baseline (maxTokens*2) while giving reasoning-capable models room. See docs/audits/write-file-truncation-cycles.md.
 	streamNotifyCoalesceInterval = 50 * time.Millisecond
 	stuckThresholdMultiplier     = 2 // stuck threshold = max_tokens * 2
 	streamCharCapMultiplier      = 4 // content char cap = max_tokens * 4 — safety net for runaway streams where token counting underestimates output. 2730 max_tokens → 10920 chars. Only fires after token-budget termination should have.
@@ -62,8 +62,17 @@ var (
 	// streamMaxDuration bounds a single stream that is producing no native
 	// tool calls and no natural completion, so a slow degenerate stream cannot
 	// run ~50s+ unchecked (the pre-change per-turn timeout is 10 minutes).
-	// Fires via the heartbeat tick; test-shortenable like the heartbeat.
-	streamMaxDuration = 90 * time.Second
+	// Fires via the heartbeat tick; test-shortenable like the heartbeat. It
+	// counts from the first token, not the request: a busy local server can
+	// spend a minute on prompt processing before it generates anything, and
+	// loops are caught sooner by the repetition and length guards.
+	streamMaxDuration = 5 * time.Minute
+	// streamFirstTokenTimeout bounds the wait for the first token of a cloud
+	// stream. Without it a stream that sends headers or keepalives but no token
+	// would run to the turn timeout. Local workloads are exempt: prefill of a
+	// large prompt on a busy server can legitimately take longer (their client
+	// already allows a 10-minute response header).
+	streamFirstTokenTimeout = 3 * time.Minute
 )
 
 var (
@@ -139,6 +148,9 @@ func (a *Agent) applyRequestConfig(req *proxy.ChatRequest) {
 	} else {
 		resolver := reasoning.NewReasoningResolver(a.config.WorkloadClass, a.config.ProviderType, a.config.ReasoningBudget)
 		resolver.Apply(req, a.config.ReasoningSpec)
+	}
+	if a.answerWithoutThinking.Swap(false) {
+		reasoning.DisableThinking(req)
 	}
 	if a.deps.Logger != nil {
 		a.deps.Logger.Debug("reasoning resolver applied",
@@ -485,15 +497,10 @@ func (a *Agent) checkStreamStuck(fullMsg *proxy.Message) bool {
 		return true
 	}
 
-	// Models with reasoningBudget == 0 get no server-side thinking enforcement.
-	// If they produce reasoning content, catch them at maxTokens / divisor chars
-	// rather than waiting for the full threshold.  Divisor=1 (maxTokens) avoids
-	// false positives on models like Gemma 4 that output legitimate <think> blocks
-	// before producing content/tool calls (~1371 chars observed).
-	if a.config.ReasoningBudget == 0 && len(fullMsg.ReasoningContent) > a.config.MaxTokens/stuckNonReasoningDivisor {
-		return true
-	}
-
+	// Any stream that reasons gets the same ceiling, whatever the provider
+	// reports about a reasoning budget: a thinking model behind an OpenAI-style
+	// URL has no budget to read, yet its thinking is legitimate. Loops are caught
+	// by content (reasoningRepeating), not by length.
 	return len(fullMsg.ReasoningContent) > a.stuckThreshold()
 }
 
@@ -734,6 +741,11 @@ type streamRun struct {
 	priorToolResult bool
 	toolsAvailable  bool
 	startTime       time.Time
+	// firstDeltaAt is when the first content, reasoning or tool-call delta
+	// arrived; zero until then.
+	firstDeltaAt time.Time
+	// repeatCheckedLen is the reasoning length at the last loop check.
+	repeatCheckedLen int
 
 	// The provider's token count for this call; the last one reported wins, so
 	// a provider repeating it on several chunks is not counted twice.
@@ -805,9 +817,16 @@ func (s *streamRun) handleTick() (stop bool) {
 	// unchecked for minutes. Unlike the repetition guard, the accumulated content
 	// is preserved (it may be a genuine slow report) — mirroring the char-cap
 	// termination so handleTextTurn can complete or salvage it.
-	if len(s.fullMsg.ToolCalls) == 0 && time.Since(s.startTime) > streamMaxDuration {
+	if s.firstDeltaAt.IsZero() && s.agent.config.WorkloadClass != models.WorkloadLocal && time.Since(s.startTime) > streamFirstTokenTimeout {
+		s.agent.deps.Logger.Warn("no token before the first-token timeout, terminating stream",
+			"elapsed", time.Since(s.startTime).Round(time.Second).String())
+		s.logStreamEnd("first_token_timeout")
+		return true
+	}
+	if len(s.fullMsg.ToolCalls) == 0 && !s.firstDeltaAt.IsZero() && time.Since(s.firstDeltaAt) > streamMaxDuration {
 		s.agent.deps.Logger.Warn("stream exceeded max duration with no tool calls, terminating stream",
 			"elapsed", time.Since(s.startTime).Round(time.Second).String(),
+			"generating", time.Since(s.firstDeltaAt).Round(time.Second).String(),
 			"content_chars", len(s.fullMsg.Content),
 			"reasoning_chars", len(s.fullMsg.ReasoningContent))
 		s.logStreamEnd("stream_timeout")
@@ -863,7 +882,7 @@ func (s *streamRun) interceptChunk(ctx context.Context, chunk proxy.Message) (ov
 
 	term := s.agent.deps.Orchestrator.Interceptor.InterceptChunkWithBudget(ctx,
 		orchestrator.StreamChunk{},
-		s.tokUsed, s.reasonUsed, s.agent.config.MaxTokens, s.agent.config.ReasoningBudget,
+		s.tokUsed, s.reasonUsed, s.agent.config.MaxTokens, s.agent.interceptorReasoningBudget(),
 	)
 	if !term.ShouldTerminate {
 		return false
@@ -877,8 +896,28 @@ func (s *streamRun) interceptChunk(ctx context.Context, chunk proxy.Message) (ov
 			"tokens_used", s.tokUsed, "reasoning_used", s.reasonUsed,
 			"token_budget", s.agent.config.MaxTokens, "reasoning_budget", s.agent.config.ReasoningBudget)
 	}
+	// Thinking ran past the budget without an answer: the retry answers without
+	// thinking (local workloads only, see noteStuckThinking).
+	if s.reasonUsed > s.agent.interceptorReasoningBudget() && s.fullMsg.Content == "" && len(s.fullMsg.ToolCalls) == 0 {
+		s.agent.noteStuckThinking()
+	}
 	s.logStreamEnd("budget_exceeded")
 	return true
+}
+
+// interceptorReasoningFactor scales the think-token budget for the client-side
+// cut. The interceptor estimates 0.5 token per character while real text is
+// about 0.25, so the same number would cut thinking at half the budget the
+// server enforces (about 3.6K characters for 1820 tokens, before the server's
+// wrap-up message could act). A server that honours the budget ends thinking
+// near 4 characters per token; the client cut is only the backstop for one that
+// does not, at 1.5 times that.
+const interceptorReasoningFactor = 3
+
+// interceptorReasoningBudget is the reasoning budget the stream interceptor
+// compares its estimated tokens against; 0 (no cut) when none is configured.
+func (a *Agent) interceptorReasoningBudget() int {
+	return a.config.ReasoningBudget * interceptorReasoningFactor
 }
 
 // guardPreAccumulation runs the guards that must fire before the chunk is
@@ -901,13 +940,32 @@ func (s *streamRun) guardPreAccumulation() (stop bool) {
 		"reasoning_chars":  len(s.fullMsg.ReasoningContent),
 		"empty_tool_calls": emptyCalls,
 	})
+	s.agent.noteStuckThinking()
 	s.logStreamEnd("stuck_detected")
 	return true
+}
+
+// markFirstDelta records when generation started: the first content, reasoning
+// or tool-call delta, as opposed to the request being sent.
+func (s *streamRun) markFirstDelta(choice proxy.Choice, chunk proxy.Message) {
+	if s.firstDeltaAt.IsZero() && (chunk.Content != "" || chunk.ReasoningContent != "" || len(choice.Delta.ToolCalls) > 0) {
+		s.firstDeltaAt = time.Now()
+	}
+}
+
+// noteStuckThinking arms the recovery for a local workload whose stream got
+// stuck thinking: the retry that follows answers without thinking. Cloud
+// providers are left alone (their reasoning is not ours to switch off).
+func (a *Agent) noteStuckThinking() {
+	if a.config.WorkloadClass == models.WorkloadLocal {
+		a.answerWithoutThinking.Store(true)
+	}
 }
 
 // accumulate appends the chunk's content, reasoning and tool-call deltas to
 // fullMsg and refreshes the liveness counters.
 func (s *streamRun) accumulate(choice proxy.Choice, chunk proxy.Message) {
+	s.markFirstDelta(choice, chunk)
 	if chunk.Content != "" {
 		s.fullMsg.Content += chunk.Content
 	}
@@ -937,6 +995,16 @@ func (s *streamRun) accumulate(choice proxy.Choice, chunk proxy.Message) {
 // guardPostAccumulation runs the guards that inspect the accumulated message:
 // the content char cap, the content-repetition guard, then the relaxed cap.
 func (s *streamRun) guardPostAccumulation() (stop bool) {
+	if s.reasoningLooping() {
+		s.agent.deps.Logger.Warn("reasoning repetition detected, aborting stream early to trigger fallback",
+			"reasoning_chars", len(s.fullMsg.ReasoningContent))
+		s.agent.noteStuckThinking()
+		s.agent.abortStreamAsStuck("repetition_detected", s.fullMsg, s.logStreamEnd, map[string]any{
+			"reason":          "reasoning_repetition",
+			"reasoning_chars": len(s.fullMsg.ReasoningContent),
+		})
+		return true
+	}
 	if s.agent.exceedsContentCharCap(s.fullMsg) {
 		s.logStreamEnd("char_cap")
 		s.agent.deps.Logger.Warn("content char cap reached, terminating stream",
@@ -959,6 +1027,16 @@ func (s *streamRun) guardPostAccumulation() (stop bool) {
 		return true
 	}
 	return s.enforceRelaxedCap()
+}
+
+// reasoningLooping reports whether the stream is still only thinking and its
+// recent reasoning repeats itself. It stays on when stuck detection is skipped
+// (XML retries, finalization): a loop is a loop on every path.
+func (s *streamRun) reasoningLooping() bool {
+	if len(s.fullMsg.Content) > 0 || len(s.fullMsg.ToolCalls) > 0 {
+		return false
+	}
+	return reasoningRepeating(s.fullMsg.ReasoningContent, &s.repeatCheckedLen)
 }
 
 // enforceRelaxedCap applies the no-tool content cap and reports whether the

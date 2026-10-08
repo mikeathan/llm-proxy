@@ -93,8 +93,15 @@ func DefaultRunLoggingConfig() RunLoggingConfig {
 	return RunLoggingConfig{Enabled: true}
 }
 
+const (
+	defaultAssistantHot  = true
+	defaultAutomationHot = false
+)
+
 type MemoryConfig struct {
-	Enabled        bool    `yaml:"enabled" json:"enabled"`
+	// AssistantHot and AutomationHot are the global hot-memory defaults; workspaces and automations override them.
+	AssistantHot   *bool   `yaml:"assistant_hot,omitempty" json:"assistant_hot,omitempty"`
+	AutomationHot  *bool   `yaml:"automation_hot,omitempty" json:"automation_hot,omitempty"`
 	SearchTopK     int     `yaml:"search_top_k,omitempty" json:"search_top_k,omitempty"`
 	FlushThreshold float64 `yaml:"flush_threshold,omitempty" json:"flush_threshold,omitempty"`
 	RetentionDays  int     `yaml:"retention_days,omitempty" json:"retention_days,omitempty"`
@@ -111,9 +118,37 @@ func (c *MemoryConfig) SessionRetention() time.Duration {
 	return time.Duration(days) * 24 * time.Hour
 }
 
+// MemoryHotDefaults is the pair of global hot-memory defaults as the admin API reads and writes them.
+type MemoryHotDefaults struct {
+	AssistantHot  bool `json:"assistant_hot"`
+	AutomationHot bool `json:"automation_hot"`
+}
+
+// HotDefaults resolves both defaults; nil-safe.
+func (c *MemoryConfig) HotDefaults() MemoryHotDefaults {
+	return MemoryHotDefaults{AssistantHot: c.AssistantHotDefault(), AutomationHot: c.AutomationHotDefault()}
+}
+
+// AssistantHotDefault is the global default for assistant chats; nil-safe, unset means on.
+func (c *MemoryConfig) AssistantHotDefault() bool {
+	if c == nil || c.AssistantHot == nil {
+		return defaultAssistantHot
+	}
+	return *c.AssistantHot
+}
+
+// AutomationHotDefault is the global default for automation runs; nil-safe, unset means off.
+func (c *MemoryConfig) AutomationHotDefault() bool {
+	if c == nil || c.AutomationHot == nil {
+		return defaultAutomationHot
+	}
+	return *c.AutomationHot
+}
+
 func DefaultMemoryConfig() MemoryConfig {
 	return MemoryConfig{
-		Enabled:        true,
+		AssistantHot:   new(defaultAssistantHot),
+		AutomationHot:  new(defaultAutomationHot),
 		SearchTopK:     5,
 		FlushThreshold: 0.7,
 		RetentionDays:  90,
@@ -278,4 +313,5 @@ type SystemUpdatePayload struct {
 	Bind                 string                  `json:"bind,omitempty"` // For AdminSystemHandler specifically
 	RunLogging           *RunLoggingConfig       `json:"run_logging,omitempty"`
 	Scheduler            *SchedulerConfig        `json:"scheduler,omitempty"`
+	Memory               *MemoryHotDefaults      `json:"memory,omitempty"`
 }

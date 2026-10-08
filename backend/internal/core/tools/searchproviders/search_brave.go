@@ -41,10 +41,21 @@ func newBraveProvider(cfg tools.SearchProviderConfig) (tools.SearchProvider, err
 	}, nil
 }
 
-func (b *BraveProvider) Search(ctx context.Context, query string) ([]tools.SearchResult, error) {
+// braveFreshness maps our windows to Brave's past-day/week/month/year codes.
+var braveFreshness = map[tools.SearchTimeRange]string{
+	tools.SearchRangeDay:   "pd",
+	tools.SearchRangeWeek:  "pw",
+	tools.SearchRangeMonth: "pm",
+	tools.SearchRangeYear:  "py",
+}
+
+func (b *BraveProvider) Search(ctx context.Context, query string, timeRange tools.SearchTimeRange) ([]tools.SearchResult, error) {
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("count", strconv.Itoa(b.maxResults))
+	if f, ok := braveFreshness[timeRange]; ok {
+		params.Set("freshness", f)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, braveSearchURL+"?"+params.Encode(), nil)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/models"
 )
 
@@ -158,6 +159,41 @@ func TestThinkTokensResolver(t *testing.T) {
 	}
 	if req.ReasoningBudget != 0 || req.ReasoningEffort != "" {
 		t.Errorf("think_tokens leaked fields: %+v", req)
+	}
+}
+
+// A thinking budget cut with no message makes llama.cpp's model carry on its
+// working in the visible answer (measured on Qwen3.6: 4.4K characters of notes
+// before the answer). The wrap-up message makes it close the thought and answer.
+func TestThinkTokensResolver_WrapUpMessage(t *testing.T) {
+	withBudget := &models.ChatRequest{}
+	thinkTokensResolver{}.Apply(withBudget, ReasoningSpec{Mode: ModeThinkTokens, Budget: 1500})
+	if withBudget.ReasoningBudgetMessage != prompts.ThinkBudgetWrapUp {
+		t.Errorf("reasoning_budget_message = %q, want the wrap-up message", withBudget.ReasoningBudgetMessage)
+	}
+	raw, _ := json.Marshal(withBudget)
+	if !bytes.Contains(raw, []byte(`"reasoning_budget_message"`)) {
+		t.Errorf("wire body lacks reasoning_budget_message: %s", raw)
+	}
+
+	noBudget := &models.ChatRequest{}
+	thinkTokensResolver{}.Apply(noBudget, ReasoningSpec{Mode: ModeThinkTokens})
+	if noBudget.ReasoningBudgetMessage != "" {
+		t.Errorf("a request with no budget must not carry the message, got %q", noBudget.ReasoningBudgetMessage)
+	}
+}
+
+func TestDisableThinking(t *testing.T) {
+	req := &models.ChatRequest{}
+	thinkTokensResolver{}.Apply(req, ReasoningSpec{Mode: ModeThinkTokens, Budget: 1500})
+	DisableThinking(req)
+
+	raw, _ := json.Marshal(req)
+	if !bytes.Contains(raw, []byte(`"enable_thinking":false`)) {
+		t.Errorf("wire body does not disable thinking: %s", raw)
+	}
+	if bytes.Contains(raw, []byte("thinking_budget_tokens")) || bytes.Contains(raw, []byte("reasoning_budget_message")) {
+		t.Errorf("a request without thinking must not carry a budget: %s", raw)
 	}
 }
 

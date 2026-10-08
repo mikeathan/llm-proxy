@@ -20,8 +20,9 @@ the system put in the prompt.
 ### Before you start
 
 - Memory panel: delete any earlier test fact so the store run is not "already saved".
-- **Automation only:** set the automation's **Memory** to **Hot memory** (Model & access). The default,
-  Off, injects nothing into an automation; a chat always gets memory.
+- **Automation only:** set the automation's **Memory** to **On** (Model & access), or turn on **Automations
+  remember** in Settings → Local Engine → Memory. The shipped default is off, which injects nothing into an
+  automation; a chat gets memory unless the workspace or Settings turns it off.
 
 ### Run 1 — store
 
@@ -85,7 +86,7 @@ Reply with exactly three lines and nothing else:
 ### If it fails
 
 - **All three lines `UNKNOWN`:** the fact was not injected. Chat: check the fact is tagged Always. Automation:
-  check Memory is set to Hot (`memory_mode: hot` in the workspace `config.yaml`).
+  check Memory resolves to on (`memory_mode: on` in the workspace `config.yaml`, or the global automation default).
 - **Lines 1 and 2 right but the model called a tool:** it ignored "no tools". The injection still worked
   (the block is in the request); try a larger model for this check.
 - **Run 1 says "already saved" or an error:** delete the earlier test fact first, or read the error text.
@@ -106,9 +107,12 @@ The point is to make the sieve fire, so the model must be served with a small co
 1. Serve one local model with `--ctx-size 8192` (add it to that model's llama-server arguments, wherever you configure local models).
 2. Find the model's context budget (the Models/Settings page shows `context_budget`) and confirm it: for 8192 it is `(8192 − 2730) × 4 = 21,848` chars
    (SPEC-005 §II.3). That number is what memory and the sieve size themselves from.
-3. **Check for a budget override.** `settings.yml → model_overrides.<model>.context_budget` beats the
+3. **Check for a budget override.** For a **cloud** workload `settings.yml → model_overrides.<model>.context_budget` beats the
    derived value. Some entries carry `context_budget: 50000`; with that, an 8K window never prunes and
-   the test measures nothing. Remove it (or set it to the real figure) for the model under test.
+   the test measures nothing. Remove it (or set it to the real figure) for the model under test. A **local**
+   workload ignores the override: its `context_budget` always comes from the serving context. That includes a
+   llama.cpp server behind an OpenAI-style URL, which is local once its own `/v1/models` entry identifies it
+   (SPEC-005 1.3); check `process.log` for "treating it as a local workload".
 4. The server must run with `--enable-runs` (or `--record`), otherwise no `events.jsonl` /
    `recording.jsonl` are written and the scoreboard has nothing to read.
 
@@ -201,8 +205,8 @@ Create two automations in the same workspace (Automations → New). Everything i
 
 | Name | Model | Task file | Memory |
 |---|---|---|---|
-| `memory-ab-off` | the 8K local model | `memory-ab-test.md` | Off |
-| `memory-ab-hot` | the same model | `memory-ab-test.md` | Hot memory |
+| `memory-ab-off` | the small-context local model | `memory-ab-test.md` | Off |
+| `memory-ab-hot` | the same model | `memory-ab-test.md` | On |
 
 Run order matters little, but keep the machine otherwise idle: the local lane runs one at a time.
 
@@ -254,3 +258,45 @@ Paste both tables back and I will fold them into
 Same idea without automations: in the Assistant, ask the same three questions in a fresh
 conversation with the facts hot, then again with the facts toggled off (Memory → fact → switch off).
 Read the two run directories under `runs/<ws>/<model>/conv_*/` the same way.
+
+## Part D — Evaluating the save guidance (run on each model you use)
+
+The assistant's head prompt now tells the model when to call `memory_update` (SPEC-004 §II.8). It can only be judged on a
+real model, because small models often ignore general advice. Use a **fresh conversation per script**, assistant memory on,
+and read each turn's tool steps and the Memory panel afterwards. Do this on your small-context local model (the 16K Qwen is the reference) and on one cloud model.
+
+| # | Say this | Expect |
+|---|---|---|
+| D1 | `We always deploy through the vertex host, and I prefer tabs in Go files. What does gofmt do?` | the answer is a normal explanation of gofmt; one or two sensible saves (deploy host, tabs), made **before** the answer; the answer is the last message |
+| D2 | the news brief (paste `llm_ai_release_brief.md` and run it) | **no** saves: it is a task, not a preference |
+| D3 | `My password is hunter2. What is 2+2?` | no save of the password (guardrail or the model declines); a normal answer |
+| D4 | send D1's first sentence again in the same chat | "already saved" and **no** repeated calls; the run completes |
+| D5 | `Actually we deploy through the new host, not vertex.` after D1 | the old fact is replaced (`old_text`) or a new one is added; note which |
+
+Record per model: saves that should have happened, saves that should not have (D2/D3 must be zero), whether the final
+answer is intact and last, and whether every run completed. **Pass** = no unwanted saves and no failed runs on both models.
+If a model over-saves or loses its answer, remove the guidance (one constant, `memorySystemText`) and keep Parts A and C.
+
+## Part C — Saving from chats (explicit capture and review)
+
+Needs a chat in the operator UI (not a connector chat) with assistant memory on (Settings → Local Engine → Memory, and the
+workspace's Memory section not set to Off). Works the same on any model; capture involves no model call.
+
+### C1. Explicit capture (a few seconds)
+
+1. In a new conversation send: `Remember that the staging DB runs on port 5433. From now on answer in short sentences.`
+2. Under the answer the turn shows **Saved to memory** with two lines. Open Memory: the first is an ordinary on-demand
+   fact, the second is tagged Always; both have source `capture`. Reload the page: the lines are still on the turn.
+3. The same run already followed the standing instruction (it was in that run's memory block).
+4. Things that must **not** save, one message each: `Do you remember the port?`, `Never mind, I'll do it myself.`,
+   `Remember the password is hunter2`, `Always use tabs.` (a plain imperative is left to the review), a code block containing
+   `remember that …`, and a pasted playbook or any long, heading/list/table-shaped text. Nothing appears under the answer.
+5. Send the first message again: nothing new is announced (already saved). In a connector (Telegram) chat the same text saves nothing.
+
+### C2. Review this chat for memories
+
+1. After a chat that stated a preference or project convention, press **Review for memories** in the chat header.
+2. A dialog lists at most five proposed facts (already-saved ones are marked). Untick what you do not want, press
+   **Save selected**; the facts appear in Memory with source `operator`. Nothing is saved before that press.
+3. A chat with nothing worth keeping (a pure research task) should give "No suggestions"; if a small model proposes noise, you
+   simply save nothing. If the model is busy you are told to try again; the chat itself is never affected.

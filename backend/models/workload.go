@@ -22,6 +22,10 @@ const (
 	WorkloadCloud WorkloadClass = "cloud"
 )
 
+// ServingLlamaCpp is the ModelMetadata.Serving value for a model whose listing
+// entry identified a llama.cpp server.
+const ServingLlamaCpp = "llamacpp"
+
 // WorkloadClassifier classifies model configs by effective endpoint.  It is
 // constructed once at the runtime boundary with cached inputs and reused for
 // budget/ICU selection, the reasoning wire, and the proxy client factory.
@@ -41,6 +45,7 @@ func NewWorkloadClassifier(modelHost string, localInterfaceIPs []net.IP) Workloa
 // Local ⟺ provider == "local"
 //
 //	∨ .gguf artifact (Filename | Path | Name)
+//	∨ Metadata.Serving == "llamacpp" (the model's own listing entry said so)
 //	∨ host(ProviderConfig.BaseURL) ∈ {localhost, 127.0.0.1, ::1, 0.0.0.0}
 //	∨ host(ProviderConfig.BaseURL) matches modelHost
 //	∨ host(ProviderConfig.BaseURL) ∈ localInterfaceIPs
@@ -53,6 +58,9 @@ func (c WorkloadClassifier) Classify(cfg ModelConfig) WorkloadClass {
 		return WorkloadLocal
 	}
 	if HasGGUFArtifact(cfg.Filename) || HasGGUFArtifact(cfg.Path) || HasGGUFArtifact(cfg.Name) {
+		return WorkloadLocal
+	}
+	if cfg.Metadata != nil && cfg.Metadata.Serving == ServingLlamaCpp {
 		return WorkloadLocal
 	}
 	if cfg.ProviderConfig != nil && c.ClassifyEndpoint(cfg.ProviderConfig.BaseURL) {

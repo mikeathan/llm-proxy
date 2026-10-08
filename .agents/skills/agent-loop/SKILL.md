@@ -1,7 +1,7 @@
 ---
 name: agent-loop
 description: "Agent-loop mechanics (reference): execution flow, structural/reactive sieve, stuck/spiral detection, reasoning budget, fallback chain, GBNF, and key constants. Load alongside debugging when the failure is in the loop."
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-08
 ---
 
 # Agent Loop — Execution, Sieve, Stuck Detection & Fallback
@@ -56,17 +56,19 @@ executor.go Execute()
 
 ## Stuck Detection
 
-**Reasoning stuck (token-level):** When reasoning content exceeds `maxTokens * 2` chars (floor 2000), the stream is aborted. A `lifecycle` event with phase `stuck_detected` is emitted.
+**Reasoning stuck (length ceiling):** When reasoning content exceeds `maxTokens * 2` chars (= `max_tokens / 2` tokens at 4 chars/token; floor 2000), the stream is aborted. A `lifecycle` event with phase `stuck_detected` is emitted. The same ceiling applies to every model: there is no budget-based early cut (the old `reasoningBudget == 0` branch compared characters with a token count and aborted thinking Qwen at ~2K tokens, wasting ~80 s per abort).
 
-**Early stuck for models without reasoning budget:** When `reasoningBudget == 0` (no server-side thinking enforcement), stuck fires at `maxTokens / stuckNonReasoningDivisor` chars instead — currently divisor=1 gives threshold at `maxTokens` (e.g. 2048 chars for a local model). Divisor=2 was tried but caused false positives on Gemma 4 (~1371 chars of legitimate `<think>` blocks before output). See `stream.go` `stuckNonReasoningDivisor` and `checkStreamStuck()`.
+**Reasoning-loop guard (`reasoning_repetition.go`):** while the stream is only thinking, once per 1 KB of growth the last 4 KB (whitespace collapsed, digits as written) are scanned: if ≥ half of the 64-byte windows already occurred earlier in the tail, abort into `[stuck]` recovery (`stuck_detected`, `reason: reasoning_repetition`). Judges content, not length, so loops stop in ~3K chars; on real thinking the top score was 0.06 vs the 0.5 threshold. Stays on when `SkipStuckCheck` is set. Paraphrased, count-up or long-period loops fall back to the ceiling / duration cap; digits are not normalised so drafted CSV / tables / checklists are not flagged.
 
-Note: local/GGUF models now auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec` → `DefaultReasoningBudget`, `max_tokens/3`), so local reasoning is normally enforced server-side and this early-stuck branch mainly covers cloud/opaque providers that emit no readable reasoning stream. The derivation is from context size, never the model name.
+Note: workloads classified local (a llama.cpp server run directly, or one behind an OpenAI-style URL identified by its listing fingerprint, SPEC-005) auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec(provider, workload, …)` → `DefaultReasoningBudget`, `max_tokens/3`); the derivation is from workload and context size, never the model name.
 
 **Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
 
 **Content-level repetition guard:** Catches degenerate loops that write visible content with no tool calls and no progress (e.g. a model echoing a malformed tool-call dialect as ~190 repeated closing tags — the deepseek-v4-flash workspace-health-test incident). When `Content` is dominated by verbatim repeats (a single 60+ char window or repeated line covering ≥50% of the text, minimum fragment 400 chars, fail-open) **and** zero native tool calls are parsed, the stream aborts into the same `[stuck]` recovery as char-threshold stuck. Model/provider-agnostic — keys purely off the streamed bytes, independent of grammar/tool format. Real tool calls are never discarded (guard requires zero parsed calls). See `isRepetitionDominated()` (Hermes Agent `repetition_guard` port).
 
-**Per-stream duration cap:** A stream producing no native tool calls and no natural completion beyond `streamMaxDuration` (default 90s, test-shortenable like the heartbeat) is terminated to bound worst-case degenerate-stream runtime well under the 10-minute per-turn timeout. Content is preserved (not cleared) — mirroring char-cap termination — so the partial turn is evaluated/salvaged rather than dropped.
+**Per-stream duration cap:** A stream producing no native tool calls and no natural completion beyond `streamMaxDuration` (default 5 min, test-shortenable) is terminated; the clock starts at the **first token**, not the request (prompt processing on a busy local server can take a minute); the wait for the first token of a cloud stream is bounded separately (`streamFirstTokenTimeout`, 3 min; local workloads exempt). Content is preserved (not cleared) so the partial turn is evaluated/salvaged.
+
+**Local thinking budget and recovery:** a local workload sends `thinking_budget_tokens` (`max_tokens/3` unless `reasoning_budget` is set) together with `reasoning_budget_message` (`prompts.ThinkBudgetWrapUp`) so the server closes the thought cleanly at the budget instead of letting the reasoning spill into the visible reply. The server appends it on ANY turn that hits the budget, so it must never say the answer is next — a run skipped its playbook's `memory_update` that way (2026-10-07). After a stream is aborted as stuck (ceiling or loop guard), `Agent.noteStuckThinking` makes the next request carry `enable_thinking=false` once (`reasoning.DisableThinking`); cloud is never switched off.
 
 **Progressive sieve recovery:**
 - 1st stuck → reactive sieve (first 2 + last 6 messages) + nag prompt
@@ -102,9 +104,17 @@ Recovery messages (nags, sieve notes, parse feedback, stuck placeholders) are
 confused with real conversation. See `checkTaskCompletion` in `session.go`.
 
 **Content-with-tools fallback:** When the model writes visible text AND calls
-tools in the same turn, the text is saved (`lastContentWithTools`). If the next
-turn is empty, the saved text is used as the final answer. This handles the
-common pattern where a model delivers its report while calling `write_file`.
+tools in the same turn, and every call is housekeeping (`hasOnlyHousekeepingTools`
+→ `toolpolicy.EffectHousekeeping`: `memory_update`, `automation_journal`), the text
+is saved (`lastContentWithTools`). If the next turn is empty, the saved text is used
+as the final answer. This handles the common pattern where a model delivers its
+report while calling `memory_update`. Text beside a substantive tool (`write_file`,
+terminal, reads) is mid-task narration and is not saved, and such a turn clears any
+text saved earlier (`noteContentWithTools`). Until 2026-10-08 the housekeeping switch
+matched no tool, so this path never fired in production.
+A natural-completion turn that is at least `signOffRatio` (2x) shorter than the saved text is a sign-off, so
+`keepReportOverSignOff` keeps the saved report (a playbook's "save to memory before you answer" puts the report beside
+the `memory_update` call; the next turn is a one-line "done"). A comparable or longer final answer wins.
 
 **One-shot nag:** Empty turns after tool results trigger a single
 `AutomationNagPrompt` injection. If the next turn is still empty, a fallback
@@ -169,6 +179,24 @@ When native tools stream returns empty:
 2. **XML-text models** (`usePrefill=true`): retry via **XML streaming** (disables `useNativeTools`, suppresses `tool_choice` and `reasoningBudget`, stuck detection skipped). If also empty → **non-streaming Chat**.
 3. Non-streaming heartbeat uses `fallback_waiting` lifecycle events with elapsed time.
 
+## Tool-Call Batches
+
+All calls of one assistant turn are emitted before any result, so a call depends only on
+another's side effects. `toolpolicy.EffectFor(name)` classifies each tool:
+
+| Effect | Tools | Batch after a non-fatal failure |
+|---|---|---|
+| `EffectReadOnly` | `fetch_url`, `internet_search`, `read_file`, `list_directory`, `memory_search`, `get_network_info`, `scan_local_network` | continues |
+| `EffectHousekeeping` | `memory_update`, `automation_journal` | stops |
+| `EffectMutating` (default: every unlisted and MCP tool) | `write_file`, terminal, `notify_user`, … | stops |
+
+Invalid arguments, a guardrail denial and a run-fatal error always stop the batch. Every early stop
+answers the unrun calls with `prompts.ToolCallNotExecuted` (`appendSkippedToolResults`, under `mu`,
+bypassing `appendToolResult` so the guardrail streak and the ledger are untouched) — an unanswered
+tool_call id was resent on every later request and is rejected by strict APIs. Failures inside one
+batch count once toward `toolFailureStreakLimit` (`toolFailureState.beginBatch`); plan steps and
+lone `executeSingleToolStep` calls count one by one.
+
 ## Key Constants
 
 | Constant | Value | File | Purpose |
@@ -184,7 +212,8 @@ When native tools stream returns empty:
 | `DefaultStarvationLimit` | 15 | `session.go` | Consecutive no-tool-call turns before stall error |
 | `streamReasoningBudgetDivisor` | 3 | `stream.go` | Divisor for reasoning_budget |
 | `emptyToolCallSpiralLimit` | 3 | `stream.go` | Closed empty `<tool_call>` blocks → early stuck |
-| `streamMaxDuration` | 90s | `stream.go` | Max stream duration with no tool calls → terminate (preserves content) |
+| `streamMaxDuration` | 5 min | `stream.go` | Max generation time (from the first token) with no tool calls → terminate (preserves content) |
+| `reasoningRepeat*` | 64 B window, 4 KB tail, 1 KB step, ≥ 1/2 | `reasoning_repetition.go` | Reasoning that mostly repeats itself → `[stuck]` recovery |
 | `minRepetitionFragmentLen` | 400 | `stream.go` | Min content length before repetition guard runs (fail-open) |
 
 ## Repetition/Spiral Detector

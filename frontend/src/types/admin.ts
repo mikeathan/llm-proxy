@@ -252,6 +252,13 @@ export interface GlobalConfig {
   run_logging?: { enabled: boolean }
   // Run scheduler admission limits (global-run-lane plan).
   scheduler?: SchedulerConfig
+  // Global hot-memory defaults; an automation or a workspace's assistant may override them.
+  memory?: MemoryHotDefaults
+}
+
+export interface MemoryHotDefaults {
+  assistant_hot: boolean
+  automation_hot: boolean
 }
 
 export interface SchedulerConfig {

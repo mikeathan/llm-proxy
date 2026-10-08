@@ -310,10 +310,28 @@ type toolFailureState struct {
 	streak     int
 	suppressed bool
 	warnings   []string
+	batch      failureBatch
 }
+
+// failureBatch scopes the consecutive-failure count to one assistant turn's
+// tool calls: the calls of a batch are emitted together, so several of them
+// failing is one failed step, not several.
+type failureBatch int
+
+const (
+	batchNone    failureBatch = iota // calls count one by one (plan steps, a lone call)
+	batchOpen                        // inside a turn's batch; no failure counted yet
+	batchCounted                     // a failure of this batch has already been counted
+)
 
 // reset clears the state for a new run.
 func (s *toolFailureState) reset() { *s = toolFailureState{} }
+
+// beginBatch starts counting failures per batch (processToolCalls).
+func (s *toolFailureState) beginBatch() { s.batch = batchOpen }
+
+// endBatch returns to per-call counting.
+func (s *toolFailureState) endBatch() { s.batch = batchNone }
 
 // shortCircuit returns a directive (and true) when a call must not execute:
 // tool execution is suppressed, or the tool was disabled earlier in this run.
@@ -340,8 +358,16 @@ func (s *toolFailureState) disable(tool string) {
 func (s *toolFailureState) addWarning(warning string) { s.warnings = append(s.warnings, warning) }
 
 // noteFailure increments the consecutive-failure streak and reports whether the
-// bound tripped (which suppresses all further tool execution).
+// bound tripped (which suppresses all further tool execution). Inside a batch
+// only the first failure since the batch began (or since its last success)
+// counts.
 func (s *toolFailureState) noteFailure() (suppressed bool) {
+	switch s.batch {
+	case batchCounted:
+		return false
+	case batchOpen:
+		s.batch = batchCounted
+	}
 	s.streak++
 	if s.streak < toolFailureStreakLimit {
 		return false
@@ -350,8 +376,14 @@ func (s *toolFailureState) noteFailure() (suppressed bool) {
 	return true
 }
 
-// noteSuccess resets the consecutive-failure streak.
-func (s *toolFailureState) noteSuccess() { s.streak = 0 }
+// noteSuccess resets the consecutive-failure streak; inside a batch, the next
+// failure counts again.
+func (s *toolFailureState) noteSuccess() {
+	s.streak = 0
+	if s.batch == batchCounted {
+		s.batch = batchOpen
+	}
+}
 
 // warningsSnapshot returns a copy of the delivery warnings.
 func (s *toolFailureState) warningsSnapshot() []string {
@@ -467,22 +499,27 @@ func (a *Agent) executeSingleToolStep(
 }
 
 // processToolCalls validates tool args, resolves guardrails, and executes
-// via Engine.  A guardrail denial stops the entire batch.
+// via Engine. Every call of a batch is emitted before any result, so a call
+// can only depend on another's side effects, never on its output: a non-fatal
+// failure of a read-only tool (toolpolicy.EffectReadOnly) lets the batch go on,
+// while invalid arguments, a guardrail denial, a run-fatal error or a failure
+// of any other tool stops it. When the batch stops early, each call left unrun
+// is answered with prompts.ToolCallNotExecuted so every tool_call id has a
+// result. Failures inside one batch count once toward toolFailureStreakLimit.
 // Returns (salvagedReport, err). salvagedReport is non-empty when a truncated
 // write_file/append_file content field was recovered as the task deliverable.
 func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history *[]proxy.Message, toolsList []proxy.Tool) (string, error) {
 	var mu sync.Mutex
 
-	if len(toolsList) == 0 {
-		var listErr error
-		toolsList, listErr = a.deps.Provider.ListTools(ctx)
-		if listErr != nil {
-			a.deps.Logger.Error("failed to list tools for validation", "error", listErr)
-			return "", fmt.Errorf("list tools: %w", listErr)
-		}
+	toolsList, err := a.toolsForValidation(ctx, toolsList)
+	if err != nil {
+		return "", err
 	}
 
-	for _, tc := range msg.ToolCalls {
+	a.toolFailure.beginBatch()
+	defer a.toolFailure.endBatch()
+
+	for i, tc := range msg.ToolCalls {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
@@ -490,37 +527,108 @@ func (a *Agent) processToolCalls(ctx context.Context, msg proxy.Message, history
 			continue
 		}
 
-		a.deps.Logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
-		a.deps.Logger.Info("executing tool", "name", tc.Function.Name)
-
-		if err := validateToolArgs(tc, toolsList); err != nil {
-			a.deps.Logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", err)
-			if report, handled := a.salvageTruncatedWrite(ctx, tc, history, &mu); handled {
-				return report, nil
-			}
-			errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", err)
-			if failures.IsTruncationError(err.Error()) {
-				errMsg = prompts.AutomationContentTooLongPrompt
-			}
-			mu.Lock()
-			a.appendToolResult(history, tc, map[string]string{"error": errMsg})
-			mu.Unlock()
-			return "", nil
+		step := a.runBatchCall(ctx, tc, history, &mu, toolsList)
+		if step.report != "" {
+			// Salvaged report: the run completes with it and handleToolTurn
+			// drops the turn's tool calls, so nothing is left to answer.
+			return step.report, nil
 		}
-
-		stopBatch, execErr := a.executeSingleToolStep(ctx, tc, history, &mu)
-		a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", execErr)
-		if stopBatch || execErr != nil {
-			if execErr != nil {
-				a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
-				if a.toolFailureIsRunFatal(execErr) {
-					return "", execErr
-				}
-			}
-			return "", nil
+		if step.stop {
+			mu.Lock()
+			a.appendSkippedToolResults(history, msg.ToolCalls[i+1:])
+			mu.Unlock()
+			return "", step.err
 		}
 	}
 	return "", nil
+}
+
+// toolsForValidation returns the tool list used to validate call arguments,
+// listing the provider's tools when the caller has none.
+func (a *Agent) toolsForValidation(ctx context.Context, toolsList []proxy.Tool) ([]proxy.Tool, error) {
+	if len(toolsList) > 0 {
+		return toolsList, nil
+	}
+	listed, err := a.deps.Provider.ListTools(ctx)
+	if err != nil {
+		a.deps.Logger.Error("failed to list tools for validation", "error", err)
+		return nil, fmt.Errorf("list tools: %w", err)
+	}
+	return listed, nil
+}
+
+// batchStep is the outcome of one call of a tool-call batch.
+type batchStep struct {
+	report string // salvaged write content: the run's final answer
+	stop   bool   // the remaining calls of the batch must not run
+	err    error  // run-fatal error (returned by processToolCalls)
+}
+
+// runBatchCall validates and executes one call of a batch and decides whether
+// the batch may go on.
+func (a *Agent) runBatchCall(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex, toolsList []proxy.Tool) batchStep {
+	a.deps.Logger.Debug("agent attempting tool execution", "name", tc.Function.Name, "args", tc.Function.Arguments)
+	a.deps.Logger.Info("executing tool", "name", tc.Function.Name)
+
+	if err := validateToolArgs(tc, toolsList); err != nil {
+		return a.rejectInvalidToolArgs(ctx, tc, err, history, mu)
+	}
+
+	stopBatch, execErr := a.executeSingleToolStep(ctx, tc, history, mu)
+	a.deps.Logger.Info("tool execution completed", "name", tc.Function.Name, "error", execErr)
+	switch {
+	case stopBatch:
+		return batchStep{stop: true}
+	case execErr == nil:
+		return batchStep{}
+	case a.toolFailureIsRunFatal(execErr):
+		a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
+		return batchStep{stop: true, err: execErr}
+	case toolpolicy.EffectFor(tc.Function.Name) == toolpolicy.EffectReadOnly:
+		a.deps.Logger.Warn("read-only tool failed - continuing batch", "name", tc.Function.Name, "error", execErr)
+		return batchStep{}
+	default:
+		a.deps.Logger.Warn("tool execution failed - stopping batch", "name", tc.Function.Name, "error", execErr)
+		return batchStep{stop: true}
+	}
+}
+
+// rejectInvalidToolArgs handles a call whose arguments failed validation: a
+// truncated write is salvaged as the report, anything else is answered with
+// the validation error and stops the batch.
+func (a *Agent) rejectInvalidToolArgs(ctx context.Context, tc proxy.ToolCall, valErr error, history *[]proxy.Message, mu *sync.Mutex) batchStep {
+	a.deps.Logger.Warn("tool argument validation failed", "name", tc.Function.Name, "error", valErr)
+	if report, handled := a.salvageTruncatedWrite(ctx, tc, history, mu); handled {
+		return batchStep{report: report, stop: true}
+	}
+	errMsg := fmt.Sprintf("INVALID ARGUMENTS: %v", valErr)
+	if failures.IsTruncationError(valErr.Error()) {
+		errMsg = prompts.AutomationContentTooLongPrompt
+	}
+	mu.Lock()
+	a.appendToolResult(history, tc, map[string]string{"error": errMsg})
+	mu.Unlock()
+	return batchStep{stop: true}
+}
+
+// appendSkippedToolResults answers each call in rest — the calls a batch
+// stopped before running — with prompts.ToolCallNotExecuted, so every tool_call
+// id of the assistant message has a result (strict OpenAI-style APIs reject a
+// request with an unanswered id). It bypasses appendToolResult on purpose: a
+// skipped call is not an outcome, so it must not reset the guardrail denial
+// streak, enter the progress ledger, or count as a tool call. The caller holds
+// the batch mutex.
+func (a *Agent) appendSkippedToolResults(history *[]proxy.Message, rest []proxy.ToolCall) {
+	if len(rest) == 0 {
+		return
+	}
+	// Marshalling a string constant cannot fail; it gives the same JSON string
+	// shape as every other string tool result.
+	raw, _ := json.Marshal(prompts.ToolCallNotExecuted)
+	for _, tc := range rest {
+		*history = append(*history, proxy.Message{Role: proxy.ToolRole, Content: string(raw), ToolCallID: tc.ID})
+	}
+	a.deps.Logger.Info("tool calls not executed after the batch stopped", "count", len(rest))
 }
 
 func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history *[]proxy.Message, mu *sync.Mutex) (approved, stopBatch bool) {

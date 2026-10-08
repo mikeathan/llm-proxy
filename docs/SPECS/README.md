@@ -11,7 +11,7 @@ modifying or extending the subsystem it describes. Lifecycle and change rules:
 |----|------|-------|--------|-------------------|
 | SPEC-001 | `agent-loop.md` | Agent Loop | stable | II.4, II.5, II.6, II.7, II.8, II.10 |
 | SPEC-002 | `tool-call-parser.md` | Tool Call Parser | stable | II.4 |
-| SPEC-003 | `discovery-panel.md` | Admin UI (v2.2; formerly Discovery Panel) | stable | — |
+| SPEC-003 | `discovery-panel.md` | Admin UI (v2.5; formerly Discovery Panel) | stable | — |
 | SPEC-004 | `memory.md` | Memory System | stable | II.12 |
 | SPEC-005 | `orchestrator.md` | Orchestrator / Budget | stable | VI |
 | SPEC-006 | `guardrails.md` | Guardrail Engine | stable | II.3 |

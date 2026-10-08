@@ -224,42 +224,123 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 		}
 	}
 
-	return m.insertEntry(ctx, saveWS, args.Content, route.Tags, memory.MemoryType(route.MemoryType))
+	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType)})
+	if err != nil {
+		return "", err
+	}
+	return res.message(), nil
 }
 
-// insertEntry saves content with Jaccard similarity dedup and exact content match.
-// The title is auto-derived from content so the model doesn't need to provide one.
-func (m *MemoryToolProvider) insertEntry(ctx context.Context, wsID, content string, tags []string, memType memory.MemoryType) (any, error) {
-	title := deriveTitle(content)
+// SaveOutcome is what saving a fact did.
+type SaveOutcome int
 
-	existing := m.findOverlappingEntry(ctx, wsID, title, content)
+const (
+	SaveCreated SaveOutcome = iota + 1
+	SaveUpdated
+	SaveDuplicate
+)
+
+// SaveResult describes a save: what happened, which entry it touched (0 for an exact-content duplicate) and its type.
+type SaveResult struct {
+	Outcome SaveOutcome
+	ID      int64
+	Type    memory.MemoryType
+}
+
+// message renders the result in the wording memory_update has always returned to the model.
+func (r SaveResult) message() string {
+	switch {
+	case r.Outcome == SaveDuplicate && r.ID != 0:
+		return fmt.Sprintf("already saved — matching entry found (id: %d); do not call memory_update again", r.ID)
+	case r.Outcome == SaveDuplicate:
+		return fmt.Sprintf("already saved — duplicate content (type: %s); do not call memory_update again", r.Type)
+	case r.Outcome == SaveUpdated:
+		return fmt.Sprintf("updated memory entry %d (type: %s)", r.ID, r.Type)
+	default:
+		return fmt.Sprintf("saved to memory (id: %d, type: %s)", r.ID, r.Type)
+	}
+}
+
+// Fact is one fact to save through the shared path (the agent tool and the chat capture).
+type Fact struct {
+	Content string
+	Scope   memory.Scope
+	Mode    memory.Mode
+	Keep    memory.Keep
+	// Source attributes the entry; empty takes the tool's rule (memorySource).
+	Source string
+}
+
+// SaveFact saves a fact with the same routing and dedup as memory_update.
+func (m *MemoryToolProvider) SaveFact(ctx context.Context, workspaceID string, f Fact) (SaveResult, error) {
+	if m.store == nil {
+		return SaveResult{}, fmt.Errorf("memory is not available")
+	}
+	route, err := ResolveMemoryRoute(f.Scope, f.Mode, f.Keep, workspaceID)
+	if err != nil {
+		return SaveResult{}, err
+	}
+	ctx = models.WithWorkspaceID(ctx, route.WorkspaceID)
+	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source})
+}
+
+// HasFact reports whether the workspace already holds this fact, exactly or as a near-duplicate.
+func (m *MemoryToolProvider) HasFact(ctx context.Context, workspaceID, content string) bool {
+	if m.store == nil {
+		return false
+	}
+	if m.findOverlappingEntry(ctx, workspaceID, deriveTitle(content), content) != nil {
+		return true
+	}
+	exists, err := m.store.Exists(ctx, workspaceID, content)
+	return err == nil && exists
+}
+
+type saveRequest struct {
+	workspaceID string
+	content     string
+	tags        []string
+	memType     memory.MemoryType
+	source      string
+}
+
+// insertFact saves content with Jaccard similarity dedup and exact content match.
+// The title is auto-derived from content so the model doesn't need to provide one.
+func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (SaveResult, error) {
+	title := deriveTitle(req.content)
+
+	existing := m.findOverlappingEntry(ctx, req.workspaceID, title, req.content)
 	if existing != nil {
-		if existing.Content == content {
+		if existing.Content == req.content {
 			logging.Info("memory_update result", "action", "already_saved", "existing_id", existing.ID, "match", "jaccard")
-			return fmt.Sprintf("already saved — matching entry found (id: %d)", existing.ID), nil
+			return SaveResult{Outcome: SaveDuplicate, ID: existing.ID, Type: req.memType}, nil
 		}
-		combined := existing.Content + "\n" + content
-		if err := m.store.Update(ctx, wsID, existing.ID, title, combined, tags, memory.MergeTags); err != nil {
-			return "", fmt.Errorf("memory update failed: %w", err)
+		combined := existing.Content + "\n" + req.content
+		if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, combined, req.tags, memory.MergeTags); err != nil {
+			return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 		}
 		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "jaccard")
-		return fmt.Sprintf("updated memory entry %d (type: %s)", existing.ID, memType), nil
+		return SaveResult{Outcome: SaveUpdated, ID: existing.ID, Type: req.memType}, nil
 	}
 
-	exists, err := m.store.Exists(ctx, wsID, content)
+	exists, err := m.store.Exists(ctx, req.workspaceID, req.content)
 	if err != nil {
-		return "", fmt.Errorf("memory update failed: %w", err)
+		return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 	}
 	if exists {
 		logging.Info("memory_update result", "action", "already_saved", "match", "content_dup")
-		return fmt.Sprintf("already saved — duplicate content (type: %s)", memType), nil
+		return SaveResult{Outcome: SaveDuplicate, Type: req.memType}, nil
 	}
-	id, err := m.store.Insert(ctx, wsID, memType, title, content, tags, memorySource(ctx))
+	source := req.source
+	if source == "" {
+		source = memorySource(ctx)
+	}
+	id, err := m.store.Insert(ctx, req.workspaceID, req.memType, title, req.content, req.tags, source)
 	if err != nil {
-		return "", fmt.Errorf("memory update failed: %w", err)
+		return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 	}
-	logging.Info("memory_update result", "action", "created", "id", id, "memory_type", string(memType))
-	return fmt.Sprintf("saved to memory (id: %d, type: %s)", id, memType), nil
+	logging.Info("memory_update result", "action", "created", "id", id, "memory_type", string(req.memType))
+	return SaveResult{Outcome: SaveCreated, ID: id, Type: req.memType}, nil
 }
 
 // defaultKeep is the retention an unspecified memory_update gets. Unattended

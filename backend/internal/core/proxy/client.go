@@ -208,6 +208,7 @@ func SetReasoningBudget(req *ChatRequest, field string, budget int) {
 func ClearReasoningParams(req *ChatRequest) {
 	req.ReasoningBudget = 0
 	req.ThinkingBudgetTokens = 0
+	req.ReasoningBudgetMessage = ""
 	req.ReasoningEffort = ""
 	req.Reasoning = nil
 	req.ChatTemplateKwargs = nil

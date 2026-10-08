@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Minimal hand-rolled mock for dispatcher satisfying the full interface
@@ -29,12 +30,24 @@ type testDispatcher struct {
 	cancelErr     error
 	cancelCalled  map[string]bool
 	laneSnapshot  runlane.Snapshot
+	heartbeat     models.HeartbeatState
+	registered    []string // "ws/name" for every Register call
+	unregistered  []string // "ws/name" for every Unregister call
 }
 
-func (t *testDispatcher) Persistence() *persistence.WorkspaceManager     { return t.mgr }
-func (t *testDispatcher) Register(ws string, a *models.Automation) error { return nil }
-func (t *testDispatcher) Unregister(ws, name string) error               { return nil }
-func (t *testDispatcher) ListAll() []*automation.AutomationEntry         { return nil }
+func (t *testDispatcher) Persistence() *persistence.WorkspaceManager { return t.mgr }
+func (t *testDispatcher) Register(ws string, a *models.Automation) error {
+	t.registered = append(t.registered, ws+"/"+a.Name)
+	return nil
+}
+func (t *testDispatcher) Unregister(ws, name string) error {
+	t.unregistered = append(t.unregistered, ws+"/"+name)
+	return nil
+}
+func (t *testDispatcher) HeartbeatState(string) (models.HeartbeatState, error) {
+	return t.heartbeat, nil
+}
+func (t *testDispatcher) ListAll() []*automation.AutomationEntry { return nil }
 func (t *testDispatcher) Trigger(ws, name, _ string) (automation.TriggerResult, error) {
 	return t.triggerResult, t.triggerErr
 }
@@ -55,10 +68,8 @@ func (t *testDispatcher) StopAutomation(ws string) error {
 func (t *testDispatcher) Metrics() *automation.DispatcherMetrics {
 	return &automation.DispatcherMetrics{}
 }
-func (t *testDispatcher) Events() *eventbus.Bus                  { return nil }
-func (t *testDispatcher) GlobalActivity() []models.AutomationRun { return nil }
-func (t *testDispatcher) UnregisterWorkspace(ws string)          {}
-func (t *testDispatcher) ClearWorkspaceHistory(ws string)        {}
+func (t *testDispatcher) Events() *eventbus.Bus         { return nil }
+func (t *testDispatcher) UnregisterWorkspace(ws string) {}
 
 func TestValidateAutomation_LoopStrategy(t *testing.T) {
 	dispatcher := &testDispatcher{}
@@ -717,8 +728,8 @@ func TestWorkspaceFileHandlers_NestedAndContained(t *testing.T) {
 	}
 }
 
-// memory_mode is fail-fast validated like loop_strategy: empty (unset = off),
-// off and hot pass; anything else is rejected with the valid-values hint.
+// memory_mode is fail-fast validated like loop_strategy: empty (inherit), on and
+// off pass; anything else, including the pre-rename "hot", is rejected with the valid-values hint.
 func TestValidateAutomation_MemoryMode(t *testing.T) {
 	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
 
@@ -727,9 +738,10 @@ func TestValidateAutomation_MemoryMode(t *testing.T) {
 		mode    models.MemoryMode
 		wantErr bool
 	}{
-		{"empty passes (off)", "", false},
+		{"empty passes (inherit)", "", false},
 		{"off passes", models.MemoryModeOff, false},
-		{"hot passes", models.MemoryModeHot, false},
+		{"on passes", models.MemoryModeOn, false},
+		{"pre-rename hot rejected", "hot", true},
 		{"unknown rejected", "hot+hints", true},
 	}
 	for _, tc := range cases {
@@ -743,4 +755,259 @@ func TestValidateAutomation_MemoryMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The heartbeat is configured in the workspace's Heartbeat section, so its automation name is reserved: a
+// hand-made automation with that name would collide with the compiled one.
+func TestValidateAutomation_ReservedHeartbeatName(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
+	err := handlers.validateAutomation(&models.Automation{Name: models.HeartbeatAutomationName, TaskFile: "task.md"})
+	if err == nil || !strings.Contains(err.Error(), "Heartbeat") {
+		t.Fatalf("expected a reserved-name error pointing at the Heartbeat section, got %v", err)
+	}
+}
+
+func TestUpdateWorkspaceConfig_ValidatesHeartbeat(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	handlers := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"enabled with an interval", `{"heartbeat":{"enabled":true,"every":"15m"}}`, http.StatusOK},
+		{"disabled needs no interval", `{"heartbeat":{"enabled":false}}`, http.StatusOK},
+		{"too frequent", `{"heartbeat":{"enabled":true,"every":"10s"}}`, http.StatusBadRequest},
+		{"not a duration", `{"heartbeat":{"enabled":true,"every":"often"}}`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(tc.body))
+			req.SetPathValue(models.WorkspaceIDParam, "ws")
+			rr := httptest.NewRecorder()
+			handlers.UpdateWorkspaceConfig(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "heartbeat.every") {
+				t.Errorf("error should name the field: %s", rr.Body.String())
+			}
+		})
+	}
+}
+
+// assistant_memory is the workspace-level override of the same switch and is validated at the same boundary,
+// before anything is persisted.
+func TestUpdateWorkspaceConfig_RejectsBadAssistantMemory(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, tmp, tmp)
+	mgr := persistence.NewWorkspaceManager(resolver)
+	handlers := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	for _, tc := range []struct {
+		value string
+		want  int
+	}{
+		{`"on"`, http.StatusOK},
+		{`"off"`, http.StatusOK},
+		{`""`, http.StatusOK},
+		{`"hot"`, http.StatusBadRequest},
+		{`"sometimes"`, http.StatusBadRequest},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(`{"assistant_memory":`+tc.value+`}`))
+			req.SetPathValue(models.WorkspaceIDParam, "ws")
+			rr := httptest.NewRecorder()
+			handlers.UpdateWorkspaceConfig(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "assistant_memory") {
+				t.Errorf("error should name the field: %s", rr.Body.String())
+			}
+		})
+	}
+}
+
+// notify is fail-fast validated: a delivery block must name a connector and
+// carry a sane retention.
+func TestValidateAutomation_Notify(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	cases := []struct {
+		name    string
+		notify  *models.NotifyConfig
+		wantErr bool
+	}{
+		{"absent passes", nil, false},
+		{"connector only passes", &models.NotifyConfig{Connector: "my-telegram"}, false},
+		{"dedup with retention passes", &models.NotifyConfig{Connector: "tg", Dedup: true, DedupDays: 30}, false},
+		{"missing connector rejected", &models.NotifyConfig{Dedup: true}, true},
+		{"negative retention rejected", &models.NotifyConfig{Connector: "tg", DedupDays: -1}, true},
+		{"absurd retention rejected", &models.NotifyConfig{Connector: "tg", DedupDays: models.MaxDedupDays + 1}, true},
+		{"maximum retention passes", &models.NotifyConfig{Connector: "tg", DedupDays: models.MaxDedupDays}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", Notify: tc.notify})
+			if tc.wantErr && (err == nil || !strings.Contains(err.Error(), "notify")) {
+				t.Fatalf("expected notify error, got %v", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAutomationJournalHandlers(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	h := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+	call := func(handler http.HandlerFunc, method, ws, name string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/admin/api/dispatcher/workspaces/"+ws+"/automations/"+name+"/journal", nil)
+		req.SetPathValue(models.WorkspaceIDParam, ws)
+		req.SetPathValue("automation", name)
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		return rr
+	}
+
+	t.Run("reads the stored journal", func(t *testing.T) {
+		if err := mgr.WriteJournal("ws", "nightly", "- query A"); err != nil {
+			t.Fatal(err)
+		}
+		rr := call(h.GetAutomationJournal, "GET", "ws", "nightly")
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"journal":"- query A"`) {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("a missing journal reads as empty", func(t *testing.T) {
+		rr := call(h.GetAutomationJournal, "GET", "ws", "never-ran")
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"journal":""`) {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("clearing removes the journal", func(t *testing.T) {
+		rr := call(h.ClearAutomationJournal, "DELETE", "ws", "nightly")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+		if got, _ := mgr.ReadJournal("ws", "nightly"); got != "" {
+			t.Errorf("journal survived the clear: %q", got)
+		}
+	})
+
+	t.Run("rejects unsafe identifiers", func(t *testing.T) {
+		for _, handler := range []http.HandlerFunc{h.GetAutomationJournal, h.ClearAutomationJournal} {
+			if rr := call(handler, "GET", "ws", ".."); rr.Code != http.StatusBadRequest {
+				t.Errorf("status %d for a traversing automation name, want 400", rr.Code)
+			}
+		}
+	})
+}
+
+func TestListAutomations_ExposesJournalFlag(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	entry := &automation.AutomationEntry{ID: "ws/a", Workspace: "ws", Name: "a", TaskFile: "t.md", Journal: true}
+	entry.Trigger, _ = automation.New(models.TriggerConfig{Type: models.TriggerManual})
+	entry.Strategy = &automation.IsolatedStrategy{}
+	h := NewDispatcherHandlers(&listDispatcher{testDispatcher: &testDispatcher{mgr: mgr}, entries: []*automation.AutomationEntry{entry}}, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	rr := httptest.NewRecorder()
+	h.ListAutomations(rr, httptest.NewRequest("GET", "/admin/api/dispatcher/automations", nil))
+	if !strings.Contains(rr.Body.String(), `"journal":true`) {
+		t.Errorf("journal flag missing from the automation list: %s", rr.Body.String())
+	}
+}
+
+// newActivityTestHandlers seeds one workspace's persisted run history and
+// returns handlers backed by a real WorkspaceManager, so the activity feed is
+// read exactly as in production.
+func newActivityTestHandlers(t *testing.T, ws string, history []models.AutomationRun) *DispatcherHandlers {
+	t.Helper()
+	tmp := t.TempDir()
+	resolver := storage.NewPathResolver(tmp, filepath.Join(tmp, "workspaces"), filepath.Join(tmp, "meta"))
+	mgr := persistence.NewWorkspaceManager(resolver)
+	if err := os.MkdirAll(resolver.WorkspaceDir(ws), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.WriteState(ws, &models.AgentState{History: history}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+	return NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+}
+
+func activityIDs(t *testing.T, h *DispatcherHandlers) []string {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	h.GetGlobalActivity(rr, httptest.NewRequest("GET", "/admin/api/dispatcher/activity", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GetGlobalActivity: %d %s", rr.Code, rr.Body.String())
+	}
+	var runs []models.AutomationRun
+	if err := json.Unmarshal(rr.Body.Bytes(), &runs); err != nil {
+		t.Fatalf("decode activity %q: %v", rr.Body.String(), err)
+	}
+	if runs == nil {
+		t.Fatalf("activity must be a JSON array, got %s", rr.Body.String())
+	}
+	ids := make([]string, 0, len(runs))
+	for _, run := range runs {
+		ids = append(ids, run.ID)
+	}
+	return ids
+}
+
+// TestGlobalActivity_ReflectsDeletes guards the "deleted runs still listed on
+// the main page" bug: the activity feed reads the same persisted history the
+// delete endpoints purge, so a deleted run is gone from it immediately.
+func TestGlobalActivity_ReflectsDeletes(t *testing.T) {
+	history := []models.AutomationRun{
+		{ID: "run_1", WorkspaceID: "ws", AutomationName: "a", Timestamp: time.Unix(1, 0)},
+		{ID: "run_2", WorkspaceID: "ws", AutomationName: "a", Timestamp: time.Unix(2, 0)},
+		{ID: "run_3", WorkspaceID: "ws", AutomationName: "b", Timestamp: time.Unix(3, 0)},
+	}
+
+	t.Run("single run", func(t *testing.T) {
+		h := newActivityTestHandlers(t, "ws", history)
+		req := httptest.NewRequest("DELETE", "/admin/api/dispatcher/runs/ws/run/run_1", nil)
+		req.SetPathValue(models.WorkspaceIDParam, "ws")
+		req.SetPathValue("run", "run_1")
+		rr := httptest.NewRecorder()
+		h.DeleteRun(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("DeleteRun: %d %s", rr.Code, rr.Body.String())
+		}
+		if got := strings.Join(activityIDs(t, h), ","); got != "run_2,run_3" {
+			t.Fatalf("want run_2,run_3 after deleting run_1, got %s", got)
+		}
+	})
+
+	t.Run("all runs of an automation", func(t *testing.T) {
+		h := newActivityTestHandlers(t, "ws", history)
+		req := httptest.NewRequest("DELETE", "/admin/api/dispatcher/runs/ws/a", nil)
+		req.SetPathValue(models.WorkspaceIDParam, "ws")
+		req.SetPathValue("automation", "a")
+		rr := httptest.NewRecorder()
+		h.DeleteAutomationRuns(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("DeleteAutomationRuns: %d %s", rr.Code, rr.Body.String())
+		}
+		if got := strings.Join(activityIDs(t, h), ","); got != "run_3" {
+			t.Fatalf("want only run_3 after clearing automation a, got %s", got)
+		}
+	})
+
+	t.Run("no runs is an empty array", func(t *testing.T) {
+		h := newActivityTestHandlers(t, "ws", nil)
+		if ids := activityIDs(t, h); len(ids) != 0 {
+			t.Fatalf("want no runs, got %v", ids)
+		}
+	})
 }

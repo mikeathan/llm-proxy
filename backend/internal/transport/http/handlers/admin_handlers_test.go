@@ -179,6 +179,35 @@ func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
 	}
 }
 
+// The config view always carries the two resolved hot-memory defaults, so the UI never has to guess what an unset value means.
+func TestAdminConfigHandler_ReturnsMemoryHotDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings models.UserSettings
+		want     map[string]any
+	}{
+		{"unset resolves to the shipped defaults", models.UserSettings{}, map[string]any{"assistant_hot": true, "automation_hot": false}},
+		{"explicit values are returned", models.UserSettings{Memory: &models.MemoryConfig{AssistantHot: new(false), AutomationHot: new(true)}}, map[string]any{"assistant_hot": false, "automation_hot": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := newSystemHandlers(&mocks.MockAdminService{GetSettingsFunc: func() models.UserSettings { return tc.settings }})
+			rr := httptest.NewRecorder()
+			handler.AdminConfigHandler(rr, httptest.NewRequest(http.MethodGet, "/admin/api/config", nil))
+			var resp struct {
+				Memory map[string]any `json:"memory"`
+			}
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			for k, v := range tc.want {
+				if resp.Memory[k] != v {
+					t.Errorf("memory.%s = %v, want %v", k, resp.Memory[k], v)
+				}
+			}
+		})
+	}
+}
+
 func TestAdminConfigHandler_ReturnsGPUMetrics(t *testing.T) {
 	admin := &mocks.MockAdminService{}
 	admin.GetSystemFunc = func() models.SystemConfig {

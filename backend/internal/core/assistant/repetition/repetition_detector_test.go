@@ -717,3 +717,33 @@ func TestRepetitionDetector_SlidingWindow(t *testing.T) {
 		}
 	})
 }
+
+// memory_update is idempotent ("already saved"), so a model that repeats an identical save gets the duplicate nudge, never
+// the loop error that ends the run; every other tool keeps the error.
+func TestCheck_RepeatedIdenticalMemorySavesNudgeInsteadOfEndingTheRun(t *testing.T) {
+	log := logging.NewNopLogger()
+	call := func(name string) []proxy.ToolCall {
+		return []proxy.ToolCall{{Function: proxy.FunctionCall{Name: name, Arguments: `{"content":"the port is 5433"}`}}}
+	}
+	for _, tc := range []struct {
+		tool    string
+		wantErr bool
+	}{{models.ToolMemoryUpdate, false}, {models.ToolFileRead, true}} {
+		t.Run(tc.tool, func(t *testing.T) {
+			rd := &Detector{}
+			var err error
+			nudged := false
+			for i := 0; i < DuplicateStreakThreshold+2 && err == nil; i++ {
+				var nag string
+				_, nag, err = rd.Check(log, call(tc.tool))
+				nudged = nudged || nag == prompts.AutomationDuplicateNagPrompt
+			}
+			if (err != nil) != tc.wantErr {
+				t.Errorf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if !nudged {
+				t.Error("a repeated call must have been nudged before anything else happened")
+			}
+		})
+	}
+}

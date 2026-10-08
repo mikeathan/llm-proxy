@@ -31,6 +31,9 @@ var workspaceFiles = []string{
 // ErrRunNotFound is returned when a requested run ID has no history entry.
 var ErrRunNotFound = errors.New("run not found")
 
+// MaxRecentRuns caps the cross-workspace run feed returned by RecentRuns.
+const MaxRecentRuns = 100
+
 // WorkspaceManager handles atomic file I/O for workspaces with flock locking.
 type WorkspaceManager struct {
 	resolver *storage.PathResolver
@@ -181,6 +184,34 @@ func (m *WorkspaceManager) ReadHeartbeat(workspaceID string) (string, error) {
 	return string(data), nil
 }
 
+// heartbeatStatusFile holds the last heartbeat check, beside state.json outside the agent's workspace jail.
+const heartbeatStatusFile = "heartbeat-status.json"
+
+// ReadHeartbeatStatus returns the last heartbeat check, nil when none has happened. An undecodable file is an error.
+func (m *WorkspaceManager) ReadHeartbeatStatus(workspaceID string) (*models.HeartbeatStatus, error) {
+	data, err := os.ReadFile(filepath.Join(m.resolver.InternalDir(workspaceID), heartbeatStatusFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read heartbeat status: %w", err)
+	}
+	var status models.HeartbeatStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("failed to decode heartbeat status: %w", err)
+	}
+	return &status, nil
+}
+
+// WriteHeartbeatStatus replaces the last heartbeat check atomically.
+func (m *WorkspaceManager) WriteHeartbeatStatus(workspaceID string, status models.HeartbeatStatus) error {
+	data, err := json.Marshal(status)
+	if err != nil {
+		return fmt.Errorf("failed to encode heartbeat status: %w", err)
+	}
+	return storage.WriteAtomic(filepath.Join(m.resolver.InternalDir(workspaceID), heartbeatStatusFile), "heartbeat-status-*.json.tmp", data, storage.ClassUserContent)
+}
+
 // WriteHeartbeat writes heartbeat.md atomically.
 func (m *WorkspaceManager) WriteHeartbeat(workspaceID string, content string) error {
 	return storage.WriteAtomic(m.resolver.Heartbeat(workspaceID), "heartbeat-*.md.tmp", []byte(content), storage.ClassUserContent)
@@ -241,21 +272,13 @@ func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	entries, err := os.ReadDir(m.resolver.WorkspacesRoot())
+	ids, err := m.workspaceIDs()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []*models.Workspace{}, nil
-		}
-		return nil, fmt.Errorf("failed to read workspace directory: %w", err)
+		return nil, err
 	}
 
-	var workspaces []*models.Workspace
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		id := entry.Name()
-
+	workspaces := make([]*models.Workspace, 0, len(ids))
+	for _, id := range ids {
 		cfg, _ := m.ReadConfig(id)
 		state, _ := m.ReadState(id)
 		heartbeat, _ := m.ReadHeartbeat(id)
@@ -269,6 +292,60 @@ func (m *WorkspaceManager) ListWorkspaces() ([]*models.Workspace, error) {
 		workspaces = append(workspaces, ws)
 	}
 	return workspaces, nil
+}
+
+// workspaceIDs lists the workspaces (directories under the workspaces root); a
+// missing root means there are none yet.
+func (m *WorkspaceManager) workspaceIDs() ([]string, error) {
+	entries, err := os.ReadDir(m.resolver.WorkspacesRoot())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read workspace directory: %w", err)
+	}
+	var ids []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			ids = append(ids, entry.Name())
+		}
+	}
+	return ids, nil
+}
+
+// RecentRuns returns the newest MaxRecentRuns automation runs across every
+// workspace, oldest first, read from each workspace's state.json — the single
+// source of truth for run history, so a deleted run disappears here with no
+// extra bookkeeping. A run stored without a workspace ID reports the workspace
+// it was read from. A workspace whose state cannot be read is skipped so one
+// corrupt state.json does not hide every other workspace's runs.
+func (m *WorkspaceManager) RecentRuns(ctx context.Context) ([]models.AutomationRun, error) {
+	ids, err := m.workspaceIDs()
+	if err != nil {
+		return nil, err
+	}
+
+	runs := []models.AutomationRun{}
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("read recent runs: %w", err)
+		}
+		state, err := m.ReadState(id)
+		if err != nil {
+			continue
+		}
+		for _, run := range state.History {
+			if run.WorkspaceID == "" {
+				run.WorkspaceID = id
+			}
+			runs = append(runs, run)
+		}
+	}
+
+	slices.SortStableFunc(runs, func(a, b models.AutomationRun) int {
+		return a.Timestamp.Compare(b.Timestamp)
+	})
+	return runs[max(0, len(runs)-MaxRecentRuns):], nil
 }
 
 // MetadataRoot returns the per-workspace metadata root that holds config.yaml
@@ -372,7 +449,9 @@ func (m *WorkspaceManager) pruneEmptyParents(paths ...string) {
 // across all model subdirs (data/runs/{workspaceID}/{model}/{automation}) and
 // purges the matching History/LastRuns entries from state.json so deleted runs
 // do not resurface in the UI. The workspace lock serializes the read-modify-
-// write against a concurrently running automation.
+// write against a concurrently running automation. The automation's seen
+// ledger and journal go with it, so a deleted automation leaves no delivery or
+// learning state behind.
 func (m *WorkspaceManager) DeleteAutomationRuns(workspaceID, automation string) error {
 	lock, err := m.AcquireLock(workspaceID)
 	if err != nil {
@@ -414,7 +493,7 @@ func (m *WorkspaceManager) DeleteAutomationRuns(workspaceID, automation string) 
 	}
 
 	m.pruneEmptyParents(modelDirs...)
-	return nil
+	return errors.Join(m.DeleteSeen(workspaceID, automation), m.DeleteJournal(workspaceID, automation))
 }
 
 // DeleteRunByID removes a single automation run by its history ID. It looks up

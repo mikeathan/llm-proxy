@@ -11,7 +11,6 @@ import (
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
-	"llm-proxy/models"
 
 	"github.com/robfig/cron/v3"
 )
@@ -31,14 +30,17 @@ type Dispatcher struct {
 	logger      logging.Logger
 	lane        *runlane.Scheduler
 	laneKeyFor  func(model string) runlane.LaneKey
+	// notifier delivers reports for automations with a notify block; nil
+	// disables delivery (WithNotifier).
+	notifier Notifier
+	// failureNotices rate-limits failure notices per automation.
+	failureNotices failureNoticeLimiter
 
 	mu      sync.RWMutex
 	jobs    map[string]cron.EntryID // automationID -> cron.EntryID
 	metrics *DispatcherMetrics
 
-	historyMu     sync.RWMutex
-	globalHistory []models.AutomationRun
-	events        *eventbus.Bus
+	events *eventbus.Bus
 
 	runMu      sync.RWMutex
 	activeRuns map[string]*activeRun // workspaceID -> run metadata
@@ -162,8 +164,8 @@ func (m *DispatcherMetrics) RecordExecution(success, skipped bool, latency time.
 
 // RecordQueued and RecordPreempted count scheduler admissions and lane
 // preemptions. Both counters are in-memory only — skipped/preempted runs
-// produce no persisted history entry, so LoadHistory cannot reconstruct them;
-// they reset on restart together with the lanes themselves.
+// produce no persisted history entry, so seedMetricsFromHistory cannot
+// reconstruct them; they reset on restart together with the lanes themselves.
 func (m *DispatcherMetrics) RecordQueued()    { atomic.AddInt64(&m.QueuedExecutions, 1) }
 func (m *DispatcherMetrics) RecordPreempted() { atomic.AddInt64(&m.PreemptedExecutions, 1) }
 

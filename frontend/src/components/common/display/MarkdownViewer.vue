@@ -71,7 +71,8 @@ const htmlContent = computed(() => {
 .markdown-body--document :deep(pre) {
   @apply my-4 rounded-[var(--radius-sm)] border border-hairline bg-surface-raised p-3.5 font-mono text-[12.5px] leading-[1.55] overflow-x-auto !important;
 }
-.markdown-body--document :deep(table) { @apply my-4 w-full border-collapse text-[13px]; }
+.markdown-body--document :deep(.md-table-scroll) { @apply my-4; }
+.markdown-body--document :deep(table) { @apply w-full border-collapse text-[13px]; }
 .markdown-body--document :deep(th) { @apply border border-control bg-surface-raised px-3 py-2 text-left font-semibold text-primary; }
 .markdown-body--document :deep(td) { @apply border border-control px-3 py-2 align-top text-secondary; }
 
@@ -88,9 +89,22 @@ const htmlContent = computed(() => {
 .markdown-body--compact :deep(pre) {
   @apply my-2 rounded-[var(--radius-sm)] border border-hairline bg-surface-raised p-2.5 font-mono overflow-x-auto !important;
 }
-.markdown-body--compact :deep(table) { @apply my-2 w-full border-collapse text-[11px]; }
+.markdown-body--compact :deep(.md-table-scroll) { @apply my-2; }
+.markdown-body--compact :deep(table) { @apply w-full border-collapse text-[11px]; }
 .markdown-body--compact :deep(th) { @apply border border-control bg-surface-raised p-1.5 text-left text-primary; }
 .markdown-body--compact :deep(td) { @apply border border-control p-1.5 text-secondary; }
+
+/* ── Shared: tables ── */
+/* The wrapper scrolls; the table keeps readable columns (min-width, wrapped long
+   URLs) and grows past the wrapper on narrow screens instead of crushing to one
+   word per line. min-w-0 lets the viewer shrink inside flex/grid parents. */
+.markdown-body { @apply min-w-0; }
+.markdown-body :deep(.md-table-scroll) {
+  @apply max-w-full overflow-x-auto overscroll-x-contain;
+}
+.markdown-body :deep(.md-table-scroll > table) { @apply m-0 w-max min-w-full; }
+.markdown-body :deep(th),
+.markdown-body :deep(td) { @apply min-w-[7rem] max-w-[22rem] [overflow-wrap:anywhere]; }
 
 /* ── Shared: code ── */
 .markdown-body :deep(code) {

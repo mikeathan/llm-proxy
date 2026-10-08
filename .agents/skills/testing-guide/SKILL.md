@@ -1,7 +1,7 @@
 ---
 name: testing-guide
 description: "Testing guide: authoring/running Go + Vitest/Playwright tests, smoke tasks, record-replay, MockClient patterns, and run-artifact analysis. Use when writing or running tests; for a failing test/run start with debugging."
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-04
 ---
 
 # Testing — Patterns, Tools & Strategies
@@ -33,7 +33,7 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `memory-three-tier-test.md` | Memory three-tier test (scope/mode/keep routing) |
 | `memory-store-test.md` | Memory verification step 1: the agent saves one made-up fact with explicit routing (chat or automation) |
 | `memory-recall-test.md` | Memory verification step 2: three questions answerable only from the injected memory block, tools forbidden, one unsaved control (see `docs/guides/memory-testing.md` Part A) |
-| `memory-ab-test.md` | Memory A/B comparison — goal-phrased task that fills an 8K window; run with `memory_mode` off vs hot (see `docs/guides/memory-testing.md` Part B) |
+| `memory-ab-test.md` | Memory A/B comparison — goal-phrased task that fills an 8K window; run with `memory_mode` off vs on (see `docs/guides/memory-testing.md` Part B) |
 | `sandbox-conformance-probe.md` | Sandbox conformance probe (OS-jail / run capability) |
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
 | `compliance_check_internal.md` | Compliance & high-risk port audit |

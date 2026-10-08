@@ -1,3 +1,4 @@
+import { HEARTBEAT_TASK_FILE } from '../../utils/automation/heartbeat'
 import { computed, markRaw, ref, shallowRef } from 'vue'
 import type { Automation, AutomationRun, AgentState, DispatcherMetrics } from '../../types/dispatcher'
 import { useAppBanner } from '../ui/useAppBanner'
@@ -9,6 +10,7 @@ import { treeFilePaths, withoutNestedPaths } from '../../utils/workspace/fileTre
 const { show: showBanner, clear: clearBanner } = useAppBanner()
 
 const TRIGGER_QUEUED_STATUS = 'queued'
+const TRIGGER_SKIPPED_STATUS = 'skipped'
 
 const automations = ref<Automation[]>([])
 const metrics = ref<DispatcherMetrics | null>(null)
@@ -88,6 +90,9 @@ async function triggerAutomation(workspace: string, automation: string, recordin
     // it waits in the lane and executes when a slot frees.
     if (result.status === TRIGGER_QUEUED_STATUS) {
       showBanner({ severity: 'notice', message: `Queued #${result.position} — ${automation} starts when the lane frees` })
+    }
+    if (result.status === TRIGGER_SKIPPED_STATUS) {
+      showBanner({ severity: 'notice', message: `${automation} was skipped: it has nothing to run yet. Add checks to ${HEARTBEAT_TASK_FILE}.` })
     }
   } catch (e) {
     showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to trigger automation' })

@@ -33,6 +33,9 @@ type Disposition string
 const (
 	DispositionStarted Disposition = "started"
 	DispositionQueued  Disposition = "queued"
+	// DispositionSkipped: a SkipIfBusy job found the lane busy and was dropped
+	// instead of queued.
+	DispositionSkipped Disposition = "skipped"
 )
 
 var (
@@ -78,6 +81,11 @@ type Job struct {
 	Manual      bool // user-initiated: dropped on preemption instead of re-queued
 	Model       string
 	Run         func(ctx context.Context) error
+
+	// SkipIfBusy marks a disposable scheduled run (e.g. a heartbeat whose next
+	// tick repeats the work): when it cannot start at once it is dropped, never
+	// queued, and a preempted one is dropped instead of re-queued.
+	SkipIfBusy bool
 }
 
 // Submission reports the admission outcome and the 1-based queue position

@@ -10,6 +10,7 @@ import (
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/failures"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/safe"
@@ -93,17 +94,23 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	if recordingRefOverride != "" {
 		recordingRef = recordingRefOverride
 	}
-	req := newExecuteRequest(entry, state, taskContent, recordingRef)
+	ledger := d.seenLedger(entry)
+	task := d.withJournal(entry, withSeenHint(entry, taskContent, ledger))
+	req := newExecuteRequest(entry, state, task, recordingRef)
 
 	resp, err := d.executor.Execute(stratCtx, req)
 	elapsed := time.Since(start)
 
 	if err != nil {
-		return d.failRun(entry, state, execCtx, err, elapsed)
+		runErr := d.failRun(entry, state, execCtx, err, elapsed)
+		d.notifyFailure(ctx, entry, runErr)
+		return runErr
 	}
 
 	d.succeedRun(entry, state, resp)
 	d.metrics.RecordExecution(true, false, elapsed)
+	d.failureNotices.reset(failureNoticeKey(entry))
+	d.deliverReport(ctx, entry, resp, ledger)
 	return nil
 }
 
@@ -137,6 +144,7 @@ func (d *Dispatcher) reportPrepareFailure(entry *AutomationEntry, err error, sta
 	d.logger.Error("automation run failed before start",
 		"workspace", entry.Workspace, "automation", entry.Name, "error", err.Error())
 	d.recordPrepareFailure(entry, err, time.Since(start))
+	d.recordHeartbeat(entry, models.HeartbeatError)
 
 	fi := failures.ClassifyRunFailure(err)
 	payload := map[string]string{"error": fi.Error}
@@ -150,9 +158,10 @@ func (d *Dispatcher) reportPrepareFailure(entry *AutomationEntry, err error, sta
 	})
 }
 
-// recordPrepareFailure appends the failed run to the workspace state and the
-// global ledger. Best-effort: when the state itself is unreadable (the likely
-// cause of the failure) there is nothing to append to; the log line remains.
+// recordPrepareFailure appends the failed run to the workspace state (the run
+// history the global activity feed reads). Best-effort: when the state itself
+// is unreadable (the likely cause of the failure) there is nothing to append
+// to; the log line remains.
 func (d *Dispatcher) recordPrepareFailure(entry *AutomationEntry, runErr error, elapsed time.Duration) {
 	state, err := d.persistence.ReadState(entry.Workspace)
 	if err != nil {
@@ -171,9 +180,7 @@ func (d *Dispatcher) recordPrepareFailure(entry *AutomationEntry, runErr error, 
 	state.SetRunning("")
 	if err := d.persistence.WriteState(entry.Workspace, state); err != nil {
 		d.logger.Error("could not record failed run", "workspace", entry.Workspace, "error", err.Error())
-		return
 	}
-	d.RecordActivity(run)
 }
 
 // prepareRun reads the persisted state and task file, marks the workspace
@@ -188,6 +195,9 @@ func (d *Dispatcher) prepareRun(execCtx context.Context, entry *AutomationEntry)
 	taskContent, err := d.persistence.ReadTaskFile(entry.Workspace, entry.TaskFile)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("failed to read task file %s: %w", entry.TaskFile, err)
+	}
+	if isHeartbeat(entry) {
+		taskContent = prompts.HeartbeatTask(taskContent)
 	}
 	if taskContent == "" {
 		return nil, nil, "", fmt.Errorf("task file %s is missing or empty", entry.TaskFile)
@@ -221,7 +231,7 @@ func (d *Dispatcher) prepareRun(execCtx context.Context, entry *AutomationEntry)
 
 // failRun handles a failed executor return. A lane preemption is closed out as
 // skipped (no failure); any other error clears the running state, publishes a
-// classified error to the UI, records it in the ledger and is returned.
+// classified error to the UI, persists it in the run history and is returned.
 func (d *Dispatcher) failRun(entry *AutomationEntry, state *models.AgentState, execCtx context.Context, runErr error, elapsed time.Duration) error {
 	if runlane.Preempted(execCtx) {
 		d.recordPreempted(entry, state, elapsed)
@@ -229,6 +239,7 @@ func (d *Dispatcher) failRun(entry *AutomationEntry, state *models.AgentState, e
 	}
 	state.SetRunning("")
 	d.persistence.WriteState(entry.Workspace, state)
+	d.recordHeartbeat(entry, models.HeartbeatError)
 
 	// Un-hang the UI by publishing the error over the EventBus. The payload
 	// must match the shared frontend consumer (messageBuilder reads
@@ -245,22 +256,18 @@ func (d *Dispatcher) failRun(entry *AutomationEntry, state *models.AgentState, e
 		Payload: payload,
 	})
 
-	// Ensure failed runs also propagate to the global ledger
-	if len(state.History) > 0 {
-		d.RecordActivity(state.History[len(state.History)-1])
-	}
-
 	d.metrics.RecordExecution(false, false, elapsed)
 	return runErr
 }
 
 // succeedRun persists a successful run's outcome (pulse + cleared running
-// state) and propagates it to the global ledger. A nil response leaves state
-// untouched; the caller still records the execution as successful.
+// state) to the run history. A nil response leaves state untouched; the caller
+// still records the execution as successful.
 func (d *Dispatcher) succeedRun(entry *AutomationEntry, state *models.AgentState, resp *ExecuteResponse) {
 	if resp == nil || resp.State == nil {
 		return
 	}
+	d.recordHeartbeat(entry, heartbeatResultOf(resp))
 	if resp.Output != "" {
 		ApplyPulseLogic(resp)
 	}
@@ -270,11 +277,6 @@ func (d *Dispatcher) succeedRun(entry *AutomationEntry, state *models.AgentState
 		state.LastPulse = resp.State.LastPulse
 	}
 	d.persistence.WriteState(entry.Workspace, state)
-
-	// Also record in global history
-	if len(state.History) > 0 {
-		d.RecordActivity(state.History[len(state.History)-1])
-	}
 }
 
 func (d *Dispatcher) StopAutomation(workspaceID string) error {
@@ -342,8 +344,8 @@ func (d *Dispatcher) StopAutomation(workspaceID string) error {
 }
 
 // recordPreempted closes out a run cancelled by a run-lane preemption: the
-// executor already appended a failed history entry to the shared state (and
-// RecordActivity would propagate it), so the tail entry is dropped, the run
+// executor already appended a failed history entry to the shared state (which
+// would then be persisted as a failure), so the tail entry is dropped, the run
 // counts as skipped and the UI is informed instead of alarmed. The run
 // restarts from its task file when the lane frees.
 func (d *Dispatcher) recordPreempted(entry *AutomationEntry, state *models.AgentState, elapsed time.Duration) {
@@ -411,5 +413,6 @@ func newExecuteRequest(entry *AutomationEntry, state *models.AgentState, taskCon
 		RecordingRef:   recordingRef,
 		NetworkGrant:   entry.NetworkGrant,
 		MemoryMode:     entry.MemoryMode,
+		Journal:        entry.Journal,
 	}
 }

@@ -43,6 +43,8 @@ type AssistantMessageHandler struct {
 	service     assistantPkg.ConversationService
 	running     sync.Map
 	lane        *runlane.Scheduler
+	// reviewTimeout bounds a memory review's wait plus model call; zero means memoryReviewTimeout.
+	reviewTimeout time.Duration
 }
 
 type runningAgent struct {

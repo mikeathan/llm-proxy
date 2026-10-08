@@ -1,7 +1,7 @@
 ---
 name: event-streaming-patterns
 description: "Event streaming patterns: SSE composables, observer chaining, guardrail flow, heartbeat cleanup, and dedup. Use when working with event streams or SSE handlers."
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-05
 ---
 
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
@@ -175,6 +175,8 @@ export function useAssistantSSE(workspaceId) {
 - Disconnected as soon as the HTTP response arrives
 
 ## SSE Event Deduplication Strategy
+
+The bus keeps a per-workspace/channel `recent` buffer (1000 events / 4 MiB) that a new subscriber receives before live events: it is how a reopened chat rebuilds a running turn. `reasoning` and `tool_stream` events are **full snapshots** (the text so far), so `Bus.Publish` replaces the newest buffered event when the new one supersedes it (same type and conversation, string payloads, nothing between: `assistant.SupersedesSnapshot`). Without that, a four-minute run published ~3,300 snapshots (11 MB), evicted `session_started` and the tool cycles, and a reopened chat got only a window of snapshots with no start. `eventbus.Sink` (`events.jsonl`) applies the same rule plus a 10 s checkpoint. The chat opens through `useAssistant.openWorkspace`, which connects to the live stream once (loading a running conversation connects itself).
 
 SSE reconnects may replay events. The frontend handles this via:
 

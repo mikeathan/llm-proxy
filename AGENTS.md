@@ -116,7 +116,9 @@ there is no separate trigger field.** Route by phase:
 - **Verify / debug** → `debugging` for anything failing; `testing-guide` for authoring/running tests,
   smoke runs, record-replay, and run analysis.
 - **Close out** → `documentation-stewardship`.
-- **Ops / config** → `llamacpp-setup`.
+- **Ops / config** → `llamacpp-setup`; changing a persisted config field, default or precedence →
+  `config-persistence`; inference-provider work (not search or connectors) → `provider-integration`.
+- **Commit / PR text** → `pr-commit-message`.
 
 ## Before coding
 

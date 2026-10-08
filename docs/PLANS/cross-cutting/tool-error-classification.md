@@ -96,7 +96,7 @@ Note: `prompts.ToolErrorNagPrompt` (`templates.go:278-280`) exists but is **not 
 - **Automation:** expose accumulated warnings from the agent to the executor (add `Agent.ToolWarnings() []string`, read after `Execute`) and persist:
   - `RunMeta.Warnings []string` — `automation/rundir.go:26-38`, written in `handleAgentSuccess` (`executor.go:501-513`).
   - `models.AutomationRun.Warnings []string` — `models/workspace.go:108-123`, written by `recordRun` (`executor.go:531-566`).
-  - A run with warnings but empty `Error` still counts **success** in `dispatcher.LoadHistory` (`dispatcher.go:435-441`); optionally add a "succeeded with warnings" metric later (out of scope).
+  - A run with warnings but empty `Error` still counts **success** in `seedMetricsFromHistory` (`automation/history.go`); optionally add a "succeeded with warnings" metric later (out of scope).
   - Optionally append a delivery-failure note to `final-report.md` (`rundir.go:77-79`).
 
 ## Files to change (backend)
@@ -158,7 +158,7 @@ Note: `prompts.ToolErrorNagPrompt` (`templates.go:278-280`) exists but is **not 
 - Per-automation "optional step"/"required tool" markers.
 - Retry/backoff for transient errors (existing behaviour unchanged).
 - New UI for warnings beyond the existing system-message/run-meta surfaces.
-- Changing the binary success/failure inference in `dispatcher.LoadHistory` beyond adding `Warnings`.
+- Changing the binary success/failure inference in `seedMetricsFromHistory` beyond adding `Warnings`.
 
 ## Open decisions
 

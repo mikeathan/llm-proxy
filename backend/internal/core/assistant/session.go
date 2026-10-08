@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/repetition"
+	"llm-proxy/internal/core/assistant/toolpolicy"
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/models"
@@ -46,6 +47,10 @@ const (
 	// we keep it tighter to bound total turns while still repairing the common
 	// single-cutoff case (a report truncated once by the output cap).
 	lengthContinuationMax = 2
+
+	// signOffRatio: a natural-completion answer at least this many times shorter than the report saved from a
+	// housekeeping-tool turn is a sign-off, not the report (keepReportOverSignOff).
+	signOffRatio = 2
 
 	// maxStopGuardAttempts bounds the number of times a stop guard may nudge the
 	// run past a natural-completion candidate before the guard must allow
@@ -382,6 +387,23 @@ func (s *runSession) maybeContinueTruncated(turnMsg proxy.Message, parseErr *pro
 	return true
 }
 
+// keepReportOverSignOff returns the report a model wrote in the same turn as a housekeeping tool call (saved in
+// prompt.lastContentWithTools) when the natural-completion turn is only a short sign-off. A playbook that says "save to
+// memory before you answer" makes the model write its report beside the memory_update call; without this the next
+// turn's one-line "done" would replace it as the run's result. A later answer that is not much shorter is a real
+// answer and wins. The saved text is consumed either way, and length-continuation fragments are left alone.
+func (s *runSession) keepReportOverSignOff(final string) string {
+	saved := s.prompt.lastContentWithTools
+	s.prompt.lastContentWithTools = ""
+	if saved == "" || len(s.finalize.truncatedParts) > 0 {
+		return final
+	}
+	if len(saved) >= signOffRatio*len(final) {
+		return saved
+	}
+	return final
+}
+
 // stitchTruncated joins the accumulated length-continuation fragments with
 // content and clears the fragment buffer, so the completed answer is the full
 // stitched text rather than just the last fragment (Hermes _join_truncated_parts).
@@ -607,19 +629,15 @@ func stripThinkBlocks(content string) string {
 }
 
 // hasOnlyHousekeepingTools returns true when every tool in the batch is
-// a post-response side-effect (memory_update, etc.), not a work-horse
-// tool.  Caller uses this to decide whether turn content is a final
-// answer or mid-task narration.
+// a post-response side-effect (toolpolicy.EffectHousekeeping: memory_update,
+// automation_journal), not a work-horse tool.  Caller uses this to decide
+// whether turn content is a final answer or mid-task narration.
 func (s *runSession) hasOnlyHousekeepingTools(calls []proxy.ToolCall) bool {
 	if len(calls) == 0 {
 		return false
 	}
 	for _, tc := range calls {
-		switch tc.Function.Name {
-		// Add housekeeping tools below when they're introduced:
-		// case "memory_update", "todo":
-		//     continue
-		default:
+		if toolpolicy.EffectFor(tc.Function.Name) != toolpolicy.EffectHousekeeping {
 			return false
 		}
 	}
@@ -851,6 +869,28 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 	return true, "", err
 }
 
+// noteContentWithTools keeps the content-with-tools fallback current.
+// Content-with-tools fallback: only save when every tool in this turn
+// is housekeeping (memory, todo, etc.).  When substantive tools are
+// present (read_file, write_file, terminal, ...), the assistant text
+// is mid-task narration ("I'll scan the directory now"), not a final
+// answer.  Hermes-aligned: _last_content_with_tools only for housekeeping.
+// A turn with a substantive tool also drops text saved earlier: the run went
+// on working after it, so it is no longer the report. A later housekeeping
+// turn's much shorter narration ("recording this in the journal") does not
+// replace a saved report — the same signOffRatio rule as keepReportOverSignOff.
+func (s *runSession) noteContentWithTools(turnMsg proxy.Message) {
+	if !s.hasOnlyHousekeepingTools(turnMsg.ToolCalls) {
+		s.prompt.lastContentWithTools = ""
+		return
+	}
+	stripped := stripThinkBlocks(turnMsg.Content)
+	if len(stripped) < MinAnswerContentLength || len(s.prompt.lastContentWithTools) >= signOffRatio*len(stripped) {
+		return
+	}
+	s.prompt.lastContentWithTools = stripped
+}
+
 // handleToolTurn runs duplicate detection, tool execution, and salvage completion.
 // done=true means return from run(); done=false means continue the loop.
 func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Tool) (done bool, reply string, err error) {
@@ -886,16 +926,7 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 
 	s.trimLargeWriteContent(&turnMsg)
 
-	// Content-with-tools fallback: only save when every tool in this turn
-	// is housekeeping (memory, todo, etc.).  When substantive tools are
-	// present (read_file, write_file, terminal, ...), the assistant text
-	// is mid-task narration ("I'll scan the directory now"), not a final
-	// answer.  Hermes-aligned: _last_content_with_tools only for housekeeping.
-	if s.hasOnlyHousekeepingTools(turnMsg.ToolCalls) {
-		if stripped := stripThinkBlocks(turnMsg.Content); len(stripped) >= MinAnswerContentLength {
-			s.prompt.lastContentWithTools = stripped
-		}
-	}
+	s.noteContentWithTools(turnMsg)
 
 	s.history = append(s.history, turnMsg)
 
@@ -960,7 +991,7 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 			// is the full text, not just the last fragment (Hermes
 			// _join_truncated_parts). Runs after the guard check so a
 			// guard-nudged continuation keeps the fragments for a later stitch.
-			reply, _, completeErr := s.completeWith(s.stitchTruncated(content))
+			reply, _, completeErr := s.completeWith(s.stitchTruncated(s.keepReportOverSignOff(content)))
 			return true, reply, completeErr
 		}
 	}
@@ -1375,8 +1406,27 @@ func (a *Agent) isPrematureTermination(msg proxy.Message, history []proxy.Messag
 	return false
 }
 
+// historySavedMemory reports whether the run has already called memory_update.
+func historySavedMemory(history []proxy.Message) bool {
+	for _, m := range history {
+		for _, tc := range m.ToolCalls {
+			if tc.Function.Name == models.ToolMemoryUpdate {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	if s.agent.deps.MemoryStore == nil || s.prompt.memoryFlushSent || !s.agent.config.EnableHotMemory {
+		return
+	}
+	// The operator's own chat already carries narrower save guidance (what to
+	// save, and to save before answering), and a playbook may govern saving; a
+	// generic "save anything important" would contradict both. Nor is it needed
+	// once the run has saved.
+	if s.agent.guidesMemorySaves() || historySavedMemory(s.history) {
 		return
 	}
 

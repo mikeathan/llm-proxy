@@ -2,6 +2,10 @@ package storage
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"io/fs"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"os"
@@ -22,33 +26,102 @@ func NewTemplateStore(dir string) *TemplateStore {
 	return s
 }
 
-// extractShipped copies embedded default templates that are missing on disk. It
-// never overwrites an existing file, so user-edited templates survive upgrades.
-func (s *TemplateStore) extractShipped() {
+// shippedManifestFile records the hash of each shipped template as last written, so a later sync can tell an
+// untouched copy (safe to refresh) from one the operator edited. It is not a .md file, so it is never listed.
+const shippedManifestFile = ".shipped.json"
+
+// extractShipped syncs the embedded default templates into the store.
+func (s *TemplateStore) extractShipped() { s.syncTemplates(shipped.FS) }
+
+// syncTemplates seeds missing templates and refreshes the ones still identical to what was last seeded. A file
+// the operator edited, or one with no record of what was seeded, is left alone.
+func (s *TemplateStore) syncTemplates(src fs.FS) {
 	if err := os.MkdirAll(s.baseDir, 0o700); err != nil {
 		logging.Warn("failed to create templates dir", "dir", s.baseDir, "error", err)
 		return
 	}
-	entries, err := shipped.FS.ReadDir(".")
+	entries, err := fs.ReadDir(src, ".")
 	if err != nil {
 		logging.Warn("failed to read embedded templates", "error", err)
 		return
 	}
+	record := s.readShippedRecord()
+	changed := false
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
-		dst := filepath.Join(s.baseDir, e.Name())
-		if _, err := os.Stat(dst); err == nil {
-			continue
-		}
-		data, rerr := shipped.FS.ReadFile(e.Name())
+		data, rerr := fs.ReadFile(src, e.Name())
 		if rerr != nil {
 			continue
 		}
-		if werr := os.WriteFile(dst, data, 0o600); werr != nil {
-			logging.Warn("failed to extract template", "name", e.Name(), "error", werr)
+		if s.syncOne(e.Name(), data, record) {
+			changed = true
 		}
+	}
+	if changed {
+		s.writeShippedRecord(record)
+	}
+}
+
+// syncOne applies the sync rules to one template and reports whether the record changed.
+func (s *TemplateStore) syncOne(name string, shippedData []byte, record map[string]string) bool {
+	dst := filepath.Join(s.baseDir, name)
+	want := hashContent(shippedData)
+	onDisk, err := os.ReadFile(dst)
+	switch {
+	case os.IsNotExist(err):
+		return s.writeTemplate(dst, name, shippedData, want, record)
+	case err != nil:
+		logging.Warn("failed to read template", "name", name, "error", err)
+		return false
+	case hashContent(onDisk) == want:
+		record[name] = want
+		return true
+	case record[name] == hashContent(onDisk):
+		return s.writeTemplate(dst, name, shippedData, want, record)
+	default:
+		logging.Info("template differs from the shipped version and was left as is", "name", name)
+		return false
+	}
+}
+
+func (s *TemplateStore) writeTemplate(dst, name string, data []byte, hash string, record map[string]string) bool {
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		logging.Warn("failed to write template", "name", name, "error", err)
+		return false
+	}
+	record[name] = hash
+	return true
+}
+
+func hashContent(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// readShippedRecord returns the manifest; a missing or unreadable one is empty, which only ever means "leave
+// the files alone".
+func (s *TemplateStore) readShippedRecord() map[string]string {
+	record := map[string]string{}
+	data, err := os.ReadFile(filepath.Join(s.baseDir, shippedManifestFile))
+	if err != nil {
+		return record
+	}
+	if err := json.Unmarshal(data, &record); err != nil || record == nil {
+		logging.Warn("unreadable shipped-template record, ignoring it", "error", err)
+		return map[string]string{}
+	}
+	return record
+}
+
+func (s *TemplateStore) writeShippedRecord(record map[string]string) {
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return
+	}
+	if err := WriteAtomic(filepath.Join(s.baseDir, shippedManifestFile), "shipped-*.json.tmp", data, ClassUserContent); err != nil {
+		logging.Warn("failed to record shipped templates", "error", err)
 	}
 }
 

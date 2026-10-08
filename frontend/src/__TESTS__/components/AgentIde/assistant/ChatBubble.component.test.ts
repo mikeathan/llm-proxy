@@ -186,4 +186,13 @@ describe('ChatBubble run record', () => {
     const noTokens = reloaded({ turn: turn({ finalAnswer: 'A', run: { model: 'gpt-x', duration_ms: 1000 } }) }).get('.turn-meta')
     expect(noTokens.text()).toBe('gpt-x')
   })
+
+  // An explicit "remember …" is saved by the backend before the run starts; the turn says so, and it survives a reload.
+  it('says what was saved to memory from the message, and nothing when nothing was', () => {
+    const saved = reloaded({ turn: turn({ finalAnswer: 'A', run: { memory_saved: ['the staging DB runs on port 5433', 'answer briefly'] } }) }).get('[data-test="memory-saved"]')
+    expect(saved.text()).toContain('Saved to memory')
+    expect(saved.findAll('li').map((li) => li.text())).toEqual(['the staging DB runs on port 5433', 'answer briefly'])
+    expect(reloaded({ turn: turn({ finalAnswer: 'A', run: { model: 'gpt-x' } }) }).find('[data-test="memory-saved"]').exists()).toBe(false)
+    expect(reloaded({ turn: turn({ finalAnswer: 'A' }) }).find('[data-test="memory-saved"]').exists()).toBe(false)
+  })
 })

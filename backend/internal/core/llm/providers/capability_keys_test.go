@@ -449,3 +449,44 @@ func TestOutputCapError_Message(t *testing.T) {
 		t.Fatal("OutputCapError must satisfy ErrOutputCapExceeded via errors.Is")
 	}
 }
+
+// A proxy can front local llama.cpp servers and cloud providers in one listing.
+// The fingerprint is read per entry, and the serving context found by the
+// /slots probe is only written to the entries that carry it.
+func TestListModels_FingerprintIsPerEntry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/slots" {
+			w.Write([]byte(`[{"n_ctx":16384}]`))
+			return
+		}
+		w.Write([]byte(`{"data":[` +
+			`{"id":"Qwen3.6 35B A3B","owned_by":"llamacpp","meta":{"n_ctx_train":262144}},` +
+			`{"id":"glm-5.3-flash","owned_by":"openrouter","context_length":1048576}]}`))
+	}))
+	defer server.Close()
+
+	m, _ := GetRegistry().Get("openai")
+	cfg := models.ModelConfig{Provider: "openai", ProviderConfig: &models.ProviderConfig{BaseURL: server.URL}}
+	p := NewOpenAICompatibleProviderWithDoer(cfg, m, &http.Client{Transport: server.Client().Transport})
+	infos, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	byID := map[string]models.ProviderModelInfo{}
+	for _, info := range infos {
+		byID[info.ID] = info
+	}
+
+	local := byID["Qwen3.6 35B A3B"]
+	if local.Meta == nil || local.Meta.Serving != models.ServingLlamaCpp || local.Meta.Nctx != 16384 || local.ContextLength != 16384 {
+		t.Errorf("llama.cpp entry = %+v (meta %+v), want serving llamacpp with the probed 16384", local, local.Meta)
+	}
+	cloud := byID["glm-5.3-flash"]
+	if cloud.Meta != nil {
+		t.Errorf("cloud entry carries llama.cpp meta: %+v", cloud.Meta)
+	}
+	if cloud.ContextLength != 1048576 {
+		t.Errorf("cloud context = %d, want its own published 1048576", cloud.ContextLength)
+	}
+}

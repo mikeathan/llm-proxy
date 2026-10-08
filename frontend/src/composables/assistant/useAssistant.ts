@@ -261,6 +261,23 @@ export function useAssistant() {
     sse.reset()
   }
 
+  // openWorkspace is the chat's open sequence (mount or workspace switch): a
+  // clean slate, the session list, then either the conversation in the URL or
+  // the live stream. Each path connects to the live stream exactly once: loading
+  // a running conversation connects itself (it rebuilds the turn from the
+  // server's replay), and connecting first would replay the run twice with the
+  // turn cleared in between.
+  const openWorkspace = async (workspaceId: string, conversationId: string | null) => {
+    activeWorkspaceId.value = workspaceId
+    newSession()
+    await fetchSessions(workspaceId)
+    if (conversationId) {
+      await loadSession(workspaceId, conversationId)
+      return
+    }
+    connectSSE()
+  }
+
   const sendMessage = async (workspaceId: string, text: string) => {
     if (!text.trim()) return
 
@@ -499,6 +516,7 @@ export function useAssistant() {
     fetchSessions,
     loadSession,
     newSession,
+    openWorkspace,
     sendMessage,
     deleteSession,
     deleteAllSessions,

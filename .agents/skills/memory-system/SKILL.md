@@ -1,7 +1,7 @@
 ---
 name: memory-system
 description: "Memory architecture: injection, three-tier storage, tags, dedup, and gotchas. Use when working on memory storage or injection."
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-06
 ---
 
 # Memory System — Architecture, Decisions & Patterns
@@ -98,9 +98,11 @@ func (s Scope) Validate() error { ... }
 - Operator notes (`MEMORY.md`, `platform/memory/notes.go`): global (config root) + per-workspace (metadata folder),
   outside the agent jail; injected FIRST in the same block, never clipped (≤ 6000 chars/file on write); facts fill
   the remaining budget. One renderer (`renderHotMemory`) serves both the agent and the preview
-- Automations: opt-in per automation via `memory_mode: hot` (default off). Unattended runs (`models.IsUnattendedRun`)
+- Hot memory defaults are global (`settings.yml → memory.assistant_hot` on, `memory.automation_hot` off); `MemoryMode` (`""` inherit | `on` | `off`) overrides per automation (`memory_mode`) and per workspace assistant (`assistant_memory`), resolved by `MemoryMode.Effective`. Unattended runs (`models.IsUnattendedRun`)
   default `memory_update` to `keep: session` with `source = run:<id>`; `memory.SessionReaper` (app.New) deletes
   only old `session` entries (`memory.retention_days`, default 90)
+- Saving from chats lives in `internal/core/memorycapture` (domain only: no `assistant`/`tools`/HTTP imports; ports `Library`, `Completer`). Explicit capture = the table in `phrases.go` + `Extractor` (user's message only, before the run, manual sessions only, saved via `MemoryToolProvider.SaveFact` — the ONE save/dedup path, shared with `memory_update`; shown through `TurnRun.memory_saved`). Add a keyword = one phrase + a golden row in `extract_test.go`; never widen it with regex or model calls. The per-chat review (`Reviewer`, `POST …/memory-review`) reads user/assistant text only, saves nothing, and its output is validated in code. Plan: `docs/PLANS/memory/assistant-memory-capture.md` (save guidance D: `prompts.MemorySaveGuidance`, beside the memory block for manual assistant chats only — gated by `Agent.guidesMemorySaves`; its evaluation is `docs/guides/memory-testing.md` Part D)
+- The pre-sieve nudge (`PreSieveMemoryNudge`, `maybeFlushMemoryBeforeTurn`) is for unguided runs only: it is skipped when `guidesMemorySaves()` (operator chat) or the run already called `memory_update`, so it cannot contradict the narrower guidance or a playbook's save rule. The share used for the hot block follows the workload class (local 8% / cloud 5%); a llama.cpp server behind an OpenAI-style URL is local (SPEC-005 1.3), and a local model ignores `model_overrides.context_budget`.
 - Streaming vs fallback: test with a real `MockClient.StreamFunc` — the default mock fails `Stream`
   and takes the non-streaming fallback, which masks streaming-path defects
 

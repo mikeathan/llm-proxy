@@ -168,8 +168,9 @@ func (m *MockAssistantService) Orchestrator() *orchestrator.Orchestrator {
 	return nil
 }
 
-func (m *MockAssistantService) RecordDir() string       { return "" }
-func (m *MockAssistantService) RunLoggingEnabled() bool { return true }
+func (m *MockAssistantService) RecordDir() string                    { return "" }
+func (m *MockAssistantService) MemorySettings() *models.MemoryConfig { return nil }
+func (m *MockAssistantService) RunLoggingEnabled() bool              { return true }
 
 func NewMockAssistantService(
 	client proxy.LLMClientProvider,

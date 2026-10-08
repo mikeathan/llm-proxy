@@ -108,3 +108,30 @@ func TestMemoryConfig_SessionRetention(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryConfig_HotDefaults(t *testing.T) {
+	cases := []struct {
+		name           string
+		cfg            *MemoryConfig
+		assistant, job bool
+	}{
+		{"nil config", nil, true, false},
+		{"unset fields", &MemoryConfig{}, true, false},
+		{"shipped defaults", new(DefaultMemoryConfig()), true, false},
+		{"assistant switched off", &MemoryConfig{AssistantHot: new(false)}, false, false},
+		{"automations switched on", &MemoryConfig{AutomationHot: new(true)}, true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.cfg.AssistantHotDefault(); got != c.assistant {
+				t.Errorf("AssistantHotDefault() = %v, want %v", got, c.assistant)
+			}
+			if got := c.cfg.AutomationHotDefault(); got != c.job {
+				t.Errorf("AutomationHotDefault() = %v, want %v", got, c.job)
+			}
+			if got := c.cfg.HotDefaults(); got != (MemoryHotDefaults{AssistantHot: c.assistant, AutomationHot: c.job}) {
+				t.Errorf("HotDefaults() = %+v", got)
+			}
+		})
+	}
+}

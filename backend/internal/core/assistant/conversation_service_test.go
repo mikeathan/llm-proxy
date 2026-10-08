@@ -26,6 +26,7 @@ type mockConvDeps struct {
 	log       logging.Logger
 
 	memoryStore *memory.Store // nil unless a test seeds one
+	memory      *models.MemoryConfig
 }
 
 func (m *mockConvDeps) SelectModels() (string, string) { return m.modelName, "" }
@@ -38,6 +39,7 @@ func (m *mockConvDeps) GuardrailEngine() *guardrails.GuardrailEngine           {
 func (m *mockConvDeps) GuardrailDecisionStore() *GuardrailDecisionStore        { return m.store }
 func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator               { return nil }
 func (m *mockConvDeps) MemoryStore() *memory.Store                             { return m.memoryStore }
+func (m *mockConvDeps) MemorySettings() *models.MemoryConfig                   { return m.memory }
 func (m *mockConvDeps) Events() EventPublisher                                 { return m.events }
 func (m *mockConvDeps) RunLoggingEnabled() bool                                { return false }
 func (m *mockConvDeps) RootDir() string                                        { return "" }
@@ -675,6 +677,56 @@ func TestBuildObserver_CheckpointsEveryToolResult(t *testing.T) {
 	}
 }
 
+// The run log the checkpoints are built from keeps only the newest snapshot of a
+// stream: reasoning and tool_stream carry the text so far, and keeping each one
+// made the log (and its rescan on every tool result) grow with every token.
+func TestBuildObserver_KeepsNewestSnapshotPerStream(t *testing.T) {
+	svc := &conversationService{deps: newMockConvDeps(), persistence: newTestPersistence(t)}
+	base := []proxy.Message{{Role: proxy.UserRole, Content: "task"}}
+	session := &models.AssistantSession{ID: "conv-snap", WorkspaceID: "ws-snap", History: base}
+
+	obs, collected := svc.buildObserver(base, session, "ws-snap", &mockEventPublisher{}, nil, logging.NewNopLogger())
+	for i := 1; i <= 1000; i++ {
+		obs(AgentEvent{Type: EventReasoning, ConversationID: "conv-snap", Payload: strings.Repeat("r", i)})
+	}
+	obs(AgentEvent{Type: EventStepStart, ConversationID: "conv-snap", Payload: map[string]int{"step": 2}})
+	obs(AgentEvent{Type: EventReasoning, ConversationID: "conv-snap", Payload: "second request"})
+
+	events := collected()
+	if len(events) != 3 {
+		t.Fatalf("run log has %d events, want 3 (newest reasoning, step, reasoning)", len(events))
+	}
+	if got := events[0].Payload.(string); len(got) != 1000 {
+		t.Errorf("first request kept a %d-char snapshot, want the newest (1000)", len(got))
+	}
+}
+
+func TestSupersedesSnapshot(t *testing.T) {
+	text := func(typ AgentEventType, conv string) AgentEvent {
+		return AgentEvent{Type: typ, ConversationID: conv, Payload: "so far"}
+	}
+	tests := []struct {
+		name       string
+		prev, next AgentEvent
+		want       bool
+	}{
+		{"same stream", text(EventReasoning, "c1"), text(EventReasoning, "c1"), true},
+		{"content stream", text(EventToolStream, "c1"), text(EventToolStream, "c1"), true},
+		{"other conversation", text(EventReasoning, "c1"), text(EventReasoning, "c2"), false},
+		{"no conversation id", text(EventReasoning, ""), text(EventReasoning, ""), false},
+		{"other type", text(EventReasoning, "c1"), text(EventToolStream, "c1"), false},
+		{"not a snapshot type", text(EventMessage, "c1"), text(EventMessage, "c1"), false},
+		{"structured payload", AgentEvent{Type: EventToolStream, ConversationID: "c1", Payload: map[string]any{"a": 1}}, text(EventToolStream, "c1"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := SupersedesSnapshot(tc.prev, tc.next); got != tc.want {
+				t.Errorf("SupersedesSnapshot = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // orderedEventPublisher records the sequence of Clear and Publish operations so
 // a test can assert ordering between the recent-buffer clear (setupRun) and the
 // session_started lifecycle publish. It mirrors the EventBus semantics (Clear
@@ -761,41 +813,66 @@ func TestExecute_SessionStartedPublishedAfterClear(t *testing.T) {
 // injected (and usage only counted) when the agent has a store. Before this
 // test, buildAgent enabled hot memory but never passed the store, so chats got
 // no memory at all while the unit tests of the agent itself stayed green.
-func TestConversationService_Execute_InjectsHotMemoryAndCountsIt(t *testing.T) {
-	store := newTestMemoryStore(t)
-	ctx := context.Background()
-	if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{memory.HotTag}, "agent"); err != nil {
-		t.Fatal(err)
+// Whether a chat gets it follows the workspace override, else the global default.
+func TestConversationService_Execute_HotMemoryFollowsOverrides(t *testing.T) {
+	cases := []struct {
+		name      string
+		global    *models.MemoryConfig
+		workspace models.MemoryMode
+		wantFact  bool
+	}{
+		{"shipped default is on", nil, models.MemoryModeInherit, true},
+		{"global off", &models.MemoryConfig{AssistantHot: new(false)}, models.MemoryModeInherit, false},
+		{"workspace off beats global on", &models.MemoryConfig{AssistantHot: new(true)}, models.MemoryModeOff, false},
+		{"workspace on beats global off", &models.MemoryConfig{AssistantHot: new(false)}, models.MemoryModeOn, true},
 	}
-	deps := newMockConvDeps()
-	deps.memoryStore = store
-	svc := NewConversationService(deps, newTestPersistence(t))
-
-	var head string
-	client := &MockClient{
-		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-			if head == "" && len(req.Messages) > 0 {
-				head = req.Messages[0].Content
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newTestMemoryStore(t)
+			ctx := context.Background()
+			if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{memory.HotTag}, "agent"); err != nil {
+				t.Fatal(err)
 			}
-			ch := make(chan *proxy.ChatResponse, 1)
-			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Here is a helpful response"}}}}
-			close(ch)
-			return ch, nil
-		},
-	}
-	if _, err := svc.Execute(ctx, "ws-1", "", "how do I build?", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{Tools: []proxy.Tool{}}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
+			deps := newMockConvDeps()
+			deps.memoryStore = store
+			deps.memory = tc.global
+			pm := newTestPersistence(t)
+			if err := pm.WriteConfig("ws-1", &models.WorkspaceConfig{AssistantMemory: tc.workspace}); err != nil {
+				t.Fatal(err)
+			}
+			svc := NewConversationService(deps, pm)
 
-	if !strings.Contains(head, "<memory>") || !strings.Contains(head, "go build") {
-		t.Fatalf("the assistant's first request carries no hot memory in its head message: %q", head)
-	}
-	if err := store.FlushUsage(ctx); err != nil {
-		t.Fatal(err)
-	}
-	all, _ := store.List(ctx, "ws-1", "", 10, 0)
-	if len(all) != 1 || all[0].InjectedCount != 1 {
-		t.Errorf("the chat run must count as one use of the fact: %+v", all)
+			var head string
+			client := &MockClient{
+				StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+					if head == "" && len(req.Messages) > 0 {
+						head = req.Messages[0].Content
+					}
+					ch := make(chan *proxy.ChatResponse, 1)
+					ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Here is a helpful response"}}}}
+					close(ch)
+					return ch, nil
+				},
+			}
+			if _, err := svc.Execute(ctx, "ws-1", "", "how do I build?", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{Tools: []proxy.Tool{}}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+				t.Fatalf("Execute failed: %v", err)
+			}
+
+			if got := strings.Contains(head, "<memory>") && strings.Contains(head, "go build"); got != tc.wantFact {
+				t.Fatalf("hot memory in the head message = %v, want %v: %q", got, tc.wantFact, head)
+			}
+			if err := store.FlushUsage(ctx); err != nil {
+				t.Fatal(err)
+			}
+			all, _ := store.List(ctx, "ws-1", "", 10, 0)
+			wantCount := 0
+			if tc.wantFact {
+				wantCount = 1
+			}
+			if len(all) != 1 || all[0].InjectedCount != wantCount {
+				t.Errorf("usage count = %+v, want %d", all, wantCount)
+			}
+		})
 	}
 }
 

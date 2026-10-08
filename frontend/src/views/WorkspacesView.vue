@@ -43,6 +43,7 @@ import AssistantChat from "../components/AgentIde/assistant/AssistantChat.vue"
 import WorkspaceSettings from "../components/AgentIde/workspace/WorkspaceSettings.vue"
 import FileEditor from "../components/AgentIde/workspace/FileEditor.vue"
 import TemplateLibrary from "../components/AgentIde/system/TemplateLibrary.vue"
+import HeartbeatPanel from "../components/AgentIde/heartbeat/HeartbeatPanel.vue"
 import MonitorPanel from "../components/AgentIde/common/MonitorPanel.vue"
 import ContextDrawer from "../components/layout/ContextDrawer.vue"
 import PageHeader from "../components/common/layout/PageHeader.vue"
@@ -429,6 +430,8 @@ usePolling(() => {
         :workspace-id="ws"
         :global-guardrails="adminState.config.guardrails"
       />
+
+      <HeartbeatPanel v-else-if="activeMainView === 'heartbeat'" :workspace-id="ws" />
 
       <Panel v-else-if="activeMainView === 'playbooks'" title="Playbooks">
         <TemplateLibrary :append-target="bufferFile" @inject="handleInjectTemplate" />

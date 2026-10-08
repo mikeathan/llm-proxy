@@ -1,9 +1,9 @@
 ---
 id: SPEC-005
 title: Orchestrator / Budget
-version: "1.2"
+version: "1.3"
 status: stable
-last_updated: 2026-09-29
+last_updated: 2026-10-05
 constitution_references: [VI]
 related_specs: [SPEC-001]
 supersedes:
@@ -12,6 +12,16 @@ supersedes:
 # SPEC: Orchestrator / Budget
 
 ## Changelog
+
+- **1.3 (2026-10-05)** — Remote llama.cpp behind an OpenAI-style URL is classified **local** from the
+  model's own listing entry. `ModelMeta.Serving` / `ModelMetadata.Serving` (`"llamacpp"`) is set per entry
+  from `owned_by "llamacpp"`, `meta.n_ctx_train` or a `.gguf` id, persisted with the model, and read by
+  `WorkloadClassifier.Classify`; a published context alone never makes a model local. Models saved earlier
+  are marked at startup (`RefreshServingFingerprints`, runtime-only). The proxy's own `/v1/models` lists only
+  models it serves with llama.cpp as `owned_by "llamacpp"` with `meta.n_ctx_train` (cloud entries carry their
+  provider). `ModelInstance.Local` makes the client follow the class (transport and reasoning field).
+  Deployment note: an older proxy stamps every model it fronts as llama.cpp, so a cloud model behind it
+  would be read as local until that proxy is updated.
 
 - **1.2 (2026-09-29)** — Reference correction (no behavior change): budget-exceeded is signalled by
   `PreFlightResult{Allowed: false, Reason: …}` (surfaced as a `budget exceeded: <reason>` error),
@@ -56,12 +66,13 @@ from model metadata, and applies provider-tier tuning defaults.
     never leak into a 128K/1M cloud calculation.
 
     The serving context probe (`/slots`) is listing-driven, not host-only: it runs
-    for effective-local endpoints **or** any `/v1/models` listing carrying a
+    for effective-local endpoints **or** any `/v1/models` listing with an entry carrying a
     llama.cpp/local-workload fingerprint (`owned_by "llamacpp"`, `meta.n_ctx_train`,
-    or a `.gguf` artifact id). A **remote** llama.cpp host serving GGUF models is
-    therefore a local workload and resolves its real serving `n_ctx` — never the
-    training `n_ctx_train` — and the probe result overrides any training-derived
-    `ContextLength` (see `docs/PLANS/ARCHIVE/cross-cutting/cloud-provider-token-budgets.md` §3.4).
+    or a `.gguf` artifact id). The fingerprint is read **per entry** and persisted as
+    `Metadata.Serving`; the probed `n_ctx` is written only to the fingerprinted entries. A **remote**
+    llama.cpp host (including one behind an OpenAI-style slug) is therefore a local workload and
+    resolves its real serving `n_ctx` — never the training `n_ctx_train` — and the probe result
+    overrides any training-derived `ContextLength` (see `docs/PLANS/ARCHIVE/cross-cutting/cloud-provider-token-budgets.md` §3.4).
   - **Cloud workloads**: `PublishedContextSource` chain
     1. published `context_length` / `top_provider.context_length` from the live catalog.
     2. model `Metadata` context (n_ctx serving, then n_ctx_train).

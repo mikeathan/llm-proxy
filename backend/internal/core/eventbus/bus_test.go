@@ -334,7 +334,7 @@ func TestRecentCappedByBytes(t *testing.T) {
 	// long before the 1000-event count cap.
 	big := assistant.AgentEvent{
 		Channel: assistant.ChannelAutomation,
-		Type:    assistant.EventReasoning,
+		Type:    assistant.EventToolResult,
 		ID:      "ev-0",
 		Payload: strings.Repeat("r", 100*1024),
 	}
@@ -406,5 +406,84 @@ func TestDropWarnRateLimited(t *testing.T) {
 	bus.warnMu.Unlock()
 	if stillWarned {
 		t.Error("drop-warn throttle entry leaked after Unsubscribe")
+	}
+}
+
+// Reasoning and tool_stream events carry the full text so far, so the replay
+// buffer only needs the newest one of a consecutive run. Keeping every one
+// filled the buffer in a few minutes and evicted session_started and the tool
+// cycles, so a reopened chat could not rebuild the running turn.
+func TestRecentKeepsOnlyNewestSnapshotOfAStream(t *testing.T) {
+	bus := newBus(time.Hour, time.Hour)
+	defer bus.Stop()
+
+	ws := "ws-snapshots"
+	ch := assistant.ChannelAssistant
+	publish := func(typ assistant.AgentEventType, conv string, payload any) {
+		bus.Publish(ws, assistant.AgentEvent{Channel: ch, Type: typ, ConversationID: conv, Payload: payload})
+	}
+
+	publish(assistant.EventLifecycle, "c1", "started")
+	for i := 1; i <= 3000; i++ {
+		publish(assistant.EventReasoning, "c1", strings.Repeat("r", i))
+	}
+	publish(assistant.EventToolCall, "c1", "call")
+	publish(assistant.EventReasoning, "c1", "second stream, first snapshot")
+	publish(assistant.EventReasoning, "c1", "second stream, newest snapshot")
+
+	bus.mu.RLock()
+	recent := append([]assistant.AgentEvent(nil), bus.recent[ws][ch]...)
+	bus.mu.RUnlock()
+
+	var types []assistant.AgentEventType
+	for _, ev := range recent {
+		types = append(types, ev.Type)
+	}
+	want := []assistant.AgentEventType{assistant.EventLifecycle, assistant.EventReasoning, assistant.EventToolCall, assistant.EventReasoning}
+	if fmt.Sprint(types) != fmt.Sprint(want) {
+		t.Fatalf("recent types = %v, want %v", types, want)
+	}
+	if got := recent[1].Payload.(string); len(got) != 3000 {
+		t.Fatalf("first stream kept a %d-char snapshot, want the newest (3000)", len(got))
+	}
+	if got := recent[3].Payload.(string); got != "second stream, newest snapshot" {
+		t.Fatalf("second stream kept %q", got)
+	}
+}
+
+func TestRecentKeepsSnapshotsOfDifferentConversationsApart(t *testing.T) {
+	bus := newBus(time.Hour, time.Hour)
+	defer bus.Stop()
+
+	ws := "ws-snapshots-conv"
+	for _, conv := range []string{"c1", "c2"} {
+		bus.Publish(ws, assistant.AgentEvent{Channel: assistant.ChannelAssistant, Type: assistant.EventReasoning, ConversationID: conv, Payload: "x"})
+	}
+	bus.mu.RLock()
+	n := len(bus.recent[ws][assistant.ChannelAssistant])
+	bus.mu.RUnlock()
+	if n != 2 {
+		t.Fatalf("recent has %d events, want 2 (one per conversation)", n)
+	}
+}
+
+// Only a snapshot we can attribute to one conversation is merged: automation
+// runs share a workspace and carry no conversation id, and structured payloads
+// are not cumulative text.
+func TestRecentKeepsEventsThatAreNotAttributableSnapshots(t *testing.T) {
+	bus := newBus(time.Hour, time.Hour)
+	defer bus.Stop()
+
+	ws := "ws-unattributed"
+	for i := 0; i < 3; i++ {
+		bus.Publish(ws, assistant.AgentEvent{Channel: assistant.ChannelAutomation, Type: assistant.EventReasoning, Payload: "no conversation"})
+		bus.Publish(ws, assistant.AgentEvent{Channel: assistant.ChannelAssistant, Type: assistant.EventToolStream, ConversationID: "c1", Payload: map[string]any{"chunk": i}})
+	}
+	bus.mu.RLock()
+	auto := len(bus.recent[ws][assistant.ChannelAutomation])
+	assist := len(bus.recent[ws][assistant.ChannelAssistant])
+	bus.mu.RUnlock()
+	if auto != 3 || assist != 3 {
+		t.Fatalf("kept %d automation and %d structured events, want 3 and 3", auto, assist)
 	}
 }

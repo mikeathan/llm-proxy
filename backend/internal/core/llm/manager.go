@@ -47,6 +47,9 @@ type ModelInstance struct {
 	Args    []string
 	URL     string
 	Headers http.Header
+	// Local reports that the model is a local workload (a llama.cpp server,
+	// possibly behind an OpenAI-style URL), which decides the client built for it.
+	Local bool
 }
 
 type ActiveModelInfo struct {
@@ -89,6 +92,10 @@ type RuntimeManager interface {
 	SelectModels() (string, string)
 	SetSecrets(models.SecretsStore)
 	Sync()
+	// RefreshServingFingerprints marks OpenAI-style models whose listing entry
+	// identifies a llama.cpp server as local workloads (best-effort, run once
+	// at startup from the app lifecycle).
+	RefreshServingFingerprints(ctx context.Context)
 	Shutdown()
 	Registrar() *providers.ProviderRegistrar
 	ApplyModelOverrides(overrides map[string]models.ModelOverride)
@@ -125,6 +132,10 @@ type LLMRuntimeManager struct {
 	// (ReconcileLocalServingContext). Cleared on Sync (registry may have
 	// re-introduced stale metadata) and on model stop.
 	servingCtxSynced map[string]bool
+
+	// overrides is the last settings.yml per-model tuning applied, kept so a
+	// model whose workload class changes at runtime can have it re-applied.
+	overrides map[string]models.ModelOverride
 
 	// residency refuses local-model evictions that would stop a model an
 	// admitted run or inbound caller is using (residency.go). nil = unguarded.
@@ -479,6 +490,7 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		ModelID: cfg.Filename,
 		URL:     url,
 		Headers: headers,
+		Local:   cfg.WorkloadClass == models.WorkloadLocal,
 	}, nil
 }
 
@@ -812,6 +824,7 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	logging.Info("ApplyModelOverrides called", "override_count", len(overrides))
+	m.overrides = overrides
 	for name, override := range overrides {
 		cfg, ok := m.models[name]
 		if !ok {
@@ -823,49 +836,69 @@ func (m *LLMRuntimeManager) ApplyModelOverrides(overrides map[string]models.Mode
 		// must not be reapplied.  Use the registrar's workload classifier as the
 		// single source of truth (provider label + GGUF artifact + hydrated
 		// endpoint) rather than re-implementing a partial check here.
-		localWorkload := m.registrar.Classify(cfg) == models.WorkloadLocal
-		if override.MaxSteps > 0 {
-			cfg.MaxSteps = override.MaxSteps
-		}
-		if !localWorkload && override.ContextBudget > 0 {
-			cfg.ContextBudget = override.ContextBudget
-		}
-		if !localWorkload && override.MaxTokens > 0 {
-			cfg.MaxTokens = override.MaxTokens
-			logging.Info("ApplyModelOverrides: MaxTokens override applied", "model", name, "value", override.MaxTokens)
-		}
-		if override.ReasoningBudget > 0 {
-			cfg.ReasoningBudget = override.ReasoningBudget
-		}
-		if override.SlotTimeout > 0 {
-			cfg.SlotTimeout = override.SlotTimeout
-		}
-		if override.ICUWeight > 0 {
-			if cfg.ProviderConfig == nil {
-				cfg.ProviderConfig = &models.ProviderConfig{}
-			}
-			cfg.ProviderConfig.InternalCreditWeight = override.ICUWeight
-		}
-		if override.ToolCallFormat != "" {
-			cfg.ToolCallFormat = override.ToolCallFormat
-		}
-		if override.TimeoutMinutes > 0 {
-			cfg.TimeoutMinutes = override.TimeoutMinutes
-		}
-		if override.Temperature > 0 {
-			cfg.Temperature = override.Temperature
-			logging.Info("ApplyModelOverrides: Temperature override applied", "model", name, "value", override.Temperature)
-		}
-		if override.Prefill != nil {
-			cfg.Prefill = override.Prefill
-		}
-		if override.ReasoningEnabled != nil {
-			cfg.ReasoningEnabled = override.ReasoningEnabled
-		}
-		if override.LoopStrategy != "" {
-			cfg.LoopStrategy = override.LoopStrategy
-		}
+		m.applyOverride(&cfg, name, override)
 		m.models[name] = cfg
+	}
+}
+
+// applyOverride merges one model's settings.yml tuning override into cfg.
+// Local workloads never persist budget overrides — their max_tokens /
+// context_budget are n_ctx-derived (Phase 3); the registrar's classifier is the
+// single source of truth for that. The caller holds m.mu.
+func (m *LLMRuntimeManager) applyOverride(cfg *models.ModelConfig, name string, override models.ModelOverride) {
+	localWorkload := m.registrar.Classify(*cfg) == models.WorkloadLocal
+	applyBudgetOverride(cfg, name, override, localWorkload)
+	applyBehaviourOverride(cfg, name, override)
+}
+
+// applyBudgetOverride merges the budget, timeout and credit-weight overrides;
+// a local workload keeps its n_ctx-derived max_tokens / context_budget.
+func applyBudgetOverride(cfg *models.ModelConfig, name string, override models.ModelOverride, localWorkload bool) {
+	if !localWorkload && override.ContextBudget > 0 {
+		cfg.ContextBudget = override.ContextBudget
+	}
+	if !localWorkload && override.MaxTokens > 0 {
+		cfg.MaxTokens = override.MaxTokens
+		logging.Info("ApplyModelOverrides: MaxTokens override applied", "model", name, "value", override.MaxTokens)
+	}
+	if override.ReasoningBudget > 0 {
+		cfg.ReasoningBudget = override.ReasoningBudget
+	}
+	if override.SlotTimeout > 0 {
+		cfg.SlotTimeout = override.SlotTimeout
+	}
+	if override.TimeoutMinutes > 0 {
+		cfg.TimeoutMinutes = override.TimeoutMinutes
+	}
+	if override.ICUWeight > 0 {
+		if cfg.ProviderConfig == nil {
+			cfg.ProviderConfig = &models.ProviderConfig{}
+		}
+		cfg.ProviderConfig.InternalCreditWeight = override.ICUWeight
+	}
+}
+
+// applyBehaviourOverride merges the agent-behaviour overrides (steps, tool-call
+// format, sampling, prefill, reasoning toggle, loop strategy).
+func applyBehaviourOverride(cfg *models.ModelConfig, name string, override models.ModelOverride) {
+	if override.MaxSteps > 0 {
+		cfg.MaxSteps = override.MaxSteps
+	}
+	if override.ToolCallFormat != "" {
+		cfg.ToolCallFormat = override.ToolCallFormat
+	}
+	if override.Temperature > 0 {
+		cfg.Temperature = override.Temperature
+		logging.Info("ApplyModelOverrides: Temperature override applied", "model", name, "value", override.Temperature)
+	}
+	if override.Prefill != nil {
+		cfg.Prefill = override.Prefill
+	}
+	if override.ReasoningEnabled != nil {
+		cfg.ReasoningEnabled = override.ReasoningEnabled
+	}
+	if override.LoopStrategy != "" {
+		cfg.LoopStrategy = override.LoopStrategy
 	}
 }
 

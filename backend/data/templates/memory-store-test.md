@@ -3,7 +3,7 @@
 **ID:** `memory-store-test`
 **Category:** memory
 
-Step 1 of 2. Saves one made-up fact so a later run can prove memory works. Run it once, then run `memory-recall-test` in a NEW chat (or as a separate automation with Memory set to Hot memory). Delete the fact in the Memory panel afterwards. See `docs/guides/memory-testing.md` (Part A).
+Step 1 of 2. Saves one made-up fact so a later run can prove memory works. Run it once, then run `memory-recall-test` in a NEW chat (or as a separate automation with Memory set to On). Delete the fact in the Memory panel afterwards. See `docs/guides/memory-testing.md` (Part A).
 
 TASK: Save exactly one fact to memory, then stop.
 

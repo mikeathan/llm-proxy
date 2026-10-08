@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,8 +18,8 @@ import (
 func (d *Dispatcher) Start(ctx context.Context) error {
 	d.logger.Info("Starting dispatcher")
 
-	// Load historical runs from all workspaces to populate global ledger
-	d.LoadHistory()
+	// Restore the execution counters from the persisted run history
+	d.seedMetricsFromHistory(ctx)
 
 	workspaces, err := d.persistence.ListWorkspaces()
 	if err != nil {
@@ -162,15 +163,8 @@ func (d *Dispatcher) UnregisterWorkspace(workspaceID string) {
 
 func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {
 	automations := ws.Config.Automations
-	if len(automations) == 0 && ws.Config.CronSchedule != "" {
-		automations = []*models.Automation{
-			{
-				Name:     "default",
-				Trigger:  models.TriggerConfig{Type: "cron", Value: ws.Config.CronSchedule},
-				TaskFile: "heartbeat.md",
-				Strategy: "persistent",
-			},
-		}
+	if hb := ws.Config.Heartbeat; hb != nil && hb.Enabled {
+		automations = append(slices.Clone(automations), hb.Automation())
 	}
 
 	for _, auto := range automations {

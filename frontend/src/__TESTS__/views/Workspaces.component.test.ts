@@ -49,6 +49,7 @@ const STUBS = {
   AssistantChat: { template: '<div data-test="chat" />' },
   WorkspaceSettings: { template: '<div data-test="settings" />' },
   MemoryPanel: { template: '<div data-test="memory" />' },
+  HeartbeatPanel: { props: ['workspaceId'], template: '<div data-test="heartbeat">{{ workspaceId }}</div>' },
   TemplateLibrary: { props: ['appendTarget'], template: '<div data-test="playbooks">{{ appendTarget }}</div>' },
   MonitorPanel: true,
 }
@@ -182,5 +183,10 @@ describe('Workspaces', () => {
     await router.push('/workspaces/demo/playbooks')
     await flushPromises()
     expect(w.get('[data-test="playbooks"]').text()).toBe('plan.md')
+  })
+
+  it('shows the heartbeat of the workspace in the URL', async () => {
+    const { w } = await mountAt('/workspaces/demo/heartbeat')
+    expect(w.get('[data-test="heartbeat"]').text()).toBe('demo')
   })
 })

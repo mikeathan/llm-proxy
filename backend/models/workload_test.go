@@ -78,3 +78,30 @@ func TestClassifyClient(t *testing.T) {
 		})
 	}
 }
+
+// A remote llama.cpp server behind an OpenAI-style URL is a local workload when
+// the model's own listing entry said so at discovery. A published context alone
+// (cloud catalogs carry one too) never makes a model local.
+func TestClassify_ServingFingerprint(t *testing.T) {
+	remote := &ProviderConfig{BaseURL: "https://models.example.net/v1"}
+	tests := []struct {
+		name string
+		cfg  ModelConfig
+		want WorkloadClass
+	}{
+		{"llama.cpp fingerprint", ModelConfig{Provider: "openai", Name: "Qwen3.6 35B A3B", ProviderConfig: remote, Metadata: &ModelMetadata{Serving: ServingLlamaCpp}}, WorkloadLocal},
+		{"serving context only", ModelConfig{Provider: "openai", Name: "glm-5.3-flash", ProviderConfig: remote, Metadata: &ModelMetadata{Nctx: 1048576}}, WorkloadCloud},
+		{"no metadata", ModelConfig{Provider: "openai", Name: "gpt", ProviderConfig: remote}, WorkloadCloud},
+	}
+	c := localClassifier()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := c.Classify(tc.cfg); got != tc.want {
+				t.Errorf("Classify = %q, want %q", got, tc.want)
+			}
+			if got := ClassifyConfig(tc.cfg); got != tc.want {
+				t.Errorf("ClassifyConfig = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

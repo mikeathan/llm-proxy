@@ -99,6 +99,8 @@ const runMeta = computed(() => {
   const tokens = run.completion_tokens ? tokenUsageLabel(run.prompt_tokens ?? 0, run.completion_tokens) : null
   return run.model || tokens ? { model: run.model ?? '', tokens } : null
 })
+// Facts the backend saved from this message before the run, recorded on the turn so they persist across reloads.
+const memorySaved = computed(() => props.turn.run?.memory_saved ?? [])
 const activityFailed = computed(() => props.turn.segments.some((s) => s.kind === 'error'))
 
 // Models often open a step with "Thought:"; the timeline already labels it.
@@ -261,6 +263,13 @@ watch(
       <MarkdownViewer :content="turn.finalAnswer" variant="document" />
     </div>
 
+    <div v-if="memorySaved.length" data-test="memory-saved" class="turn-memory">
+      <span class="turn-memory-label">Saved to memory · remove it in the Memory panel</span>
+      <ul class="turn-memory-list">
+        <li v-for="fact in memorySaved" :key="fact">{{ fact }}</li>
+      </ul>
+    </div>
+
     <div v-if="answerCopyable || runMeta" class="turn-footer">
       <CopyButton v-if="answerCopyable" :text="turn.finalAnswer" title="Copy answer" />
       <span v-if="runMeta" class="turn-meta">
@@ -354,6 +363,9 @@ watch(
 /* ── Answer and its actions ── */
 .turn-answer { @apply min-w-0 pt-1; }
 .turn-footer { @apply -ml-1.5 flex min-w-0 items-center gap-2; }
+.turn-memory { @apply flex min-w-0 flex-col gap-1 border-l-2 border-hairline pl-3 text-[length:var(--text-small)] text-muted; }
+.turn-memory-label { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-faint; }
+.turn-memory-list { @apply m-0 flex list-none flex-col gap-0.5 p-0 text-secondary; }
 .turn-meta { @apply flex min-w-0 items-center gap-1.5 truncate font-mono text-[length:var(--text-micro)] text-faint; }
 
 /* ── Live thinking indicator ── */

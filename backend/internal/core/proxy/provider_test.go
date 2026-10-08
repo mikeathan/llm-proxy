@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -59,7 +60,7 @@ func TestRuntimeClientProvider_ModelStarting(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header, local bool) proxy.Client {
 		return &dummyClient{baseURL: baseURL}
 	})
 
@@ -90,7 +91,7 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 		},
 	}
 
-	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header) proxy.Client {
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header, local bool) proxy.Client {
 		calls++
 		lastURL = baseURL
 		return &dummyClient{baseURL: baseURL}
@@ -131,5 +132,35 @@ func TestRuntimeClientProvider_ReusesAndRebuildsClient(t *testing.T) {
 	}
 	if activity != 3 {
 		t.Fatalf("expected RecordActivity to be called per request, got %d", activity)
+	}
+}
+
+// A client is built for the model's workload class, not just its URL: a local
+// workload uses the llama.cpp reasoning field and the long response-header
+// timeout. When the class changes (a model identified as llama.cpp after
+// startup) the cached client must be rebuilt.
+func TestRuntimeClientProvider_RebuildsWhenWorkloadClassChanges(t *testing.T) {
+	selector := &mockSelector{def: "alpha"}
+	local := false
+	var builtLocal []bool
+
+	manager := &mocks.MockManager{
+		EnsureModelFunc: func(ctx context.Context, name string) (llm.ModelInstance, error) {
+			return llm.ModelInstance{Name: name, ModelID: "alpha-id", URL: "https://models.example.net/v1", Local: local}, nil
+		},
+	}
+	provider := proxy.NewRuntimeClientProvider(selector, manager, func(baseURL string, model string, headers http.Header, isLocal bool) proxy.Client {
+		builtLocal = append(builtLocal, isLocal)
+		return &dummyClient{baseURL: baseURL}
+	})
+
+	for _, l := range []bool{false, false, true, true} {
+		local = l
+		if _, err := provider.GetClient(context.Background()); err != nil {
+			t.Fatalf("GetClient: %v", err)
+		}
+	}
+	if got := fmt.Sprint(builtLocal); got != "[false true]" {
+		t.Errorf("clients built with local = %s, want [false true] (reuse until the class changes)", got)
 	}
 }

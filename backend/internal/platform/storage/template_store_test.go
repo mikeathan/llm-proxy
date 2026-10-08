@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	shipped "llm-proxy/data/templates"
 )
@@ -201,6 +202,108 @@ func TestMemoryTemplatesMatchTheGuidePrompts(t *testing.T) {
 		}
 		if tmpl.Category != "memory" {
 			t.Errorf("%s category = %q, want memory", id, tmpl.Category)
+		}
+	}
+}
+
+// A shipped template that was never edited follows upgrades; an edited one, or one with no record of what was
+// seeded, is left exactly as the operator has it.
+func TestTemplateStore_SyncRefreshesOnlyUneditedShippedTemplates(t *testing.T) {
+	src := func(files map[string]string) fstest.MapFS {
+		fsys := fstest.MapFS{}
+		for name, body := range files {
+			fsys[name] = &fstest.MapFile{Data: []byte(body)}
+		}
+		return fsys
+	}
+	read := func(t *testing.T, dir, name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	write := func(t *testing.T, dir, name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("seeds missing files, then follows a new shipped version", func(t *testing.T) {
+		dir := t.TempDir()
+		(&TemplateStore{baseDir: dir}).syncTemplates(src(map[string]string{"a.md": "A1"}))
+		if got := read(t, dir, "a.md"); got != "A1" {
+			t.Fatalf("seeded = %q", got)
+		}
+		(&TemplateStore{baseDir: dir}).syncTemplates(src(map[string]string{"a.md": "A2"}))
+		if got := read(t, dir, "a.md"); got != "A2" {
+			t.Errorf("an unedited template did not follow the new version: %q", got)
+		}
+	})
+
+	t.Run("an edited template stays, now and after later versions", func(t *testing.T) {
+		dir := t.TempDir()
+		store := &TemplateStore{baseDir: dir}
+		store.syncTemplates(src(map[string]string{"b.md": "B1"}))
+		write(t, dir, "b.md", "my edit")
+		store.syncTemplates(src(map[string]string{"b.md": "B2"}))
+		store.syncTemplates(src(map[string]string{"b.md": "B3"}))
+		if got := read(t, dir, "b.md"); got != "my edit" {
+			t.Errorf("the operator's edit was overwritten: %q", got)
+		}
+	})
+
+	t.Run("a file with no record is left alone unless it already matches", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, dir, "old.md", "stale or edited")
+		write(t, dir, "same.md", "S1")
+		store := &TemplateStore{baseDir: dir}
+		store.syncTemplates(src(map[string]string{"old.md": "O2", "same.md": "S1"}))
+		if got := read(t, dir, "old.md"); got != "stale or edited" {
+			t.Errorf("an unrecorded file was overwritten: %q", got)
+		}
+		// A file that matches the shipped text is adopted, so it follows the next version.
+		store.syncTemplates(src(map[string]string{"old.md": "O2", "same.md": "S2"}))
+		if got := read(t, dir, "same.md"); got != "S2" {
+			t.Errorf("a file that matched the shipped text did not follow the next version: %q", got)
+		}
+	})
+
+	t.Run("an unreadable record changes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		store := &TemplateStore{baseDir: dir}
+		store.syncTemplates(src(map[string]string{"c.md": "C1"}))
+		write(t, dir, shippedManifestFile, "{not json")
+		store.syncTemplates(src(map[string]string{"c.md": "C2"}))
+		if got := read(t, dir, "c.md"); got != "C1" {
+			t.Errorf("a corrupt record caused an overwrite: %q", got)
+		}
+	})
+
+	t.Run("the record is not listed as a template", func(t *testing.T) {
+		dir := t.TempDir()
+		store := &TemplateStore{baseDir: dir}
+		store.syncTemplates(src(map[string]string{"d.md": "## Task: D\n**ID:** `d`\n**Category:** x\n"}))
+		list, err := store.List()
+		if err != nil || len(list) != 1 {
+			t.Fatalf("List = %v, %v; want only d.md", list, err)
+		}
+	})
+}
+
+// The news brief learns between runs through its Memory section; the saved list must be the table's rows, or the next run
+// reports an item twice (seen in a live run on 2026-10-05).
+func TestShippedNewsBrief_MemorySectionKeepsTheSavedListEqualToTheTable(t *testing.T) {
+	data, err := shipped.FS.ReadFile("llm_ai_release_brief.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{"`memory_search`", "`memory_update`", "exactly the rows of your table", "BEFORE you send"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the brief's memory section lost %q", want)
 		}
 	}
 }

@@ -176,6 +176,9 @@ func (p *OpenAICompatibleProvider) fetchModels(ctx context.Context) ([]models.Pr
 		if pricing := parsePricing(node); pricing != nil {
 			info.Pricing = pricing
 		}
+		if entryServesLocalWorkload(node) {
+			info.Meta = &models.ModelMeta{Serving: models.ServingLlamaCpp}
+		}
 		out = append(out, info)
 	}
 
@@ -189,9 +192,15 @@ func (p *OpenAICompatibleProvider) fetchModels(ctx context.Context) ([]models.Pr
 	// training-derived ContextLength (n_ctx_train): /slots n_ctx is the actual
 	// server window the local budget must key on (SPEC-005 priority 1), and it
 	// is carried on Meta.Nctx so discovery forwards the serving context.
-	if p.isEffectiveLocal(p.effectiveBaseURL()) || listingServesLocalWorkload(data.Data) {
+	local := p.isEffectiveLocal(p.effectiveBaseURL())
+	if local || anyEntryServesLocalWorkload(out) {
 		if slotCtx := p.fetchSlotsContext(ctx, p.effectiveBaseURL()); slotCtx > 0 {
 			for i := range out {
+				// A listing can mix llama.cpp servers with cloud providers behind
+				// one proxy; the serving window belongs to the llama.cpp entries.
+				if !local && (out[i].Meta == nil || out[i].Meta.Serving == "") {
+					continue
+				}
 				out[i].ContextLength = slotCtx
 				if out[i].Meta == nil {
 					out[i].Meta = &models.ModelMeta{}
@@ -204,34 +213,35 @@ func (p *OpenAICompatibleProvider) fetchModels(ctx context.Context) ([]models.Pr
 	return out, nil
 }
 
-// listingServesLocalWorkload reports whether any model in a /v1/models listing
-// identifies a llama.cpp server serving local GGUF models: owned_by
-// "llamacpp", a meta.n_ctx_train field, or a .gguf artifact id.  Data-driven
-// and host-agnostic — a remote llama.cpp host must still be probed for its
-// serving n_ctx, while cloud catalogs (OpenRouter/NVIDIA/OpenAI) never match
-// and keep the §3.4 wasted-calls fix.
+// entryServesLocalWorkload reports whether one /v1/models entry identifies a
+// llama.cpp server serving a local GGUF model: owned_by "llamacpp", a
+// meta.n_ctx_train field, or a .gguf artifact id. Data-driven and host-agnostic —
+// a remote llama.cpp host must still be probed for its serving n_ctx and
+// classified as a local workload (SPEC-005), while cloud catalogs
+// (OpenRouter/NVIDIA/OpenAI) never match and keep the §3.4 wasted-calls fix.
 //
-// This gate is deliberately GENERIC: other local server types (LM Studio,
-// vLLM, …) already match via n_ctx_train / .gguf without code changes.  Only
-// the probe itself is llama.cpp-specific (/slots); a server without that
-// endpoint makes fetchSlotsContext return 0 and nothing changes.  Adding a
-// new server type later = add its probe branch here (e.g. LM Studio
-// /api/v1/models, vLLM /version — §2.10 #4), never touch this gate.
-func listingServesLocalWorkload(nodes []json.RawMessage) bool {
-	for _, raw := range nodes {
-		var node map[string]any
-		if err := json.Unmarshal(raw, &node); err != nil {
-			continue
-		}
-		if owned, _ := node["owned_by"].(string); strings.EqualFold(owned, "llamacpp") {
+// The gate is deliberately GENERIC: other local server types (LM Studio, vLLM,
+// …) already match via n_ctx_train / .gguf without code changes. Only the probe
+// itself is llama.cpp-specific (/slots); a server without that endpoint makes
+// fetchSlotsContext return 0 and nothing changes. Adding a new server type later
+// = add its probe branch, never touch this gate.
+func entryServesLocalWorkload(node map[string]any) bool {
+	if owned, _ := node["owned_by"].(string); strings.EqualFold(owned, "llamacpp") {
+		return true
+	}
+	if meta, ok := node["meta"].(map[string]any); ok {
+		if v, ok := meta["n_ctx_train"]; ok && coerceInt(v) > 0 {
 			return true
 		}
-		if meta, ok := node["meta"].(map[string]any); ok {
-			if v, ok := meta["n_ctx_train"]; ok && coerceInt(v) > 0 {
-				return true
-			}
-		}
-		if models.HasGGUFArtifact(stringID(node["id"])) {
+	}
+	return models.HasGGUFArtifact(stringID(node["id"]))
+}
+
+// anyEntryServesLocalWorkload reports whether any parsed entry carries the
+// llama.cpp fingerprint.
+func anyEntryServesLocalWorkload(infos []models.ProviderModelInfo) bool {
+	for _, info := range infos {
+		if info.Meta != nil && info.Meta.Serving != "" {
 			return true
 		}
 	}

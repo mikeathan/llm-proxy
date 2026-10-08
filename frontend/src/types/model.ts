@@ -132,6 +132,8 @@ export interface ModelMeta {
   n_ctx_train?: number
   n_ctx?: number
   n_params?: number
+  /** Server software the listing entry identified ("llamacpp"); sent back unchanged when the model is added. */
+  serving?: string
 }
 
 export interface ProviderModelInfo {

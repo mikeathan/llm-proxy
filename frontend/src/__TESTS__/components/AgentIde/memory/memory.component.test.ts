@@ -29,11 +29,16 @@ const mem = {
   saveNotes: vi.fn(),
 }
 vi.mock('../../../../composables/memory/useMemory', () => ({ useMemory: () => mem }))
+const { getConfig, putConfig } = vi.hoisted(() => ({ getConfig: vi.fn(), putConfig: vi.fn() }))
+vi.mock('../../../../services/automation/dispatcherService', () => ({
+  DispatcherService: { getWorkspaceConfig: getConfig, updateWorkspaceConfig: putConfig },
+}))
 vi.mock('../../../../composables/models/useModels', () => ({
   useModels: () => ({ state: ref({ models: [{ name: 'qwen', provider: 'local' }, { name: 'gpt-5', provider: 'openai' }] }) }),
 }))
 
 import MemoryPanel from '../../../../components/AgentIde/memory/MemoryPanel.vue'
+import MemoryAssistantSwitch from '../../../../components/AgentIde/memory/MemoryAssistantSwitch.vue'
 import MemoryDetail from '../../../../components/AgentIde/memory/MemoryDetail.vue'
 import MemoryAddForm from '../../../../components/AgentIde/memory/MemoryAddForm.vue'
 import MemoryImportExport from '../../../../components/AgentIde/memory/MemoryImportExport.vue'
@@ -634,5 +639,50 @@ describe('MemoryImportExport', () => {
     const w = ioWrapper()
     await pickFile(w, markdownFile('prose'))
     expect(w.get('[role="alert"]').text()).toContain('no facts found')
+  })
+})
+
+describe('MemoryAssistantSwitch', () => {
+  const radios = (w: VueWrapper) => w.get('[role="radiogroup"]').findAll('[role="radio"]')
+  const checked = (w: VueWrapper) => radios(w).find((r) => r.attributes('aria-checked') === 'true')!.text()
+
+  beforeEach(() => {
+    getConfig.mockReset().mockResolvedValue({ model: 'qwen', temperature: 0.7, automations: [], assistant_memory: 'off' })
+    putConfig.mockReset().mockResolvedValue(undefined)
+  })
+
+  it("shows this workspace's current override, with the global default named in the first option", async () => {
+    const w = track(mount(MemoryAssistantSwitch, { props: { workspaceId: 'ws' } }))
+    await flushPromises()
+    expect(radios(w).map((r) => r.text())).toEqual(['Default (on)', 'On', 'Off'])
+    expect(checked(w)).toBe('Off')
+  })
+
+  it('saves the override into the whole workspace config, leaving everything else as it was', async () => {
+    const w = track(mount(MemoryAssistantSwitch, { props: { workspaceId: 'ws' } }))
+    await flushPromises()
+    await radios(w)[1]!.trigger('click')
+    await flushPromises()
+    expect(putConfig).toHaveBeenCalledWith('ws', { model: 'qwen', temperature: 0.7, automations: [], assistant_memory: 'on' })
+    expect(checked(w)).toBe('On')
+    await radios(w)[0]!.trigger('click')
+    await flushPromises()
+    expect(putConfig.mock.lastCall![1].assistant_memory).toBe('')
+  })
+
+  it('says what failed and keeps the saved choice when the save is refused', async () => {
+    putConfig.mockRejectedValueOnce(new Error('invalid assistant_memory'))
+    const w = track(mount(MemoryAssistantSwitch, { props: { workspaceId: 'ws' } }))
+    await flushPromises()
+    await radios(w)[1]!.trigger('click')
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('invalid assistant_memory')
+    expect(checked(w)).toBe('Off')
+  })
+
+  it('is part of the Memory panel', async () => {
+    const w = track(mount(MemoryPanel, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true } } }))
+    await flushPromises()
+    expect(w.findComponent(MemoryAssistantSwitch).exists()).toBe(true)
   })
 })

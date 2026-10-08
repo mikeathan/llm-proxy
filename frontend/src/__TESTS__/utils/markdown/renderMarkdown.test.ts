@@ -13,6 +13,18 @@ describe('renderMarkdown', () => {
     expect(html).toContain('href="https://example.com/x"')
   })
 
+  it('wraps each table in a scroll container so wide tables never widen the page', () => {
+    const html = renderMarkdown('| a | b |\n|---|---|\n| 1 | 2 |\n\ntext\n\n| c |\n|---|\n| 3 |')
+    expect(html.match(/<div class="md-table-scroll"[^>]*><table>/g)).toHaveLength(2)
+    expect(html.match(/<\/table><\/div>/g)).toHaveLength(2)
+  })
+
+  it('does not let literal table markup in text become a wrapper', () => {
+    const html = renderMarkdown('`<table>` and <table><tr><td>x</td></tr></table>')
+    expect(html).not.toContain('md-table-scroll')
+    expect(html).not.toMatch(/<table>/)
+  })
+
   it.each([
     '<img src=x onerror="alert(1)">',
     '<script>alert(1)</script>',

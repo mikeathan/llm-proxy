@@ -27,6 +27,20 @@ export interface MemoryEntry {
   updated_at: string
 }
 
+// A fact the model proposed from a chat (POST …/memory-review). `duplicate` marks one memory already holds.
+export interface MemorySuggestion {
+  content: string
+  scope: 'workspace' | 'user'
+  mode: 'on_demand' | 'always'
+  duplicate: boolean
+}
+
+// A suggestion in the review dialog: whether the operator ticked it, and whether saving it just failed.
+export interface ReviewItem extends MemorySuggestion {
+  selected: boolean
+  failed: boolean
+}
+
 // The three plain-word choices when adding a fact (mirror the agent's
 // memory_update scope / mode / keep).
 export type MemoryScope = 'workspace' | 'user'

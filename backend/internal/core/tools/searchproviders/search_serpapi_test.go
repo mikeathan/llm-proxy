@@ -32,7 +32,7 @@ func TestSerpAPIProvider_Search_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSerpAPIProvider() error = %v", err)
 	}
-	results, err := p.Search(context.Background(), "go generics")
+	results, err := p.Search(context.Background(), "go generics", "")
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
@@ -70,7 +70,7 @@ func TestSerpAPIProvider_Search_ErrorFieldWith200(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSerpAPIProvider() error = %v", err)
 	}
-	_, err = p.Search(context.Background(), "q")
+	_, err = p.Search(context.Background(), "q", "")
 	if err == nil || !strings.Contains(err.Error(), "Invalid API key") {
 		t.Fatalf("err = %v, want the API error field surfaced", err)
 	}
@@ -87,7 +87,7 @@ func TestSerpAPIProvider_Search_Non2xx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSerpAPIProvider() error = %v", err)
 	}
-	_, err = p.Search(context.Background(), "q")
+	_, err = p.Search(context.Background(), "q", "")
 	if err == nil || !strings.Contains(err.Error(), "status 429") {
 		t.Fatalf("err = %v, want status 429", err)
 	}
@@ -110,7 +110,7 @@ func TestSerpAPIProvider_Search_AuthStatusClassified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSerpAPIProvider() error = %v", err)
 	}
-	_, err = p.Search(context.Background(), "q")
+	_, err = p.Search(context.Background(), "q", "")
 	if err == nil {
 		t.Fatal("expected error for 401")
 	}
@@ -134,7 +134,7 @@ func TestSerpAPIProvider_Search_SkipsMalformedAndCaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSerpAPIProvider() error = %v", err)
 	}
-	got, err := p.Search(context.Background(), "q")
+	got, err := p.Search(context.Background(), "q", "")
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}

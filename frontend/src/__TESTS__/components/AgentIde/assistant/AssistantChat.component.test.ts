@@ -21,16 +21,20 @@ const a = {
   fetchSessions: vi.fn(),
   loadSession: vi.fn(),
   newSession: vi.fn(),
+  openWorkspace: vi.fn(),
   sendMessage: vi.fn(),
   deleteSession: vi.fn(),
   deleteSessionsByIds: vi.fn(),
   cancelSession: vi.fn(),
-  connectSSE: vi.fn(),
-  activeWorkspaceId: ref<string | null>(null),
   cancel: vi.fn(),
   liveEvents: ref([]),
 }
 vi.mock('../../../../composables/assistant/useAssistant', () => ({ useAssistant: () => a }))
+const review = {
+  open: ref(false), loading: ref(false), saving: ref(false), error: ref(''), items: ref([]), selectedCount: ref(0),
+  start: vi.fn(), toggle: vi.fn(), save: vi.fn().mockResolvedValue(0), close: vi.fn(),
+}
+vi.mock('../../../../composables/memory/useMemoryReview', () => ({ useMemoryReview: () => review }))
 const confirm = vi.fn()
 vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
@@ -78,6 +82,22 @@ describe('AssistantChat', () => {
     expect(w.text()).toContain('Plan the move')
     expect(button(/^new chat$/i)).toBeDefined()
     expect(button(/^close the assistant$/i)).toBeDefined()
+  })
+
+  // The review needs a saved conversation and a finished turn; it is the operator's per-chat control over memory.
+  it('offers "Review for memories" only for a saved conversation that is not running', async () => {
+    const { button } = mountChat()
+    const reviewButton = () => button(/^review for memories$/i)!
+    expect(reviewButton().attributes('disabled')).toBeDefined()
+    a.currentSessionId.value = 's1'
+    await flushPromises()
+    expect(reviewButton().attributes('disabled')).toBeUndefined()
+    await reviewButton().trigger('click')
+    expect(review.start).toHaveBeenCalledTimes(1)
+    a.loading.value = true
+    await flushPromises()
+    expect(reviewButton().attributes('disabled')).toBeDefined()
+    a.currentSessionId.value = null
   })
 
   it('deletes a conversation only after confirming', async () => {

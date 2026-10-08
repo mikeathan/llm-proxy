@@ -166,6 +166,13 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		if req.Scheduler != nil {
 			set.Scheduler = req.Scheduler
 		}
+		if req.Memory != nil {
+			if set.Memory == nil {
+				set.Memory = new(models.DefaultMemoryConfig())
+			}
+			set.Memory.AssistantHot = new(req.Memory.AssistantHot)
+			set.Memory.AutomationHot = new(req.Memory.AutomationHot)
+		}
 		if local, ok := req.Providers["local"]; ok {
 			// We allow clearing these fields by removing the != "" check
 			set.Local.LlamaServerBinary = local.LlamaServerBinary
