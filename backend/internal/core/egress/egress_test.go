@@ -3,6 +3,7 @@ package egress
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/platform/network"
 )
 
 // allowAnyAddress is the test seam for Server.dialGuard: it lets tests reach
@@ -507,5 +510,19 @@ func TestProxyRefusesAlwaysBlockedDestinations(t *testing.T) {
 				t.Fatalf("GET via proxy to %s: status = %d body = %q, want 403 without upstream content", host, resp.StatusCode, body)
 			}
 		})
+	}
+}
+
+// A zoned link-local IPv6 dial address must still be classified (403), not
+// rejected as "not an IP" (502), or a policy denial looks like an upstream fault.
+func TestGuardDial_ZonedLinkLocalIsAlwaysBlocked(t *testing.T) {
+	s := New(HostListPolicy{})
+	for _, addr := range []string{"[fe80::1%en0]:443", "[fe80::1]:443", "127.0.0.1:80"} {
+		if err := s.guardDial("tcp", addr, nil); !errors.Is(err, network.ErrAlwaysBlockedAddress) {
+			t.Errorf("guardDial(%s) = %v, want ErrAlwaysBlockedAddress", addr, err)
+		}
+	}
+	if err := s.guardDial("tcp", "93.184.216.34:443", nil); err != nil {
+		t.Errorf("public address refused: %v", err)
 	}
 }

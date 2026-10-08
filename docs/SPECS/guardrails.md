@@ -218,6 +218,9 @@ Host-level OS sandboxing (plan: `docs/PLANS/cross-cutting/agent-os-sandboxing.md
    classifier (`platform/network.CheckAlwaysBlocked`) the in-process tools use; CGNAT (`100.64.0.0/10`,
    e.g. Tailscale) counts as LAN, not internet. This covers traffic that rides the proxy only: shells
    still bypass it for `127.0.0.1`/`localhost`/`::1` via `NO_PROXY` (sandbox residuals plan, Phase 2).
+   With the proxy on, the in-process `fetch_url` applies the LAN/internet policy to the original URL and to
+   every redirect target before following it; the proxy re-resolves names without that policy, so a DNS answer
+   that changes to a LAN address between the two lookups is a known residual.
 
 Security-boundary denials from either kind surface as guardrail *rejections* on the existing
 synchronous path (§II.3): `guardrail_violation` event, tool not executed, `stopBatch` set —

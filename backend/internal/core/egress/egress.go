@@ -36,6 +36,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"syscall"
@@ -128,16 +129,14 @@ func New(policy Policy) *Server {
 }
 
 // guardDial is the net.Dialer.Control hook: address is the resolved ip:port.
+// A zoned IPv6 address (fe80::1%en0) is classified without its zone, so a link-local target is still a policy
+// denial rather than a parse failure.
 func (s *Server) guardDial(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
+	ap, err := netip.ParseAddrPort(address)
 	if err != nil {
-		return fmt.Errorf("egress proxy: malformed dial address %q: %w", address, err)
+		return fmt.Errorf("egress proxy: dial address %q is not an IP: %w", address, err)
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("egress proxy: dial address %q is not an IP", address)
-	}
-	return s.dialGuard(ip)
+	return s.dialGuard(net.IP(ap.Addr().WithZone("").AsSlice()))
 }
 
 // dialFailure answers a failed upstream dial: 403 when the destination class is

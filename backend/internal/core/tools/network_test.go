@@ -395,3 +395,38 @@ func TestNetworkTools_FetchURL_BlocksUnspecifiedAddress(t *testing.T) {
 	default:
 	}
 }
+
+// With the egress proxy on, the transport only ever dials the proxy, so a
+// redirect target must be checked against the LAN/internet policy before it is
+// followed — otherwise a public page can bounce the fetch onto a LAN host.
+func TestNetworkTools_FetchURL_ProxiedRedirectToLANIsBlocked(t *testing.T) {
+	lanHit := make(chan struct{}, 1)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Hostname() == "10.0.0.1" {
+			lanHit <- struct{}{}
+			_, _ = w.Write([]byte("LAN_SECRET"))
+			return
+		}
+		http.Redirect(w, r, "http://10.0.0.1/admin", http.StatusFound)
+	}))
+	defer proxy.Close()
+
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	}, logging.NewNopLogger())
+	pu, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.SetProxy(pu)
+
+	body, err := n.FetchURL(context.Background(), "http://1.2.3.4/start")
+	if err == nil {
+		t.Fatalf("redirect to a LAN host must be refused with LAN access off; got body %q", body)
+	}
+	select {
+	case <-lanHit:
+		t.Fatal("the LAN host was fetched through the proxy")
+	default:
+	}
+}

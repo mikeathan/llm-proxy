@@ -49,11 +49,14 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// Dialing the configured egress proxy itself is permitted by
-			// construction: it is the single loopback exception. The proxied
-			// target is vetted twice instead: validateAddress (full LAN/internet
-			// policy) runs before the request, and the proxy applies
-			// network.CheckAlwaysBlocked to the IP it dials. Requests that do
-			// not ride the proxy (no SetProxy) go through the full validation here.
+			// construction: it is the single loopback exception. For proxied
+			// requests the full LAN/internet policy runs in validateAddress (the
+			// original URL and every redirect target), and the proxy applies
+			// network.CheckAlwaysBlocked to the IP it actually dials. Residual: the
+			// proxy resolves the name again without the LAN policy, so a DNS answer
+			// that changes to a LAN address between the two lookups is not caught.
+			// Requests that do not ride the proxy (no SetProxy) go through the full
+			// validation here, on the dialed IP.
 			if addr == n.proxyAddr {
 				return dialer.DialContext(ctx, network, addr)
 			}
@@ -91,10 +94,14 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 	n.httpClient = &http.Client{
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
+			if len(via) >= maxRedirects {
 				return fmt.Errorf("too many redirects")
 			}
-			return nil // Transport handles IP validation for redirects
+			// Each redirect target gets the same pre-check as the original URL.
+			// Without a proxy the dial guard would also catch it, but with the
+			// egress proxy on, the transport only dials the proxy, so this is the
+			// only place the LAN/internet policy sees a redirect.
+			return n.validateAddress(req.Context(), req.URL.String(), n.configProvider(req.Context()))
 		},
 	}
 
@@ -274,6 +281,9 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	}
 	return nil
 }
+
+// maxRedirects bounds how many redirects a fetch follows.
+const maxRedirects = 5
 
 type PortList []int
 
