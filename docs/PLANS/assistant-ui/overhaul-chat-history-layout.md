@@ -1,13 +1,13 @@
 ---
-status: active
-last_reviewed: 2026-09-05
+status: complete
+last_reviewed: 2026-10-08
 ---
 
 # Assistant UI Overhaul — Chat, History & Layout
 
-**Status:** active — reconciled with `cross-cutting/frontend-redesign-retro.md` (Phase 5 · Assistant chrome) on 2026-09-30: Phase 4 is complete; of Phase 5 only the backend SSE-bleed item is still open (see below)
+**Status:** complete (Phase 5 backend SSE-bleed closed 2026-10-08) — reconciled with `cross-cutting/frontend-redesign-retro.md` (Phase 5 · Assistant chrome) on 2026-09-30: Phase 4 is complete; of Phase 5 only the backend SSE-bleed item is still open (see below)
 **Date:** 2026-06-25  
-**Phases:** 1 ✅ | 2 ✅ | 3 ✅ | 4 ✅ | 5 ⬜ (2/3)  
+**Phases:** 1 ✅ | 2 ✅ | 3 ✅ | 4 ✅ | 5 ✅  
 **Absorbed:** the deferred backend SSE-bleed follow-up from `cancel-stale-turn-bleed.md` (archived 2026-09-05) now lives in Phase 5 below — implement it here, not in the archived plan.
 **Related:** `simple-three-bubble.md`, `consolidated-streaming-bubbles.md` (predecessor — complete)
 
@@ -87,7 +87,7 @@ complete). The design below is kept as history. **Still open:** the backend half
 the SSE-bleed item — not re-verified here; the frontend already drops events of
 another conversation (`useAssistant`).
 
-- **Backend SSE bleed on cancel** (absorbed from `ARCHIVE/assistant-ui/cancel-stale-turn-bleed.md`): after cancelling a turn mid-stream, the backend may continue emitting SSE events from the cancelled run (stale reasoning/segments) — ensure the cancel path terminates the event stream so no cancelled-turn events reach a newly started turn. Frontend guards for this were fixed 2026-06-26 (`messageBuilder.reset()` clearing `liveReasoning`, `turnGrouper` taking segments from `last`); the backend half is still open.
+- **Backend SSE bleed on cancel** (absorbed from `ARCHIVE/assistant-ui/cancel-stale-turn-bleed.md`): after cancelling a turn mid-stream, the backend may continue emitting SSE events from the cancelled run (stale reasoning/segments) — ensure the cancel path terminates the event stream so no cancelled-turn events reach a newly started turn. Frontend guards for this were fixed 2026-06-26 (`messageBuilder.reset()` clearing `liveReasoning`, `turnGrouper` taking segments from `last`); the backend half was closed 2026-10-08: `CancelAgent` and `cancelPriorForWorkspace` share `stopRun`, which cancels and waits (bounded, `runExitWait` 2s) for the run to exit, so Stop returns only after the cancelled run has published its last events; `finishRun` unregisters a run with `CompareAndDelete`, so a finishing old run can no longer remove a newer run's registration (tests `CancelAgent_WaitsForRunToExit`, `FinishRun_LeavesNewerRunRegistered`). Known gap, not changed: `CancelAgent` ignores the `conversation_id` it is given and cancels the workspace's run.
 - **Stop button** — ensure backend agent cancels when user clicks stop:
   - Investigate if `AbortController.abort()` properly cancels the HTTP request
   - Verify `r.Context()` cancellation propagates to `agent.Execute` during streaming
