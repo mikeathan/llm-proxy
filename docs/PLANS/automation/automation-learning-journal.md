@@ -102,7 +102,9 @@ the agent at the end of the run.
   details component tests; (e) a record/replay smoke run of the LLM-news template showing the
   second run's queries reference the journal (`testing-guide` skill).
 
-## Phase 3 — Memory search before acting (automations)
+## Phase 3 — Memory search before acting (automations) ✅ BUILT (2026-10-08), live-model check pending
+
+**Built as:** `prompts.AutomationMemoryBlock()` appended in `LLMTaskExecutor.buildPrompt` when `memoryActive(req)` (mode resolved against the global automation default, and a store exists — the same helper now drives the agent options); SPEC-004 2.5 drops the nonexistent `memory_delete`. **Still open:** the record/replay acceptance — does a small local model actually call `memory_search` before the first `internet_search`? Per the plan, if it does not, record that and stop (no enforcement code).
 
 When `memory_mode` is on, add an instruction to the automation prompt to call `memory_search`
 for the task's topics before starting (OpenClaw makes retrieval mandatory; here it is
@@ -113,7 +115,9 @@ discretionary). Prompt text only in `templates.go`. Also reconcile SPEC-004 §II
   `internet_search` for a small local model. If small models ignore it, record that and stop —
   do not add enforcement code speculatively.
 
-## Phase 4 — Heartbeat active hours
+## Phase 4 — Heartbeat active hours ✅ DONE (2026-10-08)
+
+**Built as:** `heartbeat.active_hours` in **server local time** (the zone cron triggers use) — the plan's "workspace timezone" does not exist, and an owner timezone is autonomy-roadmap decision R2. Reusable `models.DailyWindow` (`ParseDailyWindow`, half-open `Contains`, overnight wrap); `HeartbeatConfig.Validate/ActiveAt`; `Dispatcher.heartbeatSkip` in `admitRun` (config read at fire time, manual runs ignore the window, checked before no-checks); `Dispatcher.now` clock; `HeartbeatSkippedOutsideHours`; Heartbeat panel "Only check from/until" time inputs (both or neither). SPEC-007 1.10, api-reference.
 
 `active_hours` (e.g. `08:00-22:00`, workspace timezone) on the workspace heartbeat
 (`models.HeartbeatConfig`, see `memory-and-heartbeat-simplification.md`): a scheduled fire outside
@@ -132,5 +136,5 @@ memory consolidation job, event triggers, additional connectors, per-automation 
 
 ## Remaining Work
 
-Phases 1–2 done. Open: Phases 3–4 (suggested order), and Phase 2 acceptance (e) — the record/replay smoke run of the LLM-news template against a real model — which has not been run. Update `SPEC-007` (automation fields, journal, active hours)
+Phases 1, 2, 4 done; Phase 3 built. Live checks on 2026-10-08 (this branch run locally, model Qwen3.6 35B A3B served remotely): a memory-on automation called `memory_search` among its first tool calls; a `journal: true` automation run twice wrote its journal through the tool on run 1, and run 2 read it (no repeated names) and rewrote it. That was a live two-run creative task without web search, so it only partly meets Phase 2 acceptance (e). Still open: Phase 2 acceptance (e) — the record/replay smoke run of the LLM-news template against a real model — which has not been run. Update `SPEC-007` (automation fields, journal, active hours)
 and run `./scripts/check-agent-harness.sh` as each phase lands.

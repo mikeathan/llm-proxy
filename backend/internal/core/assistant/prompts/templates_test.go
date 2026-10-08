@@ -259,3 +259,13 @@ func TestMemorySaveGuidance_YieldsToTaskDirectedSaves(t *testing.T) {
 		t.Error("the guidance must let a task's own save instruction win over the never-save list")
 	}
 }
+
+func TestAutomationMemoryBlock(t *testing.T) {
+	got := AutomationMemoryBlock()
+	if !strings.Contains(got, models.ToolMemorySearch) {
+		t.Errorf("block must name the memory search tool: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "before you start") {
+		t.Errorf("block must say to search before acting: %q", got)
+	}
+}

@@ -39,7 +39,9 @@ default, WASM (tried and removed 2026-05), per-use-case permission profiles, the
 | S12 | The egress audit AST test the sandbox plan cites is not at its stated path (`backend/internal/platform/network/` has no `egress_audit_test.go`) | directory listing 2026-09-30 | VERIFIED — Phase 1 step 6 |
 | — | Webhook secret optional | see authentication plan Phase 1 | VERIFIED (other plan) |
 
-## Phase 1 — Fix the guard (S6, S7). Write the failing test first.
+## Phase 1 — Fix the guard (S6, S7). Write the failing test first. — **done 2026-10-08**
+
+**Implemented:** one classifier `platform/network.CheckAlwaysBlocked` (unspecified/loopback/link-local/multicast, typed `ErrAlwaysBlockedAddress`) + `IsLAN` (private + CGNAT `100.64.0.0/10`, so a tailnet counts as LAN — tightens the old "CGNAT = internet" behaviour). `tools.validateIP` uses it; the egress proxy enforces it in `net.Dialer.Control` on the resolved IP (403, rebinding-safe; `Server.dialGuard` is the test seam). `validateAddress` now fails closed on DNS error. `freePort` is replaced by `portReclaimer`: it terminates only processes of the configured server binary launched with `--port <port>` (reusing `process.ListByBinary`/`process.Kill`, no new persisted state) and otherwise fails the start with `ErrPortInUse`. Step 6: the AST audit exists at `internal/platform/network/transport_test.go` (S12 was a wrong path in the plan, not a missing test); the stale `local_provider.go` allow-list entry was removed.
 
 1. **Reproduce S6 with a test.** In `internal/core/tools/network_test.go`, table-drive `validateIP` with
    `0.0.0.0`, `::`, `224.0.0.1`, `ff02::1`, `127.1.2.3`, `::ffff:127.0.0.1`, `169.254.169.254`, `100.64.0.1`,
@@ -120,4 +122,4 @@ conformance test proves a network-on child cannot connect to the admin port but 
 
 ## Remaining Work
 
-All phases. Phase 1 is a half-day change and should land before (or with) authentication Phase 1.
+Phases 2–3 (Phase 1 done 2026-10-08).

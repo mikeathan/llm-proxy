@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -87,6 +88,32 @@ func Kill(pid int) error {
 	}
 
 	return fmt.Errorf("failed to kill process %d: still alive after SIGKILL", pid)
+}
+
+// splitExecutable finds the executable at the start of a ps command line whose
+// base name contains binaryName, and returns it with the remaining arguments.
+// ps does not quote, so an absolute path containing spaces spans several
+// fields: later fields are joined on only while they continue a path (they do
+// not start with "/" or "-") and only when the joined base name is exactly
+// binaryName, so an interpreter running a script is never taken for the server.
+func splitExecutable(command, binaryName string) (string, []string, bool) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "", nil, false
+	}
+	if strings.Contains(filepath.Base(fields[0]), binaryName) {
+		return fields[0], fields[1:], true
+	}
+	if !strings.HasPrefix(fields[0], "/") {
+		return "", nil, false
+	}
+	for k := 1; k < len(fields) && !strings.HasPrefix(fields[k], "/") && !strings.HasPrefix(fields[k], "-"); k++ {
+		joined := strings.Join(fields[:k+1], " ")
+		if filepath.Base(joined) == binaryName {
+			return joined, fields[k+1:], true
+		}
+	}
+	return "", nil, false
 }
 
 func parseArgs(args []string) (model string, port int) {

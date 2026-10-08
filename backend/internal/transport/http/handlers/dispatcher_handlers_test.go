@@ -782,6 +782,10 @@ func TestUpdateWorkspaceConfig_ValidatesHeartbeat(t *testing.T) {
 		{"disabled needs no interval", `{"heartbeat":{"enabled":false}}`, http.StatusOK},
 		{"too frequent", `{"heartbeat":{"enabled":true,"every":"10s"}}`, http.StatusBadRequest},
 		{"not a duration", `{"heartbeat":{"enabled":true,"every":"often"}}`, http.StatusBadRequest},
+		{"active hours window", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"08:00-22:00"}}`, http.StatusOK},
+		{"active hours wrapping midnight", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"22:00-06:00"}}`, http.StatusOK},
+		{"empty active hours window", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"08:00-08:00"}}`, http.StatusBadRequest},
+		{"malformed active hours", `{"heartbeat":{"enabled":true,"every":"15m","active_hours":"daytime"}}`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(tc.body))
@@ -791,7 +795,7 @@ func TestUpdateWorkspaceConfig_ValidatesHeartbeat(t *testing.T) {
 			if rr.Code != tc.want {
 				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
 			}
-			if tc.want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "heartbeat.every") {
+			if tc.want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "heartbeat.") {
 				t.Errorf("error should name the field: %s", rr.Body.String())
 			}
 		})
@@ -1010,4 +1014,76 @@ func TestGlobalActivity_ReflectsDeletes(t *testing.T) {
 			t.Fatalf("want no runs, got %v", ids)
 		}
 	})
+}
+
+// A duplicate name must be rejected exactly once: one 409, no second response
+// body, no registry mutation, and the persisted definition stays untouched
+// (the closure used to respond and fall through to Register).
+func TestCreateAutomation_DuplicateNameConflicts(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	if err := mgr.WriteConfig("ws", &models.WorkspaceConfig{}); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	td := &testDispatcher{mgr: mgr}
+	handlers := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	create := func(taskFile string) *httptest.ResponseRecorder {
+		body := `{"name":"a","task_file":"` + taskFile + `"}`
+		req := httptest.NewRequest("POST", "/admin/api/dispatcher/workspaces/ws/automations", strings.NewReader(body))
+		req.SetPathValue(models.WorkspaceIDParam, "ws")
+		rr := httptest.NewRecorder()
+		handlers.CreateAutomation(rr, req)
+		return rr
+	}
+
+	if rr := create("task1.md"); rr.Code != http.StatusOK {
+		t.Fatalf("first create status = %d: %s", rr.Code, rr.Body.String())
+	}
+	rr := create("task2.md")
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("duplicate status = %d, want 409: %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "created") {
+		t.Errorf("duplicate response must not report success: %s", rr.Body.String())
+	}
+	if n := strings.Count(rr.Body.String(), "{"); n != 1 {
+		t.Errorf("expected a single JSON response, got %d objects: %s", n, rr.Body.String())
+	}
+	if !slices.Equal(td.registered, []string{"ws/a"}) {
+		t.Errorf("registered = %v, want only the original", td.registered)
+	}
+	cfg, err := mgr.ReadConfig("ws")
+	if err != nil {
+		t.Fatalf("ReadConfig: %v", err)
+	}
+	if len(cfg.Automations) != 1 || cfg.Automations[0].TaskFile != "task1.md" {
+		t.Errorf("persisted automations = %+v, want the original task1.md only", cfg.Automations)
+	}
+}
+
+// Updating an automation that is not in config is a single 404 and never
+// registers a definition with the dispatcher.
+func TestUpdateAutomation_UnknownNameReturnsNotFound(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	if err := mgr.WriteConfig("ws", &models.WorkspaceConfig{}); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	td := &testDispatcher{mgr: mgr}
+	handlers := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/automations/ghost", strings.NewReader(`{"name":"ghost","task_file":"task.md"}`))
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "ghost")
+	rr := httptest.NewRecorder()
+	handlers.UpdateAutomation(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404: %s", rr.Code, rr.Body.String())
+	}
+	if len(td.registered) != 0 {
+		t.Errorf("registered = %v, want none", td.registered)
+	}
 }

@@ -16,6 +16,7 @@ import (
 	"llm-proxy/internal/core/proxy"
 
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/units"
 	"llm-proxy/models"
 )
@@ -48,10 +49,14 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// Dialing the configured egress proxy itself is permitted by
-			// construction: it is the single loopback exception, and the
-			// guardrail checks below apply to the proxied target. Requests
-			// that do not ride the proxy (no SetProxy) still go through the
-			// full validation.
+			// construction: it is the single loopback exception. For proxied
+			// requests the full LAN/internet policy runs in validateAddress (the
+			// original URL and every redirect target), and the proxy applies
+			// network.CheckAlwaysBlocked to the IP it actually dials. Residual: the
+			// proxy resolves the name again without the LAN policy, so a DNS answer
+			// that changes to a LAN address between the two lookups is not caught.
+			// Requests that do not ride the proxy (no SetProxy) go through the full
+			// validation here, on the dialed IP.
 			if addr == n.proxyAddr {
 				return dialer.DialContext(ctx, network, addr)
 			}
@@ -89,10 +94,14 @@ func NewNetworkTools(provider func(ctx context.Context) models.NetworkGuardrails
 	n.httpClient = &http.Client{
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
+			if len(via) >= maxRedirects {
 				return fmt.Errorf("too many redirects")
 			}
-			return nil // Transport handles IP validation for redirects
+			// Each redirect target gets the same pre-check as the original URL.
+			// Without a proxy the dial guard would also catch it, but with the
+			// egress proxy on, the transport only dials the proxy, so this is the
+			// only place the LAN/internet policy sees a redirect.
+			return n.validateAddress(req.Context(), req.URL.String(), n.configProvider(req.Context()))
 		},
 	}
 
@@ -234,8 +243,9 @@ func (n *NetworkTools) validateAddress(ctx context.Context, address string, cfg 
 	// SEC-H2: DNS pre-check with pure-Go resolver for context-aware cancellation.
 	ips, err := (&net.Resolver{PreferGo: true}).LookupIP(ctx, "ip", host)
 	if err != nil {
-		// If DNS fails, we might be dealing with a raw IP or a blocked segment
-		return nil // We'll let the dialer handle the error
+		// Fail closed, like the dial guard: an address that cannot be classified
+		// is not reachable.
+		return fmt.Errorf("cannot resolve '%s' to validate it: %w", host, err)
 	}
 
 	for _, ip := range ips {
@@ -248,13 +258,14 @@ func (n *NetworkTools) validateAddress(ctx context.Context, address string, cfg 
 }
 
 func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig) error {
-	// SAFETY: Loopback and Link-Local are ALWAYS blocked for agents to prevent
-	// poking at host-only services or cloud metadata APIs.
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-		return fmt.Errorf("access to loopback/link-local address '%s' is strictly prohibited", ip.String())
+	// SAFETY: unspecified, loopback, link-local and multicast addresses are
+	// ALWAYS blocked for agents to prevent poking at host-only services (0.0.0.0
+	// routes to localhost) or cloud metadata APIs. One shared classifier.
+	if err := network.CheckAlwaysBlocked(ip); err != nil {
+		return err
 	}
 
-	isPrivate := ip.IsPrivate()
+	isPrivate := network.IsLAN(ip)
 
 	if isPrivate && !cfg.AllowLanAccess {
 		return fmt.Errorf("access to private address '%s' is blocked", ip.String())
@@ -270,6 +281,9 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	}
 	return nil
 }
+
+// maxRedirects bounds how many redirects a fetch follows.
+const maxRedirects = 5
 
 type PortList []int
 

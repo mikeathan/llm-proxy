@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
@@ -44,8 +45,9 @@ func TestWorkspaceService_MutateConfig(t *testing.T) {
 	svc, _ := setupWS(t)
 	wsID := "mutate-test"
 
-	if err := svc.MutateConfig(wsID, func(cfg *models.WorkspaceConfig) {
+	if err := svc.MutateConfig(wsID, func(cfg *models.WorkspaceConfig) error {
 		cfg.Temperature = 0.3
+		return nil
 	}); err != nil {
 		t.Fatalf("MutateConfig: %v", err)
 	}
@@ -53,6 +55,30 @@ func TestWorkspaceService_MutateConfig(t *testing.T) {
 	cfg, _ := svc.GetConfig(wsID)
 	if cfg.Temperature != 0.3 {
 		t.Errorf("expected Temperature=0.3, got %v", cfg.Temperature)
+	}
+}
+
+// An error from the closure aborts the mutation: the partial change is never
+// persisted and the caller gets the closure's own error back.
+func TestWorkspaceService_MutateConfig_ErrorAbortsWrite(t *testing.T) {
+	svc, _ := setupWS(t)
+	wsID := "mutate-abort"
+	if err := svc.SaveConfig(wsID, &models.WorkspaceConfig{Temperature: 0.1}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	errAbort := errors.New("abort")
+	err := svc.MutateConfig(wsID, func(cfg *models.WorkspaceConfig) error {
+		cfg.Temperature = 0.9
+		return errAbort
+	})
+	if !errors.Is(err, errAbort) {
+		t.Fatalf("MutateConfig error = %v, want %v", err, errAbort)
+	}
+
+	cfg, _ := svc.GetConfig(wsID)
+	if cfg.Temperature != 0.1 {
+		t.Errorf("aborted mutation was persisted: Temperature=%v, want 0.1", cfg.Temperature)
 	}
 }
 

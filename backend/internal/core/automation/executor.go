@@ -427,9 +427,9 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 		// (allow ∩ guardrail-disabled, resolved in NewAgent).
 		AllowedTools: allowedToolsFor(req),
 	}
-	if req.MemoryMode.Effective(e.svc.MemorySettings().AutomationHotDefault()) {
+	if e.memoryActive(req) {
 		opts.MemoryStore = e.svc.MemoryStore()
-		opts.EnableHotMemory = opts.MemoryStore != nil
+		opts.EnableHotMemory = true
 	}
 	if req.Model == "" {
 		return opts
@@ -616,9 +616,25 @@ func generateRunID() string {
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
+// memoryActive reports whether this run has memory: the automation's mode resolved against the
+// global automation default, and a store to search. The prompt and the agent options share it.
+func (e *LLMTaskExecutor) memoryActive(req ExecuteRequest) bool {
+	return req.MemoryMode.Effective(e.svc.MemorySettings().AutomationHotDefault()) && e.svc.MemoryStore() != nil
+}
+
 func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) string {
-	return fmt.Sprintf(prompts.AutomationTaskPrompt,
+	prompt := fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
+	if e.memoryActive(req) && toolOffered(req, models.ToolMemorySearch) {
+		prompt += prompts.AutomationMemoryBlock()
+	}
+	return prompt
+}
+
+// toolOffered reports whether the run's resolved allow-list includes a tool (no list means every tool).
+func toolOffered(req ExecuteRequest, name string) bool {
+	allowed := allowedToolsFor(req)
+	return len(allowed) == 0 || slices.Contains(allowed, name)
 }
 
 // ============================================================================

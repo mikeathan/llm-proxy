@@ -90,9 +90,10 @@ failed", "this chat asked for approval of a blocked call — the automation will
 
 ## Phases
 
-### Phase 0 — Fix the duplicate-name bug in `CreateAutomation` (independent)
+### Phase 0 — Fix the duplicate-name bug in `CreateAutomation` (independent) — **done 2026-10-08**
 - Return a sentinel error from the `MutateConfig` closure (or check before mutating) so a duplicate
   name writes exactly one 409 and never calls `Register`.
+- **Implemented:** `WorkspaceService.MutateConfig` now takes `func(*WorkspaceConfig) error`; an error aborts the write and is returned unchanged. Create/Update return `errAutomationExists` / `errAutomationNotFound` from the closure and one helper (`respondAutomationMutationError`) maps them to 409/404 — handlers never respond inside a closure. The duplicate check stays inside the closure, under the workspace lock.
 - **Acceptance:** new handler test — create `a`, create `a` again with a different task file → single
   409 response, registry entry still has the original task file. `go test ./internal/transport/http/handlers/ -count=1`.
 
@@ -124,4 +125,4 @@ failed", "this chat asked for approval of a blocked call — the automation will
 - **Non-goal:** automatic creation without review; editing existing automations from chat.
 
 ## Remaining Work
-All phases (0–4). Phase 0 has no dependencies and should land first.
+Phases 1–4 (Phase 0 done 2026-10-08).

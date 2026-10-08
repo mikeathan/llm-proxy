@@ -1,10 +1,9 @@
 // heartbeat.go — the run-time rules of the workspace heartbeat (models.HeartbeatConfig): a tick with no
-// checks never reaches the model, skip-if-busy follows the model's lane, and each check's outcome is recorded.
+// checks or outside the active hours never reaches the model, skip-if-busy follows the model's lane, and each check's outcome is recorded.
 package automation
 
 import (
 	"fmt"
-	"time"
 
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/models"
@@ -12,6 +11,46 @@ import (
 
 func isHeartbeat(entry *AutomationEntry) bool {
 	return entry.Name == models.HeartbeatAutomationName
+}
+
+// heartbeatSkip says whether a heartbeat tick must be dropped before it reaches the lane, and why. A scheduled
+// tick outside the configured active hours is dropped (a manual run ignores the window, like skip-if-busy), as is
+// any tick with no checks to run. Other automations are never skipped here.
+func (d *Dispatcher) heartbeatSkip(entry *AutomationEntry, manual bool) (models.HeartbeatResult, bool) {
+	if !isHeartbeat(entry) {
+		return "", false
+	}
+	if !manual && !d.heartbeatActive(entry.Workspace) {
+		return models.HeartbeatSkippedOutsideHours, true
+	}
+	if !d.heartbeatHasChecks(entry.Workspace) {
+		return models.HeartbeatSkippedNoChecks, true
+	}
+	return "", false
+}
+
+// skipHeartbeatTick applies heartbeatSkip and, when the tick is dropped, records why. It is checked when a tick is
+// admitted and again when it leaves the queue, so a queued tick cannot run after its window closed.
+func (d *Dispatcher) skipHeartbeatTick(entry *AutomationEntry, manual bool) bool {
+	reason, skip := d.heartbeatSkip(entry, manual)
+	if !skip {
+		return false
+	}
+	d.metrics.RecordExecution(false, true, 0)
+	d.recordHeartbeat(entry, reason)
+	d.logger.Info("heartbeat tick skipped", "workspace", entry.Workspace, "reason", string(reason))
+	return true
+}
+
+// heartbeatActive reads the workspace's current active hours at fire time, so a changed window applies to the
+// very next tick without re-registering. An unreadable config keeps the heartbeat running.
+func (d *Dispatcher) heartbeatActive(workspaceID string) bool {
+	cfg, err := d.persistence.ReadConfig(workspaceID)
+	if err != nil {
+		d.logger.Warn("cannot read heartbeat active hours; treating as active", "workspace", workspaceID, "error", err)
+		return true
+	}
+	return cfg.Heartbeat == nil || cfg.Heartbeat.ActiveAt(d.now())
 }
 
 // heartbeatHasChecks reports whether heartbeat.md holds anything to check; an unreadable file counts as none.
@@ -35,7 +74,7 @@ func (d *Dispatcher) recordHeartbeat(entry *AutomationEntry, result models.Heart
 	if !isHeartbeat(entry) {
 		return
 	}
-	status := models.HeartbeatStatus{At: time.Now(), Result: result}
+	status := models.HeartbeatStatus{At: d.now(), Result: result}
 	if err := d.persistence.WriteHeartbeatStatus(entry.Workspace, status); err != nil {
 		d.logger.Warn("failed to record heartbeat status", "workspace", entry.Workspace, "error", err)
 	}

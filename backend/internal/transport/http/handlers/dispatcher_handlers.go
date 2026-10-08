@@ -19,6 +19,27 @@ import (
 	"strings"
 )
 
+// Sentinels returned from MutateConfig closures so the handler — never the
+// closure — decides the HTTP response.
+var (
+	errAutomationExists   = errors.New("automation already exists")
+	errAutomationNotFound = errors.New("automation not found")
+)
+
+// respondAutomationMutationError maps an automation config-mutation failure to
+// its HTTP status: 409 for a duplicate name, 404 for a missing automation,
+// 500 for anything else (lock, read or write failures).
+func respondAutomationMutationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errAutomationExists):
+		respondError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, errAutomationNotFound):
+		respondError(w, http.StatusNotFound, err.Error())
+	default:
+		respondError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
 var validIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func validateID(id string) bool {
@@ -367,12 +388,13 @@ func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *htt
 	}
 
 	// Acquire lock, read existing, merge, write, release — handled atomically by WorkspaceService.
-	if err := h.workspace.MutateConfig(workspaceID, func(existing *models.WorkspaceConfig) {
+	if err := h.workspace.MutateConfig(workspaceID, func(existing *models.WorkspaceConfig) error {
 		// Merge logic: If automations aren't in the request, keep the old ones
 		if cfg.Automations == nil {
 			cfg.Automations = existing.Automations
 		}
 		*existing = cfg
+		return nil
 	}); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -590,14 +612,12 @@ func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var found bool
-	if err := h.workspace.MutateConfig(workspaceID, func(cfg *models.WorkspaceConfig) {
+	if err := h.workspace.MutateConfig(workspaceID, func(cfg *models.WorkspaceConfig) error {
 		for i, a := range cfg.Automations {
 			if strings.TrimSpace(a.Name) == automationName {
 				newAuto := auto
 				cfg.Automations[i] = &newAuto
-				found = true
-				return
+				return nil
 			}
 		}
 
@@ -609,13 +629,9 @@ func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Req
 			"workspace", workspaceID,
 			"target", automationName,
 			"available", strings.Join(names, ", "))
+		return errAutomationNotFound
 	}); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if !found {
-		respondError(w, http.StatusNotFound, "automation not found")
+		respondAutomationMutationError(w, err)
 		return
 	}
 
@@ -649,19 +665,19 @@ func (h *DispatcherHandlers) CreateAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.workspace.MutateConfig(workspaceID, func(cfg *models.WorkspaceConfig) {
+	if err := h.workspace.MutateConfig(workspaceID, func(cfg *models.WorkspaceConfig) error {
 		// Ensure no duplicate name
 		for _, a := range cfg.Automations {
 			if strings.TrimSpace(a.Name) == strings.TrimSpace(auto.Name) {
-				respondError(w, http.StatusConflict, "automation already exists")
-				return
+				return errAutomationExists
 			}
 		}
 		// Create a persistent copy in config
 		newAuto := auto
 		cfg.Automations = append(cfg.Automations, &newAuto)
+		return nil
 	}); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondAutomationMutationError(w, err)
 		return
 	}
 
@@ -751,7 +767,7 @@ func (h *DispatcherHandlers) DeleteAutomation(w http.ResponseWriter, r *http.Req
 	}
 
 	var found bool
-	if err := h.workspace.MutateConfig(workspaceID, func(cfg *models.WorkspaceConfig) {
+	if err := h.workspace.MutateConfig(workspaceID, func(cfg *models.WorkspaceConfig) error {
 		for i, a := range cfg.Automations {
 			if a.Name == automationName {
 				cfg.Automations = append(cfg.Automations[:i], cfg.Automations[i+1:]...)
@@ -759,6 +775,7 @@ func (h *DispatcherHandlers) DeleteAutomation(w http.ResponseWriter, r *http.Req
 				break
 			}
 		}
+		return nil
 	}); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return

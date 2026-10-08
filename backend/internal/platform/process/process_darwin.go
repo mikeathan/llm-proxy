@@ -5,7 +5,6 @@ package process
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -47,14 +46,8 @@ func listByBinary(binaryName string, activePID int) ([]Info, error) {
 			continue
 		}
 
-		cmdFields := strings.Fields(command)
-		binary := cmdFields[0]
-		var rest []string
-		if len(cmdFields) > 1 {
-			rest = cmdFields[1:]
-		}
-
-		if !strings.Contains(filepath.Base(binary), binaryName) {
+		binary, rest, ok := splitExecutable(command, binaryName)
+		if !ok {
 			continue
 		}
 

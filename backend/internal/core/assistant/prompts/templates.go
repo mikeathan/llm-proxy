@@ -663,6 +663,15 @@ func BuildExecutionPlanPrompt(tools []ToolInfo, task string) string {
 	return sb.String()
 }
 
+// AutomationMemoryBlock is appended to the task of an automation whose memory is
+// active: consult stored memory for the task's topics before acting. It is an
+// instruction, not enforcement — small models may ignore it (see the learning
+// journal plan, Phase 3).
+func AutomationMemoryBlock() string {
+	return fmt.Sprintf("\n\nBefore you start, call `%s` for this task's main topics and use what it returns (earlier findings, preferences, sources worth using); memory may already hold what you need.\n",
+		models.ToolMemorySearch)
+}
+
 // AutomationSeenBlock is appended to an automation's task when seen-item
 // dedup is on: it names items already delivered so the run spends its bounded
 // search budget on new ones. Delivery still filters by link, so this block is

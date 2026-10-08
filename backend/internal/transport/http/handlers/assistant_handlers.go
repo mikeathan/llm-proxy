@@ -97,28 +97,39 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// cancelPriorForWorkspace signals any in-flight agent for the same workspace
-// to stop and waits up to 2 seconds for it to fully exit.  Idempotent.
-func (h *AssistantMessageHandler) cancelPriorForWorkspace(workspaceID string, log logging.Logger) {
-	if workspaceID == "" {
-		return
-	}
-	v, ok := h.running.LoadAndDelete(workspaceID)
-	if !ok {
-		return
-	}
-	ra := v.(*runningAgent)
+// runExitWait bounds how long a cancel waits for the cancelled run to publish its
+// last events and exit before giving up.
+const runExitWait = 2 * time.Second
+
+// stopRun cancels a run that has already been removed from the running map and
+// waits (bounded) for it to exit, so none of its events can interleave with
+// whatever starts next on the same workspace. Idempotent.
+func (h *AssistantMessageHandler) stopRun(workspaceID string, ra *runningAgent, log logging.Logger) {
 	ra.cancel()
-	log.Info("canceled prior in-flight assistant request for workspace", "workspace", workspaceID)
 	select {
 	case <-ra.done:
-	case <-time.After(2 * time.Second):
-		log.Warn("prior assistant request did not exit within 2s; proceeding anyway", "workspace", workspaceID)
+	case <-time.After(runExitWait):
+		log.Warn("assistant run did not exit after cancel; proceeding anyway", "workspace", workspaceID, "wait", runExitWait)
 	}
 }
 
-// CancelAgent signals the running agent for the given workspace to stop.
-// Returns true if a running agent was found and canceled, false otherwise.
+// replaceRun registers ra as the workspace's running agent and stops whatever it
+// replaced. Registration is one atomic Swap, so two runs starting at once cannot
+// both miss each other: exactly one stays registered and the other is cancelled
+// and waited for (stopRun) before the new run proceeds.
+func (h *AssistantMessageHandler) replaceRun(workspaceID string, ra *runningAgent, log logging.Logger) {
+	prev, loaded := h.running.Swap(workspaceID, ra)
+	if !loaded {
+		return
+	}
+	log.Info("canceled prior in-flight assistant request for workspace", "workspace", workspaceID)
+	h.stopRun(workspaceID, prev.(*runningAgent), log)
+}
+
+// CancelAgent stops the running agent for the given workspace and returns once
+// it has exited (bounded by runExitWait), so a message sent right after Stop
+// never shares the event stream with the cancelled run's stale output. Returns
+// true if a running agent was found, false otherwise.
 func (h *AssistantMessageHandler) CancelAgent(workspaceID, conversationID string) bool {
 	if workspaceID == "" {
 		return false
@@ -127,9 +138,17 @@ func (h *AssistantMessageHandler) CancelAgent(workspaceID, conversationID string
 	if !ok {
 		return false
 	}
-	ra := v.(*runningAgent)
-	ra.cancel()
+	h.stopRun(workspaceID, v.(*runningAgent), h.logger)
 	return true
+}
+
+// finishRun ends a run's registration. It removes the workspace entry only if it
+// still belongs to this run: a newer run may already have replaced it, and must
+// stay cancellable and visible as running.
+func (h *AssistantMessageHandler) finishRun(workspaceID string, ra *runningAgent) {
+	h.running.CompareAndDelete(workspaceID, ra)
+	ra.cancel()
+	close(ra.done)
 }
 
 // RunningExists reports whether an agent is currently running for the workspace.
@@ -323,8 +342,6 @@ func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, mes
 // The ctx parameter is retained for signature stability and is only used for
 // request-scoped logging/values; it does not cancel the run.
 func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID string, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	h.cancelPriorForWorkspace(workspaceID, log)
-
 	// Resolve the conversation ID up front so the running agent can report it
 	// (e.g. to /active-runs for the UI to mark the session as running after a
 	// refresh). NormalizeConversationID is idempotent, so handleAssistant
@@ -335,19 +352,15 @@ func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID
 	execCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	ra := &runningAgent{cancel: cancel, done: done, conversationID: conversationID}
-	h.running.Store(workspaceID, ra)
-	defer func() {
-		h.running.Delete(workspaceID)
-		cancel()
-		close(done)
-	}()
+	h.replaceRun(workspaceID, ra, log)
+	defer h.finishRun(workspaceID, ra)
 
 	runCtx := execCtx
 	if h.lane != nil {
 		// Every run is admitted through the scheduler: an interactive chat
 		// preempts a running automation in its lane, or queues FIFO behind
 		// other chats. The claim derives from execCtx so ra.cancel (the
-		// /assistant/cancel path and cancelPriorForWorkspace) still reaches
+		// /assistant/cancel path and replaceRun) still reaches
 		// the run while it waits or runs. The wait happens in this detached
 		// goroutine — ServeHTTP already returned 202.
 		//

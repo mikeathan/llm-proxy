@@ -174,7 +174,7 @@ Returns full admin state: active model, available models, guardrails config, pro
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/state` | Get workspace state |
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/config` | Get workspace config |
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/heartbeat` | The workspace heartbeat: `{config, status?, lane, wakes_local_model, has_checks}` (SPEC-007 §II.6) |
-| PUT | `/admin/api/dispatcher/workspaces/{workspace}/heartbeat` | Save `{enabled, every, model, notify}` (`every` 1m–24h, `notify` as on an automation; invalid → 400) into the workspace config and schedule it at once; returns the same state as GET. The name `heartbeat` is reserved for this and cannot be used for an automation |
+| PUT | `/admin/api/dispatcher/workspaces/{workspace}/heartbeat` | Save `{enabled, every, model, notify, active_hours}` (`every` 1m–24h; `active_hours` `HH:MM-HH:MM` in server time, optional, wraps past midnight, an empty window like `08:00-08:00` → 400; `notify` as on an automation; invalid → 400) into the workspace config and schedule it at once; returns the same state as GET. The name `heartbeat` is reserved for this and cannot be used for an automation |
 | PUT | `/admin/api/dispatcher/workspaces/{workspace}/config` | Update workspace config (replaces the document). `assistant_memory` (`""` inherit, `"on"`, `"off"`) overrides the global assistant hot-memory default for this workspace's chats; any other value → 400 |
 | GET | `/admin/api/dispatcher/workspaces/{workspace}/live` | SSE event stream |
 | POST | `/admin/api/dispatcher/trigger/{workspace}/{automation}` | Trigger automation |

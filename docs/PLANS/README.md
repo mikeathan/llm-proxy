@@ -30,7 +30,7 @@ Organized by subsystem:
 
 | File | Title | Status | Date | Related Specs |
 |------|-------|--------|------|---------------|
-| [`unattended-run-safety-hardening.md`](unattended-run-safety-hardening.md) | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | approved | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
+| [`unattended-run-safety-hardening.md`](unattended-run-safety-hardening.md) | Unattended Run Safety Hardening (13 gaps, 7 leaks, 5 optimizations) | complete | 2026-07-22 | SPEC-001, SPEC-006, SPEC-007 |
 | [`gpu-performance.md`](gpu-performance.md) | GPU Performance (consolidated: completed + next steps) | active | 2026-08-06 | — |
 | [`primary-model-warning-banner.md`](primary-model-warning-banner.md) | Remove model auto-bootstrap; explicit primary/fallback selection + banners | complete | 2026-08-14 | SPEC-003, CONSTITUTION III.4 |
 | [`agent-loop/agent-improvements.md`](agent-loop/agent-improvements.md) | Agent Improvements (7-phase; re-scoped 2026-09-05 — Phases 3/6 superseded by SPEC-010, Phase 4/5/7-remainder open) | partial | — | SPEC-001 |
@@ -38,7 +38,7 @@ Organized by subsystem:
 | [`agent-loop/strategy-agnostic-completion-and-tool-schema.md`](agent-loop/strategy-agnostic-completion-and-tool-schema.md) | Strategy-Agnostic Completion + Tool-Schema/Policy Consistency | complete | 2026-08-18 | SPEC-010, SPEC-006, SPEC-001 |
 | [`agent-loop/surface-planning-reasoning.md`](agent-loop/surface-planning-reasoning.md) | Surface Plan-Generation Reasoning (stream the planner) | complete | 2026-08-18 | SPEC-010, SPEC-001, SPEC-003 |
 | [`agent-loop/fix-final-report-realignment.md`](agent-loop/fix-final-report-realignment.md) | Fix automation "Final Report" regression | complete | 2026-08-07 | SPEC-001 |
-| [`assistant-ui/overhaul-chat-history-layout.md`](assistant-ui/overhaul-chat-history-layout.md) | Assistant UI Overhaul | active | 2026-09-30 | SPEC-003 |
+| [`assistant-ui/overhaul-chat-history-layout.md`](assistant-ui/overhaul-chat-history-layout.md) | Assistant UI Overhaul | complete | 2026-09-30 | SPEC-003 |
 | [`assistant-ui/automation-renderer-unify-consumption.md`](assistant-ui/automation-renderer-unify-consumption.md) | Unify Automation + Assistant Event Consumption | complete | 2026-07-18 | SPEC-003, SPEC-007 |
 | [`assistant-ui/automation-edit-form-reactivity.md`](assistant-ui/automation-edit-form-reactivity.md) | Fix Automation Edit Form — reactive populate | complete (absorbed by frontend-redesign-retro, Phase 5) | 2026-08-01 | SPEC-003, SPEC-007 |
 | [`assistant-ui/consolidate-app-banner.md`](assistant-ui/consolidate-app-banner.md) | Consolidate banner logic into a single event-driven `AppBanner` | complete | 2026-08-14 | SPEC-003 |
@@ -94,10 +94,8 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| partial | Automation Learning Journal | Phases 3–4 (memory-search-first, active hours) + Phase 2 live smoke run; Phases 1–2 (bullet dedup, journal + tool) done |
-| approved | Unattended Run Safety Hardening | Steps 6–9 (context-aware I/O hardening, unattended tool restriction & spiral detection, perf optimizations, docs sync) |
+| partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
-| active | Assistant UI Overhaul | Phase 5 backend SSE-bleed fix only (Phase 4 and the chat chrome delivered by the retro redesign, 2026-09-30) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |
 | partial | CI & Versioning | P2/P3 hygiene work + P6 (verify tag flow on a real merge); P5 build-release deliberately parked |
@@ -107,12 +105,12 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
 | proposed | Agent OS Sandboxing | Phases 1–6 (rlimits → FS jail → network switch → OS network deny → egress proxy → deployment hardening) |
 | proposed | Tool-Call Grammar Re-enable | envelope-aware GBNF + opt-in per-model toggle, XML path only |
-| proposed | Search Tool Calling | provider factory (Tavily/Brave/SerpAPI) + Search settings tab + live key + hide-when-unconfigured gate |
+| active | Search Tool Calling | implemented (Tavily/Brave/SerpAPI providers, Search settings tab, live key, hide-when-unconfigured gate; automated gates green). Open: manual end-to-end verification — Tavily was exercised live (auth fix, note 9); Brave and SerpAPI live calls and the "no key → tool hidden, no restart needed" steps are unconfirmed |
 | active | Tool Error Classification & Run-Fatality Policy | implemented (`ErrToolUnavailable`, `toolpolicy`, delivery warnings) with automated gates green; manual end-to-end verification pending |
 | proposed | Assistant Conversation Package | Step 0 consolidate LLM/tool test doubles, then extract `conversation` (loop core/strategies stay — need a session facade) |
 | proposed | SQLite Session Storage | JSON → SQLite migration (deliberately deferred, future work) |
 | proposed | Admin / API Authentication | Phase 0 (route-classification + exploit-shaped tests, prove/kill key-exfil via base URL) → Phase 1 zero-config hardening (Host/Origin, drop `ACAO: *`, PID-stop ownership, mandatory webhook secret) → Phases 2–4 need user decisions A1–A7 |
-| proposed | Sandbox and Egress Residuals | Phase 1 guard fix (`0.0.0.0`/`::`/multicast, fail-closed pre-check, `freePort` ownership) → Phase 2 shell→loopback decision → Phase 3 optional platform items |
+| proposed | Sandbox and Egress Residuals | Phase 1 (guard fix, proxy dial guard, `freePort` ownership) done 2026-10-08 → Phase 2 shell→loopback decision → Phase 3 optional platform items |
 | proposed | Local/Cloud Inference Performance | Phase 0 measurement (llama.cpp `timings`, cloud TTFT, prefix-stability test) gates every optimisation |
 | proposed | Backend Hot Paths and Leaks | Phase 0 gauges + build-tagged soak + benchmarks → session-checkpoint decision (A/B/C) → list endpoints |
 | proposed | Assistant/Automation Workbench Layout | Phase 0 wireframes + SPEC-003 amendment draft need sign-off → `context_usage` event + SSE-bleed backend fix → automation master-detail/one renderer → workspace workbench |
@@ -124,7 +122,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Standing Goals | Phase 0 tick-report contract → store + journal → tick execution (needs agenda P3) → finish/stuck/deadline → steering/proposals → UI → docs |
 | proposed | Event-Driven Automation Triggers | Phase 0 characterisation → Phase 1 `EventSource` + `after` (reuses `RunReason`) → Phase 2 `file` (needs D1) → Phase 3 `watch` (needs D2) → Phase 4 API/UI/SPEC-007 |
 | proposed | Memory Consolidation | Phase 0 hygiene + proposal store → LLM extraction/merge → manual run → nightly schedule (needs agenda + attention) → review UI → docs |
-| proposed | Chat → Automation | Phase 0 `CreateAutomation` duplicate-name fix (independent, ship first) → trace extraction → draft endpoint → UI → docs |
+| proposed | Chat → Automation | Phase 0 (`CreateAutomation` duplicate-name fix) done 2026-10-08 → trace extraction → draft endpoint → UI → docs |
 | proposed | Cost and Savings Ledger | Phase 0 measure provider usage reporting → automation token capture → store/API → inbound `/v1` capture → prices/UI → alerts (D4) |
 | proposed | Auto Model Router | Phase 0 characterise → pure router core → `/v1` wiring (needs D1, D2) → pre-first-byte failover → UI/docs → ledger prices |
 | proposed | Cloud Privacy Firewall | Phase 0 detector corpus → pure engine → agent path (needs D1–D3) → `/v1` path → `ask` mode/UI/audit → router integration → docs |

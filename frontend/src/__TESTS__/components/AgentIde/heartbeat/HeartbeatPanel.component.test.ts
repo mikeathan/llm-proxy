@@ -83,6 +83,59 @@ describe('HeartbeatPanel', () => {
     expect(putHeartbeat.mock.lastCall![1].notify).toEqual({ connector: 'my-telegram', dedup: true, dedup_days: 14 })
   })
 
+  it('saves the active hours it is given, and keeps them when only something else changes', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true, every: '30m' } }))
+    await control(w, 'Only check from').setValue('08:00')
+    await control(w, 'Only check until').setValue('22:00')
+    await saveButton(w).trigger('click')
+    await flushPromises()
+    expect(putHeartbeat.mock.lastCall![1].active_hours).toBe('08:00-22:00')
+
+    // The server's answer now carries the window; a later save of another field must not drop it.
+    await control(w, 'Check every').setValue('2h')
+    await saveButton(w).trigger('click')
+    await flushPromises()
+    expect(putHeartbeat.mock.lastCall![1]).toMatchObject({ every: '2h', active_hours: '08:00-22:00' })
+  })
+
+  it('shows a saved window in the two fields and clears it when both are emptied', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true, active_hours: '22:00-06:00' } }))
+    expect((control(w, 'Only check from').element as HTMLInputElement).value).toBe('22:00')
+    expect((control(w, 'Only check until').element as HTMLInputElement).value).toBe('06:00')
+    await control(w, 'Only check from').setValue('')
+    await control(w, 'Only check until').setValue('')
+    await saveButton(w).trigger('click')
+    await flushPromises()
+    expect(putHeartbeat.mock.lastCall![1].active_hours).toBeUndefined()
+  })
+
+  it('will not save a half-filled window, and says why', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true } }))
+    await control(w, 'Only check from').setValue('08:00')
+    expect(saveButton(w).attributes('disabled')).toBeDefined()
+    expect(w.text()).toMatch(/two different times/i)
+    await control(w, 'Only check until').setValue('22:00')
+    expect(saveButton(w).attributes('disabled')).toBeUndefined()
+  })
+
+  it('will not save a window whose start equals its end', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true } }))
+    await control(w, 'Only check from').setValue('09:00')
+    await control(w, 'Only check until').setValue('09:00')
+    expect(saveButton(w).attributes('disabled')).toBeDefined()
+    expect(w.text()).toMatch(/two different times/i)
+  })
+
+  it('keeps a half-filled window editable after the heartbeat is switched off, so it can be fixed', async () => {
+    const w = await mountPanel(stateWith({ config: { enabled: true } }))
+    await control(w, 'Only check from').setValue('08:00')
+    await toggle(w).setValue(false)
+    expect(control(w, 'Only check from').attributes('disabled')).toBeUndefined()
+    await control(w, 'Only check from').setValue('')
+    expect(saveButton(w).attributes('disabled')).toBeUndefined()
+    expect(control(w, 'Only check from').attributes('disabled')).toBeDefined()
+  })
+
   it('warns that every check wakes the local model, only when it would', async () => {
     const local = await mountPanel(stateWith({ lane: 'local', wakes_local_model: true, config: { enabled: true } }))
     expect(local.get('[role="note"]').text()).toContain('starts the local model')
@@ -103,6 +156,7 @@ describe('HeartbeatPanel', () => {
     [{ at: '2026-10-04T14:30:00Z', result: 'quiet' as const }, /nothing to report/i],
     [{ at: '2026-10-04T14:30:00Z', result: 'alert' as const }, /alert/i],
     [{ at: '2026-10-04T14:30:00Z', result: 'skipped_busy' as const }, /busy/i],
+    [{ at: '2026-10-04T14:30:00Z', result: 'skipped_outside_hours' as const }, /active hours/i],
     [{ at: '2026-10-04T14:30:00Z', result: 'error' as const }, /failed/i],
   ])('shows the last check: %o', async (status, words) => {
     const w = await mountPanel(stateWith({ status, config: { enabled: true } }))

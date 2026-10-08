@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -19,10 +18,9 @@ import (
 
 const secureFileMode = 0600
 
-const (
-	maxConcurrentFileReads = 10
-	fileReadTimeout        = 30 * time.Second
-)
+// File reads are bounded by the caller's context (FilesystemToolTimeout, applied
+// in tool_exec.go) and by this semaphore; there is no second timer.
+const maxConcurrentFileReads = 10
 
 var (
 	readFileSem     = semaphore.NewWeighted(maxConcurrentFileReads)

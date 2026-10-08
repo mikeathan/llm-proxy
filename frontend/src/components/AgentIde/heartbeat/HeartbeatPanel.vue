@@ -19,9 +19,10 @@ import ErrorState from '../../common/feedback/ErrorState.vue'
 // attention. The checks themselves live in heartbeat.md; this panel owns when, with what, and where to.
 const props = defineProps<{ workspaceId: string }>()
 
-const { state, draft, loading, loadError, saving, saveError, dirty, load, save, discard } = useHeartbeat(
-  toRef(props, 'workspaceId'),
-)
+const { state, draft, loading, loadError, saving, saveError, dirty, activeHoursInvalid, load, save, discard } =
+  useHeartbeat(toRef(props, 'workspaceId'))
+// The window stays editable while it blocks Save, even with the heartbeat off, so it can always be fixed.
+const windowLocked = computed(() => !draft.value?.enabled && !activeHoursInvalid.value)
 const { state: admin } = useModels()
 const { connectorOptions, noConnectors } = useConnectorOptions(computed(() => draft.value?.connector ?? ''))
 useUnsavedChangesGuard(dirty)
@@ -94,6 +95,22 @@ const status = computed(() => state.value?.status)
           </template>
         </FormField>
       </div>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,160px),1fr))] gap-4">
+        <FormField label="Only check from" hint="Server time. Leave both empty to check all day.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="draft.activeFrom" type="time" :aria-describedby="describedBy" :disabled="windowLocked" class="form-control" />
+          </template>
+        </FormField>
+        <FormField label="Only check until" hint="A later start than end runs overnight.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="draft.activeTo" type="time" :aria-describedby="describedBy" :disabled="windowLocked" class="form-control" />
+          </template>
+        </FormField>
+      </div>
+      <p v-if="activeHoursInvalid" role="note" class="m-0 text-[length:var(--text-small)] text-state-error">
+        Set two different times, or clear both to check all day.
+      </p>
+
       <p v-if="noConnectors && draft.enabled" role="note" class="m-0 text-[length:var(--text-small)] text-muted">
         No connectors yet.
         <RouterLink :to="toSettings('communication')" class="text-accent-info-text hover:underline">Add one in Settings → Communication</RouterLink>
@@ -122,7 +139,7 @@ const status = computed(() => state.value?.status)
       <div class="flex flex-wrap items-center justify-end gap-2">
         <UnsavedTag v-if="dirty" class="mr-auto" />
         <BaseButton variant="ghost" :disabled="!dirty || saving" @click="discard">Discard</BaseButton>
-        <BaseButton type="submit" :disabled="!dirty || saving">{{ saving ? 'Saving…' : 'Save' }}</BaseButton>
+        <BaseButton type="submit" :disabled="!dirty || saving || activeHoursInvalid">{{ saving ? 'Saving…' : 'Save' }}</BaseButton>
       </div>
     </form>
   </Panel>

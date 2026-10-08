@@ -10,6 +10,12 @@
 //     any byte is forwarded (pre-TLS, no MITM — TLS passthrough for CONNECT).
 //   - DNS resolution happens inside this proxy process (the backend dials),
 //     so an HTTP(S)-proxied client cannot exfiltrate via its own UDP/53.
+//   - Independent of the host policy, every resolved destination IP is vetted at
+//     dial time (platform/network.CheckAlwaysBlocked): unspecified, loopback,
+//     link-local and multicast targets get a 403, so traffic that rides the proxy
+//     cannot reach the control plane, even by hostname. Traffic that bypasses the
+//     proxy (NO_PROXY lists 127.0.0.1/localhost/::1; a shell can dial directly)
+//     is NOT covered — that is the sandbox residuals plan, Phase 2.
 //   - HTTP absolute-form requests and CONNECT tunnels are both supported.
 //   - It is infrastructure egress (in-process tools point their transport at
 //     it; shells ride it via HTTP(S)_PROXY env) and is NEVER on the agent tool
@@ -25,13 +31,18 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
+
+	"llm-proxy/internal/platform/network"
 )
 
 // Policy decides which outbound destinations agent egress may reach. Evaluated
@@ -94,22 +105,48 @@ type Server struct {
 	token  string
 	srv    *http.Server
 	tr     *http.Transport
+	// dialGuard vets each resolved destination IP just before connect, so a
+	// hostname that resolves to loopback/link-local/unspecified is refused no
+	// matter what the host policy says (rebinding-safe). Tests replace it.
+	dialGuard func(net.IP) error
 }
 
 // New builds a proxy server with the given policy. Nothing starts until
 // Serve is called.
 func New(policy Policy) *Server {
-	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	s := &Server{policy: policy, dialGuard: network.CheckAlwaysBlocked}
+	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second, Control: s.guardDial}
 	// One pooled transport for all absolute-form requests: Proxy nil (this
 	// proxy resolves and dials — DNS at proxy), idle keep-alive per host.
-	tr := &http.Transport{
+	s.tr = &http.Transport{
 		Proxy:               nil,
 		DialContext:         dialer.DialContext,
 		MaxIdleConnsPerHost: 8,
 		MaxIdleConns:        64,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
-	return &Server{policy: policy, tr: tr}
+	return s
+}
+
+// guardDial is the net.Dialer.Control hook: address is the resolved ip:port.
+// A zoned IPv6 address (fe80::1%en0) is classified without its zone, so a link-local target is still a policy
+// denial rather than a parse failure.
+func (s *Server) guardDial(_, address string, _ syscall.RawConn) error {
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return fmt.Errorf("egress proxy: dial address %q is not an IP: %w", address, err)
+	}
+	return s.dialGuard(net.IP(ap.Addr().WithZone("").AsSlice()))
+}
+
+// dialFailure answers a failed upstream dial: 403 when the destination class is
+// always blocked, 502 for ordinary connect errors.
+func dialFailure(w http.ResponseWriter, err error) {
+	if errors.Is(err, network.ErrAlwaysBlockedAddress) {
+		http.Error(w, "egress proxy: destination denied by policy", http.StatusForbidden)
+		return
+	}
+	http.Error(w, "egress proxy: upstream error: "+err.Error(), http.StatusBadGateway)
 }
 
 // SetToken requires callers to present this shared secret via
@@ -233,7 +270,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	removeHopByHopHeaders(outReq.Header)
 	resp, err := s.tr.RoundTrip(outReq)
 	if err != nil {
-		http.Error(w, "egress proxy: upstream error: "+err.Error(), http.StatusBadGateway)
+		dialFailure(w, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -289,7 +326,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	upstream, err := s.tr.DialContext(r.Context(), "tcp", dest)
 	if err != nil {
-		http.Error(w, "egress proxy: dial failed: "+err.Error(), http.StatusBadGateway)
+		dialFailure(w, err)
 		return
 	}
 	hj, ok := w.(http.Hijacker)

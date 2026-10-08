@@ -110,7 +110,7 @@ type AdminService interface {
 type WorkspaceService interface {
 	GetConfig(workspaceID string) (*models.WorkspaceConfig, error)
 	SaveConfig(workspaceID string, cfg *models.WorkspaceConfig) error
-	MutateConfig(workspaceID string, fn func(*models.WorkspaceConfig)) error
+	MutateConfig(workspaceID string, fn func(*models.WorkspaceConfig) error) error
 	CreateWorkspace(id string, cfg *models.WorkspaceConfig, initialFiles map[string]string) error
 	GetState(workspaceID string) (*models.AgentState, error)
 	ListWorkspaces() ([]*models.Workspace, error)
@@ -143,7 +143,10 @@ func (s *workspaceService) SaveConfig(workspaceID string, cfg *models.WorkspaceC
 	return s.mgr.WriteConfig(workspaceID, cfg)
 }
 
-func (s *workspaceService) MutateConfig(workspaceID string, fn func(*models.WorkspaceConfig)) error {
+// MutateConfig applies fn to the workspace config under the workspace lock and
+// persists the result. An error from fn aborts the mutation: nothing is written
+// and the error is returned unchanged so callers can match it with errors.Is.
+func (s *workspaceService) MutateConfig(workspaceID string, fn func(*models.WorkspaceConfig) error) error {
 	lock, err := s.mgr.AcquireLock(workspaceID)
 	if err != nil {
 		return fmt.Errorf("acquire lock: %w", err)
@@ -155,7 +158,9 @@ func (s *workspaceService) MutateConfig(workspaceID string, fn func(*models.Work
 		return fmt.Errorf("read config: %w", err)
 	}
 
-	fn(cfg)
+	if err := fn(cfg); err != nil {
+		return err
+	}
 
 	return s.mgr.WriteConfig(workspaceID, cfg)
 }
