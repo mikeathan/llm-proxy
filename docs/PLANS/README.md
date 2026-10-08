@@ -105,7 +105,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
 | proposed | Agent OS Sandboxing | Phases 1–6 (rlimits → FS jail → network switch → OS network deny → egress proxy → deployment hardening) |
 | proposed | Tool-Call Grammar Re-enable | envelope-aware GBNF + opt-in per-model toggle, XML path only |
-| proposed | Search Tool Calling | provider factory (Tavily/Brave/SerpAPI) + Search settings tab + live key + hide-when-unconfigured gate |
+| active | Search Tool Calling | implemented (Tavily/Brave/SerpAPI providers, Search settings tab, live key, hide-when-unconfigured gate; automated gates green). Open: manual end-to-end verification — Tavily was exercised live (auth fix, note 9); Brave and SerpAPI live calls and the "no key → tool hidden, no restart needed" steps are unconfirmed |
 | active | Tool Error Classification & Run-Fatality Policy | implemented (`ErrToolUnavailable`, `toolpolicy`, delivery warnings) with automated gates green; manual end-to-end verification pending |
 | proposed | Assistant Conversation Package | Step 0 consolidate LLM/tool test doubles, then extract `conversation` (loop core/strategies stay — need a session facade) |
 | proposed | SQLite Session Storage | JSON → SQLite migration (deliberately deferred, future work) |
