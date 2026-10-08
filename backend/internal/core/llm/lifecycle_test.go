@@ -133,7 +133,10 @@ func TestIdleReaper_RespectsZeroTimeout(t *testing.T) {
 	restoreExec := utils.SetExecCommandContext(fakeCmd())
 	defer restoreExec()
 
-	restorePort := utils.SetPortReady(func(port int) bool { return true })
+	// The port is free when the start-time ownership check looks (first call),
+	// then reports ready like a server that came up.
+	var portChecks atomic.Int32
+	restorePort := utils.SetPortReady(func(port int) bool { return portChecks.Add(1) > 1 })
 	defer restorePort()
 
 	setupModelFile(t, "zero_timeout.gguf")

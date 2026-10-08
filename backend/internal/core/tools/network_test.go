@@ -89,16 +89,6 @@ func TestNetworkTools_ValidateAddress_Comprehensive(t *testing.T) {
 			target:  "93.184.216.34", // example.com
 			wantErr: true,
 		},
-		{
-			name: "Blocked domain boundary (no false positive)",
-			cfg: models.NetworkGuardrailsConfig{
-				Enabled:             true,
-				AllowInternetAccess: true,
-				BlockedDomains:      []string{"evil.com"},
-			},
-			target:  "http://notevil.com",
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -114,27 +104,53 @@ func TestNetworkTools_ValidateAddress_Comprehensive(t *testing.T) {
 	}
 }
 
+// Domain blocking matches at label boundaries only: "notevil.com" is not
+// "evil.com". Pure string logic — no DNS, so it holds offline.
+func TestValidateDomainBoundary(t *testing.T) {
+	blocked := []string{"evil.com"}
+	for host, wantErr := range map[string]bool{
+		"evil.com":     true,
+		"www.evil.com": true,
+		"EVIL.com":     true,
+		"notevil.com":  false,
+		"evil.com.au":  false,
+	} {
+		if err := ValidateDomainBoundary(host, blocked); (err != nil) != wantErr {
+			t.Errorf("ValidateDomainBoundary(%q) = %v, wantErr %v", host, err, wantErr)
+		}
+	}
+}
+
 func TestNetworkTools_ValidateIP(t *testing.T) {
 	nt := NewNetworkTools(nil, &mockLogger{})
-	cfg := models.NetworkGuardrailsConfig{
-		Enabled:             true,
-		AllowLanAccess:      false,
-		AllowInternetAccess: true,
-	}
+	internetOnly := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	lanAndInternet := models.NetworkGuardrailsConfig{Enabled: true, AllowLanAccess: true, AllowInternetAccess: true}
 
 	tests := []struct {
+		name    string
 		ip      string
+		cfg     models.NetworkGuardrailsConfig
 		wantErr bool
 	}{
-		{"127.0.0.1", true},   // Loopback
-		{"169.254.1.1", true}, // Link-local
-		{"192.168.1.1", true}, // Private (LAN blocked)
-		{"8.8.8.8", false},    // Public (Internet allowed)
+		{"loopback", "127.0.0.1", internetOnly, true},
+		{"loopback range", "127.1.2.3", lanAndInternet, true},
+		{"v4-mapped loopback", "::ffff:127.0.0.1", lanAndInternet, true},
+		{"link-local", "169.254.1.1", internetOnly, true},
+		{"cloud metadata", "169.254.169.254", lanAndInternet, true},
+		{"unspecified v4", "0.0.0.0", internetOnly, true},
+		{"unspecified v6", "::", internetOnly, true},
+		{"multicast v4", "224.0.0.1", lanAndInternet, true},
+		{"multicast v6", "ff02::1", lanAndInternet, true},
+		{"private, LAN blocked", "192.168.1.1", internetOnly, true},
+		{"private, LAN allowed", "192.168.1.1", lanAndInternet, false},
+		{"CGNAT is LAN, LAN blocked", "100.64.0.1", internetOnly, true},
+		{"CGNAT is LAN, LAN allowed", "100.64.0.1", lanAndInternet, false},
+		{"public", "8.8.8.8", internetOnly, false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.ip, func(t *testing.T) {
-			err := nt.validateIP(net.ParseIP(tt.ip), cfg)
+		t.Run(tt.name, func(t *testing.T) {
+			err := nt.validateIP(net.ParseIP(tt.ip), tt.cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateIP(%s) error = %v, wantErr %v", tt.ip, err, tt.wantErr)
 			}
@@ -356,5 +372,26 @@ func TestNetworkToolsProxyRoundTrip(t *testing.T) {
 	// configured (the proxy dial is the only loopback exception).
 	if _, err := n.FetchURL(context.Background(), "http://127.0.0.1:9999/x"); err == nil {
 		t.Error("fetch to loopback must still be denied by the tool guard")
+	}
+}
+
+// 0.0.0.0 routes to the local host; with internet access on, fetching it must
+// still be refused before any connection reaches a loopback service.
+func TestNetworkTools_FetchURL_BlocksUnspecifiedAddress(t *testing.T) {
+	hit := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit <- struct{}{} }))
+	defer srv.Close()
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{Enabled: true, AllowLanAccess: true, AllowInternetAccess: true}
+	}, &mockLogger{})
+	if _, err := n.FetchURL(context.Background(), "http://0.0.0.0:"+port+"/"); err == nil {
+		t.Fatal("fetch of 0.0.0.0 must be blocked")
+	}
+	select {
+	case <-hit:
+		t.Fatal("request reached the loopback server through 0.0.0.0")
+	default:
 	}
 }

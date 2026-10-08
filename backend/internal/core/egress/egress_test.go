@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// allowAnyAddress is the test seam for Server.dialGuard: it lets tests reach
+// loopback httptest upstreams. Tests of the guard itself use New() unchanged.
+func allowAnyAddress(net.IP) error { return nil }
+
 // startProxy serves on a random loopback port for the test and blocks until it
 // accepts connections (readiness poll) so tests never race the accept loop.
 func startProxy(t *testing.T, p Policy) (addr string, stop func()) {
@@ -24,6 +28,7 @@ func startProxy(t *testing.T, p Policy) (addr string, stop func()) {
 func startProxyWithToken(t testing.TB, p Policy, token string) (addr string, stop func()) {
 	t.Helper()
 	srv := New(p)
+	srv.dialGuard = allowAnyAddress // upstreams in these tests are loopback httptest servers
 	srv.SetToken(token)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -440,5 +445,67 @@ func BenchmarkPolicyAllowHost(b *testing.B) {
 		if !p.AllowHost("api.telegram.org") {
 			b.Fatal("expected allowed")
 		}
+	}
+}
+
+// startGuardedProxy serves with the production dial guard (no test override).
+func startGuardedProxy(t *testing.T) string {
+	t.Helper()
+	srv := New(HostListPolicy{})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	return ln.Addr().String()
+}
+
+// The host policy sees only the hostname, so the always-blocked address classes
+// (unspecified, loopback, link-local, multicast) are refused at dial time with a
+// 403 regardless of the allow/deny lists — this also covers a hostname that
+// resolves to loopback.
+func TestProxyRefusesAlwaysBlockedDestinations(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "reached")
+	}))
+	defer upstream.Close()
+	_, port, _ := net.SplitHostPort(upstream.Listener.Addr().String())
+	proxyAddr := startGuardedProxy(t)
+
+	for _, host := range []string{"0.0.0.0", "127.0.0.1", "localhost", "169.254.169.254", "[::1]"} {
+		t.Run("CONNECT "+host, func(t *testing.T) {
+			conn, err := net.Dial("tcp", proxyAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			target := host + ":" + port
+			if _, err := io.WriteString(conn, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\n\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("CONNECT %s status = %d, want 403", target, resp.StatusCode)
+			}
+		})
+		t.Run("HTTP "+host, func(t *testing.T) {
+			proxyURL, _ := url.Parse("http://" + proxyAddr)
+			client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+			resp, err := client.Get("http://" + host + ":" + port + "/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusForbidden || strings.Contains(string(body), "reached") {
+				t.Fatalf("GET via proxy to %s: status = %d body = %q, want 403 without upstream content", host, resp.StatusCode, body)
+			}
+		})
 	}
 }

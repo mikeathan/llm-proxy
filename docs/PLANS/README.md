@@ -112,7 +112,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Assistant Conversation Package | Step 0 consolidate LLM/tool test doubles, then extract `conversation` (loop core/strategies stay — need a session facade) |
 | proposed | SQLite Session Storage | JSON → SQLite migration (deliberately deferred, future work) |
 | proposed | Admin / API Authentication | Phase 0 (route-classification + exploit-shaped tests, prove/kill key-exfil via base URL) → Phase 1 zero-config hardening (Host/Origin, drop `ACAO: *`, PID-stop ownership, mandatory webhook secret) → Phases 2–4 need user decisions A1–A7 |
-| proposed | Sandbox and Egress Residuals | Phase 1 guard fix (`0.0.0.0`/`::`/multicast, fail-closed pre-check, `freePort` ownership) → Phase 2 shell→loopback decision → Phase 3 optional platform items |
+| proposed | Sandbox and Egress Residuals | Phase 1 (guard fix, proxy dial guard, `freePort` ownership) done 2026-10-08 → Phase 2 shell→loopback decision → Phase 3 optional platform items |
 | proposed | Local/Cloud Inference Performance | Phase 0 measurement (llama.cpp `timings`, cloud TTFT, prefix-stability test) gates every optimisation |
 | proposed | Backend Hot Paths and Leaks | Phase 0 gauges + build-tagged soak + benchmarks → session-checkpoint decision (A/B/C) → list endpoints |
 | proposed | Assistant/Automation Workbench Layout | Phase 0 wireframes + SPEC-003 amendment draft need sign-off → `context_usage` event + SSE-bleed backend fix → automation master-detail/one renderer → workspace workbench |

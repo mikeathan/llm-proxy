@@ -73,12 +73,11 @@ func TestCloudLLMChatTransportShorterHeaderTimeout(t *testing.T) {
 // infrastructure (model-server lifecycle, metrics, procwatch) and never
 // agent-triggered.
 var execAllowlist = []string{
-	"internal/shell/terminal.go",                    // persistent shell spawn (Wrap point)
-	"internal/core/tools/terminal.go",               // executeLocal spawn (Wrap point)
-	"internal/core/llm/providers/local_provider.go", // llama-server lifecycle cleanup
-	"internal/platform/metrics/gpu_providers.go",    // nvidia-smi / GPU sampling
-	"internal/platform/process/",                    // procwatch ps / rlimit probes
-	"internal/testing/utils/",                       // ExecCommand test seam
+	"internal/shell/terminal.go",                 // persistent shell spawn (Wrap point)
+	"internal/core/tools/terminal.go",            // executeLocal spawn (Wrap point)
+	"internal/platform/metrics/gpu_providers.go", // nvidia-smi / GPU sampling
+	"internal/platform/process/",                 // procwatch ps / rlimit probes
+	"internal/testing/utils/",                    // ExecCommand test seam
 }
 
 // httpConvenienceEgress are the package-level helpers that dial with the

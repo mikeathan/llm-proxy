@@ -1,6 +1,8 @@
 package network
 
 import (
+	"errors"
+	"net"
 	"testing"
 )
 
@@ -42,5 +44,59 @@ func TestResolveOrigin(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCheckAlwaysBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		ip      string
+		blocked bool
+	}{
+		{"0.0.0.0", true},
+		{"::", true},
+		{"127.0.0.1", true},
+		{"127.1.2.3", true},
+		{"::1", true},
+		{"::ffff:127.0.0.1", true}, // v4-in-v6 loopback
+		{"169.254.169.254", true},  // cloud metadata
+		{"fe80::1", true},
+		{"224.0.0.1", true},
+		{"ff02::1", true},
+		{"ff01::1", true},
+		{"192.168.1.1", false}, // LAN is policy, not always-blocked
+		{"100.64.0.1", false},
+		{"8.8.8.8", false},
+		{"2606:4700:4700::1111", false},
+	} {
+		t.Run(tc.ip, func(t *testing.T) {
+			err := CheckAlwaysBlocked(net.ParseIP(tc.ip))
+			if tc.blocked != (err != nil) {
+				t.Fatalf("CheckAlwaysBlocked(%s) = %v, blocked want %v", tc.ip, err, tc.blocked)
+			}
+			if err != nil && !errors.Is(err, ErrAlwaysBlockedAddress) {
+				t.Errorf("error %v does not wrap ErrAlwaysBlockedAddress", err)
+			}
+		})
+	}
+}
+
+func TestIsLAN(t *testing.T) {
+	for _, tc := range []struct {
+		ip  string
+		lan bool
+	}{
+		{"10.0.0.1", true},
+		{"172.16.0.1", true},
+		{"192.168.1.1", true},
+		{"fd00::1", true},
+		{"100.64.0.1", true}, // CGNAT / Tailscale tailnet
+		{"100.127.255.254", true},
+		{"100.128.0.1", false},
+		{"100.63.255.255", false},
+		{"8.8.8.8", false},
+	} {
+		if got := IsLAN(net.ParseIP(tc.ip)); got != tc.lan {
+			t.Errorf("IsLAN(%s) = %v, want %v", tc.ip, got, tc.lan)
+		}
 	}
 }

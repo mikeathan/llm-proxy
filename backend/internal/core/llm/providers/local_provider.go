@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -16,6 +16,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/network"
+	"llm-proxy/internal/platform/process"
 	"llm-proxy/internal/testing/utils"
 	"llm-proxy/models"
 )
@@ -136,19 +137,63 @@ func (p *LocalProvider) EnsureReady(ctx context.Context) error {
 	return models.ErrModelStarting
 }
 
-func freePort(port int) {
-	if !utils.PortReady(port) {
-		return
+// ErrPortInUse means the model port is held by a process this provider must not
+// kill (or could not reclaim); the start fails instead of guessing.
+var ErrPortInUse = errors.New("model port is in use")
+
+const (
+	portReleaseTimeout = 2 * time.Second
+	portReleasePoll    = 50 * time.Millisecond
+)
+
+// portReclaimer frees a model port held by an orphan of our own server binary
+// (e.g. left by a crashed proxy). Dependencies are fields so the ownership rule
+// is testable without real processes.
+type portReclaimer struct {
+	inUse func(port int) bool
+	list  func(binaryName string, activePID int) ([]process.Info, error)
+	kill  func(pid int) error
+}
+
+func newPortReclaimer() portReclaimer {
+	return portReclaimer{inUse: utils.PortReady, list: process.ListByBinary, kill: process.Kill}
+}
+
+// reclaim makes port available. A free port is a no-op. A busy port is freed
+// only by terminating processes of the configured server binary that were
+// launched with --port <port>; any other holder fails with ErrPortInUse and is
+// left untouched — a wrong kill of someone else's process is worse than a
+// failed start.
+func (r portReclaimer) reclaim(port int, binary string) error {
+	if !r.inUse(port) {
+		return nil
 	}
-	logging.Warn("Port already in use, freeing before start", "port", port)
-	if runtime.GOOS == "linux" {
-		_ = exec.Command("fuser", "-k",
-			fmt.Sprintf("%d/tcp", port)).Run()
-	} else {
-		_ = exec.Command("sh", "-c",
-			fmt.Sprintf("lsof -ti :%d | xargs kill -9", port)).Run()
+	orphans, err := r.list(filepath.Base(binary), 0)
+	if err != nil {
+		return fmt.Errorf("%w: port %d (cannot verify the holder: %v)", ErrPortInUse, port, err)
 	}
-	time.Sleep(300 * time.Millisecond)
+	var owned []int
+	for _, o := range orphans {
+		if o.Port == port {
+			owned = append(owned, o.PID)
+		}
+	}
+	if len(owned) == 0 {
+		return fmt.Errorf("%w: port %d is held by a process that is not a %s started on it; stop that process or change the model port",
+			ErrPortInUse, port, filepath.Base(binary))
+	}
+	logging.Warn("Port held by an orphaned model server, terminating it", "port", port, "pids", owned)
+	for _, pid := range owned {
+		if err := r.kill(pid); err != nil {
+			return fmt.Errorf("%w: port %d: terminating orphan pid %d: %v", ErrPortInUse, port, pid, err)
+		}
+	}
+	for deadline := time.Now().Add(portReleaseTimeout); r.inUse(port); time.Sleep(portReleasePoll) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: port %d is still bound after terminating the orphan", ErrPortInUse, port)
+		}
+	}
+	return nil
 }
 
 func (p *LocalProvider) StartModel(ctx context.Context) error {
@@ -169,7 +214,11 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 		"args", args,
 		"env", p.cfg.Environment)
 
-	freePort(p.cfg.Port)
+	if err := newPortReclaimer().reclaim(p.cfg.Port, p.llamaBinary); err != nil {
+		cancel()
+		logging.Error("Cannot start local model", "model", p.cfg.Name, "error", err)
+		return err
+	}
 
 	cmd := utils.ExecCommandContext(procCtx, p.llamaBinary, args...)
 	if runtime.GOOS != "windows" {
