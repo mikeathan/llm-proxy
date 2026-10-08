@@ -124,7 +124,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Standing Goals | Phase 0 tick-report contract → store + journal → tick execution (needs agenda P3) → finish/stuck/deadline → steering/proposals → UI → docs |
 | proposed | Event-Driven Automation Triggers | Phase 0 characterisation → Phase 1 `EventSource` + `after` (reuses `RunReason`) → Phase 2 `file` (needs D1) → Phase 3 `watch` (needs D2) → Phase 4 API/UI/SPEC-007 |
 | proposed | Memory Consolidation | Phase 0 hygiene + proposal store → LLM extraction/merge → manual run → nightly schedule (needs agenda + attention) → review UI → docs |
-| proposed | Chat → Automation | Phase 0 `CreateAutomation` duplicate-name fix (independent, ship first) → trace extraction → draft endpoint → UI → docs |
+| proposed | Chat → Automation | Phase 0 (`CreateAutomation` duplicate-name fix) done 2026-10-08 → trace extraction → draft endpoint → UI → docs |
 | proposed | Cost and Savings Ledger | Phase 0 measure provider usage reporting → automation token capture → store/API → inbound `/v1` capture → prices/UI → alerts (D4) |
 | proposed | Auto Model Router | Phase 0 characterise → pure router core → `/v1` wiring (needs D1, D2) → pre-first-byte failover → UI/docs → ledger prices |
 | proposed | Cloud Privacy Firewall | Phase 0 detector corpus → pure engine → agent path (needs D1–D3) → `/v1` path → `ask` mode/UI/audit → router integration → docs |

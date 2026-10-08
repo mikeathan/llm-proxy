@@ -34,8 +34,9 @@ func (h *DispatcherHandlers) PutHeartbeat(w http.ResponseWriter, r *http.Request
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.workspace.MutateConfig(workspaceID, func(existing *models.WorkspaceConfig) {
+	if err := h.workspace.MutateConfig(workspaceID, func(existing *models.WorkspaceConfig) error {
 		existing.Heartbeat = &cfg
+		return nil
 	}); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
