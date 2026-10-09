@@ -1263,3 +1263,50 @@ func TestDoRequest_RetriesAGenuineProvider429(t *testing.T) {
 		}
 	}
 }
+
+// Local llama.cpp requests carry chat_template_kwargs.preserve_thinking so Qwen-family templates keep earlier turns'
+// <think> blocks and the prompt stays append-only across chat turns (measured on vertex: turn-2 prefill 17.3 s ->
+// 0.8 s). A resolver's explicit enable_thinking is kept, not replaced; cloud requests never carry the key.
+func TestLLMClient_LocalRequestsPreserveThinking(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	}))
+	defer srv.Close()
+	kwargs := func(i int) map[string]any { m, _ := bodies[i]["chat_template_kwargs"].(map[string]any); return m }
+
+	local := NewLLMClientForLocal(srv.URL, "qwen", nil, nil)
+	if _, err := local.Chat(context.Background(), ChatRequest{Messages: []Message{{Role: UserRole, Content: "hi"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if kw := kwargs(0); kw["preserve_thinking"] != true {
+		t.Fatalf("local request kwargs = %v, want preserve_thinking:true", kw)
+	}
+	if _, has := kwargs(0)["enable_thinking"]; has {
+		t.Error("preserve_thinking alone must not send enable_thinking (it would turn thinking off)")
+	}
+
+	off := false
+	req := ChatRequest{Messages: []Message{{Role: UserRole, Content: "hi"}}, ChatTemplateKwargs: &ChatTemplateKwargs{EnableThinking: &off}}
+	if _, err := local.Chat(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if kw := kwargs(1); kw["enable_thinking"] != false || kw["preserve_thinking"] != true {
+		t.Errorf("merged kwargs = %v, want enable_thinking:false and preserve_thinking:true", kw)
+	}
+	if req.ChatTemplateKwargs.PreserveThinking != nil {
+		t.Error("the caller's request must not be mutated")
+	}
+
+	cloud := NewLLMClient(srv.URL, "gpt", nil, nil)
+	if _, err := cloud.Chat(context.Background(), ChatRequest{Messages: []Message{{Role: UserRole, Content: "hi"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := bodies[2]["chat_template_kwargs"]; has {
+		t.Errorf("a cloud request must not carry chat_template_kwargs: %v", bodies[2])
+	}
+}

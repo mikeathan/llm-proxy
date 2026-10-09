@@ -57,6 +57,8 @@ type LLMClient struct {
 	headers            http.Header
 	model              string
 	reasoningField     string
+	// preserveThinking sends chat_template_kwargs.preserve_thinking (local llama.cpp only; see withTemplateKwargs).
+	preserveThinking bool
 }
 
 // retryObserverKey is the context key for a per-request retry observer. A
@@ -159,7 +161,27 @@ func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers
 // get the 10-minute response-header timeout to accommodate long prefill on
 // reasoning models.
 func NewLLMClientForLocal(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
-	return newLLMClient(baseURL, model, httpClient, headers, ReasoningFieldThinkTokens, network.LLMChatTransport)
+	c := newLLMClient(baseURL, model, httpClient, headers, ReasoningFieldThinkTokens, network.LLMChatTransport).(*LLMClient)
+	c.preserveThinking = true
+	return c
+}
+
+// withTemplateKwargs adds preserve_thinking to a local request, merged into whatever the reasoning resolver set.
+// Qwen-family templates drop the <think> block of earlier assistant turns once a newer user message exists, so the
+// prompt changes mid-way and llama.cpp re-processes every earlier turn; with preserve_thinking the prompt stays
+// append-only (measured on vertex: turn-2 prefill 4731 tokens / 17.3 s -> 31 tokens / 0.8 s). The caller's request is
+// not mutated.
+func (c *LLMClient) withTemplateKwargs(req ChatRequest) ChatRequest {
+	if !c.preserveThinking {
+		return req
+	}
+	kw := ChatTemplateKwargs{}
+	if req.ChatTemplateKwargs != nil {
+		kw = *req.ChatTemplateKwargs
+	}
+	kw.PreserveThinking = new(true)
+	req.ChatTemplateKwargs = &kw
+	return req
 }
 
 func newLLMClient(baseURL string, model string, httpClient *http.Client, headers http.Header, reasoningField string, defaultTransport *http.Transport) Client {
@@ -649,6 +671,7 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 }
 
 func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	req = c.withTemplateKwargs(req)
 	if req.Model == "" {
 		req.Model = c.model
 	}
@@ -685,6 +708,7 @@ func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 	return &out, nil
 }
 func (c *LLMClient) Stream(ctx context.Context, req ChatRequest) (<-chan *ChatResponse, error) {
+	req = c.withTemplateKwargs(req)
 	if req.Model == "" {
 		req.Model = c.model
 	}

@@ -3735,7 +3735,7 @@ func TestPrepareChatRequest_NvidiaDoesNotSendThinkingBudgetTokens(t *testing.T) 
 
 	req := agent.buildChatRequest(prepared, nil)
 
-	if req.ChatTemplateKwargs == nil || !req.ChatTemplateKwargs.EnableThinking {
+	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs.EnableThinking == nil || !*req.ChatTemplateKwargs.EnableThinking {
 		t.Errorf("expected Nvidia to send ChatTemplateKwargs.EnableThinking=true, got %+v", req.ChatTemplateKwargs)
 	}
 	if req.ReasoningBudget != 0 {

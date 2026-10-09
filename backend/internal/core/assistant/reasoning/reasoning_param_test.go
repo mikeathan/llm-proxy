@@ -124,7 +124,7 @@ func TestReasoningCapabilityFor(t *testing.T) {
 func TestEnableThinkingResolver(t *testing.T) {
 	req := &models.ChatRequest{}
 	enableThinkingResolver{}.Apply(req, ReasoningSpec{Mode: ModeEnableThinking, Enabled: true})
-	if req.ChatTemplateKwargs == nil || !req.ChatTemplateKwargs.EnableThinking {
+	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs.EnableThinking == nil || !*req.ChatTemplateKwargs.EnableThinking {
 		t.Errorf("expected enable_thinking=true, got %+v", req.ChatTemplateKwargs)
 	}
 	if req.ReasoningBudget != 0 || req.ThinkingBudgetTokens != 0 {
@@ -139,7 +139,7 @@ func TestEnableThinkingResolver(t *testing.T) {
 func TestEnableThinkingResolverSerializesDisabledReasoning(t *testing.T) {
 	req := &models.ChatRequest{}
 	enableThinkingResolver{}.Apply(req, ReasoningSpec{Mode: ModeEnableThinking, Enabled: false})
-	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs.EnableThinking {
+	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs.EnableThinking == nil || *req.ChatTemplateKwargs.EnableThinking {
 		t.Fatalf("expected enable_thinking=false, got %+v", req.ChatTemplateKwargs)
 	}
 	body, err := json.Marshal(req)
@@ -246,7 +246,7 @@ func TestNewReasoningResolver_Cloud(t *testing.T) {
 
 	req2 := &models.ChatRequest{}
 	NewReasoningResolver(models.WorkloadCloud, "nvidia", 0).Apply(req2, providerReasoningCapabilities["nvidia"].Spec())
-	if req2.ChatTemplateKwargs == nil || !req2.ChatTemplateKwargs.EnableThinking {
+	if req2.ChatTemplateKwargs == nil || req2.ChatTemplateKwargs.EnableThinking == nil || !*req2.ChatTemplateKwargs.EnableThinking {
 		t.Errorf("nvidia should set enable_thinking, got %+v", req2.ChatTemplateKwargs)
 	}
 
