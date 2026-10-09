@@ -22,7 +22,7 @@ section() { printf '\n%s\n' "$1"; }
 # that no longer exist, and docs/service_setup.md cites build outputs, so they are
 # not scanned; their catalogs are (README.md in each directory).
 DOCS=(
-  AGENTS.md AGENT.md CONTRIBUTING.md README.md
+  AGENTS.md AGENT.md CLAUDE.md CONTRIBUTING.md README.md
   docs/INDEX.md docs/PLANS/README.md docs/SPECS/README.md docs/audits/README.md
   docs/architecture.md docs/SPEC-change-management.md docs/api-reference.md docs/data-layout.md
 )
