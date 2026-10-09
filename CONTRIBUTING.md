@@ -62,15 +62,17 @@ Full Go/Vue rules: `.agents/rules/`. Architecture + directory map: `docs/archite
 
 Merging a PR to `main` automatically tags a release — no deployment, no artifacts:
 
-- **Normal merge** → the `release.yml` workflow auto-bumps the patch version
-  (`0.7.0 → 0.7.1`), commits the `VERSION` file back, pushes tag `v0.7.1`, and creates a
-  GitHub Release with auto-generated notes.
-- **Want a specific version** (patch `0.7.1`, minor `0.8.0`, major `1.0.0`)? Edit the root
-  `VERSION` file in the PR — on merge that exact version is tagged verbatim (no extra bump).
-- The `VERSION` file at the repo root is the single source of truth.
-- `scripts/build.sh` still derives the build version from the latest git tag; binary
-  artifacts attached to releases are not produced yet (see
-  `docs/PLANS/cross-cutting/ci-github-actions-and-versioning.md` §3.4).
+- **Normal merge** → the `release.yml` workflow auto-bumps the latest tag's patch version
+  (`v0.8.0 → v0.8.1`), pushes the tag, and creates a GitHub Release with auto-generated notes.
+  It never pushes commits to `main`, so the `VERSION` file is not updated.
+- **Want a specific version** (patch, minor `0.9.0`, major `1.0.0`)? Edit the root `VERSION`
+  file in the PR — when it is higher than the latest tag, the merge is tagged with exactly that
+  version (no extra bump).
+- The **git tags are the release record**; the `VERSION` file is only a floor for the next release.
+- `scripts/build.sh` stamps the binary with `git describe --tags` (nearest `v*` tag: exactly
+  `v0.8.0` on a tagged commit, `v0.8.0-2-gabc1234` after it), fetching tags first because the
+  release tag lands a few seconds after the merge. Binary artifacts attached to releases are not
+  produced yet (see `docs/PLANS/cross-cutting/ci-github-actions-and-versioning.md` §3.4).
 
 ## Git Hooks (secret scanning + agent harness)
 

@@ -44,12 +44,20 @@ if find . -user root -print -quit 2>/dev/null | grep -q .; then
   fi
 fi
 
-# --- Versioning (from the most recent git tag) -------------------------------
+# --- Versioning (from git tags) ----------------------------------------------
 ui_info "Retrieving version from Git tags..."
-# head closes the pipe after the first tag; on a repo with many tags git gets
-# SIGPIPE, which pipefail would turn into a failed substitution. The `|| true`
-# keeps the first line and lets the "dev" fallback below handle a real failure.
-VERSION=$(git tag --sort=-v:refname | head -n 1 || true)
+# Release tags are pushed by GitHub Actions a few seconds after a merge, so a
+# deploy that pulls straight away can miss the new tag: fetch tags first. Best
+# effort and non-interactive — an offline build keeps the tags it already has.
+# Set BUILD_SKIP_TAG_FETCH=1 to skip it.
+if [[ "${BUILD_SKIP_TAG_FETCH:-0}" != 1 ]]; then
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" \
+    git fetch --tags --quiet 2>/dev/null || ui_warn "could not fetch tags; using the local ones"
+fi
+# The nearest release tag reachable from HEAD: exactly "v0.8.0" for a tagged
+# commit, "v0.8.0-2-gabc1234" for a commit after it — a build never claims a
+# release it is not. Only v<digit> tags count (the repo has other tags).
+VERSION=$(git describe --tags --match 'v[0-9]*' 2>/dev/null || true)
 [[ -n "$VERSION" ]] || VERSION="dev"
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
