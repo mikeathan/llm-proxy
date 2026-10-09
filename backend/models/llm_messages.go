@@ -112,11 +112,15 @@ type ReasoningObject struct {
 // ChatTemplateKwargs carries provider-specific chat-template overrides.
 // NVIDIA NIM / Poolside use it to enable thinking via
 // chat_template_kwargs.enable_thinking. The bool has no omitempty so an
-// explicit false is serialized as "enable_thinking": false — omitting it would
+// explicit false is serialized as "enable_thinking": false (a non-nil pointer) — omitting it would
 // drop the disabled override and leave the provider's native default in force.
 // The parent pointer is nil'd by resolvers when the kwargs must not appear.
 type ChatTemplateKwargs struct {
-	EnableThinking bool `json:"enable_thinking"`
+	EnableThinking *bool `json:"enable_thinking,omitempty"`
+	// PreserveThinking keeps earlier assistant turns' <think> blocks in Qwen-family templates, so the rendered prompt
+	// only grows from turn to turn and llama.cpp reuses its prompt cache (set by the local client). Templates that do
+	// not use it ignore it.
+	PreserveThinking *bool `json:"preserve_thinking,omitempty"`
 }
 
 // HasSeparateReasoning reports whether the message carries reasoning in a

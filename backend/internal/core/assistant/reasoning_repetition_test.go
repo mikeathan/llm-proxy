@@ -297,7 +297,7 @@ func TestStuckThinkingRecovery(t *testing.T) {
 		}
 		a.noteStuckThinking()
 		req := request(a)
-		if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs.EnableThinking || req.ThinkingBudgetTokens != 0 {
+		if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs.EnableThinking == nil || *req.ChatTemplateKwargs.EnableThinking || req.ThinkingBudgetTokens != 0 {
 			t.Errorf("recovery request = %+v, want enable_thinking=false and no budget", req)
 		}
 		if again := request(a); again.ThinkingBudgetTokens != 1800 || again.ChatTemplateKwargs != nil {

@@ -163,7 +163,7 @@ func (objectResolver) Apply(req *models.ChatRequest, spec ReasoningSpec) {
 type enableThinkingResolver struct{}
 
 func (enableThinkingResolver) Apply(req *models.ChatRequest, spec ReasoningSpec) {
-	req.ChatTemplateKwargs = &models.ChatTemplateKwargs{EnableThinking: spec.Enabled}
+	req.ChatTemplateKwargs = &models.ChatTemplateKwargs{EnableThinking: new(spec.Enabled)}
 	req.Reasoning = nil
 	req.ReasoningEffort = ""
 	req.ThinkingBudgetTokens = 0
@@ -191,7 +191,7 @@ func (thinkTokensResolver) Apply(req *models.ChatRequest, spec ReasoningSpec) {
 // is the recovery step after a stuck stream: an answer without thinking cannot
 // loop in thinking.
 func DisableThinking(req *models.ChatRequest) {
-	req.ChatTemplateKwargs = &models.ChatTemplateKwargs{EnableThinking: false}
+	req.ChatTemplateKwargs = &models.ChatTemplateKwargs{EnableThinking: new(false)}
 	req.ThinkingBudgetTokens = 0
 	req.ReasoningBudgetMessage = ""
 }

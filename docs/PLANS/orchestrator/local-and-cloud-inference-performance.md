@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: active
 date: 2026-09-30
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-09
 related_specs: [SPEC-001, SPEC-005, SPEC-007]
 constitution_references: [II.5, IV.3, VI]
 related_plans: [gpu-performance.md, cross-cutting/backend-hot-paths-and-leak-hardening.md, memory/small-context-memory.md, unattended-run-safety-hardening.md]
@@ -10,7 +10,7 @@ evidence: docs/audits/2026-09-30-platform-scan.md (P1, P9, P12)
 
 # Inference Performance — Local llama.cpp and Cloud Providers
 
-**Status:** proposed. **Phase 0 (measure) is mandatory and first.** The repo's own history (GPU plan,
+**Status:** active — Phase 0 started 2026-10-09: the cross-turn cache loss was measured, its cause proved (the chat template) and fixed (`preserve_thinking`), see [`../../audits/2026-10-09-local-prompt-cache.md`](../../audits/2026-10-09-local-prompt-cache.md). Items 0.1 (timings in run records), 0.2 (cloud TTFT) and 0.3 (prefix test) remain. **Phase 0 (measure) is mandatory and first.** The repo's own history (GPU plan,
 "Round 6 lesson — measure first") is a run of well-meant changes that were later reverted or shown to be
 noise. Nothing below ships on reasoning alone.
 
@@ -67,6 +67,10 @@ Acceptance: the four items exist; the baseline is committed; Phase 1 items are r
 
 Order by expected payoff; each item is independent and gated on its Phase 0 number.
 
+0. **Done 2026-10-09 — keep the template append-only.** The local client sends
+   `chat_template_kwargs.preserve_thinking: true`; turn-2 prefill on the reference server dropped from 4731 tokens /
+   17.3 s to 31 tokens / 0.83 s. llama.cpp already reuses the prompt cache by default (`cache_n` > 0 without
+   `cache_prompt`), so item 1 is only needed if a server turns it off.
 1. **Make reuse explicit.** Add `cache_prompt` (and `id_slot` when the model is served with `--parallel > 1`) to
    `ChatRequest` for local workloads only; omit for cloud (strict providers reject unknown keys — same reason
    `FinishReason` is `json:"-"`). Cloud providers that support automatic prefix caching get it from stability

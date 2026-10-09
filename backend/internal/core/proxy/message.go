@@ -21,6 +21,7 @@ type Message = models.Message
 
 // Chat Request
 type ChatRequest = models.ChatRequest
+type ChatTemplateKwargs = models.ChatTemplateKwargs
 
 type ToolCall = models.ToolCall
 type FunctionCall = models.FunctionCall

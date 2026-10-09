@@ -46,7 +46,7 @@ func TestChatCompleter_LocalModelDoesNotThink(t *testing.T) {
 			if _, err := c.Complete(context.Background(), "sys", "user"); err != nil {
 				t.Fatalf("Complete: %v", err)
 			}
-			off := got.ChatTemplateKwargs != nil && !got.ChatTemplateKwargs.EnableThinking
+			off := got.ChatTemplateKwargs != nil && got.ChatTemplateKwargs.EnableThinking != nil && !*got.ChatTemplateKwargs.EnableThinking
 			if off != tc.wantOff {
 				t.Errorf("thinking disabled = %v, want %v (request %+v)", off, tc.wantOff, got)
 			}
