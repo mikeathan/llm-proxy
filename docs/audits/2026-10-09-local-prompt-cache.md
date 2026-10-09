@@ -46,8 +46,11 @@ turn 2 = turn 1 + answer + new question):
 | `preserve_thinking: true` | 31 | 6153 | 0.83 s |
 
 End to end through the app on v0.8.1 (before the fix), two-turn chat where turn 1 reads a 400-line file, two runs:
-turn 1 23.1 s / 23.9 s, turn 2 **8.1 s / 8.0 s**. The same benchmark is re-run after the fix is deployed; the result is
-recorded here.
+turn 1 23.1 s / 23.9 s, turn 2 **8.1 s / 8.0 s**.
+
+After the fix (v0.8.2, same benchmark, two runs): turn 1 26.0 s / 24.0 s, turn 2 **2.5 s / 1.8 s** — turn 2 is
+3–4× faster end to end (the rest of turn 2 is generation and the tool loop, which the cache does not change). Local
+requests carrying `chat_template_kwargs` worked on this llama.cpp build.
 
 ## Not covered
 
