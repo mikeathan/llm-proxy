@@ -10,6 +10,7 @@ import (
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
@@ -194,4 +195,61 @@ func TestApp_ShutdownCancelsBaseContext(t *testing.T) {
 	if baseCtx.Err() == nil {
 		t.Error("BaseContext should be cancelled after Shutdown")
 	}
+}
+
+// A connector added in Settings, or a token changed, is used without a restart: report delivery (connectorNotifier)
+// and the agent tool share one connector set that bootstrap rebuilds on registry and secrets changes.
+func TestBuildAppServices_ConnectorChangesApplyLive(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	dataMgr := minimalDataManager(t)
+	services := bootstrap(dataMgr, &mocks.MockLogger{}, false, false).BuildAppServices()
+	comm := communicationTools(services.ToolProvider())
+	if comm == nil {
+		t.Fatal("no connector set in the tool provider")
+	}
+	if _, ok := comm.GetByName("tg"); ok {
+		t.Fatal("setup: no connector should exist yet")
+	}
+
+	if err := dataMgr.Secrets().SetSecret("connector", "tg", "111:first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dataMgr.Registry().Update(func(reg *models.RegistryData) error {
+		reg.Communication.Connectors = map[string]models.ConnectorConfig{
+			"tg": {Type: "telegram", Enabled: true, Settings: map[string]string{"chat_id": "1"}, SecretRef: "tg"},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first := eventuallyConnector(t, comm, "tg", "a connector added to the config was not picked up")
+
+	if err := dataMgr.Secrets().SetSecret("connector", "tg", "222:second"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if now, _ := comm.GetByName("tg"); now != first {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a changed connector token was not picked up")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func eventuallyConnector(t *testing.T, comm interface {
+	GetByName(string) (tools.Connector, bool)
+}, name, msg string) tools.Connector {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if conn, ok := comm.GetByName(name); ok {
+			return conn
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(msg)
+	return nil
 }

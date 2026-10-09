@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"llm-proxy/models"
@@ -151,4 +152,50 @@ func TestCommunicationTools_NotifyAll_FilterEmptyIsBroadcast(t *testing.T) {
 	if !strings.Contains(err.Error(), "tg") || !strings.Contains(err.Error(), "sl") {
 		t.Fatalf("expected both connectors in error, got: %v", err)
 	}
+}
+
+// A connector added, removed or re-keyed in Settings takes effect on Reload, without a restart: the shared instance
+// (agent tool, report delivery, webhook) re-reads its source.
+func TestCommunicationTools_ReloadFromSource(t *testing.T) {
+	var current []NamedConnector
+	c := NewCommunicationTools()
+	c.SetSource(func() []NamedConnector { return current })
+
+	if _, ok := c.GetByName("tg"); ok {
+		t.Fatal("no connector configured yet")
+	}
+	current = []NamedConnector{{Name: "tg", Type: "telegram", Conn: &stubConnector{name: "tg-v1"}}}
+	c.Reload()
+	conn, ok := c.GetByName("tg")
+	if !ok || conn.Name() != "tg-v1" {
+		t.Fatalf("added connector not found after reload: %v %v", conn, ok)
+	}
+
+	current = []NamedConnector{{Name: "tg", Type: "telegram", Conn: &stubConnector{name: "tg-v2"}}}
+	c.Reload()
+	if conn, _ := c.GetByName("tg"); conn.Name() != "tg-v2" {
+		t.Errorf("a changed connector (e.g. a new token) was not picked up: %s", conn.Name())
+	}
+
+	current = nil
+	c.Reload()
+	if _, ok := c.GetByName("tg"); ok {
+		t.Error("a removed or disabled connector is still used")
+	}
+}
+
+// Reload swaps the set while sends and lookups run; nothing races (run with -race).
+func TestCommunicationTools_ReloadIsSafeDuringUse(t *testing.T) {
+	c := NewCommunicationTools()
+	c.SetSource(func() []NamedConnector {
+		return []NamedConnector{{Name: "tg", Type: "telegram", Conn: &stubConnector{name: "tg"}}}
+	})
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(3)
+		go func() { defer wg.Done(); c.Reload() }()
+		go func() { defer wg.Done(); _ = c.NotifyAll(context.Background(), "hi", "") }()
+		go func() { defer wg.Done(); c.GetByName("tg") }()
+	}
+	wg.Wait()
 }

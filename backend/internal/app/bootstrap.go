@@ -107,8 +107,22 @@ func (c *Container) BuildAppServices() *AppServices {
 			EgressEnv:    egressEnv,
 		},
 	)
+	c.watchConnectorConfig(s)
 
 	return s
+}
+
+// watchConnectorConfig rebuilds the shared connector set (agent notify_user, report delivery, inbound webhook) when
+// the connector config or its secrets change, so a connector added or edited in Settings is used without a restart.
+// The secrets store invalidates its own cache in an earlier listener, so the rebuild reads the new token.
+func (c *Container) watchConnectorConfig(s *AppServices) {
+	comm := communicationTools(s.toolProvider)
+	if comm == nil {
+		return
+	}
+	dataMgr := c.Core.AppCtx.dataMgr
+	dataMgr.Registry().OnChange(func(models.RegistryData) { comm.Reload() })
+	dataMgr.EncryptedSecretStore().OnChange(func(models.EncryptedSecretData) { comm.Reload() })
 }
 
 // newRecordingStore opens the per-run recording store, or nil when recording is

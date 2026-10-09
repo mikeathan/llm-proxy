@@ -164,6 +164,11 @@ Inbound messages are handled by `WebhookHandler` (`POST /api/v1/webhooks/{connec
 
 ## Common Errors
 
+- **Connectors are rebuilt live.** `CommunicationTools.Reload` rebuilds every connector whenever the registry or
+  secrets change (SPEC-009 1.4), so a factory must be cheap and side-effect free: no goroutines, timers or network
+  calls at construction. Startup-only work (webhook re-registration) belongs in `initCommunicationTools`, not the
+  factory.
+
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Connector silently skipped at init | Token not saved to secrets store | Call `PUT /admin/api/secrets/tools?category=connector&provider=<name>` from frontend |
