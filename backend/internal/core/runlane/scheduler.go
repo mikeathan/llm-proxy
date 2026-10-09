@@ -180,6 +180,11 @@ func (s *Scheduler) Snapshot() Snapshot {
 // Close rejects new work, cancels all running jobs, unblocks waiters with
 // ErrClosed, and waits (bounded by ctx) for the slots to drain.
 func (s *Scheduler) Close(ctx context.Context) error {
+	// Close the model gate first: cancelling the running jobs frees their
+	// models, and a gate still open would grant a queued caller the freed model
+	// instead of telling it the scheduler is shutting down (ErrClosed).
+	s.closeModelGate()
+
 	s.mu.Lock()
 	if s.rootCancel != nil {
 		s.rootCancel()
@@ -189,7 +194,6 @@ func (s *Scheduler) Close(ctx context.Context) error {
 	for _, key := range s.order {
 		s.lanes[key].close()
 	}
-	s.closeModelGate()
 	for _, key := range s.order {
 		select {
 		case <-s.lanes[key].drained:

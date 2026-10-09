@@ -311,6 +311,9 @@ func (s *Scheduler) pumpModelGate() {
 // grantReadyLocked admits every waiting caller that is now unblocked. Assumes
 // gateMu is held.
 func (s *Scheduler) grantReadyLocked() {
+	if s.gateClosed {
+		return // shutting down: nothing is granted after Close
+	}
 	for _, w := range s.waiters {
 		if w.granted {
 			continue
