@@ -52,11 +52,20 @@ func isAuthStatus(code int) bool {
 // classifies them as terminal (do not retry), while other statuses stay plain
 // (transient/input — model-actionable).
 func providerStatusError(provider string, code int, body []byte) error {
-	err := fmt.Errorf("%s API error (status %d): %s", provider, code, errorBodySnippet(body))
 	if isAuthStatus(code) {
-		return fmt.Errorf("%w: %v", models.ErrToolUnavailable, err)
+		return credentialRejectedError(provider, code, body)
 	}
-	return err
+	return plainStatusError(provider, code, body)
+}
+
+// credentialRejectedError is a provider response that means the credential was rejected, whatever status the
+// provider uses for it: it wraps models.ErrToolUnavailable so the loop stops calling the tool.
+func credentialRejectedError(provider string, code int, body []byte) error {
+	return fmt.Errorf("%w: %v", models.ErrToolUnavailable, plainStatusError(provider, code, body))
+}
+
+func plainStatusError(provider string, code int, body []byte) error {
+	return fmt.Errorf("%s API error (status %d): %s", provider, code, errorBodySnippet(body))
 }
 
 // normalizedMaxResults applies the search result bounds at read time: unset
