@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/models"
@@ -207,11 +206,8 @@ func getPreview(h *MemoryHandlers, ws, query string) *httptest.ResponseRecorder 
 	return rr
 }
 
-type previewBody struct {
-	assistant.HotMemoryPreview
-	Model          string `json:"model"`
-	BudgetResolved bool   `json:"budget_resolved"`
-}
+// previewBody is the handler's own response type, so the test decodes exactly what is served.
+type previewBody = injectionPreviewResponse
 
 func decodePreview(t *testing.T, rr *httptest.ResponseRecorder) previewBody {
 	t.Helper()
@@ -827,5 +823,23 @@ func TestMemoryMarkdown_RoutesBeatTheIDRoute(t *testing.T) {
 	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/admin/api/memory/ws-1/export", nil))
 	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "invalid id") {
 		t.Errorf("export request reached GetMemory: %d", rr.Code)
+	}
+}
+
+// ?message= adds what that chat message would recall; without it the response carries no recall section.
+func TestInjectionPreview_MessageShowsTheRecall(t *testing.T) {
+	store := newTestMemoryStore(t)
+	id, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "codename", "The codename is BLUEHERON.", nil, "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewMemoryHandlers(store).WithModelResolver(modelResolver())
+
+	p := decodePreview(t, getPreview(h, "ws-1", "?message=What%20is%20the%20codename%3F"))
+	if p.Recall == nil || len(p.Recall.IDs) != 1 || p.Recall.IDs[0] != id || !strings.Contains(p.Recall.Block, "BLUEHERON") {
+		t.Fatalf("recall preview = %+v, want the codename fact", p.Recall)
+	}
+	if none := decodePreview(t, getPreview(h, "ws-1", "")); none.Recall != nil {
+		t.Errorf("no message, no recall section: %+v", none.Recall)
 	}
 }

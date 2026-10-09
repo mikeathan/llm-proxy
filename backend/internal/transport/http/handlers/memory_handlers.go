@@ -264,6 +264,8 @@ type injectionPreviewResponse struct {
 	assistant.HotMemoryPreview
 	Model          string `json:"model"`
 	BudgetResolved bool   `json:"budget_resolved"`
+	// Recall is present when ?message= is given: what that chat message would recall (SPEC-004 §4.1).
+	Recall *assistant.RecallPreview `json:"recall,omitempty"`
 }
 
 // InjectionPreview returns exactly the <memory> block a run of the chosen model
@@ -303,6 +305,14 @@ func (h *MemoryHandlers) InjectionPreview(w http.ResponseWriter, r *http.Request
 		return
 	}
 	resp.HotMemoryPreview = assistant.PreviewHotMemory(entries, notes, opts)
+	if message := r.URL.Query().Get("message"); message != "" {
+		recall, err := assistant.PreviewRecall(r.Context(), h.store, wsID, message, resp.HotMemoryPreview, opts)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("recall preview failed: %v", err))
+			return
+		}
+		resp.Recall = &recall
+	}
 	respondJSON(w, resp)
 }
 
