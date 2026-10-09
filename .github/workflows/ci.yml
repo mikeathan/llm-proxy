@@ -55,6 +55,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check agent docs, skills, and catalogs
         run: bash ./scripts/check-agent-harness.sh
+      - name: Test staged CRAP hook
+        run: bash ./scripts/test-crap-staged.sh
 
   backend:
     name: Backend (build, vet, complexity, test, coverage)
@@ -181,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           # pipefail keeps a vitest failure visible through tee.
-          npm test -- --coverage 2>&1 | tee vitest-coverage.log
+          npm test -- --coverage --coverage.reporter=text-summary --coverage.reporter=html --coverage.reporter=json-summary --coverage.reporter=cobertura 2>&1 | tee vitest-coverage.log
       - name: Coverage report
         run: |
           # Machine-readable json-summary (coverage/coverage-summary.json) feeds
@@ -217,6 +219,64 @@ jobs:
           if-no-files-found: ignore
       - name: Build (eslint + vue-tsc + vite)
         run: npm run build
+
+  # Reuse fresh coverage from the existing suites; no second test run.
+  crap:
+    name: CRAP scores (Go + TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install pinned CRAP scanner
+        run: |
+          go install github.com/hbaldwin98/crap/cmd/crap@8eea294df1123778a77ecb826f0b16d95b65768d
+          go install github.com/jadenmaciel/gauntlet/cmd/crap4go@v0.2.0
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: backend-coverage
+          path: backend
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: frontend-coverage
+          path: frontend
+      - name: Go scores with fresh test coverage (report only)
+        working-directory: backend
+        run: |
+          result=0
+          crap4go --coverage coverage.out --ceiling 30 > crap-report.txt || result=$?
+          # 1 is a threshold breach; 2 is an analysis error.
+          test "$result" -le 1
+      - name: TypeScript scores with fresh test coverage (report only)
+        working-directory: frontend
+        run: crap --coverage coverage/cobertura-coverage.xml --exclude 'src/__TESTS__/**' --output crap-report.txt src
+      - name: Publish score reports
+        run: |
+          {
+            echo '### CRAP scores (report only; scores above 30 are flagged)'
+            for language in backend frontend; do
+              echo "<details><summary>${language}</summary>"
+              echo ''
+              echo '```text'
+              cat "$language/crap-report.txt"
+              echo '```'
+              echo '</details>'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload CRAP reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crap-reports
+          path: |
+            backend/crap-report.txt
+            frontend/crap-report.txt
+          retention-days: 14
+          if-no-files-found: ignore
 
   # Posts a single sticky PR comment combining backend + frontend coverage.
   # Uses the built-in github.token (no external service or PAT); the job-level
