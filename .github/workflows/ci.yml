@@ -56,7 +56,7 @@ jobs:
       - name: Check agent docs, skills, and catalogs
         run: bash ./scripts/check-agent-harness.sh
       - name: Test staged CRAP hook
-        run: bash ./scripts/test-crap-staged.sh
+        run: bash ./scripts/crap-staged.sh --self-test
 
   backend:
     name: Backend (build, vet, complexity, test, coverage)

@@ -118,7 +118,7 @@ changed `.go`, `.ts`, and `.tsx` files, excluding tests, declarations, and test 
 no tests and performs no downloads. Without coverage it reports a conservative estimate assuming
 0% coverage, rather than reusing stale coverage. Scores are report-only; analysis errors block
 the commit. An absent scanner prints a setup reminder and skips the report. `.vue` files are
-not analyzed. Run `bash scripts/test-crap-staged.sh` to verify the hook's selection and error handling.
+not analyzed. Run `bash scripts/crap-staged.sh --self-test` to verify the hook's selection and error handling.
 
 CI's `crap` job scans all production Go/TS source using the fresh Go coverprofile and Vitest
 Cobertura report produced by the existing test jobs. Full scores appear in the workflow summary
