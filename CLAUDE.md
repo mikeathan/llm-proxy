@@ -1,8 +1,10 @@
 # CLAUDE.md
 
-The operating contract for this repository is **[AGENTS.md](AGENTS.md)** — read it and follow it; it outranks this
-file. Claude Code already loads AGENTS.md as project instructions, so it is linked here, not imported (`@AGENTS.md`
-would load it twice).
+The operating contract for this repository is **AGENTS.md** — follow it; it outranks this file. It is imported below
+so Claude Code loads it: Claude Code reads AGENTS.md on its own only when no CLAUDE.md exists (verified 2026-10-09 —
+once this file was added, AGENTS.md stopped loading).
+
+@AGENTS.md
 
 Claude-specific notes only:
 
