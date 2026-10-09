@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/proxy"
@@ -163,4 +164,63 @@ func TestRuntimeClientProvider_RebuildsWhenWorkloadClassChanges(t *testing.T) {
 	if got := fmt.Sprint(builtLocal); got != "[false true]" {
 		t.Errorf("clients built with local = %s, want [false true] (reuse until the class changes)", got)
 	}
+}
+
+// WaitForClient polls a cold-starting model instead of failing, stops as soon as a client is ready, fails fast on any
+// other error, gives up after its budget, honours cancellation, and calls OnStarting once so a caller can tell the
+// user the model is loading. Automations and chat share it.
+func TestWaitForClient(t *testing.T) {
+	wait := func(timeout time.Duration) proxy.ModelWait {
+		return proxy.ModelWait{ModelName: "m", PollInterval: time.Millisecond, Timeout: timeout}
+	}
+
+	t.Run("polls until ready, telling the caller once", func(t *testing.T) {
+		calls, told := 0, 0
+		w := wait(time.Second)
+		w.OnStarting = func() { told++ }
+		client, err := proxy.WaitForClient(context.Background(), func() (proxy.Client, error) {
+			calls++
+			if calls < 3 {
+				return nil, models.ErrModelStarting
+			}
+			return &dummyClient{}, nil
+		}, w)
+		if err != nil || client == nil || calls != 3 || told != 1 {
+			t.Fatalf("client=%v err=%v calls=%d told=%d; want a client after 3 calls, told once", client, err, calls, told)
+		}
+	})
+
+	t.Run("a warm model is not announced", func(t *testing.T) {
+		told := 0
+		w := wait(time.Second)
+		w.OnStarting = func() { told++ }
+		if _, err := proxy.WaitForClient(context.Background(), func() (proxy.Client, error) { return &dummyClient{}, nil }, w); err != nil || told != 0 {
+			t.Fatalf("err=%v told=%d", err, told)
+		}
+	})
+
+	t.Run("fails fast on any other error", func(t *testing.T) {
+		calls := 0
+		_, err := proxy.WaitForClient(context.Background(), func() (proxy.Client, error) { calls++; return nil, fmt.Errorf("boom") }, wait(time.Second))
+		if err == nil || calls != 1 {
+			t.Fatalf("err=%v calls=%d; want one attempt and the error", err, calls)
+		}
+	})
+
+	t.Run("gives up after its budget", func(t *testing.T) {
+		_, err := proxy.WaitForClient(context.Background(), func() (proxy.Client, error) { return nil, models.ErrModelStarting }, wait(20*time.Millisecond))
+		if err == nil || !strings.Contains(err.Error(), "did not become ready") || !errors.Is(err, models.ErrModelStarting) {
+			t.Fatalf("err = %v, want a 'did not become ready' error wrapping ErrModelStarting", err)
+		}
+	})
+
+	t.Run("a cancelled context aborts at once", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		start := time.Now()
+		w := proxy.ModelWait{ModelName: "m", PollInterval: time.Second, Timeout: time.Minute}
+		if _, err := proxy.WaitForClient(ctx, func() (proxy.Client, error) { return nil, models.ErrModelStarting }, w); err == nil || time.Since(start) > time.Second {
+			t.Fatalf("err=%v after %v; want an immediate error", err, time.Since(start))
+		}
+	})
 }

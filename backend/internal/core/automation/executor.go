@@ -30,13 +30,6 @@ var (
 	ErrNoShellPool           = errors.New("shell pool not available")
 )
 
-// modelStartWaitTimeout is the total wall-clock budget the executor spends
-// polling a cold local model before failing the run. It mirrors the idle
-// reaper's own 5-minute startup window (lifecycle.go): the reaper kills a
-// model that fails to become ready within 5 minutes, so waiting longer here
-// would just waste the run's timeout on a model that is about to be torn down.
-const modelStartWaitTimeout = 5 * time.Minute
-
 // TaskExecutor executes automations.
 type TaskExecutor interface {
 	Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error)
@@ -298,7 +291,9 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 	// A cold local model returns ErrModelStarting while llama-server warms up.
 	// Poll (bounded) instead of failing the unattended run on the first try, so
 	// a midnight automation can auto-start the local LLM and wait for it.
-	client, err = waitForModelReady(ctx, get, req.Model, models.ModelStartPollInterval, modelStartWaitTimeout)
+	client, err = proxy.WaitForClient(ctx, get, proxy.ModelWait{
+		ModelName: req.Model, PollInterval: models.ModelStartPollInterval, Timeout: models.ModelStartWaitTimeout,
+	})
 	if err != nil {
 		errStr := fmt.Sprintf("failed to get llm client: %v", err)
 		resp.State.SetRunning("")
@@ -306,33 +301,6 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 		return nil, fmt.Errorf("failed to get llm client: %w", err)
 	}
 	return client, nil
-}
-
-// waitForModelReady invokes get repeatedly until it returns a client, a
-// non-starting error (failed immediately), or the wait budget is exhausted. It
-// treats models.ErrModelStarting as "still cold-starting" and keeps polling —
-// the one case an unattended run should block on rather than fail. The wait is
-// bounded by waitTimeout and cancelled if ctx is done first.
-func waitForModelReady(ctx context.Context, get func() (proxy.Client, error), modelName string, pollInterval, waitTimeout time.Duration) (proxy.Client, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
-	defer cancel()
-
-	for {
-		client, err := get()
-		if err == nil {
-			return client, nil
-		}
-		if !errors.Is(err, models.ErrModelStarting) {
-			return nil, err
-		}
-		// Model is still starting: poll again unless the wait budget or the
-		// caller's context expired first.
-		select {
-		case <-waitCtx.Done():
-			return nil, fmt.Errorf("model %s did not become ready within %v: %w", modelName, waitTimeout, err)
-		case <-time.After(pollInterval):
-		}
-	}
 }
 
 func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*rundir.RunDir, *eventbus.Sink, bool) {

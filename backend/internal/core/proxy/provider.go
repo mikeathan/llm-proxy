@@ -9,6 +9,7 @@ import (
 	"llm-proxy/models"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type ModelSelector interface {
@@ -117,4 +118,42 @@ func compareHeaders(h1, h2 http.Header) bool {
 		}
 	}
 	return true
+}
+
+// ModelWait bounds a wait for a model that is still loading.
+type ModelWait struct {
+	ModelName    string
+	PollInterval time.Duration
+	Timeout      time.Duration
+	// OnStarting, if set, is called once, the first time the model reports it is still starting — so a caller
+	// can tell the user the model is loading instead of looking stuck.
+	OnStarting func()
+}
+
+// WaitForClient calls get until it returns a client. models.ErrModelStarting means "still loading" and is polled
+// every PollInterval; any other error is returned at once. It gives up after Timeout or when ctx is done. A cold
+// local model is started by the first get, so the first request after an idle unload or a restart waits for it
+// instead of failing.
+func WaitForClient(ctx context.Context, get func() (Client, error), w ModelWait) (Client, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, w.Timeout)
+	defer cancel()
+	announced := false
+	for {
+		client, err := get()
+		if err == nil {
+			return client, nil
+		}
+		if !errors.Is(err, models.ErrModelStarting) {
+			return nil, err
+		}
+		if !announced && w.OnStarting != nil {
+			w.OnStarting()
+			announced = true
+		}
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("model %s did not become ready within %v: %w", w.ModelName, w.Timeout, err)
+		case <-time.After(w.PollInterval):
+		}
+	}
 }

@@ -318,10 +318,10 @@ func TestHeartbeat_QueuedTickRechecksActiveHoursAtDequeue(t *testing.T) {
 // The heartbeat panel must not say "an alert was sent" when the send failed.
 func TestHeartbeat_AlertWhoseDeliveryFailedIsRecordedAsNotDelivered(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		report string
+		name    string
+		report  string
 		sendErr error
-		want   models.HeartbeatResult
+		want    models.HeartbeatResult
 	}{
 		{"alert delivered", "GPT-6 shipped: https://example.com/x", nil, models.HeartbeatAlert},
 		{"alert not delivered", "GPT-6 shipped: https://example.com/x", errors.New("telegram down"), models.HeartbeatAlertNotDelivered},
