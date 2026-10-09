@@ -2,6 +2,7 @@ import { createApp, ref, watchEffect } from 'vue'
 import './style.css'
 import App from './App.vue'
 import { createAppRouter } from './router'
+import { installStaleChunkReload } from './router/staleChunkReload'
 import { useTheme } from './composables/ui/useTheme'
 import { startRunNotifications } from './composables/assistant/useRunNotifications'
 import { documentTitle } from './utils/documentTitle'
@@ -11,6 +12,9 @@ import { documentTitle } from './utils/documentTitle'
 useTheme().start()
 
 const router = createAppRouter()
+
+// After a deploy, an open tab's page chunks are gone: reload once onto the new build instead of failing silently.
+installStaleChunkReload(router)
 
 // Run notifications ride the existing global run poll (plan D5): started once here.
 const runNotifications = startRunNotifications(router)

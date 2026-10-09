@@ -136,10 +136,13 @@ type sieveState struct {
 
 // promptState tracks per-run prompt/request overrides.
 type promptState struct {
-	memoryFlushSent      bool   // prevents repeated pre-sieve nudges across turns
-	memoryBlock          string // frozen <memory> block for the whole run (hot_memory.go)
-	prefillDisabled      bool   // runtime override to skip prefill on retry
-	lastContentWithTools string // content saved from a turn that had both text and tool calls
+	memoryFlushSent      bool           // prevents repeated pre-sieve nudges across turns
+	memoryBlock          string         // frozen <memory> block for the whole run (hot_memory.go)
+	hotIDs               map[int64]bool // facts in memoryBlock, so recall does not repeat them
+	recallBlock          string         // frozen <recalled_memory> block for the run's user message (recall_memory.go)
+	recallAnchor         string         // the run's user message, which recallBlock is appended to
+	prefillDisabled      bool           // runtime override to skip prefill on retry
+	lastContentWithTools string         // content saved from a turn that had both text and tool calls
 }
 
 // stopGuardState holds the configured stop guards (evaluator-optimizer, Phase
@@ -788,6 +791,7 @@ func (s *runSession) run() (string, []proxy.Message, error) {
 	// Freeze hot memory once per run, before any strategy builds a request, so a
 	// delegating strategy (plan-execute -> react) never re-snapshots.
 	s.agent.snapshotHotMemory(s.ctx)
+	s.agent.snapshotRecall(s.ctx)
 
 	// Resolve and dispatch to the configured loop strategy. The runS
 	// back-pointer setup/teardown lives here (exactly once per Execute); a

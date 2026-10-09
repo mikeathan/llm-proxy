@@ -176,6 +176,8 @@ func (a *Agent) prepareMessagesForTurn(
 	// snapshot, so the prompt prefix is byte-identical every turn (KV cache).
 	// See hot_memory.go and docs/audits/memory-injection-investigation.md.
 	prepared = a.injectActiveMemory(prepared)
+	// Recall rides on the run's user message, after the stable prefix (recall_memory.go).
+	prepared = a.injectRecall(prepared)
 
 	var prefill string
 	if a.shouldPrefill() {

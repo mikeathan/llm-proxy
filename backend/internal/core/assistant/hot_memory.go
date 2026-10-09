@@ -65,6 +65,10 @@ func (a *Agent) snapshotHotMemory(ctx context.Context) {
 	}
 	block, kept := a.buildHotMemoryBlock(entries, notes)
 	a.runS.prompt.memoryBlock = block
+	a.runS.prompt.hotIDs = make(map[int64]bool, kept)
+	for _, e := range entries[:kept] {
+		a.runS.prompt.hotIDs[e.ID] = true
+	}
 	// Count the facts that were really sent (not the ones the budget cut), once
 	// per run. In-memory only: a background flusher writes it, never this path.
 	a.deps.MemoryStore.RecordInjected(entries[:kept])
@@ -217,6 +221,12 @@ func (a *Agent) memorySystemText() string {
 // serves the assistant channel, and the conversation is the operator's own — a connector chat is an outside sender
 // whose messages must not steer what gets remembered.
 func (a *Agent) guidesMemorySaves() bool {
+	return a.operatorMemoryChat()
+}
+
+// operatorMemoryChat is the one predicate for the operator's own assistant chat with memory on and a store: it
+// gates both the save guidance and per-turn recall (SPEC-004 §4.1).
+func (a *Agent) operatorMemoryChat() bool {
 	return a.config.EnableHotMemory && a.deps.MemoryStore != nil &&
 		a.config.Channel == ChannelAssistant &&
 		models.SessionSource(a.config.ConversationID) == models.SessionSourceManual
@@ -227,11 +237,17 @@ func (a *Agent) guidesMemorySaves() bool {
 // the same words twice and double the cost of every short fact on a small window:
 // the title is shown only when it adds something (an explicit, different title).
 func hotFactLine(e memory.MemoryEntry) string {
+	return "- " + factText(e) + "\n"
+}
+
+// factText is a fact as the model reads it, shared by the hot block and recall: "Title: Content", or just the
+// content when the title is empty or auto-derived from it.
+func factText(e memory.MemoryEntry) string {
 	title := strings.TrimSpace(e.Title)
 	if title == "" || strings.HasPrefix(e.Content, title) {
-		return fmt.Sprintf("- %s\n", e.Content)
+		return e.Content
 	}
-	return fmt.Sprintf("- %s: %s\n", title, e.Content)
+	return title + ": " + e.Content
 }
 
 // buildHotInjection formats entries (newest first) as "- Title: Content" lines

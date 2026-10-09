@@ -83,3 +83,12 @@ declare module 'vue-router' {
     fullWidth?: boolean
   }
 }
+
+/** What installStaleChunkReload touches outside the router; injected so the behaviour is testable. */
+export interface StaleChunkReloadDeps {
+  now: () => number
+  storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
+  navigate: (href: string) => void
+  currentHref: () => string
+  addWindowListener: (type: string, listener: (event: Event) => void) => void
+}

@@ -19,6 +19,13 @@ import (
 // non-streaming fallback, which would mask streaming-path defects.
 func streamingToolRun(t *testing.T, store *memory.Store, opts AgentOptions, toolTurns int) [][]proxy.Message {
 	t.Helper()
+	requests, _ := streamingToolRunWith(t, store, opts, "how should I build?", toolTurns)
+	return requests
+}
+
+// streamingToolRunWith is streamingToolRun for a chosen user message; it also returns the history Execute hands back.
+func streamingToolRunWith(t *testing.T, store *memory.Store, opts AgentOptions, message string, toolTurns int) ([][]proxy.Message, []proxy.Message) {
+	t.Helper()
 	var requests [][]proxy.Message
 	client := &MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
@@ -44,16 +51,17 @@ func streamingToolRun(t *testing.T, store *memory.Store, opts AgentOptions, tool
 		opts.MaxSteps = 6
 	}
 	agent := NewAgent(client, provider, &MockEngine{Result: "ok"}, opts)
-	if _, _, err := agent.Execute(context.Background(), []proxy.Message{
+	_, history, err := agent.Execute(context.Background(), []proxy.Message{
 		{Role: proxy.SystemRole, Content: "test prompt"},
-		{Role: proxy.UserRole, Content: "how should I build?"},
-	}); err != nil {
+		{Role: proxy.UserRole, Content: message},
+	})
+	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	if len(requests) != toolTurns+1 {
 		t.Fatalf("expected %d requests, got %d", toolTurns+1, len(requests))
 	}
-	return requests
+	return requests, history
 }
 
 // TestHotMemory_PresentEveryTurn is the M1 acceptance test

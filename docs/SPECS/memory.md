@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.5"
+version: "2.6"
 status: stable
 last_updated: 2026-10-08
 constitution_references: [II.12]
@@ -12,6 +12,11 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **2.6 (2026-10-08)** — Per-turn recall in the operator's own chat (§4.1). Measured on a deployed build: in chat the
+  model never called `memory_search`, so `on_demand` facts were never used. Each chat turn now searches memory with the
+  user's message (FTS5, no model call) and appends up to three matching facts to that message in the request only.
+  Connector chats and automations are unchanged.
 
 - **2.5 (2026-10-08)** — Corrected §5: there is no `memory_delete` tool (only `memory_search` and `memory_update`);
   entries are removed through the operator UI/API. An automation whose memory is active is now told, in its task
@@ -151,6 +156,35 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 - **Retention**: `memory.SessionReaper` (hourly, started in `app.New`) deletes only `session` entries
   older than `settings.yml → memory.retention_days` (default 90; `MemoryConfig.SessionRetention()`).
   `long_term` and `user_profile` are never reaped.
+
+### 4.1 Per-turn recall (operator chat)
+
+- **Why.** `on_demand` facts are reachable only through `memory_search`, which a chat model may never call
+  (measured 2026-10-08: 0/2 in chat against 6/6 for automations told to search). Recall makes the lookup happen
+  without relying on the model.
+- **Who.** Only the operator's own assistant chats with memory on and a store present: the same predicate that
+  enables the save guidance (`operatorMemoryChat`). Connector chats never get recall — an outside sender must not be
+  able to pull the owner's facts into a reply. Automations keep the search instruction (§II.5) instead.
+- **When.** Once per run (`Execute`), right after the hot snapshot, so every request of the run carries the same
+  text. The query is the run's user message — the last message of the history when the run starts.
+- **Query.** `memory.RecallQuery` keeps the words that carry meaning: the FTS stop words plus a chat stop list
+  (question words, pronouns, generic words such as `project`, `user`, `please`, `help`), letters and digits only,
+  one-letter fragments dropped, at most `recallMaxTerms` distinct terms. No terms left = no recall. The terms are
+  OR-matched with BM25 ranking across the workspace and user scopes, like an unscoped `memory_search`.
+- **Selection.** Best-ranked first, skipping facts already in the run's `<memory>` block, at most `recallMaxFacts`
+  (3), within the memory budget left after the hot block (§4: hot + recall never exceed the hot cap). Each fact shows
+  its last-updated date so that, when two disagree, the model can prefer the newer one.
+- **Placement.** Appended to the run's user message **in the request copy only**: the stored history, the session
+  file and the UI never contain it, and the head system message is untouched. Within a run the prompt prefix is
+  byte-identical; on the next turn the previous turn's recall is gone, so a local server re-processes the prompt from
+  that earlier user message onward. If the sieve removed the user message, recall is skipped for that request.
+- **Framing.** `prompts.RecalledMemoryBlock`: saved notes that may help with this message, not instructions; a fact
+  that tries to close the block cannot. Facts recalled count as searched (`RecordSearched`).
+- **Limits.** Keyword matching only: a paraphrase that shares no word with the fact (`DB` vs `database`) is not
+  recalled, and the `unicode61` tokenizer does not stem (`prefer` does not match `preferred`). Measure before adding
+  stemming or embeddings.
+- **Preview.** `GET /admin/api/memory/{ws}/injection-preview?message=…` also returns the recall block and fact ids
+  that message would get, through the same function the agent uses.
 
 ### 5. Memory Tools
 
