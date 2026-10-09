@@ -1,9 +1,9 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.3"
+version: "1.4"
 status: stable
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,12 @@ supersedes:
 # SPEC: Communication Connector System
 
 ## Changelog
+
+- **1.4 (2026-10-09)** — Connector changes apply without a restart. The one shared `CommunicationTools` (agent
+  `notify_user`, automation report delivery, inbound webhook) is rebuilt from config by `Reload` whenever the registry
+  or the secrets change (`app.watchConnectorConfig`); previously a connector added or edited in Settings was only used
+  after a restart, and deliveries failed with "connector … is not configured or enabled". Webhook re-registration
+  remains a startup step.
 
 - **1.3 (2026-10-03)** — Telegram hardening: part size is counted in UTF-16 units (Telegram's own
   measure, so emoji count twice); a 429 is retried once when `retry_after` is at most 10 s (a
@@ -42,6 +48,8 @@ supersedes:
 The agent needs the ability to send notifications, reports, and summaries to external platforms (Telegram, Slack, Discord, email, etc.) as part of its tool-use loop. The communication system must be generic — adding a new platform must require no struct changes, only a new `Connector` interface implementation and a new case in the registry switch.
 
 A separate tool (`notify_user`) is registered in the tool system. When the agent calls it, the tool dispatches to all enabled connectors. This separation keeps the tool layer stable while connectors evolve independently.
+
+The enabled connectors are built from the registry and secrets (`buildConnectors`) into one shared `CommunicationTools`, and rebuilt on every registry or secrets change, so a connector added, disabled or re-keyed in Settings is used by the next send. Connectors must therefore be cheap to construct and own no goroutines or long-lived resources: a replaced instance is dropped, not closed.
 
 ## II. Functional Requirements
 

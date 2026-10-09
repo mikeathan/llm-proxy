@@ -216,21 +216,33 @@ func initTerminalTools(s stackCtx) *tools.TerminalTools {
 		StorageOver: s.storageOver,
 	})
 }
+
+// initCommunicationTools builds the shared connector set and keeps its source, so the app can Reload it when the
+// connector config or secrets change (wired in app bootstrap). Webhook re-registration is a startup step only.
 func initCommunicationTools(appCtx configSecretsReader, network *tools.NetworkTools) *tools.CommunicationTools {
-	reg := appCtx.GetRegistry()
 	comm := tools.NewCommunicationTools()
-	for name, cfg := range reg.Communication.Connectors {
+	comm.SetSource(func() []tools.NamedConnector { return buildConnectors(appCtx, network) })
+	for name, cfg := range appCtx.GetRegistry().Communication.Connectors {
+		if conn, ok := comm.GetByName(name); ok {
+			scheduleWebhookReregistration(name, cfg, conn)
+		}
+	}
+	return comm
+}
+
+// buildConnectors turns the current connector config and secrets into connector instances: enabled entries whose
+// type is known and whose credentials resolve.
+func buildConnectors(appCtx configSecretsReader, network *tools.NetworkTools) []tools.NamedConnector {
+	var out []tools.NamedConnector
+	for name, cfg := range appCtx.GetRegistry().Communication.Connectors {
 		if !cfg.Enabled {
 			continue
 		}
-		conn, ok := buildConnector(name, cfg, appCtx.Secrets(), network)
-		if !ok {
-			continue
+		if conn, ok := buildConnector(name, cfg, appCtx.Secrets(), network); ok {
+			out = append(out, tools.NamedConnector{Name: name, Type: cfg.Type, Conn: conn})
 		}
-		comm.AddConnector(name, cfg.Type, conn)
-		scheduleWebhookReregistration(name, cfg, conn)
 	}
-	return comm
+	return out
 }
 
 // buildConnector resolves and instantiates the registered factory for a

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"llm-proxy/models"
 )
@@ -58,11 +59,25 @@ type namedConnector struct {
 	connType  string // from ConnectorConfig.Type, e.g. "telegram"
 }
 
-// CommunicationTools manages a named map of connector instances.
-// Connectors are registered by name at startup from the config map and
-// dispatched via NotifyAll when the agent calls the notify_user tool.
+// NamedConnector is one configured connector as a ConnectorSource builds it: the config map key, the config type and
+// the instance.
+type NamedConnector struct {
+	Name string
+	Type string // ConnectorConfig.Type, e.g. "telegram"
+	Conn Connector
+}
+
+// ConnectorSource builds the current connector set from configuration. Connectors must be cheap to construct and own
+// no goroutines or long-lived resources: Reload drops replaced instances without closing them.
+type ConnectorSource func() []NamedConnector
+
+// CommunicationTools manages a named map of connector instances, shared by the agent's notify_user tool, automation
+// report delivery and the inbound webhook. The set is built from configuration at startup and rebuilt by Reload when
+// the connector config or its secrets change, so Settings edits apply without a restart.
 type CommunicationTools struct {
+	mu         sync.RWMutex
 	connectors map[string]namedConnector
+	source     ConnectorSource
 }
 
 func NewCommunicationTools() *CommunicationTools {
@@ -71,17 +86,54 @@ func NewCommunicationTools() *CommunicationTools {
 	}
 }
 
+// SetSource sets where Reload reads the connector set from and loads it now.
+func (c *CommunicationTools) SetSource(src ConnectorSource) {
+	c.mu.Lock()
+	c.source = src
+	c.mu.Unlock()
+	c.Reload()
+}
+
+// Reload rebuilds the connector set from the source (built outside the lock, then swapped in). A no-op without a
+// source.
+func (c *CommunicationTools) Reload() {
+	c.mu.RLock()
+	src := c.source
+	c.mu.RUnlock()
+	if src == nil {
+		return
+	}
+	next := make(map[string]namedConnector)
+	for _, nc := range src() {
+		next[nc.Name] = namedConnector{connector: nc.Conn, connType: nc.Type}
+	}
+	c.mu.Lock()
+	c.connectors = next
+	c.mu.Unlock()
+}
+
 // AddConnector registers a connector under the given name.
 // The name comes from the config map key (e.g. "my-telegram").
 // connType is the connector type from ConnectorConfig.Type (e.g. "telegram").
 func (c *CommunicationTools) AddConnector(name, connType string, conn Connector) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.connectors[name] = namedConnector{connector: conn, connType: connType}
 }
 
 // GetByName returns the connector registered under the given name.
 func (c *CommunicationTools) GetByName(name string) (Connector, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	nc, ok := c.connectors[name]
 	return nc.connector, ok
+}
+
+// snapshot is the current set; sends run on it outside the lock so a slow connector never blocks a Reload.
+func (c *CommunicationTools) snapshot() map[string]namedConnector {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connectors // replaced, never mutated in place, by Reload; AddConnector is startup/test only
 }
 
 // NotifyAll sends a message to registered connectors.
@@ -92,7 +144,8 @@ func (c *CommunicationTools) GetByName(name string) (Connector, bool) {
 func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, connectorType string) error {
 	var errs []error
 	var matched bool
-	for name, nc := range c.connectors {
+	connectors := c.snapshot()
+	for name, nc := range connectors {
 		if connectorType != "" && !strings.EqualFold(nc.connType, connectorType) {
 			continue
 		}
@@ -102,7 +155,7 @@ func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, conn
 		}
 	}
 	if connectorType != "" && !matched {
-		return fmt.Errorf("no connector found for type '%s' — available types: %s", connectorType, c.listTypes())
+		return fmt.Errorf("no connector found for type '%s' — available types: %s", connectorType, listTypes(connectors))
 	}
 	if len(errs) > 0 {
 		// errors.Join preserves each connector's chain (%v flattened it), so a
@@ -113,10 +166,10 @@ func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, conn
 }
 
 // listTypes returns a comma-separated list of unique connector types in the map.
-func (c *CommunicationTools) listTypes() string {
+func listTypes(connectors map[string]namedConnector) string {
 	seen := make(map[string]bool)
 	var types []string
-	for _, nc := range c.connectors {
+	for _, nc := range connectors {
 		if !seen[nc.connType] {
 			seen[nc.connType] = true
 			types = append(types, nc.connType)
