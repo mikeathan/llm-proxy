@@ -970,3 +970,35 @@ func TestConversationService_RecordsReportedTokens(t *testing.T) {
 		t.Errorf("run tokens = %d/%d, want 1200/85", run.PromptTokens, run.CompletionTokens)
 	}
 }
+
+// A tool that became unavailable during a chat turn is recorded on that turn's run record, so the transcript shows it
+// after a reload even if the model's answer never mentions it.
+func TestConversationService_RecordsToolWarningsOnTheTurn(t *testing.T) {
+	pm := newTestPersistence(t)
+	svc := NewConversationService(newMockConvDeps(), pm)
+	calls := 0
+	client := &MockClient{
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
+		ChatFunc: func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			calls++
+			if calls == 1 {
+				return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole,
+					ToolCalls: []proxy.ToolCall{{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "web_lookup", Arguments: `{"q":"x"}`}}}}}}}, nil
+			}
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "Here is what I found."}}}}, nil
+		},
+	}
+	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "web_lookup"}}}}
+	engine := &MockEngine{Err: fmt.Errorf("key rejected: %w", models.ErrToolUnavailable)}
+	_, _ = svc.Execute(context.Background(), "ws-1", "conv_warn", "look it up", "v1", "UTC",
+		nil, logging.NewNopLogger(), provider, client, engine, &mockEventPublisher{}, nil)
+
+	session, err := pm.ReadSession("ws-1", "conv_warn")
+	if err != nil || session == nil {
+		t.Fatalf("ReadSession: %v, %v", session, err)
+	}
+	run := turnRunOf(t, session.History, "look it up")
+	if len(run.Warnings) != 1 || !strings.Contains(run.Warnings[0], "web_lookup unavailable") {
+		t.Fatalf("turn warnings = %v, want one 'web_lookup unavailable' warning", run.Warnings)
+	}
+}

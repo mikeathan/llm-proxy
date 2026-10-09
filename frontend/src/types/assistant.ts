@@ -27,6 +27,8 @@ export interface TurnRun {
   completion_tokens?: number
   // Facts saved from the user's message before the run (an explicit "remember …").
   memory_saved?: string[]
+  // Non-fatal problems in the turn, e.g. a tool whose credential was rejected.
+  warnings?: string[]
 }
 
 export interface AssistantMessage {

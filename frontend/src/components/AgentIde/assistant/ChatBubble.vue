@@ -2,6 +2,7 @@
 import { computed, watch, nextTick } from 'vue'
 import MarkdownViewer from '../../common/display/MarkdownViewer.vue'
 import CopyButton from '../../common/display/CopyButton.vue'
+import RunWarnings from '../../common/display/RunWarnings.vue'
 import type { Turn } from '../../../types/message'
 import Icon from '../../icons/Icon.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
@@ -101,6 +102,7 @@ const runMeta = computed(() => {
 })
 // Facts the backend saved from this message before the run, recorded on the turn so they persist across reloads.
 const memorySaved = computed(() => props.turn.run?.memory_saved ?? [])
+const warnings = computed(() => props.turn.run?.warnings ?? [])
 const activityFailed = computed(() => props.turn.segments.some((s) => s.kind === 'error'))
 
 // Models often open a step with "Thought:"; the timeline already labels it.
@@ -269,6 +271,8 @@ watch(
         <li v-for="fact in memorySaved" :key="fact">{{ fact }}</li>
       </ul>
     </div>
+
+    <RunWarnings v-if="warnings.length" :warnings="warnings" />
 
     <div v-if="answerCopyable || runMeta" class="turn-footer">
       <CopyButton v-if="answerCopyable" :text="turn.finalAnswer" title="Copy answer" />
