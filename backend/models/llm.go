@@ -14,6 +14,10 @@ import (
 // the cadence. A var (not const) so tests can shorten it.
 var ModelStartPollInterval = 3 * time.Second
 
+// ModelStartWaitTimeout bounds how long a run waits for a cold model to finish loading (proxy.WaitForClient) before
+// it fails. It mirrors the idle reaper's startup window; chat and automations share it.
+const ModelStartWaitTimeout = 5 * time.Minute
+
 // ModelStatusStarting is the status value the proxy returns (HTTP 202 with a
 // {"status":"starting"} body) while a model is still loading, and the value
 // the proxy client recognizes to poll until the model is ready. One constant

@@ -1666,3 +1666,61 @@ func TestAssistant_RunningQueued(t *testing.T) {
 		})
 	}
 }
+
+// startingProvider reports a cold model for the first `starting` calls, then a ready client.
+type startingProvider struct {
+	starting int
+	calls    int
+}
+
+func (p *startingProvider) GetClient(context.Context) (proxy.Client, error) {
+	p.calls++
+	if p.calls <= p.starting {
+		return nil, models.ErrModelStarting
+	}
+	return &mocks.MockLLMClient{}, nil
+}
+
+func (p *startingProvider) GetClientForModel(ctx context.Context, _ string) (proxy.Client, error) {
+	return p.GetClient(ctx)
+}
+
+// The first chat after the local model unloaded (idle timeout, restart) must wait for it to load instead of failing
+// with "model is starting, try again shortly" and losing the message — and must tell the user, once, that the model
+// is loading.
+func TestAssistant_GetLLMClient_WaitsForAColdModel(t *testing.T) {
+	restore := models.ModelStartPollInterval
+	models.ModelStartPollInterval = time.Millisecond
+	defer func() { models.ModelStartPollInterval = restore }()
+
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
+	provider := &startingProvider{starting: 3}
+	service.Client = provider
+	service.EventBusRef = bus
+	handler := NewAssistantMessageHandler(service)
+	events, _ := bus.Subscribe("ws-1", assistant.ChannelAssistant)
+
+	client, herr := handler.getLLMClient(context.Background(), &noopLogger{}, &AssistantMessage{WorkspaceID: "ws-1", ConversationID: "c1"})
+	if herr != nil || client == nil {
+		t.Fatalf("getLLMClient = %v, %+v; want a client once the model has loaded", client, herr)
+	}
+	if provider.calls != 4 {
+		t.Errorf("calls = %d, want 3 starting + 1 ready", provider.calls)
+	}
+
+	var notices []assistant.AgentEvent
+	for len(events) > 0 {
+		ev := <-events
+		if ev.Type == assistant.EventUpstream {
+			notices = append(notices, ev)
+		}
+	}
+	if len(notices) != 1 {
+		t.Fatalf("model-starting notices = %d, want exactly one", len(notices))
+	}
+	if p, ok := notices[0].Payload.(assistant.UpstreamEventPayload); !ok || p.Reason != "model_starting" || notices[0].ConversationID != "c1" {
+		t.Errorf("notice = %+v, want reason model_starting for conversation c1", notices[0])
+	}
+}

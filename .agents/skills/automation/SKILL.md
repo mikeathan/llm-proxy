@@ -81,9 +81,9 @@ last_reviewed: 2026-10-04
 When an automation targets a local model that is not running (e.g. idle-reaped before a
 scheduled run), the first `GetClientForModel` triggers `llama-server` startup and returns
 `models.ErrModelStarting` while it warms up. `getLLMClient` now **polls** on that sentinel
-(`waitForModelReady`) instead of failing the run immediately, so an unattended run can auto-start
+(`proxy.WaitForClient`, shared with chat) instead of failing the run immediately, so an unattended run can auto-start
 the local LLM and wait for it. The poll runs every `models.ModelStartPollInterval` (3s) up to
-`modelStartWaitTimeout` (5 min), mirroring the idle reaper's own 5-minute startup window, and
+`models.ModelStartWaitTimeout` (5 min), mirroring the idle reaper's own 5-minute startup window, and
 aborts immediately on any non-starting error or on context cancellation.
 
 ### Local Model Failure Detection
@@ -95,7 +95,7 @@ in the admin status / process-logs endpoints) and clears the dead model. Both `G
 request surfaces a real error instead of looping on `ErrModelStarting`) and the idle reaper (so a
 crashed model is cleared promptly instead of after the 5-minute startup timeout) call it. The
 automation path additionally fails with a clear `model <name> did not become ready within 5m`
-message via `waitForModelReady` rather than falsely proceeding on a dead model.
+message via `proxy.WaitForClient` rather than falsely proceeding on a dead model.
 
 ### Agent Loop (`internal/core/assistant/`)
 - `run()` in `session.go` — main loop, handles turn-by-turn execution

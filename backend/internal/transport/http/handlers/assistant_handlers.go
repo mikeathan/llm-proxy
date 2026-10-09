@@ -191,7 +191,7 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 }
 
 func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	client, herr := h.getLLMClient(ctx, log)
+	client, herr := h.getLLMClient(ctx, log, payload)
 	if herr != nil {
 		// Surface on the SSE bus so the client renders a visible error instead of hanging.
 		h.publishRunError(payload, herr.Message)
@@ -276,13 +276,21 @@ func modelName(payload *AssistantMessage, svc AssistantService) string {
 // Logic fix for appendToolResult structure:
 // Refactoring processToolCall to first append the assistant message.
 
-func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.Logger) (proxy.Client, *handlerError) {
-	client, err := h.client.GetClient(ctx)
+// getLLMClient returns the chat's model client. A local model that is still loading (after an idle unload or a
+// restart) is waited for, bounded by models.ModelStartWaitTimeout and cancelled by Stop, with one "model is starting"
+// notice so the chat shows why it is waiting — instead of failing and losing the message.
+func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.Logger, payload *AssistantMessage) (proxy.Client, *handlerError) {
+	client, err := proxy.WaitForClient(ctx, func() (proxy.Client, error) { return h.client.GetClient(ctx) }, proxy.ModelWait{
+		ModelName:    modelName(payload, h.svc),
+		PollInterval: models.ModelStartPollInterval,
+		Timeout:      models.ModelStartWaitTimeout,
+		OnStarting:   func() { h.publishModelStarting(payload) },
+	})
 	if err != nil {
 		if errors.Is(err, models.ErrModelStarting) {
 			return nil, &handlerError{
 				Status:  http.StatusServiceUnavailable,
-				Message: "model is starting, try again shortly",
+				Message: fmt.Sprintf("the model did not finish loading within %v; try again", models.ModelStartWaitTimeout),
 			}
 		}
 		log.Error("get LLM client failed", "error", err)
@@ -308,6 +316,22 @@ func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.
 // request routing). RunWithCancel resolves the conversation ID up front, so
 // ConversationID may already be populated here; it is preserved when present
 // and never a delivery prerequisite.
+// publishModelStarting tells the chat its model is loading, with the same upstream notice the UI already renders
+// for a model that is starting.
+func (h *AssistantMessageHandler) publishModelStarting(payload *AssistantMessage) {
+	if payload.WorkspaceID == "" {
+		return
+	}
+	h.svc.Events().Publish(payload.WorkspaceID, assistantPkg.AgentEvent{
+		ID:             fmt.Sprintf("model_starting_%d", time.Now().UnixNano()),
+		Type:           assistantPkg.EventUpstream,
+		Channel:        assistantPkg.ChannelAssistant,
+		ConversationID: payload.ConversationID,
+		Payload:        assistantPkg.UpstreamEventPayload{Event: assistantPkg.UpstreamEventRetry, Reason: assistantPkg.UpstreamReasonModelStarting},
+		Timestamp:      time.Now(),
+	})
+}
+
 func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, message string) {
 	if payload.WorkspaceID == "" {
 		return

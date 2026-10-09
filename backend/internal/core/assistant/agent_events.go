@@ -156,6 +156,12 @@ type GuardrailInvalidatedPayload struct {
 	Reason     string `json:"reason"` // "context_cancelled"
 }
 
+// Upstream notice values the UI keys on (frontend UpstreamEventPayload): one source for every publisher.
+const (
+	UpstreamEventRetry          = "retry"
+	UpstreamReasonModelStarting = "model_starting"
+)
+
 // UpstreamEventPayload describes a transient upstream LLM failure that is being
 // retried. It is observational: the retry/backoff policy is unchanged, and the
 // UI uses this to surface a live "retrying…" notice instead of silent stalls.
@@ -228,7 +234,7 @@ func (a *Agent) notifyGuardrailViolation(tool string, err error) {
 // the retry observer wired in Agent.Execute. It never blocks the retry loop.
 func (a *Agent) notifyUpstream(info proxy.RetryInfo) {
 	payload := UpstreamEventPayload{
-		Event:       "retry",
+		Event:       UpstreamEventRetry,
 		Attempt:     info.Attempt,
 		MaxAttempts: info.MaxAttempts,
 		ElapsedMs:   info.ElapsedMs,
@@ -240,7 +246,7 @@ func (a *Agent) notifyUpstream(info proxy.RetryInfo) {
 		// The upstream model is still loading — the proxy polls until it is
 		// ready. Distinct reason so the UI can explain it instead of showing a
 		// generic transport error.
-		payload.Reason = "model_starting"
+		payload.Reason = UpstreamReasonModelStarting
 		payload.Status = info.Status
 	} else if info.Reason == proxy.RetryReasonModelBusy {
 		// The upstream proxy refused to switch the local model because a run is
