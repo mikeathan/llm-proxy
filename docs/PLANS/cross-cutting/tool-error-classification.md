@@ -1,6 +1,6 @@
 # Tool Error Classification & Run-Fatality Policy
 
-**Status:** active — implemented; automated gates green (build/vet/race/complexity). Manual E2E on vertex 2026-10-09: case 4 passed; cases 1–3 failed and were fixed (Brave's invalid key is a 422 — now classified; delivery failures are now recorded on the run) — re-run after deploy
+**Status:** complete — implemented; automated gates green; manual end-to-end verified on vertex 2026-10-09 (results under Verification)
 **Date:** 2026-09-12
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-010 (Agent Loop Strategies), SPEC-006 (Guardrail Engine)
 
@@ -152,6 +152,20 @@ Note: `prompts.ToolErrorNagPrompt` (`templates.go:278-280`) exists but is **not 
      *Since #52 the report is sent by the dispatcher after the run, so a failed send is recorded on the run's history entry (`warnings`, surfaced as `last_warnings`) rather than in `run-meta.json`, which is written before delivery (SPEC-007 1.11).*
   4. Unclassified error (bad URL 404) → unchanged record-and-continue.
 - Frontend `npm test && npm run build` if any `RunMeta`/run-view type changes are surfaced (currently none planned).
+- **Manual E2E results (vertex, Qwen3.6 35B A3B, 2026-10-09; host settings changed temporarily and restored):**
+  1. **Pass (classification); answer did not state the failure.** The search result was "TOOL UNAVAILABLE … operator action
+     required" and search was not retried. The model then made one `fetch_url` call to the GitHub releases API and
+     answered correctly (llama.cpp v0.6.0) without mentioning that search was unavailable. The instruction to report
+     the failure already exists (`prompts.ToolUnavailablePrompt`); making the bad key visible regardless of the model
+     would need an app-generated notice in the chat, not more prompt text — not built.
+  2. **Pass.** The run failed with "tool unavailable: operator action required: brave API error (status 422) … The
+     provided API key is invalid" after one search. Required #57: Brave reports a bad key as 422
+     `SUBSCRIPTION_TOKEN_INVALID`, not 401/403.
+  3. **Pass.** The run completed with its report and the warning "report not delivered via bt-telegram: … telegram API
+     error: status 401 … Unauthorized". Required #58 (delivery failures recorded on the run) and #61 (a connector added
+     in Settings is used without a restart).
+  4. **Pass.** A `fetch_url` 404 was recorded as a plain tool error and the run continued to the next fetch and
+     completed.
 
 ## Out of scope
 
