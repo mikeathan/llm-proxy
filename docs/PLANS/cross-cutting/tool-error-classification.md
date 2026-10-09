@@ -157,7 +157,9 @@ Note: `prompts.ToolErrorNagPrompt` (`templates.go:278-280`) exists but is **not 
      required" and search was not retried. The model then made one `fetch_url` call to the GitHub releases API and
      answered correctly (llama.cpp v0.6.0) without mentioning that search was unavailable. The instruction to report
      the failure already exists (`prompts.ToolUnavailablePrompt`); making the bad key visible regardless of the model
-     would need an app-generated notice in the chat, not more prompt text — not built.
+     would need an app-generated notice in the chat, not more prompt text — built in #63: the chat turn now records
+     `internet_search unavailable: brave rejected the API key (HTTP 422) — check its configuration in Settings`, shown
+     under the answer.
   2. **Pass.** The run failed with "tool unavailable: operator action required: brave API error (status 422) … The
      provided API key is invalid" after one search. Required #57: Brave reports a bad key as 422
      `SUBSCRIPTION_TOKEN_INVALID`, not 401/403.

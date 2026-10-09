@@ -111,6 +111,9 @@ func TestTelegramNotifier_Send_APIError(t *testing.T) {
 	if !errors.Is(err, models.ErrToolUnavailable) {
 		t.Fatalf("401 must carry models.ErrToolUnavailable for loop classification, got %v", err)
 	}
+	if got := models.UnavailableReason(err); got != "telegram rejected the bot token (HTTP 401)" {
+		t.Errorf("reason = %q, want a short reason for people", got)
+	}
 }
 
 // newTelegramTestNotifier points a notifier at handler instead of api.telegram.org.

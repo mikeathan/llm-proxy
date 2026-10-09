@@ -116,6 +116,9 @@ func TestBraveProvider_Search_InvalidKey422IsUnavailable(t *testing.T) {
 			if got := errors.Is(err, models.ErrToolUnavailable); got != tc.unavailable {
 				t.Errorf("unavailable = %v, want %v (err %v)", got, tc.unavailable, err)
 			}
+			if tc.unavailable && models.UnavailableReason(err) != "brave rejected the API key (HTTP 422)" {
+				t.Errorf("reason = %q, want a short reason for people", models.UnavailableReason(err))
+			}
 		})
 	}
 }

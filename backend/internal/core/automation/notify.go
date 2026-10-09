@@ -142,7 +142,7 @@ func heartbeatOutcome(resp *ExecuteResponse, sendErr error) models.HeartbeatResu
 
 // recordDeliveryWarning adds the delivery failure to the run's stored record (history and latest run).
 func (d *Dispatcher) recordDeliveryWarning(entry *AutomationEntry, runID string, sendErr error) {
-	cause := sendErr.Error()
+	cause := models.UnavailableReason(sendErr)
 	if len(cause) > deliveryWarningMaxCause {
 		cause = cause[:deliveryWarningMaxCause] + "…"
 	}

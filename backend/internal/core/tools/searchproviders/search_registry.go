@@ -61,8 +61,14 @@ func providerStatusError(provider string, code int, body []byte) error {
 // credentialRejectedError is a provider response that means the credential was rejected, whatever status the
 // provider uses for it: it wraps models.ErrToolUnavailable so the loop stops calling the tool.
 func credentialRejectedError(provider string, code int, body []byte) error {
-	return fmt.Errorf("%w: %v", models.ErrToolUnavailable, plainStatusError(provider, code, body))
+	return &models.ToolUnavailableError{
+		Reason: fmt.Sprintf(credentialRejectedReason, provider, code),
+		Cause:  plainStatusError(provider, code, body),
+	}
 }
+
+// credentialRejectedReason is the short, operator-facing reason for a rejected key.
+const credentialRejectedReason = "%s rejected the API key (HTTP %d)"
 
 func plainStatusError(provider string, code int, body []byte) error {
 	return fmt.Errorf("%s API error (status %d): %s", provider, code, errorBodySnippet(body))
