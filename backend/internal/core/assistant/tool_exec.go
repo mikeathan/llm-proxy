@@ -410,15 +410,36 @@ func toolErrorResult(tool string, err error, result any) any {
 	return map[string]string{"error": err.Error()}
 }
 
-// noteTerminalToolFailure disables the tool for the rest of the run and, for a
-// delivery tool, records a non-fatal warning instead of a run failure.
+// Run warnings for a terminal (operator-actionable) tool failure. The reason is clipped: a provider error can carry a
+// whole response body.
+const (
+	deliveryWarningFormat    = "%s: %s"
+	unavailableWarningFormat = "%s unavailable: %s — check its configuration in Settings"
+	toolWarningMaxReason     = 300
+)
+
+// noteTerminalToolFailure disables the tool for the rest of the run and records a warning whenever the failure does
+// not end the run: always for a delivery tool, and for any tool in chat — so the operator learns that a credential was
+// rejected whether or not the model says so. An automation fails on the error instead, which is its record.
 func (a *Agent) noteTerminalToolFailure(tool, reason string) {
 	a.toolFailure.disable(tool)
+	reason = clipReason(reason)
 	if toolpolicy.FailurePolicyFor(tool) == toolpolicy.WarnOnTerminalError {
-		a.toolFailure.addWarning(fmt.Sprintf("%s: %s", tool, reason))
+		a.toolFailure.addWarning(fmt.Sprintf(deliveryWarningFormat, tool, reason))
 		a.notifySystemf(MsgToolWarning, tool, reason)
 		a.deps.Logger.Warn("delivery tool failed (non-fatal)", "name", tool, "error", reason)
+		return
 	}
+	if !a.toolFailureIsRunFatal(models.ErrToolUnavailable) {
+		a.toolFailure.addWarning(fmt.Sprintf(unavailableWarningFormat, tool, reason))
+	}
+}
+
+func clipReason(reason string) string {
+	if len(reason) <= toolWarningMaxReason {
+		return reason
+	}
+	return reason[:toolWarningMaxReason] + "…"
 }
 
 // toolFailureIsRunFatal reports whether a tool failure must end the run. Only

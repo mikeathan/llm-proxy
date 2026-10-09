@@ -1563,3 +1563,30 @@ func TestProcessToolCalls_NextRequestAnswersEveryCallID(t *testing.T) {
 		})
 	}
 }
+
+// In chat, a tool that becomes unavailable (rejected key) is a warning on the turn, so the operator learns about it
+// whatever the model says; the reason is clipped. An automation fails instead (the error is the record), so it gets
+// no duplicate warning.
+func TestToolPolicy_TerminalChatFailureIsATurnWarning(t *testing.T) {
+	long := strings.Repeat("x", 2000)
+	engine := &MockEngine{Err: fmt.Errorf("brave API error (status 422): %s: %w", long, models.ErrToolUnavailable)}
+	chat := newToolPolicyAgent(ChannelAssistant, engine)
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	_, _ = chat.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+
+	warnings := chat.ToolWarnings()
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "test_tool unavailable") || !strings.Contains(warnings[0], "Settings") {
+		t.Fatalf("chat warnings = %v, want one 'test_tool unavailable … Settings' warning", warnings)
+	}
+	if len(warnings[0]) > 600 {
+		t.Errorf("the reason must be clipped, got %d chars", len(warnings[0]))
+	}
+
+	auto := newToolPolicyAgent(ChannelAutomation, &MockEngine{Err: fmt.Errorf("auth: %w", models.ErrToolUnavailable)})
+	history = nil
+	_, _ = auto.executeSingleToolStep(context.Background(), policyToolCall("test_tool"), &history, &mu)
+	if got := auto.ToolWarnings(); len(got) != 0 {
+		t.Errorf("an automation fails on this error; it must not also warn: %v", got)
+	}
+}

@@ -195,4 +195,13 @@ describe('ChatBubble run record', () => {
     expect(reloaded({ turn: turn({ finalAnswer: 'A', run: { model: 'gpt-x' } }) }).find('[data-test="memory-saved"]').exists()).toBe(false)
     expect(reloaded({ turn: turn({ finalAnswer: 'A' }) }).find('[data-test="memory-saved"]').exists()).toBe(false)
   })
+
+  // A tool that became unavailable during the turn (e.g. a rejected search key) is shown under the answer whatever
+  // the model wrote, and survives a reload.
+  it("shows the turn's tool warnings, and nothing when there were none", () => {
+    const warning = 'internet_search unavailable: brave API error (status 422) — check its configuration in Settings'
+    const shown = reloaded({ turn: turn({ finalAnswer: 'A', run: { warnings: [warning] } }) }).get('[data-test="run-warnings"]')
+    expect(shown.text()).toContain(warning)
+    expect(reloaded({ turn: turn({ finalAnswer: 'A', run: { model: 'gpt-x' } }) }).find('[data-test="run-warnings"]').exists()).toBe(false)
+  })
 })

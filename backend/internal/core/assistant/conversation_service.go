@@ -95,7 +95,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// 6. Execute agent
 	llmHistory := FilterCancelledTurns(session.History, session.CancelledIndices)
 	reply, updatedHistory, agErr := agent.Execute(execCtx, llmHistory)
-	finishTurnRun(run, usage.FromContext(execCtx))
+	finishTurnRun(run, usage.FromContext(execCtx), agent.ToolWarnings())
 
 	// 8. Handle result
 	if agErr != nil {
@@ -122,13 +122,14 @@ func startTurnRun(history []proxy.Message, modelName string) *models.TurnRun {
 	return run
 }
 
-// finishTurnRun stamps how long the turn ran and the tokens the provider
-// reported; a nil record is a no-op.
-func finishTurnRun(run *models.TurnRun, tracker *usage.Tracker) {
+// finishTurnRun stamps how long the turn ran, the tokens the provider
+// reported and the run's tool warnings; a nil record is a no-op.
+func finishTurnRun(run *models.TurnRun, tracker *usage.Tracker, warnings []string) {
 	if run == nil {
 		return
 	}
 	run.DurationMs = time.Since(run.StartedAt).Milliseconds()
+	run.Warnings = warnings
 	if tracker != nil {
 		run.PromptTokens, run.CompletionTokens = tracker.ReportedUsage()
 	}

@@ -67,6 +67,9 @@ type TurnRun struct {
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	// MemorySaved lists the facts saved from the user's message before the run started (an explicit "remember …").
 	MemorySaved []string `json:"memory_saved,omitempty"`
+	// Warnings are the turn's non-fatal problems, e.g. a tool whose credential was rejected — recorded whatever the
+	// model's answer says, so the operator sees them.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ReasoningDetail models openrouter-style structured reasoning parts
