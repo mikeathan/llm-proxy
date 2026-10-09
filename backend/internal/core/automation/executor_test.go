@@ -514,3 +514,15 @@ func TestApplyPulseLogic(t *testing.T) {
 		})
 	}
 }
+
+// One run, one id: the history entry carries the id the run context was given, and the response reports it so the
+// dispatcher can find that run again after delivery.
+func TestRecordRun_UsesTheRunIDAndReportsIt(t *testing.T) {
+	state := &models.AgentState{}
+	resp := &ExecuteResponse{State: state}
+	e := NewLLMTaskExecutor(&mockSvc{}).(*LLMTaskExecutor)
+	e.recordRun(runOutcome{req: ExecuteRequest{AutomationName: "nightly"}, resp: resp, runID: "run_ctx_1"}, "out", "", time.Second)
+	if len(state.History) != 1 || state.History[0].ID != "run_ctx_1" || resp.RunID != "run_ctx_1" {
+		t.Fatalf("history id = %q, resp.RunID = %q, want run_ctx_1 for both", state.History[0].ID, resp.RunID)
+	}
+}

@@ -6,6 +6,8 @@ import { automationTarget } from "../../../utils/runs/runTarget";
 import { toWorkspace } from "../../../router/routes";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
+import { runOutcomeTag } from "../../../utils/automation/runOutcome";
+import RunWarnings from "../../common/display/RunWarnings.vue";
 import IdChip from "../../common/display/IdChip.vue";
 import CopyButton from "../../common/display/CopyButton.vue";
 import MicroLabel from "../../common/display/MicroLabel.vue";
@@ -86,7 +88,7 @@ async function handleClearRuns() {
     <dl class="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-px border border-hairline bg-border-hairline">
       <div class="flex flex-col gap-1.5 bg-surface p-3">
         <dt><MicroLabel>Status</MicroLabel></dt>
-        <dd class="m-0"><StatusTag :state="run.error ? 'error' : 'success'" :label="run.error ? 'Failed' : 'Completed'" /></dd>
+        <dd class="m-0"><StatusTag v-bind="runOutcomeTag(run)" /></dd>
       </div>
       <div class="flex flex-col gap-1.5 bg-surface p-3">
         <dt><MicroLabel>Duration</MicroLabel></dt>
@@ -103,6 +105,8 @@ async function handleClearRuns() {
     </dl>
 
     <ExecutionAuditTrail v-if="run.events?.length" :events="run.events" />
+
+    <RunWarnings v-if="run.warnings?.length" :warnings="run.warnings" />
 
     <section v-if="run.error" class="flex flex-col gap-2">
       <span class="flex items-center justify-between gap-2">

@@ -127,6 +127,16 @@ describe('AutomationDetails', () => {
     expect(w.text()).not.toContain('All good')
   })
 
+  it('says a run completed with warnings and shows why, in the last result and in the runs table', async () => {
+    const warning = 'report not delivered via tg: telegram API error: status 401'
+    const w = await mountDetails({
+      automation: { ...AUTO, last_error: '', last_warnings: [warning], history: [run('1', { warnings: [warning] })] },
+    })
+    expect(w.text()).toContain('Completed with warnings')
+    expect(w.text()).toContain(warning)
+    expect(w.findAll('table tbody tr').some((r) => r.text().includes('Completed with warnings'))).toBe(true)
+  })
+
   it('says when it has never run', async () => {
     const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
     expect(w.text()).toContain('No runs yet')

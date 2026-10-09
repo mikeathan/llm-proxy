@@ -19,6 +19,7 @@ import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
 import DataTable from "../components/common/display/DataTable.vue"
 import StatusTag from "../components/common/display/StatusTag.vue"
+import { runOutcomeTag } from "../utils/automation/runOutcome"
 import IdChip from "../components/common/display/IdChip.vue"
 import LogViewer from "../components/common/display/LogViewer.vue"
 import SegmentedControl from "../components/common/forms/SegmentedControl.vue"
@@ -279,7 +280,7 @@ async function clearLog() {
           >{{ row.workspace_id }}</RouterLink>
         </template>
         <template #cell-status="{ row }">
-          <StatusTag :state="row.error ? 'error' : 'success'" :label="row.error ? 'Failed' : 'Completed'" />
+          <StatusTag v-bind="runOutcomeTag(row)" />
         </template>
         <template #cell-id="{ row }">
           <span @click.stop><IdChip :id="row.id" /></span>

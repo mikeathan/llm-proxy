@@ -5,6 +5,7 @@ import { useConfirm } from "../../../composables/ui/useConfirm";
 import { formatDate, formatDuration } from "../../../utils/format/time";
 import MicroLabel from "../../common/display/MicroLabel.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
+import { runOutcomeTag } from "../../../utils/automation/runOutcome";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 
 // The workspace's automation run history in the Monitor drawer: newest first,
@@ -73,7 +74,7 @@ async function deleteRun(run: AutomationRun) {
             </span>
             <span class="truncate text-[length:var(--text-micro)] text-muted" :title="run.model || ''">{{ run.model || "Default" }}</span>
             <span class="flex items-center gap-2">
-              <StatusTag :state="run.error ? 'error' : 'success'" :label="run.error ? 'Failed' : 'Succeeded'" />
+              <StatusTag v-bind="runOutcomeTag(run)" />
               <span class="font-mono text-[length:var(--text-micro)] tabular-nums text-faint">{{ run.id.slice(-6) }} · {{ formatDuration(run.duration_ms) }}</span>
             </span>
           </button>

@@ -314,3 +314,35 @@ func TestHeartbeat_QueuedTickRechecksActiveHoursAtDequeue(t *testing.T) {
 		return s != nil && s.Result == models.HeartbeatSkippedOutsideHours
 	}, "the dequeued tick was not recorded as skipped_outside_hours")
 }
+
+// The heartbeat panel must not say "an alert was sent" when the send failed.
+func TestHeartbeat_AlertWhoseDeliveryFailedIsRecordedAsNotDelivered(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		report string
+		sendErr error
+		want   models.HeartbeatResult
+	}{
+		{"alert delivered", "GPT-6 shipped: https://example.com/x", nil, models.HeartbeatAlert},
+		{"alert not delivered", "GPT-6 shipped: https://example.com/x", errors.New("telegram down"), models.HeartbeatAlertNotDelivered},
+		{"quiet is never sent", "HEARTBEAT_OK", errors.New("telegram down"), models.HeartbeatQuiet},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newLaneDispatcher(t, newRecordingExecutor(tc.report, nil))
+			d.notifier = &fakeNotifier{err: tc.sendErr}
+			if err := d.persistence.WriteTaskFile("ws", models.HeartbeatFilename, "Watch: releases\n"); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Register("ws", models.HeartbeatConfig{Enabled: true, Notify: &models.NotifyConfig{Connector: "tg"}}.Automation()); err != nil {
+				t.Fatal(err)
+			}
+			entry, _ := d.registry.Get("ws", models.HeartbeatAutomationName)
+			if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+				t.Fatal(err)
+			}
+			if s := statusOf(t, d); s == nil || s.Result != tc.want {
+				t.Errorf("status = %+v, want %s", s, tc.want)
+			}
+		})
+	}
+}

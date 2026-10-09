@@ -4,6 +4,7 @@ import type { NotifyConfig } from './automation'
 export type HeartbeatResult =
   | 'quiet'
   | 'alert'
+  | 'alert_not_delivered'
   | 'skipped_no_checks'
   | 'skipped_busy'
   | 'skipped_outside_hours'

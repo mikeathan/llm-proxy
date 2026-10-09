@@ -206,6 +206,26 @@ func (s *AgentState) AppendRun(run AutomationRun) {
 	s.LastRuns[run.AutomationName] = &run
 }
 
+// AddRunWarning appends a warning to a finished run, found by id, in both places that run is stored (the history
+// entry and, if it is still the automation's latest run, that record). It reports whether the run was found. Used for
+// outcomes known only after the run was recorded, such as a failed report delivery.
+func (s *AgentState) AddRunWarning(runID, warning string) bool {
+	found := false
+	for i := range s.History {
+		if s.History[i].ID == runID {
+			s.History[i].Warnings = append(s.History[i].Warnings, warning)
+			found = true
+		}
+	}
+	for _, last := range s.LastRuns {
+		if last != nil && last.ID == runID {
+			last.Warnings = append(last.Warnings, warning)
+			found = true
+		}
+	}
+	return found
+}
+
 // Workspace represents an entire workspace object
 type Workspace struct {
 	ID        string          `json:"id"`

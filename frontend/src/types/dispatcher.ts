@@ -15,7 +15,12 @@ export interface AutomationRun {
   recording_ref?: string
   run_dir_name?: string
   events?: AgentEvent[]
+  // Non-fatal problems, e.g. a report that could not be delivered; the run still completed.
+  warnings?: string[]
 }
+
+// What a finished run's tag says: failed beats warnings, warnings beat a plain completion.
+export type RunOutcome = 'failed' | 'warning' | 'completed'
 
 
 export interface Automation {
@@ -32,6 +37,7 @@ export interface Automation {
   recording_ref?: string
   last_output?: string
   last_error?: string
+  last_warnings?: string[]
   is_running?: boolean
   // Queued in the run scheduler waiting for a lane slot; queue_position is
   // 1-based. Both are empty while the run executes or sits idle. Serialized by

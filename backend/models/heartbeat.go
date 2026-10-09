@@ -35,10 +35,12 @@ type HeartbeatConfig struct {
 type HeartbeatResult string
 
 const (
-	HeartbeatQuiet           HeartbeatResult = "quiet"
-	HeartbeatAlert           HeartbeatResult = "alert"
-	HeartbeatSkippedNoChecks HeartbeatResult = "skipped_no_checks"
-	HeartbeatSkippedBusy     HeartbeatResult = "skipped_busy"
+	HeartbeatQuiet HeartbeatResult = "quiet"
+	HeartbeatAlert HeartbeatResult = "alert"
+	// HeartbeatAlertNotDelivered: the check found something, but sending the alert failed.
+	HeartbeatAlertNotDelivered HeartbeatResult = "alert_not_delivered"
+	HeartbeatSkippedNoChecks   HeartbeatResult = "skipped_no_checks"
+	HeartbeatSkippedBusy       HeartbeatResult = "skipped_busy"
 	// HeartbeatSkippedOutsideHours: a scheduled tick fell outside ActiveHours.
 	HeartbeatSkippedOutsideHours HeartbeatResult = "skipped_outside_hours"
 	HeartbeatError               HeartbeatResult = "error"

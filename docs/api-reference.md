@@ -160,7 +160,7 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/admin/api/dispatcher/automations` | List automations |
+| GET | `/admin/api/dispatcher/automations` | List automations. Each carries its latest run's `last_output`, `last_error` and `last_warnings` (non-fatal problems such as a report that could not be delivered) |
 | GET | `/admin/api/dispatcher/metrics` | Dispatcher metrics |
 | GET | `/admin/api/dispatcher/activity` | Global activity log |
 

@@ -52,3 +52,27 @@ func TestAutomation_HandWrittenMemoryModeIsRead(t *testing.T) {
 		t.Errorf("hand-edited config.yaml not read: %+v", cfg.Automations)
 	}
 }
+
+// A warning added after a run finished (a failed report delivery) must land on both copies of that run: the history
+// entry and the automation's latest-run record, which AppendRun stores separately.
+func TestAgentState_AddRunWarning(t *testing.T) {
+	var s AgentState
+	s.AppendRun(AutomationRun{ID: "run_1", AutomationName: "nightly"})
+	s.AppendRun(AutomationRun{ID: "run_2", AutomationName: "nightly"})
+
+	if !s.AddRunWarning("run_2", "report not delivered") {
+		t.Fatal("AddRunWarning reported the run as missing")
+	}
+	if got := s.History[1].Warnings; len(got) != 1 || got[0] != "report not delivered" {
+		t.Errorf("history entry warnings = %v", got)
+	}
+	if got := s.LastRuns["nightly"].Warnings; len(got) != 1 {
+		t.Errorf("latest-run record warnings = %v", got)
+	}
+	if len(s.History[0].Warnings) != 0 {
+		t.Error("another run was changed")
+	}
+	if s.AddRunWarning("run_404", "x") {
+		t.Error("an unknown run id must report false")
+	}
+}
