@@ -10,6 +10,39 @@ import "errors"
 // input/content errors stay plain — they are model-actionable.
 var ErrToolUnavailable = errors.New("tool unavailable: operator action required")
 
+// ToolUnavailableError is ErrToolUnavailable with a short reason for people (e.g. "brave rejected the API key
+// (HTTP 422)"); Cause keeps the full detail (the provider's response) for logs and the model. errors.Is matches it to
+// ErrToolUnavailable, so the loop classifies it the same way.
+type ToolUnavailableError struct {
+	Reason string
+	Cause  error // optional
+}
+
+func (e *ToolUnavailableError) Error() string {
+	msg := ErrToolUnavailable.Error() + ": " + e.Reason
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e *ToolUnavailableError) Unwrap() []error {
+	if e.Cause == nil {
+		return []error{ErrToolUnavailable}
+	}
+	return []error{ErrToolUnavailable, e.Cause}
+}
+
+// UnavailableReason is the short reason a ToolUnavailableError in err's chain carries, or err's own text when there is
+// none. Warnings shown to the operator use it.
+func UnavailableReason(err error) string {
+	var unavailable *ToolUnavailableError
+	if errors.As(err, &unavailable) && unavailable.Reason != "" {
+		return unavailable.Reason
+	}
+	return err.Error()
+}
+
 // Tool Names
 const (
 	// Terminal

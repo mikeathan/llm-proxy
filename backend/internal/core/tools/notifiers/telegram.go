@@ -16,6 +16,9 @@ import (
 	"llm-proxy/models"
 )
 
+// telegramTokenRejectedReason is the short, operator-facing reason for a rejected bot token.
+const telegramTokenRejectedReason = "telegram rejected the bot token (HTTP %d)"
+
 type TelegramNotifier struct {
 	Token  string
 	ChatID string
@@ -85,7 +88,7 @@ func (t *TelegramNotifier) sendPart(ctx context.Context, text string) error {
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		// Rejected bot token — operator-actionable, so classify terminal for
 		// the agent loop (see tool-error-classification).
-		return fmt.Errorf("%w: %v", models.ErrToolUnavailable, err)
+		return &models.ToolUnavailableError{Reason: fmt.Sprintf(telegramTokenRejectedReason, status), Cause: err}
 	}
 	return err
 }

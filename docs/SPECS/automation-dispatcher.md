@@ -14,7 +14,7 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 ## Changelog
 
 - **1.11 (2026-10-09)** — Delivery failures are visible (§II.6). A report that could not be sent adds a warning
-  (`report not delivered via <connector>: <cause>`) to the run that produced it, found by the run's id
+  (`report not delivered via <connector>: <cause>`, where a rejected token reads as its short reason, e.g. "telegram rejected the bot token (HTTP 401)") to the run that produced it, found by the run's id
   (`ExecuteResponse.RunID`, now the same id as the run context); the run stays successful. The automation list
   exposes `last_warnings`, and the UI tags such runs "Completed with warnings". A heartbeat alert whose send failed
   is recorded `alert_not_delivered`; the heartbeat result is now recorded after delivery.

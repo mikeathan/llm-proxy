@@ -329,3 +329,17 @@ func TestDispatcher_DeliveryFailureIsRecordedOnTheRun(t *testing.T) {
 		})
 	}
 }
+
+// A rejected bot token reads as a short reason in the run's delivery warning, not the platform's raw reply.
+func TestDispatcher_DeliveryWarningUsesTheShortReason(t *testing.T) {
+	rejected := &models.ToolUnavailableError{Reason: "telegram rejected the bot token (HTTP 401)", Cause: errors.New(`{"ok":false,"error_code":401}`)}
+	report := "| Item | Source |\n|---|---|\n| GPT-6 | https://openai.com/blog/gpt-6 |\n"
+	d, entry := newNotifyDispatcher(t, &scriptedExecutor{report: report}, &fakeNotifier{err: rejected}, &models.NotifyConfig{Connector: "tg"})
+	if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+		t.Fatal(err)
+	}
+	want := "report not delivered via tg: telegram rejected the bot token (HTTP 401)"
+	if run := lastRun(t, d); run == nil || len(run.Warnings) != 1 || run.Warnings[0] != want {
+		t.Fatalf("warnings = %v, want [%q]", run.Warnings, want)
+	}
+}

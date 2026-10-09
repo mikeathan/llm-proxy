@@ -1590,3 +1590,19 @@ func TestToolPolicy_TerminalChatFailureIsATurnWarning(t *testing.T) {
 		t.Errorf("an automation fails on this error; it must not also warn: %v", got)
 	}
 }
+
+// The chat warning carries the short reason a provider gives for a rejected credential, not its raw response.
+func TestToolPolicy_ChatWarningUsesTheShortReason(t *testing.T) {
+	rejected := &models.ToolUnavailableError{Reason: "brave rejected the API key (HTTP 422)", Cause: errors.New(`{"type":"ErrorResponse"}`)}
+	agent := newToolPolicyAgent(ChannelAssistant, &MockEngine{Err: fmt.Errorf("internet search failed: %w", rejected)})
+	history := []proxy.Message{}
+	var mu sync.Mutex
+	_, _ = agent.executeSingleToolStep(context.Background(), policyToolCall("internet_search"), &history, &mu)
+	want := "internet_search unavailable: brave rejected the API key (HTTP 422) — check its configuration in Settings"
+	if got := agent.ToolWarnings(); len(got) != 1 || got[0] != want {
+		t.Fatalf("warnings = %v, want [%q]", got, want)
+	}
+	if !strings.Contains(lastToolContent(history), "ErrorResponse") {
+		t.Error("the model's tool result keeps the full detail")
+	}
+}

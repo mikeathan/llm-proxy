@@ -507,7 +507,7 @@ func (a *Agent) executeSingleToolStep(
 		return false, nil
 	}
 	if errors.Is(err, models.ErrToolUnavailable) {
-		a.noteTerminalToolFailure(tc.Function.Name, err.Error())
+		a.noteTerminalToolFailure(tc.Function.Name, models.UnavailableReason(err))
 		if toolpolicy.FailurePolicyFor(tc.Function.Name) == toolpolicy.WarnOnTerminalError {
 			return false, nil // delivery failure: recorded as a warning, run continues
 		}
