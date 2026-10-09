@@ -85,6 +85,41 @@ func TestBraveProvider_Search_Non2xx(t *testing.T) {
 	}
 }
 
+// Brave rejects a bad API key with 422 (not 401/403) and the code SUBSCRIPTION_TOKEN_INVALID — the body below is
+// Brave's real response (captured 2026-10-09). It must be classified as an unavailable tool, or the agent keeps
+// going and invents an answer. A 422 with any other code is an input problem and stays a plain error.
+func TestBraveProvider_Search_InvalidKey422IsUnavailable(t *testing.T) {
+	const invalidKey = `{"type":"ErrorResponse","error":{"id":"3f0c623e","status":422,"detail":"The provided API key is invalid.","meta":{"component":"authentication"},"code":"SUBSCRIPTION_TOKEN_INVALID"},"time":1791545452}`
+	const badQuery = `{"type":"ErrorResponse","error":{"id":"9a1b","status":422,"detail":"Unable to validate request parameter(s)","code":"VALIDATION"}}`
+	for _, tc := range []struct {
+		name, body  string
+		unavailable bool
+	}{
+		{"invalid subscription token", invalidKey, true},
+		{"other 422", badQuery, false},
+		{"422 without a JSON body", "unprocessable", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+			p, err := newBraveProvider(tools.SearchProviderConfig{APIKey: "sensitive", Client: newTestClient(srv)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = p.Search(context.Background(), "q", "")
+			if err == nil || !strings.Contains(err.Error(), "status 422") {
+				t.Fatalf("err = %v, want a status 422 error", err)
+			}
+			if got := errors.Is(err, models.ErrToolUnavailable); got != tc.unavailable {
+				t.Errorf("unavailable = %v, want %v (err %v)", got, tc.unavailable, err)
+			}
+		})
+	}
+}
+
 func TestBraveProvider_Search_SkipsMalformedAndCaps(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"web":{"results":[
