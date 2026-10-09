@@ -166,7 +166,9 @@ type AutomationInfo struct {
 	MemoryMode   string `json:"memory_mode,omitempty"`   // '' = off
 	LastOutput   string `json:"last_output,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
-	IsRunning    bool   `json:"is_running"`
+	// LastWarnings are the latest run's non-fatal problems, e.g. a report that could not be delivered.
+	LastWarnings []string `json:"last_warnings,omitempty"`
+	IsRunning    bool     `json:"is_running"`
 	// Queued/QueuePosition report the run scheduler admission: the automation
 	// is waiting in its workload lane (Position is 1-based). Both are empty
 	// while the run executes or sits idle — IsRunning stays the source of
@@ -229,6 +231,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			if last, ok := state.LastRuns[entry.Name]; ok {
 				info.LastOutput = last.Output
 				info.LastError = last.Error
+				info.LastWarnings = last.Warnings
 			}
 			info.IsRunning = state.ActiveAutomation == entry.Name
 		}

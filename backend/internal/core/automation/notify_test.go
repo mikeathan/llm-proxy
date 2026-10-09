@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,11 @@ func (e *scriptedExecutor) Execute(_ context.Context, req ExecuteRequest) (*Exec
 	if e.err != nil {
 		return nil, e.err
 	}
-	return &ExecuteResponse{State: req.State, Output: "header\n" + e.report, Report: e.report}, nil
+	runID := fmt.Sprintf("run_%d", len(e.reqs))
+	if req.State != nil {
+		req.State.AppendRun(models.AutomationRun{ID: runID, WorkspaceID: req.WorkspaceID, AutomationName: req.AutomationName, Output: e.report})
+	}
+	return &ExecuteResponse{State: req.State, Output: "header\n" + e.report, Report: e.report, RunID: runID}, nil
 }
 
 func (e *scriptedExecutor) ShellPGID(context.Context, string) (int, error) { return 0, nil }
@@ -272,5 +277,55 @@ func TestFailureNoticeLimiter_ReserveIsExclusiveAndReleasable(t *testing.T) {
 	l.release("k")
 	if !l.reserve("k", now) {
 		t.Error("a failed send must give the reservation back")
+	}
+}
+
+// lastRun reads the automation's latest run back from disk, as the UI does.
+func lastRun(t *testing.T, d *Dispatcher) *models.AutomationRun {
+	t.Helper()
+	state, err := d.persistence.ReadState("ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state.LastRuns["nightly"]
+}
+
+// A report that could not be delivered must not look delivered: the run keeps its success (the work exists) but
+// carries a warning naming the connector, on the run that produced the report. A delivered report, or nothing to
+// deliver, adds no warning.
+func TestDispatcher_DeliveryFailureIsRecordedOnTheRun(t *testing.T) {
+	report := "| Item | Source |\n|---|---|\n| GPT-6 | https://openai.com/blog/gpt-6 |\n"
+	cfg := &models.NotifyConfig{Connector: "tg"}
+
+	t.Run("failed send", func(t *testing.T) {
+		d, entry := newNotifyDispatcher(t, &scriptedExecutor{report: report}, &fakeNotifier{err: errors.New("telegram API error: status 401")}, cfg)
+		if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+			t.Fatalf("a delivery failure must not fail the run: %v", err)
+		}
+		run := lastRun(t, d)
+		if run == nil || run.Error != "" || len(run.Warnings) != 1 ||
+			!strings.Contains(run.Warnings[0], "tg") || !strings.Contains(run.Warnings[0], "status 401") {
+			t.Fatalf("latest run = %+v, want one delivery warning naming the connector and the cause", run)
+		}
+		state, _ := d.persistence.ReadState("ws")
+		if h := state.History[len(state.History)-1]; len(h.Warnings) != 1 {
+			t.Errorf("history entry lacks the warning: %+v", h)
+		}
+	})
+
+	for name, n := range map[string]*fakeNotifier{"delivered": {}, "nothing to deliver": {}} {
+		t.Run(name, func(t *testing.T) {
+			r := report
+			if name == "nothing to deliver" {
+				r = ""
+			}
+			d, entry := newNotifyDispatcher(t, &scriptedExecutor{report: r}, n, cfg)
+			if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+				t.Fatal(err)
+			}
+			if run := lastRun(t, d); run != nil && len(run.Warnings) != 0 {
+				t.Errorf("unexpected warnings: %v", run.Warnings)
+			}
+		})
 	}
 }

@@ -44,7 +44,7 @@ export type WorkspaceMainView = 'overview' | 'history' | 'editor' | 'assistant' 
 
 // StatusState is the fixed set of run / health states a StatusTag shows; the
 // state → token styling lives in one place (constants/status.ts).
-export type StatusState = 'success' | 'running' | 'queued' | 'error' | 'info' | 'neutral'
+export type StatusState = 'success' | 'warning' | 'running' | 'queued' | 'error' | 'info' | 'neutral'
 
 // BaseButton variants and sizes (Phase 5 primitives).
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'

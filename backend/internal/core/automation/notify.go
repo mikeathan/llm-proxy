@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -109,34 +110,88 @@ func withSeenHint(entry *AutomationEntry, task string, ledger models.SeenLedger)
 	return task + prompts.AutomationSeenBlock(titles)
 }
 
-// deliverReport sends a finished run's report and, only once the send has
-// succeeded, remembers the newly reported items — a failed delivery therefore
-// re-offers the same items on the next run instead of losing them.
-func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, resp *ExecuteResponse, ledger models.SeenLedger) {
-	if !d.wantsDelivery(entry) || resp == nil || resp.Report == "" {
+// Delivery warnings: recorded on the run when its report could not be sent, so a run never looks delivered when it
+// was not. The cause is clipped; notifier errors carry the platform's reply, never the credential.
+const (
+	deliveryWarningFormat   = "report not delivered via %s: %s"
+	deliveryWarningMaxCause = 300
+)
+
+// deliverAndRecord sends a finished run's report and records what the operator needs to know about the send: a
+// failure becomes a warning on the run that produced the report, and a heartbeat's result says whether its alert
+// actually went out. It runs while the workspace lock is still held.
+func (d *Dispatcher) deliverAndRecord(ctx context.Context, entry *AutomationEntry, resp *ExecuteResponse, ledger models.SeenLedger) {
+	if resp == nil {
 		return
 	}
-	if isQuietHeartbeat(resp.Report) {
+	sendErr := d.deliverReport(ctx, entry, resp, ledger)
+	d.recordHeartbeat(entry, heartbeatOutcome(resp, sendErr))
+	if sendErr != nil {
+		d.recordDeliveryWarning(entry, resp.RunID, sendErr)
+	}
+}
+
+// heartbeatOutcome is a heartbeat check's result once delivery is known: an alert whose send failed is not "sent".
+func heartbeatOutcome(resp *ExecuteResponse, sendErr error) models.HeartbeatResult {
+	result := heartbeatResultOf(resp)
+	if result == models.HeartbeatAlert && sendErr != nil {
+		return models.HeartbeatAlertNotDelivered
+	}
+	return result
+}
+
+// recordDeliveryWarning adds the delivery failure to the run's stored record (history and latest run).
+func (d *Dispatcher) recordDeliveryWarning(entry *AutomationEntry, runID string, sendErr error) {
+	cause := sendErr.Error()
+	if len(cause) > deliveryWarningMaxCause {
+		cause = cause[:deliveryWarningMaxCause] + "…"
+	}
+	warning := fmt.Sprintf(deliveryWarningFormat, entry.Notify.Connector, cause)
+	state, err := d.persistence.ReadState(entry.Workspace)
+	if err != nil {
+		d.logger.Warn("could not record the delivery warning", "workspace", entry.Workspace, "automation", entry.Name, "error", err.Error())
 		return
+	}
+	if !state.AddRunWarning(runID, warning) {
+		d.logger.Warn("delivery warning: run not found in state", "workspace", entry.Workspace, "automation", entry.Name, "run", runID)
+		return
+	}
+	if err := d.persistence.WriteState(entry.Workspace, state); err != nil {
+		d.logger.Warn("could not save the delivery warning", "workspace", entry.Workspace, "automation", entry.Name, "error", err.Error())
+	}
+}
+
+// deliverReport sends a finished run's report and, only once the send has
+// succeeded, remembers the newly reported items — a failed delivery therefore
+// re-offers the same items on the next run instead of losing them. It returns
+// the send error; skipping (no delivery configured, a quiet heartbeat, nothing
+// new) is not an error.
+func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, resp *ExecuteResponse, ledger models.SeenLedger) error {
+	if !d.wantsDelivery(entry) || resp.Report == "" {
+		return nil
+	}
+	if isQuietHeartbeat(resp.Report) {
+		return nil
 	}
 	now := time.Now()
 	dg := buildDigest(resp.Report, ledger, *entry.Notify, now)
 	if dg.Message == "" {
 		d.logger.Info("automation digest empty; nothing delivered",
 			"workspace", entry.Workspace, "automation", entry.Name)
-		return
+		return nil
 	}
 	if err := d.send(ctx, entry, dg.Message); err != nil {
-		return
+		return err
 	}
 	if !entry.Notify.Dedup || len(dg.NewItems) == 0 {
-		return
+		return nil
 	}
 	merged := mergeSeen(ledger, dg.NewItems, now, entry.Notify.RetentionDays())
 	if err := d.persistence.WriteSeen(entry.Workspace, entry.Name, merged); err != nil {
 		d.logger.Warn("could not save seen ledger; items may be reported again",
 			"workspace", entry.Workspace, "automation", entry.Name, "error", err.Error())
 	}
+	return nil
 }
 
 // notifyFailure tells the operator an unattended run failed, at most once per

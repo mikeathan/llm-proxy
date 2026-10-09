@@ -1087,3 +1087,23 @@ func TestUpdateAutomation_UnknownNameReturnsNotFound(t *testing.T) {
 		t.Errorf("registered = %v, want none", td.registered)
 	}
 }
+
+// A delivery warning on the latest run is exposed beside last_error, so the UI can say "completed with warnings".
+func TestListAutomations_ExposesLastWarnings(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	entry := &automation.AutomationEntry{ID: "ws/nightly", Workspace: "ws", Name: "nightly", TaskFile: "task.md"}
+	entry.Trigger, _ = automation.New(models.TriggerConfig{Type: models.TriggerManual})
+	entry.Strategy = &automation.IsolatedStrategy{}
+	handlers := NewDispatcherHandlers(&listDispatcher{testDispatcher: &testDispatcher{mgr: mgr}, entries: []*automation.AutomationEntry{entry}},
+		NewWorkspaceService(mgr), logging.NewNopLogger())
+	last := &models.AutomationRun{ID: "run_1", AutomationName: "nightly", Output: "report", Warnings: []string{"report not delivered via tg: status 401"}}
+	if err := mgr.WriteState("ws", &models.AgentState{LastRuns: map[string]*models.AutomationRun{"nightly": last}}); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	handlers.ListAutomations(rr, httptest.NewRequest("GET", "/admin/api/dispatcher/automations", nil))
+	if !strings.Contains(rr.Body.String(), `"last_warnings":["report not delivered via tg: status 401"]`) {
+		t.Fatalf("last_warnings missing: %s", rr.Body.String())
+	}
+}

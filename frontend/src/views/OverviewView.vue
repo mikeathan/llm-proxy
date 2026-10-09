@@ -10,7 +10,7 @@ import { historicalRunTarget, runTarget, runTitle } from "../utils/runs/runTarge
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../utils/format/time"
 import type { AutomationRun } from "../types/dispatcher"
 import { LANE_LABELS, RUN_KIND_LABELS } from "../constants/runs"
-import type { DataTableColumn, StatusState } from "../types/ui"
+import type { DataTableColumn } from "../types/ui"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
 import StatCard from "../components/common/display/StatCard.vue"
@@ -18,6 +18,7 @@ import Sparkline from "../components/common/display/Sparkline.vue"
 import Meter from "../components/common/display/Meter.vue"
 import SlotBar from "../components/common/display/SlotBar.vue"
 import StatusTag from "../components/common/display/StatusTag.vue"
+import { runOutcomeTag } from "../utils/automation/runOutcome"
 import RunRow from "../components/common/display/RunRow.vue"
 import DataTable from "../components/common/display/DataTable.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
@@ -93,7 +94,6 @@ async function loadRuns() {
 onMounted(loadRuns)
 
 const runLabel = (run: AutomationRun) => (run.workspace_id ? `${run.workspace_id}/${run.automation_name}` : run.automation_name)
-const runState = (run: AutomationRun): StatusState => (run.error ? "error" : "success")
 const RUN_COLUMNS: DataTableColumn<AutomationRun>[] = [
   { key: "time", label: "When" },
   { key: "run", label: "Automation", value: runLabel },
@@ -197,7 +197,7 @@ const runKey = (run: AutomationRun) => run.id
             >{{ runLabel(row) }}</RouterLink>
           </template>
           <template #cell-status="{ row }">
-            <StatusTag :state="runState(row)" :label="row.error ? 'Failed' : 'Completed'" />
+            <StatusTag v-bind="runOutcomeTag(row)" />
           </template>
         </DataTable>
       </Panel>

@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.10"
+version: "1.11"
 status: stable
 last_updated: 2026-10-08
 constitution_references: []
@@ -12,6 +12,12 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.11 (2026-10-09)** — Delivery failures are visible (§II.6). A report that could not be sent adds a warning
+  (`report not delivered via <connector>: <cause>`) to the run that produced it, found by the run's id
+  (`ExecuteResponse.RunID`, now the same id as the run context); the run stays successful. The automation list
+  exposes `last_warnings`, and the UI tags such runs "Completed with warnings". A heartbeat alert whose send failed
+  is recorded `alert_not_delivered`; the heartbeat result is now recorded after delivery.
 
 - **1.10 (2026-10-08)** — Heartbeat active hours (§II.6): `heartbeat.active_hours` (`HH:MM-HH:MM`, server
   local time, the zone cron triggers use; overnight windows such as `22:00-06:00` wrap) limits scheduled
@@ -129,7 +135,9 @@ external message, and is gated by network scope; delivery is not).
   `⚠️ Automation <name> failed: <classified error>` line, at most once per hour per automation
   (`failureNoticeLimiter`; a successful run re-arms it). A user stop (`context.Canceled`) and a
   lane preemption send nothing.
-- **Best-effort**: a delivery failure is logged and never changes the run's outcome. Each send has
+- **Best-effort, but visible**: a delivery failure never changes the run's outcome (the report exists), but it is
+  recorded as a warning on that run (`deliverAndRecord` → `AgentState.AddRunWarning`, history and latest run), exposed
+  as `last_warnings`, and a heartbeat alert that could not be sent is `alert_not_delivered`. Each send has
   its own 30 s timeout derived from the lane context, not the run's own (possibly expired)
   timeout context.
 - **Chat formatting** (`digest.go`): markdown tables become bullet lists (`• Item — cell · cell` and

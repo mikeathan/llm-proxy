@@ -31,6 +31,12 @@ describe('HistoricalRunDetails', () => {
     document.body.innerHTML = ''
   })
 
+  it('shows a delivery warning on a run that otherwise completed', () => {
+    const w = mountRun({ run: { ...RUN, error: '', warnings: ['report not delivered via tg: status 401'] } })
+    expect(w.text()).toContain('Completed with warnings')
+    expect(w.text()).toContain('report not delivered via tg: status 401')
+  })
+
   it('shows the outcome, duration, model, id, audit trail, error and report', () => {
     const w = mountRun()
     for (const text of ['nightly', 'Failed', '8.403s', 'qwen', 'model timed out', 'Partial report']) {

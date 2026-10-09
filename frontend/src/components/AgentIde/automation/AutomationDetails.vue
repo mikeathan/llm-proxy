@@ -17,6 +17,8 @@ import { toWorkspaceFile } from "../../../router/routes";
 import Panel from "../../common/layout/Panel.vue";
 import DataTable from "../../common/display/DataTable.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
+import { runOutcomeTag } from "../../../utils/automation/runOutcome";
+import RunWarnings from "../../common/display/RunWarnings.vue";
 import IdChip from "../../common/display/IdChip.vue";
 import CopyButton from "../../common/display/CopyButton.vue";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
@@ -177,7 +179,11 @@ const runKey = (run: AutomationRun) => run.id;
       </dl>
     </Panel>
 
-    <Panel v-if="!showLiveUI && (automation.last_error || automation.last_output)" title="Last result">
+    <Panel v-if="!showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" title="Last result">
+      <div v-if="!automation.last_error && automation.last_warnings?.length" class="mb-3 flex flex-col gap-2">
+        <StatusTag v-bind="runOutcomeTag({ error: '', warnings: automation.last_warnings })" />
+        <RunWarnings :warnings="automation.last_warnings" />
+      </div>
       <div v-if="automation.last_error" class="mb-3 flex flex-col gap-2">
         <span class="flex items-center justify-between gap-2">
           <StatusTag state="error" label="Failed" />
@@ -253,7 +259,7 @@ const runKey = (run: AutomationRun) => run.id;
           <time :datetime="row.timestamp" :title="formatAbsoluteTime(row.timestamp)" class="whitespace-nowrap font-mono text-[length:var(--text-small)] text-muted">{{ formatRelativeTime(row.timestamp) }}</time>
         </template>
         <template #cell-status="{ row }">
-          <StatusTag :state="row.error ? 'error' : 'success'" :label="row.error ? 'Failed' : 'Completed'" />
+          <StatusTag v-bind="runOutcomeTag(row)" />
         </template>
         <template #cell-id="{ row }">
           <span @click.stop><IdChip :id="row.id" /></span>

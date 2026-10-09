@@ -110,7 +110,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	d.succeedRun(entry, state, resp)
 	d.metrics.RecordExecution(true, false, elapsed)
 	d.failureNotices.reset(failureNoticeKey(entry))
-	d.deliverReport(ctx, entry, resp, ledger)
+	d.deliverAndRecord(ctx, entry, resp, ledger)
 	return nil
 }
 
@@ -267,7 +267,7 @@ func (d *Dispatcher) succeedRun(entry *AutomationEntry, state *models.AgentState
 	if resp == nil || resp.State == nil {
 		return
 	}
-	d.recordHeartbeat(entry, heartbeatResultOf(resp))
+	// The heartbeat result is recorded after delivery (deliverAndRecord): an alert is "sent" only if the send worked.
 	if resp.Output != "" {
 		ApplyPulseLogic(resp)
 	}

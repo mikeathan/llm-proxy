@@ -1,6 +1,6 @@
 # Tool Error Classification & Run-Fatality Policy
 
-**Status:** active — implemented; automated gates green (build/vet/race/complexity); manual end-to-end pending
+**Status:** active — implemented; automated gates green (build/vet/race/complexity). Manual E2E on vertex 2026-10-09: case 4 passed; cases 1–3 failed and were fixed (Brave's invalid key is a 422 — now classified; delivery failures are now recorded on the run) — re-run after deploy
 **Date:** 2026-09-12
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-010 (Agent Loop Strategies), SPEC-006 (Guardrail Engine)
 
@@ -149,6 +149,7 @@ Note: `prompts.ToolErrorNagPrompt` (`templates.go:278-280`) exists but is **not 
   1. Bad search key, chat "find X" → model is told the tool is unavailable, does **not** retry, final answer states the failure.
   2. Bad search key, automation → run **fails** with a clear error (no misleading success).
   3. Telegram down, automation "generate report + notify" → run **completes**, `final-report.md` present, `run-meta.json` has `warnings`, no `error`.
+     *Since #52 the report is sent by the dispatcher after the run, so a failed send is recorded on the run's history entry (`warnings`, surfaced as `last_warnings`) rather than in `run-meta.json`, which is written before delivery (SPEC-007 1.11).*
   4. Unclassified error (bad URL 404) → unchanged record-and-continue.
 - Frontend `npm test && npm run build` if any `RunMeta`/run-view type changes are surfaced (currently none planned).
 

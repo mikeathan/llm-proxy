@@ -28,7 +28,7 @@ describe('WorkspaceActivity', () => {
     expect(openButtons(w).map((b) => b.attributes('aria-label'))).toEqual(['Open run auto-new', 'Open run auto-old'])
     const items = w.findAll('li')
     expect(items[0]!.text()).toContain('Failed')
-    expect(items[1]!.text()).toContain('Succeeded')
+    expect(items[1]!.text()).toContain('Completed')
     expect(w.text()).toContain('Default')
     expect(w.text()).toContain('2m 5s')
   })

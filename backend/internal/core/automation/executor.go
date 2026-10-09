@@ -71,6 +71,8 @@ type ExecuteRequest struct {
 }
 
 type ExecuteResponse struct {
+	// RunID is the id of the history entry this run recorded, so the dispatcher can annotate that run afterwards.
+	RunID  string
 	Output string
 	// Report is the agent's final report alone (no run header), the text a
 	// notify delivery is built from. Empty when the run produced none.
@@ -228,6 +230,7 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 		runDir:    runDir,
 		startTime: startTime,
 		runScope:  runScope,
+		runID:     models.GetRunID(execCtx),
 	}
 	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
@@ -460,6 +463,8 @@ type runOutcome struct {
 	runDir    *rundir.RunDir
 	startTime time.Time
 	runScope  models.NetworkScope
+	// runID is the id the run context carries; the recorded run uses it too.
+	runID string
 	// warnings holds non-fatal tool failures from the agent (e.g. a delivery
 	// connector being down), persisted into run-meta and the run ledger.
 	warnings []string
@@ -590,8 +595,12 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 	}
 	req := outcome.req
 
+	runID := outcome.runID
+	if runID == "" {
+		runID = generateRunID() // runs that failed before their context was built
+	}
 	run := models.AutomationRun{
-		ID:             generateRunID(),
+		ID:             runID,
 		WorkspaceID:    req.WorkspaceID,
 		AutomationName: req.AutomationName,
 		Timestamp:      time.Now(),
@@ -606,6 +615,7 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 	}
 
 	state.AppendRun(run)
+	outcome.resp.RunID = runID
 }
 
 func generateRunID() string {
