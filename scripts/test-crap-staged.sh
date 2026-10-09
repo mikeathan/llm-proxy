@@ -43,9 +43,9 @@ export CRAP_GO_BIN="$fixture/bin/crap4go"
 printf '%s\0' 'backend/path with spaces.go' 'frontend/src/a.ts' 'frontend/src/A.vue' 'backend/a_test.go' 'frontend/src/__TESTS__/helper.ts' 'frontend/src/types/a.d.ts' > "$fixture/staged"
 bash "$root/scripts/crap-staged.sh" > "$fixture/output"
 [[ "$(wc -l < "$fixture/args" | tr -d ' ')" == 1 ]]
-rg -q 'staged source: :backend/path with spaces.go' "$fixture/content"
-rg -q 'staged source: :frontend/src/a.ts' "$fixture/content"
-rg -q '0% coverage' "$fixture/output"
+grep -Fq 'staged source: :backend/path with spaces.go' "$fixture/content"
+grep -Fq 'staged source: :frontend/src/a.ts' "$fixture/content"
+grep -Fq '0% coverage' "$fixture/output"
 [[ -z "$(find "$fixture" -name 'llm-proxy-crap.*' -print)" ]]
 export CRAP_TEST_EXIT=1
 if bash "$root/scripts/crap-staged.sh" > /dev/null 2>&1; then
@@ -66,13 +66,13 @@ bash "$root/scripts/crap-staged.sh" > "$fixture/output"
 [[ ! -s "$fixture/output" ]]
 printf '%s\0' 'backend/a.go' > "$fixture/staged"
 bash "$root/scripts/crap-staged.sh" > "$fixture/output"
-rg -q 'not installed' "$fixture/output"
+grep -Fq 'not installed' "$fixture/output"
 if [[ $# == 2 ]]; then
   printf '%s\0' 'backend/path with spaces.go' 'frontend/src/a.ts' > "$fixture/staged"
   export CRAP_GO_BIN="$1" CRAP_BIN="$2"
   bash "$root/scripts/crap-staged.sh" > "$fixture/output"
-  rg -q 'Pointer' "$fixture/output"
-  rg -q 'Answer' "$fixture/output"
+  grep -Fq 'Pointer' "$fixture/output"
+  grep -Fq 'Answer' "$fixture/output"
   [[ -z "$(find "$fixture" -name 'llm-proxy-crap.*' -print)" ]]
 fi
 echo 'PASS: staged Go/TS selection, index content, exclusions, errors, empty and missing-tool cases'
