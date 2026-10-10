@@ -204,11 +204,11 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   counts (messages / characters), not tokens.
 
 ### 13. Per-Model Temperature and Timeout Overrides
-- `ModelConfig.Temperature` (float64) overrides the hardcoded `DefaultAutomationTemperature` (0.1) for automation tasks. 0 = use default.
+- `ModelConfig.Temperature` (float64) is sent as the request temperature when > 0. 0 = unset: the field is omitted (`omitempty`) so the provider's own default applies. The admin view returns the stored value verbatim (0 stays 0, never a fabricated default); `DefaultAutomationTemperature` (0.1) is only prefilled into the local-tier Add form, so a new local model saves 0.1 explicitly; cloud provider tiers default to 0.
 - `ModelConfig.TimeoutMinutes` (int) overrides `AgentGlobalTimeout` (30 min) per execution. 0 = use default.
 - Both are stored in `settings.yml` under `model_overrides.<name>`. Persisted via `writeModelOverrides()` in `registry_handlers.go`.
 - Applied in `executor.go` `buildAgentOptions()`: `cfg.Temperature` → `opts.Temperature`, `cfg.TimeoutMinutes` → `opts.GlobalTimeout`.
-- At the LLM request level: `buildChatRequest()` uses `a.temperature` if set (>0), else falls back to `DefaultAutomationTemperature`. Llama.cpp server-level `--repeat-penalty`, `--frequency-penalty`, and `--presence-penalty` are set server-side (not in ChatRequest).
+- At the LLM request level: `buildChatRequest()` uses `a.temperature` if set (>0), else omits it (no runtime fallback). Recovery temperature escalation only runs when the base temperature is > 0, so it does not run for cloud models left at 0. Llama.cpp server-level `--repeat-penalty`, `--frequency-penalty`, and `--presence-penalty` are set server-side (not in ChatRequest).
 - Frontend exposes these as number inputs in the Agent Tuning grid with `title`-attribute tooltips and input constraints (min/max/step).
 
 ### 14. executePlan Step Limit and Timeout

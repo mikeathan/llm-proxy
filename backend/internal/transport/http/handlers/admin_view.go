@@ -11,8 +11,10 @@ import (
 )
 
 // modelViewTuning computes the effective agent-tuning values for a single model.
-// Zero values from settings.yml overrides are replaced with runtime defaults so
-// the frontend always sees the actual effective value, not a raw zero.
+// Zero values from settings.yml overrides are replaced with the runtime defaults
+// the runtime really applies so the frontend sees the effective value, not a raw
+// zero. Temperature is the exception: the runtime has no fallback for 0, so it
+// is returned as stored.
 func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudget, maxTokens int, temperature float64, reasoningBudget, slotTimeout, timeoutMinutes int, toolCallFormat, loopStrategy string) {
 	prefill = mc.Prefill != nil && *mc.Prefill
 	maxSteps = mc.MaxSteps
@@ -27,10 +29,10 @@ func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudg
 	if maxTokens == 0 {
 		maxTokens = assistant.DefaultMaxTokens
 	}
+	// Temperature is echoed verbatim: 0 means "unset" for every workload (the
+	// request omits the field, there is no runtime fallback), so showing a
+	// default here would be fabricated and an edit-save would persist it.
 	temperature = mc.Temperature
-	if temperature == 0 {
-		temperature = assistant.DefaultAutomationTemperature
-	}
 	reasoningBudget = mc.ReasoningBudget
 	if reasoningBudget == 0 {
 		reasoningBudget = assistant.DefaultReasoningBudget(maxTokens)

@@ -49,7 +49,7 @@ body {
     @apply w-full min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2.5 text-[length:var(--text-small)] text-primary placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-state-error;
   }
   input.form-control,
-  select.form-control {
+  select.form-control:not([size]):not([multiple]) {
     @apply h-8;
   }
   textarea.form-control {
