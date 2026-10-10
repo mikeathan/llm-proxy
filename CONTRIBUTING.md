@@ -121,10 +121,13 @@ the commit. An absent scanner prints a setup reminder and skips the report. `.vu
 not analyzed. Run `bash scripts/crap-staged.sh --self-test` to verify the hook's selection and error handling.
 
 CI's `crap` job scans all production Go/TS source using the fresh Go coverprofile and Vitest
-Cobertura report produced by the existing test jobs. Full scores appear in the workflow summary
-and the `crap-reports` artifact. Scores above the tool's default threshold of 30 are flagged but
+Cobertura report produced by the existing test jobs. The PR's coverage comment and workflow summary
+show counts above 30 and the ten highest flagged functions per language, with locations, complexity,
+coverage, and scores. Full JSON reports are in the `crap-reports` artifact. Scores above 30 are flagged but
 do not fail CI; missing coverage is visibly treated as 0%. CI fails if analysis itself fails.
 The scanner versions are pinned in CI and in the install commands above; update them together.
+CI caches the compiled scanner binaries by OS, architecture, and pinned versions to avoid rebuilding
+them on every run. The existing race + coverage suite remains unchanged and is not run again for CRAP.
 The separate Go scorer is necessary because the TypeScript scanner's bundled Go grammar rejects
 Go 1.26 `new(value)` expressions. `crap4go` needs Go 1.26.4+ to build (Go can download that
 toolchain during installation); the commit scan itself disables toolchain and dependency downloads.
