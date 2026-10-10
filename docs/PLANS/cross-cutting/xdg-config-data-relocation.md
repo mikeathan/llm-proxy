@@ -6,6 +6,8 @@ related_specs: [CONSTITUTION III.2, CONSTITUTION III.4, CONSTITUTION III.6]
 
 > **Post-completion note (2026-08-11):** The two-root XDG layout described below (ConfigDir vs DataDir) is now **superseded by a single-root consolidation**. Per operator request, `Paths.ConfigDir` and `Paths.DataDir` both resolve to the same physical directory (default `~/.config/llm-proxy`). All files — `settings.yml`, `registry.json`, `secrets.json`, `master.key` (+`.hash`), `orchestrator.db`, `templates/`, `meta/`, `runs/`, `logs/` — live under one root. The resolution precedence, key-management encryption, and all typed accessors are preserved; only the directory layout changed. CONSTITUTION III.4/III.6 reflect the new single-root design.
 
+> **Post-completion note (2026-10-10):** the Phase 7 template store (extract-on-first-run into `templates/`, later refreshed from a `.shipped.json` record) was replaced: the shipped playbooks are served straight from the embedded set, so there is no `templates/` directory, no `TemplatesDir()` and no sync. See `docs/architecture.md` pitfall 41.
+
 # XDG Config/Data Relocation + Storage Cleanup + Reset Controls
 
 **Status:** complete

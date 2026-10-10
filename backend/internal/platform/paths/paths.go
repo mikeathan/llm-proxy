@@ -12,7 +12,7 @@
 //
 // NOTE: this replaces the earlier two-root XDG layout (ConfigDir + DataDir).
 // All files — settings.yml, registry.json, secrets.json, master.key,
-// orchestrator.db, templates/, meta/, runs/, logs/ — live under one root.
+// orchestrator.db, meta/, runs/, logs/ — live under one root.
 // 0700 directory mode and 0600 secret-file modes provide security at rest.
 package paths
 
@@ -185,11 +185,6 @@ func (p Paths) SecretsFile() string {
 // DatabaseFile returns the orchestrator SQLite database path.
 func (p Paths) DatabaseFile() string {
 	return filepath.Join(p.DataDir, databaseFilename)
-}
-
-// TemplatesDir returns the task-template library directory.
-func (p Paths) TemplatesDir() string {
-	return filepath.Join(p.DataDir, "templates")
 }
 
 // MetadataDir returns the per-workspace metadata root.

@@ -478,7 +478,6 @@ func TestPaths_Accessors(t *testing.T) {
 		"MasterKeyFile": p.MasterKeyFile(),
 		"SecretsFile":   p.SecretsFile(),
 		"DatabaseFile":  p.DatabaseFile(),
-		"TemplatesDir":  p.TemplatesDir(),
 		"MetadataDir":   p.MetadataDir(),
 		"RunsDir":       p.RunsDir(),
 		"LogsDir":       p.LogsDir(),

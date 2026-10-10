@@ -20,11 +20,13 @@ The single root contains:
 ```
 {root}/
 ├── settings.yml, registry.json, secrets.json, master.key(.hash), orchestrator.db
-├── templates/          task-template library (+ .shipped.json: hashes of the shipped copies, so untouched ones refresh on upgrade)
 ├── meta/               per-workspace metadata (sessions, state, config)
 ├── runs/               automation run dirs + LLM recordings
 └── logs/               application logs
 ```
+
+The playbook (task-template) library is not on disk: the shipped playbooks are embedded in the binary and read from there.
+An older install may still have a `templates/` directory (and a `.shipped.json` in it); it is no longer read and can be deleted.
 
 ## workspaces/ — agent working files
 
@@ -88,7 +90,7 @@ The single root contains:
   - **Bulk** (wipes all runs + logs, keeps config/secrets/db):
     `clear-runtime-data` (UI: `SecuritySettings.vue`).
   - **Full uninstall** (removes the entire single root — config, secrets, DB,
-    templates, meta, runs, logs — *and* the workspaces directory, then stops the
+    meta, runs, logs — *and* the workspaces directory, then stops the
     process): `POST /admin/api/system/wipeout` (UI: "Wipeout (Uninstall)" in
     `SecuritySettings.vue`). Guarded against active work and against wiping `/`,
     `$HOME`, or an ancestor of `$HOME`.
@@ -105,12 +107,12 @@ refuse to run while assistant/automation runs or live shell sessions are active.
 
 | Control | Endpoint | Removes | Keeps | Process |
 |---|---|---|---|---|
-| Clear runtime data | `POST /admin/api/system/clear-runtime-data` | `runs/`, `logs/`, `meta/*/sessions`, `meta/*/process.log`, `meta/*/.lock` (dirs recreated) | settings, secrets, master key, `orchestrator.db`, `templates/`, `meta/` structure, `workspaces/` | stays running |
-| Factory reset | `POST /admin/api/system/factory-reset` | resets `settings.yml`, `registry.json`, `secrets.json`, `master.key` to defaults (fresh key) | `orchestrator.db`, `templates/`, `meta/`, `runs/`, `logs/`, `workspaces/` | stays running |
+| Clear runtime data | `POST /admin/api/system/clear-runtime-data` | `runs/`, `logs/`, `meta/*/sessions`, `meta/*/process.log`, `meta/*/.lock` (dirs recreated) | settings, secrets, master key, `orchestrator.db`, `meta/` structure, `workspaces/` | stays running |
+| Factory reset | `POST /admin/api/system/factory-reset` | resets `settings.yml`, `registry.json`, `secrets.json`, `master.key` to defaults (fresh key) | `orchestrator.db`, `meta/`, `runs/`, `logs/`, `workspaces/` | stays running |
 | Wipeout (uninstall) | `POST /admin/api/system/wipeout` | the entire single root **and** the workspaces directory | nothing | stops (`os.Exit(0)`) |
 
 `wipeout` is a separate operation rather than a composition of the other two:
-neither clears `orchestrator.db`, `templates/`, the `meta/` structure, or
+neither clears `orchestrator.db`, the `meta/` structure, or
 `workspaces/`, and neither stops the process. It additionally refuses to wipe
 `/`, `$HOME`, or an ancestor of `$HOME` (`validateWipeTarget` in
 `storage/reset.go`) so a misresolved `--data`/`workspaces_dir` cannot destroy the
