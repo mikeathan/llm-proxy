@@ -12,6 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	shipped "llm-proxy/data/templates"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/paths"
 	"llm-proxy/models"
@@ -25,7 +26,7 @@ import (
 // appConfigStore; System()/Settings()/HostSettings() are facade views over it so
 // the single-owner invariant holds (concurrent system vs settings writes
 // serialize through one mutex). All files (settings.yml, registry.json,
-// secrets.json, orchestrator.db, templates, etc.) live under a single root via
+// secrets.json, orchestrator.db, etc.) live under a single root via
 // typed Paths accessors (Phase 6/7).
 type DataManager struct {
 	paths paths.Paths
@@ -83,7 +84,7 @@ func NewDataManager(p paths.Paths) (*DataManager, error) {
 		encSecretStore: encStore,
 		secretsStore:   secStore,
 		registryStore:  NewStore[models.RegistryData](p.RegistryFile()),
-		templateStore:  NewTemplateStore(p.TemplatesDir()),
+		templateStore:  NewTemplateStore(shipped.FS),
 	}
 
 	m.systemView = &SystemConfigView{mgr: m}
