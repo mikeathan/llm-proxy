@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-commit hooks: block secrets and agent-instruction drift.
+# Pre-commit hooks: block secrets and agent-instruction drift; report CRAP estimates.
 # Wired via `git config core.hooksPath .githooks` (see CONTRIBUTING.md).
 #
 # Optional dependency: gitleaks (`brew install gitleaks`). If it is missing the
@@ -34,6 +34,12 @@ if git diff --cached --name-only \
     echo "  Fix them, or bypass with: git commit --no-verify"
     status=1
   fi
+fi
+
+# --- Fast staged-source CRAP estimate (no tests or network) --------------------
+if ! bash ./scripts/crap-staged.sh; then
+  echo 'COMMIT BLOCKED: CRAP analysis failed; scores themselves are report-only.'
+  status=1
 fi
 
 exit "$status"

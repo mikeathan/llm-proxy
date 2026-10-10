@@ -74,7 +74,7 @@ Merging a PR to `main` automatically tags a release — no deployment, no artifa
   release tag lands a few seconds after the merge. Binary artifacts attached to releases are not
   produced yet (see `docs/PLANS/cross-cutting/ci-github-actions-and-versioning.md` §3.4).
 
-## Git Hooks (secret scanning + agent harness)
+## Git Hooks (secret scanning + agent harness + CRAP scores)
 
 A pre-commit hook blocks commits that contain secrets and keeps the agent-instruction docs consistent.
 
@@ -100,6 +100,37 @@ per clone).
 - Ignored secret files (`secrets.json`, `config.json`, `.env*`) are enforced via `.gitignore`.
 
 The same checks run in CI on every PR (jobs `secrets` and `agent-harness`).
+
+### Fast commit scan and full CI CRAP report
+
+Install the pinned [TypeScript scanner](https://github.com/hbaldwin98/crap) and
+[Go-native scanner](https://github.com/jadenmaciel/gauntlet) once (Go and a C compiler
+are required), and make sure Go's binary directory is on `PATH`:
+
+```bash
+go install github.com/hbaldwin98/crap/cmd/crap@8eea294df1123778a77ecb826f0b16d95b65768d
+go install github.com/jadenmaciel/gauntlet/cmd/crap4go@v0.2.0
+export PATH="$(go env GOPATH)/bin:$PATH" # use GOBIN instead if explicitly configured
+```
+
+The existing pre-commit hook runs `bash scripts/crap-staged.sh`. It reads staged versions of
+changed `.go`, `.ts`, and `.tsx` files, excluding tests, declarations, and test fixtures. It runs
+no tests and performs no downloads. Without coverage it reports a conservative estimate assuming
+0% coverage, rather than reusing stale coverage. Scores are report-only; analysis errors block
+the commit. An absent scanner prints a setup reminder and skips the report. `.vue` files are
+not analyzed. Run `bash scripts/crap-staged.sh --self-test` to verify the hook's selection and error handling.
+
+CI's `crap` job scans all production Go/TS source using the fresh Go coverprofile and Vitest
+Cobertura report produced by the existing test jobs. The PR's coverage comment and workflow summary
+show counts above 30 and the ten highest flagged functions per language, with locations, complexity,
+coverage, and scores. Full JSON reports are in the `crap-reports` artifact. Scores above 30 are flagged but
+do not fail CI; missing coverage is visibly treated as 0%. CI fails if analysis itself fails.
+The scanner versions are pinned in CI and in the install commands above; update them together.
+CI caches the compiled scanner binaries by OS, architecture, and pinned versions to avoid rebuilding
+them on every run. The existing race + coverage suite remains unchanged and is not run again for CRAP.
+The separate Go scorer is necessary because the TypeScript scanner's bundled Go grammar rejects
+Go 1.26 `new(value)` expressions. `crap4go` needs Go 1.26.4+ to build (Go can download that
+toolchain during installation); the commit scan itself disables toolchain and dependency downloads.
 
 ## Documentation
 After any change: follow `.agents/skills/documentation-stewardship/SKILL.md`. Verify the doc/agent

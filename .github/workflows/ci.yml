@@ -55,6 +55,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check agent docs, skills, and catalogs
         run: bash ./scripts/check-agent-harness.sh
+      - name: Test staged CRAP hook
+        run: bash ./scripts/crap-staged.sh --self-test
 
   backend:
     name: Backend (build, vet, complexity, test, coverage)
@@ -181,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           # pipefail keeps a vitest failure visible through tee.
-          npm test -- --coverage 2>&1 | tee vitest-coverage.log
+          npm test -- --coverage --coverage.reporter=text-summary --coverage.reporter=html --coverage.reporter=json-summary --coverage.reporter=cobertura 2>&1 | tee vitest-coverage.log
       - name: Coverage report
         run: |
           # Machine-readable json-summary (coverage/coverage-summary.json) feeds
@@ -218,15 +220,83 @@ jobs:
       - name: Build (eslint + vue-tsc + vite)
         run: npm run build
 
-  # Posts a single sticky PR comment combining backend + frontend coverage.
+  # Reuse fresh coverage from the existing suites; no second test run.
+  crap:
+    name: CRAP scores (Go + TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend, frontend]
+    env:
+      CRAP_REV: 8eea294df1123778a77ecb826f0b16d95b65768d
+      CRAP4GO_VERSION: v0.2.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: Set scanner install directory
+        run: echo "GOBIN=${RUNNER_TEMP}/crap-bin" >> "$GITHUB_ENV"
+      - name: Restore pinned CRAP binaries
+        id: crap-cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/crap-bin
+          key: crap-tools-${{ runner.os }}-${{ runner.arch }}-${{ env.CRAP_REV }}-${{ env.CRAP4GO_VERSION }}
+      - name: Install pinned CRAP scanners (cache miss)
+        if: steps.crap-cache.outputs.cache-hit != 'true'
+        run: |
+          go install "github.com/hbaldwin98/crap/cmd/crap@${CRAP_REV}"
+          go install "github.com/jadenmaciel/gauntlet/cmd/crap4go@${CRAP4GO_VERSION}"
+      - name: Add scanners to PATH
+        run: echo "$GOBIN" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: backend-coverage
+          path: backend
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: frontend-coverage
+          path: frontend
+      - name: Go scores with fresh test coverage (report only)
+        working-directory: backend
+        run: |
+          result=0
+          crap4go --coverage coverage.out --ceiling 30 --format json > crap-report.json || result=$?
+          # 1 is a threshold breach; 2 is an analysis error.
+          test "$result" -le 1
+      - name: TypeScript scores with fresh test coverage (report only)
+        working-directory: frontend
+        run: crap --coverage coverage/cobertura-coverage.xml --exclude 'src/__TESTS__/**' --format json --output crap-report.json src
+      - name: Publish score reports
+        run: |
+          node scripts/crap-summary.mjs --self-test
+          node scripts/crap-summary.mjs backend/crap-report.json frontend/crap-report.json > crap-summary.md
+          cat crap-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload CRAP reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crap-reports
+          path: |
+            backend/crap-report.json
+            frontend/crap-report.json
+            crap-summary.md
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # Posts a single sticky PR comment combining coverage and CRAP findings.
   # Uses the built-in github.token (no external service or PAT); the job-level
   # pull-requests: write overrides the workflow-wide read-only default.
   coverage-report:
     name: Coverage report (PR comment)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event_name == 'pull_request'
-    needs: [backend, frontend]
+    if: ${{ always() && github.event_name == 'pull_request' && needs.backend.result == 'success' && needs.frontend.result == 'success' }}
+    needs: [backend, frontend, crap]
     permissions:
       pull-requests: write
     steps:
@@ -240,6 +310,12 @@ jobs:
         with:
           name: frontend-coverage
           path: coverage-report/frontend
+      - name: Download CRAP findings
+        if: needs.crap.result == 'success'
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.3.0
+        with:
+          name: crap-reports
+          path: coverage-report/crap
       - name: Post / update PR comment
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
@@ -250,9 +326,12 @@ jobs:
               : '_(not available)_';
             const marker = '<!-- llm-proxy-coverage-report -->';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const crapSummary = fs.existsSync('coverage-report/crap/crap-summary.md')
+              ? read('crap/crap-summary.md')
+              : '### CRAP scores\n\nUnavailable: the CRAP job did not produce a summary. See the workflow run below.';
             const body = [
               marker,
-              '## 📊 Test coverage',
+              '## 📊 Test coverage and CRAP scores',
               '',
               '### Backend (Go)',
               read('backend/coverage-summary.md'),
@@ -260,7 +339,9 @@ jobs:
               '### Frontend (Vitest)',
               read('frontend/coverage-summary.md'),
               '',
-              `_[HTML reports in the artifacts of this workflow run](${runUrl})_`,
+              crapSummary,
+              '',
+              `_[Full coverage and CRAP reports in the artifacts of this workflow run](${runUrl})_`,
             ].join('\n');
             const { data: comments } = await github.rest.issues.listComments({
               ...context.repo,
