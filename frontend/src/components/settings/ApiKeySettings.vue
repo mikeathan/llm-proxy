@@ -215,7 +215,8 @@ function addKey() {
       </div>
     </section>
 
-    <form class="flex flex-col gap-3 border border-dashed border-control p-4" @submit.prevent="addKey">
+    <!-- A plain container, not a <form>: browsers offer to save a password when a form with a password field is submitted. -->
+    <div class="flex flex-col gap-3 border border-dashed border-control p-4">
       <div class="flex items-center justify-between gap-2">
         <MicroLabel>Add a key</MicroLabel>
         <BaseButton v-if="apiKeys.length" variant="ghost" size="sm" icon="trash" @click="removeAll">Remove all keys</BaseButton>
@@ -228,7 +229,7 @@ function addKey() {
         </FormField>
         <FormField label="New key value">
           <template #default="{ id }">
-            <input :id="id" v-model="newKeyValue" type="password" class="form-control font-mono" autocomplete="new-password" spellcheck="false" data-1p-ignore data-lpignore="true" />
+            <input :id="id" v-model="newKeyValue" type="password" class="form-control font-mono" autocomplete="new-password" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
           </template>
         </FormField>
         <FormField v-if="showBaseUrl" label="New key base URL" hint="Optional.">
@@ -238,8 +239,8 @@ function addKey() {
         </FormField>
       </div>
       <div class="flex justify-end">
-        <BaseButton type="submit" variant="secondary" icon="plus" :disabled="!newKeyValue.trim()">Add key</BaseButton>
+        <BaseButton variant="secondary" icon="plus" :disabled="!newKeyValue.trim()" @click="addKey">Add key</BaseButton>
       </div>
-    </form>
+    </div>
   </div>
 </template>

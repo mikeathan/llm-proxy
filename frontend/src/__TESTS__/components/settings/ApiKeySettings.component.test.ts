@@ -51,8 +51,7 @@ describe('ApiKeySettings', () => {
     expect(button(/^add key$/i).attributes('disabled')).toBeDefined()
     await fieldByLabel(w, /^new key value/i).setValue('sk-new-3333')
     expect(button(/^add key$/i).attributes('disabled')).toBeUndefined()
-    // happy-dom does not submit a form from its submit button (browsers do).
-    await w.get('form').trigger('submit')
+    await button(/^add key$/i).trigger('click')
     const added = onKeys.mock.lastCall![0] as APIKeyItem[]
     expect(added).toHaveLength(3)
     expect(added[2]).toMatchObject({ name: 'Key 3', key: 'sk-new-3333' })

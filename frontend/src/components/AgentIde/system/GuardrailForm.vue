@@ -183,7 +183,7 @@ const tagOf = (section: GuardrailSection, field: string) => {
 </script>
 
 <template>
-  <div class="grid gap-4 xl:grid-cols-2">
+  <div class="flex w-full max-w-[960px] flex-col gap-4">
     <section
       v-for="spec in SECTIONS"
       :key="spec.section"
@@ -220,7 +220,13 @@ const tagOf = (section: GuardrailSection, field: string) => {
         </template>
 
         <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
-          <FormField v-for="field in spec.fields" :key="field.field" :label="field.label" :hint="fieldHint(spec.section, field)">
+          <FormField
+            v-for="field in spec.fields"
+            :key="field.field"
+            :class="field.control === 'list' ? 'col-span-full' : undefined"
+            :label="field.label"
+            :hint="fieldHint(spec.section, field)"
+          >
             <template v-if="tagOf(spec.section, field.field)" #tag>
               <StatusTag :data-test="`source-${spec.section}-${field.field}`" v-bind="tagOf(spec.section, field.field)!" />
             </template>

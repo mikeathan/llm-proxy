@@ -388,8 +388,9 @@ func parseLogLevel(input string) (logging.Level, error) {
 }
 
 // baseAdminTuningDefaults returns the adminTuningDefaults fields shared by every
-// record (agent + per-provider defaults): the assistant default temperature,
-// zero reasoning budget, and the suite of timeout/duration/guardrail fields
+// record (agent + per-provider defaults): the assistant default temperature
+// (the global agent_defaults value; convertProviderTiers overrides it per
+// provider tier), zero reasoning budget, and the suite of timeout/duration/guardrail fields
 // sourced from assistant package constants.  Per-record fields (MaxSteps,
 // ContextBudget, MaxTokens, ToolCallFormat, Prefill) are set by the caller.
 func baseAdminTuningDefaults() adminTuningDefaults {
@@ -421,6 +422,12 @@ func convertProviderTiers(in map[string]assistant.ProviderTuningDefaults) map[st
 		d.MaxTokens = v.MaxTokens
 		d.ToolCallFormat = v.ToolCallFormat
 		d.Prefill = v.Prefill
+		// Cloud tiers leave temperature unset (0 is omitted from the wire, so
+		// the provider's own default applies); only local keeps the low
+		// automation default.
+		if k != models.ProviderLocal {
+			d.Temperature = 0
+		}
 		cap := assistant.ReasoningCapabilityFor(k)
 		d.Reasoning = adminReasoningCapability{
 			Supported:      cap.Toggleable || cap.DefaultEnabled,

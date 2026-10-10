@@ -117,4 +117,17 @@ describe('ListField', () => {
     await w.setProps({ modelValue: ['cat', 'rg'] })
     expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('cat\nrg')
   })
+
+  it('grows its rows with the number of lines, from 3 up to 10', async () => {
+    const rowsOf = (w: ReturnType<typeof mount>) => w.get('textarea').attributes('rows')
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => `rule-${i}`)
+    const w = mount(ListField, { props: { modelValue: ['ls'] } })
+    expect(rowsOf(w)).toBe('3')
+    await w.setProps({ modelValue: lines(6) })
+    expect(rowsOf(w)).toBe('6')
+    await w.setProps({ modelValue: lines(40) })
+    expect(rowsOf(w)).toBe('10')
+    await w.get('textarea').setValue('a\nb\nc\nd\ne\n')
+    expect(rowsOf(w)).toBe('6')
+  })
 })
