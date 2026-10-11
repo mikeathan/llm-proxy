@@ -54,6 +54,11 @@ const (
 	// Communication
 	ToolNotifyUser = "notify_user"
 
+	// Reminders
+	ToolScheduleReminder = "schedule_reminder"
+	ToolListReminders    = "list_reminders"
+	ToolCancelReminder   = "cancel_reminder"
+
 	// FileSystem
 	ToolFileRead      = "read_file"
 	ToolFileWrite     = "write_file"
@@ -89,6 +94,7 @@ const (
 	CategoryNetwork       = "network"
 	CategoryGlobal        = "security"
 	CategoryMemory        = "memory"
+	CategoryReminders     = "reminders"
 	CategoryAutomation    = "automation"
 	CategorySystem        = "system"
 )

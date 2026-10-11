@@ -1,0 +1,57 @@
+{
+  "tool_name": "reminders",
+  "version": "1.0",
+  "description": "Reminder tools: schedule a message to be delivered to the user at a future time, list open reminders, cancel one.",
+  "runtime": {
+    "schedule_reminder": {
+      "description": "Schedule a reminder that is delivered to the user, word for word, at a future time (no AI is involved when it fires). Use it when the user says 'remind me …'. Work out the exact time yourself from the current time and Timezone in your system prompt: 'tomorrow morning' = 09:00, 'afternoon' = 14:00, 'evening' = 18:00, 'tonight' = 20:00 in the user's timezone, unless they give a time. Pass either 'when' (one-off) or 'cron' (recurring), never both. Pass 'connector' only if the user named a channel (e.g. 'telegram'); otherwise omit it and the default channel is used. The result states the exact time, timezone and channel: repeat it to the user so they can correct a wrong guess. If this tool returns an error, the reminder was NOT saved — tell the user.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "What to remind the user of, written as the text they will receive, e.g. 'Call the bank'."
+          },
+          "when": {
+            "type": "string",
+            "description": "One-off time as RFC 3339 with the user's UTC offset, e.g. '2026-10-12T09:00:00+01:00'. Must be in the future."
+          },
+          "cron": {
+            "type": "string",
+            "description": "Recurring schedule as a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. '0 9 * * 1' for every Monday 09:00. Not more often than every 15 minutes."
+          },
+          "until": {
+            "type": "string",
+            "description": "Optional end of a recurring reminder, RFC 3339."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone name the time is in, e.g. 'Europe/London'. Use the Timezone from your system prompt."
+          },
+          "connector": {
+            "type": "string",
+            "description": "Optional channel type, e.g. 'telegram'. Omit to use the user's default reminder channel."
+          }
+        },
+        "required": ["message"]
+      }
+    },
+    "list_reminders": {
+      "description": "List the user's open (not yet delivered) reminders with their ids, times and channels. Use it to answer 'what reminders do I have?' or to find the id to cancel.",
+      "parameters": { "type": "object", "properties": {}, "required": [] }
+    },
+    "cancel_reminder": {
+      "description": "Cancel an open reminder by id (get ids from list_reminders).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "description": "The reminder id." }
+        },
+        "required": ["id"]
+      }
+    }
+  },
+  "guardrails": {
+    "enabled": false
+  }
+}

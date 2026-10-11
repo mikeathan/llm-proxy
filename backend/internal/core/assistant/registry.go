@@ -124,6 +124,7 @@ type LocalToolRegistry struct {
 	Network       *tools.NetworkTools
 	Memory        *tools.MemoryToolProvider
 	Journal       *tools.AutomationJournalTools
+	Reminders     *tools.ReminderTools
 }
 
 func NewLocalToolRegistry(
@@ -698,6 +699,17 @@ func registerScopedTool[T any](r *LocalToolRegistry, category, toolName string, 
 func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegistry {
 	r.Journal = tools.NewAutomationJournalTools(store)
 	registerScopedTool(r, models.CategoryAutomation, models.ToolAutomationJournal, models.IsJournalRun, r.Journal.Write)
+	return r
+}
+
+// WithReminders enables the reminder tools. Like WithJournal it is attached after
+// construction so the constructor's signature does not grow; the app layer owns
+// the reminder service and passes it in.
+func (r *LocalToolRegistry) WithReminders(svc tools.ReminderService) *LocalToolRegistry {
+	r.Reminders = tools.NewReminderTools(svc)
+	registerTool(r, models.CategoryReminders, models.ToolScheduleReminder, r.Reminders.Schedule)
+	registerTool(r, models.CategoryReminders, models.ToolListReminders, r.Reminders.List)
+	registerTool(r, models.CategoryReminders, models.ToolCancelReminder, r.Reminders.Cancel)
 	return r
 }
 
