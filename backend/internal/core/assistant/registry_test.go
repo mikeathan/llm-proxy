@@ -734,3 +734,26 @@ func TestLocalToolRegistry_ReminderToolsRegisteredAndCallable(t *testing.T) {
 		t.Errorf("result = %v", out)
 	}
 }
+
+// An unattended run may be steered by content it read (a web page, a file), so it
+// must not be able to schedule messages to the owner.
+func TestLocalToolRegistry_ReminderToolsHiddenFromUnattendedRuns(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
+	svc := &reminderServiceStub{}
+	r.WithReminders(svc)
+
+	unattended := models.WithUnattendedRun(context.Background())
+	for _, name := range []string{models.ToolScheduleReminder, models.ToolListReminders, models.ToolCancelReminder} {
+		if slices.Contains(listedToolNames(t, r, unattended), name) {
+			t.Errorf("%s must not be listed to an unattended run", name)
+		}
+	}
+	call := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolScheduleReminder,
+		Arguments: `{"message":"x","when":"2030-01-01T09:00:00Z"}`}}
+	if _, err := r.ExecuteTool(unattended, call); err == nil || svc.got.Message != "" {
+		t.Errorf("an unattended run must be refused without scheduling: err=%v got=%+v", err, svc.got)
+	}
+	if !slices.Contains(listedToolNames(t, r, context.Background()), models.ToolScheduleReminder) {
+		t.Error("an attended chat must still see the tool")
+	}
+}

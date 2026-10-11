@@ -24,7 +24,8 @@ type reminderDeliverer struct {
 }
 
 func (d reminderDeliverer) Deliver(ctx context.Context, connector, message string) error {
-	return d.comm.NotifyAll(ctx, message, connector)
+	// Plain: the reminder is the user's own text and must not be parsed as markup.
+	return d.comm.NotifyAllPlain(ctx, message, connector)
 }
 
 func (d reminderDeliverer) HasConnector(connector string) bool {

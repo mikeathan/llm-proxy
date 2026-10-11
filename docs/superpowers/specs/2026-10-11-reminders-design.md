@@ -90,3 +90,9 @@ routing (delivery calls `NotifyAll` directly until that plan lands), calendar sy
 
 - Where SQLite schemas are created/migrated for memory/ledger, and the exact in-app notice mechanism.
 - Whether `NotifyAll` to a type with several instances is acceptable (it sends to all matching) — assumed yes.
+
+## Post-review changes (2026-10-11)
+
+An independent review of the built branch changed the spec in these places; SPEC-011 is now authoritative: the fallback
+zone is `UTC` (not the server zone); delivery is plain text; the tools are attended-run only; a recurring reminder that
+fails 3 times moves on instead of dying; a cancel during a send wins; a failed save holds the reminder 30 s.

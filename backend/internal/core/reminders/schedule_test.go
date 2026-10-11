@@ -54,8 +54,10 @@ func TestResolveZone_Order(t *testing.T) {
 	if l, _ := ResolveZone("", "Europe/London"); l.String() != "Europe/London" {
 		t.Errorf("owner zone should be next, got %s", l)
 	}
-	if l, err := ResolveZone("", ""); err != nil || l != time.Local {
-		t.Errorf("fallback should be time.Local, got %v %v", l, err)
+	// No zone at all: UTC by name. time.Local's own name is "Local", which is not a
+	// zone a user or a browser can read.
+	if l, err := ResolveZone("", ""); err != nil || l.String() != "UTC" {
+		t.Errorf("fallback should be UTC, got %v %v", l, err)
 	}
 }
 

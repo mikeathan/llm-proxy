@@ -120,13 +120,18 @@ func (s *Store) Recent(ctx context.Context, limit int) ([]Reminder, error) {
 	return s.query(ctx, `SELECT `+columns+` FROM reminders WHERE status IN ('done','missed','failed') ORDER BY fire_at DESC, id DESC LIMIT ?`, limit)
 }
 
-// Update writes the mutable fields of a reminder.
+// Update writes the mutable fields of a reminder that is still scheduled.
+// ErrNotFound means it is no longer open (cancelled while a send was in flight):
+// the cancel wins and the stale write is dropped.
 func (s *Store) Update(ctx context.Context, r Reminder) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ? WHERE id = ?`,
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ? WHERE id = ? AND status = 'scheduled'`,
 		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID)
 	if err != nil {
 		return fmt.Errorf("reminders update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

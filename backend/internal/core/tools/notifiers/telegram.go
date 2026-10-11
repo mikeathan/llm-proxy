@@ -73,6 +73,25 @@ func (t *TelegramNotifier) Send(ctx context.Context, message string) error {
 	return nil
 }
 
+// SendPlain delivers message with no parse mode, so Markdown in it (a stray `*`,
+// a `[text](url)` link) is shown as typed instead of being interpreted. Used for
+// text that is the user's own, such as a reminder.
+func (t *TelegramNotifier) SendPlain(ctx context.Context, message string) error {
+	if t.Token == "" || t.ChatID == "" || t.client == nil {
+		return fmt.Errorf("telegram connector not fully configured")
+	}
+	for _, part := range splitMessage(message, telegramChunkSize) {
+		status, body, err := t.postRateLimited(ctx, part, "")
+		if err != nil {
+			return err
+		}
+		if status != http.StatusOK {
+			return t.statusError(status, body)
+		}
+	}
+	return nil
+}
+
 func (t *TelegramNotifier) sendPart(ctx context.Context, text string) error {
 	status, body, err := t.postRateLimited(ctx, text, "Markdown")
 	if err == nil && status == http.StatusBadRequest && strings.Contains(body, "can't parse entities") {
@@ -84,10 +103,15 @@ func (t *TelegramNotifier) sendPart(ctx context.Context, text string) error {
 	if status == http.StatusOK {
 		return nil
 	}
-	err = fmt.Errorf("telegram API error: status %d, body: %s", status, body)
+	return t.statusError(status, body)
+}
+
+// statusError is the error for a non-200 answer. A rejected bot token is
+// classified terminal for the agent loop (see tool-error-classification).
+func (t *TelegramNotifier) statusError(status int, body string) error {
+	err := fmt.Errorf("telegram API error: status %d, body: %s", status, body)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		// Rejected bot token — operator-actionable, so classify terminal for
-		// the agent loop (see tool-error-classification).
+		// Rejected bot token — operator-actionable.
 		return &models.ToolUnavailableError{Reason: fmt.Sprintf(telegramTokenRejectedReason, status), Cause: err}
 	}
 	return err

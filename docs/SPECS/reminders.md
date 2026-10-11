@@ -25,7 +25,8 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 
 ## 2. Functional requirements
 
-1. **Creation.** The agent tools `schedule_reminder`, `list_reminders` and `cancel_reminder` (category `reminders`) are the
+1. **Creation.** The agent tools (attended runs only — hidden from and refused to unattended automations, which may be
+   steered by content they read) `schedule_reminder`, `list_reminders` and `cancel_reminder` (category `reminders`) are the
    only creators. `schedule_reminder` takes `message` and exactly one of `when` (RFC 3339, with offset) or `cron` (five
    fields or a descriptor — the one grammar of `core/automation/cron.go`, no seconds), plus optional `until`, `timezone`
    (IANA) and `connector` (a connector *type*, e.g. `telegram`).
@@ -38,18 +39,25 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 4. **Channel.** A named connector is used as given. Otherwise the default is: `reminders.default_connector` if that type
    is configured, else `telegram` if configured, else the first configured type, else **in-app only**. Every outcome is
    also recorded for the in-app list.
-5. **Timezone.** `timezone` argument → `reminders.timezone` setting → server local zone. A connector-originated chat
+5. **Timezone.** `timezone` argument → `reminders.timezone` setting → `UTC` (never a bare "Local", which names no zone a
+   user or browser can read). A connector-originated chat
    reports the owner zone (`reminders.timezone`, else `UTC`) to the agent instead of a hard-coded `UTC`
    (`WebhookHandler.OwnerTimezone`). The zone is stored with the reminder, so recurrence follows that zone across DST.
 6. **Delivery.** One timer loop (`reminders.Service.Run`, started by the app lifecycle, tethered to the root context)
    sleeps until the earliest scheduled time and is woken by create/cancel. Text is sent through
-   `CommunicationTools.NotifyAll` with a 30 s timeout. A one-off becomes `done`; a recurring reminder advances to its next
+   `CommunicationTools.NotifyAllPlain` with a 30 s timeout: a connector with a `SendPlain` path (Telegram) sends it with
+   no markup parsing, so a Markdown link or `*x*` arrives as typed. A one-off becomes `done`; a recurring reminder advances to its next
    occurrence after now (never replays missed occurrences).
 7. **Late and missed.** Overdue by ≤ 2 min is on time. Overdue up to 12 h (service was down) is delivered with a
    `(late) ` prefix. Overdue more than 12 h becomes `missed` (recurring: advances) and is **not** sent to a connector.
-8. **Failure.** A failed send is retried after 1 min, then 5 min; after 3 attempts the reminder is `failed` with the error.
-   A reminder is never `done` unless a send returned nil (or the channel is in-app only).
-9. **Verbatim.** The message is stored and sent as text; it is never interpreted, templated into a prompt, or logged.
+8. **Failure.** A failed send is retried after 1 min, then 5 min; after 3 attempts a one-off is `failed` with the error and
+   a recurring reminder reports the failure and moves on to its next occurrence. A reminder is never `done` unless a send
+   returned nil (or the channel is in-app only). Delivery is at-least-once: if a send succeeds but the store cannot save
+   the result, the reminder is held back 30 s and may be sent again; a connector that fails after part of the text
+   was sent can repeat that part on retry.
+9. **Cancel wins.** A state write only applies to a reminder that is still `scheduled`; a cancel made while a send is in
+   flight is never reversed.
+10. **Verbatim.** The message is stored and sent as text; it is never interpreted, templated into a prompt, or logged.
 
 ## 3. Data model
 

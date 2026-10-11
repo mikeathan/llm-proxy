@@ -70,6 +70,7 @@ func (c *fakeClock) armed() bool {
 type sent struct{ connector, message string }
 
 type fakeDeliverer struct {
+	onDeliver  func() // runs inside Deliver, before it returns (for races)
 	mu         sync.Mutex
 	sends      []sent
 	err        error
@@ -77,6 +78,9 @@ type fakeDeliverer struct {
 }
 
 func (d *fakeDeliverer) Deliver(_ context.Context, connector, message string) error {
+	if d.onDeliver != nil {
+		d.onDeliver()
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.err != nil {
@@ -360,5 +364,60 @@ func TestChannel_Resolution(t *testing.T) {
 	none := newRig(t, "")
 	if got := none.svc.Channel(""); got != "in-app" {
 		t.Errorf("no default = %q, want in-app", got)
+	}
+}
+
+func TestRun_CancelDuringSendIsNotUndone(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem, err := r.svc.Create(context.Background(), Reminder{Message: "standup", Cron: "0 13 * * *", Timezone: "UTC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.del.onDeliver = func() { _ = r.svc.Cancel(context.Background(), rem.ID) }
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour)
+	eventually(t, "delivered", func() bool { return len(r.del.all()) == 1 })
+	time.Sleep(30 * time.Millisecond)
+	got, _ := r.store.Get(context.Background(), rem.ID)
+	if got.Status != StatusCancelled {
+		t.Fatalf("status = %q: a cancel made while the send was in flight was reversed", got.Status)
+	}
+}
+
+// A store that cannot be written must not turn the loop into a spin that re-sends
+// the same message as fast as the connector answers.
+func TestRun_FailedSaveDoesNotSpin(t *testing.T) {
+	r := newRig(t, "telegram")
+	r.create(t, "once", time.Hour, "")
+	// Reads keep working, every write fails (a busy or read-only database).
+	if _, err := r.store.db.Exec(`CREATE TRIGGER no_writes BEFORE UPDATE ON reminders BEGIN SELECT RAISE(ABORT, 'database is read-only'); END`); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(2 * time.Hour)
+	r.start(t)
+	time.Sleep(150 * time.Millisecond)
+	if n := len(r.del.all()); n > 1 {
+		t.Fatalf("delivered %d times with the store down, want at most 1", n)
+	}
+}
+
+func TestRun_RecurringSurvivesFailedDelivery(t *testing.T) {
+	r := newRig(t, "telegram")
+	r.del.err = errors.New("connector down")
+	rem, _ := r.svc.Create(context.Background(), Reminder{Message: "standup", Cron: "0 13 * * *", Timezone: "UTC"})
+	r.start(t)
+	for i := 0; i < 3; i++ {
+		eventually(t, "timer armed", r.clock.armed)
+		r.clock.Advance(time.Hour)
+		time.Sleep(30 * time.Millisecond)
+	}
+	eventually(t, "failure noticed", func() bool { return len(r.notes.all()) > 0 })
+	got, _ := r.store.Get(context.Background(), rem.ID)
+	if got.Status != StatusScheduled || !got.FireAt.After(r.clock.Now()) {
+		t.Fatalf("status=%q fireAt=%v: a recurring reminder must move on to its next occurrence after a failed one", got.Status, got.FireAt)
+	}
+	if ev := r.notes.all(); ev[len(ev)-1] != "failed:standup" {
+		t.Fatalf("notice events = %v", ev)
 	}
 }

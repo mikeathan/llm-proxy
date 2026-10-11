@@ -19,7 +19,10 @@ const (
 	// lateGrace is the normal timer jitter below which a delivery is not "late".
 	lateGrace = 2 * time.Minute
 	// maxAttempts is the number of delivery tries before a reminder is failed.
-	maxAttempts     = 3
+	maxAttempts = 3
+	// saveRetryDelay holds a reminder back when its state could not be saved, so a
+	// store that is down cannot turn the loop into a spin that re-sends it.
+	saveRetryDelay  = 30 * time.Second
 	deliverTimeout  = 30 * time.Second
 	InAppChannel    = "in-app"
 	eventDue        = "due"
@@ -86,6 +89,9 @@ type Service struct {
 	clock   Clock
 	cfg     Config
 	wake    chan struct{}
+	// held maps a reminder whose state could not be saved to the time before which
+	// it is not retried. Touched only by the Run goroutine.
+	held map[int64]time.Time
 }
 
 // NewService builds the service; call Run once from the app bootstrap layer.
@@ -96,7 +102,7 @@ func NewService(s *Store, d Deliverer, n Notice, c Clock, cfg Config) *Service {
 	if len(cfg.RetryDelays) == 0 {
 		cfg.RetryDelays = []time.Duration{defaultFirstTry, 5 * time.Minute}
 	}
-	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg, wake: make(chan struct{}, 1)}
+	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
 }
 
 // Channel is where a reminder naming `connector` (or none) will be delivered.
@@ -190,7 +196,8 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-// armTimer returns a timer for the earliest open reminder, or nil when none.
+// armTimer returns a timer for the earliest open reminder, or nil when none. A
+// reminder held back after a failed save is not due again before its hold ends.
 func (s *Service) armTimer(ctx context.Context) Timer {
 	open, err := s.store.ListOpen(ctx)
 	if err != nil || len(open) == 0 {
@@ -199,12 +206,25 @@ func (s *Service) armTimer(ctx context.Context) Timer {
 		}
 		return nil
 	}
-	return s.clock.NewTimer(open[0].FireAt.Sub(s.clock.Now()))
+	now := s.clock.Now()
+	next := s.effectiveTime(open[0])
+	for _, r := range open[1:] {
+		if t := s.effectiveTime(r); t.Before(next) {
+			next = t
+		}
+	}
+	return s.clock.NewTimer(max(next.Sub(now), 0))
+}
+
+func (s *Service) effectiveTime(r Reminder) time.Time {
+	if until, ok := s.held[r.ID]; ok && until.After(r.FireAt) {
+		return until
+	}
+	return r.FireAt
 }
 
 func (s *Service) processDue(ctx context.Context) {
-	now := s.clock.Now()
-	due, err := s.store.Due(ctx, now)
+	due, err := s.store.Due(ctx, s.clock.Now())
 	if err != nil {
 		if ctx.Err() == nil {
 			logging.Warn("reminders: due query failed", "error", err)
@@ -215,6 +235,14 @@ func (s *Service) processDue(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// Time is read per reminder: a slow send must not make the next one look on time.
+		now := s.clock.Now()
+		if until, ok := s.held[r.ID]; ok {
+			if now.Before(until) {
+				continue
+			}
+			delete(s.held, r.ID)
+		}
 		s.handle(ctx, r, now)
 	}
 }
@@ -222,6 +250,9 @@ func (s *Service) processDue(ctx context.Context) {
 func (s *Service) handle(ctx context.Context, r Reminder, now time.Time) {
 	// A cancel may land between the Due query and here.
 	if cur, err := s.store.Get(ctx, r.ID); err != nil || cur.Status != StatusScheduled {
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			s.hold(r.ID, now)
+		}
 		return
 	}
 	overdue := now.Sub(r.FireAt)
@@ -265,7 +296,7 @@ func (s *Service) finish(ctx context.Context, r Reminder, now time.Time) {
 	} else {
 		r.Status = StatusDone
 	}
-	s.save(ctx, r)
+	s.save(ctx, r, now)
 }
 
 func (s *Service) markMissed(ctx context.Context, r Reminder, now time.Time) {
@@ -275,19 +306,27 @@ func (s *Service) markMissed(ctx context.Context, r Reminder, now time.Time) {
 	} else {
 		r.Status = StatusMissed
 	}
-	s.save(ctx, r)
+	s.save(ctx, r, now)
 }
 
+// fail records a failed send. After maxAttempts a one-off becomes failed; a
+// recurring reminder reports the failure and moves on to its next occurrence, so
+// a short connector outage does not end it for good.
 func (s *Service) fail(ctx context.Context, r Reminder, now time.Time, cause error) {
 	r.Attempts++
 	r.LastError = truncate(cause.Error(), 300)
-	if r.Attempts >= maxAttempts {
-		r.Status = StatusFailed
-		s.notice.Notify(ctx, r, eventFailed)
-	} else {
+	switch {
+	case r.Attempts < maxAttempts:
 		r.FireAt = now.Add(s.retryDelay(r.Attempts))
+	default:
+		s.notice.Notify(ctx, r, eventFailed)
+		if next, ok := NextFire(r, now); r.Cron != "" && ok {
+			r.FireAt, r.Attempts = next, 0
+		} else {
+			r.Status = StatusFailed
+		}
 	}
-	s.save(ctx, r)
+	s.save(ctx, r, now)
 }
 
 func (s *Service) retryDelay(attempts int) time.Duration {
@@ -298,11 +337,18 @@ func (s *Service) retryDelay(attempts int) time.Duration {
 	return s.cfg.RetryDelays[i]
 }
 
-func (s *Service) save(ctx context.Context, r Reminder) {
-	if err := s.store.Update(ctx, r); err != nil && ctx.Err() == nil {
-		logging.Warn("reminders: update failed", "id", r.ID, "error", err)
+// save writes the new state. A cancel that won the race (ErrNotFound) is not an
+// error; any other failure holds the reminder back instead of retrying at once.
+func (s *Service) save(ctx context.Context, r Reminder, now time.Time) {
+	err := s.store.Update(ctx, r)
+	if err == nil || errors.Is(err, ErrNotFound) || ctx.Err() != nil {
+		return
 	}
+	logging.Warn("reminders: update failed", "id", r.ID, "error", err)
+	s.hold(r.ID, now)
 }
+
+func (s *Service) hold(id int64, now time.Time) { s.held[id] = now.Add(saveRetryDelay) }
 
 func truncate(msg string, n int) string {
 	msg = strings.TrimSpace(msg)

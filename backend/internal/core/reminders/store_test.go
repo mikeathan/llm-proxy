@@ -101,3 +101,19 @@ func TestStore_RoundTripsFields(t *testing.T) {
 		t.Fatalf("round trip lost fields: %+v", got)
 	}
 }
+
+func TestStore_UpdateNeverRevivesACancelledReminder(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	id, _ := s.Add(ctx, Reminder{Message: "x", FireAt: base})
+	stale, _ := s.Get(ctx, id)
+	if err := s.Cancel(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	stale.Status = StatusDone
+	if err := s.Update(ctx, stale); err != ErrNotFound {
+		t.Fatalf("Update of a cancelled reminder = %v, want ErrNotFound", err)
+	}
+	if got, _ := s.Get(ctx, id); got.Status != StatusCancelled {
+		t.Fatalf("status = %q, a late Update overwrote the cancel", got.Status)
+	}
+}

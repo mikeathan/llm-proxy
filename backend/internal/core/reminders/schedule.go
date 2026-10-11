@@ -19,7 +19,8 @@ const (
 )
 
 // ResolveZone picks the reminder's timezone: the one the caller asked for, else
-// the owner's configured zone, else the server's local zone. An unknown IANA
+// the owner's configured zone, else UTC (the server's own zone has no IANA name
+// Go can report, and "Local" means nothing to a user or a browser). An unknown IANA
 // name is an error naming the bad value, never a silent fallback.
 func ResolveZone(requested, ownerZone string) (*time.Location, error) {
 	for _, name := range []string{requested, ownerZone} {
@@ -32,7 +33,7 @@ func ResolveZone(requested, ownerZone string) (*time.Location, error) {
 		}
 		return loc, nil
 	}
-	return time.Local, nil
+	return time.UTC, nil
 }
 
 // NextFire is the next time r should fire strictly after `after`. A one-off

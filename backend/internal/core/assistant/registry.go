@@ -704,12 +704,15 @@ func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegi
 
 // WithReminders enables the reminder tools. Like WithJournal it is attached after
 // construction so the constructor's signature does not grow; the app layer owns
-// the reminder service and passes it in.
+// the reminder service and passes it in. They are scoped to attended runs: an
+// unattended automation may be steered by content it read, and a reminder is a
+// message to the owner that outlives the run.
 func (r *LocalToolRegistry) WithReminders(svc tools.ReminderService) *LocalToolRegistry {
 	r.Reminders = tools.NewReminderTools(svc)
-	registerTool(r, models.CategoryReminders, models.ToolScheduleReminder, r.Reminders.Schedule)
-	registerTool(r, models.CategoryReminders, models.ToolListReminders, r.Reminders.List)
-	registerTool(r, models.CategoryReminders, models.ToolCancelReminder, r.Reminders.Cancel)
+	attended := func(ctx context.Context) bool { return !models.IsUnattendedRun(ctx) }
+	registerScopedTool(r, models.CategoryReminders, models.ToolScheduleReminder, attended, r.Reminders.Schedule)
+	registerScopedTool(r, models.CategoryReminders, models.ToolListReminders, attended, r.Reminders.List)
+	registerScopedTool(r, models.CategoryReminders, models.ToolCancelReminder, attended, r.Reminders.Cancel)
 	return r
 }
 

@@ -213,3 +213,34 @@ func TestCommunicationTools_TypesSortedAndUnique(t *testing.T) {
 		t.Fatalf("Types() = %v, want [slack telegram]", got)
 	}
 }
+
+type plainConnector struct {
+	stubConnector
+	plain []string
+}
+
+func (p *plainConnector) SendPlain(_ context.Context, m string) error {
+	p.plain = append(p.plain, m)
+	return nil
+}
+
+func TestNotifyAllPlain_UsesPlainPathWhenAvailable(t *testing.T) {
+	c := NewCommunicationTools()
+	pc := &plainConnector{stubConnector: stubConnector{name: "tg"}}
+	other := &stubConnector{name: "other"}
+	c.AddConnector("a", "telegram", pc)
+	c.AddConnector("b", "slack", other)
+
+	if err := c.NotifyAllPlain(context.Background(), "[x](https://e.example) *b*", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pc.plain) != 1 || pc.plain[0] != "[x](https://e.example) *b*" {
+		t.Fatalf("plain sends = %v", pc.plain)
+	}
+	if err := c.NotifyAllPlain(context.Background(), "hi", "slack"); err != nil {
+		t.Fatalf("a connector without a plain path falls back to Send: %v", err)
+	}
+	if err := c.NotifyAllPlain(context.Background(), "hi", "nope"); err == nil {
+		t.Fatal("unknown type must error")
+	}
+}
