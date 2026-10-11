@@ -107,4 +107,45 @@ describe('GlobalSettings', () => {
     await w.find('form').trigger('submit')
     expect(onSave).toHaveBeenCalledTimes(1)
   })
+
+  describe('reminders', () => {
+    const withConnectors = (): Partial<GlobalConfig> => ({
+      communication: {
+        connectors: {
+          'my-telegram': { type: 'telegram', enabled: true, settings: {} },
+          'my-slack': { type: 'slack', enabled: true, settings: {} },
+          'old-discord': { type: 'discord', enabled: false, settings: {} },
+        },
+      },
+    })
+
+    it('offers automatic plus each enabled connector type as the default channel', () => {
+      const { w } = mountGlobal(withConnectors())
+      const select = fieldByLabel(w, /default channel/i)
+      expect(select.findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'telegram', 'slack'])
+    })
+
+    it('saves the chosen default channel without touching the timezone', async () => {
+      const { w, last } = mountGlobal({ ...withConnectors(), reminders: { timezone: 'Europe/London' } })
+      await fieldByLabel(w, /default channel/i).setValue('slack')
+      expect(last().reminders).toEqual({ default_connector: 'slack', timezone: 'Europe/London' })
+    })
+
+    it('saves a typed timezone and flags an unknown one', async () => {
+      const { w, last } = mountGlobal()
+      const tz = fieldByLabel(w, /timezone/i)
+      await tz.setValue('Europe/London')
+      expect(last().reminders?.timezone).toBe('Europe/London')
+      await w.setProps({ editConfig: { ...structuredClone(DEFAULT_CONFIG), reminders: { timezone: 'Mars/Base' } } })
+      expect(w.text()).toMatch(/not a known timezone/i)
+    })
+
+    it("fills the browser's timezone on request", async () => {
+      const { w, last } = mountGlobal()
+      const button = w.findAll('button').find((b) => /browser/i.test(b.text()))
+      expect(button).toBeDefined()
+      await button!.trigger('click')
+      expect(last().reminders?.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    })
+  })
 })

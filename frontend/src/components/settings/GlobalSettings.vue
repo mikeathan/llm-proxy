@@ -4,6 +4,8 @@ import Panel from "../common/layout/Panel.vue";
 import FormField from "../common/forms/FormField.vue";
 import SegmentedControl from "../common/forms/SegmentedControl.vue";
 import BaseToggle from "../common/buttons/BaseToggle.vue";
+import BaseButton from "../common/buttons/BaseButton.vue";
+import SelectInput from "../common/forms/SelectInput.vue";
 import {
   argsToString,
   stringToArgs,
@@ -11,8 +13,10 @@ import {
   stringToEnvMap,
 } from "../../utils/config";
 import { LOG_LEVELS } from "../../constants/api";
-import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig } from "../../types/admin";
+import type { GlobalConfig, MemoryHotDefaults, ProviderItem, RemindersConfig, SchedulerConfig } from "../../types/admin";
 import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
+import { AUTOMATIC_CHANNEL_LABEL, DEFAULT_CHANNEL_HINT, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR } from "../../constants/reminders";
+import { browserTimeZone, isKnownTimeZone, knownTimeZones } from "../../utils/format/timezone";
 import type { Model } from "../../types/model";
 import type { ChoiceOption } from "../../types/ui";
 
@@ -136,6 +140,26 @@ function memoryField(key: keyof MemoryHotDefaults) {
 }
 const assistantHot = memoryField("assistant_hot");
 const automationHot = memoryField("automation_hot");
+
+/** A reminders field as a v-model target; the section is written whole. */
+function remindersField(key: keyof RemindersConfig) {
+  return computed<string>({
+    get: () => props.editConfig.reminders?.[key] ?? "",
+    set: (value) => replaceConfig({ reminders: { ...props.editConfig.reminders, [key]: value } }),
+  });
+}
+const reminderChannel = remindersField("default_connector");
+const reminderTimezone = remindersField("timezone");
+// Only a connector that is switched on can carry a reminder.
+const reminderChannelOptions = computed<ChoiceOption[]>(() => {
+  const types = Object.values(props.editConfig.communication?.connectors ?? {})
+    .filter((connector) => connector.enabled)
+    .map((connector) => connector.type);
+  return [{ value: "", label: AUTOMATIC_CHANNEL_LABEL }, ...[...new Set(types)].map((type) => ({ value: type, label: type }))];
+});
+const timezoneError = computed(() => (isKnownTimeZone(reminderTimezone.value) ? undefined : UNKNOWN_TIMEZONE_ERROR));
+const TIMEZONE_LIST_ID = "reminder-timezones";
+const timezoneChoices = knownTimeZones();
 
 const localConcurrency = schedulerField("local_concurrency", wholeAtLeast(1, 1));
 const cloudConcurrency = schedulerField("cloud_concurrency", wholeAtLeast(1, 1));
@@ -346,6 +370,31 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
         <FormField label="Automations" hint="Scheduled and manual runs. Off by default: each run spends part of its context on it.">
           <template #default="{ id, describedBy }">
             <BaseToggle :id="id" v-model="automationHot" :described-by="describedBy" label="Automations remember" />
+          </template>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel title="Reminders">
+      <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
+        Ask the assistant to remind you of something and it is delivered word for word at the time you gave, with no
+        model involved.
+      </p>
+      <div class="form-grid">
+        <FormField label="Default channel" :hint="DEFAULT_CHANNEL_HINT">
+          <template #default="{ id }">
+            <SelectInput :id="id" v-model="reminderChannel" :options="reminderChannelOptions" label="Default channel" />
+          </template>
+        </FormField>
+        <FormField label="Timezone" :hint="TIMEZONE_HINT" :error="timezoneError">
+          <template #default="{ id, describedBy, invalid }">
+            <div class="flex flex-wrap items-center gap-2">
+              <input :id="id" v-model.trim="reminderTimezone" :aria-describedby="describedBy" :aria-invalid="invalid" :list="TIMEZONE_LIST_ID" type="text" placeholder="Europe/London" autocomplete="off" class="form-control font-mono" />
+              <BaseButton variant="secondary" size="sm" @click="reminderTimezone = browserTimeZone()">Use this browser's timezone</BaseButton>
+            </div>
+            <datalist :id="TIMEZONE_LIST_ID">
+              <option v-for="zone in timezoneChoices" :key="zone" :value="zone"></option>
+            </datalist>
           </template>
         </FormField>
       </div>

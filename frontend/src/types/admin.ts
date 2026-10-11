@@ -254,6 +254,15 @@ export interface GlobalConfig {
   scheduler?: SchedulerConfig
   // Global hot-memory defaults; an automation or a workspace's assistant may override them.
   memory?: MemoryHotDefaults
+  // Where reminders go and which timezone chat-app reminders use.
+  reminders?: RemindersConfig
+}
+
+export interface RemindersConfig {
+  // A connector type (telegram, slack, …); empty = automatic.
+  default_connector?: string
+  // IANA timezone name; empty = the server's.
+  timezone?: string
 }
 
 export interface MemoryHotDefaults {
