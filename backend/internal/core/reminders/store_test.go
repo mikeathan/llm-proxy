@@ -117,3 +117,56 @@ func TestStore_UpdateNeverRevivesACancelledReminder(t *testing.T) {
 		t.Fatalf("status = %q, a late Update overwrote the cancel", got.Status)
 	}
 }
+
+func TestStore_ReplaceChangesEditableFieldsOnly(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	id, _ := s.Add(ctx, Reminder{Message: "old", FireAt: base, Timezone: "Europe/London", CreatedBy: "assistant", Connector: "telegram"})
+	r, _ := s.Get(ctx, id)
+	r.Attempts, r.LastError = 2, "boom"
+	_ = s.Update(ctx, r)
+
+	until := base.Add(48 * time.Hour)
+	edited := Reminder{ID: id, Message: "new", FireAt: base.Add(time.Hour), Cron: "0 9 * * 1", Until: &until, Connector: "in-app"}
+	if err := s.Replace(ctx, edited); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	got, _ := s.Get(ctx, id)
+	if got.Message != "new" || !got.FireAt.Equal(base.Add(time.Hour)) || got.Cron != "0 9 * * 1" || got.Until == nil || got.Connector != "in-app" {
+		t.Fatalf("not replaced: %+v", got)
+	}
+	if got.Timezone != "Europe/London" || got.CreatedBy != "assistant" || got.Status != StatusScheduled {
+		t.Errorf("identity fields must survive an edit: %+v", got)
+	}
+	if got.Attempts != 0 || got.LastError != "" {
+		t.Errorf("an edit starts delivery afresh, got attempts=%d err=%q", got.Attempts, got.LastError)
+	}
+}
+
+func TestStore_ReplaceRefusesAClosedReminder(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	id, _ := s.Add(ctx, Reminder{Message: "x", FireAt: base})
+	_ = s.Cancel(ctx, id)
+	if err := s.Replace(ctx, Reminder{ID: id, Message: "y", FireAt: base}); err != ErrNotFound {
+		t.Fatalf("Replace of a cancelled reminder = %v, want ErrNotFound", err)
+	}
+}
+
+func TestStore_DeleteRemovesAnyStatus(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	open, _ := s.Add(ctx, Reminder{Message: "open", FireAt: base})
+	done, _ := s.Add(ctx, Reminder{Message: "done", FireAt: base})
+	r, _ := s.Get(ctx, done)
+	r.Status = StatusDone
+	_ = s.Update(ctx, r)
+	for _, id := range []int64{open, done} {
+		if err := s.Delete(ctx, id); err != nil {
+			t.Fatalf("Delete(%d): %v", id, err)
+		}
+		if _, err := s.Get(ctx, id); err != ErrNotFound {
+			t.Fatalf("reminder %d still there: %v", id, err)
+		}
+	}
+	if err := s.Delete(ctx, 999); err != ErrNotFound {
+		t.Fatalf("Delete of unknown = %v, want ErrNotFound", err)
+	}
+}

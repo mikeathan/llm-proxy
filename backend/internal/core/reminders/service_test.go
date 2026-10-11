@@ -421,3 +421,78 @@ func TestRun_RecurringSurvivesFailedDelivery(t *testing.T) {
 		t.Fatalf("notice events = %v", ev)
 	}
 }
+
+func TestEdit_ChangesTheReminderAndRearmsTheLoop(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := r.create(t, "old", 5*time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+
+	got, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "new text", FireAt: r.clock.Now().Add(time.Hour), Connector: ""})
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if got.Message != "new text" || got.Timezone != "UTC" {
+		t.Fatalf("edited = %+v", got)
+	}
+	time.Sleep(20 * time.Millisecond) // let the loop re-arm for the earlier time
+	r.clock.Advance(time.Hour)
+	eventually(t, "delivered at the new time", func() bool { return len(r.del.all()) == 1 })
+	if r.del.all()[0].message != "new text" {
+		t.Fatalf("sent %+v, want the edited text", r.del.all())
+	}
+}
+
+func TestEdit_Validates(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := r.create(t, "x", time.Hour, "")
+	soon := r.clock.Now().Add(time.Hour)
+	cases := map[string]Reminder{
+		"blank message":        {Message: " ", FireAt: soon},
+		"past time":            {Message: "x", FireAt: r.clock.Now().Add(-time.Minute)},
+		"unconfigured channel": {Message: "x", FireAt: soon, Connector: "slack"},
+		"every minute":         {Message: "x", Cron: "* * * * *"},
+	}
+	for name, in := range cases {
+		_, err := r.svc.Edit(context.Background(), rem.ID, in)
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	if got, _ := r.store.Get(context.Background(), rem.ID); got.Message != "x" {
+		t.Errorf("a rejected edit must change nothing, got %+v", got)
+	}
+	if _, err := r.svc.Edit(context.Background(), 9999, Reminder{Message: "x", FireAt: soon}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown id err = %v, want ErrNotFound", err)
+	}
+	if _, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "x", FireAt: soon, Connector: InAppChannel}); err != nil {
+		t.Errorf("in-app is a valid explicit channel: %v", err)
+	}
+}
+
+func TestEdit_OneOffCanBecomeRecurring(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := r.create(t, "x", time.Hour, "")
+	got, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "x", Cron: "0 13 * * *"})
+	if err != nil || got.Cron == "" || !got.FireAt.Equal(time.Date(2026, 10, 11, 13, 0, 0, 0, time.UTC)) {
+		t.Fatalf("got=%+v err=%v, want a daily reminder starting 13:00 today", got, err)
+	}
+}
+
+func TestRemove_DeletesAndNeverDelivers(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := r.create(t, "bye", time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	if err := r.svc.Remove(context.Background(), rem.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(2 * time.Hour)
+	time.Sleep(30 * time.Millisecond)
+	if len(r.del.all()) != 0 {
+		t.Fatal("a removed reminder was delivered")
+	}
+	if err := r.svc.Remove(context.Background(), rem.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second Remove = %v, want ErrNotFound", err)
+	}
+}

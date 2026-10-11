@@ -5,6 +5,7 @@ import StatusTag from "../common/display/StatusTag.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
+import { toReminders } from "../../router/routes"
 import { useReminders } from "../../composables/reminders/useReminders"
 import { usePolling } from "../../composables/ui/usePolling"
 import { formatAbsoluteTime, formatRelativeTime } from "../../utils/format/time"
@@ -23,6 +24,9 @@ const empty = computed(() => !reminders.value.open.length && !recent.value.lengt
 
 <template>
   <Panel title="Reminders">
+    <template #actions>
+      <RouterLink :to="toReminders()" class="font-mono text-[length:var(--text-small)] text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2">Manage reminders →</RouterLink>
+    </template>
     <LoadingState v-if="loading" label="Loading reminders" :rows="2" />
     <ErrorState v-else-if="error" title="Reminders unavailable" :cause="error" :next="RELOAD_HINT" />
     <EmptyState v-else-if="empty" title="No reminders" :body="REMINDER_EXAMPLE" />

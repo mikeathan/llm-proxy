@@ -46,6 +46,8 @@ export const toAutomationEdit = (id: string): RouteLocationNamedRaw => ({
   params: { id },
 })
 
+export const toReminders = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders })
+
 export const toModels = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.models })
 
 /** Activity with its filters in the query; unset or empty filters are omitted. */

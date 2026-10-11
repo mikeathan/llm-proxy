@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.8"
+version: "2.9"
 status: stable
 last_updated: 2026-10-11
 constitution_references: []
@@ -12,6 +12,14 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.9 (2026-10-11)** — Reminders page. A seventh destination, **Reminders** (`/reminders`), between Automations and
+  Models, lists what the assistant has been asked to remind the user of and lets them edit or delete it (SPEC-011).
+  *Upcoming* rows show the time in the reminder's own timezone, the channel and, for a repeating reminder, how often
+  and until when; an inline form edits the message, the time (or, for a repeating one, the repeat and its end date)
+  and the channel, and shows the server's reason when it refuses. *History* lists sent, missed and failed reminders,
+  each deletable. Deleting asks first. Reminders are created by asking the assistant, not on this page. The Overview
+  Reminders panel links here.
 
 - **2.8 (2026-10-11)** — Automations from playbooks, next run, test run. Each playbook in a workspace's Playbooks
   section has **Create automation**: it opens `/automations/new?workspace=<ws>&playbook=<id>`, where the form opens
@@ -92,8 +100,8 @@ account model, and makes no network request outside the proxy's own origin.
 ## II. Functional Requirements
 
 ### 1. Shell and navigation
-- Six destinations in a persistent, collapsible left sidebar: **Overview,
-  Workspaces, Automations, Models, Activity, Settings**. The collapse state
+- Seven destinations in a persistent, collapsible left sidebar: **Overview,
+  Workspaces, Automations, Reminders, Models, Activity, Settings**. The collapse state
   persists; below the mobile breakpoint the sidebar becomes a drawer.
 - The sidebar's Workspaces row carries an **assistant shortcut**: a chat icon
   at the row's end linking to `/workspaces/<ws>/assistant` for the workspace

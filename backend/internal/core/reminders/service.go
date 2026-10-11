@@ -122,24 +122,14 @@ func (s *Service) Channel(connector string) string {
 // Create validates and stores a reminder, then wakes the loop. A recurring
 // reminder without FireAt starts at its next cron occurrence.
 func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
-	now := s.clock.Now()
-	if r.Cron != "" && r.FireAt.IsZero() {
-		next, ok := NextFire(r, now)
-		if !ok {
-			return Reminder{}, errors.New("recurrence never fires again")
-		}
-		r.FireAt = next
-	}
-	if err := ValidateNew(r, now); err != nil {
+	r, err := s.prepare(r)
+	if err != nil {
 		return Reminder{}, err
-	}
-	if r.Connector != "" && !s.deliver.HasConnector(r.Connector) {
-		return Reminder{}, fmt.Errorf("no %q connector is configured: enable it in Settings or choose another channel", r.Connector)
 	}
 	if n, err := s.store.CountOpen(ctx); err != nil {
 		return Reminder{}, err
 	} else if n >= MaxOpen {
-		return Reminder{}, fmt.Errorf("too many open reminders (limit %d): cancel some first", MaxOpen)
+		return Reminder{}, fmt.Errorf("%w: too many open reminders (limit %d): cancel some first", ErrInvalid, MaxOpen)
 	}
 	id, err := s.store.Add(ctx, r)
 	if err != nil {
@@ -149,9 +139,63 @@ func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
 	return s.store.Get(ctx, id)
 }
 
+// Edit replaces the message, time, recurrence, end and channel of an open
+// reminder under the same rules as Create (its timezone is kept). ErrNotFound
+// when it is not open; ErrInvalid (wrapped) when the new description is refused,
+// in which case nothing changes.
+func (s *Service) Edit(ctx context.Context, id int64, in Reminder) (Reminder, error) {
+	cur, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Reminder{}, err
+	}
+	if cur.Status != StatusScheduled {
+		return Reminder{}, ErrNotFound
+	}
+	in.ID, in.Timezone, in.CreatedBy = id, cur.Timezone, cur.CreatedBy
+	in, err = s.prepare(in)
+	if err != nil {
+		return Reminder{}, err
+	}
+	if err := s.store.Replace(ctx, in); err != nil {
+		return Reminder{}, err
+	}
+	s.poke()
+	return s.store.Get(ctx, id)
+}
+
+// prepare resolves and validates a described reminder: a recurring one starts at
+// its next occurrence, the time must be sensible, and a named channel must exist
+// (in-app is always available).
+func (s *Service) prepare(r Reminder) (Reminder, error) {
+	now := s.clock.Now()
+	if r.Cron != "" && r.FireAt.IsZero() {
+		next, ok := NextFire(r, now)
+		if !ok {
+			return Reminder{}, fmt.Errorf("%w: recurrence never fires again", ErrInvalid)
+		}
+		r.FireAt = next
+	}
+	if err := ValidateNew(r, now); err != nil {
+		return Reminder{}, fmt.Errorf("%w: %s", ErrInvalid, err)
+	}
+	if r.Connector != "" && r.Connector != InAppChannel && !s.deliver.HasConnector(r.Connector) {
+		return Reminder{}, fmt.Errorf("%w: no %q connector is configured: enable it in Settings or choose another channel", ErrInvalid, r.Connector)
+	}
+	return r, nil
+}
+
 // Cancel cancels an open reminder.
 func (s *Service) Cancel(ctx context.Context, id int64) error {
 	err := s.store.Cancel(ctx, id)
+	if err == nil {
+		s.poke()
+	}
+	return err
+}
+
+// Remove deletes a reminder in any status (cancelling it first if it is open).
+func (s *Service) Remove(ctx context.Context, id int64) error {
+	err := s.store.Delete(ctx, id)
 	if err == nil {
 		s.poke()
 	}

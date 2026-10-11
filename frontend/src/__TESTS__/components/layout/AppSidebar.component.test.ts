@@ -10,7 +10,7 @@ vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: { fetchVersion: () => Promise.resolve({ version: 'v1.2.3' }) },
 }))
 
-const DESTINATIONS = ['Overview', 'Workspaces', 'Automations', 'Models', 'Activity', 'Settings']
+const DESTINATIONS = ['Overview', 'Workspaces', 'Automations', 'Reminders', 'Models', 'Activity', 'Settings']
 
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())
@@ -33,7 +33,7 @@ describe('AppSidebar', () => {
     vi.unstubAllGlobals()
   })
 
-  it('links the six destinations in order under the versioned brand', async () => {
+  it('links the seven destinations in order under the versioned brand', async () => {
     const { wrapper } = await mountAt('/overview')
     expect(wrapper.text()).toContain('v1.2.3')
     expect(navLinks(wrapper).map((a) => a.attributes('aria-label'))).toEqual(DESTINATIONS)
