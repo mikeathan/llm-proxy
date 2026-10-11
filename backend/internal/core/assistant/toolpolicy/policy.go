@@ -64,6 +64,7 @@ var toolEffects = map[string]ToolEffect{
 	models.ToolMemorySearch:      EffectReadOnly,
 	models.ToolNetworkInfo:       EffectReadOnly,
 	models.ToolNetworkScan:       EffectReadOnly,
+	models.ToolListReminders:     EffectReadOnly,
 	models.ToolMemoryUpdate:      EffectHousekeeping,
 	models.ToolAutomationJournal: EffectHousekeeping,
 }

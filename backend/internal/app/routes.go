@@ -26,6 +26,7 @@ type HandlerSet struct {
 	Dispatcher *handlers.DispatcherHandlers
 	Recordings *handlers.RecordingHandlers
 	Memory     *handlers.MemoryHandlers
+	Reminders  *handlers.ReminderHandlers
 	Webhook    *handlers.WebhookHandler
 }
 
@@ -79,6 +80,10 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig)
 	}
 
+	if s.Reminders != nil {
+		hs.Reminders = handlers.NewReminderHandlers(s.Reminders)
+	}
+
 	commTools := communicationTools(s.ToolProvider())
 
 	hs.Webhook = &handlers.WebhookHandler{
@@ -90,6 +95,9 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		Assistant:   hs.Assistant,
 		Logger:      s.Logger(),
 		Limiter:     ratelimiter.NewLimiter(utils.NewRealClock()),
+		// Connector messages carry no browser timezone; the owner's configured zone
+		// keeps "tomorrow morning" meaning the owner's morning.
+		OwnerTimezone: func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone },
 	}
 
 	return hs
@@ -268,6 +276,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	// run holding the model) or drop it.
 	router.Post("/admin/api/queue/{queue_key}/promote", hs.ActiveRuns.ServePromoteHTTP, jsonMethodNotAllowed)
 	router.Post("/admin/api/queue/{queue_key}/cancel", hs.ActiveRuns.ServeCancelHTTP, jsonMethodNotAllowed)
+
+	if hs.Reminders != nil {
+		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)
+	}
 
 	// Memory API
 	if hs.Memory != nil {

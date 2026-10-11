@@ -14,6 +14,7 @@ type AppConfig struct {
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
 	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
 	Scheduler      *SchedulerConfig         `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
+	Reminders      *RemindersConfig         `yaml:"reminders,omitempty" json:"reminders,omitempty"`
 	RunLogging     *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 }
 

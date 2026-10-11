@@ -21,6 +21,7 @@ import StatusTag from "../components/common/display/StatusTag.vue"
 import { runOutcomeTag } from "../utils/automation/runOutcome"
 import RunRow from "../components/common/display/RunRow.vue"
 import DataTable from "../components/common/display/DataTable.vue"
+import RemindersPanel from "../components/reminders/RemindersPanel.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
 import EmptyState from "../components/common/feedback/EmptyState.vue"
@@ -202,5 +203,7 @@ const runKey = (run: AutomationRun) => run.id
         </DataTable>
       </Panel>
     </div>
+
+    <RemindersPanel />
   </div>
 </template>

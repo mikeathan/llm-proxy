@@ -33,6 +33,10 @@ vi.mock('../../composables/automation/useDispatcher', () => ({
   useDispatcher: () => ({ fetchGlobalActivity: state.fetchGlobalActivity }),
 }))
 
+vi.mock('../../services/reminders/reminderService', () => ({
+  ReminderService: { list: vi.fn().mockResolvedValue({ open: [], recent: [] }) },
+}))
+
 import OverviewView from '../../views/OverviewView.vue'
 
 const METRICS: SystemMetrics = {
@@ -205,5 +209,11 @@ describe('Overview', () => {
       const w = await mountOverview()
       expect(link(w, /Chat in workspace-1/)!.attributes('aria-label')).toMatch(/^Open /)
     })
+  })
+
+  it('shows the reminders panel with the way to create one', async () => {
+    const w = await mountOverview()
+    expect(w.text()).toContain('Reminders')
+    expect(w.text()).toMatch(/remind me tomorrow morning/i)
   })
 })

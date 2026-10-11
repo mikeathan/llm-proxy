@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,6 +17,13 @@ import (
 type Connector interface {
 	Send(ctx context.Context, message string) error
 	Name() string
+}
+
+// PlainSender is optionally implemented by connectors that format text by
+// default (Telegram parses Markdown). SendPlain delivers the text exactly as
+// given, with no markup interpreted: the path for text that is the user's own.
+type PlainSender interface {
+	SendPlain(ctx context.Context, message string) error
 }
 
 // WebhookAware is optionally implemented by connectors that support inbound
@@ -142,6 +150,21 @@ func (c *CommunicationTools) snapshot() map[string]namedConnector {
 // agent knows the requested platform doesn't exist.
 // Errors are collected and returned as a single combined error.
 func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, connectorType string) error {
+	return c.notify(ctx, message, connectorType, Connector.Send)
+}
+
+// NotifyAllPlain is NotifyAll for text that must arrive exactly as written
+// (reminders): a connector with a SendPlain path uses it, any other falls back to Send.
+func (c *CommunicationTools) NotifyAllPlain(ctx context.Context, message string, connectorType string) error {
+	return c.notify(ctx, message, connectorType, func(conn Connector, ctx context.Context, msg string) error {
+		if p, ok := conn.(PlainSender); ok {
+			return p.SendPlain(ctx, msg)
+		}
+		return conn.Send(ctx, msg)
+	})
+}
+
+func (c *CommunicationTools) notify(ctx context.Context, message, connectorType string, send func(Connector, context.Context, string) error) error {
 	var errs []error
 	var matched bool
 	connectors := c.snapshot()
@@ -150,7 +173,7 @@ func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, conn
 			continue
 		}
 		matched = true
-		if err := nc.connector.Send(ctx, message); err != nil {
+		if err := send(nc.connector, ctx, message); err != nil {
 			errs = append(errs, fmt.Errorf("%s (%s): %w", name, nc.connector.Name(), err))
 		}
 	}
@@ -163,6 +186,21 @@ func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, conn
 		return fmt.Errorf("some notifications failed: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// Types returns the configured connector types (for example "telegram"), sorted
+// and de-duplicated.
+func (c *CommunicationTools) Types() []string {
+	seen := make(map[string]bool)
+	var types []string
+	for _, nc := range c.snapshot() {
+		if !seen[nc.connType] {
+			seen[nc.connType] = true
+			types = append(types, nc.connType)
+		}
+	}
+	slices.Sort(types)
+	return types
 }
 
 // listTypes returns a comma-separated list of unique connector types in the map.

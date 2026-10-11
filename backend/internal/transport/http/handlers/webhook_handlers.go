@@ -37,6 +37,21 @@ type WebhookHandler struct {
 	Assistant   *AssistantMessageHandler
 	Logger      logging.Logger
 	Limiter     ratelimiter.Limiter
+	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset.
+	OwnerTimezone func() string
+}
+
+// agentTimezone is the zone a connector-originated run reports to the agent: the
+// owner's configured zone when it is set and valid, else UTC.
+func (h *WebhookHandler) agentTimezone() string {
+	if h.OwnerTimezone != nil {
+		if tz := h.OwnerTimezone(); tz != "" {
+			if _, err := time.LoadLocation(tz); err == nil {
+				return tz
+			}
+		}
+	}
+	return "UTC"
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +193,7 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 		WorkspaceID:    workspaceID,
 		ConversationID: webhookSessionKey(connectorType, chatID),
 		Message:        message,
-		Timezone:       "UTC",
+		Timezone:       h.agentTimezone(),
 		// No hardcoded ExcludeTools here — the exposed tool schema is derived
 		// from guardrail policy (DisabledToolNames) at the agent narrow waist,
 		// so a statically-disabled tool (e.g. notify_user with Communication
@@ -191,9 +206,15 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 	safe.Go("webhook agent reply", func() { h.runAgentReply(workspaceID, connectorName, connectorType, chatID, payload) })
 }
 
+// agentRunContext is the context of a connector-originated run: it records which
+// connector the message came from so a reminder asked for there is answered there.
+func agentRunContext(connectorType string) context.Context {
+	return models.WithOriginConnector(context.Background(), connectorType)
+}
+
 // runAgentReply runs handleAssistant and sends the result back via the connector.
 func (h *WebhookHandler) runAgentReply(workspaceID, connectorName, connectorType, chatID string, payload *AssistantMessage) {
-	result, handlerErr := h.Assistant.RunWithCancel(context.Background(), workspaceID, payload, h.Logger)
+	result, handlerErr := h.Assistant.RunWithCancel(agentRunContext(connectorType), workspaceID, payload, h.Logger)
 	if handlerErr != nil {
 		h.Logger.Error("webhook agent execution failed", "error", handlerErr.Message)
 		return

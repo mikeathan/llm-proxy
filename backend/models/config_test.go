@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -244,5 +245,17 @@ func TestDefaultSearchConfig(t *testing.T) {
 	}
 	if err := got.Validate(); err != nil {
 		t.Errorf("DefaultSearchConfig().Validate() = %v, want nil", err)
+	}
+}
+
+func TestOriginConnector(t *testing.T) {
+	if got := OriginConnector(context.Background()); got != "" {
+		t.Errorf("bare context origin = %q", got)
+	}
+	if got := OriginConnector(nil); got != "" { //nolint:staticcheck // nil-safety is the contract
+		t.Errorf("nil context origin = %q", got)
+	}
+	if got := OriginConnector(WithOriginConnector(context.Background(), "telegram")); got != "telegram" {
+		t.Errorf("origin = %q", got)
 	}
 }

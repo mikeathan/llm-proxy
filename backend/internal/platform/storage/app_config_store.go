@@ -113,6 +113,7 @@ func appConfigToUserSettings(cfg models.AppConfig) models.UserSettings {
 		ModelOverrides: cfg.ModelOverrides,
 		Memory:         cfg.Memory,
 		Scheduler:      cfg.Scheduler,
+		Reminders:      cfg.Reminders,
 		RunOutput:      cfg.RunLogging,
 	}
 }
@@ -123,6 +124,7 @@ func applyUserSettingsToAppConfig(cfg *models.AppConfig, set models.UserSettings
 	cfg.ModelOverrides = set.ModelOverrides
 	cfg.Memory = set.Memory
 	cfg.Scheduler = set.Scheduler
+	cfg.Reminders = set.Reminders
 	cfg.RunLogging = set.RunOutput
 }
 

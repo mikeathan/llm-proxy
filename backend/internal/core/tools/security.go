@@ -43,7 +43,7 @@ func IsSecurePath(path string, allowedRoots []string) (string, error) {
 	}
 
 	absLocal := resolveCanonical(path)
-	
+
 	for _, root := range allowedRoots {
 		absRoot := resolveCanonical(root)
 

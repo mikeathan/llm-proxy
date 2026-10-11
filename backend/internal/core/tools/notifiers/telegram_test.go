@@ -524,3 +524,35 @@ func TestTelegramNotifier_Send_DoesNotWaitOutALongRateLimit(t *testing.T) {
 		t.Errorf("a wait over the cap must not be retried, calls = %d", calls)
 	}
 }
+
+// A reminder is the user's own text: it must reach Telegram without Markdown
+// parsing, or `[bank](https://evil.example)` arrives as a link.
+func TestTelegramNotifier_SendPlain_SendsNoParseMode(t *testing.T) {
+	var modes []string
+	var texts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		modes = append(modes, r.Form.Get("parse_mode"))
+		texts = append(texts, r.Form.Get("text"))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	n := newTestTelegram(t, srv)
+	if err := n.SendPlain(context.Background(), "[bank](https://evil.example) *now*"); err != nil {
+		t.Fatalf("SendPlain: %v", err)
+	}
+	if len(modes) != 1 || modes[0] != "" || texts[0] != "[bank](https://evil.example) *now*" {
+		t.Fatalf("modes=%v texts=%v, want one request with no parse_mode and the text unchanged", modes, texts)
+	}
+}
+
+func newTestTelegram(t *testing.T, srv *httptest.Server) *TelegramNotifier {
+	t.Helper()
+	n := &TelegramNotifier{Token: "test-token", ChatID: "12345", client: srv.Client()}
+	n.client.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = srv.Listener.Addr().String()
+		return http.DefaultTransport.RoundTrip(req)
+	})
+	return n
+}

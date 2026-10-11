@@ -199,3 +199,48 @@ func TestCommunicationTools_ReloadIsSafeDuringUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestCommunicationTools_TypesSortedAndUnique(t *testing.T) {
+	c := NewCommunicationTools()
+	if got := c.Types(); len(got) != 0 {
+		t.Fatalf("empty set Types() = %v", got)
+	}
+	c.AddConnector("a", "telegram", &stubConnector{})
+	c.AddConnector("b", "slack", &stubConnector{})
+	c.AddConnector("c", "telegram", &stubConnector{})
+	got := c.Types()
+	if len(got) != 2 || got[0] != "slack" || got[1] != "telegram" {
+		t.Fatalf("Types() = %v, want [slack telegram]", got)
+	}
+}
+
+type plainConnector struct {
+	stubConnector
+	plain []string
+}
+
+func (p *plainConnector) SendPlain(_ context.Context, m string) error {
+	p.plain = append(p.plain, m)
+	return nil
+}
+
+func TestNotifyAllPlain_UsesPlainPathWhenAvailable(t *testing.T) {
+	c := NewCommunicationTools()
+	pc := &plainConnector{stubConnector: stubConnector{name: "tg"}}
+	other := &stubConnector{name: "other"}
+	c.AddConnector("a", "telegram", pc)
+	c.AddConnector("b", "slack", other)
+
+	if err := c.NotifyAllPlain(context.Background(), "[x](https://e.example) *b*", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pc.plain) != 1 || pc.plain[0] != "[x](https://e.example) *b*" {
+		t.Fatalf("plain sends = %v", pc.plain)
+	}
+	if err := c.NotifyAllPlain(context.Background(), "hi", "slack"); err != nil {
+		t.Fatalf("a connector without a plain path falls back to Send: %v", err)
+	}
+	if err := c.NotifyAllPlain(context.Background(), "hi", "nope"); err == nil {
+		t.Fatal("unknown type must error")
+	}
+}

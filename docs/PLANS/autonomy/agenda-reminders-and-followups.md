@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: partial
 date: 2026-10-04
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-11
 related_specs: [SPEC-007, SPEC-001, SPEC-009, SPEC-003]
 constitution_references: [II.2, II.10, II.13, II.14, III.2, III.3, IV.1, IV.2, V.2, V.3]
 related_plans: [autonomy-roadmap.md, attention-policy.md, standing-goals.md, event-driven-triggers.md, autonomy-ux-design.md]
@@ -9,7 +9,14 @@ related_plans: [autonomy-roadmap.md, attention-policy.md, standing-goals.md, eve
 
 # Agenda — Reminders and Self-Scheduled Follow-ups (milestone M1)
 
-**Status:** proposed — needs D1–D3 before Phase 2. Phase 0–1 change no user-facing behaviour.
+**Status:** partial — the **reminder** half is built (2026-10-11): store, scheduler, `schedule_reminder` /
+`list_reminders` / `cancel_reminder`, default channel + owner timezone settings, Overview list. Behaviour is specified in
+[SPEC-011](../../SPECS/reminders.md); the design and plan were
+[`docs/superpowers/specs/2026-10-11-reminders-design.md`](../../superpowers/specs/2026-10-11-reminders-design.md) and
+[`docs/superpowers/plans/2026-10-11-reminders.md`](../../superpowers/plans/2026-10-11-reminders.md). Reminders were built
+**without** `RunReason`, the run-lane `agenda` kind, snooze or the Agenda/Today view, and use their own table
+(`core/reminders`), not `AgendaItem`: the follow-up work below must either extend that table with `action=run` or
+migrate it. D2 (recurring reminders: yes) and D3 (late < 12 h, else missed) are implemented as recommended.
 
 ## Why this plan exists
 
@@ -135,4 +142,6 @@ schedules a follow-up …). Exceeding a limit returns a tool error the agent mus
 - **Non-goal:** calendar sync (a future MCP preset), location-based reminders.
 
 ## Remaining Work
-All phases (0–5). Phase 2 blocked on D2/D3, Phase 3 on D1/D4, Phase 4 on the UX design.
+Delivered: reminders (Phase 2 for `action: message`, the reminder tools of Phase 3). Remaining: Phase 0–1 (`RunReason`),
+`action: run` follow-ups and `schedule_followup` (D1, D4), snooze, the Agenda/Today UI (Phase 4, after the UX design),
+attention-policy routing of delivery, and the SPEC-007 lane kind.

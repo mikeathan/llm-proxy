@@ -58,9 +58,20 @@ export const formatRelativeTime = (iso: string, nowMs: number = Date.now(), loca
   return rtf.format(unit === "second" && Math.abs(diff) < 10 ? 0 : Math.round(diff / size), unit);
 };
 
-/** Absolute date and time in the user's locale and time zone. */
-export const formatAbsoluteTime = (iso: string, locale?: string, timeZone?: string): string =>
-  new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(iso));
+/**
+ * Absolute date and time in the user's locale and time zone. A `timeZone` the
+ * browser does not know is ignored (the user's own zone is shown) rather than
+ * throwing, so one odd stored zone cannot break the page that renders it.
+ */
+export const formatAbsoluteTime = (iso: string, locale?: string, timeZone?: string): string => {
+  const date = new Date(iso);
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone }).format(date);
+  } catch (e) {
+    if (!(e instanceof RangeError) || !timeZone) throw e;
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  }
+};
 
 /**
  * Formats elapsed time since an ISO timestamp as a compact string

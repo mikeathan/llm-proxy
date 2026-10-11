@@ -21,6 +21,7 @@ const (
 	RunIDKey             contextKey = "run_id"
 	RunNetworkScopeKey   contextKey = "run_network_scope"
 	UnattendedRunKey     contextKey = "unattended_run"
+	OriginConnectorKey   contextKey = "origin_connector"
 	JournalRunKey        contextKey = "journal_run"
 )
 
@@ -105,6 +106,22 @@ func WithRunID(ctx context.Context, id string) context.Context {
 // (memory_update writes session-scoped entries unless told otherwise).
 func WithUnattendedRun(ctx context.Context) context.Context {
 	return context.WithValue(ctx, UnattendedRunKey, true)
+}
+
+// WithOriginConnector records the connector type (for example "telegram") a chat
+// message arrived through, so a tool can answer on the same channel.
+func WithOriginConnector(ctx context.Context, connectorType string) context.Context {
+	return context.WithValue(ctx, OriginConnectorKey, connectorType)
+}
+
+// OriginConnector is the connector type the run's message came from, "" for the
+// web chat and any run that did not arrive through a connector. Nil-safe.
+func OriginConnector(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v, _ := ctx.Value(OriginConnectorKey).(string)
+	return v
 }
 
 // IsUnattendedRun reports whether the context belongs to an unattended run.

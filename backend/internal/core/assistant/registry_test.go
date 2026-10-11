@@ -699,3 +699,61 @@ func TestLocalToolRegistry_SearchToolTimeRange(t *testing.T) {
 		t.Fatalf("provider ran for an invalid range: %v", p.got)
 	}
 }
+
+type reminderServiceStub struct{ got tools.ReminderSpec }
+
+func (s *reminderServiceStub) Schedule(_ context.Context, spec tools.ReminderSpec) (tools.ReminderView, error) {
+	s.got = spec
+	return tools.ReminderView{ID: 1, Message: spec.Message, At: spec.At, Zone: spec.Zone, Channel: "telegram"}, nil
+}
+func (s *reminderServiceStub) Cancel(context.Context, int64) error                { return nil }
+func (s *reminderServiceStub) List(context.Context) ([]tools.ReminderView, error) { return nil, nil }
+func (s *reminderServiceStub) Zone(string) (*time.Location, error)                { return time.UTC, nil }
+
+func TestLocalToolRegistry_ReminderToolsRegisteredAndCallable(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
+	svc := &reminderServiceStub{}
+	r.WithReminders(svc)
+
+	names := listedToolNames(t, r, context.Background())
+	for _, want := range []string{models.ToolScheduleReminder, models.ToolListReminders, models.ToolCancelReminder} {
+		if !slices.Contains(names, want) {
+			t.Errorf("%s not listed", want)
+		}
+	}
+	call := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolScheduleReminder,
+		Arguments: `{"message":"call bank","when":"2026-10-12T09:00:00+01:00","timezone":"Europe/London"}`}}
+	out, err := r.ExecuteTool(context.Background(), call)
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	if svc.got.Message != "call bank" || !svc.got.At.Equal(time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC)) {
+		t.Fatalf("spec = %+v", svc.got)
+	}
+	if !strings.Contains(fmt.Sprint(out), "Reminder 1 set") {
+		t.Errorf("result = %v", out)
+	}
+}
+
+// An unattended run may be steered by content it read (a web page, a file), so it
+// must not be able to schedule messages to the owner.
+func TestLocalToolRegistry_ReminderToolsHiddenFromUnattendedRuns(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
+	svc := &reminderServiceStub{}
+	r.WithReminders(svc)
+
+	unattended := models.WithUnattendedRun(context.Background())
+	for _, name := range []string{models.ToolScheduleReminder, models.ToolListReminders, models.ToolCancelReminder} {
+		if slices.Contains(listedToolNames(t, r, unattended), name) {
+			t.Errorf("%s must not be listed to an unattended run", name)
+		}
+	}
+	call := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolScheduleReminder,
+		Arguments: `{"message":"x","when":"2030-01-01T09:00:00Z"}`}}
+	if _, err := r.ExecuteTool(unattended, call); err == nil || svc.got.Message != "" {
+		t.Errorf("an unattended run must be refused without scheduling: err=%v got=%+v", err, svc.got)
+	}
+	if !slices.Contains(listedToolNames(t, r, context.Background()), models.ToolScheduleReminder) {
+		t.Error("an attended chat must still see the tool")
+	}
+}
