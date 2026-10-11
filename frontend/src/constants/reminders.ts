@@ -21,7 +21,7 @@ export const REMINDER_OUTCOME_TAG: Partial<Record<ReminderStatus, { state: Statu
 // Default-channel choices on the settings page.
 export const AUTOMATIC_CHANNEL_LABEL = 'Automatic'
 export const DEFAULT_CHANNEL_HINT =
-  'Where a reminder goes when you do not name a channel. Automatic picks Telegram if it is connected, otherwise another connector, otherwise it is shown in the web UI only.'
+  'Where a reminder goes when you do not name a channel. One asked for in a chat app is answered there. Automatic uses your only connected connector; with several and no choice here, it is shown in the web UI only.'
 export const TIMEZONE_HINT =
   'Used when a reminder comes from a chat app, which does not report your timezone. The web UI always uses your browser timezone.'
 export const UNKNOWN_TIMEZONE_ERROR = 'Not a known timezone. Use a name such as Europe/London.'

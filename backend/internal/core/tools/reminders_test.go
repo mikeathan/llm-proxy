@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/models"
 )
 
 type fakeReminderService struct {
@@ -160,5 +162,16 @@ func TestReminderManifest_LoadsEveryTool(t *testing.T) {
 	params, _, _ := LoadManifestAsTool("reminders", "schedule_reminder")
 	if _, ok := params["properties"].(map[string]any)["when"]; !ok {
 		t.Error("schedule_reminder must declare 'when'")
+	}
+}
+
+func TestScheduleReminder_PassesTheOriginConnector(t *testing.T) {
+	svc := &fakeReminderService{}
+	ctx := models.WithOriginConnector(context.Background(), "telegram")
+	if _, err := NewReminderTools(svc).Schedule(ctx, ScheduleReminderArgs{Message: "x", When: "2030-01-01T09:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.specs[0].Origin != "telegram" || svc.specs[0].Connector != "" {
+		t.Fatalf("spec = %+v, want origin telegram and no named connector", svc.specs[0])
 	}
 }

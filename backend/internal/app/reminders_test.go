@@ -39,10 +39,11 @@ func TestDefaultReminderConnector(t *testing.T) {
 		want    string
 	}{
 		{"explicit setting wins", "slack", []string{"telegram", "slack"}, "slack"},
-		{"telegram preferred", "", []string{"slack", "telegram"}, "telegram"},
-		{"first when no telegram", "", []string{"slack", "discord"}, "discord"},
+		{"the only connector", "", []string{"discord"}, "discord"},
+		{"several and no setting: no guess", "", []string{"slack", "telegram"}, ""},
 		{"none configured", "", nil, ""},
-		{"setting names an unconfigured type", "slack", []string{"telegram"}, "telegram"},
+		{"setting names an unconfigured type: the only one", "slack", []string{"telegram"}, "telegram"},
+		{"setting names an unconfigured type among several: no guess", "slack", []string{"telegram", "discord"}, ""},
 	}
 	for _, tc := range cases {
 		comm, _ := commWith(tc.types...)
@@ -107,5 +108,38 @@ func TestReminderPort_ScheduleListCancel(t *testing.T) {
 	}
 	if list, _ := port.List(context.Background()); len(list) != 0 {
 		t.Fatalf("after cancel: %+v", list)
+	}
+}
+
+// A reminder asked for in a chat app goes back to that app, whatever the default is.
+func TestReminderPort_RepliesWhereAsked(t *testing.T) {
+	p, err := db.Open(filepath.Join(t.TempDir(), "r.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.DB().Close() })
+	store, _ := reminders.NewStore(p)
+	comm, _ := commWith("telegram", "slack")
+	cfg := func() models.RemindersConfig { return models.RemindersConfig{DefaultConnector: "telegram"} }
+	svc := reminders.NewService(store, reminderDeliverer{comm: comm}, reminderNotice{}, reminders.SystemClock(),
+		reminders.Config{DefaultConnector: func() string { return defaultReminderConnector(comm, cfg) }})
+	port := reminderPort{svc: svc, settings: cfg}
+	at := time.Now().Add(time.Hour)
+
+	view, err := port.Schedule(context.Background(), tools.ReminderSpec{Message: "a", At: at, Zone: "UTC", Origin: "slack"})
+	if err != nil || view.Channel != "slack" {
+		t.Fatalf("asked in slack: channel=%q err=%v, want slack", view.Channel, err)
+	}
+	view, _ = port.Schedule(context.Background(), tools.ReminderSpec{Message: "b", At: at, Zone: "UTC", Origin: "slack", Connector: "telegram"})
+	if view.Channel != "telegram" {
+		t.Errorf("a named channel beats the origin, got %q", view.Channel)
+	}
+	view, _ = port.Schedule(context.Background(), tools.ReminderSpec{Message: "c", At: at, Zone: "UTC", Origin: "discord"})
+	if view.Channel != "telegram" {
+		t.Errorf("an origin that is no longer configured falls back to the default, got %q", view.Channel)
+	}
+	view, _ = port.Schedule(context.Background(), tools.ReminderSpec{Message: "d", At: at, Zone: "UTC"})
+	if view.Channel != "telegram" {
+		t.Errorf("web chat uses the default, got %q", view.Channel)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"llm-proxy/models"
 )
 
 // ReminderSpec is a reminder as the agent asked for it. At is zero for a
@@ -16,7 +18,8 @@ type ReminderSpec struct {
 	Cron      string
 	Until     *time.Time
 	Zone      string // IANA name, already resolved
-	Connector string // channel type; empty = default channel
+	Connector string // channel type; empty = the origin, else the default channel
+	Origin    string // connector type the request arrived through; empty for the web chat
 }
 
 // ReminderView is a stored reminder as shown back to the agent.
@@ -72,6 +75,7 @@ func (t *ReminderTools) Schedule(ctx context.Context, args ScheduleReminderArgs)
 	if err != nil {
 		return nil, err
 	}
+	spec.Origin = models.OriginConnector(ctx)
 	view, err := t.svc.Schedule(ctx, spec)
 	if err != nil {
 		return nil, err

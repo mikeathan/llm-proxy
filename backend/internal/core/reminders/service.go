@@ -105,6 +105,9 @@ func NewService(s *Store, d Deliverer, n Notice, c Clock, cfg Config) *Service {
 	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
 }
 
+// HasConnector reports whether a connector of that type is configured.
+func (s *Service) HasConnector(connector string) bool { return s.deliver.HasConnector(connector) }
+
 // Channel is where a reminder naming `connector` (or none) will be delivered.
 func (s *Service) Channel(connector string) string {
 	if connector != "" {

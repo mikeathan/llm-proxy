@@ -3,6 +3,8 @@ package handlers
 import (
 	"strings"
 	"testing"
+
+	"llm-proxy/models"
 )
 
 func TestWebhookSessionKey_Format(t *testing.T) {
@@ -36,5 +38,11 @@ func TestWebhookHandler_AgentTimezone(t *testing.T) {
 		if got := h.agentTimezone(); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestAgentRunContext_CarriesTheConnectorType(t *testing.T) {
+	if got := models.OriginConnector(agentRunContext("telegram")); got != "telegram" {
+		t.Fatalf("origin = %q, want telegram", got)
 	}
 }

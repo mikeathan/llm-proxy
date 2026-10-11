@@ -12,10 +12,6 @@ import (
 	"llm-proxy/models"
 )
 
-// preferredReminderConnector is the channel used when nothing is configured and
-// the user has not named one: the first-class chat connector.
-const preferredReminderConnector = "telegram"
-
 // reminderDeliverer sends reminder text through the shared connector set. Like
 // connectorNotifier it is a system-side send path: the destination is the
 // operator's own connector and the text is exactly what the user asked for.
@@ -41,18 +37,16 @@ func (reminderNotice) Notify(_ context.Context, r reminders.Reminder, event stri
 	logging.Info("reminder", "id", r.ID, "event", event, "channel", r.Connector)
 }
 
-// defaultReminderConnector is the channel for a reminder that names none: the
-// configured default if that connector exists, else telegram if configured, else
-// the first configured type, else "" (in-app only).
+// defaultReminderConnector is the channel for a reminder that names none and did
+// not arrive through a connector: the configured default if that connector
+// exists, else the only configured connector, else "" (in-app only). With several
+// connectors and no setting it does not guess.
 func defaultReminderConnector(comm *tools.CommunicationTools, cfg func() models.RemindersConfig) string {
 	types := comm.Types()
 	if want := cfg().DefaultConnector; want != "" && slices.Contains(types, want) {
 		return want
 	}
-	if slices.Contains(types, preferredReminderConnector) {
-		return preferredReminderConnector
-	}
-	if len(types) > 0 {
+	if len(types) == 1 {
 		return types[0]
 	}
 	return ""
@@ -69,6 +63,11 @@ func (p reminderPort) Zone(requested string) (*time.Location, error) {
 }
 
 func (p reminderPort) Schedule(ctx context.Context, spec tools.ReminderSpec) (tools.ReminderView, error) {
+	// Reply where asked: with no channel named, a request that came through a
+	// connector is answered on it, as long as it is still configured.
+	if spec.Connector == "" && spec.Origin != "" && p.svc.HasConnector(spec.Origin) {
+		spec.Connector = spec.Origin
+	}
 	got, err := p.svc.Create(ctx, reminders.Reminder{
 		Message:   spec.Message,
 		FireAt:    spec.At,

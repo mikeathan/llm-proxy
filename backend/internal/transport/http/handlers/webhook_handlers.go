@@ -206,9 +206,15 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 	safe.Go("webhook agent reply", func() { h.runAgentReply(workspaceID, connectorName, connectorType, chatID, payload) })
 }
 
+// agentRunContext is the context of a connector-originated run: it records which
+// connector the message came from so a reminder asked for there is answered there.
+func agentRunContext(connectorType string) context.Context {
+	return models.WithOriginConnector(context.Background(), connectorType)
+}
+
 // runAgentReply runs handleAssistant and sends the result back via the connector.
 func (h *WebhookHandler) runAgentReply(workspaceID, connectorName, connectorType, chatID string, payload *AssistantMessage) {
-	result, handlerErr := h.Assistant.RunWithCancel(context.Background(), workspaceID, payload, h.Logger)
+	result, handlerErr := h.Assistant.RunWithCancel(agentRunContext(connectorType), workspaceID, payload, h.Logger)
 	if handlerErr != nil {
 		h.Logger.Error("webhook agent execution failed", "error", handlerErr.Message)
 		return
