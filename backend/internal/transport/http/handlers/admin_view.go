@@ -34,7 +34,11 @@ func modelViewTuning(mc models.ModelConfig) (prefill bool, maxSteps, contextBudg
 	// default here would be fabricated and an edit-save would persist it.
 	temperature = mc.Temperature
 	reasoningBudget = mc.ReasoningBudget
-	if reasoningBudget == 0 {
+	// Only fabricate a display budget when the resolved reasoning mode is
+	// actually the numeric think-token mechanism (local llama.cpp). Cloud
+	// providers use reasoning_effort/object/enable_thinking — showing
+	// max_tokens/3 there is fiction: the wire request never sends it.
+	if reasoningBudget == 0 && assistant.ResolvesToThinkTokenBudget(mc.WorkloadClass, mc.Provider) {
 		reasoningBudget = assistant.DefaultReasoningBudget(maxTokens)
 	}
 	slotTimeout = mc.SlotTimeout

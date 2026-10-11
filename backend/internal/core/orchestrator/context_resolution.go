@@ -27,6 +27,15 @@ type ContextResolution struct {
 	// PublishedContext is the resolved published context length for cloud
 	// workloads (0 when nothing is published and no tier default exists).
 	PublishedContext int
+	// PublishedContextKnown reports whether PublishedContext came from
+	// model-specific data (live catalog, metadata, or a knownCtx fragment
+	// match) rather than the provider tier's own DefaultContext guess.
+	// CloudBudgetPolicy uses this to decide whether the tier HISTORY budget
+	// is a ceiling (false — nothing model-specific known) or a no-data
+	// fallback that a real published context is never clamped down to
+	// (true). It does NOT affect the output-cap (max_tokens) clamp, which
+	// stays min(published, tier) unconditionally — see output_cap.go.
+	PublishedContextKnown bool
 	// OutputCap is the resolved per-model output cap (0 when unknown).
 	OutputCap int
 }
@@ -128,14 +137,17 @@ var publishedContextChain = []PublishedContextSource{
 }
 
 // resolvePublishedContext walks the chain and returns the first known context
-// length, or 0 when nothing is published/known (capless).
-func resolvePublishedContext(cfg models.ModelConfig) int {
-	for _, src := range publishedContextChain {
+// length, or 0 when nothing is published/known (capless). known is false when
+// nothing matched, or when only the last-resort tier default matched — the
+// only two cases where the result is a guess rather than real per-model data.
+func resolvePublishedContext(cfg models.ModelConfig) (ctxLen int, known bool) {
+	lastIdx := len(publishedContextChain) - 1
+	for i, src := range publishedContextChain {
 		if ctx, ok := src.Context(cfg); ok {
-			return ctx
+			return ctx, i != lastIdx
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // knownCtx lists exceptional models — context length differs from their

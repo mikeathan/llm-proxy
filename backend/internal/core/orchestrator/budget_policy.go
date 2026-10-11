@@ -90,8 +90,18 @@ func (LocalBudgetPolicy) Derive(cfg models.ModelConfig, ctx ContextResolution) (
 // CloudBudgetPolicy is clamp-first and data-driven.  The output cap comes from
 // the OutputCapSource chain; the published context from the
 // PublishedContextSource chain; both fall back to the per-provider tier row.
-// The chain clamps to min(published, tier) so a per-tier raise never exceeds
-// what a model publishes.
+// The chain clamps the OUTPUT cap to min(published, tier) so a per-tier raise
+// never exceeds what a model publishes (deliberate — see output_cap.go's
+// publishedOutputCap comment: max_tokens also sizes stuck detection and the
+// stream content cap, both tuned against the tier value).
+//
+// The HISTORY budget is different: it is a no-data fallback, not a ceiling.
+// It only falls back to the tier row when nothing model-specific is known
+// (ContextResolution.PublishedContextKnown false) — a verified real published
+// context is never clamped down to a generic provider-type guess, since
+// nothing downstream of ContextBudget couples it to the stuck-detection
+// mechanisms that justify the output-cap ceiling (hot/recall/ledger budgets
+// carry their own independent caps; see docs/SPECS/orchestrator.md §3).
 type CloudBudgetPolicy struct{}
 
 func (CloudBudgetPolicy) Derive(cfg models.ModelConfig, ctx ContextResolution) (Budget, error) {
@@ -118,7 +128,10 @@ func (CloudBudgetPolicy) Derive(cfg models.ModelConfig, ctx ContextResolution) (
 		if historyBudget < minHistoryBudgetChars {
 			historyBudget = minHistoryBudgetChars
 		}
-		if tier.ContextBudget > 0 && historyBudget > tier.ContextBudget {
+		// The tier row is a no-data fallback, not a ceiling: only clamp when
+		// the published context itself is the tier's own guess (nothing
+		// model-specific was found upstream).
+		if !ctx.PublishedContextKnown && tier.ContextBudget > 0 && historyBudget > tier.ContextBudget {
 			historyBudget = tier.ContextBudget
 		}
 		return Budget{MaxTokens: maxTokens, ContextBudget: historyBudget}, nil

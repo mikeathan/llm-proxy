@@ -99,7 +99,22 @@ from model metadata, and applies provider-tier tuning defaults.
 - The cloud `MaxTokens` is the **per-tier output cap**, not an allocation. It is the
   clamp target for the output-cap chain (`min(published, tier)`) — a provider known to
   support larger outputs raises its row independently; a published per-model cap still
-  wins (is clamped to) the tier row.
+  wins (is clamped to) the tier row. This ceiling is deliberate even when a model
+  publishes a larger cap: `max_tokens` also sizes stuck detection and the stream
+  content cap (`internal/core/assistant/stream.go`), both tuned against the tier value
+  (`docs/PLANS/ARCHIVE/cross-cutting/cloud-provider-token-budgets.md` §1.8/§2.5 measured
+  stuck detection going dormant at an uncapped max_tokens). Lifting it for a specific
+  model requires decoupling those thresholds from `max_tokens` first, not just raising
+  the tier row.
+- The cloud `ContextBudget` (history budget) is different: the tier row is a **no-data
+  fallback**, not a ceiling. `CloudBudgetPolicy.Derive` only clamps the history budget to
+  the tier row when nothing model-specific is known (`ContextResolution.PublishedContextKnown`
+  false — i.e. the published-context chain fell through to the tier's own `DefaultContext`
+  guess). A verified real published context (live catalog, metadata, or a `knownCtx`
+  fragment match) is never clamped down to the generic provider-type guess, because
+  nothing downstream of `ContextBudget` couples it to the output-cap safety mechanisms
+  above — `hotMemoryCharBudget`/`recallBudget`/`ledgerCharBudget` each carry their own
+  independent char ceiling regardless of how large `ContextBudget` is.
 - Per-model overrides in `settings.yml` under `model_overrides:` take priority. Explicit
   cloud `max_tokens`/`context_budget` edits that differ from the derived baseline are
   persisted (Phase 3); local workloads never persist budget fields (n_ctx-derived).

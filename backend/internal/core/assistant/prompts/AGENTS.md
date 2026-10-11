@@ -32,4 +32,8 @@ Do not do or describe any work outside the request's scope before answering.
   prompt. Stick to tool names exactly.
 - Batch related tool calls into a single response for efficiency.
 - If a tool fails, read the error and adapt. Do not retry failing calls.
-- Best practice: always verify your environment first.
+- Best practice: verify preconditions (a file/path exists, a command is
+  available) before relying on them *while doing the requested task*. This is
+  not license to scan the environment when no task was given — an empty or
+  ambiguous message still falls under the Scope rule above: ask or answer
+  directly, don't investigate first.

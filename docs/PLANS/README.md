@@ -84,6 +84,7 @@ Organized by subsystem:
 | [`automation/chat-to-automation.md`](automation/chat-to-automation.md) | "Turn This Chat Into an Automation" (trace → least-privilege draft; Phase 0 fixes `CreateAutomation` duplicate-name bug) | proposed | 2026-10-04 | SPEC-007, SPEC-001, SPEC-003, SPEC-006 |
 | [`orchestrator/cost-and-savings-ledger.md`](orchestrator/cost-and-savings-ledger.md) | Usage, Cost and "Saved by Running Locally" Ledger (chat + automation + inbound `/v1`) | proposed | 2026-10-04 | SPEC-005, SPEC-007, SPEC-003, SPEC-001 |
 | [`orchestrator/auto-model-router.md`](orchestrator/auto-model-router.md) | `model: "auto"` — Runtime-Aware Model Router for `/v1` | proposed | 2026-10-04 | SPEC-005, SPEC-007, SPEC-003 |
+| [`orchestrator/cloud-safety-threshold-decoupling.md`](orchestrator/cloud-safety-threshold-decoupling.md) | Decouple Cloud Safety Thresholds From `max_tokens` (so a real published output cap can be trusted without loosening stuck detection) — cloud only, local explicitly out of scope | proposed | 2026-10-11 | SPEC-005, SPEC-001 |
 | [`cross-cutting/cloud-privacy-firewall.md`](cross-cutting/cloud-privacy-firewall.md) | Cloud Privacy Firewall (reversible redaction of secrets/PII on cloud egress, or keep it local) | proposed | 2026-10-04 | SPEC-006, SPEC-005, SPEC-001, SPEC-003 |
 | [`automation/playbook-library-management.md`](automation/playbook-library-management.md) | Playbook Library Management (add, remove, edit operator playbooks; shipped set stays read-only and embedded) | proposed | 2026-10-10 | SPEC-007, SPEC-003 |
 
@@ -127,6 +128,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Auto Model Router | Phase 0 characterise → pure router core → `/v1` wiring (needs D1, D2) → pre-first-byte failover → UI/docs → ledger prices |
 | proposed | Cloud Privacy Firewall | Phase 0 detector corpus → pure engine → agent path (needs D1–D3) → `/v1` path → `ask` mode/UI/audit → router integration → docs |
 | proposed | Playbook Library Management | Phase 0 investigate (where operator playbooks live, override vs fork, upgrade hint, validation) → backend store + API → UI → docs; nothing built |
+| proposed | Cloud Safety Threshold Decoupling | Phase 0 measure (real published caps, reasoning-trace lengths, existing sanity bounds) → Phase 1 design decisions D1–D3 → Phase 2 implement (new safety ceiling, TDD, local-regression guard) → Phase 3 lift the cloud output-cap tier ceiling → Phase 4 docs; nothing built, cloud-only, local explicitly out of scope |
 
 > **2026-09-05 hygiene pass:** archived as complete — `knight-rider-arc-bubble.md` (extraction to `ArcOrbitLoader` verified in code), `cloud-provider-token-budgets.md` (all phases incl. merged Phase 7 + M8 probe verified). Archived as merged — `cancel-stale-turn-bleed.md` (backend SSE bleed now homed in overhaul Phase 5). `xdg-config-data-relocation.md` removed from this table (already complete, row was stale).
 >

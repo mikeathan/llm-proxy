@@ -41,7 +41,9 @@ func TestCloudPolicy_GeminiNoMetadata(t *testing.T) {
 }
 
 func TestCloudPolicy_OpenRouterPublishedCap(t *testing.T) {
-	// Published cap 16384 > tier 8192 → clamps to 8192.
+	// Published cap 16384 > tier 8192 → clamps to 8192. Deliberate: max_tokens
+	// also sizes stuck detection and the stream content cap (stream.go), both
+	// tuned against 8192 — see output_cap.go's publishedOutputCap comment.
 	cfg := models.ModelConfig{Provider: "openrouter", Name: "model", PublishedOutputCap: 16384}
 	ctx := ContextResolution{PublishedContext: 131_072, OutputCap: ResolveOutputCap(cfg)}
 	b, err := (CloudBudgetPolicy{}).Derive(cfg, ctx)
@@ -135,6 +137,47 @@ func TestResolveOutputCap_PublishedBeatsTier(t *testing.T) {
 	cfg2 := models.ModelConfig{Provider: "openrouter", Name: "model"}
 	if got := ResolveOutputCap(cfg2); got != 8192 {
 		t.Fatalf("expected tier cap 8192 fallback, got %d", got)
+	}
+}
+
+// TestCloudPolicy_RealPublishedContext_HistoryNotClampedToTier is the
+// DeepSeek-v4.1-flash scenario this fix targets: a model's real published
+// context (via Metadata, not the tier default) must not have its history
+// budget clamped down to the generic provider-type tier row.
+func TestCloudPolicy_RealPublishedContext_HistoryNotClampedToTier(t *testing.T) {
+	cfg := models.ModelConfig{Provider: "openai", Name: "deepseek-v4.1-flash"}
+	ctx := ContextResolution{
+		PublishedContext:      1_000_000,
+		PublishedContextKnown: true, // real metadata, not the tier's own guess
+		OutputCap:             ResolveOutputCap(cfg),
+	}
+	b, err := (CloudBudgetPolicy{}).Derive(cfg, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// openai tier ContextBudget is 50000 — a known real context must not be
+	// clamped down to it. 1_000_000 - maxTokens(8192) = 991808.
+	if want := 1_000_000 - 8192; b.ContextBudget != want {
+		t.Fatalf("expected history budget %d (derived from the real 1M published context, not clamped to the openai tier 50000), got %d", want, b.ContextBudget)
+	}
+}
+
+// TestCloudPolicy_UnknownContext_StillClampedToTier is the mirror of the
+// above: when nothing model-specific is known (PublishedContextKnown false),
+// the tier row remains the ceiling — this is the only case it should ever be.
+func TestCloudPolicy_UnknownContext_StillClampedToTier(t *testing.T) {
+	cfg := models.ModelConfig{Provider: "openai", Name: "model"}
+	ctx := ContextResolution{
+		PublishedContext:      1_000_000,
+		PublishedContextKnown: false, // e.g. the tier's own DefaultContext guess
+		OutputCap:             ResolveOutputCap(cfg),
+	}
+	b, err := (CloudBudgetPolicy{}).Derive(cfg, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if b.ContextBudget != 50_000 {
+		t.Fatalf("expected history budget clamped to the openai tier (50000) when context is unknown, got %d", b.ContextBudget)
 	}
 }
 
