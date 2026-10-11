@@ -21,6 +21,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
+	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
@@ -108,6 +109,7 @@ func (c *Container) BuildAppServices() *AppServices {
 		},
 	)
 	c.watchConnectorConfig(s)
+	c.initReminders(s)
 
 	return s
 }
@@ -330,6 +332,9 @@ type AppServices struct {
 	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
 	RecordingStore         *recordings.RecordingStore
 	egressCancel           context.CancelFunc // stops the agent egress proxy (Phase 1c)
+	// Reminders delivers stored reminders; nil when the database or the connector
+	// registry is unavailable. Its Run loop is started by the app lifecycle.
+	Reminders *reminders.Service
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {

@@ -57,3 +57,43 @@ func TestApplySystemUpdate_MemoryHotDefaults(t *testing.T) {
 		t.Errorf("an update that omits memory changed the defaults to %+v", got)
 	}
 }
+
+// Reminder settings: saved as a unit, validated at the boundary, untouched by updates that omit them.
+func TestApplySystemUpdate_RemindersSettings(t *testing.T) {
+	srv := newSystemTestServer(t)
+	if srv.GetSettings().Reminders != nil {
+		t.Fatalf("shipped default should be unset, got %+v", srv.GetSettings().Reminders)
+	}
+
+	want := models.RemindersConfig{DefaultConnector: "telegram", Timezone: "Europe/London"}
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Reminders: &want}); err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+	if got := srv.GetSettings().Reminders; got == nil || *got != want {
+		t.Fatalf("saved = %+v, want %+v", got, want)
+	}
+
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.GetSettings().Reminders; got == nil || *got != want {
+		t.Errorf("an update that omits reminders changed them to %+v", got)
+	}
+
+	bad := models.RemindersConfig{Timezone: "Mars/Base"}
+	err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Reminders: &bad})
+	if !models.IsRemindersConfigError(err) {
+		t.Fatalf("invalid timezone err = %v, want a reminders config error", err)
+	}
+	if got := srv.GetSettings().Reminders; got == nil || *got != want {
+		t.Errorf("a rejected update must not change the saved settings, got %+v", got)
+	}
+
+	reset := models.RemindersConfig{}
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Reminders: &reset}); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.GetSettings().Reminders; got != nil && *got != reset {
+		t.Errorf("reset left %+v", got)
+	}
+}

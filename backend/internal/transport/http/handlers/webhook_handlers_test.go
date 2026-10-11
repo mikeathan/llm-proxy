@@ -19,3 +19,22 @@ func TestWebhookSessionKey_Format(t *testing.T) {
 		t.Errorf("expected 16-char timestamp suffix, got %d: %q", len(parts[3]), parts[3])
 	}
 }
+
+func TestWebhookHandler_AgentTimezone(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func() string
+		want string
+	}{
+		{"no provider", nil, "UTC"},
+		{"unset", func() string { return "" }, "UTC"},
+		{"valid owner zone", func() string { return "Europe/London" }, "Europe/London"},
+		{"invalid owner zone falls back", func() string { return "Mars/Base" }, "UTC"},
+	}
+	for _, tc := range cases {
+		h := &WebhookHandler{OwnerTimezone: tc.fn}
+		if got := h.agentTimezone(); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

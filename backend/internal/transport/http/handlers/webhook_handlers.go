@@ -37,6 +37,21 @@ type WebhookHandler struct {
 	Assistant   *AssistantMessageHandler
 	Logger      logging.Logger
 	Limiter     ratelimiter.Limiter
+	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset.
+	OwnerTimezone func() string
+}
+
+// agentTimezone is the zone a connector-originated run reports to the agent: the
+// owner's configured zone when it is set and valid, else UTC.
+func (h *WebhookHandler) agentTimezone() string {
+	if h.OwnerTimezone != nil {
+		if tz := h.OwnerTimezone(); tz != "" {
+			if _, err := time.LoadLocation(tz); err == nil {
+				return tz
+			}
+		}
+	}
+	return "UTC"
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +193,7 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 		WorkspaceID:    workspaceID,
 		ConversationID: webhookSessionKey(connectorType, chatID),
 		Message:        message,
-		Timezone:       "UTC",
+		Timezone:       h.agentTimezone(),
 		// No hardcoded ExcludeTools here — the exposed tool schema is derived
 		// from guardrail policy (DisabledToolNames) at the agent narrow waist,
 		// so a statically-disabled tool (e.g. notify_user with Communication

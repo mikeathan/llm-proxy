@@ -79,6 +79,45 @@ type UserSettings struct {
 	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
 	Scheduler      *SchedulerConfig         `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	RunOutput      *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
+	Reminders      *RemindersConfig         `yaml:"reminders,omitempty" json:"reminders,omitempty"`
+}
+
+// RemindersConfig is where reminders go and which timezone they use when the
+// request does not say. Both are optional: no default connector means a reminder
+// that names no channel is delivered in-app only; no timezone means the server's.
+type RemindersConfig struct {
+	// DefaultConnector is the connector type (for example "telegram") used when a
+	// reminder names no channel.
+	DefaultConnector string `yaml:"default_connector,omitempty" json:"default_connector,omitempty"`
+	// Timezone is an IANA name (Europe/London) used for chat sources that do not
+	// report the user's zone, such as an inbound connector message.
+	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
+}
+
+// ErrRemindersConfigInvalid is the save-boundary failure for reminder settings;
+// IsRemindersConfigError lets transport map it to a 400.
+var ErrRemindersConfigInvalid = errors.New("invalid reminder settings")
+
+// Validate rejects an unknown IANA timezone before it is saved.
+func (c *RemindersConfig) Validate() error {
+	if c == nil || c.Timezone == "" {
+		return nil
+	}
+	if _, err := time.LoadLocation(c.Timezone); err != nil {
+		return fmt.Errorf("%w: unknown timezone %q (use an IANA name such as Europe/London)", ErrRemindersConfigInvalid, c.Timezone)
+	}
+	return nil
+}
+
+// IsRemindersConfigError reports whether err is a reminder-settings validation failure.
+func IsRemindersConfigError(err error) bool { return errors.Is(err, ErrRemindersConfigInvalid) }
+
+// Effective returns the settings with nil treated as unset. Nil-safe.
+func (c *RemindersConfig) Effective() RemindersConfig {
+	if c == nil {
+		return RemindersConfig{}
+	}
+	return *c
 }
 
 type RunLoggingConfig struct {
@@ -314,4 +353,5 @@ type SystemUpdatePayload struct {
 	RunLogging           *RunLoggingConfig       `json:"run_logging,omitempty"`
 	Scheduler            *SchedulerConfig        `json:"scheduler,omitempty"`
 	Memory               *MemoryHotDefaults      `json:"memory,omitempty"`
+	Reminders            *RemindersConfig        `json:"reminders,omitempty"`
 }

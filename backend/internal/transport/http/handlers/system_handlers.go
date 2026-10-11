@@ -58,6 +58,7 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 		Search:        reg.Search,
 		RunLogging:    &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		Memory:        settings.Memory.HotDefaults(),
+		Reminders:     settings.Reminders.Effective(),
 	}
 	respondJSON(w, cfg)
 }
@@ -91,7 +92,7 @@ func (h *SystemHandlers) AdminSystemPutHandler(w http.ResponseWriter, r *http.Re
 			writeJSONError(w, http.StatusBadRequest, notFound.Error())
 			return
 		}
-		if models.IsSchedulerConfigError(err) {
+		if models.IsSchedulerConfigError(err) || models.IsRemindersConfigError(err) {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -118,7 +119,7 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 			writeJSONError(w, http.StatusBadRequest, err2.Error())
 			return
 		}
-		if models.IsSchedulerConfigError(err2) {
+		if models.IsSchedulerConfigError(err2) || models.IsRemindersConfigError(err2) {
 			writeJSONError(w, http.StatusBadRequest, err2.Error())
 			return
 		}

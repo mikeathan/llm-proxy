@@ -102,6 +102,9 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 			return err
 		}
 	}
+	if err := req.Reminders.Validate(); err != nil {
+		return err
+	}
 
 	// 1. Update Infrastructure (SystemConfig)
 	err := s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
@@ -165,6 +168,9 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		}
 		if req.Scheduler != nil {
 			set.Scheduler = req.Scheduler
+		}
+		if req.Reminders != nil {
+			set.Reminders = req.Reminders
 		}
 		if req.Memory != nil {
 			if set.Memory == nil {

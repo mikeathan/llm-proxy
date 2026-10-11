@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -163,6 +164,21 @@ func (c *CommunicationTools) NotifyAll(ctx context.Context, message string, conn
 		return fmt.Errorf("some notifications failed: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// Types returns the configured connector types (for example "telegram"), sorted
+// and de-duplicated.
+func (c *CommunicationTools) Types() []string {
+	seen := make(map[string]bool)
+	var types []string
+	for _, nc := range c.snapshot() {
+		if !seen[nc.connType] {
+			seen[nc.connType] = true
+			types = append(types, nc.connType)
+		}
+	}
+	slices.Sort(types)
+	return types
 }
 
 // listTypes returns a comma-separated list of unique connector types in the map.

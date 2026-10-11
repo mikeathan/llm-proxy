@@ -199,3 +199,17 @@ func TestCommunicationTools_ReloadIsSafeDuringUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestCommunicationTools_TypesSortedAndUnique(t *testing.T) {
+	c := NewCommunicationTools()
+	if got := c.Types(); len(got) != 0 {
+		t.Fatalf("empty set Types() = %v", got)
+	}
+	c.AddConnector("a", "telegram", &stubConnector{})
+	c.AddConnector("b", "slack", &stubConnector{})
+	c.AddConnector("c", "telegram", &stubConnector{})
+	got := c.Types()
+	if len(got) != 2 || got[0] != "slack" || got[1] != "telegram" {
+		t.Fatalf("Types() = %v, want [slack telegram]", got)
+	}
+}
