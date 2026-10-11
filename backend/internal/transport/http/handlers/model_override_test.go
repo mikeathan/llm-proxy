@@ -3,6 +3,7 @@ package handlers
 import (
 	"testing"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/models"
 )
 
@@ -116,5 +117,60 @@ func TestWriteModelOverridesPersistsExplicitFalseReasoning(t *testing.T) {
 	}
 	if entry.ReasoningEnabled == nil || *entry.ReasoningEnabled {
 		t.Fatalf("expected ReasoningEnabled=false persisted, got %+v", entry.ReasoningEnabled)
+	}
+}
+
+// TestConvertProviderTiers_TemperatureDefaults pins the provider temperature
+// policy: cloud tiers carry 0 ("unset" — the provider's own default applies,
+// the wire field is omitempty) while the local tier keeps the 0.1 automation
+// default.
+func TestConvertProviderTiers_TemperatureDefaults(t *testing.T) {
+	out := convertProviderTiers(assistant.ProviderTiers())
+	if len(out) == 0 {
+		t.Fatal("expected provider tiers")
+	}
+	for provider, d := range out {
+		want := 0.0
+		if provider == models.ProviderLocal {
+			want = assistant.DefaultAutomationTemperature
+		}
+		if d.Temperature != want {
+			t.Errorf("%s: temperature = %v, want %v", provider, d.Temperature, want)
+		}
+	}
+	if out[models.ProviderLocal].Temperature != 0.1 {
+		t.Errorf("local temperature = %v, want 0.1", out[models.ProviderLocal].Temperature)
+	}
+}
+
+// TestBaseAdminTuningDefaults_KeepsGlobalTemperature documents that the global
+// agent_defaults fallback is unchanged (0.1); only provider tiers diverge.
+func TestBaseAdminTuningDefaults_KeepsGlobalTemperature(t *testing.T) {
+	if got := baseAdminTuningDefaults().Temperature; got != assistant.DefaultAutomationTemperature {
+		t.Errorf("base temperature = %v, want %v", got, assistant.DefaultAutomationTemperature)
+	}
+}
+
+// TestModelViewTuning_Temperature verifies the per-model view never
+// fabricates a temperature: a stored 0 means "unset" (the request omits the
+// field) for cloud and local alike, and an explicit value is always echoed.
+func TestModelViewTuning_Temperature(t *testing.T) {
+	cases := []struct {
+		name string
+		mc   models.ModelConfig
+		want float64
+	}{
+		{"cloud unset stays 0", models.ModelConfig{WorkloadClass: models.WorkloadCloud}, 0},
+		{"cloud explicit echoed", models.ModelConfig{WorkloadClass: models.WorkloadCloud, Temperature: 0.7}, 0.7},
+		{"local unset stays 0", models.ModelConfig{WorkloadClass: models.WorkloadLocal}, 0},
+		{"local explicit echoed", models.ModelConfig{WorkloadClass: models.WorkloadLocal, Temperature: 0.3}, 0.3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, _, got, _, _, _, _, _ := modelViewTuning(tc.mc)
+			if got != tc.want {
+				t.Errorf("temperature = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

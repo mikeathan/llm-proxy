@@ -126,16 +126,16 @@ const DISCOVERED_COLUMNS: DataTableColumn<AvailableModel>[] = [
                 <div v-if="providerModels.length" class="flex flex-col gap-1.5">
                   <div class="flex items-center gap-2">
                     <input v-model="filterText" type="search" aria-label="Filter models" class="form-control flex-1" placeholder="Filter models…" autocomplete="off" />
-                    <BaseButton variant="ghost" size="sm" icon="refresh" icon-only label="Reload the model list" :loading="isLoadingModels" @click="loadModels(modelForm.key)" />
+                    <BaseButton variant="ghost" size="sm" icon="refresh" icon-only label="Reload the model list" :disabled="!modelForm.key" :loading="isLoadingModels" @click="loadModels(modelForm.key)" />
                   </div>
-                  <select :id="id" v-model="modelForm.id" :aria-describedby="describedBy" size="6" class="form-control h-auto font-mono">
+                  <select :id="id" v-model="modelForm.id" :aria-describedby="describedBy" size="8" class="form-control font-mono">
                     <option v-for="m in filteredProviderModels" :key="m.id" :value="m.id">{{ m.id }}</option>
                   </select>
                   <p v-if="!filteredProviderModels.length && filterText" class="m-0 text-[length:var(--text-small)] text-muted">No model matches “{{ filterText }}”.</p>
                 </div>
                 <div v-else class="flex items-center gap-2">
                   <input :id="id" v-model="modelForm.id" :aria-describedby="describedBy" type="text" class="form-control flex-1 font-mono" placeholder="gpt-4o" autocomplete="off" />
-                  <BaseButton variant="secondary" size="sm" icon="search" :loading="isLoadingModels" @click="loadModels(modelForm.key)">Scan endpoint</BaseButton>
+                  <BaseButton variant="secondary" size="sm" icon="search" :disabled="!modelForm.key" :loading="isLoadingModels" @click="loadModels(modelForm.key)">Scan endpoint</BaseButton>
                 </div>
               </template>
             </FormField>

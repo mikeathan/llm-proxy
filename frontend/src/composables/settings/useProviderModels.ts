@@ -14,6 +14,23 @@ import type { AvailableModel, Model, ProviderModelInfo, WorkloadClass } from '..
 import { DEFAULT_CONFIG } from '../models/useConfig'
 import { motionScroll } from '../../utils/motion'
 
+// Numeric per-model tuning fields where a stored 0 means "unset = default".
+// Port, strings and booleans are deliberately not listed.
+const NUMERIC_TUNING_FIELDS = [
+  'temperature',
+  'max_steps',
+  'context_budget',
+  'max_tokens',
+  'reasoning_budget',
+  'timeout_minutes',
+  'tool_timeout_seconds',
+  'filesystem_tool_timeout_seconds',
+  'max_plan_duration_minutes',
+  'max_plan_steps',
+  'guardrail_timeout_seconds',
+  'guardrail_approval_timeout_seconds',
+] as const
+
 export function useProviderModels(
   props: {
     provider: ProviderType
@@ -106,7 +123,7 @@ export function useProviderModels(
         const stillExists = props.apiKeys.some(
           (k) => k.id === modelForm.value.key || k.name === modelForm.value.key,
         )
-        if (!stillExists) modelForm.value.key = ''
+        if (!stillExists) modelForm.value.key = props.apiKeys[0]?.name ?? ''
       }
     },
     { deep: true },
@@ -121,22 +138,35 @@ export function useProviderModels(
     }
   })
 
-  watch(() => modelForm.value.key, (keyName) => {
-    if (isAddingNew.value && props.provider !== 'local') {
-      loadModels(keyName)
-    }
-  })
+  // The single trigger for loading the model list: it fires when the add form
+  // opens (null -> key) and whenever the chosen key changes while adding, once
+  // per flush, so startAdd/scanAndAdd never double-fetch or fetch a stale key.
+  watch(
+    () => (isAddingNew.value ? modelForm.value.key : null),
+    (keyName) => {
+      if (keyName !== null && props.provider !== 'local') {
+        loadModels(keyName)
+      }
+    },
+  )
 
   let loadModelsReqId = 0
 
   async function loadModels(apiKeyName?: string) {
     if (props.provider === 'local') return
     const mine = ++loadModelsReqId
-    isLoadingModels.value = true
     providerModels.value = []
     filterText.value = ''
+    // A cloud provider is only queried with a chosen credential: an empty key
+    // would build the provider with no API key name and list another account's models.
+    const keyName = apiKeyName || modelForm.value.key
+    if (!keyName) {
+      isLoadingModels.value = false
+      return
+    }
+    isLoadingModels.value = true
     try {
-      const list = await fetchProviderModels(props.provider, apiKeyName || modelForm.value.key)
+      const list = await fetchProviderModels(props.provider, keyName)
       if (mine !== loadModelsReqId) return
       providerModels.value = list
     } finally {
@@ -158,10 +188,11 @@ export function useProviderModels(
     }
     lastDerivedName.value = ''
     filterText.value = ''
-    isAddingNew.value = true
+    // Preselect the first configured key; the key watcher then loads its models.
     if (props.provider !== 'local') {
-      loadModels()
+      modelForm.value.key = props.apiKeys[0]?.name ?? ''
     }
+    isAddingNew.value = true
   }
 
   function scanAndAdd(keyName: string) {
@@ -175,8 +206,30 @@ export function useProviderModels(
     isAddingNew.value = false
   }
 
+  // A cleared number input yields "" under v-model.number (and NaN is possible
+  // from odd input), which the backend's numeric fields reject with a 400. On a
+  // local provider 0 means "unset" (the runtime derives / defaults), so every
+  // non-positive or non-numeric value is saved as 0. On a cloud provider a blank
+  // saves as that provider's tier value (agentDefaults) so the provider's own
+  // defaults apply; temperature stays 0 (= omitted from the request).
+  function normaliseTuningNumber(value: unknown, fallback: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+    return typeof fallback === 'number' && Number.isFinite(fallback) && fallback > 0 ? fallback : 0
+  }
+
+  function normaliseTuning<T extends object>(source: T): T {
+    const out = { ...source } as Record<string, unknown>
+    const tier = agentDefaults.value as unknown as Record<string, unknown>
+    for (const field of NUMERIC_TUNING_FIELDS) {
+      const usesTier = props.provider !== 'local' && field !== 'temperature'
+      out[field] = normaliseTuningNumber(out[field], usesTier ? tier[field] : 0)
+    }
+    return out as T
+  }
+
   async function saveNewModel() {
-    const { name, key, id, filename, port, args, reasoning_enabled, ...tuning } = modelForm.value
+    const { name, key, id, filename, port, args, reasoning_enabled, ...rest } = modelForm.value
+    const tuning = normaliseTuning(rest)
     const finalName = name || deriveModelName(id, filename)
     if (props.provider === 'local') {
       if (!filename) return
@@ -279,7 +332,7 @@ export function useProviderModels(
 
   async function saveEdit() {
     if (!editingModel.value?.name) return
-    await updateModel(editingModel.value)
+    await updateModel(normaliseTuning(editingModel.value))
     editingModel.value = null
     emit('refresh')
   }

@@ -25,6 +25,13 @@ const ENABLED: AgentGuardrailsConfig = {
 }
 
 describe('GuardrailForm', () => {
+  it('stacks its sections in one column instead of an xl two-column grid', () => {
+    const { w } = mountForm()
+    const root = w.element.className
+    expect(root).not.toMatch(/grid-cols-2/)
+    expect(w.findAll('section[aria-label]').length).toBeGreaterThan(1)
+  })
+
   it('enables communication and edits approval and message limits', async () => {
     const { w, last } = mountForm()
     await fieldByLabel(w, /^communication$/i).setValue(true)

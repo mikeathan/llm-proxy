@@ -1,6 +1,10 @@
 package models
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestMessageExtractReasoning_Precedence(t *testing.T) {
 	// ReasoningContent wins.
@@ -53,5 +57,24 @@ func TestMessageHasSeparateReasoning(t *testing.T) {
 	}
 	if !(Message{ReasoningContent: "x"}).HasSeparateReasoning() {
 		t.Error("reasoning_content should report separate reasoning")
+	}
+}
+
+// TestChatRequest_TemperatureOmittedWhenZero pins the "0 = unset" contract: a
+// zero temperature is omitted from the wire so the provider default applies.
+func TestChatRequest_TemperatureOmittedWhenZero(t *testing.T) {
+	raw, err := json.Marshal(ChatRequest{Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "temperature") {
+		t.Errorf("zero temperature must be omitted, got %s", raw)
+	}
+	raw, err = json.Marshal(ChatRequest{Model: "m", Temperature: 0.1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"temperature":0.1`) {
+		t.Errorf("explicit temperature must be sent, got %s", raw)
 	}
 }

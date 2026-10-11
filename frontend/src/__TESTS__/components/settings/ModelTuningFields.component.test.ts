@@ -60,4 +60,35 @@ describe('ModelTuningFields', () => {
     expect(draft.tool_timeout_seconds).toBe(90)
     expect(draft.guardrail_timeout_behavior).toBe('fail-closed')
   })
+
+  describe('temperature', () => {
+    it('shows "Provider default" as the cloud placeholder and explains blank / 0', () => {
+      const { w } = mountTuning('cloud')
+      expect(fieldByLabel(w, /temperature/i).attributes('placeholder')).toBe('Provider default')
+      expect(w.text()).toContain("Blank or 0 uses the provider's default. Set 0.05–2 to override.")
+    })
+
+    it('shows "Server default" as the local placeholder, never a fabricated 0.1', () => {
+      const { w } = mountTuning('local')
+      expect(fieldByLabel(w, /temperature/i).attributes('placeholder')).toBe('Server default')
+      expect(w.text()).toContain("Blank uses the server's default.")
+      expect(w.text()).not.toContain("Blank or 0 uses the provider's default")
+    })
+  })
+
+  it('says a blank cloud numeric field uses the provider default, but local keeps its wording', () => {
+    const cloud = mountTuning('cloud').w.text()
+    expect(cloud).toContain("Blank uses the provider's default.")
+    expect(cloud).not.toContain('Blank or 0 uses the default')
+    const local = mountTuning('local').w.text()
+    expect(local).toContain('Blank or 0 uses the default')
+    expect(local).not.toContain("Blank uses the provider's default.")
+  })
+
+  it('does not claim 0 turns a safety timeout off', () => {
+    const cloud = mountTuning('cloud').w.text()
+    expect(cloud).not.toMatch(/0 = off/i)
+    expect(cloud).toMatch(/Safety timeouts · blank uses the provider's default/)
+    expect(mountTuning('local').w.text()).toMatch(/Safety timeouts · blank or 0 = default/)
+  })
 })
