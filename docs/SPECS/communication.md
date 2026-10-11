@@ -1,9 +1,9 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.4"
+version: "1.5"
 status: stable
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,10 @@ supersedes:
 # SPEC: Communication Connector System
 
 ## Changelog
+
+- **1.5 (2026-10-11)** — Reminders (SPEC-011) deliver through the same shared connector set: `CommunicationTools.Types()`
+  lists the configured connector types (used to resolve the default reminder channel and to refuse a named type that is
+  not configured), and `NotifyAll` is the send path.
 
 - **1.4 (2026-10-09)** — Connector changes apply without a restart. The one shared `CommunicationTools` (agent
   `notify_user`, automation report delivery, inbound webhook) is rebuilt from config by `Reload` whenever the registry

@@ -99,6 +99,7 @@ Returns full admin state: active model, available models, guardrails config, pro
 | GET | `/admin/api/version` | Build info (version, commit, date) |
 | GET | `/admin/api/config` | Full config. `memory` is always present: `{assistant_hot, automation_hot}`, the resolved global hot-memory defaults (shipped: assistant on, automations off) |
 | PUT | `/admin/api/config` | Update config. `memory: {assistant_hot, automation_hot}` writes both defaults and leaves the other memory settings alone; omit `memory` to leave them unchanged |
+| GET/PUT | `/admin/api/config` → `reminders` | `reminders: {default_connector, timezone}` is always present on GET (empty strings when unset). PUT saves both as given (SPEC-011); an unknown IANA `timezone` is a 400 and nothing is saved; omit `reminders` to leave it unchanged |
 | GET | `/admin/api/system` | System settings |
 | PUT | `/admin/api/system` | Update system |
 | POST | `/admin/api/system/restart` | Restart server |
@@ -240,6 +241,14 @@ Supports streaming (SSE) with `stream: true`.
 | GET | `/admin/api/templates` | List templates |
 
 ---
+
+## Reminders API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/api/reminders` | `{open, recent}` — scheduled reminders soonest first, and the 20 most recent finished ones (`done`, `missed`, `failed`). Each item: `{id, message, fire_at (RFC 3339 UTC), cron?, timezone, channel, status, last_error?}`; `channel` is the connector type it goes to or `in-app`. Registered only when reminders are available (database + connector registry) |
+
+Reminders are created and cancelled by the assistant's tools (SPEC-011), not by this API.
 
 ## Memory API
 
