@@ -106,6 +106,15 @@ func resolveReasoningSpec(providerType string, workload models.WorkloadClass, co
 	return spec
 }
 
+// ResolvesToThinkTokenBudget reports whether the given workload/provider
+// combination resolves to the numeric think-token reasoning mode (local
+// llama.cpp) rather than an effort/object/enable_thinking toggle (cloud).
+// Reuses resolveReasoningSpec's mode selection so a display-only consumer
+// (admin view) never shows a token budget that the wire path never sends.
+func ResolvesToThinkTokenBudget(workload models.WorkloadClass, providerType string) bool {
+	return resolveReasoningSpec(providerType, workload, 0, 0).Mode == reasoning.ModeThinkTokens
+}
+
 // applyReasoningEnabledOverride reconciles the per-model reasoning_enabled
 // toggle with the provider's capability and workload class. It is capability-
 // and workload-driven (not provider-name-driven): local workloads never take

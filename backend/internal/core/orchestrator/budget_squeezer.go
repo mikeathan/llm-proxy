@@ -156,9 +156,11 @@ func ApplyMetadataDefaults(cfg *models.ModelConfig) {
 	case models.WorkloadLocal:
 		ctx = ContextResolution{ServingContext: ResolveLocalContext(cfg)}
 	default:
+		publishedCtx, known := resolvePublishedContext(*cfg)
 		ctx = ContextResolution{
-			PublishedContext: resolvePublishedContext(*cfg),
-			OutputCap:        ResolveOutputCap(*cfg),
+			PublishedContext:      publishedCtx,
+			PublishedContextKnown: known,
+			OutputCap:             ResolveOutputCap(*cfg),
 		}
 	}
 

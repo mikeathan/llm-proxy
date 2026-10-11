@@ -20,6 +20,14 @@ type OutputCapSource interface {
 // (min(published, tier) — §2.10 #5, so a per-tier raise never exceeds what a
 // model publishes).  Falls back to the persisted ModelMetadata.MaxOutputTokens
 // (Phase 2 carrier) so the clamp survives a restart.
+//
+// The tier ceiling is deliberate, not a conservative placeholder: max_tokens
+// also sizes stuck detection and the stream content cap (stream.go), both
+// tuned against 8192. A model publishing a much larger cap (e.g. 128K output)
+// would proportionally loosen those safety thresholds — the exact failure
+// mode docs/PLANS/ARCHIVE/cross-cutting/cloud-provider-token-budgets.md §1.8
+// measured and closed (stuck detection going dormant at max_tokens=42666).
+// Lifting this requires decoupling those thresholds from max_tokens first.
 type publishedOutputCap struct{}
 
 func (publishedOutputCap) OutputCap(cfg models.ModelConfig) (int, bool) {

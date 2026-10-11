@@ -143,6 +143,20 @@ func characterizationMatrix() []goldenCase {
 				},
 			},
 		},
+		// --- openai + remote base URL + 1M metadata (DeepSeek-v4.1-flash shape:
+		// provider "openai" fronting a non-OpenAI aggregator, Metadata.Nctx from
+		// the credential's own catalog listing) — the case this fix targets ---
+		{
+			id: "openai:remote-url-1M-metadata",
+			cfg: models.ModelConfig{
+				Name:     "deepseek-v4.1-flash",
+				Provider: "openai",
+				ProviderConfig: &models.ProviderConfig{
+					BaseURL: "https://openrouter.ai/api/v1",
+				},
+				Metadata: &models.ModelMetadata{ContextLength: 1_000_000, Nctx: 1_000_000},
+			},
+		},
 		// --- each cloud provider: metadata absent / present / inflated (>128K) ---
 		{
 			id:  "nvidia:no-metadata",

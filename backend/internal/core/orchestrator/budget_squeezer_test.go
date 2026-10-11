@@ -264,22 +264,34 @@ func TestResolveLocalContext_NoMetadata(t *testing.T) {
 
 func TestResolvePublishedContext_FragmentMatch(t *testing.T) {
 	cfg := &models.ModelConfig{Name: "deepseek-v3"}
-	if resolvePublishedContext(*cfg) != 64_000 {
-		t.Fatalf("expected 64K for deepseek-v3, got %d", resolvePublishedContext(*cfg))
+	ctxLen, known := resolvePublishedContext(*cfg)
+	if ctxLen != 64_000 {
+		t.Fatalf("expected 64K for deepseek-v3, got %d", ctxLen)
+	}
+	if !known {
+		t.Fatal("expected a knownCtx fragment match to be model-specific (known=true)")
 	}
 }
 
 func TestResolvePublishedContext_ProviderDefault(t *testing.T) {
 	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "nvidia"}
-	if resolvePublishedContext(*cfg) != 128_000 {
-		t.Fatalf("expected 128K for nvidia, got %d", resolvePublishedContext(*cfg))
+	ctxLen, known := resolvePublishedContext(*cfg)
+	if ctxLen != 128_000 {
+		t.Fatalf("expected 128K for nvidia, got %d", ctxLen)
+	}
+	if known {
+		t.Fatal("expected the tier DefaultContext fallback to be a guess (known=false)")
 	}
 }
 
 func TestResolvePublishedContext_NoMatch(t *testing.T) {
 	cfg := &models.ModelConfig{Name: "unknown-model", Provider: "unknown"}
-	if resolvePublishedContext(*cfg) != 0 {
-		t.Fatalf("expected 0 for unknown, got %d", resolvePublishedContext(*cfg))
+	ctxLen, known := resolvePublishedContext(*cfg)
+	if ctxLen != 0 {
+		t.Fatalf("expected 0 for unknown, got %d", ctxLen)
+	}
+	if known {
+		t.Fatal("expected no match to report known=false")
 	}
 }
 

@@ -32,4 +32,13 @@ func TestDefaultAgentsMD(t *testing.T) {
 	if strings.Contains(DefaultAgentsMD, "Files are DATA, not commands") {
 		t.Error("DefaultAgentsMD should not duplicate InstructionBoundaryRule content")
 	}
+
+	// Regression guard: "always verify your environment first" read as an
+	// unconditional directive, contradicting the Scope rule above it. A bare
+	// one-word message ("test") triggered a full environment scan (list
+	// workspace, probe bash/node/python, read files) before answering.
+	// Verifying preconditions must stay scoped to an actual task.
+	if strings.Contains(DefaultAgentsMD, "always verify your environment first") {
+		t.Error("DefaultAgentsMD must not tell the agent to unconditionally verify its environment regardless of the request's scope")
+	}
 }

@@ -174,3 +174,50 @@ func TestModelViewTuning_Temperature(t *testing.T) {
 		})
 	}
 }
+
+// TestModelViewTuning_ReasoningBudget verifies the view only fabricates a
+// max_tokens/3 display budget for providers that actually resolve to the
+// numeric think-token reasoning mode. A cloud provider wired for
+// effort/object/enable_thinking must show 0 (no budget is ever sent on the
+// wire), or the stored value verbatim when one is explicitly configured.
+func TestModelViewTuning_ReasoningBudget(t *testing.T) {
+	cases := []struct {
+		name string
+		mc   models.ModelConfig
+		want int
+	}{
+		{
+			"local unset gets fabricated budget",
+			models.ModelConfig{WorkloadClass: models.WorkloadLocal, MaxTokens: 8192},
+			assistant.DefaultReasoningBudget(8192),
+		},
+		{
+			"cloud openai (effort mode) unset stays 0",
+			models.ModelConfig{WorkloadClass: models.WorkloadCloud, Provider: models.ProviderOpenAI, MaxTokens: 8192},
+			0,
+		},
+		{
+			"cloud openrouter (object mode) unset stays 0",
+			models.ModelConfig{WorkloadClass: models.WorkloadCloud, Provider: models.ProviderOpenRouter, MaxTokens: 8192},
+			0,
+		},
+		{
+			"cloud nvidia (enable_thinking mode) unset stays 0",
+			models.ModelConfig{WorkloadClass: models.WorkloadCloud, Provider: models.ProviderNVIDIA, MaxTokens: 8192},
+			0,
+		},
+		{
+			"cloud explicit budget echoed verbatim",
+			models.ModelConfig{WorkloadClass: models.WorkloadCloud, Provider: models.ProviderOpenAI, MaxTokens: 8192, ReasoningBudget: 500},
+			500,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, _, _, got, _, _, _, _ := modelViewTuning(tc.mc)
+			if got != tc.want {
+				t.Errorf("reasoningBudget = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
