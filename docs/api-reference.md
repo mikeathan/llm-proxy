@@ -160,8 +160,9 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/admin/api/dispatcher/automations` | List automations. Each carries its latest run's `last_output`, `last_error` and `last_warnings` (non-fatal problems such as a report that could not be delivered) |
+| GET | `/admin/api/dispatcher/automations` | List automations. Each carries its latest run's `last_output`, `last_error` and `last_warnings` (non-fatal problems such as a report that could not be delivered). A scheduled automation also carries `next_run_at` (RFC 3339, the server's clock, read from the scheduler's own entry); a manual one omits it |
 | GET | `/admin/api/dispatcher/metrics` | Dispatcher metrics |
+| POST | `/admin/api/dispatcher/schedule/preview` | Check a trigger and list its next runs. Body `{"trigger":{"type","value"},"count"?}` → `{valid, error?, timezone, next_runs[]}`; cron is five fields or a descriptor, no seconds; an invalid schedule is a 200 with `valid:false` |
 | GET | `/admin/api/dispatcher/activity` | Global activity log |
 
 ### Workspaces

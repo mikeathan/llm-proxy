@@ -65,11 +65,18 @@ describe('AutomationDetails', () => {
 
   it('shows the configuration, the last error and the last output, and connects the live console', async () => {
     const w = await mountDetails()
-    for (const text of ['At 07:00 AM', 'persistent', 'qwen', 'jobs/nightly.md', 'model timed out', 'All good']) {
+    for (const text of ['Every day at 07:00', 'persistent', 'qwen', 'jobs/nightly.md', 'model timed out', 'All good']) {
       expect(w.text()).toContain(text)
     }
     expect(w.get('a[href="/workspaces/ws/files/jobs/nightly.md"]').text()).toBe('jobs/nightly.md')
     expect(connect).toHaveBeenCalled()
+  })
+
+  it('shows the next run with its clock, and nothing for a manual automation', async () => {
+    const scheduled = await mountDetails({ automation: { ...AUTO, next_run_at: '2026-10-12T07:00:00+01:00' } })
+    expect(scheduled.text()).toMatch(/Next run\s*Mon 12 Oct, 07:00 \(server time\)/)
+    const manual = await mountDetails({ automation: { ...AUTO, trigger: 'manual', trigger_value: '', next_run_at: undefined } })
+    expect(manual.text()).not.toContain('Next run')
   })
 
   it('shows where results are delivered and what a busy model does', async () => {

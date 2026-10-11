@@ -95,9 +95,7 @@ func NewDispatcher(
 		// never crash the whole service (robfig/cron runs jobs in bare
 		// goroutines with no recovery of its own).
 		cron: cron.New(
-			cron.WithParser(cron.NewParser(
-				cron.SecondOptional|cron.Minute|cron.Hour|cron.Dom|cron.Month|cron.Dow|cron.Descriptor,
-			)),
+			cron.WithParser(cronParser),
 			cron.WithChain(cron.Recover(cronLogger{deps.Logger})),
 		),
 		logger:            deps.Logger,

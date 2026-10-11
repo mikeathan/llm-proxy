@@ -32,6 +32,8 @@ export interface Automation {
   trigger: string
   trigger_value?: string
   trigger_type?: string
+  // When the scheduler will next fire it (RFC 3339, the server's clock); absent for a manual automation.
+  next_run_at?: string
   model?: string
   loop_strategy?: LoopStrategy
   recording_ref?: string

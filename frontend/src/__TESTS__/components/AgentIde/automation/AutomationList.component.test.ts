@@ -33,9 +33,17 @@ describe('AutomationList', () => {
     const r = row(w, 'nightly')
     expect(r.find('a').attributes('href')).toBe('/automations/ws%2Fnightly')
     expect(r.text()).toContain('ws')
-    expect(r.text()).toContain('Every 1h')
+    expect(r.text()).toContain('Every hour')
     expect(r.text()).toContain('qwen')
     expect(r.text()).toContain('Idle')
+  })
+
+  it('shows when each scheduled automation next runs, on the server clock, and a dash for a manual one', async () => {
+    const w = await mountList([auto('nightly', { next_run_at: '2026-10-12T07:30:00+01:00' }), auto('by-hand', { trigger: 'manual', trigger_value: '' })])
+    expect(w.text()).toContain('Next run (server time)')
+    expect(row(w, 'nightly').text()).toContain('Mon 12 Oct, 07:30')
+    expect(row(w, 'by-hand').text()).not.toMatch(/\d{2}:\d{2}/)
+    expect(row(w, 'by-hand').text()).toContain('—')
   })
 
   // Carried over from AutomationsPanel: the backend's `queued` / `queue_position`

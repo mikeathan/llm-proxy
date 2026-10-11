@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRef, watch } from "vue";
 import type { Automation } from "../../../types/dispatcher";
-import type { AutomationPayload, MemoryMode, TriggerType } from "../../../types/automation";
-import type { ChoiceOption } from "../../../types/ui";
+import type { AutomationPayload, MemoryMode } from "../../../types/automation";
+import type { AutomationStart } from "../../../types/routes";
 import { useAutomationForm } from "../../../composables/automation/useAutomationForm";
 import { useHostNetworkState } from "../../../composables/settings/useHostNetworkState";
 import { useUnsavedChangesGuard } from "../../../composables/ui/useUnsavedChangesGuard";
 import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults";
+import { taskFileName, useTaskAuthoring } from "../../../composables/automation/useTaskAuthoring";
+import { useToast } from "../../../composables/useToast";
 import UnsavedTag from "../../common/display/UnsavedTag.vue";
 import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
@@ -18,9 +20,9 @@ import Panel from "../../common/layout/Panel.vue";
 import FormField from "../../common/forms/FormField.vue";
 import ToggleField from "../../common/forms/ToggleField.vue";
 import InheritField from "../../common/forms/InheritField.vue";
-import SegmentedControl from "../../common/forms/SegmentedControl.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
-import CronEditor from "./CronEditor.vue";
+import SchedulePicker from "./SchedulePicker.vue";
+import TaskField from "./TaskField.vue";
 
 // Create or edit an automation (plan Phase 5): Basics · Model & access ·
 // Schedule · Review. Leaving with unsaved changes asks first.
@@ -33,11 +35,18 @@ import CronEditor from "./CronEditor.vue";
 const { hostNetworkOff, hostNetworkKnown, load: loadHostNetwork } = useHostNetworkState();
 onMounted(loadHostNetwork);
 
-const props = defineProps<{
-  workspaces: { id: string }[];
-  workspaceFiles: Record<string, string[]>;
-  editAutomation: Automation | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    workspaces: { id: string }[];
+    workspaceFiles: Record<string, string[]>;
+    editAutomation: Automation | null;
+    // Every automation, so a new one cannot reuse a name or overwrite another's task file.
+    automations?: Pick<Automation, "workspace" | "name" | "task_file">[];
+    // Where a new automation starts: a workspace and a playbook its task begins from (from the playbook library).
+    start?: AutomationStart;
+  }>(),
+  { automations: () => [] },
+);
 
 const emit = defineEmits<{
   (e: "create-automation", workspace: string, data: AutomationPayload): void;
@@ -63,11 +72,46 @@ const {
   (ws) => emit("fetch-files", ws),
 );
 
-const TRIGGER_OPTIONS: ChoiceOption[] = [
-  { value: "cron", label: "Cron" },
-  { value: "interval", label: "Interval" },
-  { value: "manual", label: "Manual" },
-];
+const toast = useToast();
+const authoring = useTaskAuthoring();
+// Writing a task is a create-only choice. The view keeps one form across new and edit, so the choice must not outlive it.
+const writingTask = computed(() => !props.editAutomation && authoring.mode.value === "new");
+watch(
+  () => props.editAutomation?.id,
+  () => authoring.reset(),
+);
+// The playbook library is only fetched once someone asks to write a new task.
+watch(writingTask, (on) => {
+  if (on) void authoring.loadPlaybooks();
+});
+// Opened from a playbook ("Create automation" in the library): workspace chosen, task started from it, named after it.
+// Applied once per link, and never when editing.
+watch(
+  () => `${props.start?.workspace ?? ""}|${props.start?.playbook ?? ""}`,
+  () => void applyStart(),
+  { immediate: true },
+);
+async function applyStart() {
+  const { workspace, playbook } = props.start ?? {};
+  if (!playbook || props.editAutomation) return;
+  if (workspace) selectedWorkspace.value = workspace;
+  form.value.name ||= playbook;
+  authoring.mode.value = "new";
+  await authoring.loadPlaybooks();
+  await onChoosePlaybook(playbook);
+}
+
+const playbookKey = ref(0);
+async function onChoosePlaybook(id: string) {
+  try {
+    if (!(await authoring.choosePlaybook(id))) playbookKey.value++;
+  } catch (err) {
+    playbookKey.value++;
+    toast.error(`Could not load that playbook: ${err instanceof Error ? err.message : err}`);
+  }
+}
+const newTaskFile = computed(() => (form.value.name ? taskFileName(form.value.name) : ""));
+
 const NETWORK_LABEL: Record<string, string> = {
   "": "Inherit workspace settings",
   none: "No network",
@@ -95,11 +139,31 @@ const taskFiles = computed(() => (selectedWorkspace.value ? props.workspaceFiles
 
 // ── Validation ───────────────────────────────────────────────────────────
 const nameError = ref("");
+
+// What a new automation would collide with: another automation of that name in the workspace, or (when the task is
+// written here) the file it would be saved as being some other automation's task. Checked before anything is written.
+const collision = computed(() => {
+  if (props.editAutomation || !selectedWorkspace.value || !form.value.name) return "";
+  const inWorkspace = props.automations.filter((a) => a.workspace === selectedWorkspace.value);
+  if (inWorkspace.some((a) => a.name === form.value.name)) {
+    return `An automation named ${form.value.name} already exists in this workspace.`;
+  }
+  const owner = writingTask.value ? inWorkspace.find((a) => a.task_file === newTaskFile.value) : undefined;
+  return owner ? `${newTaskFile.value} is already the task of "${owner.name}". Choose another name.` : "";
+});
+
+// The server's reason when it says the chosen schedule is not valid (reported by the picker).
+const scheduleError = ref("");
+
 const missing = computed(() => {
   if (!selectedWorkspace.value) return "Choose a workspace.";
   if (!form.value.name) return "Name the automation.";
-  if (!form.value.taskFile) return "Choose a task file.";
+  if (collision.value) return collision.value;
+  if (writingTask.value ? !authoring.content.value.trim() : !form.value.taskFile) {
+    return writingTask.value ? "Write the task." : "Choose a task file.";
+  }
   if (form.value.triggerType !== "manual" && !form.value.triggerValue) return "Set when it runs.";
+  if (scheduleError.value) return "The schedule is not valid.";
   if (dedupDaysError.value) return dedupDaysError.value;
   return "";
 });
@@ -109,7 +173,9 @@ const missing = computed(() => {
 // owner, so it is not "unsaved" while the owner navigates away.
 const snapshot = ref("");
 const submitted = ref(false);
-const current = computed(() => JSON.stringify({ ws: selectedWorkspace.value, form: form.value }));
+const current = computed(() =>
+  JSON.stringify({ ws: selectedWorkspace.value, form: form.value, task: [authoring.mode.value, authoring.content.value] }),
+);
 watch(() => props.editAutomation?.id, () => {
   snapshot.value = current.value;
 }, { immediate: true });
@@ -119,13 +185,36 @@ watch(current, () => {
 const isDirty = computed(() => !submitted.value && current.value !== snapshot.value);
 useUnsavedChangesGuard(isDirty);
 
-const handleSubmit = () => {
-  if (missing.value) return;
+// Saves the task written in the form as <name>.md and points the automation at it.
+// False when nothing should be created: replacing an existing file was declined, or the write failed.
+async function saveWrittenTask(): Promise<boolean> {
+  try {
+    const file = await authoring.saveTask(selectedWorkspace.value, form.value.name);
+    if (!file) return false;
+    form.value.taskFile = file;
+    emit("fetch-files", selectedWorkspace.value);
+    return true;
+  } catch (err) {
+    toast.error(`Could not save the task file: ${err instanceof Error ? err.message : err}`);
+    return false;
+  }
+}
+
+// True while a written task is being saved, so a second press cannot send a second create.
+const saving = ref(false);
+
+const handleSubmit = async () => {
+  if (missing.value || saving.value) return;
   if (!RESOURCE_NAME_PATTERN.test(form.value.name)) {
     nameError.value = RESOURCE_NAME_RULE;
     return;
   }
   nameError.value = "";
+  if (writingTask.value) {
+    saving.value = true;
+    const saved = await saveWrittenTask().finally(() => (saving.value = false));
+    if (!saved) return;
+  }
   const data = validateSubmit();
   if (!data) return;
 
@@ -149,6 +238,7 @@ const handleSubmit = () => {
   } else {
     emit("create-automation", selectedWorkspace.value, payload);
     resetForm();
+    authoring.reset();
     snapshot.value = current.value;
   }
 };
@@ -156,7 +246,7 @@ const handleSubmit = () => {
 const review = computed(() => [
   ["Workspace", selectedWorkspace.value || "—"],
   ["Name", form.value.name || "—"],
-  ["Task file", form.value.taskFile || "—"],
+  ["Task file", writingTask.value ? (newTaskFile.value ? `${newTaskFile.value} (new file)` : "—") : form.value.taskFile || "—"],
   ["Model", form.value.model || "Workspace default"],
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
@@ -179,20 +269,30 @@ const review = computed(() => [
             </select>
           </template>
         </FormField>
-        <FormField label="Name" :hint="RESOURCE_NAME_RULE" :error="nameError">
+        <FormField label="Name" :hint="RESOURCE_NAME_RULE" :error="nameError || collision">
           <template #default="{ id, describedBy, invalid }">
             <input :id="id" v-model="form.name" :aria-describedby="describedBy" :aria-invalid="invalid ? 'true' : undefined" placeholder="e.g. daily-sync" class="form-control font-mono text-[length:var(--text-small)]" />
           </template>
         </FormField>
-        <FormField label="Task file" :hint="selectedWorkspace ? 'The file whose contents become the task.' : 'Choose a workspace first.'">
-          <template #default="{ id, describedBy }">
-            <select :id="id" v-model="form.taskFile" :aria-describedby="describedBy" :disabled="!selectedWorkspace" class="form-control font-mono text-[length:var(--text-small)]">
-              <option value="" disabled>Choose a file…</option>
-              <option v-for="file in taskFiles" :key="file" :value="file">{{ file }}</option>
-            </select>
-          </template>
-        </FormField>
       </div>
+      <TaskField
+        class="mt-4"
+        :task-file="form.taskFile"
+        :files="taskFiles"
+        :mode="writingTask ? 'new' : 'existing'"
+        :content="authoring.content.value"
+        :playbook-id="authoring.playbookId.value"
+        :playbooks="authoring.playbooks.value"
+        :playbooks-failed="authoring.playbooksFailed.value"
+        :workspace-chosen="!!selectedWorkspace"
+        :can-choose-mode="!editAutomation"
+        :new-file-name="newTaskFile"
+        :playbook-key="playbookKey"
+        @update:task-file="form.taskFile = $event"
+        @update:mode="authoring.mode.value = $event"
+        @update:content="authoring.content.value = $event"
+        @choose-playbook="onChoosePlaybook"
+      />
     </Panel>
 
     <Panel title="Model & access">
@@ -312,25 +412,16 @@ const review = computed(() => [
 
     <Panel title="Schedule">
       <div class="flex flex-col gap-3">
-        <SegmentedControl
-          class="self-start"
-          :model-value="form.triggerType"
-          :options="TRIGGER_OPTIONS"
-          label="Trigger"
-          @update:model-value="form.triggerType = $event as TriggerType"
+        <SchedulePicker
+          :type="form.triggerType"
+          :value="form.triggerValue"
+          @update:trigger="
+            form.triggerType = $event.type;
+            form.triggerValue = $event.value;
+          "
+          @update:error="scheduleError = $event"
         />
-        <CronEditor
-          v-if="form.triggerType === 'cron'"
-          :model-value="form.triggerValue"
-          :trigger-type="form.triggerType"
-          @update:model-value="form.triggerValue = $event"
-        />
-        <FormField v-else-if="form.triggerType === 'interval'" label="Interval" hint="A duration such as 5m, 1h or 24h.">
-          <template #default="{ id, describedBy }">
-            <input :id="id" v-model="form.triggerValue" :aria-describedby="describedBy" placeholder="1h" class="form-control max-w-[12rem] font-mono text-[length:var(--text-small)]" />
-          </template>
-        </FormField>
-        <p v-else class="m-0 text-[length:var(--text-small)] text-muted">Runs only when started from this page, the list, or the API.</p>
+        <p v-if="form.triggerType === 'manual'" class="m-0 text-[length:var(--text-small)] text-muted">Runs only when started from this page, the list, or the API.</p>
         <ToggleField
           v-if="form.triggerType !== 'manual'"
           v-model="form.skipIfBusy"

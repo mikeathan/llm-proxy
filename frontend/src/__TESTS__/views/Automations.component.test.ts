@@ -42,7 +42,11 @@ const STUBS = {
   Icon: true,
   BrandMark: true,
   AutomationDetails: { props: ['automation'], template: '<div data-test="details">{{ automation.name }}</div>' },
-  AutomationForm: { props: ['editAutomation'], template: '<div data-test="form">{{ editAutomation?.name ?? "new" }}</div>' },
+  AutomationForm: {
+    props: ['editAutomation', 'start'],
+    emits: ['create-automation'],
+    template: `<div data-test="form">{{ editAutomation?.name ?? "new" }}<i data-test="start">{{ start?.workspace }}/{{ start?.playbook }}</i><button data-test="create" @click="$emit('create-automation', 'demo', { name: 'fresh' })" /></div>`,
+  },
   RecordingsPanel: { template: '<div data-test="recordings" />' },
   MonitorPanel: true,
 }
@@ -105,9 +109,54 @@ describe('Automations', () => {
     expect(d.triggerAutomation).toHaveBeenCalledWith('demo', 'nightly')
   })
 
+  describe('after creating an automation', () => {
+    const FRESH: Automation = { ...AUTO, id: 'demo/fresh', name: 'fresh' }
+    const create = async () => {
+      d.createAutomation.mockImplementation(async () => {
+        d.automations.value = [AUTO, FRESH]
+      })
+      const { w, router } = await mountAt('/automations/new')
+      await w.get('[data-test="create"]').trigger('click')
+      await flushPromises()
+      return { w, router }
+    }
+
+    it('opens it and offers to run it once to test, running it on yes', async () => {
+      d.triggerAutomation.mockResolvedValue({ status: 'started' })
+      const { router } = await create()
+      expect(router.currentRoute.value.path).toBe('/automations/demo%2Ffresh')
+      expect(useConfirm().options.value.title).toBe('Automation created')
+      expect(d.triggerAutomation).not.toHaveBeenCalled()
+      useConfirm().handleConfirm()
+      await flushPromises()
+      expect(d.triggerAutomation).toHaveBeenCalledWith('demo', 'fresh')
+    })
+
+    it('does not run it when the offer is declined', async () => {
+      await create()
+      useConfirm().handleCancel()
+      await flushPromises()
+      expect(d.triggerAutomation).not.toHaveBeenCalled()
+    })
+
+    it('offers nothing when the create failed', async () => {
+      d.createAutomation.mockRejectedValue(new Error('conflict'))
+      const { w } = await mountAt('/automations/new')
+      await w.get('[data-test="create"]').trigger('click')
+      await flushPromises()
+      expect(useConfirm().isOpen.value).toBe(false)
+    })
+  })
+
+  it('hands the playbook and workspace from the URL to the new-automation form', async () => {
+    const { w } = await mountAt('/automations/new?workspace=demo&playbook=brief')
+    expect(w.get('[data-test="start"]').text()).toBe('demo/brief')
+    expect((await mountAt('/automations/new')).w.get('[data-test="start"]').text()).toBe('/')
+  })
+
   it('opens the form for new and edit', async () => {
-    expect((await mountAt('/automations/new')).w.get('[data-test="form"]').text()).toBe('new')
-    expect((await mountAt('/automations/demo%2Fnightly/edit')).w.get('[data-test="form"]').text()).toBe('nightly')
+    expect((await mountAt('/automations/new')).w.get('[data-test="form"]').text()).toContain('new')
+    expect((await mountAt('/automations/demo%2Fnightly/edit')).w.get('[data-test="form"]').text()).toContain('nightly')
   })
 
   it('says when an automation does not exist', async () => {

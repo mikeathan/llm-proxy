@@ -212,6 +212,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Post("/admin/api/dispatcher/trigger/{"+models.WorkspaceIDParam+"}/{automation}", hs.Dispatcher.TriggerAutomation, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/queue/{"+models.WorkspaceIDParam+"}/{automation}", hs.Dispatcher.CancelQueuedHandler, jsonMethodNotAllowed)
 		router.Post("/admin/api/dispatcher/stop/{"+models.WorkspaceIDParam+"}", hs.Dispatcher.StopAutomation, jsonMethodNotAllowed)
+		router.Post("/admin/api/dispatcher/schedule/preview", hs.Dispatcher.PreviewSchedule, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/metrics", hs.Dispatcher.GetDispatcherMetrics, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/activity", hs.Dispatcher.GetGlobalActivity, jsonMethodNotAllowed)
 

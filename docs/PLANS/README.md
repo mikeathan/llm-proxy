@@ -87,6 +87,7 @@ Organized by subsystem:
 | [`orchestrator/cloud-safety-threshold-decoupling.md`](orchestrator/cloud-safety-threshold-decoupling.md) | Decouple Cloud Safety Thresholds From `max_tokens` (so a real published output cap can be trusted without loosening stuck detection) — cloud only, local explicitly out of scope | proposed | 2026-10-11 | SPEC-005, SPEC-001 |
 | [`cross-cutting/cloud-privacy-firewall.md`](cross-cutting/cloud-privacy-firewall.md) | Cloud Privacy Firewall (reversible redaction of secrets/PII on cloud egress, or keep it local) | proposed | 2026-10-04 | SPEC-006, SPEC-005, SPEC-001, SPEC-003 |
 | [`automation/playbook-library-management.md`](automation/playbook-library-management.md) | Playbook Library Management (add, remove, edit operator playbooks; shipped set stays read-only and embedded) | proposed | 2026-10-10 | SPEC-007, SPEC-003 |
+| [`automation/automation-authoring-ux.md`](automation/automation-authoring-ux.md) | Automation Authoring UX (schedule picker so no cron knowledge is needed, server schedule preview + timezone, write/pick the task in the form, next run + test run, create-from-playbook) | complete | 2026-10-11 | SPEC-007, SPEC-003 |
 
 Completed, superseded, and not-implemented plans live in [`ARCHIVE/`](ARCHIVE/) — loaded only when their specific topic is relevant. The detailed plan archive/consolidation changelog (previously in `docs/INDEX.md`) is retained in that file's git history.
 

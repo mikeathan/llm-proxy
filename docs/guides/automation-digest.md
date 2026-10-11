@@ -53,7 +53,7 @@ a saved webhook URL do not unregister webhooks that may have been configured els
 
 ## 2. Automation
 
-In the workspace `config.yaml` (or through the automations API):
+In the workspace `config.yaml` (or through the automations API; in the UI the New automation form writes the schedule for you, and a playbook's **Create automation** starts it from the playbook). A cron value is five fields, no seconds:
 
 ```yaml
 automations:

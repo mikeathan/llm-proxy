@@ -8,22 +8,28 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// cronParser is the one cron grammar in the service: five fields (minute, hour,
+// day of month, month, day of week) or a descriptor such as @daily or
+// @every 1h. Seconds are deliberately not accepted, so a mistyped
+// six-field expression is rejected instead of firing every few seconds. The
+// trigger, the dispatcher's scheduler and the schedule preview all use it, so
+// they cannot disagree about what a schedule means.
+var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+
 // CronTrigger fires on a cron schedule.
 type CronTrigger struct {
 	schedule cron.Schedule
-	parser   cron.Parser
 	expr     string
 }
 
-// NewCronTrigger creates a CronTrigger from a standard cron expression.
-// Supports seconds, minutes, hours, dom, month, dow, and descriptors.
+// NewCronTrigger creates a CronTrigger from a five-field cron expression or a
+// descriptor.
 func NewCronTrigger(expr string) (*CronTrigger, error) {
-	parser := cron.NewParser(cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-	schedule, err := parser.Parse(expr)
+	schedule, err := cronParser.Parse(expr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid cron expression %q: %w", expr, err)
 	}
-	return &CronTrigger{schedule: schedule, parser: parser, expr: expr}, nil
+	return &CronTrigger{schedule: schedule, expr: expr}, nil
 }
 
 func (t *CronTrigger) ShouldRun(lastRun, now time.Time) bool {

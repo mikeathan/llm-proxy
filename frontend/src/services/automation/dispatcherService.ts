@@ -1,7 +1,8 @@
 import type { Automation, AutomationJournal, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../../types/dispatcher'
 import type { WorkspaceTree } from '../../types/workspace'
 import type { HeartbeatConfig, HeartbeatState } from '../../types/heartbeat'
-import type { AutomationPayload } from '../../types/automation'
+import type { AutomationPayload, TriggerType } from '../../types/automation'
+import type { SchedulePreview } from '../../types/schedule'
 import { get, post, put, del } from '../httpClient'
 import { encodeFilePath } from '../../utils/workspace/filePath'
 
@@ -100,6 +101,11 @@ export const DispatcherService = {
 
   async updateWorkspaceConfig(workspace: string, config: any): Promise<void> {
     return put<void>(`${BASE_URL}/workspaces/${workspace}/config`, config)
+  },
+
+  /** Whether a trigger is valid and when it would next run, read by the scheduler's own parser. Nothing is saved. */
+  async previewSchedule(trigger: { type: TriggerType; value: string }, count?: number): Promise<SchedulePreview> {
+    return post<SchedulePreview>(`${BASE_URL}/schedule/preview`, { trigger, count })
   },
 
   async getHeartbeat(workspace: string): Promise<HeartbeatState> {

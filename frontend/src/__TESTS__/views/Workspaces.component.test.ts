@@ -50,7 +50,11 @@ const STUBS = {
   WorkspaceSettings: { template: '<div data-test="settings" />' },
   MemoryPanel: { template: '<div data-test="memory" />' },
   HeartbeatPanel: { props: ['workspaceId'], template: '<div data-test="heartbeat">{{ workspaceId }}</div>' },
-  TemplateLibrary: { props: ['appendTarget'], template: '<div data-test="playbooks">{{ appendTarget }}</div>' },
+  TemplateLibrary: {
+    props: ['appendTarget'],
+    emits: ['create-automation'],
+    template: `<div data-test="playbooks">{{ appendTarget }}<button data-test="automate" @click="$emit('create-automation', 'pb-report')" /></div>`,
+  },
   MonitorPanel: true,
 }
 
@@ -183,6 +187,13 @@ describe('Workspaces', () => {
     await router.push('/workspaces/demo/playbooks')
     await flushPromises()
     expect(w.get('[data-test="playbooks"]').text()).toBe('plan.md')
+  })
+
+  it('opens a new automation for this workspace from a playbook', async () => {
+    const { w, router } = await mountAt('/workspaces/demo/playbooks')
+    await w.get('[data-test="automate"]').trigger('click')
+    // The automations route is loaded lazily, so the navigation settles a moment later.
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/automations/new?workspace=demo&playbook=pb-report'))
   })
 
   it('shows the heartbeat of the workspace in the URL', async () => {

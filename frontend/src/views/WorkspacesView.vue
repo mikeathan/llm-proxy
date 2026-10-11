@@ -25,6 +25,7 @@ import {
   toWorkspaceAssistant,
   toWorkspaceFile,
   toWorkspaces,
+  toAutomationNew,
   toWorkspaceSection,
   workspaceLocation,
 } from "../router/routes"
@@ -283,6 +284,9 @@ async function handleClearAutomationRuns(auto: { workspace: string; name: string
 // ── Playbooks ────────────────────────────────────────────────────────────
 const { handleInjectTemplate } = useTemplates(ws, selectedFile, fileContent, fetchWorkspaceTree, openFile)
 
+// "Create automation" on a playbook: the new-automation form, set up for this workspace and that playbook.
+const startAutomationFrom = (playbook: string) => router.push(toAutomationNew({ workspace: ws.value ?? undefined, playbook }))
+
 // ── External-access flags for the explorer ───────────────────────────────
 const workspaceExternalAccess = ref<Record<string, boolean>>({})
 
@@ -434,7 +438,7 @@ usePolling(() => {
       <HeartbeatPanel v-else-if="activeMainView === 'heartbeat'" :workspace-id="ws" />
 
       <Panel v-else-if="activeMainView === 'playbooks'" title="Playbooks">
-        <TemplateLibrary :append-target="bufferFile" @inject="handleInjectTemplate" />
+        <TemplateLibrary :append-target="bufferFile" @inject="handleInjectTemplate" @create-automation="startAutomationFrom" />
       </Panel>
     </template>
 

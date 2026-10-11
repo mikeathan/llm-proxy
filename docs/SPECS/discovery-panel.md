@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.5"
+version: "2.8"
 status: stable
-last_updated: 2026-10-05
+last_updated: 2026-10-11
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,30 @@ supersedes:
 
 ## Changelog
 
+- **2.8 (2026-10-11)** — Automations from playbooks, next run, test run. Each playbook in a workspace's Playbooks
+  section has **Create automation**: it opens `/automations/new?workspace=<ws>&playbook=<id>`, where the form opens
+  with that workspace chosen, **New task** selected, the playbook's text filled and the automation named after the
+  playbook (all editable). The automation list gains a **Next run** column and the detail page a **Next run** row
+  (`<time> (server time)`), from `next_run_at` (SPEC-007 §II.1). After a successful create the new automation opens
+  and a prompt offers **Run now** to run it once (the same run a schedule would start) or **Not now**. The form's
+  Create button is held back while the server says the chosen schedule is not valid. A playbook card shows **Append**
+  only when a file is open to append to.
+- **2.7 (2026-10-11)** — Writing an automation's task in the form. When creating, the form's Basics panel offers
+  **Existing file** or **New task**. A new task is a text box, optionally started from a playbook (the library's
+  playbooks, grouped by category; picking one fills the box and asks before replacing text the user wrote), saved
+  as `<automation name>.md` in the workspace when the automation is created. An existing file of that name is
+  replaced only after asking (identical text is left alone); declining or a failed write creates nothing. Before
+  anything is written the form refuses a name already used in that workspace, and a name whose file is another
+  automation's task (shown on the Name field), so a failed create cannot leave another automation running new text. Editing an
+  automation keeps the file picker. The playbook library and the form share one "write a file, ask before replacing"
+  rule (`useWorkspaceFileWriter`).
+- **2.6 (2026-10-11)** — Automation schedule picker. The automation form's Schedule panel is one **Runs** choice
+  (Manual only · Every few minutes or hours · Every day · Every weekday · Certain days of the week · Once a month ·
+  Custom (cron)) with a time, weekday chips or day-of-month where they apply, so nobody has to write cron. It
+  reads the schedule back in plain English and lists the next three runs in the server's time zone (stated on the
+  panel), from `POST /admin/api/dispatcher/schedule/preview`. A schedule with no preset (a hand-written cron, a
+  `30s` interval) stays under Custom, untouched. A new automation starts as Manual. The list and review use the
+  same wording ("Every weekday at 07:00").
 - **2.5 (2026-10-05)** — Saving from chats (SPEC-004 §II.8). A turn that saved an explicit "remember …" shows
   **Saved to memory** under its answer (from the turn's run record, so it survives a reload). The assistant header gains
   **Review for memories** (enabled for a saved, idle conversation): a drawer lists the model's proposed facts with where

@@ -203,3 +203,36 @@ func TestManualTrigger_New(t *testing.T) {
 		t.Errorf("Type() = %q, want %q", tr.Type(), "manual")
 	}
 }
+
+// Schedules are five fields or a descriptor: seconds-level cron is not
+// supported anywhere (authoring-UX decision D4), so a six-field expression is
+// an error rather than silently running every second.
+func TestCronTrigger_FieldCount(t *testing.T) {
+	tests := []struct {
+		expr    string
+		wantErr bool
+	}{
+		{"0 7 * * *", false},
+		{"0 7 * * 1-5", false},
+		{"@daily", false},
+		{"@every 1h", false},
+		{"*/10 * * * * *", true},
+		{"0 0 7 * * *", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expr, func(t *testing.T) {
+			_, err := NewCronTrigger(tt.expr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewCronTrigger(%q) error = %v, wantErr %v", tt.expr, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// The scheduler must register jobs with the same parser the trigger validates
+// with, or a schedule could be accepted by one and rejected by the other.
+func TestDispatcherUsesSharedCronParser(t *testing.T) {
+	if _, err := cronParser.Parse("*/10 * * * * *"); err == nil {
+		t.Fatal("shared parser accepted a six-field expression")
+	}
+}

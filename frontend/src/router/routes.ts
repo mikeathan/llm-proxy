@@ -1,6 +1,6 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
-import type { ActivityFilters, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AutomationStart, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -31,7 +31,11 @@ export const toWorkspaceSection = (ws: string, section: WorkspaceSection): Route
 
 export const toAutomations = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.automations })
 
-export const toAutomationNew = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.automationNew })
+// The new-automation form, optionally set up from a playbook in a workspace (the playbook library's "Create automation").
+export const toAutomationNew = (start?: AutomationStart): RouteLocationNamedRaw => ({
+  name: ROUTE_NAMES.automationNew,
+  ...(start ? { query: { ...start } } : {}),
+})
 
 export const toAutomationRecordings = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.automationRecordings })
 

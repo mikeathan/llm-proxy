@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"llm-proxy/models"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/robfig/cron/v3"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -161,18 +163,45 @@ func (d *Dispatcher) UnregisterWorkspace(workspaceID string) {
 	d.mu.Unlock()
 }
 
+// NextRuns reports when each scheduled automation will next fire, by automation ID
+// ("workspace/name"). The time is read from the scheduler's own entry, so it is the
+// tick that will really fire (an interval counts from its registration, not from
+// now). An automation with no job (manual) is absent.
+func (d *Dispatcher) NextRuns() map[string]time.Time {
+	// One snapshot of the scheduler's entries, not cron.Entry(id) per job: each of those is a full
+	// snapshot round-trip to the scheduler, and this is read on every list poll.
+	nextByEntry := make(map[cron.EntryID]time.Time)
+	for _, entry := range d.cron.Entries() {
+		nextByEntry[entry.ID] = entry.Next
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	next := make(map[string]time.Time, len(d.jobs))
+	for id, entryID := range d.jobs {
+		if at := nextByEntry[entryID]; !at.IsZero() {
+			next[id] = at
+		}
+	}
+	return next
+}
+
 func (d *Dispatcher) registerWorkspaceAutomations(ws *models.Workspace) error {
 	automations := ws.Config.Automations
 	if hb := ws.Config.Heartbeat; hb != nil && hb.Enabled {
 		automations = append(slices.Clone(automations), hb.Automation())
 	}
 
+	// An automation that cannot be registered (an unreadable trigger) must not
+	// keep the ones after it from being scheduled: register the rest and report
+	// every failure together.
+	var errs []error
 	for _, auto := range automations {
 		if err := d.Register(ws.ID, auto); err != nil {
-			return fmt.Errorf("failed to register automation %q: %w", auto.Name, err)
+			errs = append(errs, fmt.Errorf("failed to register automation %q: %w", auto.Name, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
