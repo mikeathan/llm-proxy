@@ -45,6 +45,11 @@ last_reviewed: 2026-10-04
 - Handles run lifecycle (start, cancel, complete)
 - Run timeout = `max(automationTimeout (default 10m), pinned model's timeout_minutes)`, so a slow
   model configured with a longer timeout is not cut off mid-run (`runContext` in dispatcher.go)
+- `Dispatcher.NextRuns()` reads each job's next fire time from the scheduler's own entries (`next_run_at` on the automation list); a manual automation has no job and no next run.
+- Cron is **one grammar** (`cronParser` in `core/automation/cron.go`: five fields or a descriptor, **no seconds**) shared by
+  `NewCronTrigger`, the scheduler and `PreviewSchedule`; `validateAutomation` builds the trigger with `automation.New`
+  so a schedule the scheduler cannot read is refused (400) before it is saved. The UI never asks for cron: the schedule
+  picker (`SchedulePicker.vue`, `utils/automation/schedule.ts`) writes the trigger and reads it back.
 - Cron jobs register their **real schedule** (`triggerToCron`), so pre-executor failures no longer
   retry every minute and a new automation does not fire immediately
 - Re-`Register`ing an automation **atomically replaces** its cron entry (`replaceJob`: remove-then-add

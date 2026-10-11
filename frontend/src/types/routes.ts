@@ -92,3 +92,10 @@ export interface StaleChunkReloadDeps {
   currentHref: () => string
   addWindowListener: (type: string, listener: (event: Event) => void) => void
 }
+
+// Where a new automation starts: the workspace to create it in and the playbook its task begins from (the
+// `workspace` and `playbook` query of /automations/new). Either may be absent.
+export interface AutomationStart {
+  workspace?: string
+  playbook?: string
+}

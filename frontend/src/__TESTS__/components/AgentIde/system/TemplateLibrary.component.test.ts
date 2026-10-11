@@ -52,9 +52,18 @@ describe('TemplateLibrary (Playbooks section)', () => {
     expect(w.emitted('inject')).toEqual([[{ id: 'pb-report', name: 'pb-report', category: 'x', description: '', content: '# pb-report' }, 'create']])
   })
 
+  it('starts a new automation from a playbook without fetching its text', async () => {
+    const w = await mountLibrary()
+    expect(button(w, 'Create automation')).toHaveLength(2)
+    await button(w, 'Create automation')[1]!.trigger('click')
+    expect(w.emitted('create-automation')).toEqual([['pb-report']])
+    expect(TemplateService.getTemplate).not.toHaveBeenCalled()
+  })
+
   it('appends only into an open file, naming it', async () => {
     const closed = await mountLibrary()
-    expect(button(closed, 'Append')[0]!.attributes('disabled')).toBeDefined()
+    // Nothing to append to: no stranded disabled button, just the hint saying how.
+    expect(button(closed, 'Append')).toHaveLength(0)
     expect(closed.text()).toContain('Open a file to append')
 
     const open = await mountLibrary({ appendTarget: 'plan.md' })

@@ -12,7 +12,8 @@ import EmptyState from '../../common/feedback/EmptyState.vue';
 import ErrorState from '../../common/feedback/ErrorState.vue';
 
 // The workspace Playbooks section (/workspaces/:ws/playbooks): expert task
-// templates to start a new file from, or to append to the file that is open.
+// templates to start a new file from, to append to the file that is open, or
+// to start a new automation from.
 
 const props = defineProps<{
   /** The open file a playbook can be appended to, if any. */
@@ -21,6 +22,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'inject', template: Template, mode: 'append' | 'create'): void;
+  /** Start a new automation whose task begins from this playbook. */
+  (e: 'create-automation', id: string): void;
 }>();
 
 const ALL_CATEGORIES = '';
@@ -101,12 +104,8 @@ onMounted(fetchTemplates);
         <h3 class="m-0 text-[length:var(--text-body)] font-semibold text-primary">{{ t.name }}</h3>
         <span class="mt-auto flex flex-wrap gap-2">
           <BaseButton variant="secondary" size="sm" icon="plus" @click="handleAction(t.id, 'create')">New file</BaseButton>
-          <BaseButton
-            variant="ghost"
-            size="sm"
-            :disabled="!props.appendTarget"
-            @click="handleAction(t.id, 'append')"
-          >{{ props.appendTarget ? `Append to ${props.appendTarget}` : 'Append' }}</BaseButton>
+          <BaseButton variant="secondary" size="sm" icon="play" @click="emit('create-automation', t.id)">Create automation</BaseButton>
+          <BaseButton v-if="props.appendTarget" variant="ghost" size="sm" @click="handleAction(t.id, 'append')">Append to {{ props.appendTarget }}</BaseButton>
         </span>
       </li>
     </ul>

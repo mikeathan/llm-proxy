@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"llm-proxy/models"
 )
@@ -185,4 +187,69 @@ func btoi(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// One automation whose trigger cannot be read must not unschedule the ones
+// after it: the rest of the workspace is registered and the failures are
+// reported together.
+func TestDispatcher_RegisterWorkspaceAutomations_BadTriggerDoesNotBlockTheRest(t *testing.T) {
+	d := newLaneDispatcher(t, &mockExecutor{})
+	ws := &models.Workspace{ID: "ws", Config: models.WorkspaceConfig{Automations: []*models.Automation{
+		cronAutomation("bad-seconds", "*/10 * * * * *"),
+		cronAutomation("good", "0 7 * * *"),
+		cronAutomation("bad-garbage", "every day"),
+		manualAutomation("also-good"),
+	}}}
+
+	err := d.registerWorkspaceAutomations(ws)
+
+	if err == nil {
+		t.Fatal("expected the unreadable triggers to be reported")
+	}
+	for _, name := range []string{"bad-seconds", "bad-garbage"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error %q does not name %q", err, name)
+		}
+	}
+	for _, name := range []string{"good", "also-good"} {
+		if _, ok := d.registry.Get("ws", name); !ok {
+			t.Errorf("%q was not registered", name)
+		}
+	}
+	if _, scheduled := d.jobs["ws/good"]; !scheduled {
+		t.Error("good was registered but not scheduled")
+	}
+}
+
+// NextRuns reads each job's next fire time from the scheduler itself, so an
+// interval reports the tick it will really fire on, and a manual automation
+// (no job) reports none.
+func TestDispatcher_NextRuns(t *testing.T) {
+	d := newLaneDispatcher(t, &mockExecutor{})
+	for _, auto := range []*models.Automation{
+		cronAutomation("daily", "0 7 * * *"),
+		{Name: "hourly", Trigger: models.TriggerConfig{Type: models.TriggerInterval, Value: "1h"}, TaskFile: "task.md"},
+		manualAutomation("by-hand"),
+	} {
+		if err := d.Register("ws", auto); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.cron.Start()
+	t.Cleanup(func() { <-d.cron.Stop().Done() })
+
+	got := d.NextRuns()
+
+	now := time.Now()
+	for _, id := range []string{"ws/daily", "ws/hourly"} {
+		if next, ok := got[id]; !ok || !next.After(now) {
+			t.Errorf("NextRuns[%q] = %v (present %v), want a future time", id, next, ok)
+		}
+	}
+	if next := got["ws/hourly"]; next.After(now.Add(time.Hour + time.Minute)) {
+		t.Errorf("hourly next = %v, more than an hour away", next)
+	}
+	if _, ok := got["ws/by-hand"]; ok {
+		t.Error("a manual automation has no next run")
+	}
 }

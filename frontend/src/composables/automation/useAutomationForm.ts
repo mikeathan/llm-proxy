@@ -25,7 +25,7 @@ export function useAutomationForm(
   function emptyForm(): AutomationFormData {
     return {
       name: "",
-      triggerType: "cron",
+      triggerType: "manual",
       triggerValue: "",
       taskFile: "",
       strategy: "persistent",
@@ -147,13 +147,7 @@ export function useAutomationForm(
   }
 
   // ---- trigger behaviour -------------------------------------------------
-  watch(
-    () => form.value.triggerType,
-    (_newVal, oldVal) => {
-      if (oldVal !== undefined && !editAutomation.value) form.value.triggerValue = ""
-    },
-  )
-
+  // The schedule picker owns the trigger type/value pair, so a type change needs no reset here.
   // Shown while a scheduled run would start the local model.
   const wakeNotice = computed(() => modelWakeNotice(form.value.triggerType, selectedProviderKey.value))
 

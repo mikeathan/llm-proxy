@@ -33,6 +33,7 @@ type testDispatcher struct {
 	heartbeat     models.HeartbeatState
 	registered    []string // "ws/name" for every Register call
 	unregistered  []string // "ws/name" for every Unregister call
+	nextRuns      map[string]time.Time
 }
 
 func (t *testDispatcher) Persistence() *persistence.WorkspaceManager { return t.mgr }
@@ -44,6 +45,7 @@ func (t *testDispatcher) Unregister(ws, name string) error {
 	t.unregistered = append(t.unregistered, ws+"/"+name)
 	return nil
 }
+func (t *testDispatcher) NextRuns() map[string]time.Time { return t.nextRuns }
 func (t *testDispatcher) HeartbeatState(string) (models.HeartbeatState, error) {
 	return t.heartbeat, nil
 }
@@ -88,8 +90,7 @@ func TestValidateAutomation_LoopStrategy(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := handlers.validateAutomation(&models.Automation{
-				Name:         "ok-name",
+			err := handlers.validateAutomation(&models.Automation{				Name:         "ok-name",
 				TaskFile:     "task.md",
 				LoopStrategy: tc.loopStrategy,
 			})
@@ -413,8 +414,7 @@ func TestValidateAutomation_TaskFile(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := handlers.validateAutomation(&models.Automation{
-				Name:     "ok-name",
+			err := handlers.validateAutomation(&models.Automation{				Name:     "ok-name",
 				TaskFile: tc.taskFile,
 			})
 			if tc.wantErr && err == nil {
@@ -469,8 +469,7 @@ func TestValidateAutomation_NetworkGrant(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := handlers.validateAutomation(&models.Automation{
-				Name:         "ok-name",
+			err := handlers.validateAutomation(&models.Automation{				Name:         "ok-name",
 				TaskFile:     "task.md",
 				NetworkGrant: tc.grant,
 			})
@@ -1029,7 +1028,7 @@ func TestCreateAutomation_DuplicateNameConflicts(t *testing.T) {
 	handlers := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
 
 	create := func(taskFile string) *httptest.ResponseRecorder {
-		body := `{"name":"a","task_file":"` + taskFile + `"}`
+		body := `{"name":"a","task_file":"` + taskFile + `","trigger":{"type":"manual"}}`
 		req := httptest.NewRequest("POST", "/admin/api/dispatcher/workspaces/ws/automations", strings.NewReader(body))
 		req.SetPathValue(models.WorkspaceIDParam, "ws")
 		rr := httptest.NewRecorder()
@@ -1074,7 +1073,7 @@ func TestUpdateAutomation_UnknownNameReturnsNotFound(t *testing.T) {
 	td := &testDispatcher{mgr: mgr}
 	handlers := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
 
-	req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/automations/ghost", strings.NewReader(`{"name":"ghost","task_file":"task.md"}`))
+	req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/automations/ghost", strings.NewReader(`{"name":"ghost","task_file":"task.md","trigger":{"type":"manual"}}`))
 	req.SetPathValue(models.WorkspaceIDParam, "ws")
 	req.SetPathValue("automation", "ghost")
 	rr := httptest.NewRecorder()
@@ -1105,5 +1104,133 @@ func TestListAutomations_ExposesLastWarnings(t *testing.T) {
 	handlers.ListAutomations(rr, httptest.NewRequest("GET", "/admin/api/dispatcher/automations", nil))
 	if !strings.Contains(rr.Body.String(), `"last_warnings":["report not delivered via tg: status 401"]`) {
 		t.Fatalf("last_warnings missing: %s", rr.Body.String())
+	}
+}
+
+// A trigger the scheduler cannot read must be refused before anything is
+// saved: a stored bad trigger fails every later re-registration of its
+// workspace and keeps the automations after it from being scheduled.
+func TestCreateAutomation_RejectsAnUnschedulableTrigger(t *testing.T) {
+	tests := []struct{ name, trigger string }{
+		{"six-field cron", `{"type":"cron","value":"*/10 * * * * *"}`},
+		{"garbage cron", `{"type":"cron","value":"every day"}`},
+		{"bad interval", `{"type":"interval","value":"soon"}`},
+		{"unknown type", `{"type":"file","value":"x"}`},
+		{"no trigger", `{"type":"","value":""}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+			if err := mgr.WriteConfig("ws", &models.WorkspaceConfig{}); err != nil {
+				t.Fatalf("WriteConfig: %v", err)
+			}
+			td := &testDispatcher{mgr: mgr}
+			h := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+			body := `{"name":"a","task_file":"task.md","trigger":` + tt.trigger + `}`
+			req := httptest.NewRequest("POST", "/admin/api/dispatcher/workspaces/ws/automations", strings.NewReader(body))
+			req.SetPathValue(models.WorkspaceIDParam, "ws")
+			rr := httptest.NewRecorder()
+			h.CreateAutomation(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body.String())
+			}
+			cfg, err := mgr.ReadConfig("ws")
+			if err != nil {
+				t.Fatalf("ReadConfig: %v", err)
+			}
+			if len(cfg.Automations) != 0 || len(td.registered) != 0 {
+				t.Errorf("a refused automation was kept: config=%v registered=%v", cfg.Automations, td.registered)
+			}
+		})
+	}
+}
+
+// The config PUT carries the whole document back, so an older stored automation
+// whose trigger is no longer readable must not block an unrelated save; the
+// dispatcher skips that one automation and schedules the rest.
+func TestUpdateWorkspaceConfig_StoredUnreadableTriggerDoesNotBlockASave(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	h := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	body := `{"assistant_memory":"on","automations":[{"name":"old","task_file":"task.md","trigger":{"type":"cron","value":"*/10 * * * * *"}}]}`
+	req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(body))
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	rr := httptest.NewRecorder()
+	h.UpdateWorkspaceConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUpdateAutomation_RejectsAnUnschedulableTrigger(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	if err := mgr.WriteConfig("ws", &models.WorkspaceConfig{Automations: []*models.Automation{
+		{Name: "a", TaskFile: "task.md", Trigger: models.TriggerConfig{Type: models.TriggerManual}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	td := &testDispatcher{mgr: mgr}
+	h := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
+
+	req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/automations/a", strings.NewReader(`{"name":"a","task_file":"task.md","trigger":{"type":"cron","value":"*/10 * * * * *"}}`))
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	rr := httptest.NewRecorder()
+	h.UpdateAutomation(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+	cfg, _ := mgr.ReadConfig("ws")
+	if cfg.Automations[0].Trigger.Type != models.TriggerManual || len(td.registered) != 0 {
+		t.Errorf("a refused update changed state: %+v registered=%v", cfg.Automations[0].Trigger, td.registered)
+	}
+}
+
+// Each scheduled automation reports the time the scheduler will next fire it;
+// a manual one reports none.
+func TestListAutomations_ReportsTheNextRun(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	entry := func(name string, trigger models.TriggerConfig) *automation.AutomationEntry {
+		e := &automation.AutomationEntry{ID: "ws/" + name, Workspace: "ws", Name: name, TaskFile: "task.md", Strategy: &automation.IsolatedStrategy{}}
+		e.Trigger, _ = automation.New(trigger)
+		return e
+	}
+	next := time.Date(2026, 10, 12, 7, 0, 0, 0, time.FixedZone("BST", 3600))
+	handlers := NewDispatcherHandlers(
+		&listDispatcher{
+			testDispatcher: &testDispatcher{mgr: mgr, nextRuns: map[string]time.Time{"ws/daily": next}},
+			entries: []*automation.AutomationEntry{
+				entry("daily", models.TriggerConfig{Type: models.TriggerCron, Value: "0 7 * * *"}),
+				entry("by-hand", models.TriggerConfig{Type: models.TriggerManual}),
+			},
+		},
+		NewWorkspaceService(mgr),
+		logging.NewNopLogger(),
+	)
+
+	rr := httptest.NewRecorder()
+	handlers.ListAutomations(rr, httptest.NewRequest("GET", "/admin/api/dispatcher/automations", nil))
+
+	var got []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]map[string]any{}
+	for _, a := range got {
+		byName[a["name"].(string)] = a
+	}
+	if v := byName["daily"]["next_run_at"]; v != "2026-10-12T07:00:00+01:00" {
+		t.Errorf("daily next_run_at = %v", v)
+	}
+	if _, ok := byName["by-hand"]["next_run_at"]; ok {
+		t.Errorf("a manual automation must not report next_run_at: %v", byName["by-hand"])
 	}
 }

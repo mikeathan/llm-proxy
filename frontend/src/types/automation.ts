@@ -17,6 +17,10 @@ export interface NotifyConfig {
 // TriggerType is the automation trigger kind (cron / interval / manual).
 export type TriggerType = 'cron' | 'interval' | 'manual'
 
+// TaskMode is where an automation's task comes from: a file already in the workspace, or text written in the
+// form (optionally started from a playbook) and saved as a new file.
+export type TaskMode = 'existing' | 'new'
+
 // AutomationPayload is what the create / update endpoints accept
 // (POST …/workspaces/{ws}/automations, PUT …/automations/{name}).
 export interface AutomationPayload {

@@ -25,3 +25,7 @@ export interface FileTreeNode {
   collapsed: boolean
   children: FileTreeNode[]
 }
+
+// What writing a workspace file did: made a new file, replaced different content after asking,
+// left content that was already identical, or was declined at the replace prompt.
+export type FileWriteOutcome = 'created' | 'replaced' | 'unchanged' | 'cancelled'

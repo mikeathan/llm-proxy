@@ -2,7 +2,7 @@
 import { computed, ref } from "vue"
 import { useConfirm } from "../../../composables/ui/useConfirm"
 import { toAutomation, toAutomationEdit, toAutomationNew, toWorkspaceSection } from "../../../router/routes"
-import { automationStatus, triggerLabel } from "../../../utils/automation/automationDisplay"
+import { automationStatus, nextRunLabel, triggerLabel } from "../../../utils/automation/automationDisplay"
 import { HEARTBEAT_NAME } from "../../../utils/automation/heartbeat"
 import type { Automation } from "../../../types/dispatcher"
 import type { ChoiceOption, DataTableColumn } from "../../../types/ui"
@@ -131,6 +131,7 @@ const ACTIONS_COLUMN: DataTableColumn<Automation> = { key: "actions", label: "Ac
 const FIELD_COLUMNS: DataTableColumn<Automation>[] = [
   { key: "name", label: "Automation" },
   { key: "trigger", label: "Schedule", value: triggerLabel },
+  { key: "next_run_at", label: "Next run (server time)", value: (a) => nextRunLabel(a) || "—" },
   { key: "model", label: "Model", value: (a) => a.model || "default" },
   { key: "status", label: "Status" },
 ]

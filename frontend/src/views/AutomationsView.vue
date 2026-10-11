@@ -44,6 +44,12 @@ const automationId = computed(() => {
   return typeof id === "string" ? id : null
 })
 
+// The workspace and playbook a new automation starts from (the playbook library's "Create automation").
+const start = computed(() => {
+  const { workspace, playbook } = current.value.query
+  return { workspace: typeof workspace === "string" ? workspace : undefined, playbook: typeof playbook === "string" ? playbook : undefined }
+})
+
 const {
   automations,
   metrics,
@@ -167,6 +173,20 @@ async function handleCreateAutomation(workspace: string, data: AutomationPayload
     return
   }
   await openByName(workspace, data.name)
+  await offerTestRun(workspace, data.name)
+}
+
+// A new automation is only trusted once it has run: offer to run it once now, while the user is looking at it.
+async function offerTestRun(workspace: string, name: string) {
+  const run = await confirm({
+    title: "Automation created",
+    message: `Run ${name} once now to check it works? It runs the same way a scheduled run would.`,
+    type: "info",
+    confirmText: "Run now",
+    cancelText: "Not now",
+  })
+  const saved = automations.value.find((a) => a.workspace === workspace && a.name === name)
+  if (run && saved) await runAutomation(saved)
 }
 
 async function handleUpdateAutomation(workspace: string, oldName: string, data: AutomationPayload) {
@@ -298,6 +318,8 @@ usePolling(() => {
         :workspaces="workspaces"
         :workspaceFiles="workspaceFiles"
         :editAutomation="page === 'edit' ? selectedAutomation : null"
+        :automations="automations"
+        :start="start"
         @create-automation="handleCreateAutomation"
         @update-automation="handleUpdateAutomation"
         @cancel="handleCancelForm"

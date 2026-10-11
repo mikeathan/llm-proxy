@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Sentinels returned from MutateConfig closures so the handler — never the
@@ -68,6 +69,7 @@ type Dispatcher interface {
 	Events() *eventbus.Bus
 	UnregisterWorkspace(workspaceID string)
 	HeartbeatState(workspaceID string) (models.HeartbeatState, error)
+	NextRuns() map[string]time.Time
 }
 
 type DispatcherHandlers struct {
@@ -125,6 +127,19 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 	return validateRunOptions(auto)
 }
 
+// validateSchedulable refuses a trigger the scheduler cannot read, using the
+// scheduler's own factory so the two can never disagree. Create and update
+// call it so a bad schedule is told to the user instead of saved. The
+// whole-document config PUT does not: it carries every stored automation back,
+// and one older unreadable trigger must not block an unrelated save (the
+// dispatcher skips that automation and schedules the rest).
+func validateSchedulable(auto *models.Automation) error {
+	if _, err := automation.New(auto.Trigger); err != nil {
+		return fmt.Errorf("invalid trigger: %w", err)
+	}
+	return nil
+}
+
 // validateMemoryMode accepts an explicit override or empty (inherit the global default).
 func validateMemoryMode(field string, mode models.MemoryMode) error {
 	if mode != models.MemoryModeInherit && !mode.Valid() {
@@ -168,7 +183,9 @@ type AutomationInfo struct {
 	LastError    string `json:"last_error,omitempty"`
 	// LastWarnings are the latest run's non-fatal problems, e.g. a report that could not be delivered.
 	LastWarnings []string `json:"last_warnings,omitempty"`
-	IsRunning    bool     `json:"is_running"`
+	// NextRunAt is when the scheduler will next fire it (server clock, RFC 3339); absent for a manual automation.
+	NextRunAt time.Time `json:"next_run_at,omitzero"`
+	IsRunning bool      `json:"is_running"`
 	// Queued/QueuePosition report the run scheduler admission: the automation
 	// is waiting in its workload lane (Position is 1-based). Both are empty
 	// while the run executes or sits idle — IsRunning stays the source of
@@ -198,6 +215,8 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	nextRuns := h.dispatcher.NextRuns()
+
 	for _, entry := range entries {
 		info := AutomationInfo{
 			ID:           entry.ID,
@@ -215,6 +234,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			Notify:       entry.Notify,
 			SkipIfBusy:   entry.SkipIfBusy,
 			Journal:      entry.Journal,
+			NextRunAt:    nextRuns[entry.ID],
 		}
 
 		if state, err := h.workspace.GetState(entry.Workspace); err == nil {
@@ -610,7 +630,7 @@ func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.validateAutomation(&auto); err != nil {
+	if err := errors.Join(h.validateAutomation(&auto), validateSchedulable(&auto)); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -663,7 +683,7 @@ func (h *DispatcherHandlers) CreateAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.validateAutomation(&auto); err != nil {
+	if err := errors.Join(h.validateAutomation(&auto), validateSchedulable(&auto)); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -873,4 +893,22 @@ func (h *DispatcherHandlers) DeleteAutomationRuns(w http.ResponseWriter, r *http
 		return
 	}
 	respondJSON(w, map[string]string{"status": "deleted"})
+}
+
+// schedulePreviewRequest is the body of a schedule preview: the trigger to read
+// and how many upcoming runs to list (0 = the default).
+type schedulePreviewRequest struct {
+	Trigger models.TriggerConfig `json:"trigger"`
+	Count   int                  `json:"count"`
+}
+
+// PreviewSchedule answers "would this schedule work, and when would it run?"
+// with the scheduler's own parser. It is stateless: nothing is registered or
+// written, and an invalid schedule is a 200 carrying the reason.
+func (h *DispatcherHandlers) PreviewSchedule(w http.ResponseWriter, r *http.Request) {
+	var req schedulePreviewRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	respondJSON(w, automation.PreviewSchedule(req.Trigger, time.Now(), req.Count))
 }

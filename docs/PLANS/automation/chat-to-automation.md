@@ -65,7 +65,7 @@ include secrets (the trace is passed through `tools.RedactSecrets` first —
 `backend/internal/core/tools/security.go:22`).
 
 ### Step 4 — Suggest a trigger (deterministic heuristics, user confirms)
-"every morning/daily" in user messages → `cron 0 7 * * *`; mentions of a folder → `file` trigger
+"every morning/daily" in user messages → the `daily` schedule at 07:00 (a `Schedule` from `utils/automation/schedule.ts`, see `automation-authoring-ux.md`, which serialises to `cron 0 7 * * *`; never a hand-written cron string); mentions of a folder → `file` trigger
 (if `../autonomy/event-driven-triggers.md` has landed); otherwise `manual`.
 
 **Automation or goal?** If the chat was about reaching an *outcome* rather than repeating a *task*

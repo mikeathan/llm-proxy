@@ -1,17 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { automationStatus, triggerLabel } from '../../../utils/automation/automationDisplay'
+import { automationStatus, nextRunLabel, triggerLabel } from '../../../utils/automation/automationDisplay'
 import type { Automation } from '../../../types/dispatcher'
 
 const auto = (over: Partial<Automation>): Automation => ({ id: 'ws/a', workspace: 'ws', name: 'a', task_file: 't.md', strategy: 'persistent', trigger: 'manual', ...over })
 
 describe('triggerLabel', () => {
   it.each([
-    [{ trigger: 'cron', trigger_value: '0 7 * * *' }, 'At 07:00 AM'],
+    [{ trigger: 'cron', trigger_value: '0 7 * * *' }, 'Every day at 07:00'],
+    [{ trigger: 'cron', trigger_value: '*/5 * * * *' }, 'Every 5 minutes'],
     [{ trigger: 'cron', trigger_value: 'not a cron' }, 'Invalid schedule: not a cron'],
-    [{ trigger: 'interval', trigger_value: '1h' }, 'Every 1h'],
+    [{ trigger: 'interval', trigger_value: '1h' }, 'Every hour'],
     // The backend stores Go durations: drop the zero units it adds.
-    [{ trigger: 'interval', trigger_value: '2h0m0s' }, 'Every 2h'],
-    [{ trigger: 'interval', trigger_value: '1h30m0s' }, 'Every 1h30m'],
+    [{ trigger: 'interval', trigger_value: '2h0m0s' }, 'Every 2 hours'],
+    [{ trigger: 'interval', trigger_value: '1h30m0s' }, 'Every 90 minutes'],
+    [{ trigger: 'interval', trigger_value: '1h30m15s' }, 'Every 1h30m15s'],
     [{ trigger: 'interval', trigger_value: '0s' }, 'Every 0s'],
     [{ trigger: 'manual' }, 'Manual only'],
     [{ trigger: 'webhook' }, 'webhook'],
@@ -27,5 +29,17 @@ describe('automationStatus', () => {
     expect(automationStatus(auto({ queued: true }))).toEqual({ state: 'queued', label: 'Queued #1' })
     expect(automationStatus(auto({ last_error: 'boom' }))).toEqual({ state: 'error', label: 'Last run failed' })
     expect(automationStatus(auto({}))).toEqual({ state: 'neutral', label: 'Idle' })
+  })
+})
+
+describe('nextRunLabel', () => {
+  // Read on the wall clock the server's timestamp carries, whatever zone the browser is in.
+  it.each([
+    [{ next_run_at: '2026-10-12T07:30:00+01:00' }, 'Mon 12 Oct, 07:30'],
+    [{ next_run_at: '2026-10-12T07:30:00.5Z' }, 'Mon 12 Oct, 07:30'],
+    [{}, ''],
+    [{ next_run_at: '' }, ''],
+  ])('%o → "%s"', (over, label) => {
+    expect(nextRunLabel(auto(over as Partial<Automation>))).toBe(label)
   })
 })

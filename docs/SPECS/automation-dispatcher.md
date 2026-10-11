@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.11"
+version: "1.13"
 status: stable
-last_updated: 2026-10-08
+last_updated: 2026-10-11
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -12,6 +12,22 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.13 (2026-10-11)** — Next run (§II.1). `GET /admin/api/dispatcher/automations` carries `next_run_at` for each
+  scheduled automation: the time the scheduler will really fire it (`Dispatcher.NextRuns`, read from the scheduler's
+  own entries, so an interval counts from its registration), on the server's clock. A manual automation, which has no
+  job, omits it.
+
+- **1.12 (2026-10-11)** — Schedules (§II.1). Cron is one grammar: five fields or a descriptor (`@daily`,
+  `@every 1h`); **seconds are not supported**, and a six-field expression is an error (one shared parser serves
+  the trigger and the scheduler). Cron runs in the server's local time zone. `POST
+  /admin/api/dispatcher/schedule/preview` takes `{trigger, count?}` and answers `{valid, error?, timezone,
+  next_runs[]}` from that same parser (`count` defaults to 3, capped at 10; an invalid schedule is a 200 with the
+  reason; nothing is registered or stored). Creating or updating an automation now refuses a trigger the
+  scheduler cannot read (400, nothing written) instead of saving it. Registering a workspace's automations no
+  longer stops at the first unreadable trigger: the others are scheduled and the failures are logged together.
+  The whole-document workspace-config PUT does not re-check triggers, so an older stored one cannot block an
+  unrelated save.
 
 - **1.11 (2026-10-09)** — Delivery failures are visible (§II.6). A report that could not be sent adds a warning
   (`report not delivered via <connector>: <cause>`, where a rejected token reads as its short reason, e.g. "telegram rejected the bot token (HTTP 401)") to the run that produced it, found by the run's id
@@ -72,8 +88,9 @@ of run events to the frontend.
 
 ### 1. Scheduling
 
-- `CronTrigger` — standard cron expressions for recurring automations.
-- `IntervalTrigger` — fixed-interval scheduling.
+- `CronTrigger` — five-field cron expressions or descriptors (`@daily`, `@every 1h`) for recurring
+  automations, read in the server's local time zone. No seconds field.
+- `IntervalTrigger` — fixed-interval scheduling (a Go duration such as `15m`).
 - `ManualTrigger` — ad-hoc execution via API.
 - All triggers are per-workspace.
 

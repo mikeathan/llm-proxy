@@ -9,7 +9,7 @@ import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
-import { triggerLabel } from "../../../utils/automation/automationDisplay";
+import { nextRunLabel, triggerLabel } from "../../../utils/automation/automationDisplay";
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
@@ -107,6 +107,7 @@ const consoleState = computed(() => {
 
 const config = computed(() => [
   ["Runs", triggerLabel(props.automation)],
+  ...(nextRunLabel(props.automation) ? [["Next run", `${nextRunLabel(props.automation)} (server time)`]] : []),
   ["Strategy", props.automation.strategy],
   ["Model", props.automation.model || "Workspace default"],
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],

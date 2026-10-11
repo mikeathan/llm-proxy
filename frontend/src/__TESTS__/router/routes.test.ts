@@ -34,6 +34,7 @@ describe('typed route builders', () => {
     ['section', toWorkspaceSection('ws', 'memory'), '/workspaces/ws/memory'],
     ['automations', toAutomations(), '/automations'],
     ['new automation', toAutomationNew(), '/automations/new'],
+    ['new automation from a playbook', toAutomationNew({ workspace: 'ws 1', playbook: 'llm-brief' }), '/automations/new?workspace=ws+1&playbook=llm-brief'],
     ['recordings', toAutomationRecordings(), '/automations/recordings'],
     ['automation id with a slash', toAutomation('ws/nightly'), '/automations/ws%2Fnightly'],
     ['edit automation', toAutomationEdit('ws/nightly'), '/automations/ws%2Fnightly/edit'],
