@@ -203,6 +203,65 @@ func TestFinalizeReport_LLMFailure_SynthesizesSummary(t *testing.T) {
 	}
 }
 
+// TestFinalizeReport_SynthesizedSummaryNamesTheRealCause verifies the synthesized
+// summary says why the report turn gave nothing usable. A reply that comes back
+// as tool-call markup is the model's failure, not the provider's; a call that
+// errors is the provider's. Regression: a local model that kept emitting
+// <tool_call> text on the report turn was reported as a "provider error", and an
+// unrelated 404 from fetch_url was the only "failure" listed.
+func TestFinalizeReport_SynthesizedSummaryNamesTheRealCause(t *testing.T) {
+	tests := []struct {
+		name         string
+		client       *MockClient
+		wantContains string
+		wantAbsent   string
+	}{
+		{
+			name:         "tool-call markup is not a provider error",
+			client:       finalizeMockClient(`<tool_call>{"tool":"internet_search","args":{}}</tool_call>`, nil),
+			wantContains: "did not produce a usable final report",
+			wantAbsent:   "provider error",
+		},
+		{
+			name: "a failed report call is a provider error",
+			client: &MockClient{
+				StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+					return nil, errors.New("streaming not supported")
+				},
+				ChatFunc: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+					return nil, errors.New("upstream timeout failure after 3 attempts")
+				},
+			},
+			wantContains: "provider error",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &MockProvider{
+				Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}}},
+			}
+			agent := NewAgent(tc.client, provider, &MockEngine{Result: "ok"}, AgentOptions{MaxSteps: 5})
+			s := newRunSession(agent, context.Background(), []proxy.Message{
+				{Role: proxy.UserRole, Content: "do work"},
+				{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{ID: "c1", Type: "function", Function: proxy.FunctionCall{Name: "test_tool", Arguments: `{"key":"val"}`}}}},
+				{Role: proxy.ToolRole, ToolCallID: "c1", Content: `{"error":"server returned unexpected status: 404 Not Found"}`},
+			})
+			agent.runS = s
+
+			report, err := s.finalizeReport(context.Background())
+			if err != nil {
+				t.Fatalf("finalizeReport must not fail when work was done: %v", err)
+			}
+			if !strings.Contains(report, tc.wantContains) {
+				t.Errorf("summary must contain %q, got %q", tc.wantContains, report)
+			}
+			if tc.wantAbsent != "" && strings.Contains(report, tc.wantAbsent) {
+				t.Errorf("summary must not contain %q, got %q", tc.wantAbsent, report)
+			}
+		})
+	}
+}
+
 // TestFinalizeReport_LLMFailure_NoWorkStillFails verifies the fail-loud path
 // is preserved: when the finalization LLM turn fails AND the run did no tool
 // work (nothing to synthesize), finalizeReport still returns an error.
