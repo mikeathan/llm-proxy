@@ -19,6 +19,26 @@ export class ReminderService {
     return res.json()
   }
 
+  static async create(edit: ReminderEdit): Promise<ReminderItem> {
+    const res = await fetch('/admin/api/reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(edit),
+    })
+    if (!res.ok) throw await failureReason(res, 'create reminder')
+    return res.json()
+  }
+
+  static pause = (id: number) => ReminderService.act(id, 'pause')
+  static resume = (id: number) => ReminderService.act(id, 'resume')
+  static skip = (id: number) => ReminderService.act(id, 'skip')
+
+  private static async act(id: number, action: 'pause' | 'resume' | 'skip'): Promise<ReminderItem> {
+    const res = await fetch(`/admin/api/reminders/${id}/${action}`, { method: 'POST' })
+    if (!res.ok) throw await failureReason(res, `${action} reminder`)
+    return res.json()
+  }
+
   static async edit(id: number, edit: ReminderEdit): Promise<ReminderItem> {
     const res = await fetch(`/admin/api/reminders/${id}`, {
       method: 'PUT',

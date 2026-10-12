@@ -42,6 +42,12 @@ describe('RemindersPanel', () => {
     expect(w.text()).toContain('Every Monday at 09:00')
   })
 
+  it('marks a paused reminder as paused, with no action buttons in the summary', async () => {
+    const w = await mountPanel({ open: [item({ id: 8, message: 'Standup', cron: '0 9 * * 1', status: 'paused' })], recent: [] })
+    expect(w.text()).toMatch(/paused/i)
+    expect(w.findAll('button')).toHaveLength(0)
+  })
+
   it('shows the message as plain text, never as markup', async () => {
     const w = await mountPanel({ open: [item({ message: '<img src=x onerror=alert(1)>' })], recent: [] })
     expect(w.find('img').exists()).toBe(false)

@@ -3,37 +3,57 @@ import { computed, ref } from "vue"
 import FormField from "../common/forms/FormField.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
+import BaseToggle from "../common/buttons/BaseToggle.vue"
 import SchedulePicker from "../AgentIde/automation/SchedulePicker.vue"
 import { fromZonedInput, toZonedInput } from "../../utils/format/timezone"
 import { REMINDER_REPEAT_KINDS, REMINDER_UNTIL_TIME } from "../../constants/reminders"
 import type { ReminderEdit, ReminderItem } from "../../types/reminders"
 import type { ChoiceOption } from "../../types/ui"
 
-// Edit one open reminder: what it says, when (or how often) and where it goes.
-// Times are shown and typed in the reminder's own timezone. The owner saves the
-// result and shows the server's reason in `error` when it refuses.
+// Create or edit one reminder: what it says, when (or how often) and where it
+// goes. Times are shown and typed in the reminder's own timezone. `creating`
+// starts from a blank one and sends the zone; `reschedule` is editing a finished
+// reminder to run it again. The owner saves the result and shows the server's
+// reason in `error` when it refuses.
 
-const props = defineProps<{ reminder: ReminderItem; channels: ChoiceOption[]; saving: boolean; error: string }>()
+const props = defineProps<{
+  reminder: ReminderItem
+  channels: ChoiceOption[]
+  saving: boolean
+  error: string
+  creating?: boolean
+  reschedule?: boolean
+}>()
 const emit = defineEmits<{ (e: "save", edit: ReminderEdit): void; (e: "cancel"): void }>()
 
 const DATE_LENGTH = "YYYY-MM-DD".length
 const zone = props.reminder.timezone
-const recurring = Boolean(props.reminder.cron)
+const TIME_PATTERN = /T(\d{2}):(\d{2})$/
 
+const repeats = ref(Boolean(props.reminder.cron))
 const message = ref(props.reminder.message)
 const when = ref(toZonedInput(props.reminder.fire_at, zone))
 const cron = ref(props.reminder.cron ?? "")
 const endDate = ref(props.reminder.until ? toZonedInput(props.reminder.until, zone).slice(0, DATE_LENGTH) : "")
 const connector = ref(props.reminder.connector)
 
+// Switching Repeat on starts as "every day" at the time already chosen.
+function setRepeats(on: boolean) {
+  repeats.value = on
+  const time = TIME_PATTERN.exec(when.value)
+  if (on && !cron.value && time) cron.value = `${Number(time[2])} ${Number(time[1])} * * *`
+}
+
 const canSave = computed(
-  () => !props.saving && message.value.trim() !== "" && (recurring ? cron.value !== "" : fromZonedInput(when.value, zone) !== null),
+  () => !props.saving && message.value.trim() !== "" && (repeats.value ? cron.value !== "" : fromZonedInput(when.value, zone) !== null),
 )
+const submitLabel = computed(() => (props.creating ? "Create" : props.reschedule ? "Reschedule" : "Save"))
 
 function submit() {
   if (!canSave.value) return
   const edit: ReminderEdit = { message: message.value.trim(), connector: connector.value }
-  if (recurring) {
+  if (props.creating) edit.timezone = zone
+  if (repeats.value) {
     edit.cron = cron.value
     const until = endDate.value ? fromZonedInput(`${endDate.value}T${REMINDER_UNTIL_TIME}`, zone) : null
     if (until) edit.until = until
@@ -52,14 +72,16 @@ function submit() {
       </template>
     </FormField>
 
-    <FormField v-if="!recurring" label="When" :hint="`Times are in ${zone}.`">
+    <BaseToggle :model-value="repeats" label="Repeat" @update:model-value="setRepeats" />
+
+    <FormField v-if="!repeats" label="When" :hint="`Times are in ${zone}.`">
       <template #default="{ id, describedBy }">
         <input :id="id" v-model="when" :aria-describedby="describedBy" type="datetime-local" required class="form-control w-fit font-mono" />
       </template>
     </FormField>
 
     <template v-else>
-      <SchedulePicker type="cron" :value="cron" :kinds="[...REMINDER_REPEAT_KINDS]" :preview="false" label="Repeats" @update:trigger="cron = $event.value" />
+      <SchedulePicker type="cron" :value="cron" :kinds="[...REMINDER_REPEAT_KINDS]" :preview="false" label="How often" @update:trigger="cron = $event.value" />
       <FormField label="Ends" :hint="`Last day it can fire, in ${zone}. Leave empty to repeat until you delete it.`">
         <template #default="{ id, describedBy }">
           <input :id="id" v-model="endDate" :aria-describedby="describedBy" type="date" class="form-control w-fit font-mono" />
@@ -76,7 +98,7 @@ function submit() {
     <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
 
     <div class="flex flex-wrap gap-2">
-      <BaseButton type="submit" size="sm" :disabled="!canSave">Save</BaseButton>
+      <BaseButton type="submit" size="sm" :disabled="!canSave">{{ submitLabel }}</BaseButton>
       <BaseButton variant="secondary" size="sm" @click="emit('cancel')">Cancel</BaseButton>
     </div>
   </form>

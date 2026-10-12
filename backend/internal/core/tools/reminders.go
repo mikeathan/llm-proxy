@@ -30,6 +30,7 @@ type ReminderView struct {
 	Cron    string
 	Zone    string
 	Channel string // where it will be delivered, or "in-app"
+	Paused  bool
 }
 
 // ReminderService is what the tools need from the reminders subsystem. It is
@@ -143,6 +144,9 @@ func (t *ReminderTools) List(ctx context.Context, _ struct{}) (any, error) {
 		fmt.Fprintf(&b, "%d: %q at %s %s via %s", v.ID, v.Message, v.At.In(loc).Format(reminderTimeLayout), v.Zone, v.Channel)
 		if v.Cron != "" {
 			fmt.Fprintf(&b, " (repeats: %s)", v.Cron)
+		}
+		if v.Paused {
+			b.WriteString(" (paused)")
 		}
 		b.WriteByte('\n')
 	}

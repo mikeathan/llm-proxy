@@ -101,4 +101,59 @@ describe('ReminderEditor', () => {
     expect(onCancel).toHaveBeenCalled()
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  describe('repeat toggle', () => {
+    it('turns a one-off into a repeating reminder, starting from its time of day', async () => {
+      const { w, onSave } = mountEditor(oneOff()) // 09:00 London
+      await fieldByLabel(w, /^repeat/i).setValue(true)
+      expect(w.find('[data-test="kind"]').exists()).toBe(true)
+      expect(w.find('input[type="datetime-local"]').exists()).toBe(false)
+      await w.get('form').trigger('submit')
+      const saved = onSave.mock.calls[0]![0]
+      expect(saved.cron).toBe('0 9 * * *')
+      expect(saved.fire_at).toBeUndefined()
+    })
+
+    it('turns a repeating reminder into a one-off at a chosen time', async () => {
+      const { w, onSave } = mountEditor(recurring())
+      await fieldByLabel(w, /^repeat/i).setValue(false)
+      await fieldByLabel(w, /^when/i).setValue('2026-10-20T11:00')
+      await w.get('form').trigger('submit')
+      const saved = onSave.mock.calls[0]![0]
+      expect(saved.cron).toBeUndefined()
+      expect(saved.until).toBeUndefined()
+      expect(saved.fire_at).toBe('2026-10-20T10:00:00.000Z') // 11:00 BST
+    })
+  })
+
+  describe('creating', () => {
+    const blank = (): ReminderItem => ({ id: 0, message: '', fire_at: '2026-10-13T08:00:00Z', timezone: 'Europe/London', connector: '', channel: '', status: 'scheduled' })
+
+    it('starts empty, offers Create, and sends the zone the time is in', async () => {
+      const { w, onSave } = mountEditor(blank(), { creating: true })
+      expect((fieldByLabel(w, /^message/i).element as HTMLTextAreaElement).value).toBe('')
+      expect(w.get('button[type="submit"]').text()).toBe('Create')
+      await w.get('form').trigger('submit')
+      expect(onSave).not.toHaveBeenCalled() // a message is required
+      await fieldByLabel(w, /^message/i).setValue('Renew passport')
+      await w.get('form').trigger('submit')
+      expect(onSave.mock.calls[0]![0]).toEqual({
+        message: 'Renew passport', fire_at: '2026-10-13T08:00:00.000Z', connector: '', timezone: 'Europe/London',
+      })
+    })
+
+    it('does not send a zone when editing', async () => {
+      const { w, onSave } = mountEditor(oneOff())
+      await w.get('form').trigger('submit')
+      expect(onSave.mock.calls[0]![0].timezone).toBeUndefined()
+    })
+  })
+
+  it('offers Reschedule on a finished reminder', async () => {
+    const { w, onSave } = mountEditor(oneOff({ status: 'missed', fire_at: '2026-10-01T08:00:00Z' }), { reschedule: true })
+    expect(w.get('button[type="submit"]').text()).toBe('Reschedule')
+    await fieldByLabel(w, /^when/i).setValue('2026-10-20T11:00')
+    await w.get('form').trigger('submit')
+    expect(onSave.mock.calls[0]![0].fire_at).toBe('2026-10-20T10:00:00.000Z')
+  })
 })

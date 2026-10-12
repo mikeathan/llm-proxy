@@ -135,6 +135,11 @@ func TestListReminders_FormatsOpenOnly(t *testing.T) {
 			t.Errorf("list %q missing %q", out, want)
 		}
 	}
+	paused := &fakeReminderService{views: []ReminderView{{ID: 5, Message: "Standup", At: time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC), Cron: "0 9 * * 1", Zone: "Europe/London", Channel: "in-app", Paused: true}}}
+	got, _ = NewReminderTools(paused).List(context.Background(), struct{}{})
+	if !strings.Contains(got.(string), "paused") {
+		t.Errorf("a paused reminder must say so: %q", got)
+	}
 	empty, _ := NewReminderTools(&fakeReminderService{}).List(context.Background(), struct{}{})
 	if !strings.Contains(empty.(string), "No open reminders") {
 		t.Errorf("empty list = %q", empty)

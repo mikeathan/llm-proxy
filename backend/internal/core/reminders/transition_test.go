@@ -1,6 +1,7 @@
 package reminders
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -140,5 +141,56 @@ func TestAdvance_DoesNotMutateItsInput(t *testing.T) {
 	_ = policy.Advance(r, Failed("x"), t0)
 	if r.Attempts != 0 || r.LastError != "" || r.Status != StatusScheduled {
 		t.Errorf("input changed: %+v", r)
+	}
+}
+
+func TestPause(t *testing.T) {
+	got, err := Pause(daily(t0))
+	if err != nil || got.Status != StatusPaused {
+		t.Fatalf("got %+v err=%v", got, err)
+	}
+	if _, err := Pause(oneOff(t0)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a one-off cannot be paused (delete or reschedule it), err = %v", err)
+	}
+	paused := daily(t0)
+	paused.Status = StatusPaused
+	if _, err := Pause(paused); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an already paused reminder, err = %v", err)
+	}
+}
+
+func TestResume_MovesToTheNextOccurrenceAfterNow(t *testing.T) {
+	paused := daily(t0) // 09:00 daily, due 12 Oct
+	paused.Status = StatusPaused
+	now := t0.Add(72 * time.Hour).Add(time.Hour) // paused for three days, now 10:00 on the 15th
+	got, err := Resume(paused, now)
+	if err != nil || got.Status != StatusScheduled || !got.FireAt.Equal(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)) {
+		t.Fatalf("got %+v err=%v, want scheduled for the 16th (no replay of what was silenced)", got, err)
+	}
+	if _, err := Resume(daily(t0), now); !errors.Is(err, ErrInvalid) {
+		t.Errorf("resuming a reminder that is not paused, err = %v", err)
+	}
+	ended := paused
+	until := t0.Add(time.Hour)
+	ended.Until = &until
+	if _, err := Resume(ended, now); !errors.Is(err, ErrInvalid) {
+		t.Errorf("resuming one whose end date has passed, err = %v", err)
+	}
+}
+
+func TestSkipNext(t *testing.T) {
+	r := daily(t0.Add(24 * time.Hour)) // next is tomorrow 09:00
+	got, err := SkipNext(r)
+	if err != nil || got.Status != StatusScheduled || !got.FireAt.Equal(t0.Add(48*time.Hour)) {
+		t.Fatalf("got %+v err=%v, want the occurrence after the next one", got, err)
+	}
+	if _, err := SkipNext(oneOff(t0)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a one-off has nothing to skip to, err = %v", err)
+	}
+	last := daily(t0)
+	until := t0.Add(time.Hour)
+	last.Until = &until
+	if _, err := SkipNext(last); !errors.Is(err, ErrInvalid) {
+		t.Errorf("skipping the last occurrence, err = %v (delete it instead)", err)
 	}
 }

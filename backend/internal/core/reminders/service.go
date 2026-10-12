@@ -116,17 +116,15 @@ func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
 	return s.store.Get(ctx, id)
 }
 
-// Edit replaces the message, time, recurrence, end and channel of an open
-// reminder under the same rules as Create (its timezone is kept). ErrNotFound
-// when it is not open; ErrInvalid (wrapped) when the new description is refused,
-// in which case nothing changes.
+// Edit replaces the message, time, recurrence, end and channel of a reminder under
+// the same rules as Create (its timezone is kept). A finished reminder (sent,
+// missed, failed) is rescheduled by editing it; a paused one stays paused.
+// ErrNotFound when it is cancelled or unknown; ErrInvalid (wrapped) when the new
+// description is refused, in which case nothing changes.
 func (s *Service) Edit(ctx context.Context, id int64, in Reminder) (Reminder, error) {
 	cur, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Reminder{}, err
-	}
-	if cur.Status != StatusScheduled {
-		return Reminder{}, ErrNotFound
 	}
 	in.ID, in.Timezone, in.CreatedBy = id, cur.Timezone, cur.CreatedBy
 	in, err = s.prepare(in)
@@ -160,6 +158,39 @@ func (s *Service) prepare(r Reminder) (Reminder, error) {
 	}
 	r.Connector = s.channel.ForNew(r.Connector, r.Origin)
 	return r, nil
+}
+
+// Pause silences a repeating reminder without deleting it.
+func (s *Service) Pause(ctx context.Context, id int64) (Reminder, error) {
+	return s.change(ctx, id, StatusScheduled, func(r Reminder) (Reminder, error) { return Pause(r) })
+}
+
+// Resume brings a paused reminder back at its next occurrence.
+func (s *Service) Resume(ctx context.Context, id int64) (Reminder, error) {
+	return s.change(ctx, id, StatusPaused, func(r Reminder) (Reminder, error) { return Resume(r, s.clock.Now()) })
+}
+
+// Skip moves a repeating reminder past its next occurrence.
+func (s *Service) Skip(ctx context.Context, id int64) (Reminder, error) {
+	return s.change(ctx, id, StatusScheduled, func(r Reminder) (Reminder, error) { return SkipNext(r) })
+}
+
+// change reads a reminder, applies one of the pure state changes and writes the
+// result only if it is still in the state it was read in, then re-arms the loop.
+func (s *Service) change(ctx context.Context, id int64, from Status, apply func(Reminder) (Reminder, error)) (Reminder, error) {
+	cur, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Reminder{}, err
+	}
+	next, err := apply(cur)
+	if err != nil {
+		return Reminder{}, err
+	}
+	if err := s.store.Transition(ctx, next, from); err != nil {
+		return Reminder{}, err
+	}
+	s.poke()
+	return s.store.Get(ctx, id)
 }
 
 // Cancel cancels an open reminder.
@@ -224,7 +255,7 @@ func (s *Service) Run(ctx context.Context) {
 // armTimer returns a timer for the earliest open reminder, or nil when none. A
 // reminder held back after a failed save is not due again before its hold ends.
 func (s *Service) armTimer(ctx context.Context) Timer {
-	open, err := s.store.ListOpen(ctx)
+	open, err := s.store.ListScheduled(ctx)
 	if err != nil || len(open) == 0 {
 		if err != nil && ctx.Err() == nil {
 			logging.Warn("reminders: list failed", "error", err)

@@ -51,3 +51,37 @@ describe('ReminderService.remove', () => {
     await expect(ReminderService.remove(4)).rejects.toThrow('reminder not found')
   })
 })
+
+describe('ReminderService.create', () => {
+  it('posts the form and returns the created item', async () => {
+    const created = { id: 11, message: 'x', fire_at: '2026-10-12T08:00:00Z', timezone: 'Europe/London', connector: '', channel: 'in-app', status: 'scheduled' }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => created })
+    vi.stubGlobal('fetch', fetchMock)
+    const body = { message: 'x', fire_at: '2026-10-12T08:00:00.000Z', connector: '', timezone: 'Europe/London' }
+    expect(await ReminderService.create(body)).toEqual(created)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/admin/api/reminders')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual(body)
+  })
+
+  it("reports the server's reason", async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":"invalid reminder: too many open reminders"}' }))
+    await expect(ReminderService.create({ message: 'x', connector: '' })).rejects.toThrow('too many open reminders')
+  })
+})
+
+describe.each(['pause', 'resume', 'skip'] as const)('ReminderService.%s', (action) => {
+  it('posts to the reminders action and returns the item', async () => {
+    const item = { id: 3, status: 'paused' }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => item })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await ReminderService[action](3)).toEqual(item)
+    expect(fetchMock).toHaveBeenCalledWith(`/admin/api/reminders/3/${action}`, { method: 'POST' })
+  })
+
+  it('reports a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":"invalid reminder: only a repeating reminder can be paused"}' }))
+    await expect(ReminderService[action](3)).rejects.toThrow('only a repeating reminder')
+  })
+})

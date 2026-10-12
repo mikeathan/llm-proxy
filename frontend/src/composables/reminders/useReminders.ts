@@ -93,11 +93,15 @@ async function change(action: () => Promise<unknown>): Promise<boolean> {
   }
 }
 
+const create = (edit: ReminderEdit) => change(() => ReminderService.create(edit))
 const save = (id: number, edit: ReminderEdit) => change(() => ReminderService.edit(id, edit))
 const remove = (id: number) => change(() => ReminderService.remove(id))
+const pause = (id: number) => change(() => ReminderService.pause(id))
+const resume = (id: number) => change(() => ReminderService.resume(id))
+const skip = (id: number) => change(() => ReminderService.skip(id))
 
 export function useReminders() {
   onMounted(acquire)
   onUnmounted(release)
-  return { reminders, loading, error, actionError, saving, load, save, remove }
+  return { reminders, loading, error, actionError, saving, load, create, save, remove, pause, resume, skip }
 }

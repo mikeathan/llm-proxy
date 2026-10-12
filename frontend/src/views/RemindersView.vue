@@ -2,49 +2,60 @@
 import { computed, ref } from "vue"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
-import StatusTag from "../components/common/display/StatusTag.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
 import EmptyState from "../components/common/feedback/EmptyState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
 import ReminderEditor from "../components/reminders/ReminderEditor.vue"
+import ReminderRow from "../components/reminders/ReminderRow.vue"
 import { useReminders } from "../composables/reminders/useReminders"
 import { useReminderChannels } from "../composables/reminders/useReminderChannels"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
-import { formatRelativeTime } from "../utils/format/time"
-import { reminderEnds, reminderRepeat, reminderWhen } from "../utils/reminders/present"
-import { REMINDER_EXAMPLE, REMINDER_OUTCOME_TAG, RELOAD_HINT } from "../constants/reminders"
+import { browserTimeZone, defaultReminderTime } from "../utils/format/timezone"
+import { REMINDER_EXAMPLE, RELOAD_HINT } from "../constants/reminders"
 import type { ReminderEdit, ReminderItem } from "../types/reminders"
 
-// Reminders: everything the assistant has been asked to remind you of. Upcoming
-// ones can be edited or deleted; finished ones (sent, missed, failed) stay in the
-// history until deleted. New reminders come from asking the assistant.
+// Reminders: everything the assistant has been asked to remind you of, and what
+// you set here. Upcoming ones can be edited, deleted, and (repeating ones) paused
+// or skipped; finished ones (sent, missed, failed) stay in the history until
+// deleted, and can be rescheduled.
 
-const { reminders, loading, error, actionError, saving, save, remove } = useReminders()
+const NEW = "new" as const
+
+const { reminders, loading, error, actionError, saving, create, save, remove, pause, resume, skip } = useReminders()
 const channels = useReminderChannels()
 const { confirm } = useConfirm()
 const toast = useToast()
 
-const editingId = ref<number | null>(null)
+// Which row's form is open: a reminder id, or NEW for the "New reminder" form.
+const editing = ref<number | typeof NEW | null>(null)
 const empty = computed(() => !reminders.value.open.length && !reminders.value.recent.length)
 
-function startEdit(r: ReminderItem) {
-  actionError.value = ""
-  editingId.value = r.id
+function blankReminder(): ReminderItem {
+  const zone = browserTimeZone()
+  return {
+    id: 0, message: "", fire_at: defaultReminderTime(new Date(), zone), timezone: zone,
+    connector: "", channel: "", status: "scheduled",
+  }
 }
 
-async function saveEdit(r: ReminderItem, edit: ReminderEdit) {
-  if (await save(r.id, edit)) {
-    editingId.value = null
-    toast.success("Reminder saved")
-  }
+function open(what: number | typeof NEW) {
+  actionError.value = ""
+  editing.value = what
+}
+
+async function submit(target: number | typeof NEW, edit: ReminderEdit) {
+  const saved = target === NEW ? await create(edit) : await save(target, edit)
+  if (!saved) return
+  editing.value = null
+  toast.success(target === NEW ? "Reminder created" : "Reminder saved")
 }
 
 async function askDelete(r: ReminderItem) {
   const sure = await confirm({
     title: "Delete reminder",
-    message: r.status === "scheduled" ? `"${r.message}" will not be sent.` : `Remove "${r.message}" from the history.`,
+    message: r.status === "done" || r.status === "missed" || r.status === "failed" ? `Remove "${r.message}" from the history.` : `"${r.message}" will not be sent.`,
     type: "warning",
     confirmText: "Delete",
   })
@@ -53,57 +64,53 @@ async function askDelete(r: ReminderItem) {
   else toast.error(actionError.value)
 }
 
+// Pause, resume and skip report a refusal in the page (not a form), where the user is looking.
+const act = (run: (id: number) => Promise<boolean>, r: ReminderItem) => {
+  actionError.value = ""
+  return run(r.id)
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader eyebrow="Assistant" title="Reminders" subtitle="Ask the assistant to set one; edit or delete them here" />
+    <PageHeader eyebrow="Assistant" title="Reminders" subtitle="Ask the assistant to set one, or add one here; edit or delete them here">
+      <template #actions>
+        <BaseButton size="sm" icon="plus" :disabled="editing === NEW" @click="open(NEW)">New reminder</BaseButton>
+      </template>
+    </PageHeader>
+
+    <Panel v-if="editing === NEW" title="New reminder">
+      <ReminderEditor :reminder="blankReminder()" :channels="channels" :saving="saving" :error="actionError" creating @save="submit(NEW, $event)" @cancel="editing = null" />
+    </Panel>
 
     <LoadingState v-if="loading" label="Loading reminders" :rows="3" />
     <ErrorState v-else-if="error" title="Reminders unavailable" :cause="error" :next="RELOAD_HINT" />
-    <EmptyState v-else-if="empty" title="No reminders" :body="REMINDER_EXAMPLE" />
+    <EmptyState v-else-if="empty && editing !== NEW" title="No reminders" :body="REMINDER_EXAMPLE" />
     <template v-else>
+      <p v-if="actionError && editing === null" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
+
       <Panel v-if="reminders.open.length" title="Upcoming">
         <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" aria-label="Upcoming reminders">
           <li v-for="r in reminders.open" :key="r.id" class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-            <ReminderEditor
-              v-if="editingId === r.id"
+            <ReminderEditor v-if="editing === r.id" :reminder="r" :channels="channels" :saving="saving" :error="actionError" @save="submit(r.id, $event)" @cancel="editing = null" />
+            <ReminderRow
+              v-else
               :reminder="r"
-              :channels="channels"
-              :saving="saving"
-              :error="actionError"
-              @save="saveEdit(r, $event)"
-              @cancel="editingId = null"
+              @edit="open(r.id)"
+              @delete="askDelete(r)"
+              @pause="act(pause, r)"
+              @resume="act(resume, r)"
+              @skip="act(skip, r)"
             />
-            <div v-else class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-              <div class="min-w-0">
-                <p class="m-0 break-words text-primary">{{ r.message }}</p>
-                <p class="m-0 font-mono text-[length:var(--text-small)] text-muted">
-                  <span :title="reminderWhen(r)">{{ formatRelativeTime(r.fire_at) }}</span> · {{ reminderWhen(r) }} · {{ r.channel }}
-                  <template v-if="r.cron"> · {{ reminderRepeat(r) }}<template v-if="r.until">, {{ reminderEnds(r) }}</template></template>
-                </p>
-              </div>
-              <div class="flex gap-1">
-                <BaseButton variant="ghost" size="sm" icon="edit" icon-only :label="`Edit reminder: ${r.message}`" @click="startEdit(r)" />
-                <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete reminder: ${r.message}`" @click="askDelete(r)" />
-              </div>
-            </div>
           </li>
         </ul>
       </Panel>
 
       <Panel v-if="reminders.recent.length" title="History">
         <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" aria-label="Past reminders">
-          <li v-for="r in reminders.recent" :key="r.id" class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
-            <div class="min-w-0">
-              <p class="m-0 break-words text-muted">{{ r.message }}</p>
-              <p class="m-0 font-mono text-[length:var(--text-small)] text-faint">{{ reminderWhen(r) }} · {{ r.channel }}</p>
-              <p v-if="r.last_error" class="m-0 font-mono text-[length:var(--text-small)] text-state-error">{{ r.last_error }}</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <StatusTag v-if="REMINDER_OUTCOME_TAG[r.status]" v-bind="REMINDER_OUTCOME_TAG[r.status]!" />
-              <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete reminder: ${r.message}`" @click="askDelete(r)" />
-            </div>
+          <li v-for="r in reminders.recent" :key="r.id" class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+            <ReminderEditor v-if="editing === r.id" :reminder="r" :channels="channels" :saving="saving" :error="actionError" reschedule @save="submit(r.id, $event)" @cancel="editing = null" />
+            <ReminderRow v-else :reminder="r" @reschedule="open(r.id)" @delete="askDelete(r)" />
           </li>
         </ul>
       </Panel>

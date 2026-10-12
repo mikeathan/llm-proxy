@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { browserTimeZone, fromZonedInput, isKnownTimeZone, toZonedInput } from '../../utils/format/timezone'
+import { browserTimeZone, defaultReminderTime, fromZonedInput, isKnownTimeZone, toZonedInput } from '../../utils/format/timezone'
 
 describe('timezone helpers', () => {
   it('accepts IANA names and rejects anything else', () => {
@@ -53,5 +53,19 @@ describe('zoned date-time input', () => {
     expect(fromZonedInput('', 'UTC')).toBeNull()
     expect(fromZonedInput('not a date', 'UTC')).toBeNull()
     expect(toZonedInput('', 'UTC')).toBe('')
+  })
+})
+
+describe('defaultReminderTime', () => {
+  it('is 09:00 tomorrow in the zone', () => {
+    const now = new Date('2026-10-12T20:30:00Z') // 21:30 BST on the 12th
+    expect(defaultReminderTime(now, 'Europe/London')).toBe('2026-10-13T08:00:00.000Z') // 09:00 BST on the 13th
+    expect(defaultReminderTime(now, 'Asia/Tokyo')).toBe('2026-10-14T00:00:00.000Z') // it is already the 13th in Tokyo, so 09:00 JST on the 14th
+  })
+
+  it('goes by the date in the zone, not in UTC', () => {
+    const now = new Date('2026-10-12T14:30:00Z') // 23:30 on the 12th in Tokyo, 15:30 in London
+    expect(defaultReminderTime(now, 'Asia/Tokyo')).toBe('2026-10-13T00:00:00.000Z')
+    expect(defaultReminderTime(now, 'Europe/London')).toBe('2026-10-13T08:00:00.000Z')
   })
 })

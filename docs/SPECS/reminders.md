@@ -1,7 +1,7 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.2"
+version: "1.3"
 status: stable
 last_updated: 2026-10-11
 constitution_references: [II.2, II.14, V]
@@ -12,6 +12,16 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.3 (2026-10-12)** — Edit gaps and pause. (a) A finished reminder (sent, missed, failed) is **rescheduled** by editing
+  it: it becomes scheduled again with its failure record cleared; a cancelled one stays closed. (b) An edit can turn a
+  one-off into a repeating reminder and back. (c) Reminders can be **created** from the UI (`POST /admin/api/reminders`;
+  zone = the browser's, else the owner setting, else UTC; creator `ui`). (d) A repeating reminder can be **paused** (new
+  status `paused`: listed, counted against the open limit, never fires, still cancellable), **resumed** (next occurrence
+  after now; what was silenced is not replayed; refused if its end date has passed) and have its **next occurrence
+  skipped**. (e) Concurrency: a reminder carries a revision counter bumped by every user change; the delivery loop writes a
+  result back only if the revision is unchanged, so a send that was in flight can no longer overwrite an edit, pause or skip
+  made meanwhile (the user's change wins).
 
 - **1.2 (2026-10-12)** — A connector is used only because it was named, chosen as the default, or is the one the
   request came through — never because it happens to be the only one configured. A reminder with no channel and no
@@ -79,13 +89,14 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 ## 3. Data model
 
 Table `reminders` in the shared SQLite database (`core/reminders/store.go`): `id, message, fire_at (UTC unix),
-cron, until_at, timezone, connector, status (scheduled|done|cancelled|missed|failed), attempts, last_error, created_by,
+cron, until_at, timezone, connector, status (scheduled|paused|done|cancelled|missed|failed), rev, attempts, last_error, created_by,
 created_at`. Settings (`settings.yml`, `reminders:`): `default_connector`, `timezone`; both optional, saved whole,
 timezone validated at save (400).
 
 ## 4. API
 
-`GET /admin/api/reminders` → `{open: [...], recent: [...]}`, `PUT /admin/api/reminders/{id}` (edit) and
+`GET /admin/api/reminders` → `{open: [...], recent: [...]}` (open includes paused), `POST /admin/api/reminders` (create),
+`PUT /admin/api/reminders/{id}` (edit / reschedule), `POST /admin/api/reminders/{id}/pause|resume|skip` and
 `DELETE /admin/api/reminders/{id}` (see [api-reference](../api-reference.md#reminders-api)). The Settings page edits
 `reminders` through `PUT /admin/api/config`; the Overview page summarises the list and the Reminders page manages it.
 

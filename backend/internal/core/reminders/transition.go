@@ -1,6 +1,7 @@
 package reminders
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -154,4 +155,45 @@ func truncate(msg string, n int) string {
 		return msg
 	}
 	return msg[:n]
+}
+
+// Pause silences a repeating reminder: it stays in the list but does not fire.
+// A one-off is deleted or rescheduled instead, so pausing one is refused.
+func Pause(r Reminder) (Reminder, error) {
+	if r.Cron == "" {
+		return r, fmt.Errorf("%w: only a repeating reminder can be paused", ErrInvalid)
+	}
+	if r.Status != StatusScheduled {
+		return r, fmt.Errorf("%w: the reminder is not scheduled", ErrInvalid)
+	}
+	r.Status = StatusPaused
+	return r, nil
+}
+
+// Resume un-silences a paused reminder at its next occurrence after now; what
+// was silenced in between is not replayed.
+func Resume(r Reminder, now time.Time) (Reminder, error) {
+	if r.Status != StatusPaused {
+		return r, fmt.Errorf("%w: the reminder is not paused", ErrInvalid)
+	}
+	next, ok := NextFire(r, now)
+	if !ok {
+		return r, fmt.Errorf("%w: it has no occurrence left before its end date: delete it or edit the end date", ErrInvalid)
+	}
+	r.Status, r.FireAt, r.Attempts, r.LastError = StatusScheduled, next, 0, ""
+	return r, nil
+}
+
+// SkipNext moves a repeating reminder past its next occurrence (the one coming
+// up is not sent; the one after it is).
+func SkipNext(r Reminder) (Reminder, error) {
+	if r.Cron == "" || r.Status != StatusScheduled {
+		return r, fmt.Errorf("%w: only a scheduled repeating reminder has a next occurrence to skip", ErrInvalid)
+	}
+	next, ok := NextFire(r, r.FireAt)
+	if !ok {
+		return r, fmt.Errorf("%w: that is its last occurrence: delete it instead", ErrInvalid)
+	}
+	r.FireAt, r.Attempts, r.LastError = next, 0, ""
+	return r, nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/core/reminders"
@@ -20,17 +21,28 @@ type ReminderManager interface {
 	List(ctx context.Context) ([]reminders.Reminder, error)
 	Recent(ctx context.Context, limit int) ([]reminders.Reminder, error)
 	Channel(connector string) string
+	Create(ctx context.Context, in reminders.Reminder) (reminders.Reminder, error)
 	Edit(ctx context.Context, id int64, in reminders.Reminder) (reminders.Reminder, error)
 	Remove(ctx context.Context, id int64) error
+	Pause(ctx context.Context, id int64) (reminders.Reminder, error)
+	Resume(ctx context.Context, id int64) (reminders.Reminder, error)
+	Skip(ctx context.Context, id int64) (reminders.Reminder, error)
 }
+
+// ZoneResolver turns the timezone a client sent ("" when it sent none) into the
+// zone a new reminder is created in.
+type ZoneResolver func(requested string) (*time.Location, error)
 
 // ReminderHandlers serves the reminder list (open and recently finished), which
 // is the in-app notice of what was delivered, missed or failed.
 type ReminderHandlers struct {
-	svc ReminderManager
+	zone ZoneResolver
+	svc  ReminderManager
 }
 
-func NewReminderHandlers(svc ReminderManager) *ReminderHandlers { return &ReminderHandlers{svc: svc} }
+func NewReminderHandlers(zone ZoneResolver, svc ReminderManager) *ReminderHandlers {
+	return &ReminderHandlers{zone: zone, svc: svc}
+}
 
 type reminderView struct {
 	ID       int64  `json:"id"`
@@ -92,6 +104,61 @@ type editRequest struct {
 	Cron      string `json:"cron"`
 	Until     string `json:"until"`
 	Connector string `json:"connector"`
+}
+
+// createRequest is the new-reminder form: the edit form plus the timezone the
+// time is in (the browser's); without one the owner's zone is used.
+type createRequest struct {
+	editRequest
+	Timezone string `json:"timezone"`
+}
+
+// Create handles POST /admin/api/reminders.
+func (h *ReminderHandlers) Create(w http.ResponseWriter, r *http.Request) {
+	var req createRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	in, err := req.toReminder()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	loc, err := h.zone(strings.TrimSpace(req.Timezone))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	in.Timezone, in.CreatedBy = loc.String(), "ui"
+	got, err := h.svc.Create(r.Context(), in)
+	if !h.respondFailure(w, err, "create") {
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	respondJSON(w, h.view(got))
+}
+
+// Pause, Resume and Skip handle POST /admin/api/reminders/{id}/pause|resume|skip.
+func (h *ReminderHandlers) Pause(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, "pause", h.svc.Pause)
+}
+func (h *ReminderHandlers) Resume(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, "resume", h.svc.Resume)
+}
+func (h *ReminderHandlers) Skip(w http.ResponseWriter, r *http.Request) {
+	h.act(w, r, "skip", h.svc.Skip)
+}
+
+func (h *ReminderHandlers) act(w http.ResponseWriter, r *http.Request, what string, do func(context.Context, int64) (reminders.Reminder, error)) {
+	id, ok := reminderID(w, r)
+	if !ok {
+		return
+	}
+	got, err := do(r.Context(), id)
+	if !h.respondFailure(w, err, what) {
+		return
+	}
+	respondJSON(w, h.view(got))
 }
 
 // Edit handles PUT /admin/api/reminders/{id}.

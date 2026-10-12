@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
 )
 
@@ -81,7 +82,7 @@ func (p reminderPort) List(ctx context.Context) ([]tools.ReminderView, error) {
 func (p reminderPort) view(r reminders.Reminder) tools.ReminderView {
 	return tools.ReminderView{
 		ID: r.ID, Message: r.Message, At: r.FireAt, Cron: r.Cron, Zone: r.Timezone,
-		Channel: p.svc.Channel(r.Connector),
+		Channel: p.svc.Channel(r.Connector), Paused: r.Status == reminders.StatusPaused,
 	}
 }
 
@@ -97,6 +98,14 @@ func localRegistry(tp assistantPkg.ToolProvider) *assistantPkg.LocalToolRegistry
 		}
 	}
 	return nil
+}
+
+// reminderZone resolves the timezone for a reminder created from the UI the same
+// way the assistant's tool does: the one sent, else the owner's setting, else UTC.
+func reminderZone(s *AppServices) handlers.ZoneResolver {
+	return func(requested string) (*time.Location, error) {
+		return reminders.ResolveZone(requested, s.AppCtx.GetSettings().Reminders.Effective().Timezone)
+	}
 }
 
 // initReminders builds the reminder service and attaches its tools. It is a no-op

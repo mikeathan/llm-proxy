@@ -26,6 +26,12 @@ export const TIMEZONE_HINT =
   'Used when a reminder comes from a chat app, which does not report your timezone. The web UI always uses your browser timezone.'
 export const UNKNOWN_TIMEZONE_ERROR = 'Not a known timezone. Use a name such as Europe/London.'
 
+// A paused repeating reminder, shown beside the upcoming ones.
+export const REMINDER_PAUSED_TAG = { state: 'neutral', label: 'Paused' } as const satisfies { state: StatusState; label: string }
+
+// A repeating reminder that is switched on starts as "every day" at the reminder's time.
+export const DEFAULT_REPEAT_DAY = '*'
+
 // A reminder repeats at a time of day, never "every few minutes" or "manual only".
 export const REMINDER_REPEAT_KINDS = ['daily', 'weekdays', 'weekly', 'monthly', 'custom'] as const satisfies readonly ScheduleKind[]
 
