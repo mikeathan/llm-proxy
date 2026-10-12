@@ -24,6 +24,10 @@ const (
 	StatusFailed    Status = "failed"
 )
 
+// ErrInvalid wraps every refusal of a reminder the user (or agent) described:
+// transport maps it to a 400, as opposed to a storage failure.
+var ErrInvalid = errors.New("invalid reminder")
+
 // ErrNotFound is returned when a reminder does not exist or is no longer open.
 var ErrNotFound = errors.New("reminder not found")
 
@@ -129,6 +133,40 @@ func (s *Store) Update(ctx context.Context, r Reminder) error {
 		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID)
 	if err != nil {
 		return fmt.Errorf("reminders update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Replace overwrites the user-editable fields (message, time, recurrence, end,
+// channel) of a reminder that is still scheduled and starts its delivery afresh.
+// Identity (zone, creator, creation time) is kept. ErrNotFound when it is no
+// longer open, so an edit never revives a cancelled or finished reminder.
+func (s *Store) Replace(ctx context.Context, r Reminder) error {
+	var until any
+	if r.Until != nil {
+		until = r.Until.Unix()
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE reminders SET message = ?, fire_at = ?, cron = ?, until_at = ?, connector = ?, attempts = 0, last_error = ''
+		 WHERE id = ? AND status = 'scheduled'`,
+		r.Message, r.FireAt.Unix(), r.Cron, until, r.Connector, r.ID)
+	if err != nil {
+		return fmt.Errorf("reminders replace: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Delete removes a reminder in any status; ErrNotFound when there is none.
+func (s *Store) Delete(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("reminders delete: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound

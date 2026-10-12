@@ -15,6 +15,7 @@ export const ROUTE_NAMES = {
   automationRecordings: 'automation-recordings',
   automation: 'automation',
   automationEdit: 'automation-edit',
+  reminders: 'reminders',
   models: 'models',
   activity: 'activity',
   settings: 'settings',
@@ -24,8 +25,8 @@ export const ROUTE_NAMES = {
 
 export type RouteName = (typeof ROUTE_NAMES)[keyof typeof ROUTE_NAMES]
 
-// The six top-level destinations shown in the sidebar (plan D9).
-export type Destination = 'overview' | 'workspaces' | 'automations' | 'models' | 'activity' | 'settings'
+// The top-level destinations shown in the sidebar (plan D9).
+export type Destination = 'overview' | 'workspaces' | 'automations' | 'reminders' | 'models' | 'activity' | 'settings'
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the
 // assistant have their own routes; `settings` is the workspace guardrail layer.

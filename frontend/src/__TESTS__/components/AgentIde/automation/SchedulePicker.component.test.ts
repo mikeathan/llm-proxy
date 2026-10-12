@@ -157,4 +157,22 @@ describe('SchedulePicker', () => {
     expect(previewMock).not.toHaveBeenCalled()
     expect(w.get('[data-test="readout"]').text()).toContain('Manual only')
   })
+
+  describe('as the reminder repeat picker', () => {
+    const REPEAT_KINDS = ['daily', 'weekdays', 'weekly', 'monthly', 'custom'] as const
+
+    it('offers only the kinds it is given', () => {
+      const w = mount(SchedulePicker, { props: { type: 'cron', value: '0 9 * * 1', kinds: [...REPEAT_KINDS] } })
+      expect(w.findAll('[data-test="kind"] option').map((o) => o.attributes('value'))).toEqual([...REPEAT_KINDS])
+    })
+
+    it('does not ask the server for next runs in server time when preview is off', async () => {
+      const w = mount(SchedulePicker, { props: { type: 'cron', value: '0 9 * * 1', kinds: [...REPEAT_KINDS], preview: false } })
+      await vi.advanceTimersByTimeAsync(SCHEDULE_PREVIEW_DEBOUNCE_MS * 2)
+      await flushPromises()
+      expect(previewMock).not.toHaveBeenCalled()
+      expect(w.find('[data-test="readout"]').text()).toContain('Every Monday at 09:00')
+      expect(w.text()).not.toContain('server time')
+    })
+  })
 })

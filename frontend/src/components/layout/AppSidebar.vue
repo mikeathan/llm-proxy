@@ -6,13 +6,13 @@ import { ROUTE_NAMES, type Destination } from "../../types/routes"
 import { usePersistedState } from "../../composables/ui/usePersistedState"
 import { useLastWorkspace } from "../../composables/ui/useLastWorkspace"
 import { AdminApiService } from "../../services/admin/adminService"
-import { toActivity, toAutomations, toModels, toOverview, toSettings, toWorkspaceAssistant, toWorkspaces } from "../../router/routes"
+import { toActivity, toAutomations, toModels, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaces } from "../../router/routes"
 import { PRODUCT_NAME } from "../../config/brand"
 import Icon from "../icons/Icon.vue"
 import BrandMark from "./BrandMark.vue"
 import NotificationDot from "../common/NotificationDot.vue"
 
-// Persistent left rail (plan D10): six destinations, expanded ↔ collapsed on
+// Persistent left rail (plan D10): seven destinations, expanded ↔ collapsed on
 // desktop (persisted), an overlay drawer on mobile. The current item is derived
 // from the matched route's `meta.destination` — there is no active-tab state.
 // On the Workspaces row, a chat icon (not a seventh destination) opens the
@@ -42,6 +42,7 @@ const NAV: NavItem[] = [
   { id: "overview", label: "Overview", icon: "nav-overview", to: toOverview() },
   { id: "workspaces", label: "Workspaces", icon: "nav-workspaces", to: toWorkspaces() },
   { id: "automations", label: "Automations", icon: "nav-automations", to: toAutomations() },
+  { id: "reminders", label: "Reminders", icon: "nav-reminders", to: toReminders() },
   { id: "models", label: "Models", icon: "nav-models", to: toModels() },
   { id: "activity", label: "Activity", icon: "nav-activity", to: toActivity() },
   { id: "settings", label: "Settings", icon: "nav-settings", to: toSettings() },

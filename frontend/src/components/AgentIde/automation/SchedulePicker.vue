@@ -12,7 +12,14 @@ import FormField from "../../common/forms/FormField.vue"
 // backend stores; a schedule it has no preset for stays as typed under
 // "Custom". The next runs come from the server, in the server's own time zone.
 
-const props = defineProps<{ type: TriggerType; value: string }>()
+// `kinds` narrows the "Runs" choices (a reminder has no manual or every-few-minutes);
+// `preview` off skips the server's next-runs check, which is in server time;
+// `label` names the choice ("Runs" for an automation, "Repeats" for a reminder).
+const props = withDefaults(defineProps<{ type: TriggerType; value: string; kinds?: ScheduleKind[]; preview?: boolean; label?: string }>(), {
+  kinds: undefined,
+  preview: true,
+  label: "Runs",
+})
 const emit = defineEmits<{
   (e: "update:trigger", trigger: { type: TriggerType; value: string }): void
   // The server's reason when it says the schedule is not valid; empty otherwise, so the owner can hold back a save.
@@ -110,7 +117,9 @@ function toggleDay(day: Weekday, on: boolean) {
   patch({ days: on ? [...current, day] : current.filter((d) => d !== day) } as Partial<Schedule>)
 }
 
-const { preview, failed } = useSchedulePreview(() => trigger.value)
+const NO_PREVIEW: { type: TriggerType; value: string } = { type: "manual", value: "" }
+const { preview, failed } = useSchedulePreview(() => (props.preview ? trigger.value : NO_PREVIEW))
+const kindOptions = computed(() => (props.kinds ? KIND_OPTIONS.filter((opt) => props.kinds?.includes(opt.value)) : KIND_OPTIONS))
 const INVALID_FALLBACK = "The schedule is not valid."
 watch(
   () => (preview.value && !preview.value.valid ? preview.value.error || INVALID_FALLBACK : ""),
@@ -124,10 +133,10 @@ const description = computed(() => describeSchedule(schedule.value))
 <template>
   <div class="flex flex-col gap-3">
     <div class="flex flex-wrap items-end gap-3">
-      <FormField label="Runs">
+      <FormField :label="label">
         <template #default="{ id }">
           <select :id="id" v-model="kind" data-test="kind" class="form-control min-w-[16rem]">
-            <option v-for="opt in KIND_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in kindOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </template>
       </FormField>

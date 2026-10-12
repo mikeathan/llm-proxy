@@ -248,7 +248,10 @@ Supports streaming (SSE) with `stream: true`.
 |--------|------|-------------|
 | GET | `/admin/api/reminders` | `{open, recent}` — scheduled reminders soonest first, and the 20 most recent finished ones (`done`, `missed`, `failed`). Each item: `{id, message, fire_at (RFC 3339 UTC), cron?, timezone, channel, status, last_error?}`; `channel` is the connector type it goes to or `in-app`. Registered only when reminders are available (database + connector registry) |
 
-Reminders are created and cancelled by the assistant's tools (SPEC-011), not by this API.
+| PUT | `/admin/api/reminders/{id}` | Edit an open reminder: `{message, fire_at?, cron?, until?, connector}` — `fire_at` (RFC 3339) for a one-off, or `cron` (+ optional `until`) for a recurring one; `connector` is `""` (automatic), `in-app` or a configured connector type. Same rules as creation; its timezone is kept. Returns the item (as in `GET`). 400 refused (message names why, nothing changes) or bad id/JSON; 404 unknown or no longer open; 415 unless JSON |
+| DELETE | `/admin/api/reminders/{id}` | Delete a reminder in any status (an open one is never sent). 204; 404 unknown; 400 bad id |
+
+Each item also carries `connector` (the channel as chosen: `""` automatic, `in-app`, or a type) and `until`. Reminders are created by the assistant's tools (SPEC-011), not by this API.
 
 ## Memory API
 

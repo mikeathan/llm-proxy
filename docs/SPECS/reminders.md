@@ -1,7 +1,7 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.0"
+version: "1.1"
 status: stable
 last_updated: 2026-10-11
 constitution_references: [II.2, II.14, V]
@@ -12,6 +12,12 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.1 (2026-10-11)** — Managing reminders. The Reminders page (SPEC-003 2.9) lists, edits and deletes them through
+  `PUT` and `DELETE /admin/api/reminders/{id}` (§4). An edit replaces message, time or recurrence, end and channel under
+  the same rules as creation, keeps the reminder's timezone, starts delivery afresh (attempts reset) and re-arms the
+  loop; a refused edit changes nothing (400) and an edit or delete of an unknown or no-longer-open reminder is a 404.
+  `in-app` is a valid explicit channel. Delete removes a reminder in any status; a delete made during a send wins.
 
 - **1.0 (2026-10-11)** — First version. The assistant can store a one-off or recurring reminder and the service delivers
   it verbatim at the right time. This is the reminder half of the proposed Agenda plan
@@ -70,8 +76,9 @@ timezone validated at save (400).
 
 ## 4. API
 
-`GET /admin/api/reminders` → `{open: [...], recent: [...]}` (see [api-reference](../api-reference.md#reminders-api)). The
-Settings page edits `reminders` through `PUT /admin/api/config`; the Overview page lists the result.
+`GET /admin/api/reminders` → `{open: [...], recent: [...]}`, `PUT /admin/api/reminders/{id}` (edit) and
+`DELETE /admin/api/reminders/{id}` (see [api-reference](../api-reference.md#reminders-api)). The Settings page edits
+`reminders` through `PUT /admin/api/config`; the Overview page summarises the list and the Reminders page manages it.
 
 ## 5. Error handling
 

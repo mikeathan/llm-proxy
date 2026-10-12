@@ -7,7 +7,7 @@ import type { ReminderItem, ReminderList } from '../../../types/reminders'
 vi.mock('../../../services/reminders/reminderService', () => ({ ReminderService: { list: vi.fn() } }))
 
 const item = (over: Partial<ReminderItem>): ReminderItem => ({
-  id: 1, message: 'Call the bank', fire_at: '2099-10-12T08:00:00Z', timezone: 'Europe/London', channel: 'telegram', status: 'scheduled', ...over,
+  id: 1, message: 'Call the bank', fire_at: '2099-10-12T08:00:00Z', timezone: 'Europe/London', connector: '', channel: 'telegram', status: 'scheduled', ...over,
 })
 
 async function mountPanel(list: ReminderList) {

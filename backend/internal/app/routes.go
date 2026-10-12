@@ -279,6 +279,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)
+		router.Put("/admin/api/reminders/{id}", hs.Reminders.Edit, jsonMethodNotAllowed)
+		router.Delete("/admin/api/reminders/{id}", hs.Reminders.Delete, jsonMethodNotAllowed)
 	}
 
 	// Memory API

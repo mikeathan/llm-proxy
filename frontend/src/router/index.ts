@@ -9,6 +9,7 @@ import { toWorkspaceFile, toWorkspaceSection } from './routes'
 const OverviewView = () => import('../views/OverviewView.vue')
 const WorkspacesView = () => import('../views/WorkspacesView.vue')
 const AutomationsView = () => import('../views/AutomationsView.vue')
+const RemindersView = () => import('../views/RemindersView.vue')
 const ModelsView = () => import('../views/ModelsView.vue')
 const ActivityView = () => import('../views/ActivityView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
@@ -48,6 +49,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/automations/recordings', name: ROUTE_NAMES.automationRecordings, component: AutomationsView, meta: AUTOMATIONS_META },
   { path: '/automations/:id', name: ROUTE_NAMES.automation, component: AutomationsView, meta: AUTOMATIONS_META },
   { path: '/automations/:id/edit', name: ROUTE_NAMES.automationEdit, component: AutomationsView, meta: AUTOMATIONS_META },
+
+  { path: '/reminders', name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },
   { path: '/activity', name: ROUTE_NAMES.activity, component: ActivityView, meta: { destination: 'activity', keepAlive: true, title: 'Activity' } },
