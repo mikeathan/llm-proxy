@@ -9,6 +9,7 @@ import (
 
 	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
 )
 
 // recentReminderLimit bounds the finished-reminder list shown in the UI.
@@ -147,26 +148,18 @@ func (e editRequest) toReminder() (reminders.Reminder, error) {
 	in := reminders.Reminder{Message: e.Message, Cron: e.Cron, Connector: e.Connector}
 	var err error
 	if e.FireAt != "" {
-		if in.FireAt, err = parseReminderTime("fire_at", e.FireAt); err != nil {
+		if in.FireAt, err = models.ParseInstant("fire_at", e.FireAt); err != nil {
 			return in, err
 		}
 	}
 	if e.Until != "" {
-		until, err := parseReminderTime("until", e.Until)
+		until, err := models.ParseInstant("until", e.Until)
 		if err != nil {
 			return in, err
 		}
 		in.Until = &until
 	}
 	return in, nil
-}
-
-func parseReminderTime(field, value string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return time.Time{}, errors.New(field + " must be RFC 3339, for example 2026-10-12T09:00:00+01:00")
-	}
-	return t.UTC(), nil
 }
 
 func reminderID(w http.ResponseWriter, r *http.Request) (int64, bool) {

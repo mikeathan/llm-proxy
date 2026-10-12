@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, ref } from "vue"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
 import StatusTag from "../components/common/display/StatusTag.vue"
@@ -10,25 +10,21 @@ import ErrorState from "../components/common/feedback/ErrorState.vue"
 import ReminderEditor from "../components/reminders/ReminderEditor.vue"
 import { useReminders } from "../composables/reminders/useReminders"
 import { useReminderChannels } from "../composables/reminders/useReminderChannels"
-import { usePolling } from "../composables/ui/usePolling"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
-import { describeSchedule, fromTrigger } from "../utils/automation/schedule"
-import { formatAbsoluteTime, formatRelativeTime } from "../utils/format/time"
-import { REMINDERS_POLL_MS, REMINDER_EXAMPLE, REMINDER_OUTCOME_TAG, RELOAD_HINT } from "../constants/reminders"
+import { formatRelativeTime } from "../utils/format/time"
+import { reminderEnds, reminderRepeat, reminderWhen } from "../utils/reminders/present"
+import { REMINDER_EXAMPLE, REMINDER_OUTCOME_TAG, RELOAD_HINT } from "../constants/reminders"
 import type { ReminderEdit, ReminderItem } from "../types/reminders"
 
 // Reminders: everything the assistant has been asked to remind you of. Upcoming
 // ones can be edited or deleted; finished ones (sent, missed, failed) stay in the
 // history until deleted. New reminders come from asking the assistant.
 
-const { reminders, loading, error, actionError, saving, load, save, remove } = useReminders()
+const { reminders, loading, error, actionError, saving, save, remove } = useReminders()
 const channels = useReminderChannels()
 const { confirm } = useConfirm()
 const toast = useToast()
-
-onMounted(load)
-usePolling(load, REMINDERS_POLL_MS)
 
 const editingId = ref<number | null>(null)
 const empty = computed(() => !reminders.value.open.length && !reminders.value.recent.length)
@@ -57,9 +53,6 @@ async function askDelete(r: ReminderItem) {
   else toast.error(actionError.value)
 }
 
-const when = (r: ReminderItem) => formatAbsoluteTime(r.fire_at, undefined, r.timezone)
-const repeat = (r: ReminderItem) => (r.cron ? describeSchedule(fromTrigger("cron", r.cron)) : "")
-const ends = (r: ReminderItem) => (r.until ? `until ${formatAbsoluteTime(r.until, undefined, r.timezone)}` : "")
 </script>
 
 <template>
@@ -86,8 +79,8 @@ const ends = (r: ReminderItem) => (r.until ? `until ${formatAbsoluteTime(r.until
               <div class="min-w-0">
                 <p class="m-0 break-words text-primary">{{ r.message }}</p>
                 <p class="m-0 font-mono text-[length:var(--text-small)] text-muted">
-                  <span :title="when(r)">{{ formatRelativeTime(r.fire_at) }}</span> · {{ when(r) }} · {{ r.channel }}
-                  <template v-if="r.cron"> · {{ repeat(r) }}<template v-if="r.until">, {{ ends(r) }}</template></template>
+                  <span :title="reminderWhen(r)">{{ formatRelativeTime(r.fire_at) }}</span> · {{ reminderWhen(r) }} · {{ r.channel }}
+                  <template v-if="r.cron"> · {{ reminderRepeat(r) }}<template v-if="r.until">, {{ reminderEnds(r) }}</template></template>
                 </p>
               </div>
               <div class="flex gap-1">
@@ -104,7 +97,7 @@ const ends = (r: ReminderItem) => (r.until ? `until ${formatAbsoluteTime(r.until
           <li v-for="r in reminders.recent" :key="r.id" class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
             <div class="min-w-0">
               <p class="m-0 break-words text-muted">{{ r.message }}</p>
-              <p class="m-0 font-mono text-[length:var(--text-small)] text-faint">{{ when(r) }} · {{ r.channel }}</p>
+              <p class="m-0 font-mono text-[length:var(--text-small)] text-faint">{{ reminderWhen(r) }} · {{ r.channel }}</p>
               <p v-if="r.last_error" class="m-0 font-mono text-[length:var(--text-small)] text-state-error">{{ r.last_error }}</p>
             </div>
             <div class="flex items-center gap-2">

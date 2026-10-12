@@ -133,7 +133,6 @@ func newRig(t *testing.T, defaultConnector string) *rig {
 	}
 	r.svc = NewService(r.store, r.del, r.notes, r.clock, Config{
 		DefaultConnector: func() string { return defaultConnector },
-		RetryDelays:      []time.Duration{time.Minute, 5 * time.Minute},
 	})
 	return r
 }
@@ -494,5 +493,22 @@ func TestRemove_DeletesAndNeverDelivers(t *testing.T) {
 	}
 	if err := r.svc.Remove(context.Background(), rem.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second Remove = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCreate_RepliesWhereAsked(t *testing.T) {
+	r := newRig(t, "telegram")
+	r.del.configured["slack"] = true
+	got, err := r.svc.Create(context.Background(), Reminder{Message: "a", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC", Origin: "slack"})
+	if err != nil || got.Connector != "slack" {
+		t.Fatalf("asked in slack: connector=%q err=%v", got.Connector, err)
+	}
+	got, _ = r.svc.Create(context.Background(), Reminder{Message: "b", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC"})
+	if got.Connector != "" || r.svc.Channel(got.Connector) != "telegram" {
+		t.Errorf("web chat follows the default: connector=%q channel=%q", got.Connector, r.svc.Channel(got.Connector))
+	}
+	got, _ = r.svc.Create(context.Background(), Reminder{Message: "c", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC", Origin: "discord"})
+	if got.Connector != "" {
+		t.Errorf("an origin that is not configured must not be stored, got %q", got.Connector)
 	}
 }

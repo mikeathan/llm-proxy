@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import type { ReminderItem, ReminderList } from '../../types/reminders'
 
@@ -34,6 +34,8 @@ async function mountView(list: ReminderList) {
   return w
 }
 const buttonByName = (w: ReturnType<typeof mount>, name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? b.text()))
+
+enableAutoUnmount(afterEach)
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -80,9 +82,13 @@ describe('RemindersView', () => {
     await buttonByName(w, /edit/i)!.trigger('click')
     const message = w.find('textarea')
     expect((message.element as HTMLTextAreaElement).value).toBe('Call the bank')
-    // channels offered: automatic, web UI only, and only the enabled connector types
+    // channels offered: the default, the web UI alone, and only the enabled connector types
     const channels = w.findAll('select').find((s) => s.attributes('aria-label') === 'Channel')!
-    expect(channels.findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'in-app', 'telegram'])
+    expect(channels.findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([
+      ['', 'Default channel'],
+      ['in-app', 'Web UI only'],
+      ['telegram', 'telegram'],
+    ])
 
     editMock.mockResolvedValue(item({ message: 'Call the bank today' }))
     listMock.mockResolvedValue({ open: [item({ message: 'Call the bank today' })], recent: [] })

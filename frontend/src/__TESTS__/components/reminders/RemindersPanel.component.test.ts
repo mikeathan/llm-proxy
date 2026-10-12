@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import RemindersPanel from '../../../components/reminders/RemindersPanel.vue'
 import { ReminderService } from '../../../services/reminders/reminderService'
 import type { ReminderItem, ReminderList } from '../../../types/reminders'
@@ -26,6 +26,8 @@ async function mountAndSettle() {
   return w
 }
 
+enableAutoUnmount(afterEach)
+
 beforeEach(() => {
   vi.mocked(ReminderService.list).mockReset()
 })
@@ -37,7 +39,7 @@ describe('RemindersPanel', () => {
     expect(w.text()).toContain('telegram')
     expect(w.text()).toContain('Standup')
     expect(w.text()).toContain('in-app')
-    expect(w.text()).toMatch(/repeats/i)
+    expect(w.text()).toContain('Every Monday at 09:00')
   })
 
   it('shows the message as plain text, never as markup', async () => {

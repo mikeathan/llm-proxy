@@ -41,6 +41,9 @@ type Reminder struct {
 	Until     *time.Time
 	Timezone  string
 	Connector string
+	// Origin is the connector type the request arrived through. It only informs
+	// the channel chosen at creation and is never stored.
+	Origin    string
 	Status    Status
 	Attempts  int
 	LastError string

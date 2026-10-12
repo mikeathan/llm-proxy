@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue"
+import { computed } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
@@ -7,16 +7,14 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import { toReminders } from "../../router/routes"
 import { useReminders } from "../../composables/reminders/useReminders"
-import { usePolling } from "../../composables/ui/usePolling"
-import { formatAbsoluteTime, formatRelativeTime } from "../../utils/format/time"
-import { RECENT_REMINDERS_SHOWN, REMINDERS_POLL_MS, REMINDER_EXAMPLE, REMINDER_OUTCOME_TAG, RELOAD_HINT } from "../../constants/reminders"
+import { formatRelativeTime } from "../../utils/format/time"
+import { reminderRepeat, reminderWhen } from "../../utils/reminders/present"
+import { RECENT_REMINDERS_SHOWN, REMINDER_EXAMPLE, REMINDER_OUTCOME_TAG, RELOAD_HINT } from "../../constants/reminders"
 
 // Overview · Reminders: what is coming up, and what happened to the last few
 // (sent, missed while the service was off, or failed to deliver).
 
-const { reminders, loading, error, load } = useReminders()
-onMounted(load)
-usePolling(load, REMINDERS_POLL_MS)
+const { reminders, loading, error } = useReminders()
 
 const recent = computed(() => reminders.value.recent.slice(0, RECENT_REMINDERS_SHOWN))
 const empty = computed(() => !reminders.value.open.length && !recent.value.length)
@@ -34,8 +32,8 @@ const empty = computed(() => !reminders.value.open.length && !recent.value.lengt
       <ul v-if="reminders.open.length" class="m-0 flex list-none flex-col gap-2 p-0" aria-label="Upcoming reminders">
         <li v-for="r in reminders.open" :key="r.id" class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <span class="min-w-0 break-words text-primary">{{ r.message }}</span>
-          <span class="font-mono text-[length:var(--text-small)] text-muted" :title="formatAbsoluteTime(r.fire_at, undefined, r.timezone)">
-            {{ formatRelativeTime(r.fire_at) }} · {{ r.channel }}<template v-if="r.cron"> · repeats</template>
+          <span class="font-mono text-[length:var(--text-small)] text-muted" :title="reminderWhen(r)">
+            {{ formatRelativeTime(r.fire_at) }} · {{ r.channel }}<template v-if="r.cron"> · {{ reminderRepeat(r) }}</template>
           </span>
         </li>
       </ul>

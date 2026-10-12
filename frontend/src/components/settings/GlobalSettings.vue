@@ -15,7 +15,7 @@ import {
 import { LOG_LEVELS } from "../../constants/api";
 import type { GlobalConfig, MemoryHotDefaults, ProviderItem, RemindersConfig, SchedulerConfig } from "../../types/admin";
 import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
-import { AUTOMATIC_CHANNEL_LABEL, DEFAULT_CHANNEL_HINT, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR } from "../../constants/reminders";
+import { DEFAULT_CHANNEL_HINT, IN_APP_CHANNEL_LABEL, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR } from "../../constants/reminders";
 import { browserTimeZone, isKnownTimeZone, knownTimeZones } from "../../utils/format/timezone";
 import type { Model } from "../../types/model";
 import type { ChoiceOption } from "../../types/ui";
@@ -155,7 +155,7 @@ const reminderChannelOptions = computed<ChoiceOption[]>(() => {
   const types = Object.values(props.editConfig.communication?.connectors ?? {})
     .filter((connector) => connector.enabled)
     .map((connector) => connector.type);
-  return [{ value: "", label: AUTOMATIC_CHANNEL_LABEL }, ...[...new Set(types)].map((type) => ({ value: type, label: type }))];
+  return [{ value: "", label: IN_APP_CHANNEL_LABEL }, ...[...new Set(types)].map((type) => ({ value: type, label: type }))];
 });
 const timezoneError = computed(() => (isKnownTimeZone(reminderTimezone.value) ? undefined : UNKNOWN_TIMEZONE_ERROR));
 const TIMEZONE_LIST_ID = "reminder-timezones";
